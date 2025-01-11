@@ -8,8 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="JsonParser.fs" />
-    <Compile Include="JsonParserArray.fs" />
-    <Compile Include="JsonParserTests.fs" />
+    <Compile Include="JsonParserStringTests.fs" />
     <Compile Include="JsonParserArrayTests.fs" />
     <Compile Include="Main.fs" />
   </ItemGroup>

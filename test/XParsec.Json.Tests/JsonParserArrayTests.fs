@@ -5,7 +5,7 @@ open System.Collections.Immutable
 open Expecto
 
 open XParsec
-open XParsec.JsonArray
+open XParsec.Json
 
 [<Tests>]
 let tests =
@@ -14,7 +14,7 @@ let tests =
         [
             test "Parser fragments" {
                 let input, expected, p =
-                    "\"string\"", JsonValue.String "string", JsonParsers.pString |>> JsonValue.String
+                    "\"string\"", JsonValue.String "string", JsonParsers.PString |>> JsonValue.String
 
                 let reader = Reader.ofArray (input.ToCharArray()) ()
                 let result = p reader
@@ -28,7 +28,7 @@ let tests =
             test "single values" {
                 [ "true", JsonValue.True; "false", JsonValue.False; "null", JsonValue.Null ]
                 |> List.iter (fun (input, expected) ->
-                    let result = JsonParsers.pJson (Reader.ofArray (input.ToCharArray()) ())
+                    let result = JsonParsers.Parser(Reader.ofArray (input.ToCharArray()) ())
 
                     match result with
                     | Ok result -> "" |> Expect.equal expected result.Parsed
@@ -55,7 +55,7 @@ let tests =
                     "-123.456e+4", JsonValue.Number -123.456e4
                 ]
                 |> List.iter (fun (input, expected) ->
-                    let result = JsonParsers.pJson (Reader.ofArray (input.ToCharArray()) ())
+                    let result = JsonParsers.Parser(Reader.ofArray (input.ToCharArray()) ())
 
                     match result with
                     | Ok result -> "" |> Expect.equal expected result.Parsed
@@ -81,7 +81,7 @@ let tests =
                     "\"\\uffff\"", JsonValue.String "\uffff"
                 ]
                 |> List.iter (fun (input, expected) ->
-                    let result = JsonParsers.pJson (Reader.ofArray (input.ToCharArray()) ())
+                    let result = JsonParsers.Parser(Reader.ofArray (input.ToCharArray()) ())
 
                     match result with
                     | Ok result -> "" |> Expect.equal expected result.Parsed
@@ -105,7 +105,7 @@ let tests =
                     )
                 ]
                 |> List.iter (fun (input, expected) ->
-                    let result = JsonParsers.pJson (Reader.ofArray (input.ToCharArray()) ())
+                    let result = JsonParsers.Parser(Reader.ofArray (input.ToCharArray()) ())
 
                     match result with
                     | Ok result -> "" |> Expect.equal expected result.Parsed
@@ -159,7 +159,7 @@ let tests =
                     )
                 ]
                 |> List.iter (fun (input, expected) ->
-                    let result = JsonParsers.pJson (Reader.ofArray (input.ToCharArray()) ())
+                    let result = JsonParsers.Parser(Reader.ofArray (input.ToCharArray()) ())
 
                     match result with
                     | Ok result -> "" |> Expect.equal expected result.Parsed

@@ -2,6 +2,7 @@ module XParsec.Json
 
 open System
 open System.Collections.Immutable
+open System.Text
 
 open XParsec
 open XParsec.Parsers
@@ -24,34 +25,38 @@ and JsonObject = ImmutableArray<JsonMember>
 
 and JsonArray = ImmutableArray<JsonValue>
 
-module JsonParsers =
-    open System.Text
+type JsonParsers<'Input, 'InputSlice
+    when 'Input :> IReadable<char, 'InputSlice> and 'InputSlice :> IReadable<char, 'InputSlice>> =
 
-    let pWhitespace = many (anyOf [ ' '; '\t'; '\n'; '\r' ])
+    static let pWhitespace = many (anyOf [ ' '; '\t'; '\n'; '\r' ])
 
-    let pDigit = digit
+    static let pDigit = satisfyL (fun c -> c >= '0' && c <= '9') ("Char in range '0' - '9'")
 
-    let pOneNine = satisfyL (fun c -> c >= '1' && c <= '9') ("Char in range '1' - '9'")
+    static let pOneNine = satisfyL (fun c -> c >= '1' && c <= '9') ("Char in range '1' - '9'")
 
-    let pFraction =
+    static let pFraction =
         parser {
-            let! dot = pchar '.'
-            let! digits = many1Chars pDigit
-            return digits
+            let! dot = pitem '.'
+            let! digits = many1 pDigit
+            return String(digits.AsSpan())
         }
 
-    let pExponent =
+    static let pExponent =
         parser {
             let! e = anyOf [ 'e'; 'E' ]
             let! sign = opt (anyOf [ '+'; '-' ])
-            let! digits = many1Chars pDigit
-            return (struct (sign, digits))
+            let! digits = many1 pDigit
+            return (struct (sign, String(digits.AsSpan())))
         }
 
-    let pNumber =
+    static let pNumber =
         parser {
-            let! sign = opt (pchar '-')
-            let! int = (pchar '0' >>% "0") <|> (many1Chars2 pOneNine pDigit)
+            let! sign = opt (pitem '-')
+
+            let! int =
+                (pitem '0' >>% "0")
+                <|> (many1Items2 pOneNine pDigit |>> fun x -> String(x.AsSpan()))
+
             let! fraction = opt pFraction
             let! exponent = opt pExponent
 
@@ -88,9 +93,9 @@ module JsonParsers =
             return number
         }
 
-    let pEscape =
+    static let pEscape =
         parser {
-            let! _ = pchar '\\'
+            let! _ = pitem '\\'
             let! escaped = anyOf [ '"'; '\\'; '/'; 'b'; 'f'; 'n'; 'r'; 't' ]
 
             return
@@ -103,7 +108,7 @@ module JsonParsers =
                 | c -> c
         }
 
-    let pHexDigit =
+    static let pHexDigit =
         satisfyL Char.IsAsciiHexDigit ("Hex digit")
         |>> function
             | c when c >= '0' && c <= '9' -> int c - int '0'
@@ -111,10 +116,10 @@ module JsonParsers =
             | c when c >= 'A' && c <= 'F' -> int c - int 'A' + 10
             | _ -> failwith "Invalid hex digit"
 
-    let pUnicodeEscape =
+    static let pUnicodeEscape =
         parser {
-            let! _ = pchar '\\'
-            let! _ = pchar 'u'
+            let! _ = pitem '\\'
+            let! _ = pitem 'u'
             let! hex0 = pHexDigit
             let! hex1 = pHexDigit
             let! hex2 = pHexDigit
@@ -123,7 +128,7 @@ module JsonParsers =
             return Convert.ToChar(hexValue)
         }
 
-    let pOtherChar =
+    static let pOtherChar =
         satisfyL
             (function
             | '"'
@@ -131,21 +136,21 @@ module JsonParsers =
             | c -> not (Char.IsControl c))
             ("Other Char")
 
-    let pString =
+    static let pString =
         parser {
-            let! _ = pchar '"'
-            let! chars = manyChars (choice [ pEscape; pUnicodeEscape; pOtherChar ])
-            let! _ = pchar '"'
-            return chars
+            let! _ = pitem '"'
+            let! chars = many (choice [ pEscape; pUnicodeEscape; pOtherChar ])
+            let! _ = pitem '"'
+            return String(chars.AsSpan())
         }
 
-    let pTrue = pstring "true" >>% JsonValue.True
+    static let pTrue = pseq "true" >>% JsonValue.True
 
-    let pFalse = pstring "false" >>% JsonValue.False
+    static let pFalse = pseq "false" >>% JsonValue.False
 
-    let pNull = pstring "null" >>% JsonValue.Null
+    static let pNull = pseq "null" >>% JsonValue.Null
 
-    let rec pValue =
+    static let rec pValue =
         choice
             [
                 pString |>> JsonValue.String
@@ -170,28 +175,30 @@ module JsonParsers =
             let! _ = pWhitespace
             let! name = pString
             let! _ = pWhitespace
-            let! _ = pchar ':'
+            let! _ = pitem ':'
             let! value = pElement
             return { Name = name; Value = value }
         }
 
     and pObject =
         parser {
-            let! _ = pchar '{'
+            let! _ = pitem '{'
             let! _ = pWhitespace
-            let! (members, _) = sepBy pMember (pchar ',')
-            let! _ = pchar '}'
+            let! (members, _) = sepBy pMember (pitem ',')
+            let! _ = pitem '}'
             return JsonValue.Object members
         }
 
     and pArray =
         parser {
-            let! _ = pchar '['
+            let! _ = pitem '['
             let! _ = pWhitespace
-            let! (values, _) = sepBy pElement (pchar ',')
-            let! _ = pchar ']'
+            let! (values, _) = sepBy pElement (pitem ',')
+            let! _ = pitem ']'
             return JsonValue.Array values
         }
 
-    let pJson: Parser<JsonValue, char, unit, ReadableString, ReadableStringSlice> =
-        (pElement .>> eof)
+    static let pJson: Parser<JsonValue, char, unit, 'Input, 'InputSlice> = (pElement .>> eof)
+
+    static member Parser = pJson
+    static member PString = pString
