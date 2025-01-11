@@ -4,6 +4,7 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="FableTypes.fs" />
     <Compile Include="ImmutableArray.fs" />
     <Compile Include="Types.fs" />
     <Compile Include="Parsers.fs" />
@@ -13,11 +14,12 @@
     <Compile Include="Readables.fs" />
     <Compile Include="ErrorHandling.fs" />
   </ItemGroup>
-	<ItemGroup>
-	  <PackageReference Include="System.Collections.Immutable" />
-	</ItemGroup>
-	<ItemGroup>
-		<None Include="$(RepoRoot)LICENSE" Pack="true" Visible="true" PackagePath="" CopyToOutputDirectory="PreserveNewest" />
-		<None Include="$(RepoRoot)README.md" Pack="true" Visible="true" PackagePath="" CopyToOutputDirectory="PreserveNewest" />
-	</ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Fable.Core" />
+    <PackageReference Include="System.Collections.Immutable" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="$(RepoRoot)LICENSE" Pack="true" Visible="true" PackagePath="" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(RepoRoot)README.md" Pack="true" Visible="true" PackagePath="" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

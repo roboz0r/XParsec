@@ -1,7 +1,10 @@
 ﻿namespace XParsec
 
 open System
+
+#if !FABLE_COMPILER
 open System.Collections.Immutable
+#endif
 
 module Parsers =
 
@@ -170,7 +173,9 @@ module Parsers =
     let pseq (xs: 'T seq) =
         let xs =
             match xs with
+#if !FABLE_COMPILER
             | :? (ImmutableArray<'T>) as res -> res
+#endif
             | _ -> ImmutableArray.CreateRange xs
 
         fun (reader: Reader<'T, 'State, 'Input, 'InputSlice>) ->
@@ -187,7 +192,9 @@ module Parsers =
     let pseqReturn (xs: 'T seq) result =
         let xs =
             match xs with
+#if !FABLE_COMPILER
             | :? (ImmutableArray<'T>) as res -> res
+#endif
             | _ -> ImmutableArray.CreateRange xs
 
         fun (reader: Reader<'T, 'State, 'Input, 'InputSlice>) ->

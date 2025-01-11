@@ -1,6 +1,14 @@
 namespace XParsec
 
-open System
+#if FABLE_COMPILER
+type Span<'T> = XParsec.Span<'T>
+type ReadOnlySpan<'T> = XParsec.ReadOnlySpan<'T>
+type ImmutableArray<'T> = XParsec.ImmutableArray<'T>
+#else
+type Span<'T> = System.Span<'T>
+type ReadOnlySpan<'T> = System.ReadOnlySpan<'T>
+type ImmutableArray<'T> = System.Collections.Immutable.ImmutableArray<'T>
+#endif
 
 type IReadable<'T, 'U when 'U :> IReadable<'T, 'U>> =
     abstract TryItem: index: int64 -> 'T voption
@@ -17,7 +25,13 @@ module internal ReaderUtils =
 
     let nextId =
         let mutable x = 0L
+#if FABLE_COMPILER
+        fun () ->
+            x <- x + 1L
+            ReaderId x
+#else
         fun () -> Interlocked.Increment &x |> ReaderId
+#endif
 
 open ReaderUtils
 

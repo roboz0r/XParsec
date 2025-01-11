@@ -5,11 +5,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageVersion Include="Fable.Core" Version="4.3.0" />
     <PackageVersion Include="FSharp.Core" Version="9.0.100" />
     <PackageVersion Include="System.Collections.Immutable" Version="9.0.0" />
   </ItemGroup>
-
+  
   <ItemGroup Label="Test" Condition="'$(IsTestProject)' == 'true'">
+    <PackageVersion Include="Fable.Pyxpecto" Version="1.2.0" />
     <PackageVersion Include="Expecto" Version="10.2.1" />
     <PackageVersion Include="Expecto.FsCheck" Version="10.2.1" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />

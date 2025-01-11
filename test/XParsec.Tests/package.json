@@ -1,0 +1,20 @@
+{
+  "name": "xparsec.tests",
+  "version": "1.0.0",
+  "description": "XParsec Tests",
+  "type": "module",
+  "main": "Main.js",
+  "scripts": {
+    "test": "test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/roboz0r/XParsec.git"
+  },
+  "author": "Robert Lenders",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/roboz0r/XParsec/issues"
+  },
+  "homepage": "https://github.com/roboz0r/XParsec#readme"
+}

@@ -1,8 +1,14 @@
 module CombinatorTests
 
 open System
+
+#if FABLE_COMPILER
+open Fable.Pyxpecto
+#else
 open System.Collections.Immutable
+
 open Expecto
+#endif
 
 open XParsec
 open XParsec.CharParsers
@@ -18,8 +24,13 @@ module ParseErrors =
 
             errors
             |> List.iter (fun x ->
+#if FABLE_COMPILER
+                // TODO: Fable doesn't support Append(char, int) overload
+                let spaces = String.replicate (i * 2) " "
+                sb.Append(spaces).Append(string x.Position.Index).Append(": ") |> ignore
+#else
                 sb.Append(' ', i * 2).Append(x.Position.Index).Append(": ") |> ignore
-
+#endif
                 x.Errors
                 |> List.iter (function
                     | ErrorType.Nested(e, es) ->
@@ -29,6 +40,10 @@ module ParseErrors =
 
         f 0 errors
 
+#if FABLE_COMPILER
+        // TODO: Fable doesn't support set_Length
+        sb.ToString().TrimEnd()
+#else
         let rec trimEnd (sb: StringBuilder) =
             if sb.Length > 0 && Char.IsWhiteSpace(sb.[sb.Length - 1]) then
                 sb.Length <- sb.Length - 1
@@ -36,13 +51,16 @@ module ParseErrors =
 
         trimEnd sb
         sb.ToString()
+#endif
 
 type Expr =
     | Add of Expr * Expr
     | Mul of Expr * Expr
     | Num of int
 
+#if !FABLE_COMPILER
 [<Tests>]
+#endif
 let tests =
     testList
         "CombinatorTests"
@@ -497,7 +515,7 @@ let tests =
 
                     let expected =
                         $"""3: {ParseError.shouldFailInPlace}
-  4:  Expected 'X'"""
+  4:  {Expected 'X'}"""
 
                     "" |> Expect.equal msg expected
             }
@@ -541,8 +559,8 @@ let tests =
                     let msg = ParseErrors.summarize e
 
                     let expected =
-                        """3: Message "Test"
-  4:  Expected 'X'"""
+                        $"""3: {Message "Test"}
+  4:  {Expected 'X'}"""
 
                     "" |> Expect.equal msg expected
             }
@@ -746,7 +764,13 @@ let tests =
                 match result with
                 | Ok result ->
                     ""
-                    |> Expect.equal result.Parsed ([| "input"; "input"; "input" |].ToImmutableArray())
+                    |> Expect.equal
+                        result.Parsed
+                        (imm {
+                            "input"
+                            "input"
+                            "input"
+                        })
 
                     "" |> Expect.equal reader.Index 15L
                 | Error e -> failwithf "%A" e
@@ -778,7 +802,13 @@ let tests =
                 match result with
                 | Ok result ->
                     ""
-                    |> Expect.equal result.Parsed ([| "input"; "input"; "input" |].ToImmutableArray())
+                    |> Expect.equal
+                        result.Parsed
+                        (imm {
+                            "input"
+                            "input"
+                            "input"
+                        })
 
                     "" |> Expect.equal reader.Index 15L
                 | Error e -> failwithf "%A" e
@@ -804,7 +834,13 @@ let tests =
                 match result with
                 | Ok result ->
                     ""
-                    |> Expect.equal result.Parsed ([| "input"; "input"; "input" |].ToImmutableArray())
+                    |> Expect.equal
+                        result.Parsed
+                        (imm {
+                            "input"
+                            "input"
+                            "input"
+                        })
 
                     "" |> Expect.equal reader.Index 15L
                 | Error e -> failwithf "%A" e

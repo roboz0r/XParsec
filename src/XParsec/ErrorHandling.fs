@@ -1,7 +1,6 @@
 namespace XParsec
 
 open System
-open System.Collections.Immutable
 
 type IErrorHandler<'T, 'State, 'Input> =
     abstract member ReportErrors: input: 'Input * errors: ParseErrors<'T, 'State> -> unit
@@ -46,8 +45,13 @@ module ParseErrors =
             errors
             |> List.iter (fun x ->
                 if i > 0 then
+#if FABLE_COMPILER
+                    // TODO: Fable doesn't support Append(char, int) overload
+                    let spaces = String.replicate (i * 2) " "
+                    sb.Append(spaces).Append(UpRight).Append(Horizontal) |> ignore
+#else
                     sb.Append(' ', (i - 1) * 2).Append(UpRight).Append(Horizontal) |> ignore
-
+#endif
                 x.Errors
                 |> List.iter (function
                     | ErrorType.Nested(e, es) ->
@@ -57,6 +61,10 @@ module ParseErrors =
 
         f 0 errors
 
+#if FABLE_COMPILER
+        sb.ToString().TrimEnd()
+#else
+        // TODO: Fable doesn't support set_Length
         let rec trimEnd (sb: StringBuilder) =
             if sb.Length > 0 && Char.IsWhiteSpace(sb.[sb.Length - 1]) then
                 sb.Length <- sb.Length - 1
@@ -64,6 +72,7 @@ module ParseErrors =
 
         trimEnd sb
         sb.ToString()
+#endif
 
 type ConsoleErrorHandler() =
 
@@ -114,7 +123,7 @@ type ConsoleErrorHandler() =
         let allEndings =
             match ParseErrors.lineEndings () (Reader.ofString input ()) with
             | Ok es -> es.Parsed
-            | Error _ -> imm { }
+            | Error _ -> ImmutableArray.Empty //imm { } TODO: Fable doesn't support empty CEs?
 
         errors
         |> List.groupBy (fun e -> int e.Position.Index)

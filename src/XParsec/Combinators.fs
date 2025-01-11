@@ -1,9 +1,11 @@
 namespace XParsec
 
+#if !FABLE_COMPILER
+open System.Collections.Immutable
+#endif
 
 [<AutoOpen>]
 module Combinators =
-    open System.Collections.Immutable
     open Parsers
 
     let inline (>>=)
