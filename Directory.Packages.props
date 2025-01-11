@@ -1,0 +1,18 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageVersion Include="FSharp.Core" Version="9.0.100" />
+    <PackageVersion Include="System.Collections.Immutable" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="Test" Condition="'$(IsTestProject)' == 'true'">
+    <PackageVersion Include="Expecto" Version="10.2.1" />
+    <PackageVersion Include="Expecto.FsCheck" Version="10.2.1" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageVersion Include="YoloDev.Expecto.TestSdk" Version="0.14.3" />
+  </ItemGroup>
+</Project>

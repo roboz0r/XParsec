@@ -1,0 +1,63 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{49CE722A-EDAE-4239-8A72-05F8A12A9D72}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "XParsec", "src\XParsec\XParsec.fsproj", "{37A39E52-F311-4EBD-83A0-18737D442E17}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "test", "test", "{6799430A-924F-4DAE-B6F3-B69396BE336F}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "XParsec.Tests", "test\XParsec.Tests\XParsec.Tests.fsproj", "{7B377250-8EE4-4738-B9B9-F50D34F80E82}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "XParsec.Json.Tests", "test\XParsec.Json.Tests\XParsec.Json.Tests.fsproj", "{8FCD3A14-76F7-408F-8FEB-8CB1A3E08156}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "XParsec.MessagePack.Tests", "test\XParsec.MessagePack.Tests\XParsec.MessagePack.Tests.fsproj", "{531A510F-A0C0-4A0C-AEDF-5ABE82E0B846}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Config", "Config", "{2522BE09-00BE-48FF-A866-0FBC89A5C8B5}"
+	ProjectSection(SolutionItems) = preProject
+		Directory.Build.props = Directory.Build.props
+		Directory.Packages.props = Directory.Packages.props
+		.config\dotnet-tools.json = .config\dotnet-tools.json
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Readme", "Readme", "{DF9CB7C9-8077-4EEA-9816-B9F4004CF43F}"
+	ProjectSection(SolutionItems) = preProject
+		README.md = README.md
+		LICENSE = LICENSE
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{37A39E52-F311-4EBD-83A0-18737D442E17}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{37A39E52-F311-4EBD-83A0-18737D442E17}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{37A39E52-F311-4EBD-83A0-18737D442E17}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{37A39E52-F311-4EBD-83A0-18737D442E17}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7B377250-8EE4-4738-B9B9-F50D34F80E82}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7B377250-8EE4-4738-B9B9-F50D34F80E82}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7B377250-8EE4-4738-B9B9-F50D34F80E82}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7B377250-8EE4-4738-B9B9-F50D34F80E82}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8FCD3A14-76F7-408F-8FEB-8CB1A3E08156}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8FCD3A14-76F7-408F-8FEB-8CB1A3E08156}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8FCD3A14-76F7-408F-8FEB-8CB1A3E08156}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8FCD3A14-76F7-408F-8FEB-8CB1A3E08156}.Release|Any CPU.Build.0 = Release|Any CPU
+		{531A510F-A0C0-4A0C-AEDF-5ABE82E0B846}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{531A510F-A0C0-4A0C-AEDF-5ABE82E0B846}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{531A510F-A0C0-4A0C-AEDF-5ABE82E0B846}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{531A510F-A0C0-4A0C-AEDF-5ABE82E0B846}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{37A39E52-F311-4EBD-83A0-18737D442E17} = {49CE722A-EDAE-4239-8A72-05F8A12A9D72}
+		{7B377250-8EE4-4738-B9B9-F50D34F80E82} = {6799430A-924F-4DAE-B6F3-B69396BE336F}
+		{8FCD3A14-76F7-408F-8FEB-8CB1A3E08156} = {6799430A-924F-4DAE-B6F3-B69396BE336F}
+		{531A510F-A0C0-4A0C-AEDF-5ABE82E0B846} = {6799430A-924F-4DAE-B6F3-B69396BE336F}
+	EndGlobalSection
+EndGlobal

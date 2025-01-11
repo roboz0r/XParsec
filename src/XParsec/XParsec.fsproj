@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="ImmutableArray.fs" />
+    <Compile Include="Types.fs" />
+    <Compile Include="Parsers.fs" />
+    <Compile Include="Combinators.fs" />
+    <Compile Include="OperatorParsing.fs" />
+    <Compile Include="CharParsers.fs" />
+    <Compile Include="Readables.fs" />
+    <Compile Include="ErrorHandling.fs" />
+  </ItemGroup>
+	<ItemGroup>
+		<None Include="$(RepoRoot)LICENSE" Pack="true" Visible="true" PackagePath="" CopyToOutputDirectory="PreserveNewest" />
+		<None Include="$(RepoRoot)README.md" Pack="true" Visible="true" PackagePath="" CopyToOutputDirectory="PreserveNewest" />
+	</ItemGroup>
+</Project>
