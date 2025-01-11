@@ -46,8 +46,12 @@ type ImmutableArrayBuilder with
         fun (b: ImmutableArray<'T>.Builder) -> b.AddRange(xs)
 
     member inline _.YieldFrom(xs: ResizeArray<'T>) =
-        fun (b: ImmutableArray<'T>.Builder) -> b.AddRange(CollectionsMarshal.AsSpan xs)
-
+        fun (b: ImmutableArray<'T>.Builder) ->
+#if NET5_0_OR_GREATER
+            b.AddRange(CollectionsMarshal.AsSpan xs)
+#else
+            b.AddRange(xs)
+#endif
     member inline _.YieldFrom(xs: ImmutableArray<'T>) =
         fun (b: ImmutableArray<'T>.Builder) -> b.AddRange(xs)
 
@@ -69,8 +73,13 @@ type ImmutableArrayBuilder with
 
     member inline __.For(xs: ResizeArray<'T>, [<InlineIfLambda>] f: 'T -> ImmutableArray<'T>.Builder -> unit) =
         fun (b: ImmutableArray<'T>.Builder) ->
+#if NET5_0_OR_GREATER
             for x in CollectionsMarshal.AsSpan xs do
                 (f x) b
+#else
+            for x in xs do
+                (f x) b
+#endif
 
     member inline __.For(xs: Memory<'T>, [<InlineIfLambda>] f: 'T -> ImmutableArray<'T>.Builder -> unit) =
         fun (b: ImmutableArray<'T>.Builder) ->

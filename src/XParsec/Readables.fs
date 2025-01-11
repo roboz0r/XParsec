@@ -233,6 +233,7 @@ type ReadableImmutableArray<'T>(arr: ImmutableArray<'T>) =
                 let newLength = min newLength (int64 arr.Length - newStart) |> int
                 ReadableImmutableArraySlice(arr, int newStart, newLength)
 
+#if NET5_0_OR_GREATER // No good way to get a span from a ResizeArray in .NET Standard 2.0
 [<Struct>]
 type ReadableResizeArraySlice<'T>(arr: ResizeArray<'T>, start: int, length: int) =
     interface IReadable<'T, ReadableResizeArraySlice<'T>> with
@@ -310,6 +311,7 @@ type ReadableResizeArray<'T>(arr: ResizeArray<'T>) =
             else
                 let newLength = min newLength (int64 arr.Count - newStart) |> int
                 ReadableResizeArraySlice(arr, int newStart, newLength)
+#endif
 
 [<Struct>]
 type ReadableStreamSlice(stream: Stream, start: int64, length: int64, buffer: byte[]) =
@@ -466,8 +468,10 @@ module Reader =
     let ofImmutableArray (a: ImmutableArray<'T>) state =
         Reader(ReadableImmutableArray a, state, 0L)
 
+#if NET5_0_OR_GREATER
     let ofResizeArray (a: ResizeArray<'T>) state =
         Reader(ReadableResizeArray a, state, 0L)
+#endif
 
     let ofStream (stream: Stream) bufferSize state =
         Reader(ReadableStream(stream, Array.zeroCreate<byte> bufferSize), state, 0L)

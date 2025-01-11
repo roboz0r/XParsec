@@ -286,4 +286,8 @@ let anyOf (chars: char seq) =
 
     let err = $"Any character: '{chars}'"
 
+#if NET5_0_OR_GREATER
     satisfyL (chars.Contains: char -> bool) err
+#else
+    satisfyL (fun c -> chars.Contains(string c)) err
+#endif

@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
@@ -13,6 +13,9 @@
     <Compile Include="Readables.fs" />
     <Compile Include="ErrorHandling.fs" />
   </ItemGroup>
+	<ItemGroup>
+	  <PackageReference Include="System.Collections.Immutable" />
+	</ItemGroup>
 	<ItemGroup>
 		<None Include="$(RepoRoot)LICENSE" Pack="true" Visible="true" PackagePath="" CopyToOutputDirectory="PreserveNewest" />
 		<None Include="$(RepoRoot)README.md" Pack="true" Visible="true" PackagePath="" CopyToOutputDirectory="PreserveNewest" />
