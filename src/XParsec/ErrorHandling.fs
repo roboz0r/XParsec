@@ -4,7 +4,7 @@ open System
 open System.Collections.Immutable
 
 type IErrorHandler<'T, 'State, 'Input> =
-    abstract member ReportErrors: input: 'Input * errors: ParseErrors<'T, 'State> -> unit
+    abstract member ReportErrors: input: 'Input * errors: ParseError<'T, 'State> -> unit
 
 module ParseErrors =
     open System.Text
@@ -37,23 +37,21 @@ module ParseErrors =
         | Message(m) -> m
 
 
-    let summarize (errors: ParseErrors<'T, 'State>) =
+    let summarize (errors: ParseError<'T, 'State> list) =
         let sb = StringBuilder()
         let formatError = formatError string (sprintf "%A")
 
-        let rec f i (errors: ParseErrors<'T, 'State>) =
+        let rec f i (errors: ParseError<'T, 'State> list) =
 
             errors
             |> List.iter (fun x ->
                 if i > 0 then
                     sb.Append(' ', (i - 1) * 2).Append(UpRight).Append(Horizontal) |> ignore
-
-                x.Errors
-                |> List.iter (function
-                    | ErrorType.Nested(e, es) ->
-                        sb.AppendLine(formatError e) |> ignore
-                        f (i + 1) es
-                    | m -> sb.AppendLine(formatError m) |> ignore))
+                match x.Errors with
+                | ErrorType.Nested(e, es) ->
+                    sb.AppendLine(formatError e) |> ignore
+                    f (i + 1) es
+                | m -> sb.AppendLine(formatError m) |> ignore)
 
         f 0 errors
 
@@ -122,4 +120,4 @@ type ConsoleErrorHandler() =
         |> List.iter (formatErrorsAt allEndings input)
 
     interface IErrorHandler<char, unit, string> with
-        member this.ReportErrors(input, errors) = this.ReportErrors(input, errors)
+        member this.ReportErrors(input, errors) = this.ReportErrors(input, [ errors ])

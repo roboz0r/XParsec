@@ -11,21 +11,23 @@ open XParsec.Parsers
 module ParseErrors =
     open System.Text
 
-    let summarize (errors: ParseErrors<'State, 'T>) =
+    let summarize (errors: ParseError<'State, 'T>) =
         let sb = StringBuilder()
 
-        let rec f i (errors: ParseErrors<'State, 'T>) =
+        let rec f i (errors: ParseError<'State, 'T>) =
 
             errors
-            |> List.iter (fun x ->
-                sb.Append(' ', i * 2).Append(x.Position.Index).Append(": ") |> ignore
+            |> (fun x ->
+                // TODO: Fable doesn't support Append(char, int) overload
+                let spaces = String.replicate (i * 2) " "
+                sb.Append(spaces).Append(string x.Position.Index).Append(": ") |> ignore
 
                 x.Errors
-                |> List.iter (function
-                    | ErrorType.Nested(e, es) ->
-                        sb.AppendLine(sprintf "%A" e) |> ignore
-                        f (i + 1) es
-                    | m -> sb.AppendLine(sprintf " %A" m) |> ignore))
+                |> (function
+                | ErrorType.Nested(e, es) ->
+                    sb.AppendLine(sprintf "%A" e) |> ignore
+                    es |> List.iter (f (i + 1))
+                | m -> sb.AppendLine(sprintf " %A" m) |> ignore))
 
         f 0 errors
 
@@ -383,9 +385,9 @@ let tests =
                 match result with
                 | Ok result -> "Parser should fail" |> Expect.isFalse true
                 | Error e ->
-                    let err = e |> List.map (fun x -> x.Position.Index, x.Errors)
+                    let err = e.Position.Index, e.Errors
 
-                    "" |> Expect.equal err [ (0L, [ ParseError.shouldConsume ]) ]
+                    "" |> Expect.equal err (0L, ParseError.shouldConsume)
             }
 
             test "FollowedBy" {
@@ -418,8 +420,8 @@ let tests =
                 match result with
                 | Ok result -> "Parser should fail" |> Expect.isFalse true
                 | Error e ->
-                    let err = e |> List.map (fun x -> x.Position.Index, x.Errors)
-                    "" |> Expect.equal err [ (3L, [ ParseError.shouldNotConsume ]) ]
+                    let err = e.Position.Index, e.Errors
+                    "" |> Expect.equal err (3L, ParseError.shouldNotConsume)
             }
 
             test "FollowedByL" {
@@ -452,8 +454,8 @@ let tests =
                 match result with
                 | Ok result -> "Parser should fail" |> Expect.isFalse true
                 | Error e ->
-                    let err = e |> List.map (fun x -> x.Position.Index, x.Errors)
-                    "" |> Expect.equal err [ (3L, [ Message "Test" ]) ]
+                    let err = e.Position.Index, e.Errors
+                    "" |> Expect.equal err (3L, Message "Test")
             }
 
             test "NotFollowedBy" {
@@ -481,9 +483,9 @@ let tests =
                 match result with
                 | Ok result -> "Parser should fail" |> Expect.isFalse true
                 | Error e ->
-                    let err = e |> List.map (fun x -> x.Position.Index, x.Errors)
+                    let err = e.Position.Index, e.Errors
 
-                    "" |> Expect.equal err [ (3L, [ ParseError.shouldNotSucceed ]) ]
+                    "" |> Expect.equal err (3L, ParseError.shouldNotSucceed)
 
                 let p4 = pchar 'u' .>>. pchar 'X'
                 let p = p1 .>> (notFollowedBy p4)
@@ -526,9 +528,9 @@ let tests =
                 match result with
                 | Ok result -> "Parser should fail" |> Expect.isFalse true
                 | Error e ->
-                    let err = e |> List.map (fun x -> x.Position.Index, x.Errors)
+                    let err = e.Position.Index, e.Errors
 
-                    "" |> Expect.equal err [ (3L, [ Message "Test" ]) ]
+                    "" |> Expect.equal err (3L, Message "Test")
 
                 let p4 = pchar 'u' .>>. pchar 'X'
                 let p = p1 .>> (notFollowedByL p4 "Test")
@@ -570,9 +572,9 @@ let tests =
                 match result with
                 | Ok result -> "Parser should fail" |> Expect.isFalse true
                 | Error e ->
-                    let err = e |> List.map (fun x -> x.Position.Index, x.Errors)
+                    let err = e.Position.Index, e.Errors
 
-                    "" |> Expect.equal err [ (3L, [ ExpectedSeq "inp" ]) ]
+                    "" |> Expect.equal err (3L, ExpectedSeq "inp")
             }
 
             test "ReplaceError" {
@@ -598,9 +600,9 @@ let tests =
                 match result with
                 | Ok result -> "Parser should fail" |> Expect.isFalse true
                 | Error e ->
-                    let err = e |> List.map (fun x -> x.Position.Index, x.Errors)
+                    let err = e.Position.Index, e.Errors
 
-                    "" |> Expect.equal err [ (0L, [ Message "Test" ]) ]
+                    "" |> Expect.equal err (0L, Message "Test")
 
 
                 let p3 = pstring "in" .>>. pstring "X"
@@ -612,9 +614,9 @@ let tests =
                 | Ok result -> "Parser should fail" |> Expect.isFalse true
                 | Error e ->
                     let msg = ParseErrors.summarize e
-                    let err = e |> List.map (fun x -> x.Position.Index, x.Errors)
+                    let err = e.Position.Index, e.Errors
 
-                    "" |> Expect.equal err [ (2L, [ ExpectedSeq "X" ]) ]
+                    "" |> Expect.equal err (2L, ExpectedSeq "X")
             }
 
             test "ReplaceErrorNested" {
@@ -640,9 +642,9 @@ let tests =
                 match result with
                 | Ok result -> "Parser should fail" |> Expect.isFalse true
                 | Error e ->
-                    let err = e |> List.map (fun x -> x.Position.Index, x.Errors)
+                    let err = e.Position.Index, e.Errors
 
-                    "" |> Expect.equal err [ (0L, [ Message "Test" ]) ]
+                    "" |> Expect.equal err (0L, Message "Test")
 
                 let p3 = pstring "in" .>>. pstring "X"
                 let p = p3 <??> "Test"

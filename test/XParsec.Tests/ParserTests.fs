@@ -37,9 +37,8 @@ let tests =
                 match result with
                 | Ok result -> "Parser should fail" |> Expect.isFalse true
                 | Error e ->
-                    "" |> Expect.equal e.Length 1
-                    "" |> Expect.equal (List.head e).Position.Index 0L
-                    "" |> Expect.equal (List.head e).Errors []
+                    "" |> Expect.equal e.Position.Index 0L
+                    "" |> Expect.equal e.Errors ParseError.zero
                     "" |> Expect.equal reader.Index 0L
             }
 

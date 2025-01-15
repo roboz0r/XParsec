@@ -98,22 +98,19 @@ type ErrorType<'T, 'State> =
     | UnexpectedSeq of 'T seq
     | Message of string
     | EndOfInput
-    | Nested of parent: ErrorType<'T, 'State> * children: ParseErrors<'T, 'State>
+    | Nested of parent: ErrorType<'T, 'State> * children: ParseError<'T, 'State> list
 
-and ErrorMessages<'T, 'State> = ErrorType<'T, 'State> list
-
-and ParseError<'T, 'State> =
+and [<Struct>] ParseError<'T, 'State> =
     {
         Position: Position<'State>
-        Errors: ErrorMessages<'T, 'State>
+        Errors: ErrorType<'T, 'State>
     }
 
-and ParseErrors<'T, 'State> = ParseError<'T, 'State> list
 
 [<Struct>]
 type ParseSuccess<'Parsed> = { Parsed: 'Parsed }
 
-type ParseResult<'Parsed, 'T, 'State> = Result<ParseSuccess<'Parsed>, ParseErrors<'T, 'State>>
+type ParseResult<'Parsed, 'T, 'State> = Result<ParseSuccess<'Parsed>, ParseError<'T, 'State>>
 
 module ParseSuccess =
     let inline create tokens cursor = Ok { Parsed = tokens }
@@ -121,41 +118,26 @@ module ParseSuccess =
     let inline map f x = { Parsed = f x.Parsed }
 
 module ParseError =
-    let create error (cursor: Reader<_, _, _, _>) : Result<_, ParseErrors<'T, 'State>> =
+    let create error (cursor: Reader<_, _, _, _>) : ParseResult<'Parsed, 'T, 'State> =
         Error
-            [
-                {
-                    Position = cursor.Position
-                    Errors = [ error ]
-                }
-            ]
+            {
+                Position = cursor.Position
+                Errors = error
+            }
 
-    let createList errors (cursor: Reader<_, _, _, _>) : Result<_, ParseErrors<'T, 'State>> =
+    let createNested error children (cursor: Reader<_, _, _, _>) : ParseResult<'Parsed, 'T, 'State> =
         Error
-            [
-                {
-                    Position = cursor.Position
-                    Errors = errors
-                }
-            ]
+            {
+                Position = cursor.Position
+                Errors = Nested(error, children)
+            }
 
-    let createNested error children (cursor: Reader<_, _, _, _>) : Result<_, ParseErrors<'T, 'State>> =
+    let createNestedP error children position : ParseResult<'Parsed, 'T, 'State> =
         Error
-            [
-                {
-                    Position = cursor.Position
-                    Errors = [ Nested(error, children) ]
-                }
-            ]
-
-    let createNestedP error children position : Result<_, ParseErrors<'T, 'State>> =
-        Error
-            [
-                {
-                    Position = position
-                    Errors = [ Nested(error, children) ]
-                }
-            ]
+            {
+                Position = position
+                Errors = Nested(error, children)
+            }
 
     let wrongUserState = Message "Unexpected user state."
     let shouldConsume = Message "The parser did not consume any input."
@@ -166,6 +148,8 @@ module ParseError =
     let expectedEnd = Message "Expected end of input"
     let refParserInit = Message "RefParser was not initialized."
     let expectedAtLeastOne = Message "Expected at least one item."
+    let zero = Message ""
+    let allChoicesFailed = Message "All choices failed."
 
 type Parser<'Parsed, 'T, 'State, 'Input, 'InputSlice
     when 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =

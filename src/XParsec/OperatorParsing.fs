@@ -403,7 +403,7 @@ module Pratt =
                                 | Error e -> Error e
                             | Error e -> Error e
                         | Error e -> Error e
-            | Error e -> Error(e @ e0)
+            | Error e -> ParseError.createNestedP (Message "Operator parsing failed") [ e; e0 ] pos
 
 
     let parser

@@ -93,7 +93,7 @@ type JsonParsers<'Input, 'InputSlice
             return number
         }
 
-    static let pEscape =
+    static let pEscape: Parser<_, _, _, _, _> =
         parser {
             let! _ = pitem '\\'
             let! escaped = anyOf [ '"'; '\\'; '/'; 'b'; 'f'; 'n'; 'r'; 't' ]
@@ -116,7 +116,7 @@ type JsonParsers<'Input, 'InputSlice
             | c when c >= 'A' && c <= 'F' -> int c - int 'A' + 10
             | _ -> failwith "Invalid hex digit"
 
-    static let pUnicodeEscape =
+    static let pUnicodeEscape: Parser<_, _, _, _, _> =
         parser {
             let! _ = pitem '\\'
             let! _ = pitem 'u'
@@ -128,7 +128,7 @@ type JsonParsers<'Input, 'InputSlice
             return Convert.ToChar(hexValue)
         }
 
-    static let pOtherChar =
+    static let pOtherChar: Parser<_, _, _, _, _> =
         satisfyL
             (function
             | '"'

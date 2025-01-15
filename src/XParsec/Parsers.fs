@@ -9,7 +9,7 @@ module Parsers =
         ParseSuccess.create x reader
 
     let pzero (reader: Reader<'T, 'State, 'Input, 'InputSlice>) : ParseResult<'Parsed, 'T, 'State> =
-        ParseError.createList [] reader
+        ParseError.create ParseError.zero reader
 
     let fail x (reader: Reader<'T, 'State, 'Input, 'InputSlice>) : ParseResult<'Parsed, 'T, 'State> =
         ParseError.create x reader

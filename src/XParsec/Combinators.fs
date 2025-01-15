@@ -184,9 +184,9 @@ module Combinators =
 
             match p2 reader with
             | Ok s2 -> Ok s2
-            | Error err2 -> Error(err1 @ err2)
+            | Error err2 -> ParseError.createNestedP (Message "Both failed") [ err1; err2 ] p
 
-    let choice (ps: Parser<'A, 'T, 'State, 'Input, 'InputSlice> seq) =
+    let choice (ps: Parser<'A, 'T, 'State, 'Input, 'InputSlice> seq) : Parser<'A, 'T, 'State, 'Input, 'InputSlice> =
         let parsers = ps |> Seq.toArray
 
         fun (reader: Reader<_, _, _, _>) ->
@@ -200,15 +200,18 @@ module Combinators =
                 | Ok x -> success <- ValueSome x
                 | Error err ->
                     reader.Position <- p
-                    errs.AddRange(err)
+                    errs.Add(err)
 
                 i <- i + 1
 
             match success with
-            | ValueNone -> Error(List.ofSeq errs)
+            | ValueNone -> ParseError.createNestedP ParseError.allChoicesFailed [ yield! errs ] p
             | ValueSome x -> Ok x
 
-    let choiceL (ps: Parser<'A, 'T, 'State, 'Input, 'InputSlice> seq) message =
+    let choiceL
+        (ps: Parser<'A, 'T, 'State, 'Input, 'InputSlice> seq)
+        message
+        : Parser<'A, 'T, 'State, 'Input, 'InputSlice> =
         let parsers = ps |> Seq.toArray
 
         fun (reader: Reader<_, _, _, _>) ->
@@ -325,7 +328,7 @@ module Combinators =
                 preturn () reader
             else
                 reader.Position <- pos
-                ParseError.createNested ParseError.shouldFailInPlace err reader
+                ParseError.createNested ParseError.shouldFailInPlace [ err ] reader
 
     let inline notFollowedByL
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
@@ -343,7 +346,7 @@ module Combinators =
                 preturn () reader
             else
                 reader.Position <- pos
-                ParseError.createNested (Message message) err reader
+                ParseError.createNested (Message message) [ err ] reader
 
     let inline lookAhead
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
@@ -387,7 +390,7 @@ module Combinators =
             if pos = reader.Position then
                 fail (Message message) reader
             else
-                ParseError.createNestedP (Message message) err pos
+                ParseError.createNestedP (Message message) [ err ] pos
 
     let inline tuple2
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
@@ -488,7 +491,7 @@ module Combinators =
 
         match p1 reader with
         | Ok s1 -> andThen s1 reader
-        | Error e -> ParseError.createNestedP ParseError.expectedAtLeastOne e pos
+        | Error e -> ParseError.createNestedP ParseError.expectedAtLeastOne [ e ] pos
 
     let many (p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>) (reader: Reader<_, _, _, _>) =
         let xs = ImmutableArray.CreateBuilder()
@@ -827,9 +830,9 @@ module Combinators =
             let xs = ImmutableArray.CreateBuilder()
             xs.Add(s1.Parsed)
             let mutable endTok = ValueNone
-            let mutable err = ValueNone
+            let mutable err = []
 
-            while endTok.IsNone && err.IsNone do
+            while endTok.IsNone && err = [] do
                 let pos = reader.Position
 
                 match pEnd reader with
@@ -841,11 +844,11 @@ module Combinators =
                     | Ok s -> xs.Add(s.Parsed)
                     | Error e ->
                         reader.Position <- pos
-                        err <- ValueSome(eEnd @ e)
+                        err <- [ eEnd; e ]
 
             match err with
-            | ValueNone -> preturn struct (xs.ToImmutable(), endTok.Value) reader
-            | ValueSome err -> Error err
+            | [] -> preturn struct (xs.ToImmutable(), endTok.Value) reader
+            | err -> ParseError.createNestedP (Message "Both failed") err pos
         | Error _ ->
             reader.Position <- pos
 
@@ -864,9 +867,10 @@ module Combinators =
                 let xs = ImmutableArray.CreateBuilder()
                 xs.Add(s1.Parsed)
                 let mutable endTok = ValueNone
-                let mutable err = ValueNone
+                let mutable err = []
+                let errPos = reader.Position
 
-                while endTok.IsNone && err.IsNone do
+                while endTok.IsNone && err = [] do
                     let pos = reader.Position
 
                     match pEnd reader with
@@ -878,11 +882,11 @@ module Combinators =
                         | Ok s -> xs.Add(s.Parsed)
                         | Error e ->
                             reader.Position <- pos
-                            err <- ValueSome(eEnd @ e)
+                            err <- [ eEnd; e ]
 
                 match err with
-                | ValueNone -> preturn struct (xs.ToImmutable(), endTok.Value) reader
-                | ValueSome err -> Error err)
+                | [] -> preturn struct (xs.ToImmutable(), endTok.Value) reader
+                | err -> ParseError.createNestedP (Message "Both failed") err errPos)
             reader
 
     let skipManyTill
@@ -895,9 +899,9 @@ module Combinators =
         match p reader with
         | Ok s1 ->
             let mutable endTok = ValueNone
-            let mutable err = ValueNone
+            let mutable err = []
 
-            while endTok.IsNone && err.IsNone do
+            while endTok.IsNone && err = [] do
                 let pos = reader.Position
 
                 match pEnd reader with
@@ -909,11 +913,11 @@ module Combinators =
                     | Ok s -> ()
                     | Error e ->
                         reader.Position <- pos
-                        err <- ValueSome(eEnd @ e)
+                        err <- [ eEnd; e ]
 
             match err with
-            | ValueNone -> preturn () reader
-            | ValueSome err -> Error err
+            | [] -> preturn () reader
+            | err -> ParseError.createNestedP (Message "Both failed") err pos
         | Error _ ->
             reader.Position <- pos
 
@@ -930,9 +934,10 @@ module Combinators =
             p
             (fun _ reader ->
                 let mutable endTok = ValueNone
-                let mutable err = ValueNone
+                let mutable err = []
+                let errPos = reader.Position
 
-                while endTok.IsNone && err.IsNone do
+                while endTok.IsNone && err = [] do
                     let pos = reader.Position
 
                     match pEnd reader with
@@ -944,11 +949,11 @@ module Combinators =
                         | Ok _ -> ()
                         | Error e ->
                             reader.Position <- pos
-                            err <- ValueSome(eEnd @ e)
+                            err <- [ eEnd; e ]
 
                 match err with
-                | ValueNone -> preturn () reader
-                | ValueSome err -> Error err)
+                | [] -> preturn () reader
+                | err -> ParseError.createNestedP (Message "Both failed") err errPos)
             reader
 
     let inline chainl1
