@@ -15,4 +15,10 @@
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageVersion Include="YoloDev.Expecto.TestSdk" Version="0.14.3" />
   </ItemGroup>
+
+  <ItemGroup Label="Benchmark" Condition="'$(IsBenchmarkProject)' == 'true'">
+    <PackageVersion Include="BenchmarkDotNet" Version="0.14.0" />
+    <PackageVersion Include="BenchmarkDotNet.Diagnostics.Windows" Version="0.14.0" />
+    <PackageVersion Include="FParsec" Version="1.1.1" />
+  </ItemGroup>
 </Project>

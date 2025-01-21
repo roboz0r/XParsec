@@ -47,6 +47,7 @@ module ParseErrors =
             |> List.iter (fun x ->
                 if i > 0 then
                     sb.Append(' ', (i - 1) * 2).Append(UpRight).Append(Horizontal) |> ignore
+
                 match x.Errors with
                 | ErrorType.Nested(e, es) ->
                     sb.AppendLine(formatError e) |> ignore

@@ -1,4 +1,4 @@
-module XParsec.Json
+namespace XParsec.Json
 
 open System
 open System.Collections.Immutable
@@ -28,7 +28,7 @@ and JsonArray = ImmutableArray<JsonValue>
 type JsonParsers<'Input, 'InputSlice
     when 'Input :> IReadable<char, 'InputSlice> and 'InputSlice :> IReadable<char, 'InputSlice>> =
 
-    static let pWhitespace = many (anyOf [ ' '; '\t'; '\n'; '\r' ])
+    static let pWhitespace = skipMany (anyOf [ ' '; '\t'; '\n'; '\r' ])
 
     static let pDigit = satisfyL (fun c -> c >= '0' && c <= '9') ("Char in range '0' - '9'")
 
@@ -37,25 +37,23 @@ type JsonParsers<'Input, 'InputSlice
     static let pFraction =
         parser {
             let! dot = pitem '.'
-            let! digits = many1 pDigit
-            return String(digits.AsSpan())
+            let! digits = many1Chars pDigit
+            return digits
         }
 
     static let pExponent =
         parser {
             let! e = anyOf [ 'e'; 'E' ]
             let! sign = opt (anyOf [ '+'; '-' ])
-            let! digits = many1 pDigit
-            return (struct (sign, String(digits.AsSpan())))
+            let! digits = many1Chars pDigit
+            return (struct (sign, digits))
         }
 
     static let pNumber =
         parser {
             let! sign = opt (pitem '-')
 
-            let! int =
-                (pitem '0' >>% "0")
-                <|> (many1Items2 pOneNine pDigit |>> fun x -> String(x.AsSpan()))
+            let! int = (pitem '0' >>% "0") <|> (many1Chars2 pOneNine pDigit)
 
             let! fraction = opt pFraction
             let! exponent = opt pExponent
@@ -93,20 +91,51 @@ type JsonParsers<'Input, 'InputSlice
             return number
         }
 
-    static let pEscape: Parser<_, _, _, _, _> =
-        parser {
-            let! _ = pitem '\\'
-            let! escaped = anyOf [ '"'; '\\'; '/'; 'b'; 'f'; 'n'; 'r'; 't' ]
+    static let pEscape =
+        fun (reader: Reader<_, _, _, _>) ->
+            let span = reader.PeekN 2
 
-            return
-                match escaped with
-                | 'b' -> '\b'
-                | 'f' -> '\f'
-                | 'n' -> '\n'
-                | 'r' -> '\r'
-                | 't' -> '\t'
-                | c -> c
-        }
+            if span.Length = 2 && span[0] = '\\' then
+                match span[1] with
+                | '"'
+                | '\\'
+                | '/' as c ->
+                    reader.SkipN 2
+                    preturn c reader
+                | 'b' ->
+                    reader.SkipN 2
+                    preturn '\b' reader
+                | 'f' ->
+                    reader.SkipN 2
+                    preturn '\f' reader
+                | 'n' ->
+                    reader.SkipN 2
+                    preturn '\n' reader
+                | 'r' ->
+                    reader.SkipN 2
+                    preturn '\r' reader
+                | 't' ->
+                    reader.SkipN 2
+                    preturn '\t' reader
+                | c -> fail (Unexpected c) reader
+            else
+                fail (Message "Escape char") reader
+
+
+    //static let pEscape_CE =
+    //    parser {
+    //        let! _ = pitem '\\'
+    //        let! escaped = anyOf [ '"'; '\\'; '/'; 'b'; 'f'; 'n'; 'r'; 't' ]
+
+    //        return
+    //            match escaped with
+    //            | 'b' -> '\b'
+    //            | 'f' -> '\f'
+    //            | 'n' -> '\n'
+    //            | 'r' -> '\r'
+    //            | 't' -> '\t'
+    //            | c -> c
+    //    }
 
     static let pHexDigit =
         satisfyL Char.IsAsciiHexDigit ("Hex digit")
@@ -139,19 +168,19 @@ type JsonParsers<'Input, 'InputSlice
     static let pString =
         parser {
             let! _ = pitem '"'
-            let! chars = many (choice [ pEscape; pUnicodeEscape; pOtherChar ])
+            let! chars = manyChars (choiceL [ pEscape; pUnicodeEscape; pOtherChar ] "")
             let! _ = pitem '"'
-            return String(chars.AsSpan())
+            return chars
         }
 
-    static let pTrue = pseq "true" >>% JsonValue.True
+    static let pTrue = pstring "true" >>% JsonValue.True
 
-    static let pFalse = pseq "false" >>% JsonValue.False
+    static let pFalse = pstring "false" >>% JsonValue.False
 
-    static let pNull = pseq "null" >>% JsonValue.Null
+    static let pNull = pstring "null" >>% JsonValue.Null
 
     static let rec pValue =
-        choice
+        choiceL
             [
                 pString |>> JsonValue.String
                 pNumber |>> JsonValue.Number
@@ -161,6 +190,7 @@ type JsonParsers<'Input, 'InputSlice
                 pObject
                 pArray
             ]
+            ""
 
     and pElement =
         parser {
