@@ -1,7 +1,5 @@
 module ByteParserssTests
 
-
-
 open System
 open System.Buffers.Binary
 
@@ -16,9 +14,8 @@ let evens = Array.init 16 (fun i -> 2uy + (byte i))
 
 let testParser<'T when 'T: equality> p (input, expected) =
     let reader = Reader.ofArray input ()
-    let result = p reader
 
-    match result with
+    match p reader with
     | Ok result ->
         "" |> Expect.equal (result.Parsed: 'T) expected
         "" |> Expect.equal reader.Index (int64 sizeof<'T>)
