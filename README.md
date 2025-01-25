@@ -16,15 +16,38 @@ F# is a great .NET language but with the power of Fable, a powerful JavaScript l
 
 By making use of newer F# & .NET technologies like `[<InlineIfLambda>]` `Span<'T>` and `struct` unions I aim to make XParsec competitive with imperative parsing libraries while remaining terse and easy to reason about.
 
+Initial results are encoraging with roughly 2/3 the execution time and 1/4 the allocations for the equivalent parser code parsing a single large json file.
+
+| Method      | Mean     | Error    | StdDev   | Gen0      | Gen1     | Gen2     | Allocated |
+|------------ |---------:|---------:|---------:|----------:|---------:|---------:|----------:|
+| XParsecJson | 41.40 ms | 0.205 ms | 0.182 ms | 1000.0000 | 916.6667 |        - |  50.91 MB |
+| FParsecJson | 67.38 ms | 1.247 ms | 1.106 ms | 4375.0000 | 875.0000 | 250.0000 | 200.98 MB |
+
 - Simplified operator precedence parsing
 - No line number tracking by default
 
+## Running Tests
+
+### .NET
+
+```pwsh
+dotnet test
+```
+
+### Fable JS
+
+```pwsh
+npm run test
+```
+
 ## TODO
 
-- [ ] Fable compatibility
+- [x] `ByteParsers` module
+- [x] Fable JS compatibility
+- [ ] Other Fable targets compatibility
+- [ ] Multi-token operator parsing
 - [ ] Performance benchmarks and optimization
 - [ ] Complete FParsec API coverage
 - [ ] Tests with complex grammars
 - [ ] Improvements to error messages
-- [ ] `ByteParsers` module
 - [ ] Release to NuGet

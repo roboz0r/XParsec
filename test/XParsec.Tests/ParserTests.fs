@@ -1,14 +1,17 @@
 module ParserTests
 
-open System
-open System.Collections.Immutable
-
+#if FABLE_COMPILER
+open Fable.Pyxpecto
+#else
 open Expecto
+#endif
 
 open XParsec
 open XParsec.Parsers
 
+#if !FABLE_COMPILER
 [<Tests>]
+#endif
 let tests =
     testList
         "ParserTests"
@@ -231,7 +234,12 @@ let tests =
 
                 match result with
                 | Ok result ->
+#if FABLE_COMPILER
+                    for i in 0..4 do
+                        "" |> Expect.equal (result.Parsed[i]) (input[i])
+#else
                     "" |> Expect.equal result.Parsed (imm { yield! "input" })
+#endif
                     "" |> Expect.equal reader.Index 5L
                 | Error e -> failwithf "%A" e
             }
@@ -259,7 +267,12 @@ let tests =
 
                 match result with
                 | Ok result ->
+#if FABLE_COMPILER
+                    for i in 0..4 do
+                        "" |> Expect.equal (result.Parsed[i]) (input[i])
+#else
                     "" |> Expect.equal result.Parsed (imm { yield! "input" })
+#endif
                     "" |> Expect.equal reader.Index 5L
                 | Error e -> failwithf "%A" e
             }

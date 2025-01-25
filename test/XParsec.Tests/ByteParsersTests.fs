@@ -1,5 +1,5 @@
 module ByteParserssTests
-
+#if !FABLE_COMPILER
 open System
 open System.Buffers.Binary
 
@@ -284,3 +284,4 @@ let tests =
                 | Error e -> failwithf "%A" e
             }
         ]
+#endif

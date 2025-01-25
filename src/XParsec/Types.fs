@@ -17,7 +17,13 @@ module internal ReaderUtils =
 
     let nextId =
         let mutable x = 0L
+#if FABLE_COMPILER
+        fun () ->
+            x <- x + 1L
+            ReaderId x
+#else
         fun () -> Interlocked.Increment &x |> ReaderId
+#endif
 
 open ReaderUtils
 
@@ -67,28 +73,29 @@ type Reader<'T, 'State, 'Input, 'InputSlice
     member _.PeekN(count) = input.SpanSlice(index, count)
     member _.Length = input.Length
 
-    member this.Skip() =
+    member _.Skip() =
         if index < input.Length then
             index <- index + 1L
         else
             invalidOp "Attempted to skip past end of input"
 
-    member this.SkipN(count) =
+    member _.SkipN(count) =
         if index + count > input.Length then
             invalidOp "Attempted to skip past end of input"
         else
             index <- index + count
 
-    member this.TryRead() =
-        if index < input.Length then
-            let x = input.TryItem(index)
-            index <- index + 1L
-            x
-        else
-            ValueNone
+    member _.TryRead() =
+        let x = input.TryItem(index)
 
-    member this.Current = input.TryItem(index)
-    member this.AtEnd = index >= input.Length
+        match x with
+        | ValueSome _ -> index <- index + 1L
+        | ValueNone -> ()
+
+        x
+
+    member _.Current = input.TryItem(index)
+    member _.AtEnd = index >= input.Length
 
 
 type ErrorType<'T, 'State> =
@@ -113,26 +120,15 @@ type ParseSuccess<'Parsed> = { Parsed: 'Parsed }
 type ParseResult<'Parsed, 'T, 'State> = Result<ParseSuccess<'Parsed>, ParseError<'T, 'State>>
 
 module ParseSuccess =
-    let inline create tokens cursor = Ok { Parsed = tokens }
+    let inline create tokens = Ok { Parsed = tokens }
 
     let inline map f x = { Parsed = f x.Parsed }
 
 module ParseError =
-    let create error (cursor: Reader<_, _, _, _>) : ParseResult<'Parsed, 'T, 'State> =
-        Error
-            {
-                Position = cursor.Position
-                Errors = error
-            }
+    let create error position : ParseResult<'Parsed, 'T, 'State> =
+        Error { Position = position; Errors = error }
 
-    let createNested error children (cursor: Reader<_, _, _, _>) : ParseResult<'Parsed, 'T, 'State> =
-        Error
-            {
-                Position = cursor.Position
-                Errors = Nested(error, children)
-            }
-
-    let createNestedP error children position : ParseResult<'Parsed, 'T, 'State> =
+    let createNested error children position : ParseResult<'Parsed, 'T, 'State> =
         Error
             {
                 Position = position
@@ -150,6 +146,7 @@ module ParseError =
     let expectedAtLeastOne = Message "Expected at least one item."
     let zero = Message ""
     let allChoicesFailed = Message "All choices failed."
+    let bothFailed = Message "Both parsers failed."
 
 type Parser<'Parsed, 'T, 'State, 'Input, 'InputSlice
     when 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =

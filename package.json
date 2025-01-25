@@ -1,0 +1,20 @@
+{
+  "name": "xparsec.tests",
+  "version": "1.0.0",
+  "description": "XParsec Tests",
+  "type": "module",
+  "main": "-",
+  "scripts": {
+    "test": "dotnet fable ./test/XParsec.Tests/XParsec.Tests.fsproj -o ./test/XParsec.Tests/js && node ./test/XParsec.Tests/js/Main.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/roboz0r/XParsec.git"
+  },
+  "author": "Robert Lenders",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/roboz0r/XParsec/issues"
+  },
+  "homepage": "https://github.com/roboz0r/XParsec#readme"
+}

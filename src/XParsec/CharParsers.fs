@@ -5,6 +5,11 @@ open System.Text
 open Parsers
 
 // TODO: Look at using SearchValues https://learn.microsoft.com/en-us/dotnet/api/system.buffers.searchvalues-1?view=net-9.0
+[<RequireQualifiedAccess>]
+module ParseError =
+    let asciiLetter = Message "Expected Char in range 'A' - 'Z' or 'a' - 'z'."
+    let digit = Message "Expected Char in range '0' - '9'."
+    let expectedNewline = Message "Expected Newline."
 
 let inline isLetter c = Char.IsLetter(c)
 let isDigit c = c >= '0' && c <= '9'
@@ -88,7 +93,7 @@ let asciiLetter (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
             reader.Skip()
             preturn c reader
         else
-            fail (Message "Expected Char in range 'A' - 'Z' or 'a' - 'z'.") reader
+            fail ParseError.asciiLetter reader
     | _ -> fail EndOfInput reader
 
 let digit (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
@@ -98,7 +103,7 @@ let digit (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
             reader.Skip()
             preturn c reader
         else
-            fail (Message "Expected Char in range '0' - '9'") reader
+            fail ParseError.digit reader
     | _ -> fail EndOfInput reader
 
 let manyChars (p1: Parser<_, char, _, _, _>) (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
@@ -225,7 +230,7 @@ let newline (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
     let s = reader.PeekN(2)
 
     if s.IsEmpty then
-        fail (Message "Expected Newline") reader
+        fail ParseError.expectedNewline reader
     else
         match s[0] with
         | '\n' ->
@@ -238,13 +243,13 @@ let newline (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
             else
                 reader.Skip()
                 preturn '\n' reader
-        | _ -> fail (Message "Expected Newline") reader
+        | _ -> fail ParseError.expectedNewline reader
 
 let skipNewline (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
     let s = reader.PeekN(2)
 
     if s.IsEmpty then
-        fail (Message "Expected Newline") reader
+        fail ParseError.expectedNewline reader
     else
         match s[0] with
         | '\n' ->
@@ -257,13 +262,13 @@ let skipNewline (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
             else
                 reader.Skip()
                 preturn () reader
-        | _ -> fail (Message "Expected Newline") reader
+        | _ -> fail ParseError.expectedNewline reader
 
 let newlineReturn x (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
     let s = reader.PeekN(2)
 
     if s.IsEmpty then
-        fail (Message "Expected Newline") reader
+        fail ParseError.expectedNewline reader
     else
         match s[0] with
         | '\n' ->
@@ -276,7 +281,7 @@ let newlineReturn x (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
             else
                 reader.Skip()
                 preturn x reader
-        | _ -> fail (Message "Expected Newline") reader
+        | _ -> fail ParseError.expectedNewline reader
 
 let anyOf (chars: char seq) =
     let chars =

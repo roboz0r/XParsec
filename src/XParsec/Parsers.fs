@@ -6,13 +6,13 @@ open System.Collections.Immutable
 module Parsers =
 
     let preturn x (reader: Reader<'T, 'State, 'Input, 'InputSlice>) : ParseResult<'Parsed, 'T, 'State> =
-        ParseSuccess.create x reader
+        ParseSuccess.create x
 
     let pzero (reader: Reader<'T, 'State, 'Input, 'InputSlice>) : ParseResult<'Parsed, 'T, 'State> =
-        ParseError.create ParseError.zero reader
+        ParseError.create ParseError.zero reader.Position
 
     let fail x (reader: Reader<'T, 'State, 'Input, 'InputSlice>) : ParseResult<'Parsed, 'T, 'State> =
-        ParseError.create x reader
+        ParseError.create x reader.Position
 
     let getUserState (reader: Reader<'T, 'State, 'Input, 'InputSlice>) = preturn reader.State reader
 
@@ -170,7 +170,9 @@ module Parsers =
     let pseq (xs: 'T seq) =
         let xs =
             match xs with
+#if !FABLE_COMPILER
             | :? (ImmutableArray<'T>) as res -> res
+#endif
             | _ -> ImmutableArray.CreateRange xs
 
         fun (reader: Reader<'T, 'State, 'Input, 'InputSlice>) ->
@@ -187,7 +189,9 @@ module Parsers =
     let pseqReturn (xs: 'T seq) result =
         let xs =
             match xs with
+#if !FABLE_COMPILER
             | :? (ImmutableArray<'T>) as res -> res
+#endif
             | _ -> ImmutableArray.CreateRange xs
 
         fun (reader: Reader<'T, 'State, 'Input, 'InputSlice>) ->

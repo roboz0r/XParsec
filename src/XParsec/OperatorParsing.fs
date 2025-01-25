@@ -120,7 +120,7 @@ let private pCloseOp
 
 module Operator =
     [<Literal>]
-    let MinP = Precedence.MinP
+    let private MinP = Precedence.MinP
 
     let private (|Infix|_|) op =
         if op.LeftPower > MinP && op.RightPower > MinP && op.CloseOp.IsNone then
@@ -266,9 +266,12 @@ module Operator =
 
 
 module Pratt =
+    open Parsers
     // Pratt parsing based on https://matklad.github.io/2020/04/13/simple-but-powerful-pratt-parsing.html
     [<Literal>]
     let MinP = Precedence.MinP
+
+    let private failure = Message "Operator parsing failed"
 
     let rec private parseRhs
         (pExpr: Parser<'Expr, 'T, _, _, _>)
@@ -298,7 +301,7 @@ module Pratt =
                     //This completes the parsing if at outer recursion
                     //Operator not consumed on stack so return previous reader
                     reader.Position <- pos
-                    ParseSuccess.create lhs reader
+                    preturn lhs reader
                 else
 
                     match ops.Handler.Postfix (rhsTok, lhs) reader with
@@ -308,7 +311,7 @@ module Pratt =
                 //Infix Operator
                 if rhsOp.LeftPower < minBinding then
                     reader.Position <- pos
-                    ParseSuccess.create lhs reader
+                    preturn lhs reader
                 else
                     // Found operator has higher binding than existing tokens so need to get next operator recursively
                     match parseLhs rhsOp.RightPower reader with
@@ -323,7 +326,7 @@ module Pratt =
                     //Indexer
                     if rhsOp.LeftPower < minBinding then
                         reader.Position <- pos
-                        ParseSuccess.create lhs reader
+                        preturn lhs reader
                     else
                         match pInner (reader) with
                         | Ok inner ->
@@ -342,7 +345,7 @@ module Pratt =
             // TODO: The error is discarded here which is usually correct, however,
             // in the case of a missing operator definition this would be a useful error to return.
             reader.Position <- pos
-            ParseSuccess.create lhs reader
+            preturn lhs reader
 
     and private parseLhs
         (pExpr: Parser<'Expr, _, _, _, _>)
@@ -403,7 +406,7 @@ module Pratt =
                                 | Error e -> Error e
                             | Error e -> Error e
                         | Error e -> Error e
-            | Error e -> ParseError.createNestedP (Message "Operator parsing failed") [ e; e0 ] pos
+            | Error e -> ParseError.createNested failure [ e; e0 ] pos
 
 
     let parser

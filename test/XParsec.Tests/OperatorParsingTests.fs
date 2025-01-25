@@ -2,7 +2,11 @@ module OperatorParsingTests
 
 open System
 
+#if FABLE_COMPILER
+open Fable.Pyxpecto
+#else
 open Expecto
+#endif
 
 open XParsec
 open XParsec.OperatorPrecedence
@@ -34,7 +38,9 @@ let handler =
         member _.Prefix(opPrefix, expr) = preturn (Prefix(opPrefix, expr))
     }
 
+#if !FABLE_COMPILER
 [<Tests>]
+#endif
 let tests =
     testList
         "OperatorParsing"
@@ -55,7 +61,7 @@ let tests =
                     |> Expect.equal success.Parsed (Infix(Op '+', Token(Number 1), Token(Number 2)))
 
                     "" |> Expect.isTrue (reader.AtEnd)
-                | Error err -> failtest $"%A{err}"
+                | Error err -> failwith $"%A{err}"
             }
 
             test "1+2*3" {
@@ -80,7 +86,7 @@ let tests =
                         (Infix(Op '+', Token(Number 1), Infix(Op '*', Token(Number 2), Token(Number 3))))
 
                     "" |> Expect.isTrue (reader.AtEnd)
-                | Error err -> failtest $"%A{err}"
+                | Error err -> failwith $"%A{err}"
             }
 
             test "1*2+3" {
@@ -105,7 +111,7 @@ let tests =
                         (Infix(Op '+', Infix(Op '*', Token(Number 1), Token(Number 2)), Token(Number 3)))
 
                     "" |> Expect.isTrue (reader.AtEnd)
-                | Error err -> failtest $"%A{err}"
+                | Error err -> failwith $"%A{err}"
             }
 
             test "1-2+3 left" {
@@ -130,7 +136,7 @@ let tests =
                         (Infix(Op '+', Infix(Op '-', Token(Number 1), Token(Number 2)), Token(Number 3)))
 
                     "" |> Expect.isTrue (reader.AtEnd)
-                | Error err -> failtest $"%A{err}"
+                | Error err -> failwith $"%A{err}"
             }
 
             test "1-2+3 right" {
@@ -155,7 +161,7 @@ let tests =
                         (Infix(Op '-', Token(Number 1), Infix(Op '+', Token(Number 2), Token(Number 3))))
 
                     "" |> Expect.isTrue (reader.AtEnd)
-                | Error err -> failtest $"%A{err}"
+                | Error err -> failwith $"%A{err}"
             }
         ]
 
@@ -219,7 +225,9 @@ module Tokens2 =
         | N9 -> true
         | _ -> false
 
+#if !FABLE_COMPILER
 [<Tests>]
+#endif
 let tests2 =
 
     let ops =
@@ -251,7 +259,7 @@ let tests2 =
             "" |> Expect.equal success.Parsed expected
 
             "" |> Expect.isTrue (reader.AtEnd)
-        | Error err -> failtest $"%A{err}"
+        | Error err -> failwith $"%A{err}"
 
     testList
         "OperatorParsing2"

@@ -1,5 +1,5 @@
 module XParsec.ByteParsers
-
+#if !FABLE_COMPILER
 open System
 open Parsers
 open System.Buffers.Binary
@@ -323,4 +323,5 @@ let pIntPtrLE (reader: Reader<byte, 'State, 'Input, 'InputSlice>) : ParseResult<
         fail EndOfInput reader
     else
         fail (gotFewerBytes width span.Length) reader
+#endif
 #endif

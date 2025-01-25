@@ -1,9 +1,13 @@
 namespace XParsec
 
 open System
-open System.Collections.Immutable
 open System.IO
+open System.Collections.Immutable
+#if !FABLE_COMPILER
 open System.Runtime.InteropServices
+#endif
+
+open XParsec
 
 [<Struct>]
 type ReadableStringSlice(s: string, start: int, length: int) =
@@ -22,7 +26,7 @@ type ReadableStringSlice(s: string, start: int, length: int) =
                 invalidArg "count" "Count must be non-negative."
 
             if index > int64 length then
-                ReadOnlySpan<char>.Empty
+                ReadOnlySpan.Empty
             else
                 let length = min count (length - int index)
                 s.AsSpan(start + int index, length)
@@ -61,7 +65,7 @@ type ReadableString(s: string) =
                 invalidArg "count" "Count must be non-negative."
 
             if index > int64 s.Length then
-                ReadOnlySpan<char>.Empty
+                ReadOnlySpan.Empty
             else
                 let length = min count (s.Length - int index)
                 s.AsSpan(int index, length)
@@ -98,10 +102,14 @@ type ReadableArraySlice<'T>(arr: 'T array, start: int, length: int) =
                 invalidArg "count" "Count must be non-negative."
 
             if index > int64 length then
-                ReadOnlySpan<'T>.Empty
+                ReadOnlySpan.Empty
             else
                 let length = min count (length - int index)
+#if FABLE_COMPILER
+                ArraySpan<'T>(arr, start + int index, length) :> ReadOnlySpan<'T>
+#else
                 ReadOnlySpan<'T>(arr, start + int index, length)
+#endif
 
         member _.Length = int64 length
 
@@ -137,10 +145,14 @@ type ReadableArray<'T>(arr: 'T array) =
                 invalidArg "count" "Count must be non-negative."
 
             if index > int64 arr.Length then
-                ReadOnlySpan<'T>.Empty
+                ReadOnlySpan.Empty
             else
                 let length = min count (arr.Length - int index)
+#if FABLE_COMPILER
+                ArraySpan<'T>(arr, int index, length) :> ReadOnlySpan<'T>
+#else
                 ReadOnlySpan<'T>(arr, int index, length)
+#endif
 
         member _.Length = int64 arr.Length
 
@@ -174,7 +186,7 @@ type ReadableImmutableArraySlice<'T>(arr: ImmutableArray<'T>, start: int, length
                 invalidArg "count" "Count must be non-negative."
 
             if index > int64 length then
-                ReadOnlySpan<'T>.Empty
+                ReadOnlySpan.Empty
             else
                 let length = min count (length - int index)
                 arr.AsSpan(start + int index, length)
@@ -213,7 +225,7 @@ type ReadableImmutableArray<'T>(arr: ImmutableArray<'T>) =
                 invalidArg "count" "Count must be non-negative."
 
             if index > int64 arr.Length then
-                ReadOnlySpan<'T>.Empty
+                ReadOnlySpan.Empty
             else
                 let length = min count (arr.Length - int index)
                 arr.AsSpan(int index, length)
@@ -251,11 +263,15 @@ type ReadableResizeArraySlice<'T>(arr: ResizeArray<'T>, start: int, length: int)
                 invalidArg "count" "Count must be non-negative."
 
             if index > int64 length then
-                ReadOnlySpan<'T>.Empty
+                ReadOnlySpan.Empty
             else
                 let length = min count (length - int index)
+#if FABLE_COMPILER
+                ResizeArraySpan<'T>(arr, start + int index, length) :> ReadOnlySpan<'T>
+#else
                 let span = CollectionsMarshal.AsSpan(arr)
                 Span.op_Implicit (span.Slice(start + int index, length))
+#endif
 
         member _.Length = int64 length
 
@@ -291,11 +307,15 @@ type ReadableResizeArray<'T>(arr: ResizeArray<'T>) =
                 invalidArg "count" "Count must be non-negative."
 
             if index > int64 arr.Count then
-                ReadOnlySpan<'T>.Empty
+                ReadOnlySpan.Empty
             else
                 let length = min count (arr.Count - int index)
+#if FABLE_COMPILER
+                ResizeArraySpan<'T>(arr, int index, length) :> ReadOnlySpan<'T>
+#else
                 let span = CollectionsMarshal.AsSpan(arr)
                 Span.op_Implicit (span.Slice(int index, length))
+#endif
 
         member _.Length = int64 arr.Count
 
@@ -313,6 +333,7 @@ type ReadableResizeArray<'T>(arr: ResizeArray<'T>) =
                 ReadableResizeArraySlice(arr, int newStart, newLength)
 #endif
 
+#if !FABLE_COMPILER
 [<Struct>]
 type ReadableStreamSlice(stream: Stream, start: int64, length: int64, buffer: byte[]) =
     interface IReadable<byte, ReadableStreamSlice> with
@@ -439,7 +460,7 @@ type ReadableMemory<'T>(memory: ReadOnlyMemory<'T>) =
                 invalidArg "count" "Count must be non-negative."
 
             if index > int64 memory.Length then
-                ReadOnlySpan<'T>.Empty
+                ReadOnlySpan.Empty
             else
                 let length = min count (memory.Length - int index)
                 memory.Span.Slice(int index, length)
@@ -460,6 +481,7 @@ type ReadableMemory<'T>(memory: ReadOnlyMemory<'T>) =
                 ReadableMemory(memory.Slice(int newStart, int newLength))
 
     new(memory: Memory<'T>) = ReadableMemory(memory)
+#endif
 
 module Reader =
     let ofString (s: string) state = Reader(ReadableString s, state, 0L)
@@ -473,5 +495,7 @@ module Reader =
         Reader(ReadableResizeArray a, state, 0L)
 #endif
 
+#if !FABLE_COMPILER
     let ofStream (stream: Stream) bufferSize state =
         Reader(ReadableStream(stream, Array.zeroCreate<byte> bufferSize), state, 0L)
+#endif
