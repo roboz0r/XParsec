@@ -102,6 +102,7 @@ type OperatorHandler<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
     abstract Indexer:
         opLeft: 'Op * opRight: 'Op * lhs: 'Expr * index: 'Index -> Parser<'Expr, 'T, 'State, 'Input, 'InputSlice>
 
+[<Struct>]
 type OperatorLookup<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
     when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
     internal
@@ -112,15 +113,15 @@ type OperatorLookup<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
 
     member this.Item
         with get op =
-            let rec f i =
+            let rec f this i =
                 if i >= this.Ops.Length then
                     invalidOp $"Operator {op} not found"
                 elif this.Ops.[i] = op then
                     this.Operators.[i]
                 else
-                    f (i + 1)
+                    f this (i + 1)
 
-            f 0
+            f this 0
 
 
 type internal OperatorLookupBuilder<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
