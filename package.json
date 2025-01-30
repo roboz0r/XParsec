@@ -5,7 +5,7 @@
   "type": "module",
   "main": "-",
   "scripts": {
-    "test": "dotnet fable ./test/XParsec.Tests/XParsec.Tests.fsproj -o ./test/XParsec.Tests/js && node ./test/XParsec.Tests/js/Main.js"
+    "test": "dotnet fable ./test/XParsec.Tests/XParsec.Tests.fsproj -o ./test/XParsec.Tests/js -s && node ./test/XParsec.Tests/js/Main.js"
   },
   "repository": {
     "type": "git",

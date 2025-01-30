@@ -159,6 +159,7 @@ module Extensions =
 
     type System.Collections.Generic.List<'T> with
         member inline this.ToImmutable() = { Array = this.ToArray() }
+        member inline this.ToImmutableArray() = { Array = this.ToArray() }
 
         member inline this.MoveToImmutable() =
             let xs = this.ToArray()

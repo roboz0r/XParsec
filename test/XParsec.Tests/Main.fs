@@ -27,6 +27,7 @@ let main argv =
                 CombinatorTests.tests
                 OperatorParsingTests.tests
                 OperatorParsingTests.tests2
+                OperatorParsingTests.tests3
             ]
 
 

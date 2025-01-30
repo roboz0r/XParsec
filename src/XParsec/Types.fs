@@ -125,10 +125,10 @@ module ParseSuccess =
     let inline map f x = { Parsed = f x.Parsed }
 
 module ParseError =
-    let create error position : ParseResult<'Parsed, 'T, 'State> =
+    let inline create error position : ParseResult<'Parsed, 'T, 'State> =
         Error { Position = position; Errors = error }
 
-    let createNested error children position : ParseResult<'Parsed, 'T, 'State> =
+    let inline createNested error children position : ParseResult<'Parsed, 'T, 'State> =
         Error
             {
                 Position = position
