@@ -9,8 +9,8 @@ open Expecto
 #endif
 
 open XParsec
-open XParsec.OperatorPrecedence
 open XParsec.Parsers
+open XParsec.OperatorParsing
 
 [<Struct>]
 type Tokens =
@@ -26,7 +26,7 @@ type Expr<'Token> =
     | Indexer of left: 'Token * right: 'Token * Expr<'Token> * Expr<'Token>
 
 let handler =
-    { new OperatorHandler<_, Expr<_>, _, _, _, _> with
+    { new OperatorHandler<_, _, Expr<_>, _, _, _, _> with
         member _.Bracketed(opLeft, opRight, expr) =
             preturn (Expr.Bracketed(opLeft, opRight, expr))
 

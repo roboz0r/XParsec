@@ -1,4 +1,4 @@
-module XParsec.OperatorPrecedence
+module XParsec.OperatorParsing
 
 type Precedence =
     | P1
@@ -21,6 +21,16 @@ type Precedence =
     | P18
     | P19
     | P20
+    | P21
+    | P22
+    | P23
+    | P24
+    | P25
+    | P26
+    | P27
+    | P28
+    | P29
+    | P30
 
 [<RequireQualifiedAccess>]
 module internal Precedence =
@@ -46,13 +56,23 @@ module internal Precedence =
         | P18 -> 35uy
         | P19 -> 37uy
         | P20 -> 39uy
+        | P21 -> 41uy
+        | P22 -> 43uy
+        | P23 -> 45uy
+        | P24 -> 47uy
+        | P25 -> 49uy
+        | P26 -> 51uy
+        | P27 -> 53uy
+        | P28 -> 55uy
+        | P29 -> 57uy
+        | P30 -> 59uy
 
     [<Literal>]
     let MinP = 0uy
 
 [<NoEquality; NoComparison>]
 type CloseOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
-    when 'Op: comparison and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
+    when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
     internal
         {
             Op: 'Op
@@ -62,7 +82,7 @@ type CloseOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
 
 [<NoEquality; NoComparison>]
 type Operator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
-    when 'Op: comparison and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
+    when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
     internal
         {
             Op: 'Op
@@ -72,51 +92,68 @@ type Operator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
             CloseOp: CloseOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice> voption
         }
 
-type OperatorHandler<'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
+type OperatorHandler<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
     when 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
-    abstract Infix: opInfix: 'T * lhs: 'Expr * rhs: 'Expr -> Parser<'Expr, 'T, 'State, 'Input, 'InputSlice>
-    abstract Prefix: opPrefix: 'T * expr: 'Expr -> Parser<'Expr, 'T, 'State, 'Input, 'InputSlice>
-    abstract Postfix: opPostfix: 'T * expr: 'Expr -> Parser<'Expr, 'T, 'State, 'Input, 'InputSlice>
-    abstract Bracketed: opLeft: 'T * opRight: 'T * expr: 'Expr -> Parser<'Expr, 'T, 'State, 'Input, 'InputSlice>
+    abstract Infix: opInfix: 'Op * lhs: 'Expr * rhs: 'Expr -> Parser<'Expr, 'T, 'State, 'Input, 'InputSlice>
+    abstract Prefix: opPrefix: 'Op * expr: 'Expr -> Parser<'Expr, 'T, 'State, 'Input, 'InputSlice>
+    abstract Postfix: opPostfix: 'Op * expr: 'Expr -> Parser<'Expr, 'T, 'State, 'Input, 'InputSlice>
+    abstract Bracketed: opLeft: 'Op * opRight: 'Op * expr: 'Expr -> Parser<'Expr, 'T, 'State, 'Input, 'InputSlice>
 
     abstract Indexer:
-        opLeft: 'T * opRight: 'T * lhs: 'Expr * index: 'Index -> Parser<'Expr, 'T, 'State, 'Input, 'InputSlice>
+        opLeft: 'Op * opRight: 'Op * lhs: 'Expr * index: 'Index -> Parser<'Expr, 'T, 'State, 'Input, 'InputSlice>
 
-type Operators<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
-    when 'Op: comparison and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
+type OperatorLookup<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
+    when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
     internal
         {
-            LhsOperators: Map<'Op, Operator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>>
-            RhsOperators: Map<'Op, Operator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>>
-            LhsParser:
-                Parser<
-                    'T * Operator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>,
-                    'T,
-                    'State,
-                    'Input,
-                    'InputSlice
-                 >
-            RhsParser:
-                Parser<
-                    'T * Operator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>,
-                    'T,
-                    'State,
-                    'Input,
-                    'InputSlice
-                 >
-            Handler: OperatorHandler<'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>
+            Ops: 'Op array
+            Operators: Operator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice> array
+        }
+
+    member this.Item
+        with get op =
+            let rec f i =
+                if i >= this.Ops.Length then
+                    invalidOp $"Operator {op} not found"
+                elif this.Ops.[i] = op then
+                    this.Operators.[i]
+                else
+                    f (i + 1)
+
+            f 0
+
+
+type internal OperatorLookupBuilder<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
+    when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>>() =
+
+    let ops = ResizeArray<_>()
+
+    let operators =
+        ResizeArray<Operator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>>()
+
+    member this.Add operator =
+        operators.Add operator
+        ops.Add operator.Op
+
+    member this.ToOperatorLookup() =
+        {
+            Ops = ops.ToArray()
+            Operators = operators.ToArray()
         }
 
 
-let private pOp
-    (op: Operator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>)
-    : Reader<_, _, _, _> -> ParseResult<('T * Operator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>), _, _> =
-    tuple2 (lookAhead (Parsers.pid)) (op.ParseOp >>% op)
-
-let private pCloseOp
-    (op: CloseOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>)
-    : Reader<_, _, _, _> -> ParseResult<('T * CloseOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>), _, _> =
-    tuple2 (lookAhead (Parsers.pid)) (op.ParseOp >>% op)
+type Operators<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
+    when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
+    internal
+        {
+            LhsOperators: OperatorLookup<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>
+            RhsOperators: OperatorLookup<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>
+            LhsParser:
+                Parser<Operator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>, 'T, 'State, 'Input, 'InputSlice>
+            RhsParser:
+                Parser<Operator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>, 'T, 'State, 'Input, 'InputSlice>
+            Handler: OperatorHandler<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>
+        }
 
 module Operator =
     [<Literal>]
@@ -153,9 +190,9 @@ module Operator =
             None
 
     let create handler (ops: Operator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice> seq) =
-        let mutable lhsOps = Map.empty
+        let lhsOps = OperatorLookupBuilder()
         let mutable lhsParsers = []
-        let mutable rhsOps = Map.empty
+        let rhsOps = OperatorLookupBuilder()
         let mutable rhsParsers = []
 
         let ops =
@@ -168,19 +205,19 @@ module Operator =
             | Infix op
             | Postfix op
             | Indexer op ->
-                rhsOps <- rhsOps.Add(op.Op, op)
+                rhsOps.Add(op)
 
-                rhsParsers <- (pOp op) :: rhsParsers
+                rhsParsers <- (op.ParseOp >>% op) :: rhsParsers
             | Prefix op
             | Bracket op ->
-                lhsOps <- lhsOps.Add(op.Op, op)
+                lhsOps.Add(op)
 
-                lhsParsers <- (pOp op) :: lhsParsers
+                lhsParsers <- (op.ParseOp >>% op) :: lhsParsers
             | _ -> failwith $"Unrecognised operator {op}"
 
         {
-            LhsOperators = lhsOps
-            RhsOperators = rhsOps
+            LhsOperators = lhsOps.ToOperatorLookup()
+            RhsOperators = rhsOps.ToOperatorLookup()
             LhsParser = fun x -> choiceL lhsParsers "LHS did not match any known operator" x
             RhsParser = fun x -> choiceL rhsParsers "RHS did not match any known operator" x
             Handler = handler
@@ -291,7 +328,7 @@ module Pratt =
         match ops.RhsParser reader with
         | Ok rhsSuccess ->
 
-            let rhsTok, rhsOp = rhsSuccess.Parsed
+            let rhsOp = rhsSuccess.Parsed
 
             match rhsOp.RightPower, rhsOp.CloseOp with
             | MinP, ValueNone ->
@@ -304,7 +341,7 @@ module Pratt =
                     preturn lhs reader
                 else
 
-                    match ops.Handler.Postfix (rhsTok, lhs) reader with
+                    match ops.Handler.Postfix (rhsOp.Op, lhs) reader with
                     | Ok lhs -> parseRhs lhs.Parsed reader
                     | Error e -> Error e
             | _, ValueNone ->
@@ -316,7 +353,7 @@ module Pratt =
                     // Found operator has higher binding than existing tokens so need to get next operator recursively
                     match parseLhs rhsOp.RightPower reader with
                     | Ok rhs ->
-                        match ops.Handler.Infix (rhsTok, lhs, rhs.Parsed) reader with
+                        match ops.Handler.Infix (rhsOp.Op, lhs, rhs.Parsed) reader with
                         | Ok lhs -> parseRhs lhs.Parsed reader
                         | Error e -> Error e
                     | Error e -> Error e
@@ -330,11 +367,11 @@ module Pratt =
                     else
                         match pInner (reader) with
                         | Ok inner ->
-                            let pClose = pCloseOp closeOp
+                            let pClose = closeOp.ParseOp
 
                             match pClose (reader) with
                             | Ok closeTok ->
-                                match ops.Handler.Indexer (rhsTok, fst closeTok.Parsed, lhs, inner.Parsed) reader with
+                                match ops.Handler.Indexer (rhsOp.Op, closeTok.Parsed, lhs, inner.Parsed) reader with
                                 | Ok lhs -> parseRhs lhs.Parsed reader
                                 | Error e -> Error e
                             | Error e -> Error e
@@ -370,19 +407,19 @@ module Pratt =
 
             match ops.LhsParser(reader) with
             | Ok pOp ->
-                let tok, op = pOp.Parsed
+                let op = pOp.Parsed
 
                 match op.CloseOp with
                 | ValueNone ->
                     // Prefix operators
                     match parseLhs op.RightPower (reader) with
                     | Ok rhs ->
-                        match ops.Handler.Prefix (tok, rhs.Parsed) reader with
+                        match ops.Handler.Prefix (op.Op, rhs.Parsed) reader with
                         | Ok lhs -> parseRhs lhs.Parsed reader
                         | Error e -> Error e
                     | Error e -> Error e
                 | ValueSome(closeOp) ->
-                    let inline pClose reader = pCloseOp closeOp reader
+                    let pClose = closeOp.ParseOp
 
                     match closeOp.ParseInnerExpr with
                     | ValueSome pInner ->
@@ -399,9 +436,9 @@ module Pratt =
                         | Ok inner ->
                             match pClose (reader) with
                             | Ok closeTok ->
-                                let closeToken, closeOp = closeTok.Parsed
+                                let closeOp = closeTok.Parsed
 
-                                match ops.Handler.Bracketed (tok, closeToken, inner.Parsed) reader with
+                                match ops.Handler.Bracketed (op.Op, closeOp, inner.Parsed) reader with
                                 | Ok lhs -> parseRhs lhs.Parsed reader
                                 | Error e -> Error e
                             | Error e -> Error e
