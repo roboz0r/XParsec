@@ -93,7 +93,7 @@ type Operator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
         }
 
 type OperatorHandler<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
-    when 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
+    when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
     abstract Infix: opInfix: 'Op * lhs: 'Expr * rhs: 'Expr -> Parser<'Expr, 'T, 'State, 'Input, 'InputSlice>
     abstract Prefix: opPrefix: 'Op * expr: 'Expr -> Parser<'Expr, 'T, 'State, 'Input, 'InputSlice>
     abstract Postfix: opPostfix: 'Op * expr: 'Expr -> Parser<'Expr, 'T, 'State, 'Input, 'InputSlice>
@@ -102,7 +102,7 @@ type OperatorHandler<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
     abstract Indexer:
         opLeft: 'Op * opRight: 'Op * lhs: 'Expr * index: 'Index -> Parser<'Expr, 'T, 'State, 'Input, 'InputSlice>
 
-[<Struct>]
+[<Struct; NoEquality; NoComparison>]
 type OperatorLookup<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
     when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
     internal

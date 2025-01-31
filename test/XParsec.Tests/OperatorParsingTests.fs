@@ -300,3 +300,100 @@ let tests2 =
                 |> List.iter testParser
             }
         ]
+
+open XParsec.CharParsers
+
+#if !FABLE_COMPILER
+[<Tests>]
+#endif
+let tests3 =
+
+    let ops =
+        [
+            Operator.infixLeftAssoc Add P1 (pitem '+' >>% Add)
+            Operator.infixLeftAssoc Sub P1 (pitem '-' >>% Sub)
+
+            Operator.infixLeftAssoc Mul P2 (pitem '*' >>% Mul)
+            Operator.infixLeftAssoc Div P2 (pitem '/' >>% Div)
+
+            Operator.infixRightAssoc Pow P3 (pstring "**" >>% Pow)
+
+            Operator.prefix Sub P4 (pitem '-' >>% Sub)
+            Operator.prefix Add P4 (pitem '+' >>% Add)
+
+            Operator.postfix Factorial P5 (pitem '!' >>% Factorial)
+
+            Operator.brackets LParen RParen P10 (pitem '(' >>% LParen) (pitem ')' >>% RParen)
+        ]
+        |> Operator.create handler
+
+    let testParser (tokens, expected) =
+        let pNum =
+            parser {
+                let! c = anyInRange '0' '9'
+
+                return
+                    match c with
+                    | '0' -> N0
+                    | '1' -> N1
+                    | '2' -> N2
+                    | '3' -> N3
+                    | '4' -> N4
+                    | '5' -> N5
+                    | '6' -> N6
+                    | '7' -> N7
+                    | '8' -> N8
+                    | '9' -> N9
+                    | _ -> failwith "Unreachable"
+            }
+
+
+        let p = Pratt.parser (pNum |>> Token) ops
+        let reader = Reader.ofString tokens ()
+
+        match p (reader) with
+        | Ok success ->
+            "" |> Expect.equal success.Parsed expected
+
+            "" |> Expect.isTrue (reader.AtEnd)
+        | Error err -> failwith $"%A{err}"
+
+    testList
+        "Multi Char OperatorParsing"
+        [
+            test "Basic expressions" {
+                [
+                    "1+2", Infix(Add, Token(N1), Token(N2))
+                    "1-2", Infix(Sub, Token(N1), Token(N2))
+                    "1*2", Infix(Mul, Token(N1), Token(N2))
+                    "1/2", Infix(Div, Token(N1), Token(N2))
+                    "1**2", Infix(Pow, Token(N1), Token(N2))
+                    "-1", Prefix(Sub, Token(N1))
+                    "+1", Prefix(Add, Token(N1))
+                    "1!", Postfix(Factorial, Token(N1))
+                    "(1)", Bracketed(LParen, RParen, Token(N1))
+                ]
+                |> List.iter testParser
+            }
+
+            test "Precedence expressions" {
+                [
+                    "1+2*3", Infix(Add, Token(N1), Infix(Mul, Token(N2), Token(N3)))
+                    "1*2+3", Infix(Add, Infix(Mul, Token(N1), Token(N2)), Token(N3))
+                    "1+2-3", Infix(Sub, Infix(Add, Token(N1), Token(N2)), Token(N3))
+                    "1-2+3", Infix(Add, Infix(Sub, Token(N1), Token(N2)), Token(N3))
+                    "1*2/3", Infix(Div, Infix(Mul, Token(N1), Token(N2)), Token(N3))
+                    "1/2*3", Infix(Mul, Infix(Div, Token(N1), Token(N2)), Token(N3))
+                    "1**2**3", Infix(Pow, Token(N1), Infix(Pow, Token(N2), Token(N3)))
+                    "-1+2", Infix(Add, Prefix(Sub, Token(N1)), Token(N2))
+                    "1+-2", Infix(Add, Token(N1), Prefix(Sub, Token(N2)))
+                    "(1+2)*3", Infix(Mul, Bracketed(LParen, RParen, Infix(Add, Token(N1), Token(N2))), Token(N3))
+                    "1*(2+3)", Infix(Mul, Token(N1), Bracketed(LParen, RParen, Infix(Add, Token(N2), Token(N3))))
+                    "1+2!", Infix(Add, Token(N1), Postfix(Factorial, Token(N2)))
+                    "1!*2", Infix(Mul, Postfix(Factorial, Token(N1)), Token(N2))
+                    "1!+2", Infix(Add, Postfix(Factorial, Token(N1)), Token(N2))
+                    "(1+2)!", Postfix(Factorial, Bracketed(LParen, RParen, Infix(Add, Token(N1), Token(N2))))
+                ]
+                |> List.iter testParser
+            }
+        ]
