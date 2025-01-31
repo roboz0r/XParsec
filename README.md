@@ -45,7 +45,7 @@ npm run test
 - [x] `ByteParsers` module
 - [x] Fable JS compatibility
 - [ ] Other Fable targets compatibility
-- [ ] Multi-token operator parsing
+- [x] Multi-token operator parsing
 - [ ] Performance benchmarks and optimization
 - [ ] Complete FParsec API coverage
 - [ ] Tests with complex grammars
