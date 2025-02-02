@@ -25,18 +25,12 @@ type Expr<'Token> =
     | Bracketed of left: 'Token * right: 'Token * expr: Expr<'Token>
     | Indexer of left: 'Token * right: 'Token * Expr<'Token> * Expr<'Token>
 
-let handler =
-    { new OperatorHandler<_, _, Expr<_>, _, _, _, _> with
-        member _.Bracketed(opLeft, opRight, expr) =
-            preturn (Expr.Bracketed(opLeft, opRight, expr))
-
-        member _.Indexer(opLeft, opRight, lhs, index) =
-            preturn (Indexer(opLeft, opRight, lhs, index))
-
-        member _.Infix(opInfix, lhs, rhs) = preturn (Infix(opInfix, lhs, rhs))
-        member _.Postfix(opPostfix, expr) = preturn (Postfix(opPostfix, expr))
-        member _.Prefix(opPrefix, expr) = preturn (Prefix(opPrefix, expr))
-    }
+module Expr =
+    let infix op lhs rhs = Infix(op, lhs, rhs)
+    let prefix op expr = Prefix(op, expr)
+    let postfix op expr = Postfix(op, expr)
+    let bracketed left right expr = Bracketed(left, right, expr)
+    let indexer left right lhs index = Indexer(left, right, lhs, index)
 
 #if !FABLE_COMPILER
 [<Tests>]
@@ -50,10 +44,10 @@ let tests =
                 let reader = Reader.ofArray tokens ()
 
                 let ops =
-                    [ Operator.infixLeftAssoc (Op '+') P1 (pitem (Op '+')) ]
-                    |> Operator.create handler
+                    [ Operator.infixLeftAssoc (Op '+') P1 (pitem (Op '+')) (Expr.infix (Op '+')) ]
+                    |> Operator.create
 
-                let p = Pratt.parser (pid |>> Token) ops
+                let p = operatorParser (pid |>> Token) ops
 
                 match p (reader) with
                 | Ok success ->
@@ -71,12 +65,12 @@ let tests =
 
                 let ops =
                     [
-                        Operator.infixLeftAssoc (Op '+') P1 (pitem (Op '+'))
-                        Operator.infixLeftAssoc (Op '*') P2 (pitem (Op '*'))
+                        Operator.infixLeftAssoc (Op '+') P1 (pitem (Op '+')) (Expr.infix (Op '+'))
+                        Operator.infixLeftAssoc (Op '*') P2 (pitem (Op '*')) (Expr.infix (Op '*'))
                     ]
-                    |> Operator.create handler
+                    |> Operator.create
 
-                let p = Pratt.parser (pid |>> Expr.Token) ops
+                let p = operatorParser (pid |>> Expr.Token) ops
 
                 match p (reader) with
                 | Ok success ->
@@ -96,12 +90,12 @@ let tests =
 
                 let ops =
                     [
-                        Operator.infixLeftAssoc (Op '+') P1 (pitem (Op '+'))
-                        Operator.infixLeftAssoc (Op '*') P2 (pitem (Op '*'))
+                        Operator.infixLeftAssoc (Op '+') P1 (pitem (Op '+')) (Expr.infix (Op '+'))
+                        Operator.infixLeftAssoc (Op '*') P2 (pitem (Op '*')) (Expr.infix (Op '*'))
                     ]
-                    |> Operator.create handler
+                    |> Operator.create
 
-                let p = Pratt.parser (pid |>> Expr.Token) ops
+                let p = operatorParser (pid |>> Expr.Token) ops
 
                 match p (reader) with
                 | Ok success ->
@@ -121,12 +115,12 @@ let tests =
 
                 let ops =
                     [
-                        Operator.infixLeftAssoc (Op '-') P1 (pitem (Op '-'))
-                        Operator.infixLeftAssoc (Op '+') P1 (pitem (Op '+'))
+                        Operator.infixLeftAssoc (Op '-') P1 (pitem (Op '-')) (Expr.infix (Op '-'))
+                        Operator.infixLeftAssoc (Op '+') P1 (pitem (Op '+')) (Expr.infix (Op '+'))
                     ]
-                    |> Operator.create handler
+                    |> Operator.create
 
-                let p = Pratt.parser (pid |>> Expr.Token) ops
+                let p = operatorParser (pid |>> Expr.Token) ops
 
                 match p (reader) with
                 | Ok success ->
@@ -146,12 +140,12 @@ let tests =
 
                 let ops =
                     [
-                        Operator.infixRightAssoc (Op '-') P1 (pitem (Op '-'))
-                        Operator.infixRightAssoc (Op '+') P1 (pitem (Op '+'))
+                        Operator.infixRightAssoc (Op '-') P1 (pitem (Op '-')) (Expr.infix (Op '-'))
+                        Operator.infixRightAssoc (Op '+') P1 (pitem (Op '+')) (Expr.infix (Op '+'))
                     ]
-                    |> Operator.create handler
+                    |> Operator.create
 
-                let p = Pratt.parser (pid |>> Expr.Token) ops
+                let p = operatorParser (pid |>> Expr.Token) ops
 
                 match p (reader) with
                 | Ok success ->
@@ -232,25 +226,25 @@ let tests2 =
 
     let ops =
         [
-            Operator.infixLeftAssoc Add P1 (pitem Add)
-            Operator.infixLeftAssoc Sub P1 (pitem Sub)
+            Operator.infixLeftAssoc Add P1 (pitem Add) (Expr.infix Add)
+            Operator.infixLeftAssoc Sub P1 (pitem Sub) (Expr.infix Sub)
 
-            Operator.infixLeftAssoc Mul P2 (pitem Mul)
-            Operator.infixLeftAssoc Div P2 (pitem Div)
+            Operator.infixLeftAssoc Mul P2 (pitem Mul) (Expr.infix Mul)
+            Operator.infixLeftAssoc Div P2 (pitem Div) (Expr.infix Div)
 
-            Operator.infixRightAssoc Pow P3 (pitem Pow)
+            Operator.infixRightAssoc Pow P3 (pitem Pow) (Expr.infix Pow)
 
-            Operator.prefix Sub P4 (pitem Sub)
-            Operator.prefix Add P4 (pitem Add)
+            Operator.prefix Sub P4 (pitem Sub) (Expr.prefix Sub)
+            Operator.prefix Add P4 (pitem Add) (Expr.prefix Add)
 
-            Operator.postfix Factorial P5 (pitem Factorial)
+            Operator.postfix Factorial P5 (pitem Factorial) (Expr.postfix Factorial)
 
-            Operator.brackets LParen RParen P10 (pitem LParen) (pitem RParen)
+            Operator.brackets LParen RParen P10 (pitem LParen) (pitem RParen) (Expr.bracketed LParen RParen)
         ]
-        |> Operator.create handler
+        |> Operator.create
 
     let testParser (tokens, expected) =
-        let p = Pratt.parser (satisfy Tokens2.isNumber |>> Token) ops
+        let p = operatorParser (satisfy Tokens2.isNumber |>> Token) ops
         let tokens = Tokens2.ofString tokens
         let reader = Reader.ofArray tokens ()
 
@@ -310,22 +304,28 @@ let tests3 =
 
     let ops =
         [
-            Operator.infixLeftAssoc Add P1 (pitem '+' >>% Add)
-            Operator.infixLeftAssoc Sub P1 (pitem '-' >>% Sub)
+            Operator.infixLeftAssoc Add P1 (pitem '+' >>% Add) (Expr.infix Add)
+            Operator.infixLeftAssoc Sub P1 (pitem '-' >>% Sub) (Expr.infix Sub)
 
-            Operator.infixLeftAssoc Mul P2 (pitem '*' >>% Mul)
-            Operator.infixLeftAssoc Div P2 (pitem '/' >>% Div)
+            Operator.infixLeftAssoc Mul P2 (pitem '*' >>% Mul) (Expr.infix Mul)
+            Operator.infixLeftAssoc Div P2 (pitem '/' >>% Div) (Expr.infix Div)
 
-            Operator.infixRightAssoc Pow P3 (pstring "**" >>% Pow)
+            Operator.infixRightAssoc Pow P3 (pstring "**" >>% Pow) (Expr.infix Pow)
 
-            Operator.prefix Sub P4 (pitem '-' >>% Sub)
-            Operator.prefix Add P4 (pitem '+' >>% Add)
+            Operator.prefix Sub P4 (pitem '-' >>% Sub) (Expr.prefix Sub)
+            Operator.prefix Add P4 (pitem '+' >>% Add) (Expr.prefix Add)
 
-            Operator.postfix Factorial P5 (pitem '!' >>% Factorial)
+            Operator.postfix Factorial P5 (pitem '!' >>% Factorial) (Expr.postfix Factorial)
 
-            Operator.brackets LParen RParen P10 (pitem '(' >>% LParen) (pitem ')' >>% RParen)
+            Operator.brackets
+                LParen
+                RParen
+                P10
+                (pitem '(' >>% LParen)
+                (pitem ')' >>% RParen)
+                (Expr.bracketed LParen RParen)
         ]
-        |> Operator.create handler
+        |> Operator.create
 
     let testParser (tokens, expected) =
         let pNum =
@@ -348,7 +348,7 @@ let tests3 =
             }
 
 
-        let p = Pratt.parser (pNum |>> Token) ops
+        let p = operatorParser (pNum |>> Token) ops
         let reader = Reader.ofString tokens ()
 
         match p (reader) with
