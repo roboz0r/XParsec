@@ -215,8 +215,6 @@ type Operators<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
 module internal Pratt =
     open Parsers
     // Pratt parsing based on https://matklad.github.io/2020/04/13/simple-but-powerful-pratt-parsing.html
-    [<Literal>]
-    let MinP = Precedence.MinP
 
     let private failure = Message "Operator parsing failed"
 
@@ -307,7 +305,7 @@ module internal Pratt =
                     | Error e -> Error e
 
                 | Brackets(op, parseOp, rightPower, closeOp, closeOpParser, completeBracket) ->
-                    match parseLhs MinP (reader) with
+                    match parseLhs Precedence.MinP (reader) with
                     | Ok inner ->
                         match closeOpParser (reader) with
                         | Ok closeTok ->
