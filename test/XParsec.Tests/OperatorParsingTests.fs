@@ -47,7 +47,7 @@ let tests =
                     [ Operator.infixLeftAssoc (Op '+') P1 (pitem (Op '+')) (Expr.infix (Op '+')) ]
                     |> Operator.create
 
-                let p = operatorParser (pid |>> Token) ops
+                let p = Operator.parser (pid |>> Token) ops
 
                 match p (reader) with
                 | Ok success ->
@@ -70,7 +70,7 @@ let tests =
                     ]
                     |> Operator.create
 
-                let p = operatorParser (pid |>> Expr.Token) ops
+                let p = Operator.parser (pid |>> Expr.Token) ops
 
                 match p (reader) with
                 | Ok success ->
@@ -95,7 +95,7 @@ let tests =
                     ]
                     |> Operator.create
 
-                let p = operatorParser (pid |>> Expr.Token) ops
+                let p = Operator.parser (pid |>> Expr.Token) ops
 
                 match p (reader) with
                 | Ok success ->
@@ -120,7 +120,7 @@ let tests =
                     ]
                     |> Operator.create
 
-                let p = operatorParser (pid |>> Expr.Token) ops
+                let p = Operator.parser (pid |>> Expr.Token) ops
 
                 match p (reader) with
                 | Ok success ->
@@ -145,7 +145,7 @@ let tests =
                     ]
                     |> Operator.create
 
-                let p = operatorParser (pid |>> Expr.Token) ops
+                let p = Operator.parser (pid |>> Expr.Token) ops
 
                 match p (reader) with
                 | Ok success ->
@@ -244,7 +244,7 @@ let tests2 =
         |> Operator.create
 
     let testParser (tokens, expected) =
-        let p = operatorParser (satisfy Tokens2.isNumber |>> Token) ops
+        let p = Operator.parser (satisfy Tokens2.isNumber |>> Token) ops
         let tokens = Tokens2.ofString tokens
         let reader = Reader.ofArray tokens ()
 
@@ -348,7 +348,7 @@ let tests3 =
             }
 
 
-        let p = operatorParser (pNum |>> Token) ops
+        let p = Operator.parser (pNum |>> Token) ops
         let reader = Reader.ofString tokens ()
 
         match p (reader) with

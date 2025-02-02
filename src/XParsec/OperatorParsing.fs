@@ -1,7 +1,8 @@
-module XParsec.OperatorParsing
+namespace XParsec.OperatorParsing
 
 open System
 open System.Collections.Immutable
+open XParsec
 
 type Precedence =
     | P1
@@ -94,7 +95,6 @@ type OperatorLookup<'Key, 'Value when 'Key: equality> =
             f this 0
 
 
-// [<Struct>]
 type RHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
     when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
     internal
@@ -144,7 +144,6 @@ type RHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
         | Postfix(_, _, _, _)
         | Indexer(_, _, _, _, _, _, _) -> Precedence.MinP
 
-// [<Struct>]
 type LHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
     when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
     internal
@@ -211,82 +210,6 @@ type Operators<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
             RhsParser:
                 Parser<RHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>, 'T, 'State, 'Input, 'InputSlice>
         }
-
-module Operator =
-
-    type internal OperatorLookupBuilder<'Key, 'Value when 'Key: equality>() =
-        let ops = ImmutableArray.CreateBuilder<'Key>()
-        let operators = ImmutableArray.CreateBuilder<'Value>()
-
-        member _.Add(op, operator) =
-            ops.Add op
-            operators.Add operator
-
-        member _.ToOperatorLookup() =
-            {
-                Ops = ops.ToImmutable()
-                Operators = operators.ToImmutable()
-            }
-
-    let create (ops: Operator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice> seq) =
-        let lhsOps = OperatorLookupBuilder()
-        let mutable lhsParsers = []
-        let rhsOps = OperatorLookupBuilder()
-        let mutable rhsParsers = []
-
-        let ops =
-            ops |> Seq.sortBy (fun op -> ((int op.LeftPower) <<< 8) &&& (int op.RightPower))
-
-        for op in ops do
-            match op with
-            | RHS op ->
-                rhsOps.Add(op.Op, op)
-#if FABLE_COMPILER
-                // Workaround for Fable compiler issue
-                // https://github.com/fable-compiler/Fable/issues/4031
-                rhsParsers <- (fun reader -> (op.ParseOp >>% op) reader) :: rhsParsers
-#else
-                rhsParsers <- (op.ParseOp >>% op) :: rhsParsers
-#endif
-
-            | LHS op ->
-                lhsOps.Add(op.Op, op)
-#if FABLE_COMPILER
-                lhsParsers <- (fun reader -> (op.ParseOp >>% op) reader) :: lhsParsers
-#else
-                lhsParsers <- (op.ParseOp >>% op) :: lhsParsers
-#endif
-
-        {
-            LhsOperators = lhsOps.ToOperatorLookup()
-            RhsOperators = rhsOps.ToOperatorLookup()
-            LhsParser = choiceL lhsParsers "LHS did not match any known operator"
-            RhsParser = choiceL rhsParsers "RHS did not match any known operator"
-        }
-
-    let infixLeftAssoc op power parseOp complete =
-        let power = Precedence.value power
-        RHS(Infix(op, parseOp, power, power + 1uy, complete))
-
-    let infixRightAssoc op power parseOp complete =
-        let power = Precedence.value power
-        RHS(Infix(op, parseOp, power + 1uy, power, complete))
-
-    let prefix op power parseOp complete =
-        let power = Precedence.value power
-        LHS(Prefix(op, parseOp, power, complete))
-
-    let postfix op power parseOp complete =
-        let power = Precedence.value power
-        RHS(Postfix(op, parseOp, power, complete))
-
-    let brackets op closeOp power parseOp parseCloseOp complete =
-        let power = Precedence.value power
-        LHS(Brackets(op, parseOp, power, closeOp, parseCloseOp, complete))
-
-    let indexer op closeOp innerParser power parseOp parseCloseOp complete =
-        let power = Precedence.value power
-        RHS(Indexer(op, parseOp, power, closeOp, parseCloseOp, innerParser, complete))
 
 
 module internal Pratt =
@@ -395,9 +318,84 @@ module internal Pratt =
 
             | Error e -> ParseError.createNested failure [ e; e0 ] pos
 
+module Operator =
 
-let operatorParser
-    (pExpr: Parser<'Expr, _, _, _, _>)
-    (operators: Operators<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>)
-    : Parser<'Expr, _, _, _, _> =
-    Pratt.parseLhs pExpr operators Precedence.MinP
+    type internal OperatorLookupBuilder<'Key, 'Value when 'Key: equality>() =
+        let ops = ImmutableArray.CreateBuilder<'Key>()
+        let operators = ImmutableArray.CreateBuilder<'Value>()
+
+        member _.Add(op, operator) =
+            ops.Add op
+            operators.Add operator
+
+        member _.ToOperatorLookup() =
+            {
+                Ops = ops.ToImmutable()
+                Operators = operators.ToImmutable()
+            }
+
+    let create (ops: Operator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice> seq) =
+        let lhsOps = OperatorLookupBuilder()
+        let mutable lhsParsers = []
+        let rhsOps = OperatorLookupBuilder()
+        let mutable rhsParsers = []
+
+        let ops =
+            ops |> Seq.sortBy (fun op -> ((int op.LeftPower) <<< 8) &&& (int op.RightPower))
+
+        for op in ops do
+            match op with
+            | RHS op ->
+                rhsOps.Add(op.Op, op)
+#if FABLE_COMPILER
+                // Workaround for Fable compiler issue
+                // https://github.com/fable-compiler/Fable/issues/4031
+                rhsParsers <- (fun reader -> (op.ParseOp >>% op) reader) :: rhsParsers
+#else
+                rhsParsers <- (op.ParseOp >>% op) :: rhsParsers
+#endif
+
+            | LHS op ->
+                lhsOps.Add(op.Op, op)
+#if FABLE_COMPILER
+                lhsParsers <- (fun reader -> (op.ParseOp >>% op) reader) :: lhsParsers
+#else
+                lhsParsers <- (op.ParseOp >>% op) :: lhsParsers
+#endif
+
+        {
+            LhsOperators = lhsOps.ToOperatorLookup()
+            RhsOperators = rhsOps.ToOperatorLookup()
+            LhsParser = choiceL lhsParsers "LHS did not match any known operator"
+            RhsParser = choiceL rhsParsers "RHS did not match any known operator"
+        }
+
+    let infixLeftAssoc op power parseOp complete =
+        let power = Precedence.value power
+        RHS(Infix(op, parseOp, power, power + 1uy, complete))
+
+    let infixRightAssoc op power parseOp complete =
+        let power = Precedence.value power
+        RHS(Infix(op, parseOp, power + 1uy, power, complete))
+
+    let prefix op power parseOp complete =
+        let power = Precedence.value power
+        LHS(Prefix(op, parseOp, power, complete))
+
+    let postfix op power parseOp complete =
+        let power = Precedence.value power
+        RHS(Postfix(op, parseOp, power, complete))
+
+    let brackets op closeOp power parseOp parseCloseOp complete =
+        let power = Precedence.value power
+        LHS(Brackets(op, parseOp, power, closeOp, parseCloseOp, complete))
+
+    let indexer op closeOp innerParser power parseOp parseCloseOp complete =
+        let power = Precedence.value power
+        RHS(Indexer(op, parseOp, power, closeOp, parseCloseOp, innerParser, complete))
+
+    let parser
+        (pExpr: Parser<'Expr, _, _, _, _>)
+        (operators: Operators<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>)
+        : Parser<'Expr, _, _, _, _> =
+        Pratt.parseLhs pExpr operators Precedence.MinP
