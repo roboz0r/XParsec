@@ -26,6 +26,69 @@ module ParseErrors =
 
     let lineEndings () : Parser<_, _, _, _, _> = many (lineEndingParser ())
 
+    let rec formatParseError<'T, 'State, 'Input, 'InputSlice
+        when 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>>
+        (formatOne: 'T -> StringBuilder -> StringBuilder)
+        (formatSeq: 'T seq -> StringBuilder -> StringBuilder)
+        (input: 'Input)
+        (error: ParseError<'T, 'State>)
+        (sb: StringBuilder)
+        =
+        let inline appendString (s: string) (sb: StringBuilder) = sb.Append(s)
+        let inline appendNewline (sb: StringBuilder) = sb.AppendLine()
+
+        let rec f depth pos errors sb =
+            match errors with
+            | EndOfInput -> sb |> appendString "Unexpected end of input"
+            | Expected(e) -> sb |> appendString "Expected " |> formatOne e
+
+            | ExpectedSeq(es) -> sb |> appendString "Expected " |> formatSeq es
+            | Unexpected(e) -> sb |> appendString "Unexpected " |> formatOne e
+            | UnexpectedSeq(es) -> sb |> appendString "Unexpected " |> formatSeq es
+            | Nested(e, es) ->
+                sb |> f depth pos e |> appendNewline |> ignore
+
+                for { Errors = errors; Position = pos } in es do
+                    sb |> f (depth + 1) pos errors |> appendNewline |> ignore
+
+                sb
+
+            | Message(m) -> sb |> appendString m
+
+        let { Errors = errors; Position = pos } = error
+        f 0 pos errors sb
+
+    // let rec formatErrorSb
+    //     (formatOne: 'T -> StringBuilder -> StringBuilder)
+    //     (formatSeq: 'T seq -> StringBuilder -> StringBuilder)
+    //     (error: ErrorType<'T, 'State>)
+    //     (sb: StringBuilder)
+    //     =
+    //     let inline appendString (s: string) (sb: StringBuilder) = sb.Append(s)
+    //     let inline appendNewline (sb: StringBuilder) = sb.AppendLine()
+    //     let rec f depth error sb =
+    //         match error with
+    //         | EndOfInput -> sb |> appendString "Unexpected end of input"
+    //         | Expected(e) -> sb |> appendString "Expected " |> formatOne e
+
+    //         | ExpectedSeq(es) -> sb |> appendString "Expected " |> formatSeq es
+    //         | Unexpected(e) -> sb |> appendString "Unexpected " |> formatOne e
+    //         | UnexpectedSeq(es) -> sb |> appendString "Unexpected " |> formatSeq es
+    //         | Nested(e, es) ->
+    //             sb
+    //             |> f depth e
+    //             |> appendNewline
+    //             |> ignore
+    //             for e in es do
+    //                 sb |> f (depth + 1) e |> appendNewline |> ignore
+    //             sb
+
+
+    //         | Message(m) -> sb |> appendString m
+
+    //     f 0 error sb
+
+
     let rec formatError (formatOne: 'T -> string) (formatSeq: 'T seq -> string) (error: ErrorType<'T, 'State>) =
         match error with
         | EndOfInput -> "Unexpected end of input"
@@ -48,6 +111,7 @@ module ParseErrors =
                 if i > 0 then
 #if FABLE_COMPILER
                     // TODO: Fable doesn't support Append(char, int) overload
+                    // Was added in 5.0.0-alpha.6
                     let spaces = String.replicate (i * 2) " "
                     sb.Append(spaces).Append(UpRight).Append(Horizontal) |> ignore
 #else
@@ -57,7 +121,8 @@ module ParseErrors =
                 | ErrorType.Nested(e, es) ->
                     sb.AppendLine(formatError e) |> ignore
                     f (i + 1) es
-                | m -> sb.AppendLine(formatError m) |> ignore)
+                | m -> sb.AppendLine(formatError m) |> ignore
+            )
 
         f 0 errors
 
@@ -78,12 +143,14 @@ type ConsoleErrorHandler() =
 
     let findIndexBack (input: string) (index: int) (backLimit) =
         let rec loop i =
-            if i < 0 then
+            if i <= 0 then
                 0
             else
+                let i = min (input.Length - 1) i
+
                 match input.[i] with
                 | '\r'
-                | '\n' -> i + 1
+                | '\n' -> loop (i - 1)
                 | _ -> if index - i > backLimit then i else loop (i - 1)
 
         loop index
@@ -95,7 +162,7 @@ type ConsoleErrorHandler() =
             else
                 match input.[i] with
                 | '\r'
-                | '\n' -> i - 1
+                | '\n' -> loop (i + 1)
                 | _ -> if i - index > forwardLimit then i else loop (i + 1)
 
         loop index

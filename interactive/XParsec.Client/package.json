@@ -1,0 +1,18 @@
+{
+  "private": "true",
+  "scripts": {
+    "postinstall": "dotnet tool restore",
+    "dev": "dotnet fable watch --extension .jsx -o ./build/ -s --run vite",
+    "build": "dotnet fable --extension .jsx -o ./build/ --run vite build"
+  },
+  "dependencies": {
+    "@solidjs/router": "^0.15.3",
+    "@tailwindcss/vite": "^4.0.17",
+    "solid-js": "1.9.5",
+    "tailwindcss": "^4.0.17"
+  },
+  "devDependencies": {
+    "vite": "6.2.3",
+    "vite-plugin-solid": "2.11.6"
+  }
+}

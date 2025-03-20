@@ -240,7 +240,8 @@ module Tokens2 =
             | ':' -> Else
             | '[' -> LIdx
             | ']' -> RIdx
-            | _ -> failwith $"Invalid token '{c}' in '{s}'")
+            | _ -> failwith $"Invalid token '{c}' in '{s}'"
+        )
 
     let isNumber =
         function

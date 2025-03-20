@@ -46,7 +46,7 @@ type JsonParsers<'Input, 'InputSlice
             let! e = anyOf [ 'e'; 'E' ]
             let! sign = opt (anyOf [ '+'; '-' ])
             let! digits = many1Chars pDigit
-            return (struct (sign, digits))
+            return struct (sign, digits)
         }
 
     static let pNumber =
@@ -88,7 +88,7 @@ type JsonParsers<'Input, 'InputSlice
                 | true, result -> preturn result
                 | _ -> failwithf "Failed to parse number: %s" number
 
-            return number
+            return JsonValue.Number number
         }
 
     static let pEscape =
@@ -174,23 +174,20 @@ type JsonParsers<'Input, 'InputSlice
         }
 
     static let pTrue = pstring "true" >>% JsonValue.True
-
     static let pFalse = pstring "false" >>% JsonValue.False
-
     static let pNull = pstring "null" >>% JsonValue.Null
+    static let pStringValue = pString |>> JsonValue.String
 
-    static let rec pValue =
-        choiceL
-            [
-                pString |>> JsonValue.String
-                pNumber |>> JsonValue.Number
-                pTrue
-                pFalse
-                pNull
-                pObject
-                pArray
-            ]
-            ""
+    static let rec pValue: Parser<JsonValue, char, _, _, _> =
+        fun cursor ->
+            match cursor.Peek() with
+            | ValueSome '{' -> pObject cursor
+            | ValueSome '[' -> pArray cursor
+            | ValueSome '"' -> pStringValue cursor
+            | ValueSome 't' -> pTrue cursor
+            | ValueSome 'f' -> pFalse cursor
+            | ValueSome 'n' -> pNull cursor
+            | _ -> pNumber cursor
 
     and pElement =
         parser {
@@ -214,7 +211,7 @@ type JsonParsers<'Input, 'InputSlice
         parser {
             let! _ = pitem '{'
             let! _ = pWhitespace
-            let! (members, _) = sepBy pMember (pitem ',')
+            let! members, _ = sepBy pMember (pitem ',')
             let! _ = pitem '}'
             return JsonValue.Object members
         }
@@ -223,7 +220,7 @@ type JsonParsers<'Input, 'InputSlice
         parser {
             let! _ = pitem '['
             let! _ = pWhitespace
-            let! (values, _) = sepBy pElement (pitem ',')
+            let! values, _ = sepBy pElement (pitem ',')
             let! _ = pitem ']'
             return JsonValue.Array values
         }

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
+    <IsServer>true</IsServer>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include=".\..\Shared\Types.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Serialization.fs" />
+    <Compile Include="ErrorRenderer.fs" />
+    <Compile Include="Handlers.fs" />
+    <Compile Include="Program.fs" />
+    <Content Include="README.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Oxpecker" />
+    <PackageReference Include="Thoth.Json.System.Text.Json" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\XParsec.Json\XParsec.Json.fsproj" />
+  </ItemGroup>
+</Project>

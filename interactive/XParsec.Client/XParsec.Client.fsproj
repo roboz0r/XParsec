@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsClient>true</IsClient>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Fable.Browser.Dom" />
+    <PackageReference Include="Fable.Core" />
+    <PackageReference Include="Fable.Fetch" />
+    <PackageReference Include="Oxpecker.Solid" />
+    <PackageReference Include="Thoth.Fetch" />
+    <PackageReference Include="Thoth.Json" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="public\oxpecker-128.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include=".\..\Shared\Types.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="src\Serialization.fs" />
+    <Compile Include="src\API.fs" />
+    <Compile Include="src\App.fs" />
+    <Compile Include="src\Program.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="package.json" />
+    <None Include="src\index.css" />
+    <None Include="vite.config.mts" />
+    <None Include="index.html" />
+  </ItemGroup>
+</Project>

@@ -1,26 +1,37 @@
 <Project>
   <PropertyGroup>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode>true</RestoreLockedMode>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
-
   <ItemGroup>
-    <PackageVersion Include="Fable.Core" Version="4.3.0" />
-    <PackageVersion Include="FSharp.Core" Version="9.0.100" />
-    <PackageVersion Include="System.Collections.Immutable" Version="9.0.0" />
+    <PackageVersion Include="Fable.Core" Version="4.5.0" />
+    <PackageVersion Include="FSharp.Core" Version="9.0.201" />
+    <PackageVersion Include="System.Collections.Immutable" Version="9.0.3" />
   </ItemGroup>
-  
-  <ItemGroup Label="Test" Condition="'$(IsTestProject)' == 'true'">
+  <ItemGroup Condition="'$(IsTestProject)' == 'true'" Label="Test">
+    <PackageVersion Include="Expecto" Version="10.2.2" />
+    <PackageVersion Include="Expecto.FsCheck" Version="10.2.2" />
     <PackageVersion Include="Fable.Pyxpecto" Version="1.2.0" />
-    <PackageVersion Include="Expecto" Version="10.2.1" />
-    <PackageVersion Include="Expecto.FsCheck" Version="10.2.1" />
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
-    <PackageVersion Include="YoloDev.Expecto.TestSdk" Version="0.14.3" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
+    <PackageVersion Include="YoloDev.Expecto.TestSdk" Version="0.15.3" />
   </ItemGroup>
-
-  <ItemGroup Label="Benchmark" Condition="'$(IsBenchmarkProject)' == 'true'">
+  <ItemGroup Condition="'$(IsBenchmarkProject)' == 'true'" Label="Benchmark">
     <PackageVersion Include="BenchmarkDotNet" Version="0.14.0" />
     <PackageVersion Include="BenchmarkDotNet.Diagnostics.Windows" Version="0.14.0" />
     <PackageVersion Include="FParsec" Version="1.1.1" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(IsClient)' == 'true'" Label="Client">
+    <PackageVersion Include="Fable.Browser.Dom" Version="2.18.1" />
+    <PackageVersion Include="Fable.Fetch" Version="2.7.0" />
+    <PackageVersion Include="Oxpecker.Solid" Version="0.6.0" />
+    <PackageVersion Include="Thoth.Fetch" Version="3.0.1" />
+    <PackageVersion Include="Thoth.Json" Version="10.4.1" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(IsServer)' == 'true'" Label="Server">
+    <PackageVersion Include="Oxpecker" Version="1.2.0" />
+    <PackageVersion Include="Thoth.Json.System.Text.Json" Version="0.2.1" />
   </ItemGroup>
 </Project>

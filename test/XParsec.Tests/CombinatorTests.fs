@@ -36,7 +36,8 @@ module ParseErrors =
                 | ErrorType.Nested(e, es) ->
                     sb.AppendLine(sprintf "%A" e) |> ignore
                     es |> List.iter (f (i + 1))
-                | m -> sb.AppendLine(sprintf " %A" m) |> ignore))
+                | m -> sb.AppendLine(sprintf " %A" m) |> ignore)
+            )
 
         f 0 errors
 

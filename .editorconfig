@@ -7,3 +7,17 @@ root = true
 fsharp_bar_before_discriminated_union_declaration = true
 fsharp_multiline_block_brackets_on_same_column = true
 fsharp_multiline_bracket_style = aligned
+fsharp_keep_max_number_of_blank_lines=2
+fsharp_multi_line_lambda_closing_newline=true
+
+# Visual Studio Solution Files
+[*.sln]
+indent_style = tab
+
+# XML project files
+[*.{csproj,vbproj,vcxproj,vcxproj.filters,proj,projitems,shproj,sfproj}]
+indent_size = 2
+
+# XML config files
+[*.{props,targets,ruleset,config,nuspec,resx,vsixmanifest,vsct}]
+indent_size = 2

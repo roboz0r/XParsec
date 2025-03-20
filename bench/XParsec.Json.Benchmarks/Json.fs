@@ -11,8 +11,6 @@ open XParsec.CharParsers
 open XParsec.Json
 
 
-
-
 [<MemoryDiagnoser>]
 type ParsingLargeJson() =
 
