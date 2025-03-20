@@ -526,7 +526,8 @@ module Combinators =
                         reader.Position <- pos
                         ok <- false
 
-                preturn (xs.ToImmutable()))
+                preturn (xs.ToImmutable())
+            )
             reader
 
     let skipMany (p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>) (reader: Reader<_, _, _, _>) =
@@ -558,7 +559,8 @@ module Combinators =
                         reader.Position <- pos
                         ok <- false
 
-                preturn ())
+                preturn ()
+            )
             reader
 
     let sepBy
@@ -627,7 +629,8 @@ module Combinators =
                         reader.Position <- pos
                         ok <- false
 
-                preturn struct (xs.ToImmutable(), seps.ToImmutable()))
+                preturn struct (xs.ToImmutable(), seps.ToImmutable())
+            )
             reader
 
     let skipSepBy
@@ -684,7 +687,8 @@ module Combinators =
                         reader.Position <- pos
                         ok <- false
 
-                preturn ())
+                preturn ()
+            )
             reader
 
     let sepEndBy
@@ -755,7 +759,8 @@ module Combinators =
                         reader.Position <- pos
                         ok <- false
 
-                preturn struct (xs.ToImmutable(), seps.ToImmutable()))
+                preturn struct (xs.ToImmutable(), seps.ToImmutable())
+            )
             reader
 
     let skipSepEndBy
@@ -816,7 +821,8 @@ module Combinators =
                         reader.Position <- pos
                         ok <- false
 
-                preturn ())
+                preturn ()
+            )
             reader
 
     let manyTill
@@ -887,7 +893,8 @@ module Combinators =
 
                 match err with
                 | [] -> preturn struct (xs.ToImmutable(), endTok.Value) reader
-                | err -> ParseError.createNested ParseError.bothFailed err errPos)
+                | err -> ParseError.createNested ParseError.bothFailed err errPos
+            )
             reader
 
     let skipManyTill
@@ -954,7 +961,8 @@ module Combinators =
 
                 match err with
                 | [] -> preturn () reader
-                | err -> ParseError.createNested ParseError.bothFailed err errPos)
+                | err -> ParseError.createNested ParseError.bothFailed err errPos
+            )
             reader
 
     let inline chainl1
@@ -1048,5 +1056,6 @@ module Combinators =
                         reader.Position <- pos
                         ok <- false
 
-                preturn (xs.ToImmutable()))
+                preturn (xs.ToImmutable())
+            )
             reader

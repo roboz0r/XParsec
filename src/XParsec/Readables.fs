@@ -12,6 +12,13 @@ open XParsec
 [<Struct>]
 type ReadableStringSlice(s: string, start: int, length: int) =
     interface IReadable<char, ReadableStringSlice> with
+        member _.Item
+            with get index =
+                if index < 0L || index >= int64 length then
+                    raise (IndexOutOfRangeException())
+
+                s.[start + int index]
+
         member _.TryItem(index) =
             if index < int64 length then
                 ValueSome(s.[start + int index])
@@ -51,6 +58,13 @@ type ReadableStringSlice(s: string, start: int, length: int) =
 [<Struct>]
 type ReadableString(s: string) =
     interface IReadable<char, ReadableStringSlice> with
+        member _.Item
+            with get index =
+                if index < 0L || index >= int64 s.Length then
+                    raise (IndexOutOfRangeException())
+
+                s.[int index]
+
         member _.TryItem(index) =
             if index < int64 s.Length then
                 ValueSome(s.[int index])
@@ -88,6 +102,13 @@ type ReadableString(s: string) =
 [<Struct>]
 type ReadableArraySlice<'T>(arr: 'T array, start: int, length: int) =
     interface IReadable<'T, ReadableArraySlice<'T>> with
+        member _.Item
+            with get index =
+                if index < 0L || index >= int64 length then
+                    raise (IndexOutOfRangeException())
+
+                arr.[start + int index]
+
         member _.TryItem(index) =
             if index < int64 length then
                 ValueSome(arr.[start + int index])
@@ -131,6 +152,13 @@ type ReadableArraySlice<'T>(arr: 'T array, start: int, length: int) =
 [<Struct>]
 type ReadableArray<'T>(arr: 'T array) =
     interface IReadable<'T, ReadableArraySlice<'T>> with
+        member _.Item
+            with get index =
+                if index < 0L || index >= int64 arr.Length then
+                    raise (IndexOutOfRangeException())
+
+                arr.[int index]
+
         member _.TryItem(index) =
             if index < int64 arr.Length then
                 ValueSome(arr.[int index])
@@ -172,6 +200,13 @@ type ReadableArray<'T>(arr: 'T array) =
 [<Struct>]
 type ReadableImmutableArraySlice<'T>(arr: ImmutableArray<'T>, start: int, length: int) =
     interface IReadable<'T, ReadableImmutableArraySlice<'T>> with
+        member _.Item
+            with get index =
+                if index < 0L || index >= int64 length then
+                    raise (IndexOutOfRangeException())
+
+                arr.[start + int index]
+
         member _.TryItem(index) =
             if index < int64 length then
                 ValueSome(arr.[start + int index])
@@ -211,6 +246,13 @@ type ReadableImmutableArraySlice<'T>(arr: ImmutableArray<'T>, start: int, length
 [<Struct>]
 type ReadableImmutableArray<'T>(arr: ImmutableArray<'T>) =
     interface IReadable<'T, ReadableImmutableArraySlice<'T>> with
+        member _.Item
+            with get index =
+                if index < 0L || index >= int64 arr.Length then
+                    raise (IndexOutOfRangeException())
+
+                arr.[int index]
+
         member _.TryItem(index) =
             if index < int64 arr.Length then
                 ValueSome(arr.[int index])
@@ -249,6 +291,13 @@ type ReadableImmutableArray<'T>(arr: ImmutableArray<'T>) =
 [<Struct>]
 type ReadableResizeArraySlice<'T>(arr: ResizeArray<'T>, start: int, length: int) =
     interface IReadable<'T, ReadableResizeArraySlice<'T>> with
+        member _.Item
+            with get index =
+                if index < 0L || index >= int64 length then
+                    raise (IndexOutOfRangeException())
+
+                arr.[start + int index]
+
         member _.TryItem(index) =
             if index < int64 length then
                 ValueSome(arr.[start + int index])
@@ -293,6 +342,13 @@ type ReadableResizeArraySlice<'T>(arr: ResizeArray<'T>, start: int, length: int)
 [<Struct>]
 type ReadableResizeArray<'T>(arr: ResizeArray<'T>) =
     interface IReadable<'T, ReadableResizeArraySlice<'T>> with
+        member _.Item
+            with get index =
+                if index < 0L || index >= int64 arr.Count then
+                    raise (IndexOutOfRangeException())
+
+                arr.[int index]
+
         member _.TryItem(index) =
             if index < int64 arr.Count then
                 ValueSome(arr.[int index])
@@ -337,14 +393,28 @@ type ReadableResizeArray<'T>(arr: ResizeArray<'T>) =
 [<Struct>]
 type ReadableStreamSlice(stream: Stream, start: int64, length: int64, buffer: byte[]) =
     interface IReadable<byte, ReadableStreamSlice> with
+        member _.Item
+            with get index =
+                if index < 0L || index >= length then
+                    raise (IndexOutOfRangeException())
+
+                if stream.Position <> start + index then
+                    stream.Seek(start + index, IO.SeekOrigin.Begin) |> ignore
+
+                let b = stream.ReadByte()
+
+                if b = -1 then
+                    raise (IndexOutOfRangeException())
+
+                byte b
+
         member _.TryItem(index) =
             if index < length then
                 if stream.Position <> start + index then
                     stream.Seek(start + index, IO.SeekOrigin.Begin) |> ignore
 
-                let buffer = Array.zeroCreate<byte> 1
-                stream.Read(buffer, 0, 1) |> ignore
-                ValueSome(buffer.[0])
+                let b = stream.ReadByte()
+                if b <> -1 then ValueSome(byte b) else ValueNone
             else
                 ValueNone
 
@@ -390,6 +460,21 @@ type ReadableStreamSlice(stream: Stream, start: int64, length: int64, buffer: by
 [<Struct>]
 type ReadableStream(stream: Stream, buffer: byte[]) =
     interface IReadable<byte, ReadableStreamSlice> with
+        member _.Item
+            with get index =
+                if index < 0L || index >= stream.Length then
+                    raise (IndexOutOfRangeException())
+
+                if stream.Position <> index then
+                    stream.Seek(index, IO.SeekOrigin.Begin) |> ignore
+
+                let b = stream.ReadByte()
+
+                if b = -1 then
+                    raise (IndexOutOfRangeException())
+
+                byte b
+
         member _.TryItem(index) =
             if index < 0L then
                 invalidArg "index" "Index must be non-negative."
@@ -446,6 +531,13 @@ type ReadableStream(stream: Stream, buffer: byte[]) =
 [<Struct>]
 type ReadableMemory<'T>(memory: ReadOnlyMemory<'T>) =
     interface IReadable<'T, ReadableMemory<'T>> with
+        member _.Item
+            with get index =
+                if index < 0L || index >= int64 memory.Length then
+                    raise (IndexOutOfRangeException())
+
+                memory.Span[int index]
+
         member _.TryItem(index) =
             if index < int64 memory.Length then
                 ValueSome(memory.Span[int index])

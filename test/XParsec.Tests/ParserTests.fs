@@ -54,9 +54,11 @@ let tests =
                         do! setUserState "state"
 
                         do!
-                            updateUserState (function
+                            updateUserState (
+                                function
                                 | "state" -> "STATE"
-                                | _ -> failwith "Invalid state")
+                                | _ -> failwith "Invalid state"
+                            )
 
                         do! userStateSatisfies (fun s -> s = "STATE")
                         return state

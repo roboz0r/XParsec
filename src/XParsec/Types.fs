@@ -3,6 +3,7 @@ namespace XParsec
 open System
 
 type IReadable<'T, 'U when 'U :> IReadable<'T, 'U>> =
+    abstract Item: int64 -> 'T with get
     abstract TryItem: index: int64 -> 'T voption
     abstract SpanSlice: start: int64 * length: int -> ReadOnlySpan<'T>
     abstract Length: int64
@@ -97,6 +98,8 @@ type Reader<'T, 'State, 'Input, 'InputSlice
     member _.Current = input.TryItem(index)
     member _.AtEnd = index >= input.Length
 
+    // private as currently not used/tested
+    member private _.Slice(newStart, newLength) = input.Slice(newStart, newLength)
 
 type ErrorType<'T, 'State> =
     | Expected of 'T

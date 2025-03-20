@@ -32,7 +32,8 @@ let tests =
 
                     match result with
                     | Ok result -> "" |> Expect.equal expected result.Parsed
-                    | Error e -> failwithf "%A" e)
+                    | Error e -> failwithf "%A" e
+                )
             }
 
 
@@ -59,7 +60,8 @@ let tests =
 
                     match result with
                     | Ok result -> "" |> Expect.equal expected result.Parsed
-                    | Error e -> failwithf "%A" e)
+                    | Error e -> failwithf "%A" e
+                )
             }
 
             test "Strings" {
@@ -85,7 +87,8 @@ let tests =
 
                     match result with
                     | Ok result -> "" |> Expect.equal expected result.Parsed
-                    | Error e -> failwithf "%A" e)
+                    | Error e -> failwithf "%A" e
+                )
             }
 
             test "Arrays" {
@@ -109,7 +112,8 @@ let tests =
 
                     match result with
                     | Ok result -> "" |> Expect.equal expected result.Parsed
-                    | Error e -> failwithf "%A" e)
+                    | Error e -> failwithf "%A" e
+                )
             }
 
             test "Objects" {
@@ -163,7 +167,8 @@ let tests =
 
                     match result with
                     | Ok result -> "" |> Expect.equal expected result.Parsed
-                    | Error e -> failwithf "%A" e)
+                    | Error e -> failwithf "%A" e
+                )
             }
 
         ]
