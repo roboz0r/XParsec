@@ -1,0 +1,95 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net9.0": {
+      "Oxpecker": {
+        "type": "Direct",
+        "requested": "[1.2.0, )",
+        "resolved": "1.2.0",
+        "contentHash": "ut32Q0uHtV2o0T/dx6wld0sCNl5YQjlAMI/OkJFmDISD53VIOw44n+R/z7OzsJiGnKkig9yw4EqAJEVp1HfNrw==",
+        "dependencies": {
+          "FSharp.Core": "9.0.100",
+          "Microsoft.IO.RecyclableMemoryStream": "3.0.1",
+          "Oxpecker.ViewEngine": "1.1.0"
+        }
+      },
+      "Thoth.Json.System.Text.Json": {
+        "type": "Direct",
+        "requested": "[0.2.1, )",
+        "resolved": "0.2.1",
+        "contentHash": "fEh3IyCtTJhfS6olPsTuU0YSnl3DT755wzyz332TXY4DGIIXkHfcSZkVZ3soDKlsRCd0HvAGqs8jXrYK4+0/aw==",
+        "dependencies": {
+          "FSharp.Core": "5.0.2",
+          "Fable.Core": "4.1.0",
+          "System.Text.Json": "9.0.0",
+          "Thoth.Json.Core": "0.7.0"
+        }
+      },
+      "Microsoft.Extensions.ObjectPool": {
+        "type": "Transitive",
+        "resolved": "9.0.0",
+        "contentHash": "UbsU/gYe4nv1DeqMXIVzDfNNek7Sk2kKuAOXL/Y+sLcAR0HwFUqzg1EPiU88jeHNe0g81aPvvHbvHarQr3r9IA=="
+      },
+      "Microsoft.IO.RecyclableMemoryStream": {
+        "type": "Transitive",
+        "resolved": "3.0.1",
+        "contentHash": "s/s20YTVY9r9TPfTrN5g8zPF1YhwxyqO6PxUkrYTGI2B+OGPe9AdajWZrLhFqXIvqIW23fnUE4+ztrUWNU1+9g=="
+      },
+      "Oxpecker.ViewEngine": {
+        "type": "Transitive",
+        "resolved": "1.1.0",
+        "contentHash": "VjdtK+Bwui0nPf/T4wVWhxgGMpyt3hEjaRxtFT3HKdzlr+JbH0C1qd/SxhKsuD90jM9EJObCgPrgBdPj576HVw==",
+        "dependencies": {
+          "FSharp.Core": "9.0.100",
+          "Microsoft.Extensions.ObjectPool": "9.0.0"
+        }
+      },
+      "System.Text.Json": {
+        "type": "Transitive",
+        "resolved": "9.0.0",
+        "contentHash": "js7+qAu/9mQvnhA4EfGMZNEzXtJCDxgkgj8ohuxq/Qxv+R56G+ljefhiJHOxTNiw54q8vmABCWUwkMulNdlZ4A=="
+      },
+      "Thoth.Json.Core": {
+        "type": "Transitive",
+        "resolved": "0.7.0",
+        "contentHash": "BENcsjQMfG++NvzIUQG3xv8esB2PfUfe8ggpcNwhmqEPuJp8KORM5MCNqqwuBHZ4LOUK61L/bldFPGqr0K9sLQ==",
+        "dependencies": {
+          "FSharp.Core": "5.0.2",
+          "Fable.Core": "4.1.0"
+        }
+      },
+      "xparsec": {
+        "type": "Project",
+        "dependencies": {
+          "FSharp.Core": "[9.0.100, )",
+          "Fable.Core": "[4.3.0, )",
+          "System.Collections.Immutable": "[9.0.0, )"
+        }
+      },
+      "xparsec.json": {
+        "type": "Project",
+        "dependencies": {
+          "XParsec": "[0.0.1, )"
+        }
+      },
+      "Fable.Core": {
+        "type": "CentralTransitive",
+        "requested": "[4.3.0, )",
+        "resolved": "4.3.0",
+        "contentHash": "sbK+hYs7H7I3b3sbgttI4GlvQfNPcIqSz1qPSagF3QbVA46KJ/pWSXC/Dwv0s9M6AeRGmoqcIeD7GUaLn41zkA=="
+      },
+      "FSharp.Core": {
+        "type": "CentralTransitive",
+        "requested": "[9.0.100, )",
+        "resolved": "9.0.100",
+        "contentHash": "ye8yagHGsH08H2Twno5GRWkSbrMtxK/SWiHuPcF+3nODpW65/VJ8RO0aWxp8n9+KQbmahg90wAEL3TEXjF0r6A=="
+      },
+      "System.Collections.Immutable": {
+        "type": "CentralTransitive",
+        "requested": "[9.0.0, )",
+        "resolved": "9.0.0",
+        "contentHash": "QhkXUl2gNrQtvPmtBTQHb0YsUrDiDQ2QS09YbtTTiSjGcf7NBqtYbrG/BE06zcBPCKEwQGzIv13IVdXNOSub2w=="
+      }
+    }
+  }
+}

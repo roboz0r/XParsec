@@ -4,6 +4,16 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsAotCompatible Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))">true</IsAotCompatible>
   </PropertyGroup>
+  <PropertyGroup>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsPackable>true</IsPackable>
+    <IsTestProject>false</IsTestProject>
+
+    <!-- Sourcelink -->
+    <PublishRepositoryUrl>https://github.com/roboz0r/XParsec</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <AllowedOutputExtensionsInPackageBuildOutputFolder>$(AllowedOutputExtensionsInPackageBuildOutputFolder);.pdb</AllowedOutputExtensionsInPackageBuildOutputFolder>
+  </PropertyGroup>
   <ItemGroup>
     <Compile Include="FableTypes.fs" />
     <Compile Include="ImmutableArray.fs" />
@@ -20,9 +30,5 @@
     <PackageReference Include="Fable.Core" />
     <PackageReference Include="FSharp.Core" />
     <PackageReference Include="System.Collections.Immutable" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="$(RepoRoot)LICENSE" Pack="true" Visible="true" PackagePath="" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="$(RepoRoot)README.md" Pack="true" Visible="true" PackagePath="" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
