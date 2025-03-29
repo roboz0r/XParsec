@@ -1,0 +1,45 @@
+name: Publish to NuGet
+
+on:  
+  workflow_run:
+    workflows:
+      - build.yml
+    types:
+      - completed
+
+  push:
+    branches:
+      - main
+
+env:
+  CONFIGURATION: Release
+  NUGET_TOKEN: ${{ secrets.NUGET_TOKEN }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.x
+
+      - name: Get Package Version
+        shell: pwsh
+        run: |
+          [xml]$BuildProps = Get-Content ./Directory.Build.props
+          $PackageVersion = $BuildProps.Project.PropertyGroup.PackageVersion
+          [semver]$PackageVersion = "$PackageVersion".Trim()
+          Write-Output "Current branch is '$env:GITHUB_REF_NAME'"
+          Write-Output "Creating Packages with version='$PackageVersion'"
+          Write-Output "PACKAGE_VERSION=$PackageVersion" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Pack Published Projects
+        shell: pwsh
+        run: |
+          dotnet restore
+          dotnet list package
+          dotnet pack
+          dotnet nuget push "./src/XParsec/bin/Release/XParsec.$env:PACKAGE_VERSION.nupkg" --api-key $env:NUGET_TOKEN --skip-duplicate

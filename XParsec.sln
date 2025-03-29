@@ -49,6 +49,12 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "XParsec.Client", "interacti
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "XParsec.Server", "interactive\XParsec.Server\XParsec.Server.fsproj", "{23176331-0D4B-4653-A8EA-1A1411396585}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "GitHub Actions", "GitHub Actions", "{8E62393D-2DF9-4609-A341-A51DA07E4917}"
+	ProjectSection(SolutionItems) = preProject
+		.github\workflows\build.yml = .github\workflows\build.yml
+		.github\workflows\publish.yml = .github\workflows\publish.yml
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
