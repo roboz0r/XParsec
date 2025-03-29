@@ -2,8 +2,7 @@ name: Publish to NuGet
 
 on:  
   workflow_run:
-    workflows:
-      - build.yml
+    workflows: [Build main]
     types:
       - completed
 
