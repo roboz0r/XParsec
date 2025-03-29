@@ -7,10 +7,6 @@ on:
     types:
       - completed
 
-  push:
-    branches:
-      - main
-
 env:
   CONFIGURATION: Release
   NUGET_TOKEN: ${{ secrets.NUGET_TOKEN }}
@@ -42,4 +38,4 @@ jobs:
           dotnet restore
           dotnet list package
           dotnet pack
-          dotnet nuget push "./src/XParsec/bin/Release/XParsec.$env:PACKAGE_VERSION.nupkg" --api-key $env:NUGET_TOKEN --skip-duplicate
+          dotnet nuget push "./src/XParsec/bin/Release/XParsec.$env:PACKAGE_VERSION.nupkg" --api-key $env:NUGET_TOKEN --source "nuget.org" --skip-duplicate
