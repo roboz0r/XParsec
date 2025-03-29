@@ -1,0 +1,42 @@
+name: Build main
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+        os: [ubuntu-latest, windows-latest, macOS-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup necessary dotnet SDKs
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.x
+
+      - name: Build via Bash
+        if: runner.os != 'Windows'
+        run: |
+          dotnet build
+          dotnet test
+        env:
+          CONFIGURATION: ${{ matrix.configuration }}
+          CI: true
+      - name: Build via Windows
+        if: runner.os == 'Windows'
+        run: |
+          dotnet build
+          dotnet test
+        env:
+          CONFIGURATION: ${{ matrix.configuration }}
+          CI: true
