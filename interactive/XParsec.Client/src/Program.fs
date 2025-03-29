@@ -8,8 +8,6 @@ open XParsec.Client.App
 // HMR doesn't work in Root for some reason
 [<SolidComponent>]
 let Root () =
-    Router() {
-        Route(path = "/", component' = App)
-    }
+    Router() { Route(path = "/", component' = App) }
 
 render (Root, document.getElementById "root")

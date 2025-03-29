@@ -15,6 +15,8 @@ open type Microsoft.AspNetCore.Http.TypedResults
 open System.Text.Json
 open Serialization
 
+#nowarn FS3511 // This state machine is not statically compilable
+
 let handler = ConsoleErrorHandler()
 
 let parse (ctx: HttpContext) : Task =
