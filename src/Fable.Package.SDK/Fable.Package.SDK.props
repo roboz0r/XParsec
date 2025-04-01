@@ -1,0 +1,20 @@
+<!-- Properties placed in this file can be overridden by the consuming project -->
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <!--
+        Good practices for improving developers experience inside their editors, specifically
+        enabling Go To Definition (F12 in most editors) to work on your library's code.
+    -->
+    <PropertyGroup>
+        <!-- Ensure debugging information is easily found, so that editors can locate the source
+            code locations for your library. This slightly increases the size of your package, but the
+            usability benefits are worth it. -->
+        <DebugType>embedded</DebugType>
+        <!-- Ensure that files that are generated during the build by the .NET SDK are also included
+            in your compiled library. -->
+        <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    </PropertyGroup>
+    <!-- Enable the generation of XML documentation files -->
+    <PropertyGroup>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    </PropertyGroup>
+</Project>

@@ -173,7 +173,6 @@
         "type": "Project",
         "dependencies": {
           "FSharp.Core": "[9.0.201, )",
-          "Fable.Core": "[4.5.0, )",
           "System.Collections.Immutable": "[9.0.3, )"
         }
       },

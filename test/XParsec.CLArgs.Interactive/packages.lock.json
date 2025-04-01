@@ -18,7 +18,6 @@
         "type": "Project",
         "dependencies": {
           "FSharp.Core": "[9.0.201, )",
-          "Fable.Core": "[4.5.0, )",
           "System.Collections.Immutable": "[9.0.3, )"
         }
       },
@@ -26,14 +25,8 @@
         "type": "Project",
         "dependencies": {
           "System.Collections.Immutable": "[9.0.3, )",
-          "XParsec": "[0.0.1, )"
+          "XParsec": "[0.0.2, )"
         }
-      },
-      "Fable.Core": {
-        "type": "CentralTransitive",
-        "requested": "[4.5.0, )",
-        "resolved": "4.5.0",
-        "contentHash": "ZcX8XN5sQZGCbrS8VYnsa/ynhrCBfpDyqDkTl33GTXOpgfKibxoq0+W0hCSbRzuukVNoLtqGL/B6+8yTNDXbNA=="
       },
       "FSharp.Core": {
         "type": "CentralTransitive",

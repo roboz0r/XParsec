@@ -1,7 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFrameworks>net8.0;netstandard2.0</TargetFrameworks>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsAotCompatible Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))">true</IsAotCompatible>
   </PropertyGroup>
   <PropertyGroup>
@@ -11,7 +10,11 @@
     <!-- Sourcelink -->
     <PublishRepositoryUrl>https://github.com/roboz0r/XParsec</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
-    <AllowedOutputExtensionsInPackageBuildOutputFolder>$(AllowedOutputExtensionsInPackageBuildOutputFolder);.pdb</AllowedOutputExtensionsInPackageBuildOutputFolder>
+  </PropertyGroup>
+  <PropertyGroup>
+    <!-- Fable.Package.SDK required properties -->
+    <PackageTags>$(PackageTags);f#;fable;fable-library;fable-javascript;fable-dotnet</PackageTags>
+    <FablePackageType>library</FablePackageType>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="FableTypes.fs" />
@@ -26,8 +29,15 @@
     <Compile Include="ErrorHandling.fs" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Fable.Core" />
+    <!-- Pending https://github.com/fable-compiler/Fable.Package.SDK/issues/11 -->
+    <!-- <PackageReference Include="Fable.Package.SDK"> -->
+      <!-- <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets> -->
+      <!-- <PrivateAssets>all</PrivateAssets> -->
+    <!-- </PackageReference> -->
     <PackageReference Include="FSharp.Core" />
     <PackageReference Include="System.Collections.Immutable" />
   </ItemGroup>
+
+  <Import Project="../Fable.Package.SDK/Fable.Package.SDK.props" />
+  <Import Project="../Fable.Package.SDK/Fable.Package.SDK.targets" />
 </Project>
