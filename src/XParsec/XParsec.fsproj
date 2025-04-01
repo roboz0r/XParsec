@@ -1,7 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFrameworks>net8.0;netstandard2.0</TargetFrameworks>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsAotCompatible Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))">true</IsAotCompatible>
   </PropertyGroup>
   <PropertyGroup>
@@ -11,7 +10,11 @@
     <!-- Sourcelink -->
     <PublishRepositoryUrl>https://github.com/roboz0r/XParsec</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
-    <AllowedOutputExtensionsInPackageBuildOutputFolder>$(AllowedOutputExtensionsInPackageBuildOutputFolder);.pdb</AllowedOutputExtensionsInPackageBuildOutputFolder>
+    <AllowedOutputExtensionsInPackageBuildOutputFolder>$(AllowedOutputExtensionsInPackageBuildOutputFolder);.pdb;.fs</AllowedOutputExtensionsInPackageBuildOutputFolder>
+  </PropertyGroup>
+  <PropertyGroup>
+    <PackageTags>f#;fable;fable-javascript;fable-dotnet</PackageTags>
+    <!-- <FablePackageType>library</FablePackageType> -->
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="FableTypes.fs" />
@@ -27,6 +30,10 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Fable.Core" />
+    <PackageReference Include="Fable.Package.SDK"> <!--  Why isnt this working? -->
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
     <PackageReference Include="FSharp.Core" />
     <PackageReference Include="System.Collections.Immutable" />
   </ItemGroup>

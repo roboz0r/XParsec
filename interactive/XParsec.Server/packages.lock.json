@@ -69,7 +69,7 @@
       "xparsec.json": {
         "type": "Project",
         "dependencies": {
-          "XParsec": "[0.0.1, )"
+          "XParsec": "[0.0.2, )"
         }
       },
       "Fable.Core": {

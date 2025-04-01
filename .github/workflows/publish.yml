@@ -34,7 +34,8 @@ jobs:
       - name: Pack Published Projects
         shell: pwsh
         run: |
-          dotnet restore
-          dotnet list package
-          dotnet pack
+          $Project = "./src/XParsec/XParsec.fsproj" 
+          dotnet restore $Project
+          dotnet list $Project package
+          dotnet pack $Project
           dotnet nuget push "./src/XParsec/bin/Release/XParsec.$env:PACKAGE_VERSION.nupkg" --api-key $env:NUGET_TOKEN --source "nuget.org" --skip-duplicate
