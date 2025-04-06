@@ -4,6 +4,8 @@ open System
 open System.Collections.Immutable
 open XParsec
 
+/// Operator precedence is used to determine the order of operations in expressions.
+/// Operators with higher precedence are evaluated first, resulting in the higher value appearing in the inner expression.
 type Precedence =
     | P1
     | P2
@@ -156,6 +158,9 @@ type Operator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
     | RHS of RHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>
     | LHS of LHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>
 
+/// A collection of operators used for parsing expressions.
+/// It contains both left-hand side (LHS) and right-hand side (RHS) operators, along with their associated parsers.
+/// Use `Operator.create` to create an instance of this type.
 type Operators<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
     when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
     internal
@@ -305,6 +310,7 @@ module internal Pratt =
 
             | Error e -> ParseError.createNested failure [ e; e0 ] pos
 
+/// Provides functions to create and parse expressions using operators.
 module Operator =
 
     type internal OperatorLookupBuilder<'Key, 'Value when 'Key: equality>() =
@@ -381,6 +387,8 @@ module Operator =
     let private powerForSort op =
         ((int (leftPower op)) <<< 8) &&& (int (rightPower op))
 
+    /// Creates an `Operators` instance from a collection of operators.
+    /// The returned instance can be used to parse expressions using the defined operators.
     let create (ops: Operator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice> seq) =
         let lhsOps = OperatorLookupBuilder()
         let mutable lhsParsers = []
@@ -417,34 +425,43 @@ module Operator =
             RhsParser = choiceL rhsParsers "RHS did not match any known operator"
         }
 
+    /// Creates a left-associative infix operator with the specified properties.
     let infixLeftAssoc op power parseOp complete =
         let power = Precedence.value power
         RHS(InfixLeft(op, parseOp, power, complete))
 
+    /// Creates a right-associative infix operator with the specified properties.
     let infixRightAssoc op power parseOp complete =
         let power = Precedence.value power
         RHS(InfixRight(op, parseOp, power + 1uy, complete))
 
+    /// Creates a prefix operator with the specified properties.
     let prefix op power parseOp complete =
         let power = Precedence.value power
         LHS(Prefix(op, parseOp, power, complete))
 
+    /// Creates a postfix operator with the specified properties.
     let postfix op power parseOp complete =
         let power = Precedence.value power
         RHS(Postfix(op, parseOp, power, complete))
 
+    /// Creates an operator defining a pair of brackets with the specified properties.
     let brackets op closeOp power parseOp parseCloseOp complete =
         let power = Precedence.value power
         LHS(Brackets(op, parseOp, power, closeOp, parseCloseOp, complete))
 
+    /// Creates an indexer operator with the specified properties.
     let indexer op closeOp power parseOp innerParser parseCloseOp complete =
         let power = Precedence.value power
         RHS(Indexer(op, parseOp, power, closeOp, parseCloseOp, innerParser, complete))
 
+    /// Creates a ternary operator with the specified properties.
+    /// Ternary operators are always right associative.
     let ternary op power parseOp parseTernaryOp complete =
         let power = Precedence.value power
         RHS(Ternary(op, parseOp, power + 1uy, parseTernaryOp, complete))
 
+    /// Parses an expression using the provided expression parser and operator definitions.
     let parser
         (pExpr: Parser<'Expr, _, _, _, _>)
         (operators: Operators<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>)

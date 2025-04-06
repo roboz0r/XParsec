@@ -9,6 +9,7 @@ open System.Runtime.InteropServices
 
 open XParsec
 
+/// A string slice that can be read as input by the parser.
 [<Struct>]
 type ReadableStringSlice(s: string, start: int, length: int) =
     interface IReadable<char, ReadableStringSlice> with
@@ -55,6 +56,7 @@ type ReadableStringSlice(s: string, start: int, length: int) =
                 let newLength = min newLength (int64 s.Length - newStart) |> int
                 ReadableStringSlice(s, start + (int newStart), newLength)
 
+/// A string that can be read as input by the parser.
 [<Struct>]
 type ReadableString(s: string) =
     interface IReadable<char, ReadableStringSlice> with
@@ -99,6 +101,7 @@ type ReadableString(s: string) =
                 let newLength = min newLength (int64 s.Length - newStart) |> int
                 ReadableStringSlice(s, int newStart, newLength)
 
+/// An array slice that can be read as input by the parser.
 [<Struct>]
 type ReadableArraySlice<'T>(arr: 'T array, start: int, length: int) =
     interface IReadable<'T, ReadableArraySlice<'T>> with
@@ -149,6 +152,7 @@ type ReadableArraySlice<'T>(arr: 'T array, start: int, length: int) =
                 let newLength = min newLength (int64 arr.Length - newStart) |> int
                 ReadableArraySlice(arr, start + (int newStart), newLength)
 
+/// An array that can be read as input by the parser.
 [<Struct>]
 type ReadableArray<'T>(arr: 'T array) =
     interface IReadable<'T, ReadableArraySlice<'T>> with
@@ -197,6 +201,7 @@ type ReadableArray<'T>(arr: 'T array) =
                 let newLength = min newLength (int64 arr.Length - newStart) |> int
                 ReadableArraySlice(arr, int newStart, newLength)
 
+/// An immutable array slice that can be read as input by the parser.
 [<Struct>]
 type ReadableImmutableArraySlice<'T>(arr: ImmutableArray<'T>, start: int, length: int) =
     interface IReadable<'T, ReadableImmutableArraySlice<'T>> with
@@ -243,6 +248,7 @@ type ReadableImmutableArraySlice<'T>(arr: ImmutableArray<'T>, start: int, length
                 let newLength = min newLength (int64 arr.Length - newStart) |> int
                 ReadableImmutableArraySlice(arr, start + (int newStart), newLength)
 
+/// An immutable array that can be read as input by the parser.
 [<Struct>]
 type ReadableImmutableArray<'T>(arr: ImmutableArray<'T>) =
     interface IReadable<'T, ReadableImmutableArraySlice<'T>> with
@@ -288,6 +294,7 @@ type ReadableImmutableArray<'T>(arr: ImmutableArray<'T>) =
                 ReadableImmutableArraySlice(arr, int newStart, newLength)
 
 #if NET5_0_OR_GREATER // No good way to get a span from a ResizeArray in .NET Standard 2.0
+/// A ResizeArray slice that can be read as input by the parser.
 [<Struct>]
 type ReadableResizeArraySlice<'T>(arr: ResizeArray<'T>, start: int, length: int) =
     interface IReadable<'T, ReadableResizeArraySlice<'T>> with
@@ -339,6 +346,7 @@ type ReadableResizeArraySlice<'T>(arr: ResizeArray<'T>, start: int, length: int)
                 let newLength = min newLength (int64 arr.Count - newStart) |> int
                 ReadableResizeArraySlice(arr, start + (int newStart), newLength)
 
+/// A ResizeArray that can be read as input by the parser.
 [<Struct>]
 type ReadableResizeArray<'T>(arr: ResizeArray<'T>) =
     interface IReadable<'T, ReadableResizeArraySlice<'T>> with
@@ -390,6 +398,7 @@ type ReadableResizeArray<'T>(arr: ResizeArray<'T>) =
 #endif
 
 #if !FABLE_COMPILER
+/// A stream slice that can be read as input by the parser.
 [<Struct>]
 type ReadableStreamSlice(stream: Stream, start: int64, length: int64, buffer: byte[]) =
     interface IReadable<byte, ReadableStreamSlice> with
@@ -457,6 +466,7 @@ type ReadableStreamSlice(stream: Stream, start: int64, length: int64, buffer: by
                 let newLength = min newLength (stream.Length - newStart) |> int
                 ReadableStreamSlice(stream, newStart, newLength, buffer)
 
+/// A stream that can be read as input by the parser.
 [<Struct>]
 type ReadableStream(stream: Stream, buffer: byte[]) =
     interface IReadable<byte, ReadableStreamSlice> with
@@ -528,6 +538,7 @@ type ReadableStream(stream: Stream, buffer: byte[]) =
                 let newLength = min newLength (stream.Length - newStart)
                 ReadableStreamSlice(stream, newStart, newLength, buffer)
 
+/// A memory slice that can be read as input by the parser.
 [<Struct>]
 type ReadableMemory<'T>(memory: ReadOnlyMemory<'T>) =
     interface IReadable<'T, ReadableMemory<'T>> with
@@ -576,18 +587,24 @@ type ReadableMemory<'T>(memory: ReadOnlyMemory<'T>) =
 #endif
 
 module Reader =
+    /// Creates a new reader from the input string and state.
     let ofString (s: string) state = Reader(ReadableString s, state, 0L)
+
+    /// Creates a new reader from the input array and state.
     let ofArray (a: 'T array) state = Reader(ReadableArray a, state, 0L)
 
+    /// Creates a new reader from the input immutable array and state.
     let ofImmutableArray (a: ImmutableArray<'T>) state =
         Reader(ReadableImmutableArray a, state, 0L)
 
 #if NET5_0_OR_GREATER
+    /// Creates a new reader from the input resize array and state.
     let ofResizeArray (a: ResizeArray<'T>) state =
         Reader(ReadableResizeArray a, state, 0L)
 #endif
 
 #if !FABLE_COMPILER
+    /// Creates a new reader from the input stream and state.
     let ofStream (stream: Stream) bufferSize state =
         Reader(ReadableStream(stream, Array.zeroCreate<byte> bufferSize), state, 0L)
 #endif

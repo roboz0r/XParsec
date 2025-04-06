@@ -2,6 +2,11 @@ namespace XParsec
 
 open System
 
+/// <summary>
+/// A type that can be read from, representing the input to a parser.
+/// Implement this interface to create your own input types.
+/// Use the Reader module for common input types like string, array, etc.
+/// </summary>
 type IReadable<'T, 'U when 'U :> IReadable<'T, 'U>> =
     abstract Item: int64 -> 'T with get
     abstract TryItem: index: int64 -> 'T voption
@@ -36,6 +41,10 @@ type Position<'State> =
         State: 'State
     }
 
+/// <summary>
+/// A cursor that tracks the current position in the input and the user state.
+/// It is used by the parser to read from the input and manage state.
+/// </summary>
 [<Sealed>]
 type Reader<'T, 'State, 'Input, 'InputSlice
     when 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>>

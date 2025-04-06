@@ -5,45 +5,66 @@ open System.Collections.Immutable
 
 module Parsers =
 
+    /// Always succeeds and returns the given value.
+    /// This parser does not consume any input.
     let preturn x (reader: Reader<'T, 'State, 'Input, 'InputSlice>) : ParseResult<'Parsed, 'T, 'State> =
         ParseSuccess.create x
 
+    /// Always fails with the zero error.
+    /// This parser does not consume any input.
     let pzero (reader: Reader<'T, 'State, 'Input, 'InputSlice>) : ParseResult<'Parsed, 'T, 'State> =
         ParseError.create ParseError.zero reader.Position
 
+    /// Always fails with the given error.
+    /// This parser does not consume any input.
     let fail x (reader: Reader<'T, 'State, 'Input, 'InputSlice>) : ParseResult<'Parsed, 'T, 'State> =
         ParseError.create x reader.Position
 
+    /// Return the current user state.
+    /// This parser does not consume any input.
     let getUserState (reader: Reader<'T, 'State, 'Input, 'InputSlice>) = preturn reader.State reader
 
+    /// Set the user state to the given value.
+    /// This parser does not consume any input.
     let setUserState state (reader: Reader<'T, 'State, 'Input, 'InputSlice>) =
         reader.State <- state
         preturn () reader
 
+    /// Update the user state using the given function.
+    /// This parser does not consume any input.
     let updateUserState mapper (reader: Reader<'T, 'State, 'Input, 'InputSlice>) =
         let state = reader.State
         let newState = mapper state
         reader.State <- newState
         preturn () reader
 
+    /// Succeeds if the user state satisfies the given predicate.
+    /// This parser does not consume any input.
     let inline userStateSatisfies ([<InlineIfLambda>] predicate) (reader: Reader<'T, 'State, 'Input, 'InputSlice>) =
         if predicate reader.State then
             preturn () reader
         else
             fail ParseError.wrongUserState reader
 
+    /// Return the current Reader position.
+    /// This parser does not consume any input.
     let getPosition (reader: Reader<'T, 'State, 'Input, 'InputSlice>) = preturn reader.Position reader
 
+    /// Set the Reader position to the given value.
+    /// An exception is thrown if the ReaderId is inconsistent with the Reader.
     let setPosition (position: Position<_>) (reader: Reader<'T, 'State, 'Input, 'InputSlice>) =
         reader.Position <- position
         preturn () reader
 
+    /// Succeeds if the Reader position is at the end of the input.
+    /// This parser does not consume any input.
     let inline eof (reader: Reader<'T, 'State, 'Input, 'InputSlice>) =
         if reader.AtEnd then
             preturn () reader
         else
             fail ParseError.expectedEnd reader
 
+    /// Succeeds if the Reader position is not at the end of the input, and consumes one item.
     let inline pid (reader: Reader<'T, 'State, 'Input, 'InputSlice>) =
         match reader.TryRead() with
         | ValueSome(x) -> preturn x reader
@@ -150,6 +171,8 @@ module Parsers =
                         fail (ExpectedSeq xs) reader
 #endif
 
+    /// Succeeds if the predicate is satisfied by the next item in the input, and consumes one item.
+    /// Returns the item if the predicate is satisfied, otherwise fails with the Unexpected item.
     let inline satisfy ([<InlineIfLambda>] f: 'T -> bool) (reader: Reader<'T, 'State, 'Input, 'InputSlice>) =
         match reader.Peek() with
         | ValueSome(t) ->
@@ -160,6 +183,8 @@ module Parsers =
                 fail (Unexpected t) reader
         | ValueNone -> fail EndOfInput reader
 
+    /// Succeeds if the predicate is satisfied by the next item in the input, and consumes one item.
+    /// Returns the item if the predicate is satisfied, otherwise fails with the given message.
     let inline satisfyL ([<InlineIfLambda>] f: 'T -> bool) msg (reader: Reader<'T, 'State, 'Input, 'InputSlice>) =
         match reader.Peek() with
         | ValueSome(t) ->
@@ -170,7 +195,9 @@ module Parsers =
                 fail (Message msg) reader
         | ValueNone -> fail EndOfInput reader
 
-    let inline itemReturn (x: 'T) (result) (reader: Reader<'T, 'State, 'Input, 'InputSlice>) =
+    /// Succeeds if the next item in the input is equal to the given item, and consumes one item.
+    /// Returns the item if it is equal to the given item, otherwise fails with the Expected item.
+    let inline itemReturn (x: 'T) result (reader: Reader<'T, 'State, 'Input, 'InputSlice>) =
         match reader.Peek() with
         | ValueSome(xI) ->
             if x = xI then
@@ -180,12 +207,18 @@ module Parsers =
                 fail (Expected x) reader
         | ValueNone -> fail EndOfInput reader
 
+    /// Succeeds if the next item in the input is equal to the given item, and consumes one item.
+    /// Returns unit, otherwise fails with the Expected item.
     let inline skipItem (x: 'T) (reader: Reader<'T, 'State, 'Input, 'InputSlice>) = itemReturn x () reader
 
+    /// Succeeds if the next item in the input is equal to the given item, and consumes one item.
+    /// Returns the item, otherwise fails with the Expected item.
     let inline pitem (x: 'T) (reader: Reader<'T, 'State, 'Input, 'InputSlice>) = itemReturn x x reader
 
+    /// Succeeds if the next item in the input is equal to any of the given items, and consumes one item.
+    /// Returns the item, otherwise fails with the Unexpected item.
     let inline anyOf (xs: 'T seq) =
-            match xs with
+        match xs with
         | :? ('T array) as xs -> Internal.anyOf Array.contains xs
         | :? ('T ResizeArray) as xs -> Internal.anyOf (fun c (xs: ResizeArray<_>) -> xs.Contains c) xs
         | :? (ImmutableArray<'T>) as xs -> Internal.anyOf (fun c (xs: ImmutableArray<_>) -> xs.Contains c) xs
@@ -196,8 +229,10 @@ module Parsers =
             Internal.anyOf Array.contains arr
 
 
+    /// Succeeds if the next item in the input is equal to any of the given items, and consumes one item.
+    /// Returns unit, otherwise fails with the Unexpected item.
     let inline skipAnyOf (xs: 'T seq) =
-            match xs with
+        match xs with
         | :? ('T array) as xs -> Internal.skipAnyOf Array.contains xs
         | :? ('T ResizeArray) as xs -> Internal.skipAnyOf (fun c (xs: ResizeArray<_>) -> xs.Contains c) xs
         | :? (ImmutableArray<'T>) as xs -> Internal.skipAnyOf (fun c (xs: ImmutableArray<_>) -> xs.Contains c) xs
@@ -208,8 +243,10 @@ module Parsers =
             Internal.skipAnyOf Array.contains arr
 
 
+    /// Succeeds if the next item in the input is equal to none of the given items, and consumes one item.
+    /// Returns the item, otherwise fails with the Unexpected item.
     let inline noneOf (xs: 'T seq) =
-            match xs with
+        match xs with
         | :? ('T array) as xs -> Internal.noneOf Array.contains xs
         | :? ('T ResizeArray) as xs -> Internal.noneOf (fun c (xs: ResizeArray<_>) -> xs.Contains c) xs
         | :? (ImmutableArray<'T>) as xs -> Internal.noneOf (fun c (xs: ImmutableArray<_>) -> xs.Contains c) xs
@@ -220,8 +257,10 @@ module Parsers =
             Internal.noneOf Array.contains arr
 
 
+    /// Succeeds if the next item in the input is equal to none of the given items, and consumes one item.
+    /// Returns unit, otherwise fails with the Unexpected item.
     let inline skipNoneOf (xs: 'T seq) =
-            match xs with
+        match xs with
         | :? ('T array) as xs -> Internal.skipNoneOf Array.contains xs
         | :? ('T ResizeArray) as xs -> Internal.skipNoneOf (fun c (xs: ResizeArray<_>) -> xs.Contains c) xs
         | :? (ImmutableArray<'T>) as xs -> Internal.skipNoneOf (fun c (xs: ImmutableArray<_>) -> xs.Contains c) xs
@@ -232,9 +271,11 @@ module Parsers =
             Internal.skipNoneOf Array.contains arr
 
 
+    /// Succeeds if the next item in the input is in the given range (inclusive), and consumes one item.
+    /// Returns the item, otherwise fails with the Unexpected item.
     let inline anyInRange xMin xMax (reader: Reader<'T, 'State, 'Input, 'InputSlice>) =
         match reader.Peek() with
-        | ValueSome(c) ->
+        | ValueSome c ->
             if c >= xMin && c <= xMax then
                 reader.Skip()
                 preturn c reader
@@ -242,9 +283,11 @@ module Parsers =
                 fail (Unexpected c) reader
         | ValueNone -> fail EndOfInput reader
 
+    /// Succeeds if the next item in the input is in the given range (inclusive), and consumes one item.
+    /// Returns unit, otherwise fails with the Unexpected item.
     let inline skipAnyInRange xMin xMax (reader: Reader<'T, 'State, 'Input, 'InputSlice>) =
         match reader.Peek() with
-        | ValueSome(c) ->
+        | ValueSome c ->
             if c >= xMin && c <= xMax then
                 reader.Skip()
                 preturn () reader

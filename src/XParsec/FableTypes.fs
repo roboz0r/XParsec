@@ -74,6 +74,7 @@ type StringSpan(string: string, start: int, length: int) =
 namespace System.Collections.Immutable
 
 open System
+open System.Runtime.CompilerServices
 
 [<StructuralEquality; StructuralComparison>]
 type ImmutableArray<'T> =
@@ -104,6 +105,11 @@ type ImmutableArray =
     static member inline CreateRange<'T>(xs: 'T seq) = { Array = Array.ofSeq<'T> xs }
     static member inline CreateBuilder<'T>() = ResizeArray<'T>()
     static member inline CreateBuilder<'T>(initialCapacity: int) = ResizeArray<'T>(initialCapacity)
+
+[<Extension>]
+type ImmutableArrayExtensions =
+    [<Extension>]
+    static member Contains<'T when 'T: equality>(array: ImmutableArray<'T>, x: 'T) = Array.contains x array.Array
 #endif
 
 #if FABLE_COMPILER
@@ -115,6 +121,39 @@ open System.Collections.Immutable
 [<Extension>]
 type MemoryExtensions =
     static member SequenceEqual<'T when 'T: equality>(x: ReadOnlySpan<'T>, y: ReadOnlySpan<'T>) =
+        if x.Length <> y.Length then
+            false
+        else
+            let rec f i =
+                if i = x.Length then true
+                elif x[i] = y[i] then f (i + 1)
+                else false
+
+            f 0
+
+    static member SequenceEqual<'T when 'T: equality>(x: ReadOnlySpan<'T>, y: Span<'T>) =
+        if x.Length <> y.Length then
+            false
+        else
+            let rec f i =
+                if i = x.Length then true
+                elif x[i] = y[i] then f (i + 1)
+                else false
+
+            f 0
+
+    static member SequenceEqual<'T when 'T: equality>(x: Span<'T>, y: ReadOnlySpan<'T>) =
+        if x.Length <> y.Length then
+            false
+        else
+            let rec f i =
+                if i = x.Length then true
+                elif x[i] = y[i] then f (i + 1)
+                else false
+
+            f 0
+
+    static member SequenceEqual<'T when 'T: equality>(x: Span<'T>, y: Span<'T>) =
         if x.Length <> y.Length then
             false
         else

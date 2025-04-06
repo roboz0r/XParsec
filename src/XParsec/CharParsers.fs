@@ -1,3 +1,5 @@
+/// Defines parsers for characters and strings.
+/// These parsers are more optimized for working with strings than the general parsers in `XParsec.Parsers`.
 module XParsec.CharParsers
 
 open System

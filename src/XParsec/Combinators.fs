@@ -7,7 +7,9 @@ open System.Collections.Immutable
 module Combinators =
     open Parsers
 
-    let inline (>>=)
+    /// Applies the parser `p` and, if it succeeds, computes the parser `p2` of `binder` with the result of `p`.
+    /// Finally, it returns the result of `p2`.
+    let inline bind
         ([<InlineIfLambda>] p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         ([<InlineIfLambda>] binder: 'A -> Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
         (reader: Reader<_, _, _, _>)
@@ -18,6 +20,11 @@ module Combinators =
             p2 reader
         | Error err -> Error err
 
+    /// Applies the parser `p` and, if it succeeds, computes the parser `p2` of `binder` with the result of `p`.
+    /// Finally, it returns the result of `p2`.
+    let inline (>>=) p binder = bind p binder
+
+    /// Applies the parser `p` and, if it succeeds, returns the value `x`.
     let inline (>>%)
         ([<InlineIfLambda>] p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         x
@@ -27,6 +34,7 @@ module Combinators =
         | Ok success -> preturn x reader
         | Error err -> Error err
 
+    /// Applies the parsers `p1` and `p2` in sequence. If both succeed, returns the result of `p2`.
     let inline (>>.)
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         ([<InlineIfLambda>] p2: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -36,6 +44,7 @@ module Combinators =
         | Ok success -> p2 reader
         | Error err -> Error err
 
+    /// Applies the parsers `p1` and `p2` in sequence. If both succeed, returns the result of `p1`.
     let inline (.>>)
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         ([<InlineIfLambda>] p2: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -48,6 +57,7 @@ module Combinators =
             | Error err -> Error err
         | Error err -> Error err
 
+    /// Applies the parsers `p1` and `p2` in sequence. If both succeed, returns the result of `p1` and `p2`.
     let inline (.>>.)
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         ([<InlineIfLambda>] p2: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -60,6 +70,7 @@ module Combinators =
             | Error err -> Error err
         | Error err -> Error err
 
+    /// Applies the parsers `pOpen`, `p` and `pClose` in sequence. If all succeed, returns the result of `p`.
     let inline between
         ([<InlineIfLambda>] pOpen: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         ([<InlineIfLambda>] pClose: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -76,13 +87,14 @@ module Combinators =
             | Error err -> Error err
         | Error err -> Error err
 
+    /// Applies the parser `p` and, if it succeeds, computes the function `mapping` with the result of `p`.
     let inline (|>>)
         ([<InlineIfLambda>] p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
-        ([<InlineIfLambda>] map: 'A -> 'B)
+        ([<InlineIfLambda>] mapping: 'A -> 'B)
         (reader: Reader<_, _, _, _>)
         =
         match p reader with
-        | Ok success -> preturn (map success.Parsed) reader
+        | Ok success -> preturn (mapping success.Parsed) reader
         | Error err -> Error err
 
     [<Sealed>]
@@ -107,8 +119,10 @@ module Combinators =
             finally
                 ff ()
 
+    /// A computation expression builder for parsers.
     let parser = ParserCE()
 
+    /// Applies the parsers `p1` and `p2` in sequence. If both succeed, returns the result of `f` applied to the results of `p1` and `p2`.
     let inline pipe2
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         ([<InlineIfLambda>] p2: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -122,6 +136,7 @@ module Combinators =
             | Error err -> Error err
         | Error err -> Error err
 
+    /// Applies the 3 parsers in sequence. If both succeed, returns the result of `f` applied to the results of the parsers.
     let inline pipe3
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         ([<InlineIfLambda>] p2: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -139,6 +154,7 @@ module Combinators =
             | Error err -> Error err
         | Error err -> Error err
 
+    /// Applies the 4 parsers in sequence. If all succeed, returns the result of `f` applied to the results of the parsers.
     let inline pipe4
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         ([<InlineIfLambda>] p2: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -154,6 +170,7 @@ module Combinators =
             return f s1 s2 s3 s4
         }
 
+    /// Applies the 5 parsers in sequence. If all succeed, returns the result of `f` applied to the results of the parsers.
     let inline pipe5
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         ([<InlineIfLambda>] p2: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -171,6 +188,7 @@ module Combinators =
             return f s1 s2 s3 s4 s5
         }
 
+    /// Applies the parser `p1` and, if it fails, applies the parser `p2`. Returns the result of the first parser that succeeds, or both errors if both fail.
     let inline (<|>)
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         ([<InlineIfLambda>] p2: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
@@ -187,6 +205,12 @@ module Combinators =
             | Ok s2 -> Ok s2
             | Error err2 -> ParseError.createNested ParseError.bothFailed [ err1; err2 ] p
 
+    /// <summary>
+    /// Applies the parsers `ps` in order. Returns the result of the first parser that succeeds, or all errors if all fail.
+    /// </summary>
+    /// <remarks>
+    /// Accumulating all errors may be costly, prefer `choiceL` if the errors are not needed.
+    /// </remarks>
     let choice (ps: Parser<'A, 'T, 'State, 'Input, 'InputSlice> seq) : Parser<'A, 'T, 'State, 'Input, 'InputSlice> =
         let parsers = ps |> Seq.toArray
 
@@ -206,9 +230,10 @@ module Combinators =
                 i <- i + 1
 
             match success with
-            | ValueNone -> ParseError.createNested ParseError.allChoicesFailed [ yield! errs ] p
+            | ValueNone -> ParseError.createNested ParseError.allChoicesFailed (List.ofSeq errs) p
             | ValueSome x -> Ok x
 
+    /// Applies the parsers `ps` in order. Returns the result of the first parser that succeeds, or fails with the given message if all fail.
     let choiceL
         (ps: Parser<'A, 'T, 'State, 'Input, 'InputSlice> seq)
         message
@@ -231,9 +256,11 @@ module Combinators =
             | ValueNone -> fail (Message message) reader
             | ValueSome x -> Ok x
 
+    /// Applies the parser `p1` and, if it fails, returns the value `x`.
+    /// If `p1` succeeds, the input is consumed. If `p1` fails, no input is consumed.
     let inline (<|>%)
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
-        (x)
+        x
         (reader: Reader<_, _, _, _>)
         =
         let p = reader.Position
@@ -244,6 +271,8 @@ module Combinators =
             reader.Position <- p
             preturn x reader
 
+    /// Applies the parser `p1` and, if it fails, returns `ValueNone`.
+    /// If `p1` succeeds, the input is consumed. If `p1` fails, no input is consumed.
     let inline opt ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>) (reader: Reader<_, _, _, _>) =
         let p = reader.Position
 
@@ -253,6 +282,8 @@ module Combinators =
             reader.Position <- p
             preturn ValueNone reader
 
+    /// Attempts to apply the parser `p1`. Always succeeds, returning `()`.
+    /// If `p1` succeeds, the input is consumed. If `p1` fails, no input is consumed.
     let inline optional
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         (reader: Reader<_, _, _, _>)
@@ -265,6 +296,7 @@ module Combinators =
             reader.Position <- p
             preturn () reader
 
+    /// Applies the parser `p1`, if it succeeds, ensures that the parser has changed the input position.
     let inline notEmpty
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         (reader: Reader<_, _, _, _>)
@@ -279,6 +311,8 @@ module Combinators =
                 Ok s1
         | Error err -> Error err
 
+    /// Applies the parser `p1`, if it succeeds, ensures that the parser has not changed the input position.
+    /// If `p1` fails, no input is consumed.
     let inline followedBy
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         (reader: Reader<_, _, _, _>)
@@ -296,6 +330,9 @@ module Combinators =
             reader.Position <- pos
             Error err
 
+    /// Applies the parser `p1`, if it succeeds, ensures that the parser has not changed the input position.
+    /// If `p1` fails, no input is consumed.
+    /// If `p1` succeeds and consumes input, the parser fails with the given `message`.
     let inline followedByL
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         message
@@ -314,6 +351,9 @@ module Combinators =
             reader.Position <- pos
             Error err
 
+    /// Applies the parser `p1`, if it succeeds, this parser fails without consuming input.
+    /// If `p1` fails without consuming input, the parser succeeds.
+    /// If `p1` fails and consumes input, this parser fails without consuming input.
     let inline notFollowedBy
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         (reader: Reader<_, _, _, _>)
@@ -331,6 +371,9 @@ module Combinators =
                 reader.Position <- pos
                 ParseError.createNested ParseError.shouldFailInPlace [ err ] pos
 
+    /// Applies the parser `p1`, if it succeeds, this parser fails without consuming input, with the given `message`.
+    /// If `p1` fails without consuming input, the parser succeeds.
+    /// If `p1` fails and consumes input, this parser fails without consuming input, with the given `message`.
     let inline notFollowedByL
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         message
@@ -349,6 +392,7 @@ module Combinators =
                 reader.Position <- pos
                 ParseError.createNested (Message message) [ err ] pos
 
+    /// Applies the parser `p1`, if it succeeds, returns the result of `p1` without consuming input.
     let inline lookAhead
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         (reader: Reader<_, _, _, _>)
@@ -358,11 +402,14 @@ module Combinators =
         match p1 reader with
         | Ok s1 ->
             reader.Position <- pos
-            preturn (s1.Parsed) reader
+            Ok s1
         | Error err ->
             reader.Position <- pos
             Error err
 
+    /// Applies the parser `p1`, if it succeeds, returns the result of `p1`.
+    /// If `p1` fails without consuming input, the parser fails with the given `message`.
+    /// If `p1` fails and consumes input, the parser fails with the result of `p1`.
     let inline (<?>)
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         message
@@ -378,6 +425,9 @@ module Combinators =
             else
                 Error err
 
+    /// Applies the parser `p1`, if it succeeds, returns the result of `p1`.
+    /// If `p1` fails without consuming input, the parser fails with the given `message`.
+    /// If `p1` fails and consumes input, the parser fails with a nested error of the given `message` and the result of `p1`.
     let inline (<??>)
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         message
@@ -393,6 +443,7 @@ module Combinators =
             else
                 ParseError.createNested (Message message) [ err ] pos
 
+    /// Applies the parsers `p1` and `p2` in sequence. If both succeed, returns the results in a tuple.
     let inline tuple2
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         ([<InlineIfLambda>] p2: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -403,7 +454,7 @@ module Combinators =
             return struct (s1, s2)
         }
 
-
+    /// Applies the parsers `p1`, `p2` and `p3` in sequence. If all succeed, returns the results in a tuple.
     let inline tuple3
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         ([<InlineIfLambda>] p2: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -416,7 +467,7 @@ module Combinators =
             return struct (s1, s2, s3)
         }
 
-
+    /// Applies the parsers `p1`, `p2`, `p3` and `p4` in sequence. If all succeed, returns the results in a tuple.
     let inline tuple4
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         ([<InlineIfLambda>] p2: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -431,7 +482,7 @@ module Combinators =
             return struct (s1, s2, s3, s4)
         }
 
-
+    /// Applies the parsers `p1`, `p2`, `p3`, `p4` and `p5` in sequence. If all succeed, returns the results in a tuple.
     let inline tuple5
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         ([<InlineIfLambda>] p2: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -448,6 +499,7 @@ module Combinators =
             return struct (s1, s2, s3, s4, s5)
         }
 
+    /// Applies the parser `p` `n` times, if it always succeeds, returns the result of `p` as an ImmutableArray of size `n`.
     let parray n (p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>) (reader: Reader<_, _, _, _>) =
         let xs = ImmutableArray.CreateBuilder n
         let mutable i = 0
@@ -467,6 +519,7 @@ module Combinators =
             | ValueNone -> failwith "Unreachable"
             | ValueSome err -> Error err
 
+    /// Applies the parser `p` `n` times, if it always succeeds, returns unit.
     let skipArray n (p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>) (reader: Reader<_, _, _, _>) =
         let mutable i = 0
         let mutable err = ValueNone
@@ -494,6 +547,8 @@ module Combinators =
         | Ok s1 -> andThen s1 reader
         | Error e -> ParseError.createNested ParseError.expectedAtLeastOne [ e ] pos
 
+    /// Applies the parser `p` zero or more times. If it succeeds, returns the results as an ImmutableArray.
+    /// This parser always succeeds.
     let many (p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>) (reader: Reader<_, _, _, _>) =
         let xs = ImmutableArray.CreateBuilder()
         let mutable ok = true
@@ -513,6 +568,8 @@ module Combinators =
 
         preturn (xs.ToImmutable()) reader
 
+    /// Applies the parser `p` one or more times. If it succeeds, returns the results as an ImmutableArray.
+    /// If `p` fails on the first attempt, this parser fails.
     let many1 (p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>) (reader: Reader<_, _, _, _>) =
         pOneThen
             p
@@ -538,6 +595,8 @@ module Combinators =
             )
             reader
 
+    /// Applies the parser `p` zero or more times. If it succeeds, returns unit.
+    /// This parser always succeeds.
     let skipMany (p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>) (reader: Reader<_, _, _, _>) =
         let mutable ok = true
 
@@ -554,6 +613,8 @@ module Combinators =
 
         preturn () reader
 
+    /// Applies the parser `p` one or more times. If it succeeds, returns unit.
+    /// If `p` fails on the first attempt, this parser fails.
     let skipMany1 (p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>) (reader: Reader<_, _, _, _>) =
         pOneThen
             p
@@ -575,6 +636,8 @@ module Combinators =
             )
             reader
 
+    /// Applies the parser `p` zero or more times, separated by `pSep`. If it succeeds, returns the results as an ImmutableArray.
+    /// This parser always succeeds.
     let sepBy
         (p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         (pSep: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -614,6 +677,8 @@ module Combinators =
             reader.Position <- pos
             preturn struct (ImmutableArray.Empty, ImmutableArray.Empty) reader
 
+    /// Applies the parser `p` one or more times, separated by `pSep`. If it succeeds, returns the results as an ImmutableArray.
+    /// If `p` fails on the first attempt, this parser fails.
     let sepBy1
         (p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         (pSep: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -651,6 +716,8 @@ module Combinators =
             )
             reader
 
+    /// Applies the parser `p` zero or more times, separated by `pSep`. If it succeeds, returns unit.
+    /// This parser always succeeds.
     let skipSepBy
         (p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         (pSep: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -683,6 +750,8 @@ module Combinators =
             reader.Position <- pos
             preturn () reader
 
+    /// Applies the parser `p` one or more times, separated by `pSep`. If it succeeds, returns unit.
+    /// If `p` fails on the first attempt, this parser fails.
     let skipSepBy1
         (p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         (pSep: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -713,6 +782,8 @@ module Combinators =
             )
             reader
 
+    /// Applies the parser `p` zero or more times, separated and optionally ended by `pSep`. If it succeeds, returns the results as an ImmutableArray.
+    /// This parser always succeeds.
     let sepEndBy
         (p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         (pSep: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -754,6 +825,8 @@ module Combinators =
             reader.Position <- pos
             preturn struct (ImmutableArray.Empty, ImmutableArray.Empty) reader
 
+    /// Applies the parser `p` one or more times, separated and optionally ended by `pSep`. If it succeeds, returns the results as an ImmutableArray.
+    /// If `p` fails on the first attempt, this parser fails.
     let sepEndBy1
         (p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         (pSep: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -793,6 +866,8 @@ module Combinators =
             )
             reader
 
+    /// Applies the parser `p` zero or more times, separated and optionally ended by `pSep`. If it succeeds, returns unit.
+    /// This parser always succeeds.
     let skipSepEndBy
         (p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         (pSep: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -827,6 +902,8 @@ module Combinators =
             reader.Position <- pos
             preturn () reader
 
+    /// Applies the parser `p` one or more times, separated and optionally ended by `pSep`. If it succeeds, returns unit.
+    /// If `p` fails on the first attempt, this parser fails.
     let skipSepEndBy1
         (p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         (pSep: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -859,6 +936,8 @@ module Combinators =
             )
             reader
 
+    /// Applies the parser `p` zero or more times, until `pEnd` succeeds. If it succeeds, returns the results as an ImmutableArray and the result of `pEnd`.
+    /// This parser fails if `pEnd` fails.
     let manyTill
         (p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         (pEnd: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -901,6 +980,9 @@ module Combinators =
             | Ok s -> preturn struct (ImmutableArray.Empty, s.Parsed) reader
             | Error eEnd -> Error eEnd
 
+    /// Applies the parser `p` one or more times, until `pEnd` succeeds. If it succeeds, returns the results as an ImmutableArray and the result of `pEnd`.
+    /// If `p` fails on the first attempt, this parser fails.
+    /// This parser also fails if `pEnd` fails.
     let many1Till
         (p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         (pEnd: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -939,6 +1021,8 @@ module Combinators =
             )
             reader
 
+    /// Applies the parser `p` zero or more times, until `pEnd` succeeds. If it succeeds, returns unit.
+    /// This parser fails if `pEnd` fails.
     let skipManyTill
         (p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         (pEnd: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -977,6 +1061,9 @@ module Combinators =
             | Ok s -> preturn () reader
             | Error eEnd -> Error eEnd
 
+    /// Applies the parser `p` one or more times, until `pEnd` succeeds. If it succeeds, returns unit.
+    /// If `p` fails on the first attempt, this parser fails.
+    /// This parser also fails if `pEnd` fails.
     let skipMany1Till
         (p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         (pEnd: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
@@ -1011,6 +1098,8 @@ module Combinators =
             )
             reader
 
+    /// Applies the parser `p` one or more times, separated by `pOp`. If `pOp` succeeds, combines the results of `p` before and after in a left-associative manner.
+    /// If `p` fails on the first attempt, this parser fails.
     let inline chainl1
         ([<InlineIfLambda>] p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         ([<InlineIfLambda>] pOp: Parser<'A -> 'A -> 'A, 'T, 'State, 'Input, 'InputSlice>)
@@ -1037,8 +1126,13 @@ module Combinators =
         | Ok s -> parseLeft s.Parsed reader
         | Error e -> Error e
 
-    let chainl p pOp orElse reader = ((chainl1 p pOp) <|>% orElse) reader
+    /// Applies the parser `p` zero or more times, separated by `pOp`. If `pOp` succeeds, combines the results of `p` before and after in a left-associative manner.
+    /// If `p` fails on the first attempt, this parser returns the result of `orElse`.
+    /// This parser always succeeds.
+    let chainl p pOp orElse reader = (chainl1 p pOp <|>% orElse) reader
 
+    /// Applies the parser `p` one or more times, separated by `pOp`. If `pOp` succeeds, combines the results of `p` before and after in a right-associative manner.
+    /// If `p` fails on the first attempt, this parser fails.
     let inline chainr1
         ([<InlineIfLambda>] p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         ([<InlineIfLambda>] pOp: Parser<'A -> 'A -> 'A, 'T, 'State, 'Input, 'InputSlice>)
@@ -1084,8 +1178,13 @@ module Combinators =
                 preturn s.Parsed reader
         | Error e -> Error e
 
-    let chainr p pOp orElse reader = ((chainr1 p pOp) <|>% orElse) reader
+    /// Applies the parser `p` zero or more times, separated by `pOp`. If `pOp` succeeds, combines the results of `p` before and after in a right-associative manner.
+    /// If `p` fails on the first attempt, this parser returns the result of `orElse`.
+    /// This parser always succeeds.
+    let chainr p pOp orElse reader = (chainr1 p pOp <|>% orElse) reader
 
+    /// Applies the parser `p1` followed by `p` zero or more times. If it succeeds, returns the results as an ImmutableArray.
+    /// If `p1` fails, this parser fails.
     let many1Items2
         (p1: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
         (p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>)
