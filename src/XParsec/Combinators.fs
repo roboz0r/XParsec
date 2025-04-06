@@ -400,7 +400,7 @@ module Combinators =
         parser {
             let! s1 = p1
             let! s2 = p2
-            return s1, s2
+            return struct (s1, s2)
         }
 
 
@@ -413,7 +413,7 @@ module Combinators =
             let! s1 = p1
             let! s2 = p2
             let! s3 = p3
-            return s1, s2, s3
+            return struct (s1, s2, s3)
         }
 
 
@@ -428,7 +428,7 @@ module Combinators =
             let! s2 = p2
             let! s3 = p3
             let! s4 = p4
-            return s1, s2, s3, s4
+            return struct (s1, s2, s3, s4)
         }
 
 
@@ -445,7 +445,7 @@ module Combinators =
             let! s3 = p3
             let! s4 = p4
             let! s5 = p5
-            return s1, s2, s3, s4, s5
+            return struct (s1, s2, s3, s4, s5)
         }
 
     let parray n (p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>) (reader: Reader<_, _, _, _>) =

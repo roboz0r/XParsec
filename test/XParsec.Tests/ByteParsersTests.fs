@@ -244,7 +244,7 @@ let tests =
                 let expected =
                     let span = input.AsSpan()
 
-                    (BinaryPrimitives.ReadHalfBigEndian span,
+                    struct (BinaryPrimitives.ReadHalfBigEndian span,
                      BinaryPrimitives.ReadUInt16LittleEndian(span.Slice(2)),
                      BinaryPrimitives.ReadInt16BigEndian(span.Slice(4)),
                      BinaryPrimitives.ReadSingleLittleEndian(span.Slice(6)),
@@ -268,7 +268,7 @@ let tests =
                 let expected =
                     let span = input.AsSpan()
 
-                    (BinaryPrimitives.ReadSingleBigEndian span,
+                    struct (BinaryPrimitives.ReadSingleBigEndian span,
                      BinaryPrimitives.ReadUInt32LittleEndian(span.Slice(4)),
                      BinaryPrimitives.ReadInt32BigEndian(span.Slice(8)),
                      BinaryPrimitives.ReadDoubleLittleEndian(span.Slice(12)),
