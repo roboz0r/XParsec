@@ -14,43 +14,17 @@ module ParseError =
 let inline isLetter c = Char.IsLetter(c)
 let isDigit c = c >= '0' && c <= '9'
 
-let pchar (c: char) (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
-    match reader.Peek() with
-    | ValueSome(x) ->
-        if x = c then
-            reader.Skip()
-            preturn c reader
-        else
-            fail (Expected(c)) reader
+/// Succeeds if the next char in the input is equal to the given char, and consumes one char. Returns the char, otherwise fails with the Expected char.
+let pchar (c: char) (reader: Reader<char, 'State, 'Input, 'InputSlice>) = pitem c reader
 
-    | _ -> fail EndOfInput reader
+/// Succeeds if the next char in the input is equal to the given char, and consumes one char. Returns unit, otherwise fails with the Expected char.
+let skipChar (c: char) (reader: Reader<char, 'State, 'Input, 'InputSlice>) = skipItem c reader
 
-let skipChar (c: char) (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
-    match reader.Peek() with
-    | ValueSome(x) ->
-        if x = c then
-            reader.Skip()
-            preturn () reader
-        else
-            fail (Expected(c)) reader
+/// Succeeds if the next char in the input is equal to the given char, and consumes one char. Returns the `result`, otherwise fails with the Expected char.
+let charReturn (c: char) (result) (reader: Reader<char, 'State, 'Input, 'InputSlice>) = itemReturn c result reader
 
-    | _ -> fail EndOfInput reader
-
-let charReturn (c: char) (result) (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
-    match reader.Peek() with
-    | ValueSome(x) ->
-        if x = c then
-            reader.Skip()
-            preturn result reader
-        else
-            fail (Expected(c)) reader
-
-    | _ -> fail EndOfInput reader
-
-let anyChar (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
-    match reader.TryRead() with
-    | ValueSome(c) -> preturn c reader
-    | _ -> fail EndOfInput reader
+/// Succeeds if the Reader position is not at the end of the input, and consumes one char.
+let anyChar (reader: Reader<char, 'State, 'Input, 'InputSlice>) = pid reader
 
 let pstring (s: string) (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
     let span = reader.PeekN(s.Length)
