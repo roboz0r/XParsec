@@ -826,9 +826,12 @@ let tests =
                 let p1 = lookAhead p1
                 let p = many p1
                 let reader = Reader.ofString input ()
-
+#if FABLE_COMPILER
+                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+#else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
+#endif
             }
 
             test "Many1" {
@@ -870,9 +873,12 @@ let tests =
                 let p1 = lookAhead p1
                 let p = many1 p1
                 let reader = Reader.ofString input ()
-
+#if FABLE_COMPILER
+                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+#else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
+#endif
             }
 
             test "SkipMany" {
@@ -901,9 +907,12 @@ let tests =
                 let p1 = lookAhead p1
                 let p = skipMany p1
                 let reader = Reader.ofString input ()
-
+#if FABLE_COMPILER
+                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+#else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
+#endif
             }
 
             test "SkipMany1" {
@@ -937,9 +946,12 @@ let tests =
                 let p1 = lookAhead p1
                 let p = skipMany1 p1
                 let reader = Reader.ofString input ()
-
+#if FABLE_COMPILER
+                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+#else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
+#endif
             }
 
             test "SepBy" {
@@ -973,9 +985,12 @@ let tests =
                 let p1 = lookAhead p1
                 let p = sepBy p1 p1
                 let reader = Reader.ofString input ()
-
+#if FABLE_COMPILER
+                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+#else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
+#endif
             }
 
             test "SepBy1" {
@@ -1014,9 +1029,12 @@ let tests =
                 let p1 = lookAhead p1
                 let p = sepBy1 p1 p1
                 let reader = Reader.ofString input ()
-
+#if FABLE_COMPILER
+                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+#else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
+#endif
             }
 
             test "SkipSepBy" {
@@ -1046,9 +1064,12 @@ let tests =
                 let p1 = lookAhead p1
                 let p = skipSepBy p1 p1
                 let reader = Reader.ofString input ()
-
+#if FABLE_COMPILER
+                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+#else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
+#endif
             }
 
             test "SkipSepBy1" {
@@ -1083,9 +1104,12 @@ let tests =
                 let p1 = lookAhead p1
                 let p = skipSepBy1 p1 p1
                 let reader = Reader.ofString input ()
-
+#if FABLE_COMPILER
+                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+#else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
+#endif
             }
 
             test "SepEndBy" {
@@ -1120,9 +1144,12 @@ let tests =
                 let p1 = lookAhead p1
                 let p = sepEndBy p1 p1
                 let reader = Reader.ofString input ()
-
+#if FABLE_COMPILER
+                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+#else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
+#endif
             }
 
             test "SepEndBy1" {
@@ -1162,9 +1189,12 @@ let tests =
                 let p1 = lookAhead p1
                 let p = sepEndBy1 p1 p1
                 let reader = Reader.ofString input ()
-
+#if FABLE_COMPILER
+                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+#else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
+#endif
             }
 
             test "SkipSepEndBy" {
@@ -1194,9 +1224,12 @@ let tests =
                 let p1 = lookAhead p1
                 let p = skipSepEndBy p1 p1
                 let reader = Reader.ofString input ()
-
+#if FABLE_COMPILER
+                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+#else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
+#endif
             }
 
             test "SkipSepEndBy1" {
@@ -1231,9 +1264,12 @@ let tests =
                 let p1 = lookAhead p1
                 let p = skipSepEndBy1 p1 p1
                 let reader = Reader.ofString input ()
-
+#if FABLE_COMPILER
+                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+#else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
+#endif
             }
 
             test "ManyTill" {
@@ -1265,9 +1301,12 @@ let tests =
                 let p1 = lookAhead p1
                 let p = manyTill p1 p2
                 let reader = Reader.ofString input ()
-
+#if FABLE_COMPILER
+                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+#else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
+#endif
             }
 
             test "Many1Till" {
@@ -1304,9 +1343,12 @@ let tests =
                 let p1 = lookAhead p1
                 let p = many1Till p1 p2
                 let reader = Reader.ofString input ()
-
+#if FABLE_COMPILER
+                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+#else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
+#endif
             }
 
             test "SkipManyTill" {
@@ -1336,9 +1378,12 @@ let tests =
                 let p1 = lookAhead p1
                 let p = skipManyTill p1 p2
                 let reader = Reader.ofString input ()
-
+#if FABLE_COMPILER
+                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+#else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
+#endif
             }
 
             test "SkipMany1Till" {
@@ -1373,9 +1418,12 @@ let tests =
                 let p1 = lookAhead p1
                 let p = skipMany1Till p1 p2
                 let reader = Reader.ofString input ()
-
+#if FABLE_COMPILER
+                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+#else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
+#endif
             }
 
             test "ChainL1" {
@@ -1397,9 +1445,12 @@ let tests =
                 let p2 = lookAhead (pchar '1') |>> (fun _ -> (fun expr1 expr2 -> Add(expr1, expr2)))
                 let p = chainl1 p1 p2
                 let reader = Reader.ofString input ()
-
+#if FABLE_COMPILER
+                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+#else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
+#endif
             }
 
             test "ChainL" {
@@ -1429,9 +1480,12 @@ let tests =
                 let p2 = lookAhead (pchar '1') |>> (fun _ -> (fun expr1 expr2 -> Add(expr1, expr2)))
                 let p = chainl p1 p2 (Num 0)
                 let reader = Reader.ofString input ()
-
+#if FABLE_COMPILER
+                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+#else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
+#endif
             }
 
             test "ChainR1" {
@@ -1452,9 +1506,12 @@ let tests =
                 let p2 = lookAhead (pchar '1') |>> (fun _ -> (fun expr1 expr2 -> Add(expr1, expr2)))
                 let p = chainr1 p1 p2
                 let reader = Reader.ofString input ()
-
+#if FABLE_COMPILER
+                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+#else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
+#endif
             }
 
             test "ChainR" {
@@ -1484,9 +1541,12 @@ let tests =
                 let p2 = lookAhead (pchar '1') |>> (fun _ -> (fun expr1 expr2 -> Add(expr1, expr2)))
                 let p = chainr p1 p2 (Num 0)
                 let reader = Reader.ofString input ()
-
+#if FABLE_COMPILER
+                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+#else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
+#endif
             }
 
             test "Many1Items2" {
@@ -1523,8 +1583,11 @@ let tests =
                 let p1 = lookAhead p1
                 let p = many1Items2 p1 p1
                 let reader = Reader.ofString input ()
-
+#if FABLE_COMPILER
+                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+#else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
+#endif
             }
         ]
