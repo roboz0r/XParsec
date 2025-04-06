@@ -240,7 +240,7 @@ let tests =
                     for i in 0..4 do
                         "" |> Expect.equal (result.Parsed[i]) (input[i])
 #else
-                    "" |> Expect.equal result.Parsed (imm { yield! "input" })
+                    "" |> Expect.sequenceEqual result.Parsed "input"
 #endif
                     "" |> Expect.equal reader.Index 5L
                 | Error e -> failwithf "%A" e
@@ -273,7 +273,7 @@ let tests =
                     for i in 0..4 do
                         "" |> Expect.equal (result.Parsed[i]) (input[i])
 #else
-                    "" |> Expect.equal result.Parsed (imm { yield! "input" })
+                    "" |> Expect.sequenceEqual result.Parsed "input"
 #endif
                     "" |> Expect.equal reader.Index 5L
                 | Error e -> failwithf "%A" e

@@ -245,10 +245,10 @@ let tests =
                     let span = input.AsSpan()
 
                     struct (BinaryPrimitives.ReadHalfBigEndian span,
-                     BinaryPrimitives.ReadUInt16LittleEndian(span.Slice(2)),
-                     BinaryPrimitives.ReadInt16BigEndian(span.Slice(4)),
-                     BinaryPrimitives.ReadSingleLittleEndian(span.Slice(6)),
-                     BinaryPrimitives.ReadUInt32BigEndian(span.Slice(10)))
+                            BinaryPrimitives.ReadUInt16LittleEndian(span.Slice(2)),
+                            BinaryPrimitives.ReadInt16BigEndian(span.Slice(4)),
+                            BinaryPrimitives.ReadSingleLittleEndian(span.Slice(6)),
+                            BinaryPrimitives.ReadUInt32BigEndian(span.Slice(10)))
 
                 let reader = Reader.ofArray input ()
                 let result = p reader
@@ -269,10 +269,10 @@ let tests =
                     let span = input.AsSpan()
 
                     struct (BinaryPrimitives.ReadSingleBigEndian span,
-                     BinaryPrimitives.ReadUInt32LittleEndian(span.Slice(4)),
-                     BinaryPrimitives.ReadInt32BigEndian(span.Slice(8)),
-                     BinaryPrimitives.ReadDoubleLittleEndian(span.Slice(12)),
-                     BinaryPrimitives.ReadUInt64BigEndian(span.Slice(20)))
+                            BinaryPrimitives.ReadUInt32LittleEndian(span.Slice(4)),
+                            BinaryPrimitives.ReadInt32BigEndian(span.Slice(8)),
+                            BinaryPrimitives.ReadDoubleLittleEndian(span.Slice(12)),
+                            BinaryPrimitives.ReadUInt64BigEndian(span.Slice(20)))
 
                 let reader = Reader.ofArray input ()
                 let result = p reader

@@ -154,3 +154,8 @@ module ParseError =
 type Parser<'Parsed, 'T, 'State, 'Input, 'InputSlice
     when 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
     Reader<'T, 'State, 'Input, 'InputSlice> -> ParseResult<'Parsed, 'T, 'State>
+
+type InfiniteLoopException<'State>(pos: Position<'State>, innerException) =
+    inherit Exception("Infinite loop detected in parser.", innerException)
+    new(pos: Position<'State>) = InfiniteLoopException(pos, null)
+    member _.Position = pos

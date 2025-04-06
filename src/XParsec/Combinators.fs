@@ -502,7 +502,11 @@ module Combinators =
             let pos = reader.Position
 
             match p reader with
-            | Ok s -> xs.Add(s.Parsed)
+            | Ok s ->
+                if reader.Position = pos then
+                    raise (InfiniteLoopException pos)
+
+                xs.Add(s.Parsed)
             | Error e ->
                 reader.Position <- pos
                 ok <- false
@@ -521,7 +525,11 @@ module Combinators =
                     let pos = reader.Position
 
                     match p reader with
-                    | Ok s -> xs.Add(s.Parsed)
+                    | Ok s ->
+                        if reader.Position = pos then
+                            raise (InfiniteLoopException pos)
+
+                        xs.Add(s.Parsed)
                     | Error e ->
                         reader.Position <- pos
                         ok <- false
@@ -537,7 +545,9 @@ module Combinators =
             let pos = reader.Position
 
             match p reader with
-            | Ok s -> ()
+            | Ok s ->
+                if reader.Position = pos then
+                    raise (InfiniteLoopException pos)
             | Error e ->
                 reader.Position <- pos
                 ok <- false
@@ -554,7 +564,9 @@ module Combinators =
                     let pos = reader.Position
 
                     match p reader with
-                    | Ok s -> ()
+                    | Ok s ->
+                        if reader.Position = pos then
+                            raise (InfiniteLoopException pos)
                     | Error e ->
                         reader.Position <- pos
                         ok <- false
@@ -585,6 +597,9 @@ module Combinators =
                 | Ok sep ->
                     match p reader with
                     | Ok s ->
+                        if reader.Position = pos then
+                            raise (InfiniteLoopException pos)
+
                         seps.Add(sep.Parsed)
                         xs.Add(s.Parsed)
                     | Error _ ->
@@ -620,6 +635,9 @@ module Combinators =
                     | Ok sep ->
                         match p reader with
                         | Ok s ->
+                            if reader.Position = pos then
+                                raise (InfiniteLoopException pos)
+
                             seps.Add(sep.Parsed)
                             xs.Add(s.Parsed)
                         | Error _ ->
@@ -650,7 +668,9 @@ module Combinators =
                 match pSep reader with
                 | Ok sep ->
                     match p reader with
-                    | Ok s -> ()
+                    | Ok s ->
+                        if reader.Position = pos then
+                            raise (InfiniteLoopException pos)
                     | Error _ ->
                         reader.Position <- pos
                         ok <- false
@@ -679,7 +699,9 @@ module Combinators =
                     match pSep reader with
                     | Ok sep ->
                         match p reader with
-                        | Ok s -> ()
+                        | Ok s ->
+                            if reader.Position = pos then
+                                raise (InfiniteLoopException pos)
                         | Error _ ->
                             reader.Position <- pos
                             ok <- false
@@ -715,7 +737,11 @@ module Combinators =
                     let pos = reader.Position
 
                     match p reader with
-                    | Ok s -> xs.Add(s.Parsed)
+                    | Ok s ->
+                        if reader.Position = pos then
+                            raise (InfiniteLoopException pos)
+
+                        xs.Add(s.Parsed)
                     | Error _ ->
                         reader.Position <- pos
                         ok <- false
@@ -748,12 +774,16 @@ module Combinators =
                     match pSep reader with
                     | Ok sep ->
                         seps.Add(sep.Parsed)
-                        let pos = reader.Position
+                        let posSep = reader.Position
 
                         match p reader with
-                        | Ok s -> xs.Add(s.Parsed)
+                        | Ok s ->
+                            if reader.Position = pos then
+                                raise (InfiniteLoopException pos)
+
+                            xs.Add(s.Parsed)
                         | Error _ ->
-                            reader.Position <- pos
+                            reader.Position <- posSep
                             ok <- false
                     | Error e ->
                         reader.Position <- pos
@@ -779,12 +809,14 @@ module Combinators =
 
                 match pSep reader with
                 | Ok sep ->
-                    let pos = reader.Position
+                    let posSep = reader.Position
 
                     match p reader with
-                    | Ok s -> ()
+                    | Ok s ->
+                        if reader.Position = pos then
+                            raise (InfiniteLoopException pos)
                     | Error _ ->
-                        reader.Position <- pos
+                        reader.Position <- posSep
                         ok <- false
                 | Error e ->
                     reader.Position <- pos
@@ -810,12 +842,14 @@ module Combinators =
 
                     match pSep reader with
                     | Ok sep ->
-                        let pos = reader.Position
+                        let posSep = reader.Position
 
                         match p reader with
-                        | Ok s -> ()
+                        | Ok s ->
+                            if reader.Position = pos then
+                                raise (InfiniteLoopException pos)
                         | Error _ ->
-                            reader.Position <- pos
+                            reader.Position <- posSep
                             ok <- false
                     | Error e ->
                         reader.Position <- pos
@@ -848,7 +882,11 @@ module Combinators =
                     reader.Position <- pos
 
                     match p reader with
-                    | Ok s -> xs.Add(s.Parsed)
+                    | Ok s ->
+                        if reader.Position = pos then
+                            raise (InfiniteLoopException pos)
+
+                        xs.Add(s.Parsed)
                     | Error e ->
                         reader.Position <- pos
                         err <- [ eEnd; e ]
@@ -886,7 +924,11 @@ module Combinators =
                         reader.Position <- pos
 
                         match p reader with
-                        | Ok s -> xs.Add(s.Parsed)
+                        | Ok s ->
+                            if reader.Position = pos then
+                                raise (InfiniteLoopException pos)
+
+                            xs.Add(s.Parsed)
                         | Error e ->
                             reader.Position <- pos
                             err <- [ eEnd; e ]
@@ -918,7 +960,9 @@ module Combinators =
                     reader.Position <- pos
 
                     match p reader with
-                    | Ok s -> ()
+                    | Ok s ->
+                        if reader.Position = pos then
+                            raise (InfiniteLoopException pos)
                     | Error e ->
                         reader.Position <- pos
                         err <- [ eEnd; e ]
@@ -954,7 +998,9 @@ module Combinators =
                         reader.Position <- pos
 
                         match p reader with
-                        | Ok _ -> ()
+                        | Ok _ ->
+                            if reader.Position = pos then
+                                raise (InfiniteLoopException pos)
                         | Error e ->
                             reader.Position <- pos
                             err <- [ eEnd; e ]
@@ -977,6 +1023,9 @@ module Combinators =
             | Ok sOp ->
                 match p reader with
                 | Ok s ->
+                    if reader.Position = pos then
+                        raise (InfiniteLoopException pos)
+
                     let acc' = sOp.Parsed acc s.Parsed
                     parseLeft acc' reader
                 | Error e -> Error e
@@ -1000,15 +1049,18 @@ module Combinators =
             | [] -> preturn pLast
             | (op, p) :: rest -> fold rest (op p pLast)
 
-        let rec parseRight acc (reader: Reader<_, _, _, _>) =
+        let rec parseRight prevPos acc (reader: Reader<_, _, _, _>) =
             match p reader with
             | Ok s ->
+                if reader.Position = prevPos then
+                    raise (InfiniteLoopException prevPos)
+
                 let pos = reader.Position
 
                 match pOp reader with
                 | Ok sOp ->
                     let acc = (sOp.Parsed, s.Parsed) :: acc
-                    parseRight acc reader
+                    parseRight reader.Position acc reader
                 | Error _ ->
                     reader.Position <- pos
                     preturn (acc, s.Parsed) reader
@@ -1022,7 +1074,7 @@ module Combinators =
             | Ok sOp ->
                 let acc = [ (sOp.Parsed, s.Parsed) ]
 
-                match parseRight acc reader with
+                match parseRight reader.Position acc reader with
                 | Ok stack ->
                     let (acc, pLast) = stack.Parsed
                     (fold acc pLast) reader
@@ -1051,7 +1103,11 @@ module Combinators =
                     let pos = reader.Position
 
                     match p reader with
-                    | Ok sx -> append sx.Parsed
+                    | Ok sx ->
+                        if reader.Position = pos then
+                            raise (InfiniteLoopException pos)
+
+                        append sx.Parsed
                     | Error _ ->
                         reader.Position <- pos
                         ok <- false

@@ -822,6 +822,13 @@ let tests =
                     "" |> Expect.equal result.Parsed (ImmutableArray.Empty)
                     "" |> Expect.equal reader.Index 0L
                 | Error e -> failwithf "%A" e
+
+                let p1 = lookAhead p1
+                let p = many p1
+                let reader = Reader.ofString input ()
+
+                "Inf Loop"
+                |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
             }
 
             test "Many1" {
@@ -859,6 +866,13 @@ let tests =
   0:  {ExpectedSeq "input"}"""
 
                     "" |> Expect.equal msg expected
+
+                let p1 = lookAhead p1
+                let p = many1 p1
+                let reader = Reader.ofString input ()
+
+                "Inf Loop"
+                |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
             }
 
             test "SkipMany" {
@@ -883,6 +897,13 @@ let tests =
                     "" |> Expect.equal result.Parsed ()
                     "" |> Expect.equal reader.Index 0L
                 | Error e -> failwithf "%A" e
+
+                let p1 = lookAhead p1
+                let p = skipMany p1
+                let reader = Reader.ofString input ()
+
+                "Inf Loop"
+                |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
             }
 
             test "SkipMany1" {
@@ -912,6 +933,13 @@ let tests =
   0:  {ExpectedSeq "input"}"""
 
                     "" |> Expect.equal msg expected
+
+                let p1 = lookAhead p1
+                let p = skipMany1 p1
+                let reader = Reader.ofString input ()
+
+                "Inf Loop"
+                |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
             }
 
             test "SepBy" {
@@ -941,6 +969,13 @@ let tests =
                     "" |> Expect.equal result.Parsed (ImmutableArray.Empty, ImmutableArray.Empty)
                     "" |> Expect.equal reader.Index 0L
                 | Error e -> failwithf "%A" e
+
+                let p1 = lookAhead p1
+                let p = sepBy p1 p1
+                let reader = Reader.ofString input ()
+
+                "Inf Loop"
+                |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
             }
 
             test "SepBy1" {
@@ -975,6 +1010,13 @@ let tests =
   0:  {ExpectedSeq "input"}"""
 
                     "" |> Expect.equal msg expected
+
+                let p1 = lookAhead p1
+                let p = sepBy1 p1 p1
+                let reader = Reader.ofString input ()
+
+                "Inf Loop"
+                |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
             }
 
             test "SkipSepBy" {
@@ -1000,6 +1042,13 @@ let tests =
                     "" |> Expect.equal result.Parsed ()
                     "" |> Expect.equal reader.Index 0L
                 | Error e -> failwithf "%A" e
+
+                let p1 = lookAhead p1
+                let p = skipSepBy p1 p1
+                let reader = Reader.ofString input ()
+
+                "Inf Loop"
+                |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
             }
 
             test "SkipSepBy1" {
@@ -1030,6 +1079,13 @@ let tests =
   0:  {ExpectedSeq "input"}"""
 
                     "" |> Expect.equal msg expected
+
+                let p1 = lookAhead p1
+                let p = skipSepBy1 p1 p1
+                let reader = Reader.ofString input ()
+
+                "Inf Loop"
+                |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
             }
 
             test "SepEndBy" {
@@ -1060,6 +1116,13 @@ let tests =
                     "" |> Expect.equal result.Parsed (ImmutableArray.Empty, ImmutableArray.Empty)
                     "" |> Expect.equal reader.Index 0L
                 | Error e -> failwithf "%A" e
+
+                let p1 = lookAhead p1
+                let p = sepEndBy p1 p1
+                let reader = Reader.ofString input ()
+
+                "Inf Loop"
+                |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
             }
 
             test "SepEndBy1" {
@@ -1095,6 +1158,13 @@ let tests =
   0:  {ExpectedSeq "input"}"""
 
                     "" |> Expect.equal msg expected
+
+                let p1 = lookAhead p1
+                let p = sepEndBy1 p1 p1
+                let reader = Reader.ofString input ()
+
+                "Inf Loop"
+                |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
             }
 
             test "SkipSepEndBy" {
@@ -1120,6 +1190,13 @@ let tests =
                     "" |> Expect.equal result.Parsed ()
                     "" |> Expect.equal reader.Index 0L
                 | Error e -> failwithf "%A" e
+
+                let p1 = lookAhead p1
+                let p = skipSepEndBy p1 p1
+                let reader = Reader.ofString input ()
+
+                "Inf Loop"
+                |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
             }
 
             test "SkipSepEndBy1" {
@@ -1150,6 +1227,13 @@ let tests =
   0:  {ExpectedSeq "input"}"""
 
                     "" |> Expect.equal msg expected
+
+                let p1 = lookAhead p1
+                let p = skipSepEndBy1 p1 p1
+                let reader = Reader.ofString input ()
+
+                "Inf Loop"
+                |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
             }
 
             test "ManyTill" {
@@ -1177,6 +1261,13 @@ let tests =
                     "" |> Expect.equal result.Parsed (ImmutableArray.Empty, "X")
                     "" |> Expect.equal reader.Index 1L
                 | Error e -> failwithf "%A" e
+
+                let p1 = lookAhead p1
+                let p = manyTill p1 p2
+                let reader = Reader.ofString input ()
+
+                "Inf Loop"
+                |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
             }
 
             test "Many1Till" {
@@ -1209,6 +1300,13 @@ let tests =
   0:  {ExpectedSeq "input"}"""
 
                     "" |> Expect.equal msg expected
+
+                let p1 = lookAhead p1
+                let p = many1Till p1 p2
+                let reader = Reader.ofString input ()
+
+                "Inf Loop"
+                |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
             }
 
             test "SkipManyTill" {
@@ -1234,6 +1332,13 @@ let tests =
                     "" |> Expect.equal result.Parsed ()
                     "" |> Expect.equal reader.Index 1L
                 | Error e -> failwithf "%A" e
+
+                let p1 = lookAhead p1
+                let p = skipManyTill p1 p2
+                let reader = Reader.ofString input ()
+
+                "Inf Loop"
+                |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
             }
 
             test "SkipMany1Till" {
@@ -1264,6 +1369,13 @@ let tests =
   0:  {ExpectedSeq "input"}"""
 
                     "" |> Expect.equal msg expected
+
+                let p1 = lookAhead p1
+                let p = skipMany1Till p1 p2
+                let reader = Reader.ofString input ()
+
+                "Inf Loop"
+                |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
             }
 
             test "ChainL1" {
@@ -1280,6 +1392,14 @@ let tests =
                     "" |> Expect.equal result.Parsed (Add(Add(Add(Num 1, Num 2), Num 3), Num 4))
                     "" |> Expect.equal reader.Index 7L
                 | Error e -> failwithf "%A" e
+
+                let p1 = lookAhead p1
+                let p2 = lookAhead (pchar '1') |>> (fun _ -> (fun expr1 expr2 -> Add(expr1, expr2)))
+                let p = chainl1 p1 p2
+                let reader = Reader.ofString input ()
+
+                "Inf Loop"
+                |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
             }
 
             test "ChainL" {
@@ -1304,6 +1424,14 @@ let tests =
                     "" |> Expect.equal result.Parsed (Num 0)
                     "" |> Expect.equal reader.Index 0L
                 | Error e -> failwithf "%A" e
+
+                let p1 = lookAhead p1
+                let p2 = lookAhead (pchar '1') |>> (fun _ -> (fun expr1 expr2 -> Add(expr1, expr2)))
+                let p = chainl p1 p2 (Num 0)
+                let reader = Reader.ofString input ()
+
+                "Inf Loop"
+                |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
             }
 
             test "ChainR1" {
@@ -1319,6 +1447,14 @@ let tests =
                     "" |> Expect.equal result.Parsed (Add(Num 1, Add(Num 2, Add(Num 3, Num 4))))
                     "" |> Expect.equal reader.Index 7L
                 | Error e -> failwithf "%A" e
+
+                let p1 = lookAhead p1
+                let p2 = lookAhead (pchar '1') |>> (fun _ -> (fun expr1 expr2 -> Add(expr1, expr2)))
+                let p = chainr1 p1 p2
+                let reader = Reader.ofString input ()
+
+                "Inf Loop"
+                |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
             }
 
             test "ChainR" {
@@ -1343,6 +1479,14 @@ let tests =
                     "" |> Expect.equal result.Parsed (Num 0)
                     "" |> Expect.equal reader.Index 0L
                 | Error e -> failwithf "%A" e
+
+                let p1 = lookAhead p1
+                let p2 = lookAhead (pchar '1') |>> (fun _ -> (fun expr1 expr2 -> Add(expr1, expr2)))
+                let p = chainr p1 p2 (Num 0)
+                let reader = Reader.ofString input ()
+
+                "Inf Loop"
+                |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
             }
 
             test "Many1Items2" {
@@ -1375,5 +1519,12 @@ let tests =
   0:  {ExpectedSeq "input1"}"""
 
                     "" |> Expect.equal msg expected
+
+                let p1 = lookAhead p1
+                let p = many1Items2 p1 p1
+                let reader = Reader.ofString input ()
+
+                "Inf Loop"
+                |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
             }
         ]
