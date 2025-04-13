@@ -84,6 +84,8 @@ type ImmutableArray<'T> =
             Array: 'T array
         }
 
+    member this.IsEmpty = Array.isEmpty this.Array
+
     member this.Item
         with get (i) = this.Array.[i]
 
