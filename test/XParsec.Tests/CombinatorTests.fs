@@ -6,7 +6,6 @@ open System.Collections.Immutable
 #if FABLE_COMPILER
 open Fable.Pyxpecto
 #else
-
 open Expecto
 #endif
 

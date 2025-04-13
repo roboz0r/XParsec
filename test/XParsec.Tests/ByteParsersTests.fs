@@ -1,4 +1,4 @@
-module ByteParserssTests
+module ByteParsersTests
 #if !FABLE_COMPILER
 open System
 open System.Buffers.Binary
