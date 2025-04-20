@@ -11,7 +11,7 @@ env:
   NUGET_TOKEN: ${{ secrets.NUGET_TOKEN }}
 
 jobs:
-  build:
+  on-success:
     runs-on: ubuntu-latest
 
     steps:
@@ -19,7 +19,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 9.x
+          global-json-file: ./global.json
 
       - name: Get Package Version
         shell: pwsh
