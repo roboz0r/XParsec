@@ -1,6 +1,6 @@
 name: Publish to NuGet
 
-on:  
+on:
   workflow_run:
     workflows: [Build main]
     types:
@@ -11,8 +11,9 @@ env:
   NUGET_TOKEN: ${{ secrets.NUGET_TOKEN }}
 
 jobs:
-  on-success:
+  publish:
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
     steps:
       - uses: actions/checkout@v4
