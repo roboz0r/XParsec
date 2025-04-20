@@ -26,18 +26,17 @@
     <Compile Include="CharParsers.fs" />
     <Compile Include="ByteParsers.fs" />
     <Compile Include="Readables.fs" />
-    <Compile Include="ErrorHandling.fs" />
+    <Compile Include="ErrorFormatting.fs" />
   </ItemGroup>
   <ItemGroup>
     <!-- Pending https://github.com/fable-compiler/Fable.Package.SDK/issues/11 -->
     <!-- <PackageReference Include="Fable.Package.SDK"> -->
-      <!-- <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets> -->
-      <!-- <PrivateAssets>all</PrivateAssets> -->
+    <!-- <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets> -->
+    <!-- <PrivateAssets>all</PrivateAssets> -->
     <!-- </PackageReference> -->
     <PackageReference Include="FSharp.Core" />
     <PackageReference Include="System.Collections.Immutable" />
   </ItemGroup>
-
   <Import Project="../Fable.Package.SDK/Fable.Package.SDK.props" />
   <Import Project="../Fable.Package.SDK/Fable.Package.SDK.targets" />
 </Project>

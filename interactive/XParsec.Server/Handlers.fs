@@ -17,8 +17,6 @@ open Serialization
 
 #nowarn FS3511 // This state machine is not statically compilable
 
-let handler = ConsoleErrorHandler()
-
 let parse (ctx: HttpContext) : Task =
     let noInput =
         {
@@ -58,9 +56,8 @@ let parse (ctx: HttpContext) : Task =
                                     logger.LogInformation("Parsed JSON: {0}", value)
                                     true, "Parsed JSON"
                                 | Error msg ->
-                                    handler.ReportErrors(input.Input, [ msg ])
                                     logger.LogError("Error parsing JSON: {0}", msg)
-                                    false, ErrorRenderer.render msg
+                                    false, ErrorFormatting.formatStringError input.Input msg
 
                         let resp =
                             {

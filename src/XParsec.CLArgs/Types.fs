@@ -14,25 +14,24 @@ type CLOption<'T> =
         allowEqualsAssginment: bool
 
 module NestedParser =
-    let pNested
-        createInnerReader
-        innerState
-        (pInner: Parser<_, _, _, _, _>)
-        (reader: Reader<_, _, _, _>)
-        : ParseResult<_, _, _> =
+    open System.Text
+
+    let pNestedString innerState (pInner: Parser<_, _, _, _, _>) (reader: Reader<_, _, _, _>) : ParseResult<_, _, _> =
         match reader.Peek() with
-        | ValueSome x ->
-            let innerReader = createInnerReader x innerState
+        | ValueSome(x: string) ->
+            let innerReader = Reader.ofString x innerState
 
             match pInner innerReader with
             | Ok result ->
                 reader.Skip()
                 ParseSuccess.create result.Parsed
-            | Error e -> ParseError.create (Message "Nested failure") reader.Position
-        | ValueNone -> ParseError.create EndOfInput reader.Position
 
-    let pNestedString innerState (pInner: Parser<_, _, _, _, _>) (reader: Reader<_, _, _, _>) : ParseResult<_, _, _> =
-        pNested Reader.ofString innerState pInner reader
+            | Error e ->
+                let sb = StringBuilder()
+                let formatError = ErrorFormatting.formatStringError x e sb
+                ParseError.create (Message(formatError.ToString())) reader.Position
+
+        | ValueNone -> ParseError.create EndOfInput reader.Position
 
 open NestedParser
 

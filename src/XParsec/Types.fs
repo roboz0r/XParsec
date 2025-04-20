@@ -107,8 +107,11 @@ type Reader<'T, 'State, 'Input, 'InputSlice
     member _.Current = input.TryItem(index)
     member _.AtEnd = index >= input.Length
 
-    // private as currently not used/tested
-    member private _.Slice(newStart, newLength) = input.Slice(newStart, newLength)
+    member _.Slice(newStart, newLength) =
+        Reader(input.Slice(index - newStart, newLength), (), 0L)
+
+    member _.Slice(newStart, newLength, newState) =
+        Reader(input.Slice(index - newStart, newLength), newState, 0L)
 
 type ErrorType<'T, 'State> =
     | Expected of 'T
