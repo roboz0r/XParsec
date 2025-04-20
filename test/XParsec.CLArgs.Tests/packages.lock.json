@@ -180,7 +180,7 @@
         "type": "Project",
         "dependencies": {
           "System.Collections.Immutable": "[9.0.3, )",
-          "XParsec": "[0.0.2, )"
+          "XParsec": "[0.1.0, )"
         }
       },
       "Fable.Core": {

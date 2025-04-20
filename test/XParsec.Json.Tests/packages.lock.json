@@ -159,7 +159,7 @@
       "xparsec.json": {
         "type": "Project",
         "dependencies": {
-          "XParsec": "[0.0.2, )"
+          "XParsec": "[0.1.0, )"
         }
       },
       "System.Collections.Immutable": {
