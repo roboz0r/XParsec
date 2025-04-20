@@ -27,9 +27,8 @@ module NestedParser =
                 ParseSuccess.create result.Parsed
 
             | Error e ->
-                let sb = StringBuilder()
-                let formatError = ErrorFormatting.formatStringError x e sb
-                ParseError.create (Message(formatError.ToString())) reader.Position
+                let formatError = ErrorFormatting.formatStringError x e
+                ParseError.create (Message formatError) reader.Position
 
         | ValueNone -> ParseError.create EndOfInput reader.Position
 
