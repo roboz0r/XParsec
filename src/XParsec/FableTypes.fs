@@ -12,6 +12,7 @@ type ImmutableArrayBuilder<'T> = System.Collections.Immutable.ImmutableArray<'T>
 #if FABLE_COMPILER
 namespace System
 
+open System.Collections.Generic
 open System.Runtime.CompilerServices
 
 type ReadOnlySpan<'T> =
@@ -20,11 +21,18 @@ type ReadOnlySpan<'T> =
     abstract Item: int -> 'T with get
     abstract IsEmpty: bool
     abstract ToArray: unit -> 'T array
+    inherit IEnumerable<'T>
 
 type Span<'T> =
     inherit ReadOnlySpan<'T>
 
 type ArraySpan<'T>(array: 'T array, start: int, length: int) =
+    let getSeq () =
+        seq {
+            for i in start .. start + length - 1 do
+                yield array.[i]
+        }
+
     interface Span<'T> with
         member _.Length = length
 
@@ -39,7 +47,16 @@ type ArraySpan<'T>(array: 'T array, start: int, length: int) =
         member _.ToArray() =
             Array.init length (fun i -> array.[start + i])
 
+        member _.GetEnumerator() : IEnumerator<'T> = getSeq().GetEnumerator()
+        member _.GetEnumerator() : System.Collections.IEnumerator = getSeq().GetEnumerator() :> _
+
 type ResizeArraySpan<'T>(array: ResizeArray<'T>, start: int, length: int) =
+    let getSeq () =
+        seq {
+            for i in start .. start + length - 1 do
+                yield array.[i]
+        }
+
     interface Span<'T> with
         member _.Length = length
 
@@ -54,7 +71,16 @@ type ResizeArraySpan<'T>(array: ResizeArray<'T>, start: int, length: int) =
         member _.ToArray() =
             Array.init length (fun i -> array.[start + i])
 
+        member _.GetEnumerator() : IEnumerator<'T> = getSeq().GetEnumerator()
+        member _.GetEnumerator() : System.Collections.IEnumerator = getSeq().GetEnumerator() :> _
+
 type StringSpan(string: string, start: int, length: int) =
+    let getSeq () =
+        seq {
+            for i in start .. start + length - 1 do
+                yield string.[i]
+        }
+
     interface ReadOnlySpan<char> with
         member _.Length = length
 
@@ -68,6 +94,9 @@ type StringSpan(string: string, start: int, length: int) =
 
         member _.ToArray() =
             Array.init length (fun i -> string[start + i])
+
+        member _.GetEnumerator() : IEnumerator<char> = getSeq().GetEnumerator()
+        member _.GetEnumerator() : System.Collections.IEnumerator = getSeq().GetEnumerator() :> _
 #endif
 
 #if FABLE_COMPILER
@@ -91,7 +120,7 @@ type ImmutableArray<'T> =
 
     member this.Length = this.Array.Length
 
-    member this.AsSpan() =
+    member this.AsSpan() : ReadOnlySpan<'T> =
         ArraySpan<'T>(this.Array, 0, this.Length)
 
     static member Empty: ImmutableArray<'T> = { Array = Array.empty<'T> }
