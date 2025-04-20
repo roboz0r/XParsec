@@ -421,7 +421,7 @@ let tests =
             }
 
             test "Format String Error Line 2" {
-                let inputSample = $"1{sample}\r\n2{sample}"
+                let inputSample = $"1{sample}{Environment.NewLine}2{sample}"
                 let input = Reader.ofString inputSample ()
 
                 let p = tuple5 (pchar '1') (pstring sample) newline (pstring "2The ") (pchar 'a')
