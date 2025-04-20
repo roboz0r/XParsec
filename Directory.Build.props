@@ -5,7 +5,7 @@
   <PropertyGroup>
     <Authors>Robert Lenders</Authors>
     <Copyright>Copyright (c) Robert Lenders 2025</Copyright>
-    <PackageVersion>0.0.3</PackageVersion>
+    <PackageVersion>0.1.0</PackageVersion>
     <RepositoryUrl>https://github.com/roboz0r/XParsec</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageProjectUrl>https://github.com/roboz0r/XParsec</PackageProjectUrl>
