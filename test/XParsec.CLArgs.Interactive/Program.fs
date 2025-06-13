@@ -12,8 +12,8 @@ type Args =
 
 let options =
     [
-        CLSetting("dump-file", DumpFile, None, true)
-        CLBoolSetting("all-text", AllText, None, true)
+        CLSetting("dump-file", DumpFile, None, true, "Dumps the file contents")
+        CLBoolSetting("all-text", AllText, None, true, "")
     ]
 
 [<EntryPoint>]
