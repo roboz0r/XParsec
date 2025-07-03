@@ -149,6 +149,9 @@ namespace System
 open System.Runtime.CompilerServices
 open System.Collections.Immutable
 
+type Double =
+    static member Exp2(x: float) = 2.0 ** x
+
 [<Extension>]
 type MemoryExtensions =
     static member SequenceEqual<'T when 'T: equality>(x: ReadOnlySpan<'T>, y: ReadOnlySpan<'T>) =

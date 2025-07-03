@@ -9,6 +9,8 @@
   <ItemGroup>
     <Compile Include="ParserTests.fs" />
     <Compile Include="CombinatorTests.fs" />
+    <Compile Include="CharParserTests.fs" />
+    <Compile Include="NumericCharParserTests.fs" />
     <Compile Include="OperatorParsingTests.fs" />
     <Compile Include="ByteParsersTests.fs" />
     <Compile Include="ErrorFormattingTests.fs" />
