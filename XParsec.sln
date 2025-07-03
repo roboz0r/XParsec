@@ -23,6 +23,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Config", "Config", "{2522BE
 		.editorconfig = .editorconfig
 		.gitignore = .gitignore
 		NuGet.config = NuGet.config
+		global.json = global.json
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Readme", "Readme", "{DF9CB7C9-8077-4EEA-9816-B9F4004CF43F}"
