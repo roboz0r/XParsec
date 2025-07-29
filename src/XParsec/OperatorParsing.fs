@@ -4,6 +4,8 @@ open System
 open System.Collections.Immutable
 open XParsec
 
+#nowarn 44 // Suppress warning for obsolete member usage
+
 /// Operator precedence is used to determine the order of operations in expressions.
 /// Operators with higher precedence are evaluated first, resulting in the higher value appearing in the inner expression.
 type Precedence =
@@ -143,13 +145,13 @@ type LHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
         rightPower: byte *
         completePrefix: ('Expr -> 'Expr)
 
-    | Brackets of
+    | Enclosed of
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
         rightPower: byte *
         closeOp: 'Op *
         parseCloseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
-        completeBracket: ('Expr -> 'Expr)
+        complete: ('Expr -> 'Expr)
 
 
 type Operator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
@@ -298,7 +300,7 @@ module internal Pratt =
                     | Ok rhs -> parseRhs (completePrefix rhs.Parsed) reader
                     | Error e -> Error e
 
-                | Brackets(op, parseOp, rightPower, closeOp, closeOpParser, completeBracket) ->
+                | Enclosed(op, parseOp, rightPower, closeOp, closeOpParser, completeBracket) ->
                     match parseLhs Precedence.MinP (reader) with
                     | Ok inner ->
                         match closeOpParser (reader) with
@@ -362,17 +364,17 @@ module Operator =
     let private lhsOp =
         function
         | Prefix(op, _, _, _)
-        | Brackets(op, _, _, _, _, _) -> op
+        | Enclosed(op, _, _, _, _, _) -> op
 
     let private lhsParseOp =
         function
         | Prefix(_, parseOp, _, _)
-        | Brackets(_, parseOp, _, _, _, _) -> parseOp
+        | Enclosed(_, parseOp, _, _, _, _) -> parseOp
 
     let private lhsRightPower =
         function
         | Prefix(_, _, rightPower, _)
-        | Brackets(_, _, rightPower, _, _, _) -> rightPower
+        | Enclosed(_, _, rightPower, _, _, _) -> rightPower
 
     let private leftPower =
         function
@@ -445,10 +447,15 @@ module Operator =
         let power = Precedence.value power
         RHS(Postfix(op, parseOp, power, complete))
 
-    /// Creates an operator defining a pair of brackets with the specified properties.
-    let brackets op closeOp power parseOp parseCloseOp complete =
+    /// Creates an operator defining a pair of delimiters with the specified properties.
+    let enclosedBy op closeOp power parseOp parseCloseOp complete =
         let power = Precedence.value power
-        LHS(Brackets(op, parseOp, power, closeOp, parseCloseOp, complete))
+        LHS(Enclosed(op, parseOp, power, closeOp, parseCloseOp, complete))
+
+    /// Creates an operator defining a pair of brackets with the specified properties.
+    [<Obsolete("Use 'enclosedBy' for clarity.")>]
+    let brackets op closeOp power parseOp parseCloseOp complete =
+        enclosedBy op closeOp power parseOp parseCloseOp complete
 
     /// Creates an indexer operator with the specified properties.
     let indexer op closeOp power parseOp innerParser parseCloseOp complete =

@@ -288,7 +288,7 @@ let tests2 =
                 (pitem RIdx)
                 (Expr.indexer LIdx RIdx)
 
-            Operator.brackets LParen RParen P10 (pitem LParen) (pitem RParen) (Expr.bracketed LParen RParen)
+            Operator.enclosedBy LParen RParen P10 (pitem LParen) (pitem RParen) (Expr.bracketed LParen RParen)
         ]
         |> Operator.create
 
@@ -424,7 +424,7 @@ let tests3 =
                 (pitem ']' >>% RIdx)
                 (Expr.indexer LIdx RIdx)
 
-            Operator.brackets
+            Operator.enclosedBy
                 LParen
                 RParen
                 P10
