@@ -7,12 +7,12 @@ open System
 /// Implement this interface to create your own input types.
 /// Use the Reader module for common input types like string, array, etc.
 /// </summary>
-type IReadable<'T, 'U when 'U :> IReadable<'T, 'U>> =
+type IReadable<'T, 'Slice when 'Slice :> IReadable<'T, 'Slice>> =
     abstract Item: int64 -> 'T with get
     abstract TryItem: index: int64 -> 'T voption
     abstract SpanSlice: start: int64 * length: int -> ReadOnlySpan<'T>
     abstract Length: int64
-    abstract Slice: newStart: int64 * newLength: int64 -> 'U
+    abstract Slice: newStart: int64 * newLength: int64 -> 'Slice
 
 
 [<Struct>]
@@ -88,6 +88,8 @@ type Reader<'T, 'State, 'Input, 'InputSlice
             index <- index + 1L
         else
             invalidOp "Attempted to skip past end of input"
+
+    member this.SkipN(count: int) = this.SkipN(int64 count)
 
     member _.SkipN(count) =
         if index + count > input.Length then
