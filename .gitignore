@@ -404,3 +404,8 @@ test/XParsec.Tests/js/
 test/XParsec.CLArgs.Tests/js/
 interactive/XParsec.Client/build/
 *.fs.js
+
+# FSharp.Formatting
+.fsdocs/
+output/
+tmp/

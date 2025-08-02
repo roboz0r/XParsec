@@ -13,6 +13,11 @@
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+  <PropertyGroup>
+    <!-- https://fsprojects.github.io/FSharp.Formatting/styling.html -->
+    <FsDocsLicenseLink>https://github.com/roboz0r/XParsec/License</FsDocsLicenseLink>
+    <FsDocsReleaseNotesLink>https://github.com/roboz0r/XParsec/RELEASE_NOTES.md</FsDocsReleaseNotesLink>
+  </PropertyGroup>
   <PropertyGroup Label="F# Specific Options" Condition="'$(MSBuildProjectExtension)' == '.fsproj'">
     <DisableImplicitSystemValueTupleReference>true</DisableImplicitSystemValueTupleReference>
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
