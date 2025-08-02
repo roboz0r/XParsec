@@ -30,9 +30,9 @@ type JsonParsers<'Input, 'InputSlice
 
     static let pWhitespace = skipMany (anyOf [ ' '; '\t'; '\n'; '\r' ])
 
-    static let pDigit = satisfyL (fun c -> c >= '0' && c <= '9') ("Char in range '0' - '9'")
+    static let pDigit = satisfyL (fun c -> c >= '0' && c <= '9') "Char in range '0' - '9'"
 
-    static let pOneNine = satisfyL (fun c -> c >= '1' && c <= '9') ("Char in range '1' - '9'")
+    static let pOneNine = satisfyL (fun c -> c >= '1' && c <= '9') "Char in range '1' - '9'"
 
     static let pFraction =
         parser {
@@ -91,11 +91,30 @@ type JsonParsers<'Input, 'InputSlice
             return JsonValue.Number number
         }
 
+    static let pHexDigit =
+        satisfyL Char.IsAsciiHexDigit ("Hex digit")
+        |>> function
+            | c when c >= '0' && c <= '9' -> int c - int '0'
+            | c when c >= 'a' && c <= 'f' -> int c - int 'a' + 10
+            | c when c >= 'A' && c <= 'F' -> int c - int 'A' + 10
+            | _ -> failwith "Invalid hex digit"
+
+    static let pUnicodeEscape: Parser<_, _, _, _, _> =
+        parser {
+            let! _ = pstring "\\u"
+            let! hex0 = pHexDigit
+            let! hex1 = pHexDigit
+            let! hex2 = pHexDigit
+            let! hex3 = pHexDigit
+            let hexValue = (hex0 <<< 12) + (hex1 <<< 8) + (hex2 <<< 4) + hex3
+            return Convert.ToChar(hexValue)
+        }
+
     static let pEscape =
         fun (reader: Reader<_, _, _, _>) ->
-            let span = reader.PeekN 2
+            let span = reader.PeekN 6
 
-            if span.Length = 2 && span[0] = '\\' then
+            if span.Length >= 2 && span[0] = '\\' then
                 match span[1] with
                 | '"'
                 | '\\'
@@ -117,45 +136,14 @@ type JsonParsers<'Input, 'InputSlice
                 | 't' ->
                     reader.SkipN 2
                     preturn '\t' reader
+                | 'u' ->
+                    if span.Length < 6 then
+                        fail (Message "Unicode escape sequence must be followed by 4 hex digits") reader
+                    else
+                        pUnicodeEscape reader
                 | c -> fail (Unexpected c) reader
             else
                 fail (Message "Escape char") reader
-
-
-    //static let pEscape_CE =
-    //    parser {
-    //        let! _ = pitem '\\'
-    //        let! escaped = anyOf [ '"'; '\\'; '/'; 'b'; 'f'; 'n'; 'r'; 't' ]
-
-    //        return
-    //            match escaped with
-    //            | 'b' -> '\b'
-    //            | 'f' -> '\f'
-    //            | 'n' -> '\n'
-    //            | 'r' -> '\r'
-    //            | 't' -> '\t'
-    //            | c -> c
-    //    }
-
-    static let pHexDigit =
-        satisfyL Char.IsAsciiHexDigit ("Hex digit")
-        |>> function
-            | c when c >= '0' && c <= '9' -> int c - int '0'
-            | c when c >= 'a' && c <= 'f' -> int c - int 'a' + 10
-            | c when c >= 'A' && c <= 'F' -> int c - int 'A' + 10
-            | _ -> failwith "Invalid hex digit"
-
-    static let pUnicodeEscape: Parser<_, _, _, _, _> =
-        parser {
-            let! _ = pitem '\\'
-            let! _ = pitem 'u'
-            let! hex0 = pHexDigit
-            let! hex1 = pHexDigit
-            let! hex2 = pHexDigit
-            let! hex3 = pHexDigit
-            let hexValue = (hex0 <<< 12) + (hex1 <<< 8) + (hex2 <<< 4) + hex3
-            return Convert.ToChar(hexValue)
-        }
 
     static let pOtherChar: Parser<_, _, _, _, _> =
         satisfyL
@@ -163,12 +151,12 @@ type JsonParsers<'Input, 'InputSlice
             | '"'
             | '\\' -> false
             | c -> not (Char.IsControl c))
-            ("Other Char")
+            "Other Char"
 
     static let pString =
         parser {
             let! _ = pitem '"'
-            let! chars = manyChars (choiceL [ pEscape; pUnicodeEscape; pOtherChar ] "")
+            let! chars = manyChars (choiceL [ pEscape; pOtherChar ] "")
             let! _ = pitem '"'
             return chars
         }
@@ -225,7 +213,7 @@ type JsonParsers<'Input, 'InputSlice
             return JsonValue.Array values
         }
 
-    static let pJson: Parser<JsonValue, char, unit, 'Input, 'InputSlice> = (pElement .>> eof)
+    static let pJson: Parser<JsonValue, char, unit, 'Input, 'InputSlice> = pElement .>> eof
 
     static member Parser = pJson
     static member PString = pString
