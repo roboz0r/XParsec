@@ -1,4 +1,10 @@
-# Worked Example: A Complete JSON Parser
+---
+category: Examples
+categoryindex: 1
+index: 0
+---
+
+# A Complete JSON Parser
 
 One of the best ways to see the power of a parser combinator library is to build a parser for a well-known format. This guide will walk you through the creation of a complete, robust JSON parser using XParsec.
 
@@ -27,17 +33,17 @@ and JsonObject = ImmutableArray<JsonMember>
 and JsonArray = ImmutableArray<JsonValue>
 ```
 
-## 2. Structuring the Parsers: The `static let` Pattern
+## 2. Structuring the Parsers: The static let Pattern
 
-We want our parser to be able to parse any kind of character input, not just `string`s. While XParsec parsers are functions and can be generic, defining them as top-level `let`-bound values runs into F#'s "value restriction," which prevents simple values from being automatically generalized.
+We want our parser to be able to parse any kind of character input, not just `string`s. While XParsec parsers are functions and can be generic, defining them as top-level or module-level `let`-bound values runs into F#'s "value restriction," which prevents simple values from being automatically generalized.
 
 A clean solution is to define our parsers as `static let` members inside a generic type. This allows the parsers to be implicitly parameterized by the type's generics, enabling both reusability and mutual recursion without issue. At the point of use, a concrete version of the `JsonParsers` type will be created based on the input `Reader`.
 
 For a deeper dive, see Microsoft's documentation on [Value Restriction](https://learn.microsoft.com/en-us/dotnet/fsharp/language-reference/generics/automatic-generalization#value-restriction) and [Finer Points of F# Value Restriction](https://learn.microsoft.com/en-us/archive/blogs/mulambda/finer-points-of-f-value-restriction).
 
-**Caution:**
-
-It's tempting to define a parser like `let pThing reader = parser { ... } reader`. But this is a performance trap. By giving `pThing` an explicit reader parameter it causes the `parser { }` builder to be re-evaluated each time the parser is run.
+> **Caution:**
+>
+> It's tempting to define a parser like `let pThing reader = parser { ... } reader`. But this is a performance trap. By giving `pThing` an explicit reader parameter it causes the `parser { }` builder to be re-evaluated each time the parser is run.
 
 ```fsharp
 open XParsec

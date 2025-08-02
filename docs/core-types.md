@@ -1,10 +1,16 @@
+---
+category: Documentation
+categoryindex: 0
+index: 0
+---
+
 # Core Concepts
 
 XParsec is a functional parser combinator library for F#. It's built around a single, powerful idea: **a parser is just a function**.
 
 Instead of creating complex parser objects, you write small, focused functions that parse one piece of your input. You then combine, or "compose," these small functions to build a parser for your entire language or data format. This functional approach makes your parsers modular, reusable, and easy to test.
 
-## The `Parser` Function
+## The Parser Function
 
 At its heart, a parser is a function that takes the current input state and returns a result indicating success or failure. In its simplest form, you can think of it like this:
 
@@ -36,13 +42,15 @@ Because parsers are just functions, you can use standard F# operators like `>>` 
 
 Now, let's look at the input and output of this function.
 
-## Parser Input: The `Reader`
+## Reader: Parser Input
 
 The input to every parser is a `Reader`. Think of the `Reader` as a smart cursor that moves over your input data. It tracks the current position and holds your custom state.
 
 ```fsharp
 type Reader<'T, 'State, 'Input, 'InputSlice>
 ```
+
+> It's important to understand the `Reader`, but, in most cases you won't need to interact with this type directly. Parser and combinator functions implicitly thread the reader through your overall parser.
 
 ### Key Members
 
@@ -60,7 +68,7 @@ The `Reader` provides a simple API for navigating the input:
 
 The `Reader` gets its data from an `IReadable` source.
 
-### Creating a `Reader`
+### Creating a Reader
 
 You'll typically start a parsing job by creating a `Reader` from your source data. The `Reader` module provides convenient helper functions for this.
 
@@ -93,7 +101,7 @@ The `Reader` module includes helpers for the most common input types:
 | `ofResizeArray` | Creates a reader from a `ResizeArray<'T>`. | .NET 5+ | ✔️ |
 | `ofStream` | Creates a reader from a `Stream`. | ✔️ | ❌ |
 
-## Parser Output: The `ParseResult`
+## ParseResult: Parser Output
 
 A parser returns a `ParseResult`, which is a standard F# `Result` type. This makes it easy to handle both success and failure using pattern matching.
 
@@ -101,7 +109,7 @@ A parser returns a `ParseResult`, which is a standard F# `Result` type. This mak
 type ParseResult<'Parsed, 'T, 'State> = Result<ParseSuccess<'Parsed>, ParseError<'T, 'State>>
 ```
 
-### Success: `ParseSuccess<'Parsed>`
+### ParseSuccess
 
 On success, the result is `Ok` containing a `ParseSuccess` value.
 
@@ -111,7 +119,7 @@ type ParseSuccess<'Parsed> = { Parsed: 'Parsed }
 
 - `Parsed`: The value that was successfully parsed.
 
-### Failure: `ParseError<'T, 'State>`
+### ParseError
 
 On failure, the result is `Error` containing a `ParseError` value. This struct provides rich information about what went wrong and where.
 
@@ -127,7 +135,7 @@ type ParseError<'T, 'State> =
 
 The core types above rely on a few other important building blocks.
 
-### `IReadable<'T, 'U>`: The Input Source
+### IReadable: The Input Source
 
 This interface makes XParsec extensible. It defines a contract for readable, sliceable data sources. While XParsec provides implementations for common types, you can implement `IReadable` to make your own custom data structures (like a rope or gap buffer) parsable.
 
@@ -142,7 +150,7 @@ type IReadable<'T, 'Slice when 'Slice :> IReadable<'T, 'Slice>> =
     abstract Slice: newStart: int64 * newLength: int64 -> 'Slice
 ```
 
-### `Position<'State>`: A Snapshot in Time
+### Position: A Snapshot in Time
 
 A struct representing a snapshot of the reader's state (index and user state) at a specific point. This is crucial for backtracking and for providing precise error locations.
 
@@ -155,7 +163,7 @@ type Position<'State> =
     }
 ```
 
-### `ErrorType<'T, 'State>`: Describing What Went Wrong
+### ErrorType: Describing What Went Wrong
 
 This discriminated union represents the different kinds of errors that can occur during parsing.
 
@@ -171,7 +179,7 @@ type ErrorType<'T, 'State> =
     | Nested of parent: ErrorType<'T, 'State> * children: ParseError<'T, 'State> list
 ```
 
-### `InfiniteLoopException<'State>`: A Safeguard
+### InfiniteLoopException
 
 To protect against common mistakes in recursive parser definitions, XParsec automatically detects when a parser consumes no input but also doesn't fail. When this happens, it throws an `InfiniteLoopException` instead of causing a stack overflow, making the bug much easier to find and fix.
 

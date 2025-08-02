@@ -1,3 +1,9 @@
+---
+category: Documentation
+categoryindex: 0
+index: 6
+---
+
 # Operator Precedence Parsing
 
 Parsing mathematical or logical expressions can be complex due to rules like operator precedence (e.g., `*` before `+`) and associativity (e.g., `1 - 2 - 3` means `(1 - 2) - 3`). Manually handling these rules with combinators can be tricky and lead to confusing, left-recursive parsers.

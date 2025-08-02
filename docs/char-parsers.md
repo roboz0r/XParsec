@@ -1,3 +1,9 @@
+---
+category: Documentation
+categoryindex: 0
+index: 3
+---
+
 # Character Parsers
 
 The `XParsec.CharParsers` module provides a rich set of parsers specifically optimized for working with `char` and `string` inputs. These parsers are the go-to tools for most text-based parsing tasks.

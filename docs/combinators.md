@@ -1,3 +1,9 @@
+---
+category: Documentation
+categoryindex: 0
+index: 2
+---
+
 # Combinators: Building Complex Parsers
 
 A "combinator" is a function that takes one or more parsers and returns a new, more powerful parser. They are the glue that allows you to combine the primitive parsers into sophisticated structures that can parse complex grammars.

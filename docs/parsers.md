@@ -1,4 +1,10 @@
-# Core Parsers
+---
+category: Documentation
+categoryindex: 0
+index: 1
+---
+
+# Common Parsers
 
 Primitive parsers are the fundamental building blocks of XParsec. They are the functions that directly interact with the input stream by consuming items, or with the parser's environment by inspecting its state and position. Every complex parser is ultimately built by combining these primitives.
 

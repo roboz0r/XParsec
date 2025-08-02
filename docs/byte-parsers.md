@@ -1,3 +1,9 @@
+---
+category: Documentation
+categoryindex: 0
+index: 4
+---
+
 # Binary Parsers
 
 The `XParsec.ByteParsers` module provides a set of highly efficient parsers for reading primitive numeric types directly from a stream of bytes. This is essential for parsing binary file formats, network protocols, and other non-textual data.

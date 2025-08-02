@@ -17,6 +17,9 @@
     <!-- https://fsprojects.github.io/FSharp.Formatting/styling.html -->
     <FsDocsLicenseLink>https://github.com/roboz0r/XParsec/License</FsDocsLicenseLink>
     <FsDocsReleaseNotesLink>https://github.com/roboz0r/XParsec/RELEASE_NOTES.md</FsDocsReleaseNotesLink>
+    <FsDocsLogoSource>images/logo.svg</FsDocsLogoSource>
+    <FsDocsLicenseLink>https://github.com/roboz0r/XParsec/blob/master/LICENSE</FsDocsLicenseLink>
+    <FsDocsReleaseNotesLink>https://github.com/roboz0r/XParsec/blob/master/release-notes.md</FsDocsReleaseNotesLink>
   </PropertyGroup>
   <PropertyGroup Label="F# Specific Options" Condition="'$(MSBuildProjectExtension)' == '.fsproj'">
     <DisableImplicitSystemValueTupleReference>true</DisableImplicitSystemValueTupleReference>

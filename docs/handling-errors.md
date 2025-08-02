@@ -1,3 +1,9 @@
+---
+category: Documentation
+categoryindex: 0
+index: 5
+---
+
 # Handling Errors
 
 A good parser doesn't just know how to succeed; it knows how to fail gracefully. Parsing is often an iterative process, and clear, actionable error messages are crucial for debugging grammars. XParsec is designed with this in mind, making error reporting a first-class feature.
