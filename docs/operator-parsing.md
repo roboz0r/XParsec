@@ -136,7 +136,7 @@ let pExpression =
 
 let runParser input =
     printfn $"Parsing: '{input}'"
-    match run pExpression input with
+    match pExpression (Reader.ofString input ()) with
     | Ok success -> printfn "  Success: %A{success.Parsed}"
     | Error e ->
         let errorMsg = ErrorFormatting.formatStringError input e

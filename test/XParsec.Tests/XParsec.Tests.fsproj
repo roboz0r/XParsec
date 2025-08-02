@@ -14,6 +14,7 @@
     <Compile Include="OperatorParsingTests.fs" />
     <Compile Include="ByteParsersTests.fs" />
     <Compile Include="ErrorFormattingTests.fs" />
+    <Compile Include="DocsTests.fs" />
     <Compile Include="Main.fs" />
   </ItemGroup>
   <ItemGroup>

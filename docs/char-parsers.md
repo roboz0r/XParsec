@@ -18,7 +18,7 @@ open XParsec.CharParsers
 
 // A helper to run a parser and print its result
 let testParser parser input =
-    match run parser input with
+    match parser (Reader.ofString input ()) with
     | Ok success -> printfn $"Input: \"{input}\" -> Ok {success.Parsed}"
     | Error err ->
         let errorMsg = ErrorFormatting.formatStringError input err

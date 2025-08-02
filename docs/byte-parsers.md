@@ -49,7 +49,7 @@ let pHeader = parser {
 let data = [| 0xCAuy; 0xFEuy; 0x00uy; 0x04uy; 0x00uy; 0x00uy |]
 
 // Run the parser
-match run pHeader (Reader.ofArray data ()) with
+match pHeader (Reader.ofArray data ()) with
 | Ok success ->
     printfn $"Parsed Header: Magic=0x{success.Parsed.Magic:X}, Size={success.Parsed.PayloadSize}"
     // Output: Parsed Header: Magic=0xCAFE, Size=1024

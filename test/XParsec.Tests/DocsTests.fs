@@ -1,37 +1,13 @@
-# XParsec
+module DocsTests
 
-XParsec is a modern parser combinator library for F#. It allows you to build powerful, type-safe, and efficient parsers by composing small, reusable functions. It's designed from the ground up to provide excellent performance, great error messages, and a developer-friendly API that works seamlessly in both .NET and Fable projects.
-
-## Getting Started
-
-### Installation
-
-You can add XParsec to your project via NuGet:
-
-```bash
-dotnet add package XParsec
-```
-
-### Your First Parser
-
-The best way to learn XParsec is to build something. We'll write a parser for a simple configuration file format. The file looks like this:
-
-```ini
-# config.txt
-name = "XParsec"
-version = 1.2
-is_beta = true
-# Comments should be ignored
-```
-
-Our goal is to parse this into a list of key-value pairs, ignoring comments and whitespace.
-
-#### 1. Define the Data Types
-
-First, let's define the F# types that will represent our successfully parsed data. This is a great practice as it makes the goal of our parser clear.
-
-```fsharp
 open System
+open System.Buffers.Binary
+
+open Expecto
+
+open XParsec
+open XParsec.Parsers
+open XParsec.CharParsers
 
 // A discriminated union for the different value types we can parse
 type ConfigValue =
@@ -41,15 +17,6 @@ type ConfigValue =
 
 // A record to hold a single key-value pair
 type KeyValuePair = { Key: string; Value: ConfigValue }
-```
-
-#### 2. Writing the Parsers
-
-Now, we'll build up our parser piece by piece. We'll start with the smallest elements of our format and combine them into a parser for the whole file.
-
-```fsharp
-open XParsec
-open XParsec.CharParsers
 
 // -- Basic Building Blocks --
 
@@ -108,61 +75,52 @@ let pConfigFile =
         pWhitespaceOrComment 
         (many (pKeyValuePair .>> skipNewline)) 
     .>> eof
-```
 
-#### 3. Running the Parser
+[<Tests>]
+let tests =
+    testList
+        "DocsTests"
+        [
+            test "Index" {
 
-With our `pConfigFile` parser defined, we can run it on our input.
-
-```fsharp
-let configText = """
+                let configText =
+                    """
 # My Awesome Config
 name = "XParsec"
 version = 1.2
 is_beta = true
-"""
+                """
 
-let result = Reader.ofString configText () |> pConfigFile
+                let result = Reader.ofString configText () |> pConfigFile
 
-// Handle the result using pattern matching
-match result with
-| Ok success ->
-    printfn "Successfully parsed config:"
-    for kvp in success.Parsed do
-        printfn $"- {kvp.Key}: {kvp.Value}"
-| Error err ->
-    // This case is handled in the next section.
-    printfn "An error occurred."
-```
+                // Handle the result using pattern matching
+                match result with
+                | Ok success ->
+                    printfn "Successfully parsed config:"
 
-This will produce the output:
+                    for kvp in success.Parsed do
+                        printfn $"- {kvp.Key}: {kvp.Value}"
+                | Error err ->
+                    // This case is handled in the next section.
+                    printfn "An error occurred."
+            }
 
-```text
-Successfully parsed config:
-- name: String "XParsec"
-- version: Float 1.2
-- is_beta: Bool true
-```
+            test "Index with Error" {
 
-#### 4. Handling Parse Errors
-
-One of XParsec's key features is its ability to generate human-readable error messages. Let's see what happens with invalid input.
-
-```fsharp
-let invalidConfigText = """
+                let invalidConfigText =
+                    """
 name = "XParsec"
 version = 1.2a  # Invalid float
 is_beta = true
-"""
+                """
 
-let result = Reader.ofString invalidConfigText () |> pConfigFile
+                let result = Reader.ofString invalidConfigText () |> pConfigFile
 
-match result with
-| Ok _ -> () // This won't be hit
-| Error err ->
-    // The ErrorFormatting module can create a nicely formatted report.
-    let errorMsg = ErrorFormatting.formatStringError invalidConfigText err
-    printfn "Error parsing config:\n%s" errorMsg
-```
-
-This example demonstrates the core philosophy of XParsec: start with small, simple building blocks, and combine them using powerful operators and functions to create a readable, robust, and type-safe parser for any format.
+                match result with
+                | Ok _ -> () // This won't be hit
+                | Error err ->
+                    // The ErrorFormatting module can create a nicely formatted report.
+                    let errorMsg = ErrorFormatting.formatStringError invalidConfigText err
+                    printfn "Error parsing config:\n%s" errorMsg
+            }
+        ]
