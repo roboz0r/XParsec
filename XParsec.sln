@@ -56,6 +56,30 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "GitHub Actions", "GitHub Ac
 		.github\workflows\publish.yml = .github\workflows\publish.yml
 	EndProjectSection
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "docs", "docs", "{0FCD1680-4417-4F7B-B13A-27E765D55DCE}"
+	ProjectSection(SolutionItems) = preProject
+		docs\index.md = docs\index.md
+		docs\parsers.md = docs\parsers.md
+		docs\core-types.md = docs\core-types.md
+		docs\combinators.md = docs\combinators.md
+		docs\byte-parsers.md = docs\byte-parsers.md
+		docs\char-parsers.md = docs\char-parsers.md
+		docs\example-json.md = docs\example-json.md
+		docs\handling-errors.md = docs\handling-errors.md
+		docs\operator-parsing.md = docs\operator-parsing.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "images", "images", "{3AAF1CE8-E07E-4289-96F9-9B16FFE67EF1}"
+	ProjectSection(SolutionItems) = preProject
+		docs\images\logo.svg = docs\images\logo.svg
+		docs\images\json-array.png = docs\images\json-array.png
+		docs\images\json-value.png = docs\images\json-value.png
+		docs\images\json-number.png = docs\images\json-number.png
+		docs\images\json-object.png = docs\images\json-object.png
+		docs\images\json-string.png = docs\images\json-string.png
+		docs\images\json-whitespace.png = docs\images\json-whitespace.png
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -214,5 +238,6 @@ Global
 		{FFB5B284-5E36-4466-BBF3-706964EE55B0} = {6799430A-924F-4DAE-B6F3-B69396BE336F}
 		{B7354356-80D1-46D2-BA27-B828BC1D0222} = {B6F9FCCA-7F39-FFB6-77AC-49B2F711DD96}
 		{23176331-0D4B-4653-A8EA-1A1411396585} = {B6F9FCCA-7F39-FFB6-77AC-49B2F711DD96}
+		{3AAF1CE8-E07E-4289-96F9-9B16FFE67EF1} = {0FCD1680-4417-4F7B-B13A-27E765D55DCE}
 	EndGlobalSection
 EndGlobal
