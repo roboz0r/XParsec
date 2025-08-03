@@ -48,9 +48,9 @@ let tests =
 
                 "" |> Expect.equal actual expected
 
-                let expteced = [ '\n'; '\n'; '\n'; '\n'; '\n' ]
+                let expected = [ '\n'; '\n'; '\n'; '\n'; '\n' ]
                 let actual = actual |> List.map (fun i -> inputSample.[i])
-                "" |> Expect.equal actual expteced
+                "" |> Expect.equal actual expected
 
                 let expectedIndices =
                     [
@@ -106,9 +106,9 @@ let tests =
 
                 "" |> Expect.equal actual expected
 
-                let expteced = [ '\n'; '\n'; '\n'; '\n' ]
+                let expected = [ '\n'; '\n'; '\n'; '\n' ]
                 let actual = actual |> List.map (fun i -> inputSample.[i])
-                "" |> Expect.equal actual expteced
+                "" |> Expect.equal actual expected
 
                 let expectedIndices =
                     [
@@ -423,6 +423,30 @@ let tests =
             test "Format String Error Line 2" {
                 let inputSample = $"1{sample}{Environment.NewLine}2{sample}"
                 let input = Reader.ofString inputSample ()
+
+                let p = tuple5 (pchar '1') (pstring sample) newline (pstring "2The ") (pchar 'a')
+
+                match p input with
+                | Ok _ -> failwith "Expected parse error"
+                | Error e ->
+                    let actual = ErrorFormatting.formatStringError inputSample e
+                    let nlLength = Environment.NewLine.Length
+
+                    let expected =
+                        [
+                            // This is broken -- Fix tomorrow
+                            "2The quick brown fox jumps over the lazy dog."
+                            $"     ^ At index {50 + nlLength} (Ln 2, Col 6)"
+                            "Expected 'a'"
+                        ]
+                        |> String.concat Environment.NewLine
+
+                    "" |> Expect.equal actual expected
+            }
+
+            test "Format String Error Line 2 with complex state" {
+                let inputSample = $"1{sample}{Environment.NewLine}2{sample}"
+                let input = Reader.ofString inputSample {| ComplexStateField = "G ORWELL" |}
 
                 let p = tuple5 (pchar '1') (pstring sample) newline (pstring "2The ") (pchar 'a')
 
