@@ -254,7 +254,7 @@ module ErrorFormatting =
         let { Errors = errors; Position = pos } = error
         f [] pos errors sb
 
-    let formatStringError (input: string) (error: ParseError<char, unit>) =
+    let formatStringError (input: string) (error: ParseError<char, 'State>) =
         let index = LineIndex.OfString input
         let readable = ReadableString input
 
