@@ -10,7 +10,6 @@
 </div>
 <br/>
 
----
 
 XParsec is a parser combinator library for F#
 
