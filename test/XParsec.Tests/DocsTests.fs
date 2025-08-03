@@ -1,9 +1,12 @@
 module DocsTests
 
 open System
-open System.Buffers.Binary
 
+#if FABLE_COMPILER
+open Fable.Pyxpecto
+#else
 open Expecto
+#endif
 
 open XParsec
 open XParsec.Parsers
@@ -70,13 +73,12 @@ let pKeyValuePair =
 // We wrap it all in `pWhitespaceOrComment` to handle leading/trailing space or comments.
 // `.>> eof` is a common way to assert the parser should consume all input.
 let pConfigFile =
-    between 
-        pWhitespaceOrComment 
-        pWhitespaceOrComment 
-        (many (pKeyValuePair .>> skipNewline)) 
+    between pWhitespaceOrComment pWhitespaceOrComment (many (pKeyValuePair .>> skipNewline))
     .>> eof
 
+#if !FABLE_COMPILER
 [<Tests>]
+#endif
 let tests =
     testList
         "DocsTests"

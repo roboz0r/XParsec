@@ -4,7 +4,7 @@ open System
 open System.Collections.Immutable
 open XParsec
 
-#nowarn 44 // Suppress warning for obsolete member usage
+#nowarn "44" // Suppress warning for obsolete member usage
 
 /// Operator precedence is used to determine the order of operations in expressions.
 /// Operators with higher precedence are evaluated first, resulting in the higher value appearing in the inner expression.
