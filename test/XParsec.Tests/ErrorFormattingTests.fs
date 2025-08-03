@@ -434,7 +434,6 @@ let tests =
 
                     let expected =
                         [
-                            // This is broken -- Fix tomorrow
                             "2The quick brown fox jumps over the lazy dog."
                             $"     ^ At index {50 + nlLength} (Ln 2, Col 6)"
                             "Expected 'a'"
@@ -458,7 +457,6 @@ let tests =
 
                     let expected =
                         [
-                            // This is broken -- Fix tomorrow
                             "2The quick brown fox jumps over the lazy dog."
                             $"     ^ At index {50 + nlLength} (Ln 2, Col 6)"
                             "Expected 'a'"
