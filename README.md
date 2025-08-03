@@ -3,10 +3,11 @@
     <img alt="XParsec logo" src="docs/images/logo.svg" title="Logo" align="center"/>
     XParsec 
   </h1>
+<div align="left">
 
   [<img hspace="10px" alt="Static Badge" src="https://img.shields.io/badge/see_the-docs-blue?style=flat">](https://roboz0r.github.io/XParsec/) 
   ![NuGet Version](https://img.shields.io/nuget/v/XParsec?style=flat)
-
+</div>
 </div>
 <br/>
 
