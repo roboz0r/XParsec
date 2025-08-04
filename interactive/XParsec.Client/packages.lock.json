@@ -34,6 +34,12 @@
           "Fable.Promise": "2.2.2"
         }
       },
+      "FSharp.Core": {
+        "type": "Direct",
+        "requested": "[9.0.201, )",
+        "resolved": "9.0.201",
+        "contentHash": "Ozq4T0ISTkqTYJ035XW/JkdDDaXofbykvfyVwkjLSqaDZ/4uNXfpf92cjcMI9lf9CxWqmlWHScViPh/4AvnWcw=="
+      },
       "Oxpecker.Solid": {
         "type": "Direct",
         "requested": "[0.6.0, )",
@@ -129,12 +135,6 @@
           "FSharp.Core": "9.0.201",
           "Fable.AST": "4.5.0"
         }
-      },
-      "FSharp.Core": {
-        "type": "CentralTransitive",
-        "requested": "[9.0.201, )",
-        "resolved": "9.0.201",
-        "contentHash": "Ozq4T0ISTkqTYJ035XW/JkdDDaXofbykvfyVwkjLSqaDZ/4uNXfpf92cjcMI9lf9CxWqmlWHScViPh/4AvnWcw=="
       }
     }
   }

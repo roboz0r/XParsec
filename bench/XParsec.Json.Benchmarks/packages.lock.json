@@ -41,9 +41,9 @@
       },
       "FSharp.Core": {
         "type": "Direct",
-        "requested": "[9.0.201, )",
-        "resolved": "9.0.201",
-        "contentHash": "Ozq4T0ISTkqTYJ035XW/JkdDDaXofbykvfyVwkjLSqaDZ/4uNXfpf92cjcMI9lf9CxWqmlWHScViPh/4AvnWcw=="
+        "requested": "[8.0.100, )",
+        "resolved": "8.0.100",
+        "contentHash": "ZOVZ/o+jI3ormTZOa28Wh0tSRoyle1f7lKFcUN61sPiXI7eDZu8eSveFybgTeyIEyW0ujjp31cp7GOglDgsNEg=="
       },
       "BenchmarkDotNet.Annotations": {
         "type": "Transitive",
@@ -273,21 +273,21 @@
       "xparsec": {
         "type": "Project",
         "dependencies": {
-          "FSharp.Core": "[9.0.201, )",
-          "System.Collections.Immutable": "[9.0.3, )"
+          "FSharp.Core": "[8.0.100, )",
+          "System.Collections.Immutable": "[8.0.0, )"
         }
       },
       "xparsec.json": {
         "type": "Project",
         "dependencies": {
-          "XParsec": "[0.1.0, )"
+          "XParsec": "[0.2.0, )"
         }
       },
       "System.Collections.Immutable": {
         "type": "CentralTransitive",
-        "requested": "[9.0.3, )",
-        "resolved": "9.0.3",
-        "contentHash": "CfYi30Pbpw9aGpXVLcoGt+yM0egrE8M1DUOOwdAWOAQ2QZkXkSgjonqZYvtKdxUF1XJaLCp0OdTXueeAeUHSlQ=="
+        "requested": "[8.0.0, )",
+        "resolved": "8.0.0",
+        "contentHash": "AurL6Y5BA1WotzlEvVaIDpqzpIPvYnnldxru8oXJU2yFxFUy3+pNXjXd1ymO+RA0rq0+590Q8gaz2l3Sr7fmqg=="
       }
     }
   }

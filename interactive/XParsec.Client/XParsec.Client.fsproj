@@ -6,6 +6,7 @@
     <IsClient>true</IsClient>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="FSharp.Core" VersionOverride="9.0.201" />
     <PackageReference Include="Fable.Browser.Dom" />
     <PackageReference Include="Fable.Core" />
     <PackageReference Include="Fable.Fetch" />
