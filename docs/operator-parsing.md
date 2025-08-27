@@ -29,6 +29,7 @@ These appear between two operands.
 
 * `Operator.infixLeftAssoc`: For left-associative operators like `+` and `*`.
 * `Operator.infixRightAssoc`: For right-associative operators like `**` (power).
+* `Operator.infixNonAssoc`: For non-associative operators.
 
 ```fsharp
 // Defines a left-associative '+' operator that builds an `Add` AST node.

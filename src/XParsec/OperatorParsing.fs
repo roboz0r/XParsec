@@ -114,6 +114,12 @@ type RHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
         leftPower: byte *
         completeInfix: ('Expr -> 'Expr -> 'Expr)
 
+    | InfixNonAssociative of
+        op: 'Op *
+        parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
+        leftPower: byte *
+        completeInfix: ('Expr -> 'Expr -> 'Expr)
+
     | Postfix of
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
@@ -181,6 +187,7 @@ module internal Pratt =
     // Pratt parsing based on https://matklad.github.io/2020/04/13/simple-but-powerful-pratt-parsing.html
 
     let private failure = Message "Operator parsing failed"
+    let private ambiguous = Message "Ambiguous operator associativity"
 
     let rec private parseRhs
         (pExpr: Parser<'Expr, 'T, _, _, _>)
@@ -208,6 +215,9 @@ module internal Pratt =
                     //Operator not consumed on stack so return previous reader
                     reader.Position <- pos
                     preturn lhs reader
+                elif leftPower = minBinding then
+                    // Ambiguous case: both sides have the same binding power
+                    fail ambiguous reader
                 else
                     parseRhs (completePostfix lhs) reader
 
@@ -215,6 +225,8 @@ module internal Pratt =
                 if leftPower < minBinding then
                     reader.Position <- pos
                     preturn lhs reader
+                elif leftPower = minBinding then
+                    fail ambiguous reader
                 else
                     let rightPower = leftPower + 1uy
                     // Found operator has higher binding than existing tokens so need to get next operator recursively
@@ -226,8 +238,23 @@ module internal Pratt =
                 if leftPower < minBinding then
                     reader.Position <- pos
                     preturn lhs reader
+                elif leftPower = minBinding then
+                    fail ambiguous reader
                 else
                     let rightPower = leftPower - 1uy
+
+                    match parseLhs rightPower reader with
+                    | Ok rhs -> parseRhs (completeInfix lhs rhs.Parsed) reader
+                    | Error e -> Error e
+
+            | InfixNonAssociative(op, parseOp, leftPower, completeInfix) ->
+                if leftPower < minBinding then
+                    reader.Position <- pos
+                    preturn lhs reader
+                elif leftPower = minBinding then
+                    fail ambiguous reader
+                else
+                    let rightPower = leftPower
                     // Found operator has higher binding than existing tokens so need to get next operator recursively
                     match parseLhs rightPower reader with
                     | Ok rhs -> parseRhs (completeInfix lhs rhs.Parsed) reader
@@ -237,6 +264,8 @@ module internal Pratt =
                 if leftPower < minBinding then
                     reader.Position <- pos
                     preturn lhs reader
+                elif leftPower = minBinding then
+                    fail ambiguous reader
                 else
                     match innerParser (reader) with
                     | Ok inner ->
@@ -250,6 +279,8 @@ module internal Pratt =
                 if leftPower < minBinding then
                     reader.Position <- pos
                     preturn lhs reader
+                elif leftPower = minBinding then
+                    fail ambiguous reader
                 else
                     let rightPower = leftPower - 1uy
 
@@ -333,6 +364,7 @@ module Operator =
         function
         | InfixLeft(op, _, _, _)
         | InfixRight(op, _, _, _)
+        | InfixNonAssociative(op, _, _, _) -> op
         | Postfix(op, _, _, _)
         | Indexer(op, _, _, _, _, _, _)
         | Ternary(op, _, _, _, _) -> op
@@ -341,6 +373,7 @@ module Operator =
         function
         | InfixLeft(_, parseOp, _, _)
         | InfixRight(_, parseOp, _, _)
+        | InfixNonAssociative(_, parseOp, _, _) -> parseOp
         | Postfix(_, parseOp, _, _)
         | Indexer(_, parseOp, _, _, _, _, _)
         | Ternary(_, parseOp, _, _, _) -> parseOp
@@ -349,6 +382,7 @@ module Operator =
         function
         | InfixLeft(_, _, leftPower, _)
         | InfixRight(_, _, leftPower, _)
+        | InfixNonAssociative(_, _, leftPower, _) -> leftPower
         | Postfix(_, _, leftPower, _)
         | Indexer(_, _, leftPower, _, _, _, _)
         | Ternary(_, _, leftPower, _, _) -> leftPower
@@ -357,6 +391,7 @@ module Operator =
         function
         | InfixLeft(_, _, leftPower, _) -> leftPower + 1uy
         | InfixRight(_, _, leftPower, _) -> leftPower - 1uy
+        | InfixNonAssociative(_, _, leftPower, _) -> leftPower
         | Ternary(_, _, leftPower, _, _) -> leftPower - 1uy
         | Postfix(_, _, _, _)
         | Indexer(_, _, _, _, _, _, _) -> Precedence.MinP
@@ -436,6 +471,11 @@ module Operator =
     let infixRightAssoc op power parseOp complete =
         let power = Precedence.value power
         RHS(InfixRight(op, parseOp, power + 1uy, complete))
+
+    /// Creates a non-associative infix operator with the specified properties.
+    let infixNonAssoc op power parseOp complete =
+        let power = Precedence.value power
+        RHS(InfixNonAssociative(op, parseOp, power, complete))
 
     /// Creates a prefix operator with the specified properties.
     let prefix op power parseOp complete =
