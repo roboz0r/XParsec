@@ -1,0 +1,11 @@
+0, LineComment
+18, Newline
+20, KWLet
+23, Whitespace
+24, Identifier
+25, Whitespace
+26, Operator
+27, Whitespace
+28, StringLiteral
+35, Newline
+37, EOF
