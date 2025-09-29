@@ -1,0 +1,26 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net8.0": {
+      "System.Collections.Immutable": {
+        "type": "Direct",
+        "requested": "[8.0.0, )",
+        "resolved": "8.0.0",
+        "contentHash": "AurL6Y5BA1WotzlEvVaIDpqzpIPvYnnldxru8oXJU2yFxFUy3+pNXjXd1ymO+RA0rq0+590Q8gaz2l3Sr7fmqg=="
+      },
+      "xparsec": {
+        "type": "Project",
+        "dependencies": {
+          "FSharp.Core": "[8.0.100, )",
+          "System.Collections.Immutable": "[8.0.0, )"
+        }
+      },
+      "FSharp.Core": {
+        "type": "CentralTransitive",
+        "requested": "[8.0.100, )",
+        "resolved": "8.0.100",
+        "contentHash": "ZOVZ/o+jI3ormTZOa28Wh0tSRoyle1f7lKFcUN61sPiXI7eDZu8eSveFybgTeyIEyW0ujjp31cp7GOglDgsNEg=="
+      }
+    }
+  }
+}
