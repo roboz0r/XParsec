@@ -1,4 +1,4 @@
-﻿module Program
+﻿module XParsec.FSharp.Lexer.Tests.Program
 
 
 open Expecto
