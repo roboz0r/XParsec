@@ -63,7 +63,6 @@ module TokenRepresentation =
     let internal NumericBaseBinary = 0b00110000us
 
 
-
     // Operator flags
     // The lower 7 bits (0-6) are reserved for the token ID (up to 128 tokens)
     // But F# allows arbitrary custom operators
@@ -247,7 +246,7 @@ type Associativity =
     | Non
     | Right
     | Left
-    
+
 // --- Numeric Literal Specifics (Bits 5-0, when Bit 6 is 0) ---
 type NumericBase =
     | Decimal = 0 // 123
@@ -332,13 +331,8 @@ type Token =
     | KWAssert = (IsKeywordOperator ||| 10us)
     | KWBase = (IsKeyword ||| 11us)
     | KWBegin = (IsKeyword ||| 12us)
-    | KWBreak = (IsKeyword ||| 13us)
-    | KWChecked = (IsKeyword ||| 14us)
     | KWClass = (IsKeyword ||| 15us)
-    | KWComponent = (IsKeyword ||| 16us)
     | KWConst = (IsKeyword ||| 17us)
-    | KWConstraint = (IsKeyword ||| 18us)
-    | KWContinue = (IsKeyword ||| 19us)
     | KWDefault = (IsKeyword ||| 20us)
     | KWDelegate = (IsKeyword ||| 21us)
     | KWDo = (IsKeyword ||| 22us)
@@ -361,7 +355,6 @@ type Token =
     | KWGlobal = (IsKeyword ||| 40us)
     | KWIf = (IsKeywordOperator ||| 41us)
     | KWIn = (IsKeyword ||| 42us)
-    | KWInclude = (IsKeyword ||| 43us)
     | KWInherit = (IsKeyword ||| 44us)
     | KWInline = (IsKeyword ||| 45us)
     | KWInterface = (IsKeyword ||| 46us)
@@ -370,7 +363,6 @@ type Token =
     | KWLet = (IsKeywordOperator ||| 50us)
     | KWMatch = (IsKeywordOperator ||| 56us)
     | KWMember = (IsKeyword ||| 58us)
-    | KWMixin = (IsKeyword ||| 59us)
     | KWMod = (IsKeywordOperatorIdentifier ||| 60us)
     | KWModule = (IsKeyword ||| 61us)
     | KWMutable = (IsKeyword ||| 62us)
@@ -382,30 +374,25 @@ type Token =
     | KWOpen = (IsKeyword ||| 68us)
     | KWOr = (IsKeywordOperatorIdentifier ||| 69us)
     | KWOverride = (IsKeyword ||| 70us)
-    | KWParallel = (IsKeyword ||| 71us)
     | KWPrivate = (IsKeyword ||| 72us)
-    | KWProcess = (IsKeyword ||| 73us)
-    | KWProtected = (IsKeyword ||| 74us)
     | KWPublic = (IsKeyword ||| 75us)
-    | KWPure = (IsKeyword ||| 76us)
     | KWRec = (IsKeyword ||| 77us)
     | KWReturn = (IsKeyword ||| 78us)
-    | KWSealed = (IsKeyword ||| 80us)
-    | KWSelect = (IsKeyword ||| 81us)
+    /// Used in query expressions to specify what fields or columns to extract.
+    /// Note that this is a contextual keyword, which means that it is not actually
+    /// a reserved word and it only acts like a keyword in appropriate context.
+    | KWContextualSelect = (IsKeywordIdentifier ||| 81us)
     | KWSig = (IsKeyword ||| 82us)
     | KWStatic = (IsKeyword ||| 83us)
     | KWStruct = (IsKeyword ||| 84us)
-    | KWTailcall = (IsKeyword ||| 85us)
     | KWThen = (IsKeyword ||| 86us)
     | KWTo = (IsKeyword ||| 87us)
-    | KWTrait = (IsKeyword ||| 88us)
     | KWTrue = (IsKeyword ||| 89us)
     | KWTry = (IsKeyword ||| 90us)
     | KWType = (IsKeyword ||| 91us)
     | KWUpcast = (IsKeywordOperator ||| 92us)
     | KWUse = (IsKeywordOperator ||| 93us)
     | KWVal = (IsKeyword ||| 95us)
-    | KWVirtual = (IsKeyword ||| 96us)
     | KWVoid = (IsKeyword ||| 97us)
     | KWWhen = (IsKeyword ||| 98us)
     | KWWhile = (IsKeywordOperator ||| 99us)
@@ -615,10 +602,8 @@ type Token =
     | NumDecimalOctal = (IsNumericLiteral ||| NumericBaseOctal ||| 14us) // 0o0M
     | NumDecimalBinary = (IsNumericLiteral ||| NumericBaseBinary ||| 14us) // 0b0000M
 
+    // BigInteger formats only support decimal base
     | NumBigInteger = (IsNumericLiteral ||| 15us) // int ('Q' | ' R' | 'Z' | 'I' | 'N' | 'G')
-    | NumBigIntegerHex = (IsNumericLiteral ||| NumericBaseHex ||| 15us) // 0x0I
-    | NumBigIntegerOctal = (IsNumericLiteral ||| NumericBaseOctal ||| 15us) // 0o0I
-    | NumBigIntegerBinary = (IsNumericLiteral ||| NumericBaseBinary ||| 15us) // 0b0000I
 
     | ReservedNumericLiteral = (IsReserved ||| IsNumericLiteral ||| 16us) // (xint | ieee32 | ieee64) ident-char+
     | ReservedNumericLiteralHex = (IsReserved ||| IsNumericLiteral ||| NumericBaseHex ||| 16us) // 0x0ident-char+
@@ -660,7 +645,6 @@ type Token =
     | EscapeLBrace = (IsTextLiteral ||| 32us)
     | EscapeRBrace = (IsTextLiteral ||| 33us)
     | UnmatchedInterpolatedRBrace = (IsInvalid ||| IsTextLiteral ||| 34us) // Single } is invalid outside an expression
-
 
 
 module internal Token =
@@ -757,6 +741,12 @@ type PositionedToken =
         this.value &&& TokenMask |> uint16 |> LanguagePrimitives.EnumOfValue
 
     member this.StartIndex: int64 = int64 (this.value >>> 16)
+
+    override this.ToString() =
+        if System.Enum.IsDefined<Token> this.Token then
+            sprintf "%d, %O @ " this.StartIndex this.Token
+        else
+            sprintf "%d, 016%B @ " this.StartIndex (uint16 this.Token)
 
 [<AutoOpen>]
 module TokenExtensions =
