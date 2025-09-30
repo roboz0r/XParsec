@@ -71,6 +71,7 @@ type LexBuilder =
         Tokens: ResizeArray<PositionedToken>
         mutable AtStartOfLine: bool
         mutable Context: LexContext list
+        StringBuilder: System.Text.StringBuilder
     }
 
 open System
@@ -105,6 +106,7 @@ module LexBuilder =
             Tokens = ResizeArray<PositionedToken>()
             AtStartOfLine = true
             Context = []
+            StringBuilder = System.Text.StringBuilder()
         }
 
     let currentContext (x: LexBuilder) =
@@ -144,6 +146,7 @@ module LexBuilder =
         // Tokens that can be coalesced if adjacent
         // This occurs with string fragments in interpolated strings due to the way braces are handled
         match token.WithoutCommentFlags with
+        | Token.OtherUnlexed
         | Token.Interpolated3StringFragment
         | Token.VerbatimInterpolatedStringFragment
         | Token.InterpolatedStringFragment -> true
@@ -192,6 +195,11 @@ module internal Errors =
     let expectedStringLiteral = Message "Expected string literal"
 
 module Lexing =
+
+    let getStringBuilder (reader: Reader<_, LexBuilder, _, _>) =
+        let sb = reader.State.StringBuilder
+        sb.Clear() |> ignore // Reset the StringBuilder
+        preturn sb reader
 
     let anyString (xs: string seq) =
         // Sort by length (greedy first), then by lexicographic order
@@ -297,13 +305,13 @@ module Lexing =
             "assert", Token.KWAssert
             "base", Token.KWBase
             "begin", Token.KWBegin
-            "break", Token.KWBreak
-            "checked", Token.KWChecked
+            "break", Token.KWReservedBreak
+            "checked", Token.KWReservedChecked
             "class", Token.KWClass
-            "component", Token.KWComponent
+            "component", Token.KWReservedComponent
             "const", Token.KWConst
-            "constraint", Token.KWConstraint
-            "continue", Token.KWContinue
+            "constraint", Token.KWReservedConstraint
+            "continue", Token.KWReservedContinue
             "default", Token.KWDefault
             "delegate", Token.KWDelegate
             "do", Token.KWDo
@@ -326,7 +334,7 @@ module Lexing =
             "global", Token.KWGlobal
             "if", Token.KWIf
             "in", Token.KWIn
-            "include", Token.KWInclude
+            "include", Token.KWReservedInclude
             "inherit", Token.KWInherit
             "inline", Token.KWInline
             "interface", Token.KWInterface
@@ -335,7 +343,7 @@ module Lexing =
             "let", Token.KWLet
             "match", Token.KWMatch
             "member", Token.KWMember
-            "mixin", Token.KWMixin
+            "mixin", Token.KWReservedMixin
             "mod", Token.KWMod
             "module", Token.KWModule
             "mutable", Token.KWMutable
@@ -347,30 +355,30 @@ module Lexing =
             "open", Token.KWOpen
             "or", Token.KWOr
             "override", Token.KWOverride
-            "parallel", Token.KWParallel
+            "parallel", Token.KWReservedParallel
             "private", Token.KWPrivate
-            "process", Token.KWProcess
-            "protected", Token.KWProtected
+            "process", Token.KWReservedProcess
+            "protected", Token.KWReservedProtected
             "public", Token.KWPublic
-            "pure", Token.KWPure
+            "pure", Token.KWReservedPure
             "rec", Token.KWRec
             "return", Token.KWReturn
-            "sealed", Token.KWSealed
-            "select", Token.KWSelect
+            "sealed", Token.KWReservedSealed
+            "select", Token.KWContextualSelect
             "sig", Token.KWSig
             "static", Token.KWStatic
             "struct", Token.KWStruct
-            "tailcall", Token.KWTailcall
+            "tailcall", Token.KWReservedTailcall
             "then", Token.KWThen
             "to", Token.KWTo
-            "trait", Token.KWTrait
+            "trait", Token.KWReservedTrait
             "true", Token.KWTrue
             "try", Token.KWTry
             "type", Token.KWType
             "upcast", Token.KWUpcast
             "use", Token.KWUse
             "val", Token.KWVal
-            "virtual", Token.KWVirtual
+            "virtual", Token.KWReservedVirtual
             "void", Token.KWVoid
             "when", Token.KWWhen
             "while", Token.KWWhile
@@ -429,58 +437,13 @@ module Lexing =
 
     // https://learn.microsoft.com/en-us/dotnet/fsharp/language-reference/symbol-and-operator-reference/#operator-precedence
     // https://learn.microsoft.com/en-us/dotnet/fsharp/language-reference/operator-overloading
-    let private combiningOperatorChars =
-        [|
-            '>'
-            '<'
-            '+'
-            '-'
-            '*'
-            '/'
-            '='
-            '~'
-            '$' // This construct is deprecated: '$' is not permitted as a character in operator names and is reserved for future use
-            '%'
-            '.'
-            '&'
-            '|'
-            '@'
-            '^'
-            '!'
-            '?'
-            ':' // Per https://github.com/dotnet/fsharp/pull/15923 `:` in operators is deprecated *unless* the operator starts with '>'
-        |] // ':' isn't listed but it works
+    // This construct is deprecated: '$' is not permitted as a character in operator names and is reserved for future use
+    // Per https://github.com/dotnet/fsharp/pull/15923 `:` in operators is deprecated *unless* the operator starts with '>'
+    let private customOperatorChars = "><+-*/=~$%.&|@^!?:"
 
-    let (><-*/=~%.&|@^!?:) a b = a + b
+    // let (><-*/=~%.&|@^!?:) a b = a + b
 
     let private parenChars = [| '('; ')'; '{'; '}'; '['; ']' |]
-
-    // let private endOfIdentChars =
-    //     [|
-    //         yield! parenChars
-    //         yield! combiningOperatorChars
-    //         ' '
-    //         '\r'
-    //         '\n'
-    //         ','
-    //         '\t'
-    //         '"'
-    //     |]
-    //     |> String
-
-    // let peekEndOfIdent (reader: Reader<char, LexBuilder, ReadableString, _>) =
-    //     match reader.Peek() with
-    //     | ValueNone -> preturn () reader
-    //     | ValueSome c when endOfIdentChars.Contains c -> preturn () reader
-    //     | ValueSome _ -> fail expectedEndOfIdent reader
-
-
-    // let private pKeywordToken =
-    //     parser {
-    //         let! pos = getPosition
-    //         let! token = pKeyword .>> followedBy peekEndOfIdent
-    //         do! updateUserState (LexBuilder.append token pos CtxOp.NoOp)
-    //     }
 
     let private pToken p token =
         parser {
@@ -538,7 +501,7 @@ module Lexing =
             | UnicodeCategory.TitlecaseLetter //Lt
             | UnicodeCategory.ModifierLetter //Lm
             | UnicodeCategory.OtherLetter //Lo
-            | UnicodeCategory.LetterNumber ->  //Nl
+            | UnicodeCategory.LetterNumber -> //Nl
                 true
             | _ -> false
 
@@ -562,12 +525,11 @@ module Lexing =
             | UnicodeCategory.ConnectorPunctuation //Pc
             | UnicodeCategory.NonSpacingMark //Mn
             | UnicodeCategory.SpacingCombiningMark //Mc
-            | UnicodeCategory.Format ->  //Cf
+            | UnicodeCategory.Format -> //Cf
                 true
             | _ -> false
 
     let pIdentChar = satisfyL isIdentChar "identifier character"
-    let peekEndOfIdent = notFollowedBy pIdentChar >>% ()
 
     let pIdentifier: Parser<_, char, LexBuilder, ReadableString, _> =
         many1Chars2 pIdentStartChar pIdentChar
@@ -577,12 +539,23 @@ module Lexing =
 
         parser {
             let! pos = getPosition
-            let! id = pIdentifier .>> followedBy peekEndOfIdent
+            let! id = pIdentifier
+            let! suffix = opt (anyOf "!#")
+
+            let id =
+                match suffix with
+                | ValueSome c -> id + string c
+                | ValueNone -> id
 
             let token =
                 match keywords.TryGetValue id with
                 | true, kw -> kw
-                | false, _ -> Token.Identifier
+                | false, _ ->
+                    match suffix with
+                    | ValueNone -> Token.Identifier
+                    | ValueSome '!' -> Token.ReservedIdentifierBang
+                    | ValueSome '#' -> Token.ReservedIdentifierHash
+                    | ValueSome c -> invalidOp $"Unexpected identifier suffix '{c}'"
 
             do! updateUserState (LexBuilder.append token pos CtxOp.NoOp)
         }
@@ -1236,7 +1209,7 @@ module Lexing =
 
     let pComment = pstring "//" >>. manyCharsTill anyChar (peekNewLine <|> eof)
 
-    let pCombiningOperator = many1Chars (anyOf combiningOperatorChars)
+    let pCombiningOperator = many1Chars (anyOf customOperatorChars)
 
     let pOperatorToken =
         parser {
@@ -1245,44 +1218,49 @@ module Lexing =
 
             do!
                 updateUserState (fun state ->
+                    let token, ctx =
+                        match op with
+                        | "|" -> Token.OpBar, CtxOp.NoOp
+                        | "->" -> Token.OpArrowRight, CtxOp.NoOp
+                        | "<-" -> Token.OpArrowLeft, CtxOp.NoOp
+                        | ":" -> Token.OpColon, CtxOp.NoOp
+                        | "::" -> Token.OpCons, CtxOp.NoOp
+                        | ":?" -> Token.OpTypeTest, CtxOp.NoOp
+                        | ":>" -> Token.OpUpcast, CtxOp.NoOp
+                        | ":?>" -> Token.OpDowncast, CtxOp.NoOp
+                        | ".." -> Token.OpRange, CtxOp.NoOp
+                        | ".. .." -> Token.OpRangeStep, CtxOp.NoOp
+                        | ":=" -> Token.OpAssignment, CtxOp.NoOp
+                        | "~" -> Token.KWReservedTwiddle, CtxOp.NoOp
+                        | "<@" -> Token.OpQuotationTypedLeft, (CtxOp.Push LexContext.QuotedExpression)
+                        | "@>" -> Token.OpQuotationTypedRight, (CtxOp.Pop LexContext.QuotedExpression)
+                        | "<@@" -> Token.OpQuotationUntypedLeft, (CtxOp.Push LexContext.TypedQuotedExpression)
+                        | "@@>" -> Token.OpQuotationUntypedRight, (CtxOp.Pop LexContext.TypedQuotedExpression)
+                        | "." -> Token.OpDot, CtxOp.NoOp
+                        | "?" -> Token.OpDynamic, CtxOp.NoOp
+                        | "?<-" -> Token.OpDynamicAssignment, CtxOp.NoOp
+                        | "!" -> Token.OpDereference, CtxOp.NoOp
+                        | "??" -> Token.OpDoubleQuestion, CtxOp.NoOp
+                        | _ ->
+                            let ignored_op_char = ".$?"
 
-                    match op with
-                    | "<@" ->
-                        LexBuilder.append Token.OpQuotationTypedLeft pos (CtxOp.Push LexContext.QuotedExpression) state
-                    | "@>" ->
-                        LexBuilder.append Token.OpQuotationTypedRight pos (CtxOp.Pop LexContext.QuotedExpression) state
-                    | "<@@" ->
-                        LexBuilder.append
-                            Token.OpQuotationUntypedLeft
-                            pos
-                            (CtxOp.Push LexContext.TypedQuotedExpression)
-                            state
-                    | "@@>" ->
-                        LexBuilder.append
-                            Token.OpQuotationUntypedRight
-                            pos
-                            (CtxOp.Pop LexContext.TypedQuotedExpression)
-                            state
-                    | "." -> LexBuilder.append Token.OpDot pos CtxOp.NoOp state
-                    | "?" -> LexBuilder.append Token.OpDynamic pos CtxOp.NoOp state
-                    | "?<-" -> LexBuilder.append Token.OpDynamicAssignment pos CtxOp.NoOp state
-                    | _ ->
-                        let ignored_op_char = ".$?"
+                            let token =
+                                if
+                                    op.Contains '$'
+                                    || (not (op.AsSpan().TrimStart(ignored_op_char).StartsWith(">")) && op.Contains ':')
+                                then
+                                    // '$' is not permitted as a character in operator names and is reserved for future use
+                                    // ':' is not permitted as a character in operator names and is reserved for future use
+                                    // Except when it starts with '>' after trimming ignored chars
+                                    // https://github.com/dotnet/fsharp/pull/15923
+                                    // https://github.com/fsharp/fslang-suggestions/issues/1446
+                                    Token.ReservedOperator
+                                else
+                                    Token.ofCustomOperator (op.AsSpan())
 
-                        let token =
-                            if
-                                op.Contains '$'
-                                || (not (op.AsSpan().TrimStart(ignored_op_char).StartsWith(">")) && op.Contains ':')
-                            then
-                                // '$' is not permitted as a character in operator names and is reserved for future use
-                                // ':' is not permitted as a character in operator names and is reserved for future use
-                                // Except when it starts with '>' after trimming ignored chars
-                                // https://github.com/dotnet/fsharp/pull/15923
-                                Token.ReservedOperator
-                            else
-                                Token.ofCustomOperator (op.AsSpan())
+                            token, CtxOp.NoOp
 
-                        LexBuilder.append token pos CtxOp.NoOp state
+                    LexBuilder.append token pos ctx state
                 )
         }
 
@@ -1315,7 +1293,9 @@ module Lexing =
         }
 
     let pLAttrBrack = pstring "[<"
+    let pLArrayBrack = pstring "[|"
     let pRAttrBrack = pstring ">]"
+    let pRArrayBrack = pstring "|]"
 
     // TODO: Block comments still mean all internal tokens get lexed as closing block comment in a string "*)"
     // doesn't close a block comment
@@ -1324,80 +1304,160 @@ module Lexing =
     // let pOCamlBlockComment = pstring "(*IF-OCAML*)" >>. manyCharsTill anyChar (pstring "(*ENDIF-OCAML*)" >>% () <|> eof) |>> fst
     // (*F# .... F#*) and (*IF-FSHARP ... ENDIF-FSHARP*)
     // This is a fallback, we shouldn't see any Other tokens in output
-    let pOther = manyCharsTill anyChar peekEndOfIdent
+    let private peekEndOfIdent (reader: Reader<char, LexBuilder, ReadableString, _>) =
+        match reader.Peek() with
+        | ValueSome c when isIdentChar c -> fail (Message "Expected end of identifier") reader
+        | _ -> preturn () reader
+
+    // Any single char that doesn't start another token
+    // Multiple OtherUnlexed tokens will be combined in the append step
+    let pOtherToken = pToken anyChar Token.OtherUnlexed
 
     module NumericLiterals =
+        open System.Text
+
         let isHexDigit c =
             (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 
-        let pHexDigit = satisfyL isHexDigit "hexadecimal digit"
-
         let isBinaryDigit c = c = '0' || c = '1'
-        let pBinaryDigit = satisfyL isBinaryDigit "binary digit"
 
         let isOctalDigit c = c >= '0' && c <= '7'
-        let pOctalDigit = satisfyL isOctalDigit "octal digit"
 
         let isDecimalDigit c = c >= '0' && c <= '9'
-        let pDecimalDigit = satisfyL isDecimalDigit "decimal digit"
+        let private expectedBasePrefix = Message "Expected base prefix 0x, 0o, or 0b"
+        let private expectedOneDigit = Message "Expected at least one digit"
 
-        let pIntBase = sepBy1 (many1Chars pDecimalDigit) (many1Chars (pchar '_'))
-        let pHexBase = sepBy1 (many1Chars pHexDigit) (many1Chars (pchar '_'))
-        let pOctalBase = sepBy1 (many1Chars pOctalDigit) (many1Chars (pchar '_'))
-        let pBinaryBase = sepBy1 (many1Chars pBinaryDigit) (many1Chars (pchar '_'))
+        [<TailCall>]
+        let rec private pManyIntCharsWithBaseLoop
+            sbLength
+            (sb: StringBuilder)
+            isDigitInBase
+            backtrackTo
+            (reader: Reader<char, LexBuilder, ReadableString, _>)
+            =
+            match reader.Peek() with
+            | ValueSome '_' ->
+                // Ignore underscores
+                reader.Skip()
+                pManyIntCharsWithBaseLoop sbLength sb isDigitInBase backtrackTo reader
+            | ValueSome c when isDigitInBase c ->
+                reader.Skip()
+                sb.Append c |> ignore
+                pManyIntCharsWithBaseLoop sbLength sb isDigitInBase reader.Position reader
+            | _ ->
+                if sb.Length = sbLength then
+                    fail expectedOneDigit reader
+                else
+                    // We must backtrack to the last valid position
+                    // to avoid consuming trailing '_'
+                    reader.Position <- backtrackTo
+                    preturn sb reader
 
-        let pXIntBase =
-            choiceL
-                [
-                    tuple3 (pstring "0x") pHexBase (preturn NumericBase.Hex)
-                    tuple3 (pstring "0X") pHexBase (preturn NumericBase.Hex)
-                    tuple3 (pstring "0o") pOctalBase (preturn NumericBase.Octal)
-                    tuple3 (pstring "0O") pOctalBase (preturn NumericBase.Octal)
-                    tuple3 (pstring "0b") pBinaryBase (preturn NumericBase.Binary)
-                    tuple3 (pstring "0B") pBinaryBase (preturn NumericBase.Binary)
-                ]
-                "base 16, 8, 2 integer"
-            |>> fun struct (strBase, struct (parts, _), numBase) -> struct ($"""{strBase}{String.concat "" parts}""", numBase)
+        let private pManyIntCharsWithBase
+            (sb: StringBuilder)
+            isDigitInBase
+            (reader: Reader<char, LexBuilder, ReadableString, _>)
+            =
+            pManyIntCharsWithBaseLoop sb.Length sb isDigitInBase reader.Position reader
+
+        let pIntBase sb = pManyIntCharsWithBase sb isDecimalDigit
+        let pHexBase sb = pManyIntCharsWithBase sb isHexDigit
+        let pOctalBase sb = pManyIntCharsWithBase sb isOctalDigit
+        let pBinaryBase sb = pManyIntCharsWithBase sb isBinaryDigit
+
+
+        let pXIntBase (sb: StringBuilder) (reader: Reader<char, LexBuilder, ReadableString, _>) =
+            // Parses an integer with optional base prefix
+            // Returns the StringBuilder with the digits and the numeric base
+            // Allows underscores in the digits
+            let span = reader.PeekN(3)
+
+            match span.Length with
+            | 0 -> fail EndOfInput reader
+            | 1 ->
+                if isDecimalDigit span[0] then
+                    reader.Skip()
+                    sb.Append span[0] |> ignore
+                    preturn struct (sb, NumericBase.Decimal) reader
+                else
+                    fail expectedBasePrefix reader
+            | 2 ->
+                if isDecimalDigit span[0] then
+                    // We need at least 3 chars to have a base prefix
+                    match pIntBase sb reader with
+                    | Ok { Parsed = sb } -> preturn struct (sb, NumericBase.Decimal) reader
+                    | Error e -> invalidOp $"Unexpected error parsing decimal number: {e}"
+                else
+                    fail expectedBasePrefix reader
+            | _ ->
+                match span[0], span[1], span[2] with
+                | '0', ('x' | 'X' as c), c2 when isHexDigit c2 ->
+                    reader.SkipN(2)
+                    sb.Append(span.Slice(0, 2)) |> ignore
+
+                    match pHexBase sb reader with
+                    | Ok { Parsed = sb } -> preturn struct (sb, NumericBase.Hex) reader
+                    | Error e -> invalidOp $"Unexpected error parsing hexadecimal number: {e}"
+                | '0', ('o' | 'O' as c), c2 when isOctalDigit c2 ->
+                    reader.SkipN(2)
+                    sb.Append(span.Slice(0, 2)) |> ignore
+
+                    match pOctalBase sb reader with
+                    | Ok { Parsed = sb } -> preturn struct (sb, NumericBase.Octal) reader
+                    | Error e -> invalidOp $"Unexpected error parsing octal number: {e}"
+                | '0', ('b' | 'B' as c), c2 when isBinaryDigit c2 ->
+                    reader.SkipN(2)
+                    sb.Append(span.Slice(0, 2)) |> ignore
+
+                    match pBinaryBase sb reader with
+                    | Ok { Parsed = sb } -> preturn struct (sb, NumericBase.Binary) reader
+                    | Error e -> invalidOp $"Unexpected error parsing binary number: {e}"
+                | c, _, _ when isDecimalDigit c ->
+                    // Decimal base
+                    match pIntBase sb reader with
+                    | Ok { Parsed = sb } -> preturn struct (sb, NumericBase.Decimal) reader
+                    | Error e -> invalidOp $"Unexpected error parsing decimal number: {e}"
+                | _ -> fail expectedBasePrefix reader
 
         let pIntToken =
             parser {
                 let! pos = getPosition
+                let! sb = getStringBuilder
+                let! (digits, numBase) = pXIntBase sb
 
-                let! (digits, numBase) =
-                    choice
-                        [
-                            pIntBase .>>. preturn NumericBase.Decimal
-                            pHexBase .>>. preturn NumericBase.Hex
-                            pOctalBase .>>. preturn NumericBase.Octal
-                            pBinaryBase .>>. preturn NumericBase.Binary
-                        ]
-
-                let! suffix = many1Chars pIdentChar
+                let! suffix = manyChars pIdentChar
 
                 let token =
-                    match suffix with
-                    | "y" -> Token.NumSByte
-                    | "uy" -> Token.NumByte
-                    | "s" -> Token.NumInt16
-                    | "us" -> Token.NumUInt16
-                    | ""
-                    | "l" -> Token.NumInt32
-                    | "u"
-                    | "ul" -> Token.NumUInt32
-                    | "n" -> Token.NumNativeInt
-                    | "un" -> Token.NumUNativeInt
-                    | "L" -> Token.NumInt64
-                    | "uL"
-                    | "UL" -> Token.NumUInt64
-                    | "Q"
-                    | "R"
-                    | "Z"
-                    | "I"
-                    | "N"
-                    | "G" -> Token.NumBigInteger
-                    | "m"
-                    | "M" -> Token.NumDecimal
-                    | _ -> Token.ReservedNumericLiteral
+                    if suffix.Length > 2 then
+                        Token.ReservedNumericLiteral
+                    else
+                        match suffix with
+                        | "y" -> Token.NumSByte
+                        | "uy" -> Token.NumByte
+                        | "s" -> Token.NumInt16
+                        | "us" -> Token.NumUInt16
+                        | ""
+                        | "l" -> Token.NumInt32
+                        | "u"
+                        | "ul" -> Token.NumUInt32
+                        | "n" -> Token.NumNativeInt
+                        | "un" -> Token.NumUNativeInt
+                        | "L" -> Token.NumInt64
+                        | "uL"
+                        | "UL" -> Token.NumUInt64
+                        | "Q"
+                        | "R"
+                        | "Z"
+                        | "I"
+                        | "N"
+                        | "G" ->
+                            if numBase = NumericBase.Decimal then
+                                Token.NumBigInteger
+                            else
+                                Token.ReservedNumericLiteral
+                        | "m"
+                        | "M" -> Token.NumDecimal
+                        | _ -> Token.ReservedNumericLiteral
 
                 // Combine the base into the token using the 5,4 bits of a 16 bit int
                 let numBase = uint16 numBase <<< 4
@@ -1406,42 +1466,52 @@ module Lexing =
                 do! updateUserState (LexBuilder.append token pos CtxOp.NoOp)
             }
 
-        let pFloatBase =
+
+        let pFloatBase sb =
+            // This is wrong, just need it to compiler for now
+            let pIntBase = pIntBase sb
+
             pipe3
                 pIntBase
-                (pchar '.' .>> notFollowedBy (pchar '.'))
+                (pchar '.' .>> notFollowedBy (pchar '.') |>> fun dot -> sb.Append dot |> ignore)
                 (opt pIntBase)
-                (fun struct (intParts, _) _ frac ->
-                    match frac with
-                    | ValueSome(fracParts, _) -> $"""{String.concat "" intParts}.{String.concat "" fracParts}"""
-                    | _ -> $"""{String.concat "" intParts}."""
+                (fun wholePart _ frac -> sb
+                // match frac with
+                // | ValueSome fracPart -> $"""{wholePart}.{fracPart}"""
+                // | _ -> $"""{wholePart}."""
                 )
             <|> pipe5
                 pIntBase
-                (opt (pchar '.' .>>. opt pIntBase))
-                (anyOf "eE")
-                (opt (anyOf "+-"))
+                (opt ((pchar '.' |>> fun dot -> sb.Append dot |> ignore) .>>. opt pIntBase))
+                (anyOf "eE" |>> fun e -> sb.Append e |> ignore)
+                (opt (anyOf "+-")
+                 |>> fun sign ->
+                     match sign with
+                     | ValueSome s -> sb.Append s |> ignore
+                     | _ -> ())
                 pIntBase
-                (fun struct (intParts, _) fracOpt e signOpt struct (expParts, _) ->
-                    let fracStr =
-                        match fracOpt with
-                        | ValueSome(dot, ValueSome(fracParts, fracSeps)) -> $"""{dot}{String.concat "" fracParts}"""
-                        | ValueSome(dot, _) -> "."
-                        | _ -> ""
+                (fun wholePart fracOpt e signOpt expPart -> sb
+                //     let fracStr =
+                //         match fracOpt with
+                //         | ValueSome(dot, ValueSome fracPart) -> $"""{dot}{fracPart}"""
+                //         | ValueSome(dot, _) -> "."
+                //         | _ -> ""
 
-                    let signStr =
-                        match signOpt with
-                        | ValueSome sign -> string sign
-                        | _ -> ""
+                //     let signStr =
+                //         match signOpt with
+                //         | ValueSome sign -> string sign
+                //         | _ -> ""
 
-                    $"""{String.concat "" intParts}{fracStr}{e}{signStr}{String.concat "" expParts}"""
+                //     $"""{wholePart}{fracStr}{e}{signStr}{expPart}"""
                 )
 
         let pFloatToken =
             parser {
                 let! pos = getPosition
-                let! (number, numBase) = (pFloatBase .>>. preturn NumericBase.Decimal) <|> pXIntBase
+                let! sb = getStringBuilder
+                let! sb, numBase = (pFloatBase sb) .>>. preturn NumericBase.Decimal <|> (pXIntBase sb)
                 let! suffix = many1Chars pIdentChar
+
                 let token =
                     match numBase, suffix with
                     | NumericBase.Decimal, "" -> Token.NumIEEE64
@@ -1535,13 +1605,16 @@ module Lexing =
             match Map.tryFind operator standardOperators with
             | Some name -> name
             | None ->
-                generatedNameCache.GetOrAdd(operator, fun operator ->
-                    seq {
-                        "op_"
-                        for c in operator do
-                            getCharName c
-                    }
-                    |> String.Concat
+                generatedNameCache.GetOrAdd(
+                    operator,
+                    fun operator ->
+                        seq {
+                            "op_"
+
+                            for c in operator do
+                                getCharName c
+                        }
+                        |> String.Concat
                 )
 
     [<AutoOpen>]
@@ -1620,7 +1693,8 @@ module Lexing =
             }
 
         let lFormatPlaceholderToken =
-            lFormatPlaceholder >>% Token.FormatPlaceholder <|> preturn Token.InvalidFormatPlaceholder
+            lFormatPlaceholder >>% Token.FormatPlaceholder
+            <|> preturn Token.InvalidFormatPlaceholder
 
         // TODO: Rewrite to use updateUserState instead of directly manipulating the token list
         // This is tricky because we need to add multiple tokens in some cases
@@ -1650,7 +1724,7 @@ module Lexing =
                     | _ ->
                         do! skipN (percents.Length - 1)
                         let! t = lFormatPlaceholderToken
-                        tokens.Add (PositionedToken.Create(t, idx))
+                        tokens.Add(PositionedToken.Create(t, idx))
 
                 | level ->
 
@@ -1660,21 +1734,21 @@ module Lexing =
                     let idx = int pos.Index
 
                     if leading < 0 then
-                            tokens.Add (PositionedToken.Create(Token.InterpolatedStringFragment, idx))
-                            do! skipN count
+                        tokens.Add(PositionedToken.Create(Token.InterpolatedStringFragment, idx))
+                        do! skipN count
                     elif leading = 0 then
                         // Exactly enough to start a FormatPlaceholder
                         let! t = lFormatPlaceholderToken
-                        tokens.Add (PositionedToken.Create(t, idx)) 
+                        tokens.Add(PositionedToken.Create(t, idx))
                     elif leading >= level then
                         // Too many leading '%'
-                        tokens.Add (PositionedToken.Create(Token.InvalidFormatPercents, idx))
+                        tokens.Add(PositionedToken.Create(Token.InvalidFormatPercents, idx))
                     else
-                        tokens.Add (PositionedToken.Create(Token.InterpolatedStringFragment, idx))
+                        tokens.Add(PositionedToken.Create(Token.InterpolatedStringFragment, idx))
                         do! skipN leading
                         let! pos = getPosition
                         let! t = lFormatPlaceholderToken
-                        tokens.Add (PositionedToken.Create(t, pos.Index))
+                        tokens.Add(PositionedToken.Create(t, pos.Index))
             }
 
     let (|ExpressionCtx|_|) (ctx: LexContext) =
@@ -1698,6 +1772,70 @@ module Lexing =
         | LexContext.TypedQuotedExpression -> true
         | _ -> false
 
+    let pTabToken = pToken (pchar '\t') Token.Tab
+    let pCommaToken = pToken (pchar ',') Token.OpComma
+
+    let pLParenToken =
+        choiceL [ pToken (pstring "()") Token.Unit; pOpenParenExpressionContext ] "Left parenthesis or unit"
+
+    let pLBacketToken =
+        choiceL
+            [
+                pToken pLAttrBrack Token.OpAttributeBracketLeft
+                pToken pLArrayBrack Token.OpArrayBracketLeft
+                pToken (pstring "[]") Token.OpNil
+                pOpenBracketExpressionContext
+            ]
+            "Left bracket or empty array"
+
+    let pGreaterThanToken =
+        choiceL [ pToken pRAttrBrack Token.OpAttributeBracketRight; pOperatorToken ] "Right bracket or operator"
+
+    let pDoubleQuoteToken =
+        choiceL [ pString3LiteralToken; pStringLiteralToken ] "String literal"
+
+    let pSingleQuoteToken =
+        choiceL [ pCharToken; pTypeParamToken; pToken (pchar '\'') Token.SingleQuote ] "Single quote"
+
+    let pDollarToken =
+        choiceL
+            [
+                pInterpolated3StartToken
+                pInterpolatedStringStartToken
+                pVerbatimInterpolatedStartToken
+                // '$' is lexed as an operator char but is not permitted as a character in operator names and is reserved for future use
+                pOperatorToken
+            ]
+            "Interpolated string or operator"
+
+    let pAtToken =
+        choiceL
+            [ pVerbatimInterpolatedStartToken; pVerbatimStringLiteralToken; pOperatorToken ]
+            "Verbatim string or operator"
+
+    let pSlashToken =
+        choiceL [ pToken pComment Token.LineComment; pOperatorToken ] "Line comment or operator"
+
+    let pSemicolonToken =
+        choiceL
+            [
+                pToken (pstring ";;") Token.OpDoubleSemicolon
+                pToken (pchar ';') Token.OpSemicolon
+            ]
+            "Semicolon"
+
+    let pDotToken =
+        choiceL [ pSpecialDotOperatorToken; pOperatorToken ] "Dot operator or operator"
+
+    let pNumericLiteralToken =
+        choiceL [ NumericLiterals.pIntToken; NumericLiterals.pFloatToken ] "Numeric literal"
+
+    let pCustomOperatorToken =
+        choiceL [ pToken pRArrayBrack Token.OpArrayBracketRight; pOperatorToken ] "Operator"
+    // TODO: Preprocessor directives
+    let pHashToken =
+        choiceL [ pToken (pchar '#') Token.OpHash ] "Hash or preprocessor directive"
+
     [<TailCall>]
     let rec lex () (reader: Reader<char, LexBuilder, ReadableString, _>) =
         let ctx = LexBuilder.currentContext reader.State
@@ -1707,17 +1845,12 @@ module Lexing =
         | ValueNone, _ -> preturn (LexBuilder.complete reader.Position) reader
         | ValueSome('\r' | '\n'), ExpressionCtx -> (pNewlineToken >>= lex) reader
         | ValueSome ' ', ExpressionCtx -> (pIndentOrWhitespaceToken >>= lex) reader
-        | ValueSome '\t', ExpressionCtx -> (pToken (pchar '\t') Token.Tab >>= lex) reader
-        | ValueSome ',', ExpressionCtx -> (pToken (pchar ',') Token.OpComma >>= lex) reader
-        | ValueSome '(', ExpressionCtx ->
-
-            (choice [  pOpenParenExpressionContext ]
-             >>= lex)
-                reader
+        | ValueSome '\t', ExpressionCtx -> (pTabToken >>= lex) reader
+        | ValueSome ',', ExpressionCtx -> (pCommaToken >>= lex) reader
+        | ValueSome '(', ExpressionCtx -> (pLParenToken >>= lex) reader
         | ValueSome ')', ExpressionCtx -> (pCloseParenExpressionContext >>= lex) reader
-        | ValueSome '[', ExpressionCtx ->
-            (choice [ pToken pLAttrBrack Token.OpAttributeBracketLeft; pOpenBracketExpressionContext ] >>= lex) reader
-        | ValueSome '>', ExpressionCtx -> (choice [ pToken pRAttrBrack Token.OpAttributeBracketRight; pOperatorToken ] >>= lex) reader
+        | ValueSome '[', ExpressionCtx -> (pLBacketToken >>= lex) reader
+        | ValueSome '>', ExpressionCtx -> (pGreaterThanToken >>= lex) reader
         | ValueSome ']', ExpressionCtx -> (pCloseBracketExpressionContext >>= lex) reader
         | ValueSome '{', LexContext.InterpolatedString ->
             // In an interpolated string, { starts an expression or is escaped as {{
@@ -1745,29 +1878,19 @@ module Lexing =
         | ValueSome '"', LexContext.InterpolatedString -> (pInterpolatedStringEndToken >>= lex) reader
         | ValueSome '"', LexContext.VerbatimInterpolatedString -> (pVerbatimInterpolatedStringEndToken >>= lex) reader
         | ValueSome '"', LexContext.Interpolated3String _ -> (pInterpolated3EndToken >>= lex) reader
-        | ValueSome '"', _ -> (choice [ pString3LiteralToken; pStringLiteralToken ] >>= lex) reader
+        | ValueSome '"', _ ->
+            // String or triple-quoted string literals
+            (pDoubleQuoteToken >>= lex) reader
         | ValueSome ''', ExpressionCtx ->
-            (choice [ pCharToken; pTypeParamToken; pToken (pchar '\'') Token.SingleQuote ]
-             >>= lex)
-                reader
+            // Char literals, type parameters, or a single quote
+            (pSingleQuoteToken >>= lex) reader
         | ValueSome '$', ExpressionCtx ->
             // Interpolated strings
-            (choice
-                [
-                    pInterpolated3StartToken
-                    pInterpolatedStringStartToken
-                    pVerbatimInterpolatedStartToken
-                    // This construct is deprecated: '$' is not permitted as a character in operator names and is reserved for future use
-                    pOperatorToken
-                ]
-             >>= lex)
-                reader
+            (pDollarToken >>= lex) reader
         | ValueSome '@', ExpressionCtx ->
             // Verbatim strings
-            (choice [ pVerbatimInterpolatedStartToken; pVerbatimStringLiteralToken; pOperatorToken ]
-             >>= lex)
-                reader
-        | ValueSome '/', ExpressionCtx -> (choice [ pToken pComment Token.LineComment; pOperatorToken ] >>= lex) reader
+            (pAtToken >>= lex) reader
+        | ValueSome '/', ExpressionCtx -> (pSlashToken >>= lex) reader
         | ValueSome '%',
           (LexContext.InterpolatedString | LexContext.VerbatimInterpolatedString | LexContext.Interpolated3String _) ->
             (pFormatSpecifierTokens >>= lex) reader
@@ -1775,17 +1898,15 @@ module Lexing =
         | ValueSome _, LexContext.VerbatimInterpolatedString ->
             (pVerbatimInterpolatedStringFragmentToken >>= lex) reader
         | ValueSome _, LexContext.Interpolated3String _ -> (pInterpolated3StringFragmentToken >>= lex) reader
-        | ValueSome '.', ExpressionCtx -> ((pSpecialDotOperatorToken <|> pOperatorToken) >>= lex) reader
-        | ValueSome c, ExpressionCtx when NumericLiterals.isDecimalDigit c ->
-            (choiceL [ NumericLiterals.pIntToken; NumericLiterals.pFloatToken ] "Numeric literal"
-             >>= lex)
-                reader
-        | ValueSome c, ExpressionCtx when Array.contains c combiningOperatorChars ->
+        | ValueSome ';', ExpressionCtx -> (pSemicolonToken >>= lex) reader
+        | ValueSome '.', ExpressionCtx -> (pDotToken >>= lex) reader
+        | ValueSome '#', ExpressionCtx -> (pHashToken >>= lex) reader
+        | ValueSome c, ExpressionCtx when NumericLiterals.isDecimalDigit c -> (pNumericLiteralToken >>= lex) reader
+        | ValueSome c, ExpressionCtx when customOperatorChars.Contains c ->
             // TODO: Consider computing names like https://learn.microsoft.com/en-us/dotnet/fsharp/language-reference/operator-overloading#overloaded-operator-names
-            (pOperatorToken >>= lex) reader
-        | ValueSome '_', ExpressionCtx -> (pToken pIdentifier Token.Identifier >>= lex) reader
+            (pCustomOperatorToken >>= lex) reader
         | ValueSome c, ExpressionCtx when isIdentStartChar c -> (pIdentifierOrKeywordToken >>= lex) reader
-        | ValueSome _, _ -> (pToken pOther Token.OtherUnlexed >>= lex) reader
+        | ValueSome _, _ -> (pOtherToken >>= lex) reader
 
 
     let lexString (input: string) =
