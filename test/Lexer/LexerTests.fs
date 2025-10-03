@@ -15,7 +15,8 @@ open XParsec.CharParsers
 open XParsec.FSharp.Lexer
 
 let truncateMiddle (maxLength: int) (s: string) =
-    if s.Length <= maxLength then s
+    if s.Length <= maxLength then
+        s
     else
         let partLength = (maxLength - 3) / 2
         let firstPart = s.Substring(0, partLength)
@@ -30,6 +31,7 @@ let printLexed (input: string) (x: Lexed) =
         if i < x.Length then
             let t = x.Tokens[i]
             let p = x.Positions[i]
+
             match t with
             | Operator
             | InvalidOperator
@@ -58,46 +60,54 @@ let printLexed (input: string) (x: Lexed) =
             | UnterminatedVerbatimStringLiteral
             | String3Literal
             | UnterminatedString3Literal
-            | UnterminatedInterpolatedString 
+            | UnterminatedInterpolatedString
             | InterpolatedStringFragment
             | Interpolated3StringFragment
-            | VerbatimInterpolatedStringFragment
-                ->
+            | VerbatimInterpolatedStringFragment ->
                 let p1 = x.Positions[i + 1]
                 let id = input.AsSpan(p, p1 - p).ToString()
                 let id = escapeSpecialCharacters id
                 let id = truncateMiddle 40 id
                 printfn "%d, %A (%s)" p t id
-            
-            | _ ->
-                printfn "%d, %A" p t
+
+            | _ -> printfn "%d, %A" p t
+
             f (i + 1)
 
     f 0
 
 let writeLexed (path: string) (x: Lexed) =
     use writer = new StreamWriter(path)
+
     let rec f i =
         if i < x.Length then
-            writer.WriteLine($"%d{x.Positions[i]}, %A{x.Tokens[i]}"  )
+            writer.WriteLine($"%d{x.Positions[i]}, %A{x.Tokens[i]}")
             f (i + 1)
 
     f 0
 
 let pToken =
     FSharp.Reflection.FSharpType.GetUnionCases(typeof<Token>)
-    |> Array.map (fun case -> pstring case.Name >>% (case.DeclaringType.GetConstructors(Reflection.BindingFlags.NonPublic ||| Reflection.BindingFlags.Instance).[0].Invoke([|case.Tag|]) :?> Token))
+    |> Array.map (fun case ->
+        pstring case.Name
+        >>% (case.DeclaringType
+            .GetConstructors(Reflection.BindingFlags.NonPublic ||| Reflection.BindingFlags.Instance)
+            .[0].Invoke([| case.Tag |])
+        :?> Token)
+    )
     |> fun ps -> choiceL ps "token"
 
 
 let readLexed (path: string) =
-    let parser = many (pipe4 pint32 (pstring ", ") pToken newline (fun pos _ tok _ -> (pos, tok))) .>> eof
+    let parser =
+        many (pipe4 pint32 (pstring ", ") pToken newline (fun pos _ tok _ -> (pos, tok)))
+        .>> eof
+
     let text = File.ReadAllText path
+
     match parser (Reader.ofString text ()) with
-    | Ok { Parsed = result } ->
-        result |> List.ofSeq
-    | Error err ->
-        failwithf "Error reading lexed file: %A" err
+    | Ok { Parsed = result } -> result |> List.ofSeq
+    | Error err -> failwithf "Error reading lexed file: %A" err
 
 let testLexed (input: string) (expected: (int * Token) list) =
     match lexString input with
@@ -116,27 +126,28 @@ let testDataDir =
     lazy DirectoryInfo(IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "data")).FullName
 
 let testData =
-    lazy 
+    lazy
         let dir = testDataDir.Value
         IO.Directory.GetFiles(dir, "*.fs")
 
 let testLexFile (filePath: string) =
     let input = File.ReadAllText filePath
     let expectedPath = filePath + ".lexed"
+
     if not (File.Exists expectedPath) then
         // Doesn't exist so create it
-            match lexString input with
-            | Ok { Parsed = lexed } -> 
-                printfn "Expected lexed file does not exist at %s" expectedPath
-                printfn "-------------\nInput was:\n%s" input
-                printfn "-------------\nLexed output is:\n"
-                printLexed input lexed
-                printfn "-------------"
-                writeLexed expectedPath lexed
-                failtestf "Created expected lexed file at %s, please verify it is correct" expectedPath
-            | Error err ->
-                printfn "Lexing failed: %A" err
-                failwith "Lexing failed"
+        match lexString input with
+        | Ok { Parsed = lexed } ->
+            printfn "Expected lexed file does not exist at %s" expectedPath
+            printfn "-------------\nInput was:\n%s" input
+            printfn "-------------\nLexed output is:\n"
+            printLexed input lexed
+            printfn "-------------"
+            writeLexed expectedPath lexed
+            failtestf "Created expected lexed file at %s, please verify it is correct" expectedPath
+        | Error err ->
+            printfn "Lexing failed: %A" err
+            failwith "Lexing failed"
     else
         let expected = readLexed expectedPath
         testLexed input expected
@@ -151,11 +162,7 @@ let tests =
             test "Index" {
 
                 let snippet =
-                    [
-                        "module Test"
-                        "let html s = s"
-                        "html $\"<p>Hello, World!</p>\""
-                    ]
+                    [ "module Test"; "let html s = s"; "html $\"<p>Hello, World!</p>\"" ]
                     |> String.concat "\n"
 
                 let expected =
@@ -188,18 +195,16 @@ let tests =
             for file in testData.Value do
                 let name = IO.Path.GetFileName file
 
-                test $"Lexing {name}" {
-                    testLexFile file
-                }
+                test $"Lexing {name}" { testLexFile file }
 
             ftest "Temp test" {
                 let fileName = "04_triple_dollar_with_curlies.fs"
                 let file = IO.Path.Combine(testDataDir.Value, fileName)
                 let snippet = File.ReadAllText file
                 printfn "Lexing\n%s\n-----" fileName
+
                 match lexString snippet with
-                | Ok { Parsed = lexed } ->
-                    printLexed snippet lexed
+                | Ok { Parsed = lexed } -> printLexed snippet lexed
                 | Error err ->
                     let lexed = LexBuilder.complete err.Position
                     printLexed snippet lexed

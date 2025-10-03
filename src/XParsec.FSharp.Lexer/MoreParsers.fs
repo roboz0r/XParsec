@@ -88,8 +88,10 @@ module MoreParsers =
     type ParserCE with
 
         member inline this.Using
-            (resource: 'disposable :> IDisposable, [<InlineIfLambda>] binder: 'disposable -> Parser<unit, 'T, 'State, 'Input, 'InputSlice>)
-            : Parser<unit, 'T, 'State, 'Input, 'InputSlice> =
+            (
+                resource: 'disposable :> IDisposable,
+                [<InlineIfLambda>] binder: 'disposable -> Parser<unit, 'T, 'State, 'Input, 'InputSlice>
+            ) : Parser<unit, 'T, 'State, 'Input, 'InputSlice> =
             fun reader ->
                 try
                     binder resource reader
@@ -102,10 +104,10 @@ module MoreParsers =
                 [<InlineIfLambda>] guard: unit -> bool,
                 [<InlineIfLambda>] generator: Parser<unit, 'T, 'State, 'Input, 'InputSlice>
             ) =
-            let mutable doContinue = true
-            let mutable result = Ok { Parsed = () }
-
             fun reader ->
+                let mutable doContinue = true
+                let mutable result = Ok { Parsed = () }
+
                 while doContinue && guard () do
                     match generator reader with
                     | Ok { Parsed = () } -> ()

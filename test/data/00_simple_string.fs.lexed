@@ -4,7 +4,7 @@
 23, Whitespace
 24, Identifier
 25, Whitespace
-26, Operator
+26, OpPipeLeft
 27, Whitespace
 28, StringLiteral
 35, Newline
