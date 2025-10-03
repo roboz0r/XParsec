@@ -39,7 +39,7 @@ let printLexed (input: string) (x: Lexed) =
             match pt.TokenWithoutCommentFlags with
             | t when t.IsOperator ->
                 let id = input.AsSpan(p, p1 - p).ToString()
-                printfn "%d, %A (%s)" p t id
+                printfn "%d, %s (%s)" p (Operator.generateOperatorName t id) id
             | Token.InvalidOperator
             | Token.Identifier
             | Token.OtherUnlexed
@@ -57,6 +57,9 @@ let printLexed (input: string) (x: Lexed) =
             | Token.InterpolatedStringClose
             | Token.VerbatimInterpolatedStringOpen
             | Token.VerbatimInterpolatedStringClose as t ->
+                let id = input.AsSpan(p, p1 - p).ToString()
+                printfn "%d, %A (%s)" p t id
+            | t when t.IsNumeric ->
                 let id = input.AsSpan(p, p1 - p).ToString()
                 printfn "%d, %A (%s)" p t id
             | Token.StringLiteral
@@ -111,7 +114,9 @@ let readLexed (path: string) =
 
     match parser (Reader.ofString text ()) with
     | Ok { Parsed = result } -> result |> List.ofSeq
-    | Error err -> failwithf "Error reading lexed file: %A" err
+    | Error err ->
+        ErrorFormatting.formatStringError text err |> printfn "%s"
+        failwithf "Failed to parse lexed file at %s" path
 
 let testLexed (input: string) (expected: _ list) =
     // for i in 0 .. 100000 do
@@ -152,7 +157,10 @@ let testLexFile (filePath: string) =
             writeLexed expectedPath lexed
             failtestf "Created expected lexed file at %s, please verify it is correct" expectedPath
         | Error err ->
-            printfn "Lexing failed: %A" err
+            let pos = err.Position
+            printLexed input (LexBuilder.complete pos)
+            ErrorFormatting.formatStringError input err |> printfn "%s"
+            // printfn "Lexing failed: %A" err
             failwith "Lexing failed"
     else
         let expected = readLexed expectedPath

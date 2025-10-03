@@ -1106,9 +1106,11 @@ module Lexing =
 
             while count > 1 do
                 // }} is an escape sequence for '}'
-                do! updateUserState (LexBuilder.appendI Token.EscapeRBrace idx CtxOp.NoOp)
+                // TODO: Investigate order of imperative operations in a while loop
                 idx <- idx + 2
                 count <- count - 2
+                do! updateUserState (LexBuilder.appendI Token.EscapeRBrace idx CtxOp.NoOp)
+
 
             match count with
             | 0 -> return ()
@@ -1130,6 +1132,7 @@ module Lexing =
 
             if diff < 0 then
                 do! updateUserState (LexBuilder.appendI Token.Interpolated3StringFragment idx CtxOp.NoOp)
+                return ()
             elif diff = 0 then
                 do!
                     updateUserState (
@@ -1138,9 +1141,12 @@ module Lexing =
                             idx
                             (CtxOp.Pop LexContext.InterpolatedExpression)
                     )
+
+                return ()
             elif diff >= level then
                 // We have more } than 2x the current level, treat the whole block as invalid
                 do! updateUserState (LexBuilder.appendI Token.TooManyRBracesInInterpolated3String idx CtxOp.NoOp)
+                return ()
             else
                 // We have some number of escaped braces, then an expression close
                 do! updateUserState (LexBuilder.appendI Token.Interpolated3StringFragment idx CtxOp.NoOp)
@@ -1153,13 +1159,38 @@ module Lexing =
                             idx
                             (CtxOp.Pop LexContext.InterpolatedExpression)
                     )
+
+                return ()
         }
 
-    let pVerbatimInterpolatedStringEndToken =
-        pTokenPopCtx
-            (pchar '"' .>> notFollowedBy (pchar '"'))
-            Token.VerbatimInterpolatedStringClose
-            LexContext.VerbatimInterpolatedString
+    let pVerbatimInterpolatedStringQuoteToken =
+        parser {
+            let! pos = getPosition
+            let! quotes = many1Chars (pchar '"')
+
+            do!
+                updateUserState (fun state ->
+                    let mutable idx = pos.Index
+                    let mutable state = state
+                    let mutable count = quotes.Length
+
+                    while count > 1 do
+                        // "" is an escape sequence for '"'
+                        state <- LexBuilder.appendI Token.VerbatimEscapeQuote idx CtxOp.NoOp state
+                        idx <- idx + 2L
+                        count <- count - 2
+
+                    match count with
+                    | 0 -> state
+                    | _ ->
+                        // Single " ends the verbatim interpolated string
+                        LexBuilder.appendI
+                            Token.VerbatimInterpolatedStringClose
+                            idx
+                            (CtxOp.Pop LexContext.VerbatimInterpolatedString)
+                            state
+                )
+        }
 
     let pVerbatimInterpolatedStringFragmentToken =
         pToken
@@ -1242,22 +1273,7 @@ module Lexing =
                         | "!" -> Token.OpDereference, CtxOp.NoOp
                         | "??" -> Token.OpDoubleQuestion, CtxOp.NoOp
                         | _ ->
-                            let ignored_op_char = ".$?"
-
-                            let token =
-                                if
-                                    op.Contains '$'
-                                    || (not (op.AsSpan().TrimStart(ignored_op_char).StartsWith(">")) && op.Contains ':')
-                                then
-                                    // '$' is not permitted as a character in operator names and is reserved for future use
-                                    // ':' is not permitted as a character in operator names and is reserved for future use
-                                    // Except when it starts with '>' after trimming ignored chars
-                                    // https://github.com/dotnet/fsharp/pull/15923
-                                    // https://github.com/fsharp/fslang-suggestions/issues/1446
-                                    Token.ReservedOperator
-                                else
-                                    Token.ofCustomOperator (op.AsSpan())
-
+                            let token = Token.ofCustomOperator (op.AsSpan())
                             token, CtxOp.NoOp
 
                     LexBuilder.append token pos ctx state
@@ -1530,92 +1546,101 @@ module Lexing =
         open System.Collections.Concurrent
         let generatedNameCache = ConcurrentDictionary<string, string>()
 
-        let generateOperatorName (operator: string) =
-            let standardOperators =
-                Map.ofList
-                    [
-                        "[]", "op_Nil"
-                        "::", "op_Cons"
-                        "+", "op_Addition"
-                        "-", "op_Subtraction"
-                        "*", "op_Multiply"
-                        "**", "op_Exponentiation"
-                        "/", "op_Division"
-                        "@", "op_Append"
-                        "^", "op_Concatenate"
-                        "%", "op_Modulus"
-                        "&&&", "op_BitwiseAnd"
-                        "|||", "op_BitwiseOr"
-                        "^^^", "op_ExclusiveOr"
-                        "<<<", "op_LeftShift"
-                        "~~~", "op_LogicalNot"
-                        ">>>", "op_RightShift"
-                        "~+", "op_UnaryPlus"
-                        "~-", "op_UnaryNegation"
-                        "=", "op_Equality"
-                        "<=", "op_LessThanOrEqual"
-                        ">=", "op_GreaterThanOrEqual"
-                        "<", "op_LessThan"
-                        ">", "op_GreaterThan"
-                        "?", "op_Dynamic"
-                        "?<-", "op_DynamicAssignment"
-                        "|>", "op_PipeRight"
-                        "<|", "op_PipeLeft"
-                        "!", "op_Dereference"
-                        ">>", "op_ComposeRight"
-                        "<<", "op_ComposeLeft"
-                        // "<@ @>", "op_Quotation"
-                        // "<@@ @@>", "op_QuotationUntyped"
-                        "+=", "op_AdditionAssignment"
-                        "-=", "op_SubtractionAssignment"
-                        "*=", "op_MultiplyAssignment"
-                        "/=", "op_DivisionAssignment"
-                        "..", "op_Range"
-                    // ".. ..", "op_RangeStep"
-                    ]
+        let standardOperators =
+            Map.ofList
+                [
+                    "[]", "op_Nil"
+                    "::", "op_Cons"
+                    "+", "op_Addition"
+                    "-", "op_Subtraction"
+                    "*", "op_Multiply"
+                    "**", "op_Exponentiation"
+                    "/", "op_Division"
+                    "@", "op_Append"
+                    "^", "op_Concatenate"
+                    "%", "op_Modulus"
+                    "&&&", "op_BitwiseAnd"
+                    "|||", "op_BitwiseOr"
+                    "^^^", "op_ExclusiveOr"
+                    "<<<", "op_LeftShift"
+                    "~~~", "op_LogicalNot"
+                    ">>>", "op_RightShift"
+                    "~+", "op_UnaryPlus"
+                    "~-", "op_UnaryNegation"
+                    "=", "op_Equality"
+                    "<=", "op_LessThanOrEqual"
+                    ">=", "op_GreaterThanOrEqual"
+                    "<", "op_LessThan"
+                    ">", "op_GreaterThan"
+                    "?", "op_Dynamic"
+                    "?<-", "op_DynamicAssignment"
+                    "|>", "op_PipeRight"
+                    "<|", "op_PipeLeft"
+                    "!", "op_Dereference"
+                    ">>", "op_ComposeRight"
+                    "<<", "op_ComposeLeft"
+                    // "<@ @>", "op_Quotation"
+                    // "<@@ @@>", "op_QuotationUntyped"
+                    "+=", "op_AdditionAssignment"
+                    "-=", "op_SubtractionAssignment"
+                    "*=", "op_MultiplyAssignment"
+                    "/=", "op_DivisionAssignment"
+                    "..", "op_Range"
+                // ".. ..", "op_RangeStep"
+                ]
 
-            let getCharName =
-                function
-                | '>' -> "Greater"
-                | '<' -> "Less"
-                | '+' -> "Plus"
-                | '-' -> "Minus"
-                | '*' -> "Multiply"
-                | '/' -> "Divide"
-                | '=' -> "Equals"
-                | '~' -> "Twiddle"
-                | '$' -> "Dollar"
-                | '%' -> "Percent"
-                | '.' -> "Dot"
-                | '&' -> "Amp"
-                | '|' -> "Bar"
-                | '@' -> "At"
-                | '^' -> "Hat"
-                | '!' -> "Bang"
-                | '?' -> "Qmark"
-                | '(' -> "LParen"
-                | ',' -> "Comma"
-                | ')' -> "RParen"
-                | '[' -> "LBrack"
-                | ']' -> "RBrack"
-                | ':' -> "Colon"
-                // Handle unsupported characters gracefully.
-                | c -> invalidArg "operator" (sprintf "Unsupported character '%c' in operator." c)
+        let generateOperatorName (t: Token) (operatorText: string) =
+            if operatorText.Length = 0 then
+                invalidArg "operatorText" "Operator text cannot be empty."
 
-            match Map.tryFind operator standardOperators with
-            | Some name -> name
-            | None ->
-                generatedNameCache.GetOrAdd(
-                    operator,
-                    fun operator ->
-                        seq {
-                            "op_"
+            if not t.IsOperator then
+                invalidArg "t" (sprintf "Token %A is not an operator token." t)
 
-                            for c in operator do
-                                getCharName c
-                        }
-                        |> String.Concat
-                )
+            if t.IsKeyword then
+                operatorText // Keywords are not renamed
+            else
+                let getCharName =
+                    function
+                    | '>' -> "Greater"
+                    | '<' -> "Less"
+                    | '+' -> "Plus"
+                    | '-' -> "Minus"
+                    | '*' -> "Multiply"
+                    | '/' -> "Divide"
+                    | '=' -> "Equals"
+                    | '~' -> "Twiddle"
+                    | '$' -> "Dollar"
+                    | '%' -> "Percent"
+                    | '.' -> "Dot"
+                    | '&' -> "Amp"
+                    | '|' -> "Bar"
+                    | '@' -> "At"
+                    | '^' -> "Hat"
+                    | '!' -> "Bang"
+                    | '?' -> "Qmark"
+                    | '(' -> "LParen"
+                    | ',' -> "Comma"
+                    | ')' -> "RParen"
+                    | '[' -> "LBrack"
+                    | ']' -> "RBrack"
+                    | ':' -> "Colon"
+                    // Handle unsupported characters gracefully.
+                    | c -> invalidArg "operator" (sprintf "Unsupported character '%c' in operator." c)
+
+                match Map.tryFind operatorText standardOperators with
+                | Some name -> name
+                | None ->
+                    generatedNameCache.GetOrAdd(
+                        operatorText,
+                        fun operator ->
+                            seq {
+                                "op_"
+
+                                for c in operator do
+                                    getCharName c
+                            }
+                            |> String.Concat
+                    )
 
     [<AutoOpen>]
     module internal FormatStrings =
@@ -1676,8 +1701,8 @@ module Lexing =
         let lFormatPlaceholder: Parser<_, _, _, ReadableString, _> =
             parser {
                 let! state = getUserState
-                let level = LexBuilder.level state
-                do! skipNOf level '%'
+                // let level = LexBuilder.level state
+                // do! skipNOf level '%'
                 let! flags = manyChars (anyOf "0+- ")
                 let! width = opt pbigint
                 let! precision = opt (pchar '.' >>. pbigint)
@@ -1700,9 +1725,9 @@ module Lexing =
         // This is tricky because we need to add multiple tokens in some cases
         let pFormatSpecifierTokens: Parser<unit, _, _, ReadableString, _> =
             parser {
+                let! pos = getPosition
                 let! percents = many1Chars (pchar '%')
                 let! state = getUserState
-                let! pos = getPosition
                 let tokens = state.Tokens
 
                 match LexBuilder.level state with
@@ -1725,30 +1750,35 @@ module Lexing =
                         do! skipN (percents.Length - 1)
                         let! t = lFormatPlaceholderToken
                         tokens.Add(PositionedToken.Create(t, idx))
+                        return ()
 
                 | level ->
 
                     // Level 2 or higher logic, impossible to get 0 or negative from many1Chars
                     let count = percents.Length
                     let leading = count - level
-                    let idx = int pos.Index
+                    let idx = pos.Index
 
                     if leading < 0 then
                         tokens.Add(PositionedToken.Create(Token.InterpolatedStringFragment, idx))
-                        do! skipN count
+                        // do! skipN count
+                        return ()
                     elif leading = 0 then
                         // Exactly enough to start a FormatPlaceholder
                         let! t = lFormatPlaceholderToken
                         tokens.Add(PositionedToken.Create(t, idx))
+                        return ()
                     elif leading >= level then
                         // Too many leading '%'
                         tokens.Add(PositionedToken.Create(Token.InvalidFormatPercents, idx))
+                        return ()
                     else
                         tokens.Add(PositionedToken.Create(Token.InterpolatedStringFragment, idx))
-                        do! skipN leading
+                        // do! skipN leading
                         let! pos = getPosition
                         let! t = lFormatPlaceholderToken
                         tokens.Add(PositionedToken.Create(t, pos.Index))
+                        return ()
             }
 
     let (|ExpressionCtx|_|) (ctx: LexContext) =
@@ -1876,7 +1906,7 @@ module Lexing =
             (pInterpolatedExpressionEndToken >>= lex) reader
         | ValueSome '}', NonInterpolatedExpressionCtx -> (pCloseBraceExpressionContext >>= lex) reader
         | ValueSome '"', LexContext.InterpolatedString -> (pInterpolatedStringEndToken >>= lex) reader
-        | ValueSome '"', LexContext.VerbatimInterpolatedString -> (pVerbatimInterpolatedStringEndToken >>= lex) reader
+        | ValueSome '"', LexContext.VerbatimInterpolatedString -> (pVerbatimInterpolatedStringQuoteToken >>= lex) reader
         | ValueSome '"', LexContext.Interpolated3String _ -> (pInterpolated3EndToken >>= lex) reader
         | ValueSome '"', _ ->
             // String or triple-quoted string literals

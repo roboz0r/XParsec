@@ -19,12 +19,7 @@ open Fable.Core.JsInterop
 [<EntryPoint>]
 let main argv =
 #if FABLE_COMPILER
-    let all =
-        testList
-            "Lexer.Tests"
-            [
-                LexerTests.tests
-            ]
+    let all = testList "Lexer.Tests" [ LexerTests.tests ]
 
 
     !! Pyxpecto.runTests [||] all
