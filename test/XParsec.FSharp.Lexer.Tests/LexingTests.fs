@@ -54,16 +54,28 @@ let tests =
             for file in testData.Value do
                 let name = IO.Path.GetFileName file
 
-                ptest $"Lexing {name}" { testLexFile file }
+                test $"Lexing {name}" { testLexFile file }
 
+            ptest "Temp test file" {
+                let file = testData.Value |> Seq.skip 0 |> Seq.head
+                let fileName = IO.Path.GetFileName file
+                testLexFile file
+            }
             ptest "Temp test" {
-                let fileName = "04_triple_dollar_with_curlies.fs"
+                let fileName = "03_simple_triple_dollar.fs"
                 let file = IO.Path.Combine(testDataDir.Value, fileName)
                 let snippet = File.ReadAllText file
-                printfn "Lexing\n%s\n-----" fileName
+                printfn "Lexing\n%s\n-----\n%s\n-----" fileName snippet
 
                 match lexString snippet with
-                | Ok { Parsed = lexed } -> printLexed snippet lexed
+                | Ok { Parsed = lexed } ->
+                    printLexed snippet lexed
+                    let expectedFile = file + ".lexed"
+                    let expected = readLexed expectedFile
+
+                    "Lexed tokens should match expected"
+                    |> Expect.equal (lexed |> Lexed.asSeq |> List.ofSeq) expected
+
                 | Error err ->
                     let lexed = LexBuilder.complete err.Position
                     printLexed snippet lexed

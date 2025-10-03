@@ -70,7 +70,7 @@ module TokenRepresentation =
     [<Literal>]
     let CanBePrefix = 0b00000_0000_1000000us // Can be used as a prefix operator (e.g., unary minus)
 
-    // Bits 3-0: A numeric field for Precedence
+    // Bits 5-0: A numeric field for Precedence
     [<Literal>]
     let PrecedenceMask = 0b00000_0000_0111111us // Bits 5-0
 
@@ -645,24 +645,39 @@ type Token =
     | EscapeLBrace = (IsTextLiteral ||| 32us)
     | EscapeRBrace = (IsTextLiteral ||| 33us)
     | UnmatchedInterpolatedRBrace = (IsInvalid ||| IsTextLiteral ||| 34us) // Single } is invalid outside an expression
+    | VerbatimEscapeQuote = (IsTextLiteral ||| 35us) // "" inside a verbatim string
 
 
 module internal Token =
     let inline ofUInt16 i =
         LanguagePrimitives.EnumOfValue<uint16, Token> i
 
+    // Characters that are ignored at the start of a custom operator for precedence purposes
+    // See 4.4.1 Categorization of Symbolic Operators
     let ignoredChars = ".$?"
 
     let ofCustomOperator (span: ReadOnlySpan<char>) =
-        let trimIgnored = span.Trim(ignoredChars)
+        let trimIgnored = span.TrimStart(ignoredChars)
 
         if trimIgnored.Length = 0 then
             Token.InvalidOperator // Operator cannot consist solely of ignored characters
 
+        elif span.Contains '$' || (not (trimIgnored.StartsWith(">")) && span.Contains ':') then
+            // '$' is not permitted as a character in operator names and is reserved for future use
+            // ':' is not permitted as a character in operator names and is reserved for future use
+            // Except when it starts with '>' after trimming ignored chars
+            // https://github.com/dotnet/fsharp/pull/15923
+            // https://github.com/fsharp/fslang-suggestions/issues/1446
+            Token.ReservedOperator
+
         else
             //!%&*+-./<=>@^|~
             match trimIgnored[0] with
-            | '!' -> ofUInt16 (IsOperator ||| CanBePrefix ||| Precedence.LogicalAndBitwise)
+            | '!' ->
+                if trimIgnored.Length >= 2 && trimIgnored[1] = '=' then
+                    ofUInt16 (IsOperator ||| Precedence.LogicalAndBitwise) // !=
+                else
+                    ofUInt16 (IsOperator ||| CanBePrefix ||| Precedence.Prefix) // !
             | '%' -> ofUInt16 (IsOperator ||| CanBePrefix ||| Precedence.InfixMultiply)
             | '&' -> ofUInt16 (IsOperator ||| CanBePrefix ||| Precedence.LogicalAndBitwise)
             | '*' -> ofUInt16 (IsOperator ||| Precedence.InfixMultiply)
@@ -672,7 +687,7 @@ module internal Token =
             | '<' -> ofUInt16 (IsOperator ||| Precedence.LogicalAndBitwise)
             | '=' -> ofUInt16 (IsOperator ||| Precedence.LogicalAndBitwise)
             | '>' -> ofUInt16 (IsOperator ||| Precedence.LogicalAndBitwise)
-            | '@' -> ofUInt16 (IsOperator ||| Precedence.Concatenate)
+            | '@' -> ofUInt16 (IsOperator ||| Precedence.Concatenate) // TODO https://github.com/fsharp/fslang-spec/issues/70
             | '^' -> ofUInt16 (IsOperator ||| Precedence.Concatenate)
             | '|' -> ofUInt16 (IsOperator ||| Precedence.LogicalAndBitwise)
             | '~' ->
