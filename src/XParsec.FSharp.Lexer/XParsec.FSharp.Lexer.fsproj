@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="MoreParsers.fs" />
+    <Compile Include="UtilTypes.fs" />
     <Compile Include="Token.fs" />
     <Compile Include="Lexing.fs" />
   </ItemGroup>

@@ -1,4 +1,4 @@
-module XParsec.FSharp.Lexer.Tests.LexerTests
+module XParsec.FSharp.Lexer.Tests.LexingTests
 
 open System
 open System.IO
@@ -15,7 +15,7 @@ open XParsec.FSharp.Lexer.Lexing
 [<Tests>]
 let tests =
     testList
-        "DocsTests"
+        "LexingTests"
         [
             test "Index" {
 
@@ -74,10 +74,10 @@ let tests =
                     let expected = readLexed expectedFile
 
                     "Lexed tokens should match expected"
-                    |> Expect.equal (lexed |> Lexed.asSeq |> List.ofSeq) expected
+                    |> Expect.equal (lexed.Tokens |> List.ofSeq) expected
 
                 | Error err ->
-                    let lexed = LexBuilder.complete err.Position
+                    let lexed = LexBuilder.complete err.Position.Index err.Position.State
                     printLexed snippet lexed
                     printfn "-----"
                     let s = XParsec.ErrorFormatting.formatStringError snippet err
