@@ -44,7 +44,6 @@ type FormatType =
     | FormatFunction
     | Text
 
-
 type FormatPlaceholder =
     {
         Flags: string
@@ -71,6 +70,12 @@ type LexBuilder =
         Tokens: ResizeArray<PositionedToken>
         mutable AtStartOfLine: bool
         mutable Context: LexContext list
+        // Track whether we are inside a block comment
+        // These flags are used to mark tokens as being inside a block comment
+        // The lexer doesn't care if we are in a block comment or not
+        // but flagging tokens allows the parser or later stages to handle them easily
+        mutable IsInBlockComment: bool
+        mutable IsInOCamlBlockComment: bool
         StringBuilder: System.Text.StringBuilder
     }
 
@@ -106,6 +111,8 @@ module LexBuilder =
             Tokens = ResizeArray<PositionedToken>()
             AtStartOfLine = true
             Context = []
+            IsInBlockComment = false
+            IsInOCamlBlockComment = false
             StringBuilder = System.Text.StringBuilder()
         }
 
@@ -146,7 +153,7 @@ module LexBuilder =
         // Tokens that can be coalesced if adjacent
         // This occurs with string fragments in interpolated strings due to the way braces are handled
         match token.WithoutCommentFlags with
-        | Token.OtherUnlexed
+        // | Token.OtherUnlexed
         | Token.Interpolated3StringFragment
         | Token.VerbatimInterpolatedStringFragment
         | Token.InterpolatedStringFragment -> true
@@ -167,8 +174,31 @@ module LexBuilder =
             else
                 true
 
+
+        match token with
+        | Token.KWEndOCamlBlockComment -> state.IsInOCamlBlockComment <- false
+        | Token.BlockCommentEnd -> state.IsInBlockComment <- false
+        | _ -> ()
+
         if addToken then
+            let token =
+                if state.IsInBlockComment then
+                    uint16 token ||| TokenRepresentation.InBlockComment |> Token.ofUInt16
+                else
+                    token
+
+            let token =
+                if state.IsInOCamlBlockComment then
+                    uint16 token ||| TokenRepresentation.InOCamlBlockComment |> Token.ofUInt16
+                else
+                    token
+
             state.Tokens.Add(PositionedToken.Create(token, idx))
+
+        match token with
+        | Token.KWStartOCamlBlockComment -> state.IsInOCamlBlockComment <- true
+        | Token.BlockCommentStart -> state.IsInBlockComment <- true
+        | _ -> ()
 
         state.AtStartOfLine <-
             match token with
@@ -295,9 +325,10 @@ module Lexing =
                     preturn result reader
                 | ValueNone -> fail expectedStringLiteral reader
 
-    let keywords =
+    let identifierKeywords =
         [|
             "_", Token.Wildcard
+            // 3.4 Identifiers and Keywords
             // ident-keyword
             "abstract", Token.KWAbstract
             "and", Token.KWAnd
@@ -385,7 +416,7 @@ module Lexing =
             "with", Token.KWWith
             "yield", Token.KWYield
 
-            // symbolic keywords
+            // 3.6 Symbolic Keywords
             "let!", Token.KWLetBang
             "use!", Token.KWUseBang
             "do!", Token.KWDoBang
@@ -394,6 +425,7 @@ module Lexing =
             "and!", Token.KWAndBang
             "match!", Token.KWMatchBang
 
+            // 19.2 Extra Syntactic Forms for ML Compatibility
             // ocaml-ident-keyword
             // Deprecated but still recognized
             "asr", Token.KWAsr
@@ -422,7 +454,7 @@ module Lexing =
             "trait", Token.KWReservedTrait
             "virtual", Token.KWReservedVirtual
 
-            // Identifier replacements
+            // 3.11 Identifier Replacements
             "__SOURCE_DIRECTORY__", Token.SourceDirectoryIdentifier
             "__SOURCE_FILE__", Token.SourceFileIdentifier
             "__LINE__", Token.LineIdentifier
@@ -535,29 +567,49 @@ module Lexing =
         many1Chars2 pIdentStartChar pIdentChar
 
     let pIdentifierOrKeywordToken =
-        let keywords = dict keywords
+        let keywords = dict identifierKeywords
 
         parser {
             let! pos = getPosition
-            let! id = pIdentifier
-            let! suffix = opt (anyOf "!#")
 
-            let id =
-                match suffix with
-                | ValueSome c -> id + string c
-                | ValueNone -> id
+            let! id =
+                choiceL
+                    [
+                        // 19.1 Conditional Compilation for ML Compatibility
+                        pstring "F#*)"
+                        pstring "ENDIF-FSHARP*)"
+                        // 3.4 Identifiers and Keywords
+                        pIdentifier
+                    ]
+                    "Identifier"
 
-            let token =
-                match keywords.TryGetValue id with
-                | true, kw -> kw
-                | false, _ ->
+            match id with
+            | "F#*)"
+            | "ENDIF-FSHARP*)" ->
+                do! updateUserState (LexBuilder.append Token.KWEndFSharpBlockComment pos CtxOp.NoOp)
+
+                return ()
+            | _ ->
+
+                let! suffix = opt (anyOf "!#")
+
+                let id =
                     match suffix with
-                    | ValueNone -> Token.Identifier
-                    | ValueSome '!' -> Token.ReservedIdentifierBang
-                    | ValueSome '#' -> Token.ReservedIdentifierHash
-                    | ValueSome c -> invalidOp $"Unexpected identifier suffix '{c}'"
+                    | ValueSome c -> id + string c
+                    | ValueNone -> id
 
-            do! updateUserState (LexBuilder.append token pos CtxOp.NoOp)
+                let token =
+                    match keywords.TryGetValue id with
+                    | true, kw -> kw
+                    | false, _ ->
+                        match suffix with
+                        | ValueNone -> Token.Identifier
+                        | ValueSome '!' -> Token.ReservedIdentifierBang
+                        | ValueSome '#' -> Token.ReservedIdentifierHash
+                        | ValueSome c -> invalidOp $"Unexpected identifier suffix '{c}'"
+
+                do! updateUserState (LexBuilder.append token pos CtxOp.NoOp)
+                return ()
         }
 
 
@@ -926,7 +978,7 @@ module Lexing =
     let pVerbatimStringLiteralToken = pStringToken pVerbatimStringLiteral
 
     let pTypeParamToken =
-        let keywords = dict keywords
+        let keywords = dict identifierKeywords
 
         parser {
             let! pos = getPosition
@@ -1313,12 +1365,6 @@ module Lexing =
     let pRAttrBrack = pstring ">]"
     let pRArrayBrack = pstring "|]"
 
-    // TODO: Block comments still mean all internal tokens get lexed as closing block comment in a string "*)"
-    // doesn't close a block comment
-    // let pBlockComment =
-    //     pstring "(*" >>. manyCharsTill anyChar (pstring "*)" >>% () <|> eof) |>> fst
-    // let pOCamlBlockComment = pstring "(*IF-OCAML*)" >>. manyCharsTill anyChar (pstring "(*ENDIF-OCAML*)" >>% () <|> eof) |>> fst
-    // (*F# .... F#*) and (*IF-FSHARP ... ENDIF-FSHARP*)
     // This is a fallback, we shouldn't see any Other tokens in output
     let private peekEndOfIdent (reader: Reader<char, LexBuilder, ReadableString, _>) =
         match reader.Peek() with
@@ -1806,7 +1852,19 @@ module Lexing =
     let pCommaToken = pToken (pchar ',') Token.OpComma
 
     let pLParenToken =
-        choiceL [ pToken (pstring "()") Token.Unit; pOpenParenExpressionContext ] "Left parenthesis or unit"
+        choiceL
+            [
+                // 19.1 Conditional Compilation for ML Compatibility
+                pToken (pstring "(*ENDIF-OCAML*)") Token.KWEndOCamlBlockComment
+                pToken (pstring "(*IF-OCAML*)") Token.KWStartOCamlBlockComment
+                pToken (pstring "(*IF-FSHARP") Token.KWStartFSharpBlockComment
+                pToken (pstring "(*F#") Token.KWStartFSharpBlockComment
+                // 3.2 Comments
+                pToken (pstring "(*") Token.BlockCommentStart
+                pToken (pstring "()") Token.Unit
+                pOpenParenExpressionContext
+            ]
+            "Left parenthesis or unit"
 
     let pLBacketToken =
         choiceL
@@ -1844,6 +1902,7 @@ module Lexing =
             "Verbatim string or operator"
 
     let pSlashToken =
+        // 3.2 Comments
         choiceL [ pToken pComment Token.LineComment; pOperatorToken ] "Line comment or operator"
 
     let pSemicolonToken =
@@ -1861,7 +1920,14 @@ module Lexing =
         choiceL [ NumericLiterals.pIntToken; NumericLiterals.pFloatToken ] "Numeric literal"
 
     let pCustomOperatorToken =
-        choiceL [ pToken pRArrayBrack Token.OpArrayBracketRight; pOperatorToken ] "Operator"
+        choiceL
+            [
+                pToken pRArrayBrack Token.OpArrayBracketRight
+                // 3.2 Comments
+                pToken (pstring "*)") Token.BlockCommentEnd
+                pOperatorToken
+            ]
+            "Operator"
     // TODO: Preprocessor directives
     let pHashToken =
         choiceL [ pToken (pchar '#') Token.OpHash ] "Hash or preprocessor directive"
