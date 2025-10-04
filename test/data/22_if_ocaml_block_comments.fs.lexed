@@ -4,7 +4,7 @@
 31, Whitespace
 32, Identifier
 33, Whitespace
-34, OpPipeLeft
+34, OpInequality
 35, Whitespace
 36, NumInt32
 37, Newline
