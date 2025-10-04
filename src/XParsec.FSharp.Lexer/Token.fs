@@ -273,7 +273,6 @@ type NumericKind =
 
 open TokenRepresentation
 
-
 type Token =
     // Should not be used, only for default initialization
     | None = 0us
@@ -296,12 +295,20 @@ type Token =
     | Shebang = (12us) // #!/bin/usr/env fsharpi --exec
 
     // 3.9 Line Directives
-    | LineIntDirective = (13us) // # int
-    | LineStringDirective = (14us) // # int string
-    | LineVerbatimStringDirective = (15us) // # int verbatim-string
-    | LineLineIntDirective = (16us) // #line int
-    | LineLineStringDirective = (17us) // #line int string
-    | LineLineVerbatimStringDirective = (18us) // #line int verbatim-string
+    | LineDirective = (13us) // #line
+    | LineIntDirective = (14us) // #line
+    // 12.4 Compiler Directives
+    | NoWarnDirective = (15us) // #nowarn
+    | WarnOnDirective = (16us) // #warnon
+    | ReferenceDirective = (17us) // #r, #reference
+    | IncludePathDirective = (18us) // #I, #Include
+    | LoadDirective = (19us) // #load
+    | TimeDirective = (20us) // #time
+    | HelpDirective = (21us) // #help
+    | QuitDirective = (22us) // #q, #quit
+    // 19.4 File Extensions and Lexical Matters
+    | IndentDirective = (23us) // #indent
+    | InvalidDirective = (IsInvalid ||| 24us) // Any other invalid directive starting with #
 
     // 19.1 ML Compatibility
     | KWStartFSharpBlockComment = 100us // "(*IF-FSHARP" | "(*F#" starts a block comment ignored by F#
@@ -453,7 +460,6 @@ type Token =
     | OpBraceLeft = (IsKeywordOperator ||| 15us) // {
     | OpBraceRight = (IsKeywordOperator ||| 16us) // }
     | SingleQuote = (IsKeyword ||| 17us) // ' a lone single quote (there doesn't seem to be a way to use it in F#, but it's listed in the spec)
-    | OpHash = (IsKeywordOperator ||| 18us) // #
     | OpTypeTest = (IsKeywordOperator ||| 19us) // :?
     | OpUpcast = (IsKeywordOperator ||| 20us) // :?>
     | OpDowncast = (IsKeywordOperator ||| 21us) // :>

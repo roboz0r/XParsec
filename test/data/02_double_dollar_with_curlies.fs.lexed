@@ -4,7 +4,7 @@
 51, Whitespace
 52, Identifier
 53, Whitespace
-54, OpPipeLeft
+54, OpInequality
 55, Whitespace
 56, NumInt32
 58, Newline
@@ -12,7 +12,7 @@
 63, Whitespace
 64, Identifier
 65, Whitespace
-66, OpPipeLeft
+66, OpInequality
 67, Whitespace
 68, Interpolated3StringOpen
 73, Interpolated3StringFragment

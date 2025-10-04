@@ -1290,7 +1290,7 @@ module Lexing =
         | ValueSome('\n' | '\r') -> preturn () reader
         | _ -> fail expectedNewline reader
 
-    let pComment = pstring "//" >>. manyCharsTill anyChar (peekNewLine <|> eof)
+    let pLineComment = pstring "//" >>. manyCharsTill anyChar (peekNewLine <|> eof)
 
     let pCombiningOperator = many1Chars (anyOf customOperatorChars)
 
@@ -1903,7 +1903,7 @@ module Lexing =
 
     let pSlashToken =
         // 3.2 Comments
-        choiceL [ pToken pComment Token.LineComment; pOperatorToken ] "Line comment or operator"
+        choiceL [ pToken pLineComment Token.LineComment; pOperatorToken ] "Line comment or operator"
 
     let pSemicolonToken =
         choiceL
@@ -1929,8 +1929,96 @@ module Lexing =
             ]
             "Operator"
     // TODO: Preprocessor directives
+    // 3.3 Conditional Compilation
+    // | IfDirective = (9us) // #if if-expression-text
+    // | ElseDirective = (10us) // #else
+    // | EndIfDirective = (11us) // #endif
+
+    // // 3.8.4 Shebang
+    // | Shebang = (12us) // #!/bin/usr/env fsharpi --exec
+
+    // // 3.9 Line Directives
+    // | LineIntDirective = (13us) // # int
+    // | LineStringDirective = (14us) // # int string
+    // | LineVerbatimStringDirective = (15us) // # int verbatim-string
+    // | LineLineIntDirective = (16us) // #line int
+    // | LineLineStringDirective = (17us) // #line int string
+    // | LineLineVerbatimStringDirective = (18us) // #line int verbatim-string
+    // | InvalidDirective = (IsInvalid ||| 19us) // Any other invalid directive starting with #
+
+    let private isAtStartOfLineOrIndent (reader: Reader<char, LexBuilder, ReadableString, _>) =
+        let pos = reader.Position.Index
+        let state = reader.State
+
+        if state.AtStartOfLine then
+            preturn true reader
+        else
+            let tokens = state.Tokens
+
+            if tokens.Count = 0 then
+                // No previous tokens, must be at start of input
+                preturn (pos = 0L) reader
+            else
+                let lastToken = tokens[tokens.Count - 1]
+                preturn (lastToken.Token = Token.Indent) reader
+
+    let private directives =
+        [|
+            // 3.3 Conditional Compilation
+            "#if", Token.IfDirective
+            "#else", Token.ElseDirective
+            "#endif", Token.EndIfDirective
+            // 3.8.4 Shebang
+            "#!", Token.Shebang
+            // 3.9 Line Directives
+            "#line", Token.LineDirective
+            // 12.4 Compiler Directives
+            "#nowarn", Token.NoWarnDirective
+            "#warnon", Token.WarnOnDirective
+            "#r", Token.ReferenceDirective
+            "#reference", Token.ReferenceDirective
+            "#I", Token.IncludePathDirective
+            "#Include", Token.IncludePathDirective
+            "#load", Token.LoadDirective
+            "#time", Token.TimeDirective
+            "#help", Token.HelpDirective
+            "#q", Token.QuitDirective
+            "#quit", Token.QuitDirective
+            // 19.4 File Extensions and Lexical Matters
+            "#indent", Token.IndentDirective
+        |]
+
+    let pDirectiveToken =
+        parser {
+            let! atStart = isAtStartOfLineOrIndent
+
+            if not atStart then
+                return! fail (Message "Directives must be at start of line or immediately after indentation")
+
+            let! pos = getPosition
+
+            let! token =
+                choiceL
+                    [
+                        anyStringReturn directives
+                        // # int
+                        // We just peek the int to distinguish from InvalidDirective
+                        // The actual int is lexed to a separate token
+                        tuple3
+                            (pchar '#')
+                            (many1Chars (pchar ' '))
+                            (followedBy (many1Chars (satisfy NumericLiterals.isDecimalDigit)))
+                        >>% Token.LineIntDirective
+                        pchar '#' .>> manyChars pIdentChar >>% Token.InvalidDirective
+                    ]
+                    "Directive"
+
+            do! updateUserState (LexBuilder.append token pos CtxOp.NoOp)
+        }
+
+
     let pHashToken =
-        choiceL [ pToken (pchar '#') Token.OpHash ] "Hash or preprocessor directive"
+        choiceL [ pDirectiveToken; pToken (pchar '#') Token.ReservedIdentifierHash ] "Hash or Directive"
 
     [<TailCall>]
     let rec lex () (reader: Reader<char, LexBuilder, ReadableString, _>) =

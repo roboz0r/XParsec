@@ -13,10 +13,10 @@ open XParsec.FSharp.Lexer.Lexing
 
 let keywords =
     [
+        // 3.4 Identifiers and Keywords
         // IsKeyword
         "abstract", Token.KWAbstract
         "and", Token.KWAnd
-        "and!", Token.KWAndBang
         "as", Token.KWAs
         "base", Token.KWBase
         "begin", Token.KWBegin
@@ -25,7 +25,6 @@ let keywords =
         "default", Token.KWDefault
         "delegate", Token.KWDelegate
         "do", Token.KWDo
-        "do!", Token.KWDoBang
         "done", Token.KWDone
         "downcast", Token.KWDowncast
         "downto", Token.KWDownto
@@ -57,7 +56,6 @@ let keywords =
         "public", Token.KWPublic
         "rec", Token.KWRec
         "return", Token.KWReturn
-        "return!", Token.KWReturnBang
         "select", Token.KWContextualSelect
         "sig", Token.KWSig
         "static", Token.KWStatic
@@ -71,7 +69,17 @@ let keywords =
         "void", Token.KWVoid
         "when", Token.KWWhen
         "with", Token.KWWith
+
+        // 3.6 Symbolic Keywords
+        "and!", Token.KWAndBang
+        "do!", Token.KWDoBang
+        "let!", Token.KWLetBang
+        "match!", Token.KWMatchBang
+        "return!", Token.KWReturnBang
+        "use!", Token.KWUseBang
+        "yield!", Token.KWYieldBang
         "'", Token.SingleQuote
+        "#", Token.ReservedIdentifierHash
 
         // IsKeywordOperator
         "assert", Token.KWAssert
@@ -80,15 +88,11 @@ let keywords =
         "if", Token.KWIf
         "lazy", Token.KWLazy
         "let", Token.KWLet
-        "let!", Token.KWLetBang
         "match", Token.KWMatch
-        "match!", Token.KWMatchBang
         "upcast", Token.KWUpcast
         "use", Token.KWUse
-        "use!", Token.KWUseBang
         "while", Token.KWWhile
         "yield", Token.KWYield
-        "yield!", Token.KWYieldBang
         "|", Token.OpBar
         "->", Token.OpArrowRight
         "<-", Token.OpArrowLeft
@@ -105,7 +109,6 @@ let keywords =
         "|]", Token.OpArrayBracketRight
         "{", Token.OpBraceLeft
         "}", Token.OpBraceRight
-        "#", Token.OpHash
         ":?", Token.OpTypeTest
         ":>", Token.OpUpcast
         ":?>", Token.OpDowncast
@@ -132,6 +135,7 @@ let keywords =
         "_", Token.Wildcard
         "()", Token.Unit
 
+        // 3.4 Identifiers and Keywords
         // IsReservedKeyword
         "break", Token.KWReservedBreak
         "checked", Token.KWReservedChecked
