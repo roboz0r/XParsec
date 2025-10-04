@@ -263,8 +263,7 @@ let tests1 =
 
 [<Tests>]
 let tests2 =
-    testSequenced
-    <| testList
+    testList
         "Integer Literal Tests"
         [
             for input, expectedToken in integerLiteralCases do

@@ -86,4 +86,3 @@ let tests =
                     failwith "Lexing failed"
             }
         ]
-    |> testSequenced
