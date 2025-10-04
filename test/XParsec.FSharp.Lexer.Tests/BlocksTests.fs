@@ -28,4 +28,3 @@ let tests =
                 testLexFileBlocks file
             }
         ]
-    |> testSequenced
