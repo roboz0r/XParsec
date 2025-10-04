@@ -5,13 +5,44 @@ open System.Globalization
 open System.Collections.Generic
 open System.Collections.Immutable
 
+[<Measure>]
+type token
+
+[<Measure>]
+type block
+
+[<Measure>]
+type line
+
+[<Struct>]
+type BlockInfo =
+    {
+        TokenIndex: int<token>
+        IndentLevel: int
+    }
 
 type Lexed =
     {
-        Tokens: ImmutableArray<PositionedToken>
+        Tokens: ImmutableArrayM<PositionedToken, token>
+        Blocks: ImmutableArrayM<BlockInfo, block>
+        LineStarts: ImmutableArrayM<int<token>, line>
     }
 
-    member this.Length = this.Tokens.Length
+    member this.FirstTokenOnLine(lineIndex: int<line>) =
+        if lineIndex < 0<_> || int lineIndex >= this.LineStarts.Length then
+            invalidArg (nameof lineIndex) "Index out of range"
+
+        let tokenIndex = this.LineStarts[lineIndex]
+        this.Tokens[tokenIndex]
+
+    member this.FirstTokenOfBlock(blockIndex: int<block>) =
+        if blockIndex < 0<_> || int blockIndex >= this.Blocks.Length then
+            invalidArg (nameof blockIndex) "Index out of range"
+
+        let tokenIndex = this.Blocks[blockIndex].TokenIndex
+        this.Tokens[tokenIndex]
+
+
 // Format specifications for printf formats are strings with % markers
 // that indicate format. Format placeholders consist of %[flags][width][.precision][type]
 
@@ -67,7 +98,8 @@ type LexContext =
 
 type LexBuilder =
     {
-        Tokens: ResizeArray<PositionedToken>
+        // Resume here
+        Tokens: ImmutableArray<PositionedToken>.Builder
         mutable AtStartOfLine: bool
         mutable Context: LexContext list
         // Track whether we are inside a block comment
@@ -77,6 +109,8 @@ type LexBuilder =
         mutable IsInBlockComment: bool
         mutable IsInOCamlBlockComment: bool
         StringBuilder: System.Text.StringBuilder
+        mutable LastTokenWasNewLine: int<token> voption
+        LineStarts: ImmutableArray<int<token>>.Builder // indices of tokens that start lines
     }
 
 open System
@@ -85,8 +119,6 @@ open XParsec.Parsers
 open XParsec.CharParsers
 open MoreParsers
 
-module Lexed =
-    let asSeq (x: Lexed) = x.Tokens
 
 [<RequireQualifiedAccess>]
 [<Struct>]
@@ -98,23 +130,143 @@ type CtxOp =
 
 module LexBuilder =
 
+    let private computeBlocks
+        (tokens: ImmutableArrayM<PositionedToken, token>)
+        (lineStarts: ImmutableArrayM<int<token>, line>)
+        =
+        let blocks = ImmutableArray.CreateBuilder<BlockInfo>(lineStarts.Length / 4 + 1) // Rough estimate of number of blocks
 
-    let complete (pos: Position<LexBuilder>) =
-        pos.State.Tokens.Add(PositionedToken.Create(Token.EOF, pos.Index))
+        let rec firstNonTrivialOnLine iTok iTokEnd =
+            // printfn $"    firstNonTrivialOnLine: iTok={iTok}, iTokEnd={iTokEnd}"
+            if iTok = iTokEnd then
+                None
+            else
+                // Line with only whitespace/comments doesn't change blocks
+                // Empty line doesn't change blocks
+                let token = tokens[iTok]
+
+                if token.InBlockComment || token.InOCamlBlockComment then
+                    firstNonTrivialOnLine (iTok + 1<_>) iTokEnd
+                else
+                    match token.TokenWithoutCommentFlags with
+                    | Token.LineComment -> None // rest of line is comment, so no non-trivial token
+                    | Token.Indent
+                    | Token.Whitespace
+                    | Token.EOF
+                    | Token.Tab
+                    | Token.BlockCommentStart
+                    | Token.BlockCommentEnd
+                    | Token.KWStartFSharpBlockComment
+                    | Token.KWEndFSharpBlockComment
+                    | Token.KWStartOCamlBlockComment
+                    | Token.KWEndOCamlBlockComment -> firstNonTrivialOnLine (iTok + 1<_>) iTokEnd
+                    | Token.Newline -> invalidOp "Unexpected Newline token in line"
+
+                    | _ -> Some(iTok, token)
+
+        let rec tryFindNonTriviaToken iLine iTok =
+            // printfn $"  tryFindNonTriviaToken: iLine={iLine}, iTok={iTok}"
+
+            // Last token on this line (inclusive)
+            let iTokEnd =
+                if iLine + 1<line> < lineStarts.LengthM then
+                    lineStarts[iLine + 1<_>] - 1<_>
+                else
+                    tokens.LengthM - 1<_>
+
+            match firstNonTrivialOnLine iTok iTokEnd with
+            | Some(iTok, token) -> Some(iLine, iTok, token)
+            | None ->
+                let iLineNext = iLine + 1<_>
+
+                if iLineNext < lineStarts.LengthM then
+                    // try next line
+                    tryFindNonTriviaToken iLineNext (lineStarts[iLineNext])
+                else
+                    None
+
+        let rec findBlocks iLine currentIndent =
+            // printfn $"findBlocks: iLine={iLine}, currentIndent={currentIndent}"
+            if iLine = lineStarts.LengthM then
+                ImmutableArrayM(blocks.ToImmutable())
+            elif iLine > lineStarts.LengthM then
+                invalidOp "Line index out of range"
+            else
+                let iTok = lineStarts[iLine]
+
+                match tryFindNonTriviaToken iLine iTok with
+                | None -> ImmutableArrayM(blocks.ToImmutable())
+                | Some(iLineNext, iTokNext, token) ->
+                    let thisIndent =
+                        let firstTok = tokens[lineStarts[iLineNext]]
+                        token.StartIndex - firstTok.StartIndex
+
+                    if thisIndent <> currentIndent then
+                        // printfn $"  New block at line {iLine}, token {iTokNext}: {token}, indent {thisIndent}"
+                        // We add iTok not iTokNext here, as the block starts at
+                        // the first token on the line (including leading trivia)
+                        blocks.Add
+                            {
+                                TokenIndex = iTok
+                                IndentLevel = int thisIndent
+                            }
+
+                        findBlocks (iLineNext + 1<_>) thisIndent
+                    else
+                        findBlocks (iLineNext + 1<_>) currentIndent
+
+
+        match tryFindNonTriviaToken 0<line> 0<token> with
+        | None ->
+            blocks.Add { TokenIndex = 0<_>; IndentLevel = 0 }
+            ImmutableArrayM(blocks.ToImmutable())
+        | Some(iLineNext, iTok, token) ->
+            let thisIndent = token.StartIndex - tokens[lineStarts[iLineNext]].StartIndex
+            // printfn $"  New block at line 0, token {iTok}: {token}, indent {thisIndent}"
+            blocks.Add
+                {
+                    TokenIndex = 0<_>
+                    IndentLevel = int thisIndent
+                }
+
+            findBlocks (iLineNext + 1<_>) thisIndent
+
+    let complete idx (state: LexBuilder) =
+        state.Tokens.Add(PositionedToken.Create(Token.EOF, idx))
+        let tokens = ImmutableArrayM(state.Tokens.ToImmutable())
+
+        let lineStarts =
+            match state.LastTokenWasNewLine with
+            | ValueSome newlineIdx ->
+                state.LineStarts.Add(newlineIdx + 1<_>)
+                state.LastTokenWasNewLine <- ValueNone
+            | ValueNone -> ()
+
+            ImmutableArrayM(state.LineStarts.ToImmutable())
+
+        let blocks = computeBlocks tokens lineStarts
 
         {
-            Tokens = pos.State.Tokens.ToImmutableArray()
+            Tokens = tokens
+            LineStarts = lineStarts
+            Blocks = blocks
         }
 
     let init () =
-        {
-            Tokens = ResizeArray<PositionedToken>()
-            AtStartOfLine = true
-            Context = []
-            IsInBlockComment = false
-            IsInOCamlBlockComment = false
-            StringBuilder = System.Text.StringBuilder()
-        }
+        let x =
+            {
+                Tokens = ImmutableArray.CreateBuilder()
+                AtStartOfLine = true
+                Context = []
+                IsInBlockComment = false
+                IsInOCamlBlockComment = false
+                StringBuilder = System.Text.StringBuilder()
+                LastTokenWasNewLine = ValueNone
+                LineStarts = ImmutableArray.CreateBuilder()
+            }
+
+        x.LineStarts.Add(0<_>) // The first line starts at the beginning of the file
+        x
 
     let currentContext (x: LexBuilder) =
         match x.Context with
@@ -164,11 +316,12 @@ module LexBuilder =
         // TODO: Handle literal negation
         // Consider if this should be done in the `lex` function instead
         // https://fsharp.github.io/fslang-spec/lexical-analysis/#381-post-filtering-of-adjacent-prefix-tokens
-        let addToken =
-            let count = state.Tokens.Count
+        let tokenCount = state.Tokens.Count
+        let tokenIdx = tokenCount * 1<token>
 
-            if count > 0 then
-                match token, state.Tokens[count - 1] with
+        let addToken =
+            if tokenCount > 0 then
+                match token, state.Tokens[tokenCount - 1] with
                 | CoalescableToken, t when t.Token = token -> false
                 | _ -> true
             else
@@ -200,14 +353,21 @@ module LexBuilder =
         | Token.BlockCommentStart -> state.IsInBlockComment <- true
         | _ -> ()
 
-        state.AtStartOfLine <-
-            match token with
-            | Token.Newline -> true
-            | _ -> false
+        match state.LastTokenWasNewLine with
+        | ValueSome newlineIdx ->
+            state.LineStarts.Add(newlineIdx + 1<_>)
+            state.LastTokenWasNewLine <- ValueNone
+        | ValueNone -> ()
+
+        match token with
+        | Token.Newline ->
+            state.AtStartOfLine <- true
+            state.LastTokenWasNewLine <- ValueSome tokenIdx
+        | _ -> state.AtStartOfLine <- false
 
         match ctxOp with
-        | (CtxOp.Push ctx) -> pushContext ctx state
-        | (CtxOp.Pop ctx) -> popExactContext ctx state
+        | CtxOp.Push ctx -> pushContext ctx state
+        | CtxOp.Pop ctx -> popExactContext ctx state
         | CtxOp.NoOp -> state
 
     let append token pos ctxOp (state: LexBuilder) =
@@ -2026,7 +2186,7 @@ module Lexing =
         let c = reader.Peek()
         // printfn "At %A, Context: %A, Next char: %A" reader.Position.Index ctx c
         match c, ctx with
-        | ValueNone, _ -> preturn (LexBuilder.complete reader.Position) reader
+        | ValueNone, _ -> preturn (LexBuilder.complete reader.Position.Index reader.State) reader
         | ValueSome('\r' | '\n'), ExpressionCtx -> (pNewlineToken >>= lex) reader
         | ValueSome ' ', ExpressionCtx -> (pIndentOrWhitespaceToken >>= lex) reader
         | ValueSome '\t', ExpressionCtx -> (pTabToken >>= lex) reader

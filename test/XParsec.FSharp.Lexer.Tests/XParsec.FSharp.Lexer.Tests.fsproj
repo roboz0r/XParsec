@@ -11,6 +11,7 @@
     <Compile Include="KeywordTests.fs" />
     <Compile Include="NumericTests.fs" />
     <Compile Include="LexingTests.fs" />
+    <Compile Include="BlocksTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
