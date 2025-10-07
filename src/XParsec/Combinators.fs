@@ -22,7 +22,7 @@ module Combinators =
 
     /// Applies the parser `p` and, if it succeeds, computes the parser `p2` of `binder` with the result of `p`.
     /// Finally, it returns the result of `p2`.
-    let inline (>>=) p binder = bind p binder
+    let inline (>>=) ([<InlineIfLambda>] p) ([<InlineIfLambda>] binder) = bind p binder
 
     /// Applies the parser `p` and, if it succeeds, returns the value `x`.
     let inline (>>%)
