@@ -87,6 +87,7 @@ For these examples, we'll use:
 ```fsharp
 let pA = pitem 'a'
 let pComma = pitem ','
+let isDigit c = System.Char.IsDigit c
 let pPlus = pchar '+' >>% (+) // Parses '+' and returns the addition function
 ```
 
@@ -96,6 +97,10 @@ let pPlus = pchar '+' >>% (+) // Parses '+' and returns the addition function
 | `many1 p`| Applies `p` *one* or more times. Fails if `p` doesn't succeed at least once. | `many1 pA` on "b" -> `Fails` |
 | `skipMany p`| Like `many`, but discards the results (returns `unit`). | `skipMany pA` on "aaab" -> `Ok ()` |
 | `skipMany1 p`| Like `many1`, but discards the results. | `skipMany1 pA` on "b" -> `Fails` |
+| `countManySatisfies predicate` | Applies a predicate zero or more times and returns the count. An efficient alternative to `many (satisfy predicate)`. Always succeeds. | `countManySatisfies isDigit` on "123a" -> `Ok 3L` |
+| `countMany1Satisfies predicate`| Applies a predicate one or more times and returns the count. Fails if the predicate doesn't match the first element. | `countMany1Satisfies isDigit` on "a123" -> `Fails` |
+| `skipManySatisfies predicate` | Skips zero or more elements that satisfy a predicate. An efficient way to skip input like whitespace. Always succeeds. | `skipManySatisfies isDigit` on "123a" -> `Ok ()` |
+| `skipMany1Satisfies predicate`| Skips one or more elements that satisfy a predicate. Fails if the predicate doesn't match the first element. | `skipMany1Satisfies isDigit` on "a123" -> `Fails` |
 | `sepBy p sep` | Parses zero or more occurrences of `p` separated by `sep`. | `sepBy pint32 pComma` on "1,2,3" -> `Ok [1;2;3]` |
 | `sepBy1 p sep`| Parses one or more occurrences of `p` separated by `sep`. | `sepBy1 pint32 pComma` on "" -> `Fails` |
 | `manyTill p end` | Applies `p` until the `end` parser succeeds. Returns the list of `p`'s results and the result of `end`.| `manyTill pid (pitem '!')` on "abc!" -> `Ok (['a';'b';'c'], '!')` |

@@ -686,6 +686,70 @@ module Combinators =
             )
             reader
 
+    let private countManySatisfiesImpl (predicate: 'T -> bool) (reader: Reader<'T, 'State, 'Input, 'InputSlice>) =
+        let mutable length = 0L
+        let mutable doContinue = true
+
+        while doContinue do
+            match reader.Peek() with
+            | ValueSome c when predicate c ->
+                length <- length + 1L
+                reader.Skip()
+            | _ -> doContinue <- false
+
+        reader.SkipN length
+        length
+
+    /// <summary>
+    /// Applies a predicate to the input zero or more times and returns the number of successful matches.
+    /// </summary>
+    /// <remarks>
+    /// This parser always succeeds. It is more efficient than `many (satisfy predicate)` when only the count is needed.
+    /// </remarks>
+    let countManySatisfies predicate reader =
+        let length = countManySatisfiesImpl predicate reader
+        preturn length reader
+
+    /// <summary>
+    /// Applies a predicate to the input one or more times and returns the number of successful matches.
+    /// </summary>
+    /// <remarks>
+    /// If the predicate fails on the first element, this parser fails. It is more efficient than `many1 (satisfy predicate)` when only the count is needed.
+    /// </remarks>
+    let countMany1Satisfies predicate reader =
+        pOneThen
+            (satisfy predicate)
+            (fun _ reader ->
+                let length = countManySatisfiesImpl predicate reader
+                preturn (length + 1L) reader
+            )
+            reader
+
+    /// <summary>
+    /// Skips zero or more input elements that satisfy the given predicate.
+    /// </summary>
+    /// <remarks>
+    /// This parser always succeeds. It is a highly efficient way to skip input like whitespace or comments.
+    /// </remarks>
+    let skipManySatisfies predicate reader =
+        let _ = countManySatisfiesImpl predicate reader
+        preturn () reader
+
+    /// <summary>
+    /// Skips one or more input elements that satisfy the given predicate.
+    /// </summary>
+    /// <remarks>
+    /// If the predicate fails on the first element, this parser fails.
+    /// </remarks>
+    let skipMany1Satisfies predicate reader =
+        pOneThen
+            (satisfy predicate)
+            (fun _ reader ->
+                let _ = countManySatisfiesImpl predicate reader
+                preturn () reader
+            )
+            reader
+
     /// Applies the parser `p` zero or more times, separated by `pSep`. If it succeeds, returns the results as an ImmutableArray.
     /// This parser always succeeds.
     let sepBy
