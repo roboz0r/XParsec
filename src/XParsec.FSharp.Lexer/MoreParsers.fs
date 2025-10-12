@@ -59,18 +59,6 @@ module MoreParsers =
         else
             fail (UnexpectedSeq(span.ToArray())) reader
 
-    let skipMany (predicate: 'T -> bool) (reader: Reader<'T, 'State, 'Input, 'InputSlice>) =
-        let mutable length = 0
-        let mutable doContinue = true
-
-        while doContinue do
-            match reader.Peek() with
-            | ValueSome c when predicate c -> length <- length + 1
-            | _ -> doContinue <- false
-
-        reader.SkipN length
-        Ok { Parsed = () }
-
     let peekAnyOf (candidates: 'T seq) (reader: Reader<'T, 'State, 'Input, 'InputSlice>) =
         let candidate = Array.ofSeq candidates
 
@@ -81,57 +69,3 @@ module MoreParsers =
                 preturn x reader
             else
                 fail (Unexpected x) reader
-
-    // The original bind operator isn't inlining properly
-    let inline (>>=) ([<InlineIfLambda>] p) ([<InlineIfLambda>] binder) = bind p binder
-
-    type ParserCE with
-
-        member inline this.Using
-            (
-                resource: 'disposable :> IDisposable,
-                [<InlineIfLambda>] binder: 'disposable -> Parser<unit, 'T, 'State, 'Input, 'InputSlice>
-            ) : Parser<unit, 'T, 'State, 'Input, 'InputSlice> =
-            fun reader ->
-                try
-                    binder resource reader
-                finally
-                    if not (obj.ReferenceEquals(resource, null)) then
-                        resource.Dispose()
-
-        member inline this.While
-            (
-                [<InlineIfLambda>] guard: unit -> bool,
-                [<InlineIfLambda>] generator: Parser<unit, 'T, 'State, 'Input, 'InputSlice>
-            ) =
-            fun reader ->
-                let mutable doContinue = true
-                let mutable result = Ok { Parsed = () }
-
-                while doContinue && guard () do
-                    match generator reader with
-                    | Ok { Parsed = () } -> ()
-                    | Error e ->
-                        doContinue <- false
-                        result <- Error e
-
-                result
-
-        member inline this.For
-            (sequence: #seq<'T>, [<InlineIfLambda>] binder: 'T -> Parser<unit, 'U, 'State, 'Input, 'InputSlice>)
-            : Parser<unit, 'U, 'State, 'Input, 'InputSlice> =
-            this.Using(
-                sequence.GetEnumerator(),
-                fun enum -> this.While((fun () -> enum.MoveNext()), this.Delay(fun () -> binder enum.Current))
-            )
-
-
-        member inline this.Combine
-            (
-                [<InlineIfLambda>] first: Parser<unit, 'T, 'State, 'Input, 'InputSlice>,
-                [<InlineIfLambda>] second: Parser<'Parsed, 'T, 'State, 'Input, 'InputSlice>
-            ) =
-            fun reader ->
-                match first reader with
-                | Ok { Parsed = () } -> second reader
-                | Error e -> Error e
