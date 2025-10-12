@@ -4,7 +4,7 @@
 43, Whitespace
 44, Identifier
 45, Whitespace
-46, OpInequality
+46, Op527
 47, Whitespace
 48, NumInt32
 51, OpDot
@@ -14,7 +14,7 @@
 60, Whitespace
 61, Identifier
 62, Whitespace
-63, OpInequality
+63, Op527
 64, Whitespace
 65, Interpolated3StringOpen
 70, Interpolated3StringFragment

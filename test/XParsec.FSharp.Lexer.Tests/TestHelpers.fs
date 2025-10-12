@@ -130,7 +130,11 @@ let printLexedBlocks (input: string) (x: Lexed) =
 
     f 0
 
-let private getTokenString (t: PositionedToken) = $"%d{int t.StartIndex}, %A{t.Token}"
+let private getTokenString (t: PositionedToken) =
+    if t.Token.IsOperator && not t.Token.IsKeyword then
+        $"%d{int t.StartIndex}, Op%d{uint64 t.Token}"
+    else
+        $"%d{int t.StartIndex}, %A{t.Token}"
 
 let writeLexed (path: string) (x: Lexed) =
     use writer = new StreamWriter(path)
@@ -168,6 +172,7 @@ let pToken =
         choiceL
             (seq {
                 yield! ps
+                yield (pstring "Op" >>. puint16) |>> LanguagePrimitives.EnumOfValue // Fallback for operators which encode associativity and precedence in the enum value
                 yield puint16 |>> LanguagePrimitives.EnumOfValue // Fallback for any missing cases e.g. flagged with block comments
             })
             "token"
