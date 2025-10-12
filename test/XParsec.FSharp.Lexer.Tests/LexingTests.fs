@@ -67,6 +67,7 @@ let tests =
                 let snippet = File.ReadAllText file
                 let snippet = snippet.Replace("\r\n", "\n")
                 printfn "Lexing\n%s\n-----\n%s\n-----" fileName snippet
+
                 match lexString snippet with
                 | Ok { Parsed = lexed } ->
                     printLexed snippet lexed
