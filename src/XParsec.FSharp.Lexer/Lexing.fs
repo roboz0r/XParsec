@@ -113,7 +113,6 @@ type LexBuilder =
         LineStarts: ImmutableArray<int<token>>.Builder // indices of tokens that start lines
     }
 
-open System
 open XParsec
 open XParsec.Parsers
 open XParsec.CharParsers
