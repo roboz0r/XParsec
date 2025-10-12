@@ -1,7 +1,7 @@
 <div align="center">
   <h1 align="center">
     <img alt="XParsec logo" src="docs/images/logo.svg" title="Logo" align="center"/>
-    XParsec 
+    XParsec
   </h1>
 </div>
 <br/>
@@ -48,19 +48,6 @@ dotnet test
 ```pwsh
 npm run test
 ```
-
-## TODO
-
-- [x] `ByteParsers` module
-- [x] Fable JS compatibility
-- [ ] Other Fable targets compatibility
-- [x] Multi-token operator parsing
-- [ ] Performance benchmarks and optimization
-- [ ] Complete FParsec API coverage
-- [ ] Tests with complex grammars
-- [ ] Improvements to error messages
-- [ ] Release to NuGet
-
 
 [NugetLink]: https://www.nuget.org/packages/XParsec
 [DocsLink]: https://roboz0r.github.io/XParsec/
