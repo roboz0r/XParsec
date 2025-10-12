@@ -195,6 +195,7 @@ let testLexed (input: string) (expected: _ list) =
     // for i in 0 .. 100000 do
     // Run multiple times to catch any state issues
     let input = input.Replace("\r\n", "\n")
+
     match lexString input with
     | Ok { Parsed = lexed } ->
         try
@@ -211,6 +212,7 @@ let testLexedBlocks (input: string) (expected: _ list) =
     // for i in 0 .. 100000 do
     // Run multiple times to catch any state issues
     let input = input.Replace("\r\n", "\n")
+
     match lexString input with
     | Ok { Parsed = lexed } ->
         try
