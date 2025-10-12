@@ -108,7 +108,6 @@ type LexBuilder =
         // but flagging tokens allows the parser or later stages to handle them easily
         mutable IsInBlockComment: bool
         mutable IsInOCamlBlockComment: bool
-        StringBuilder: System.Text.StringBuilder
         mutable LastTokenWasNewLine: int<token> voption
         LineStarts: ImmutableArray<int<token>>.Builder // indices of tokens that start lines
     }
@@ -259,7 +258,6 @@ module LexBuilder =
                 Context = []
                 IsInBlockComment = false
                 IsInOCamlBlockComment = false
-                StringBuilder = System.Text.StringBuilder()
                 LastTokenWasNewLine = ValueNone
                 LineStarts = ImmutableArray.CreateBuilder()
             }
@@ -384,11 +382,6 @@ module internal Errors =
     let expectedStringLiteral = Message "Expected string literal"
 
 module Lexing =
-
-    let getStringBuilder (reader: Reader<_, LexBuilder, _, _>) =
-        let sb = reader.State.StringBuilder
-        sb.Clear() |> ignore // Reset the StringBuilder
-        preturn sb reader
 
     let anyString (xs: string seq) =
         // Sort by length (greedy first), then by lexicographic order
@@ -1550,8 +1543,7 @@ module Lexing =
 
         [<TailCall>]
         let rec private pManyIntCharsWithBaseLoop
-            sbLength
-            (sb: StringBuilder)
+            success
             isDigitInBase
             backtrackTo
             (reader: Reader<char, LexBuilder, ReadableString, _>)
@@ -1560,34 +1552,28 @@ module Lexing =
             | ValueSome '_' ->
                 // Ignore underscores
                 reader.Skip()
-                pManyIntCharsWithBaseLoop sbLength sb isDigitInBase backtrackTo reader
+                pManyIntCharsWithBaseLoop success isDigitInBase backtrackTo reader
             | ValueSome c when isDigitInBase c ->
                 reader.Skip()
-                sb.Append c |> ignore
-                pManyIntCharsWithBaseLoop sbLength sb isDigitInBase reader.Position reader
+                pManyIntCharsWithBaseLoop true isDigitInBase reader.Position reader
             | _ ->
-                if sb.Length = sbLength then
-                    fail expectedOneDigit reader
-                else
+                if success then
                     // We must backtrack to the last valid position
                     // to avoid consuming trailing '_'
                     reader.Position <- backtrackTo
-                    preturn sb reader
+                    preturn () reader
+                else
+                    fail expectedOneDigit reader
 
-        let private pManyIntCharsWithBase
-            (sb: StringBuilder)
-            isDigitInBase
-            (reader: Reader<char, LexBuilder, ReadableString, _>)
-            =
-            pManyIntCharsWithBaseLoop sb.Length sb isDigitInBase reader.Position reader
+        let private pManyIntCharsWithBase isDigitInBase (reader: Reader<char, LexBuilder, ReadableString, _>) =
+            pManyIntCharsWithBaseLoop false isDigitInBase reader.Position reader
 
-        let pIntBase sb = pManyIntCharsWithBase sb isDecimalDigit
-        let pHexBase sb = pManyIntCharsWithBase sb isHexDigit
-        let pOctalBase sb = pManyIntCharsWithBase sb isOctalDigit
-        let pBinaryBase sb = pManyIntCharsWithBase sb isBinaryDigit
+        let pIntBase = pManyIntCharsWithBase isDecimalDigit
+        let pHexBase = pManyIntCharsWithBase isHexDigit
+        let pOctalBase = pManyIntCharsWithBase isOctalDigit
+        let pBinaryBase = pManyIntCharsWithBase isBinaryDigit
 
-
-        let pXIntBase (sb: StringBuilder) (reader: Reader<char, LexBuilder, ReadableString, _>) =
+        let pXIntBase (reader: Reader<char, LexBuilder, ReadableString, _>) =
             // Parses an integer with optional base prefix
             // Returns the StringBuilder with the digits and the numeric base
             // Allows underscores in the digits
@@ -1598,153 +1584,160 @@ module Lexing =
             | 1 ->
                 if isDecimalDigit span[0] then
                     reader.Skip()
-                    sb.Append span[0] |> ignore
-                    preturn struct (sb, NumericBase.Decimal) reader
+                    preturn NumericBase.Decimal reader
                 else
                     fail expectedBasePrefix reader
             | 2 ->
                 if isDecimalDigit span[0] then
                     // We need at least 3 chars to have a base prefix
-                    match pIntBase sb reader with
-                    | Ok { Parsed = sb } -> preturn struct (sb, NumericBase.Decimal) reader
-                    | Error e -> invalidOp $"Unexpected error parsing decimal number: {e}"
+                    match pIntBase reader with
+                    | Ok { Parsed = () } -> preturn NumericBase.Decimal reader
+                    | Error e -> invalidOp $"Unreachable error parsing decimal number: {e}"
                 else
                     fail expectedBasePrefix reader
             | _ ->
+                // Check for base prefix and at least one digit in that base
                 match span[0], span[1], span[2] with
                 | '0', ('x' | 'X' as c), c2 when isHexDigit c2 ->
                     reader.SkipN(2)
-                    sb.Append(span.Slice(0, 2)) |> ignore
 
-                    match pHexBase sb reader with
-                    | Ok { Parsed = sb } -> preturn struct (sb, NumericBase.Hex) reader
-                    | Error e -> invalidOp $"Unexpected error parsing hexadecimal number: {e}"
+                    match pHexBase reader with
+                    | Ok { Parsed = () } -> preturn NumericBase.Hex reader
+                    | Error e -> invalidOp $"Unreachable error parsing hexadecimal number: {e}"
+
                 | '0', ('o' | 'O' as c), c2 when isOctalDigit c2 ->
                     reader.SkipN(2)
-                    sb.Append(span.Slice(0, 2)) |> ignore
 
-                    match pOctalBase sb reader with
-                    | Ok { Parsed = sb } -> preturn struct (sb, NumericBase.Octal) reader
-                    | Error e -> invalidOp $"Unexpected error parsing octal number: {e}"
+                    match pOctalBase reader with
+                    | Ok { Parsed = () } -> preturn NumericBase.Octal reader
+                    | Error e -> invalidOp $"Unreachable error parsing octal number: {e}"
+
                 | '0', ('b' | 'B' as c), c2 when isBinaryDigit c2 ->
                     reader.SkipN(2)
-                    sb.Append(span.Slice(0, 2)) |> ignore
 
-                    match pBinaryBase sb reader with
-                    | Ok { Parsed = sb } -> preturn struct (sb, NumericBase.Binary) reader
-                    | Error e -> invalidOp $"Unexpected error parsing binary number: {e}"
+                    match pBinaryBase reader with
+                    | Ok { Parsed = () } -> preturn NumericBase.Binary reader
+                    | Error e -> invalidOp $"Unreachable error parsing binary number: {e}"
+
                 | c, _, _ when isDecimalDigit c ->
                     // Decimal base
-                    match pIntBase sb reader with
-                    | Ok { Parsed = sb } -> preturn struct (sb, NumericBase.Decimal) reader
-                    | Error e -> invalidOp $"Unexpected error parsing decimal number: {e}"
+                    match pIntBase reader with
+                    | Ok { Parsed = () } -> preturn NumericBase.Decimal reader
+                    | Error e -> invalidOp $"Unreachable error parsing decimal number: {e}"
+
                 | _ -> fail expectedBasePrefix reader
 
-        let pIntToken =
-            parser {
-                let! pos = getPosition
-                let! sb = getStringBuilder
-                let! (digits, numBase) = pXIntBase sb
-
-                let! suffix = manyChars pIdentChar
-
-                let token =
-                    if suffix.Length > 2 then
-                        Token.ReservedNumericLiteral
-                    else
-                        match suffix with
-                        | "y" -> Token.NumSByte
-                        | "uy" -> Token.NumByte
-                        | "s" -> Token.NumInt16
-                        | "us" -> Token.NumUInt16
-                        | ""
-                        | "l" -> Token.NumInt32
-                        | "u"
-                        | "ul" -> Token.NumUInt32
-                        | "n" -> Token.NumNativeInt
-                        | "un" -> Token.NumUNativeInt
-                        | "L" -> Token.NumInt64
-                        | "uL"
-                        | "UL" -> Token.NumUInt64
-                        | "Q"
-                        | "R"
-                        | "Z"
-                        | "I"
-                        | "N"
-                        | "G" ->
-                            if numBase = NumericBase.Decimal then
-                                Token.NumBigInteger
-                            else
-                                Token.ReservedNumericLiteral
-                        | "m"
-                        | "M" -> Token.NumDecimal
+        let private getIntToken (numBase: NumericBase) (suffix: string) =
+            let token =
+                if suffix.Length > 2 then
+                    Token.ReservedNumericLiteral
+                else
+                    match suffix with
+                    | "y" -> Token.NumSByte
+                    | "uy" -> Token.NumByte
+                    | "s" -> Token.NumInt16
+                    | "us" -> Token.NumUInt16
+                    | ""
+                    | "l" -> Token.NumInt32
+                    | "u"
+                    | "ul" -> Token.NumUInt32
+                    | "n" -> Token.NumNativeInt
+                    | "un" -> Token.NumUNativeInt
+                    | "L" -> Token.NumInt64
+                    | "uL"
+                    | "UL" -> Token.NumUInt64
+                    | "Q"
+                    | "R"
+                    | "Z"
+                    | "I"
+                    | "N"
+                    | "G" ->
+                        match numBase with
+                        | NumericBase.Decimal -> Token.NumBigInteger
                         | _ -> Token.ReservedNumericLiteral
-
-                // Combine the base into the token using the 5,4 bits of a 16 bit int
-                let numBase = uint16 numBase <<< 4
-                let token = Token.ofUInt16 (uint16 token ||| numBase)
-
-                do! updateUserState (LexBuilder.append token pos CtxOp.NoOp)
-            }
-
-
-        let pFloatBase sb =
-            // This is wrong, just need it to compiler for now
-            let pIntBase = pIntBase sb
-
-            pipe3
-                pIntBase
-                (pchar '.' .>> notFollowedBy (pchar '.') |>> fun dot -> sb.Append dot |> ignore)
-                (opt pIntBase)
-                (fun wholePart _ frac -> sb
-                // match frac with
-                // | ValueSome fracPart -> $"""{wholePart}.{fracPart}"""
-                // | _ -> $"""{wholePart}."""
-                )
-            <|> pipe5
-                pIntBase
-                (opt ((pchar '.' |>> fun dot -> sb.Append dot |> ignore) .>>. opt pIntBase))
-                (anyOf "eE" |>> fun e -> sb.Append e |> ignore)
-                (opt (anyOf "+-")
-                 |>> fun sign ->
-                     match sign with
-                     | ValueSome s -> sb.Append s |> ignore
-                     | _ -> ())
-                pIntBase
-                (fun wholePart fracOpt e signOpt expPart -> sb
-                //     let fracStr =
-                //         match fracOpt with
-                //         | ValueSome(dot, ValueSome fracPart) -> $"""{dot}{fracPart}"""
-                //         | ValueSome(dot, _) -> "."
-                //         | _ -> ""
-
-                //     let signStr =
-                //         match signOpt with
-                //         | ValueSome sign -> string sign
-                //         | _ -> ""
-
-                //     $"""{wholePart}{fracStr}{e}{signStr}{expPart}"""
-                )
-
-        let pFloatToken =
-            parser {
-                let! pos = getPosition
-                let! sb = getStringBuilder
-                let! sb, numBase = (pFloatBase sb) .>>. preturn NumericBase.Decimal <|> (pXIntBase sb)
-                let! suffix = many1Chars pIdentChar
-
-                let token =
-                    match numBase, suffix with
-                    | NumericBase.Decimal, "" -> Token.NumIEEE64
-                    | NumericBase.Decimal, ("f" | "F") -> Token.NumIEEE32
-                    | NumericBase.Decimal, ("m" | "M") -> Token.NumDecimal
-                    | _, "LF" -> Token.NumIEEE64
-                    | _, "lf" -> Token.NumIEEE32
+                    | "m"
+                    | "M" ->
+                        // Integer decimals only, float decimals also use m/M suffix
+                        // but are handled in the float parser
+                        match numBase with
+                        | NumericBase.Decimal -> Token.NumDecimal
+                        | _ -> Token.ReservedNumericLiteral
+                    | "f"
+                    | "F" ->
+                        // Float suffixes are only valid for decimal base
+                        match numBase with
+                        | NumericBase.Decimal -> Token.NumIEEE32
+                        | _ -> Token.ReservedNumericLiteral
+                    | "LF" ->
+                        match numBase with
+                        | NumericBase.Decimal -> Token.ReservedNumericLiteral
+                        | _ -> Token.NumIEEE64
+                    | "lf" ->
+                        match numBase with
+                        | NumericBase.Decimal -> Token.ReservedNumericLiteral
+                        | _ -> Token.NumIEEE32
                     | _ -> Token.ReservedNumericLiteral
 
-                let numBase = uint16 numBase <<< 4
-                let token = Token.ofUInt16 (uint16 token ||| numBase)
-                do! updateUserState (LexBuilder.append token pos CtxOp.NoOp)
+            // Combine the base into the token using the 5,4 bits of a 16 bit int
+            let numBase = uint16 numBase <<< 4
+            Token.ofUInt16 (uint16 token ||| numBase)
+
+        let getDecimalFloatToken (suffix: string) =
+            // Float suffixes are only valid for decimal base
+            match suffix with
+            | "" -> Token.NumIEEE64
+            | "f"
+            | "F" -> Token.NumIEEE32
+            | "m"
+            | "M" -> Token.NumDecimal
+            | _ -> Token.ReservedNumericLiteral
+
+        let private parseDecimalIntToken =
+            parser {
+                let! suffix = manyChars pIdentChar
+                return getIntToken NumericBase.Decimal suffix
+            }
+
+        let private parseDecimalExpFloatToken =
+            let choices =
+                choiceL [ pIntBase; (anyOf "+-") >>. pIntBase ] "parseDecimalExpFloatToken"
+
+            parser {
+                let! e = anyOf "eE"
+                let! expPart = choices
+                let! suffix = manyChars pIdentChar
+                return getDecimalFloatToken suffix
+            }
+
+        let private parseDecimalFracFloatToken =
+            let choices =
+                choiceL
+                    [ parseDecimalExpFloatToken; manyChars pIdentChar |>> getDecimalFloatToken ]
+                    "parseDecimalFracFloatToken"
+
+            parser {
+                let! dot = pchar '.' .>> notFollowedBy (pchar '.')
+                let! fracPart = opt pIntBase
+                return! choices
+            }
+
+        let private parseDecimalToken =
+            choiceL [ parseDecimalFracFloatToken; parseDecimalExpFloatToken; parseDecimalIntToken ] "parseDecimalToken"
+
+        let parseToken =
+            parser {
+                let! pos = getPosition
+                let! numBase = pXIntBase
+
+                match numBase with
+                | NumericBase.Decimal ->
+                    let! token = parseDecimalToken
+                    do! updateUserState (LexBuilder.append token pos CtxOp.NoOp)
+                | _ ->
+                    // Non-decimal base, must be integer (or integral float "1F", "1M", "0x1LF")
+                    let! suffix = manyChars pIdentChar
+                    let token = getIntToken numBase suffix
+                    do! updateUserState (LexBuilder.append token pos CtxOp.NoOp)
             }
 
     module Operator =
@@ -2075,9 +2068,6 @@ module Lexing =
     let pDotToken =
         choiceL [ pSpecialDotOperatorToken; pOperatorToken ] "Dot operator or operator"
 
-    let pNumericLiteralToken =
-        choiceL [ NumericLiterals.pIntToken; NumericLiterals.pFloatToken ] "Numeric literal"
-
     let pCustomOperatorToken =
         choiceL
             [
@@ -2244,7 +2234,8 @@ module Lexing =
         | ValueSome ';', ExpressionCtx -> (pSemicolonToken >>= lex) reader
         | ValueSome '.', ExpressionCtx -> (pDotToken >>= lex) reader
         | ValueSome '#', ExpressionCtx -> (pHashToken >>= lex) reader
-        | ValueSome c, ExpressionCtx when NumericLiterals.isDecimalDigit c -> (pNumericLiteralToken >>= lex) reader
+        | ValueSome c, ExpressionCtx when NumericLiterals.isDecimalDigit c ->
+            (NumericLiterals.parseToken >>= lex) reader
         | ValueSome c, ExpressionCtx when customOperatorChars.Contains c ->
             // TODO: Consider computing names like https://learn.microsoft.com/en-us/dotnet/fsharp/language-reference/operator-overloading#overloaded-operator-names
             (pCustomOperatorToken >>= lex) reader
