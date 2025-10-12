@@ -953,6 +953,116 @@ let tests =
 #endif
             }
 
+            test "CountManySatisfies" {
+                let isDigit = System.Char.IsDigit
+                let p = countManySatisfies isDigit
+
+                // Test with multiple matches
+                let reader1 = Reader.ofString "123a" ()
+                let result1 = p reader1
+
+                match result1 with
+                | Ok result ->
+                    "" |> Expect.equal result.Parsed 3L
+                    "" |> Expect.equal reader1.Index 3L
+                | Error e -> failwithf "Parser should have succeeded: %A" e
+
+                // Test with no matches (always succeeds)
+                let reader2 = Reader.ofString "abc" ()
+                let result2 = p reader2
+
+                match result2 with
+                | Ok result ->
+                    "" |> Expect.equal result.Parsed 0L
+                    "" |> Expect.equal reader2.Index 0L
+                | Error e -> failwithf "Parser should have succeeded: %A" e
+            }
+
+            test "CountMany1Satisfies" {
+                let isDigit = System.Char.IsDigit
+                let p = countMany1Satisfies isDigit
+
+                // Test with multiple matches
+                let reader1 = Reader.ofString "123a" ()
+                let result1 = p reader1
+
+                match result1 with
+                | Ok result ->
+                    "" |> Expect.equal result.Parsed 3L
+                    "" |> Expect.equal reader1.Index 3L
+                | Error e -> failwithf "Parser should have succeeded: %A" e
+
+                // Test with no matches (should fail)
+                let reader2 = Reader.ofString "abc" ()
+                let result2 = p reader2
+
+                match result2 with
+                | Ok result -> "Parser should fail" |> Expect.isFalse true
+                | Error e ->
+                    let msg = ParseErrors.summarize e
+
+                    let expected =
+                        $"""0: {ParseError.expectedAtLeastOne}
+  0:  {Unexpected 'a'}"""
+
+                    "" |> Expect.equal msg expected
+            }
+
+            test "SkipManySatisfies" {
+                let isDigit = System.Char.IsDigit
+                let p = skipManySatisfies isDigit
+
+                // Test with multiple matches to skip
+                let reader1 = Reader.ofString "123a" ()
+                let result1 = p reader1
+
+                match result1 with
+                | Ok result ->
+                    "" |> Expect.equal result.Parsed ()
+                    "" |> Expect.equal reader1.Index 3L
+                | Error e -> failwithf "Parser should have succeeded: %A" e
+
+                // Test with no matches (always succeeds)
+                let reader2 = Reader.ofString "abc" ()
+                let result2 = p reader2
+
+                match result2 with
+                | Ok result ->
+                    "" |> Expect.equal result.Parsed ()
+                    "" |> Expect.equal reader2.Index 0L
+                | Error e -> failwithf "Parser should have succeeded: %A" e
+            }
+
+            test "SkipMany1Satisfies" {
+                let isDigit = System.Char.IsDigit
+                let p = skipMany1Satisfies isDigit
+
+                // Test with multiple matches to skip
+                let reader1 = Reader.ofString "123a" ()
+                let result1 = p reader1
+
+                match result1 with
+                | Ok result ->
+                    "" |> Expect.equal result.Parsed ()
+                    "" |> Expect.equal reader1.Index 3L
+                | Error e -> failwithf "Parser should have succeeded: %A" e
+
+                // Test with no matches (should fail)
+                let reader2 = Reader.ofString "abc" ()
+                let result2 = p reader2
+
+                match result2 with
+                | Ok result -> "Parser should fail" |> Expect.isFalse true
+                | Error e ->
+                    let msg = ParseErrors.summarize e
+
+                    let expected =
+                        $"""0: {ParseError.expectedAtLeastOne}
+  0:  {Unexpected 'a'}"""
+
+                    "" |> Expect.equal msg expected
+            }
+
             test "SepBy" {
                 let input = "input,input,input,X"
 

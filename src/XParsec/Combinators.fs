@@ -697,7 +697,6 @@ module Combinators =
                 reader.Skip()
             | _ -> doContinue <- false
 
-        reader.SkipN length
         length
 
     /// <summary>
