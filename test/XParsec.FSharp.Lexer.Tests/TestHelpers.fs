@@ -194,6 +194,7 @@ let readLexed (path: string) =
 let testLexed (input: string) (expected: _ list) =
     // for i in 0 .. 100000 do
     // Run multiple times to catch any state issues
+    let input = input.Replace("\r\n", "\n")
     match lexString input with
     | Ok { Parsed = lexed } ->
         try
@@ -209,6 +210,7 @@ let testLexed (input: string) (expected: _ list) =
 let testLexedBlocks (input: string) (expected: _ list) =
     // for i in 0 .. 100000 do
     // Run multiple times to catch any state issues
+    let input = input.Replace("\r\n", "\n")
     match lexString input with
     | Ok { Parsed = lexed } ->
         try
@@ -239,6 +241,7 @@ let blocksTestData =
 
 let testLexFile (filePath: string) =
     let input = File.ReadAllText filePath
+    let input = input.Replace("\r\n", "\n")
     let expectedPath = filePath + ".lexed"
 
     if not (File.Exists expectedPath) then
@@ -265,6 +268,7 @@ let testLexFile (filePath: string) =
 
 let testLexFileBlocks (filePath: string) =
     let input = File.ReadAllText filePath
+    let input = input.Replace("\r\n", "\n")
     let expectedPath = filePath + ".lexedblocks"
 
     if not (File.Exists expectedPath) then
