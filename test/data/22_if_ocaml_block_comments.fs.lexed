@@ -4,7 +4,7 @@
 31, Whitespace
 32, Identifier
 33, Whitespace
-34, OpInequality
+34, Op527
 35, Whitespace
 36, NumInt32
 37, Newline
@@ -14,7 +14,7 @@
 56, 32771
 57, 32897
 58, 32771
-59, 33295
+59, Op33295
 60, 32771
 61, 33030
 62, 32770
