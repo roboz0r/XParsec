@@ -65,8 +65,8 @@ let tests =
                 let fileName = "03_simple_triple_dollar.fs"
                 let file = IO.Path.Combine(testDataDir.Value, fileName)
                 let snippet = File.ReadAllText file
+                let snippet = snippet.Replace("\r\n", "\n")
                 printfn "Lexing\n%s\n-----\n%s\n-----" fileName snippet
-
                 match lexString snippet with
                 | Ok { Parsed = lexed } ->
                     printLexed snippet lexed
