@@ -6,9 +6,7 @@
 67, Whitespace
 68, Op527
 69, Whitespace
-70, NumInt32
-71, OpDot
-72, NumInt32
+70, NumIEEE64
 80, Newline
 81, KWLet
 84, Whitespace
