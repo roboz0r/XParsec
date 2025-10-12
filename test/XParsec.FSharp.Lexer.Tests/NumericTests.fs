@@ -239,6 +239,50 @@ let integerLiteralCases =
         ("0G", Token.NumBigInteger)
     |]
 
+let floatLiteralCases =
+    [|
+        // Simple decimal floats
+        ("0.0", Token.NumIEEE64)
+        ("1.0", Token.NumIEEE64)
+        ("123.456", Token.NumIEEE64)
+        ("1_234.567_89", Token.NumIEEE64)
+        ("0.", Token.NumIEEE64)
+        ("42.", Token.NumIEEE64)
+
+        // Scientific notation
+        ("1e10", Token.NumIEEE64)
+        ("1E10", Token.NumIEEE64)
+        ("1.23e-4", Token.NumIEEE64)
+        ("1.23E+4", Token.NumIEEE64)
+        ("1e+10", Token.NumIEEE64)
+        ("1e-10", Token.NumIEEE64)
+        ("1_2.3_4e5_6", Token.NumIEEE64)
+
+        // Float32 suffix
+        ("3.14f", Token.NumIEEE32)
+        ("2.718F", Token.NumIEEE32)
+        ("1e10f", Token.NumIEEE32)
+        ("1.23e-4F", Token.NumIEEE32)
+
+        // Float64 suffix (explicit)
+        ("0b0101LF", Token.NumIEEE64Binary)
+        ("0o1234567LF", Token.NumIEEE64Octal)
+        ("0x1921fb54442d18LF", Token.NumIEEE64Hex)
+
+        // Float32 hex form
+        ("0b0101lf", Token.NumIEEE32Binary)
+        ("0o1234567lf", Token.NumIEEE32Octal)
+        ("0x19442d18lf", Token.NumIEEE32Hex)
+
+        // Decimal suffix
+        ("123M", Token.NumDecimal)
+        ("123.45M", Token.NumDecimal)
+        ("0.0m", Token.NumDecimal)
+        ("1e10M", Token.NumDecimal)
+        ("1.23e-4m", Token.NumDecimal)
+    |]
+
+
 // Tests for integer literals with different bases and formats
 
 
@@ -251,10 +295,9 @@ let tests1 =
                 test $"Lexing numeric literal '{input}'" {
                     let reader = Reader.ofString input (LexBuilder.init ())
 
-                    match NumericLiterals.pXIntBase (StringBuilder()) reader with
-                    | Ok { Parsed = (value, actualBase) } ->
+                    match NumericLiterals.pXIntBase reader with
+                    | Ok { Parsed = actualBase } ->
                         "" |> Expect.equal actualBase expectedBase
-                        "" |> Expect.equal (value.ToString()) (input.Replace("_", "")) // Underscores are ignored in numeric literals
                         "" |> Expect.equal reader.Index (int64 (input.TrimEnd('_').Length))
                     | Error err -> failtestf "Lexing failed: %A" err
                 }
@@ -264,9 +307,21 @@ let tests1 =
 [<Tests>]
 let tests2 =
     testList
-        "Integer Literal Tests"
+        "Numeric Literal Tests"
         [
             for input, expectedToken in integerLiteralCases do
+                test $"Lexing numeric literal '{input}'" {
+                    // printfn "Testing numeric literal: '%s' (Token: %O)" input expectedToken
+                    let expected =
+                        [
+                            PositionedToken.Create(expectedToken, 0)
+                            PositionedToken.Create(Token.EOF, input.Length)
+                        ]
+
+                    testLexed input expected
+                }
+
+            for input, expectedToken in floatLiteralCases do
                 test $"Lexing numeric literal '{input}'" {
                     // printfn "Testing numeric literal: '%s' (Token: %O)" input expectedToken
                     let expected =
