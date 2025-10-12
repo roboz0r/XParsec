@@ -62,6 +62,11 @@ module TokenRepresentation =
     [<Literal>]
     let internal NumericBaseBinary = 0b00110000us
 
+    // This bit indicates that the token was synthesized by the parser
+    // and does not exist in the original source text.
+    [<Literal>]
+    let IsVirtual = 0b00000_0000_1000000us // Bit 6
+
 
     // Operator flags
     // The lower 7 bits (0-6) are reserved for the token ID (up to 128 tokens)
@@ -124,6 +129,316 @@ module TokenRepresentation =
 
     [<Literal>]
     let IsInBlockComment = InBlockComment ||| InOCamlBlockComment
+
+
+    module internal KW =
+        [<Literal>]
+        let Abstract = 5us
+
+        [<Literal>]
+        let And = 6us
+
+        [<Literal>]
+        let As = 8us
+
+        [<Literal>]
+        let Assert = 10us
+
+        [<Literal>]
+        let Base = 11us
+
+        [<Literal>]
+        let Begin = 12us
+
+        [<Literal>]
+        let Class = 15us
+
+        [<Literal>]
+        let Const = 17us
+
+        [<Literal>]
+        let Default = 20us
+
+        [<Literal>]
+        let Delegate = 21us
+
+        [<Literal>]
+        let Do = 22us
+
+        [<Literal>]
+        let Done = 24us
+
+        [<Literal>]
+        let Downcast = 25us
+
+        [<Literal>]
+        let Downto = 26us
+
+        [<Literal>]
+        let Elif = 27us
+
+        [<Literal>]
+        let Else = 28us
+
+        [<Literal>]
+        let End = 29us
+
+        [<Literal>]
+        let Event = 30us
+
+        [<Literal>]
+        let Exception = 31us
+
+        [<Literal>]
+        let Extern = 32us
+
+        [<Literal>]
+        let External = 33us
+
+        [<Literal>]
+        let False = 34us
+
+        [<Literal>]
+        let Finally = 35us
+
+        [<Literal>]
+        let Fixed = 36us
+
+        [<Literal>]
+        let For = 37us
+
+        [<Literal>]
+        let Fun = 38us
+
+        [<Literal>]
+        let Function = 39us
+
+        [<Literal>]
+        let Global = 40us
+
+        [<Literal>]
+        let If = 41us
+
+        [<Literal>]
+        let In = 42us
+
+        [<Literal>]
+        let Inherit = 44us
+
+        [<Literal>]
+        let Inline = 45us
+
+        [<Literal>]
+        let Interface = 46us
+
+        [<Literal>]
+        let Internal = 47us
+
+        [<Literal>]
+        let Lazy = 49us
+
+        [<Literal>]
+        let Let = 50us
+
+        [<Literal>]
+        let Match = 56us
+
+        [<Literal>]
+        let Member = 58us
+
+        [<Literal>]
+        let Mod = 60us
+
+        [<Literal>]
+        let Module = 61us
+
+        [<Literal>]
+        let Mutable = 62us
+
+        [<Literal>]
+        let Namespace = 63us
+
+        [<Literal>]
+        let New = 64us
+
+        [<Literal>]
+        let Not = 65us
+
+        [<Literal>]
+        let Null = 66us
+
+        [<Literal>]
+        let Of = 67us
+
+        [<Literal>]
+        let Open = 68us
+
+        [<Literal>]
+        let Or = 69us
+
+        [<Literal>]
+        let Override = 70us
+
+        [<Literal>]
+        let Private = 72us
+
+        [<Literal>]
+        let Public = 75us
+
+        [<Literal>]
+        let Rec = 77us
+
+        [<Literal>]
+        let Return = 78us
+
+        [<Literal>]
+        let ContextualSelect = 81us
+
+        [<Literal>]
+        let Sig = 82us
+
+        [<Literal>]
+        let Static = 83us
+
+        [<Literal>]
+        let Struct = 84us
+
+        [<Literal>]
+        let Then = 86us
+
+        [<Literal>]
+        let To = 87us
+
+        [<Literal>]
+        let True = 89us
+
+        [<Literal>]
+        let Try = 90us
+
+        [<Literal>]
+        let Type = 91us
+
+        [<Literal>]
+        let Upcast = 92us
+
+        [<Literal>]
+        let Use = 93us
+
+        [<Literal>]
+        let Val = 95us
+
+        [<Literal>]
+        let Void = 97us
+
+        [<Literal>]
+        let When = 98us
+
+        [<Literal>]
+        let While = 99us
+
+        [<Literal>]
+        let With = 100us
+
+        [<Literal>]
+        let Yield = 101us
+
+        [<Literal>]
+        let ReservedBreak = 103us
+
+        [<Literal>]
+        let ReservedChecked = 104us
+
+        [<Literal>]
+        let ReservedComponent = 105us
+
+        [<Literal>]
+        let ReservedConstraint = 106us
+
+        [<Literal>]
+        let ReservedContinue = 107us
+
+        [<Literal>]
+        let ReservedFori = 108us
+
+        [<Literal>]
+        let ReservedInclude = 109us
+
+        [<Literal>]
+        let ReservedMixin = 110us
+
+        [<Literal>]
+        let ReservedParallel = 111us
+
+        [<Literal>]
+        let ReservedParams = 112us
+
+        [<Literal>]
+        let ReservedProcess = 113us
+
+        [<Literal>]
+        let ReservedProtected = 114us
+
+        [<Literal>]
+        let ReservedPure = 115us
+
+        [<Literal>]
+        let ReservedSealed = 116us
+
+        [<Literal>]
+        let ReservedTailcall = 117us
+
+        [<Literal>]
+        let ReservedTrait = 118us
+
+        [<Literal>]
+        let ReservedVirtual = 119us
+
+        [<Literal>]
+        let ReservedTwiddle = 120us
+
+        [<Literal>]
+        let ReservedBacktick = 121us
+
+
+        [<Literal>]
+        let Asr = 122us
+
+        [<Literal>]
+        let Land = 123us
+
+        [<Literal>]
+        let Lor = 124us
+
+        [<Literal>]
+        let Lsl = 125us
+
+        [<Literal>]
+        let Lsr = 126us
+
+        [<Literal>]
+        let Lxor = 127us
+
+        [<Literal>]
+        let AndBang = 7us
+
+        [<Literal>]
+        let DoBang = 23us
+
+        [<Literal>]
+        let LetBang = 51us
+
+        [<Literal>]
+        let MatchBang = 57us
+
+        [<Literal>]
+        let ReturnBang = 79us
+
+        [<Literal>]
+        let UseBang = 94us
+
+        [<Literal>]
+        let YieldBang = 102us
+
 
 // 4.4.2 Precedence of Symbolic Operators and Pattern/Expression Constructs
 
@@ -332,116 +647,138 @@ type Token =
     | LineIdentifier = (IsIdentifier ||| 9us)
 
     // 3.4 Keywords and Keyword Identifiers
-    | KWAbstract = (IsKeyword ||| 5us)
-    | KWAnd = (IsKeyword ||| 6us)
-    | KWAs = (IsKeyword ||| 8us)
-    | KWAssert = (IsKeywordOperator ||| 10us)
-    | KWBase = (IsKeyword ||| 11us)
-    | KWBegin = (IsKeyword ||| 12us)
-    | KWClass = (IsKeyword ||| 15us)
-    | KWConst = (IsKeyword ||| 17us)
-    | KWDefault = (IsKeyword ||| 20us)
-    | KWDelegate = (IsKeyword ||| 21us)
-    | KWDo = (IsKeyword ||| 22us)
-    | KWDone = (IsKeyword ||| 24us)
-    | KWDowncast = (IsKeyword ||| 25us)
-    | KWDownto = (IsKeyword ||| 26us)
-    | KWElif = (IsKeyword ||| 27us)
-    | KWElse = (IsKeyword ||| 28us)
-    | KWEnd = (IsKeyword ||| 29us)
-    | KWEvent = (IsKeyword ||| 30us)
-    | KWException = (IsKeyword ||| 31us)
-    | KWExtern = (IsKeyword ||| 32us)
-    | KWExternal = (IsKeyword ||| 33us)
-    | KWFalse = (IsKeyword ||| 34us)
-    | KWFinally = (IsKeyword ||| 35us)
-    | KWFixed = (IsKeyword ||| 36us)
-    | KWFor = (IsKeyword ||| 37us)
-    | KWFun = (IsKeywordOperator ||| 38us)
-    | KWFunction = (IsKeywordOperator ||| 39us)
-    | KWGlobal = (IsKeyword ||| 40us)
-    | KWIf = (IsKeywordOperator ||| 41us)
-    | KWIn = (IsKeyword ||| 42us)
-    | KWInherit = (IsKeyword ||| 44us)
-    | KWInline = (IsKeyword ||| 45us)
-    | KWInterface = (IsKeyword ||| 46us)
-    | KWInternal = (IsKeyword ||| 47us)
-    | KWLazy = (IsKeywordOperator ||| 49us)
-    | KWLet = (IsKeywordOperator ||| 50us)
-    | KWMatch = (IsKeywordOperator ||| 56us)
-    | KWMember = (IsKeyword ||| 58us)
-    | KWMod = (IsKeywordOperatorIdentifier ||| 60us)
-    | KWModule = (IsKeyword ||| 61us)
-    | KWMutable = (IsKeyword ||| 62us)
-    | KWNamespace = (IsKeyword ||| 63us)
-    | KWNew = (IsKeyword ||| 64us)
-    | KWNot = (IsKeywordOperatorIdentifier ||| 65us)
-    | KWNull = (IsKeywordIdentifier ||| 66us)
-    | KWOf = (IsKeyword ||| 67us)
-    | KWOpen = (IsKeyword ||| 68us)
-    | KWOr = (IsKeywordOperatorIdentifier ||| 69us)
-    | KWOverride = (IsKeyword ||| 70us)
-    | KWPrivate = (IsKeyword ||| 72us)
-    | KWPublic = (IsKeyword ||| 75us)
-    | KWRec = (IsKeyword ||| 77us)
-    | KWReturn = (IsKeyword ||| 78us)
+    | KWAbstract = (IsKeyword ||| KW.Abstract)
+    | KWAnd = (IsKeyword ||| KW.And)
+    | KWAs = (IsKeyword ||| KW.As)
+    | KWAssert = (IsKeywordOperator ||| KW.Assert)
+    | KWBase = (IsKeyword ||| KW.Base)
+    | KWBegin = (IsKeyword ||| KW.Begin)
+    | KWClass = (IsKeyword ||| KW.Class)
+    | KWConst = (IsKeyword ||| KW.Const)
+    | KWDefault = (IsKeyword ||| KW.Default)
+    | KWDelegate = (IsKeyword ||| KW.Delegate)
+    | KWDo = (IsKeyword ||| KW.Do)
+    | KWDone = (IsKeyword ||| KW.Done)
+    | KWDowncast = (IsKeyword ||| KW.Downcast)
+    | KWDownto = (IsKeyword ||| KW.Downto)
+    | KWElif = (IsKeyword ||| KW.Elif)
+    | KWElse = (IsKeyword ||| KW.Else)
+    | KWEnd = (IsKeyword ||| KW.End)
+    | KWEvent = (IsKeyword ||| KW.Event)
+    | KWException = (IsKeyword ||| KW.Exception)
+    | KWExtern = (IsKeyword ||| KW.Extern)
+    | KWExternal = (IsKeyword ||| KW.External)
+    | KWFalse = (IsKeyword ||| KW.False)
+    | KWFinally = (IsKeyword ||| KW.Finally)
+    | KWFixed = (IsKeyword ||| KW.Fixed)
+    | KWFor = (IsKeyword ||| KW.For)
+    | KWFun = (IsKeywordOperator ||| KW.Fun)
+    | KWFunction = (IsKeywordOperator ||| KW.Function)
+    | KWGlobal = (IsKeyword ||| KW.Global)
+    | KWIf = (IsKeywordOperator ||| KW.If)
+    | KWIn = (IsKeyword ||| KW.In)
+    | KWInherit = (IsKeyword ||| KW.Inherit)
+    | KWInline = (IsKeyword ||| KW.Inline)
+    | KWInterface = (IsKeyword ||| KW.Interface)
+    | KWInternal = (IsKeyword ||| KW.Internal)
+    | KWLazy = (IsKeywordOperator ||| KW.Lazy)
+    | KWLet = (IsKeywordOperator ||| KW.Let)
+    | KWMatch = (IsKeywordOperator ||| KW.Match)
+    | KWMember = (IsKeyword ||| KW.Member)
+    | KWMod = (IsKeywordOperatorIdentifier ||| KW.Mod)
+    | KWModule = (IsKeyword ||| KW.Module)
+    | KWMutable = (IsKeyword ||| KW.Mutable)
+    | KWNamespace = (IsKeyword ||| KW.Namespace)
+    | KWNew = (IsKeyword ||| KW.New)
+    | KWNot = (IsKeywordOperatorIdentifier ||| KW.Not)
+    | KWNull = (IsKeywordIdentifier ||| KW.Null)
+    | KWOf = (IsKeyword ||| KW.Of)
+    | KWOpen = (IsKeyword ||| KW.Open)
+    | KWOr = (IsKeywordOperatorIdentifier ||| KW.Or)
+    | KWOverride = (IsKeyword ||| KW.Override)
+    | KWPrivate = (IsKeyword ||| KW.Private)
+    | KWPublic = (IsKeyword ||| KW.Public)
+    | KWRec = (IsKeyword ||| KW.Rec)
+    | KWReturn = (IsKeyword ||| KW.Return)
     /// Used in query expressions to specify what fields or columns to extract.
     /// Note that this is a contextual keyword, which means that it is not actually
     /// a reserved word and it only acts like a keyword in appropriate context.
-    | KWContextualSelect = (IsKeywordIdentifier ||| 81us)
-    | KWSig = (IsKeyword ||| 82us)
-    | KWStatic = (IsKeyword ||| 83us)
-    | KWStruct = (IsKeyword ||| 84us)
-    | KWThen = (IsKeyword ||| 86us)
-    | KWTo = (IsKeyword ||| 87us)
-    | KWTrue = (IsKeyword ||| 89us)
-    | KWTry = (IsKeyword ||| 90us)
-    | KWType = (IsKeyword ||| 91us)
-    | KWUpcast = (IsKeywordOperator ||| 92us)
-    | KWUse = (IsKeywordOperator ||| 93us)
-    | KWVal = (IsKeyword ||| 95us)
-    | KWVoid = (IsKeyword ||| 97us)
-    | KWWhen = (IsKeyword ||| 98us)
-    | KWWhile = (IsKeywordOperator ||| 99us)
-    | KWWith = (IsKeyword ||| 100us)
-    | KWYield = (IsKeywordOperator ||| 101us)
-    | KWReservedBreak = (IsReservedKeyword ||| 103us)
-    | KWReservedChecked = (IsReservedKeyword ||| 104us)
-    | KWReservedComponent = (IsReservedKeyword ||| 105us)
-    | KWReservedConstraint = (IsReservedKeyword ||| 106us)
-    | KWReservedContinue = (IsReservedKeyword ||| 107us)
-    | KWReservedFori = (IsReservedKeyword ||| 108us)
-    | KWReservedInclude = (IsReservedKeyword ||| 109us)
-    | KWReservedMixin = (IsReservedKeyword ||| 110us)
-    | KWReservedParallel = (IsReservedKeyword ||| 111us)
-    | KWReservedParams = (IsReservedKeyword ||| 112us)
-    | KWReservedProcess = (IsReservedKeyword ||| 113us)
-    | KWReservedProtected = (IsReservedKeyword ||| 114us)
-    | KWReservedPure = (IsReservedKeyword ||| 115us)
-    | KWReservedSealed = (IsReservedKeyword ||| 116us)
-    | KWReservedTailcall = (IsReservedKeyword ||| 117us)
-    | KWReservedTrait = (IsReservedKeyword ||| 118us)
-    | KWReservedVirtual = (IsReservedKeyword ||| 119us)
-    | KWReservedTwiddle = (IsReservedKeywordOperator ||| 120us) // ~ symbol is reserved
-    | KWReservedBacktick = (IsReservedKeyword ||| 121us) // ` symbol is reserved
+    | KWContextualSelect = (IsKeywordIdentifier ||| KW.ContextualSelect)
+    | KWSig = (IsKeyword ||| KW.Sig)
+    | KWStatic = (IsKeyword ||| KW.Static)
+    | KWStruct = (IsKeyword ||| KW.Struct)
+    | KWThen = (IsKeyword ||| KW.Then)
+    | KWTo = (IsKeyword ||| KW.To)
+    | KWTrue = (IsKeyword ||| KW.True)
+    | KWTry = (IsKeyword ||| KW.Try)
+    | KWType = (IsKeyword ||| KW.Type)
+    | KWUpcast = (IsKeywordOperator ||| KW.Upcast)
+    | KWUse = (IsKeywordOperator ||| KW.Use)
+    | KWVal = (IsKeyword ||| KW.Val)
+    | KWVoid = (IsKeyword ||| KW.Void)
+    | KWWhen = (IsKeyword ||| KW.When)
+    | KWWhile = (IsKeywordOperator ||| KW.While)
+    | KWWith = (IsKeyword ||| KW.With)
+    | KWYield = (IsKeywordOperator ||| KW.Yield)
+    | KWReservedBreak = (IsReservedKeyword ||| KW.ReservedBreak)
+    | KWReservedChecked = (IsReservedKeyword ||| KW.ReservedChecked)
+    | KWReservedComponent = (IsReservedKeyword ||| KW.ReservedComponent)
+    | KWReservedConstraint = (IsReservedKeyword ||| KW.ReservedConstraint)
+    | KWReservedContinue = (IsReservedKeyword ||| KW.ReservedContinue)
+    | KWReservedFori = (IsReservedKeyword ||| KW.ReservedFori)
+    | KWReservedInclude = (IsReservedKeyword ||| KW.ReservedInclude)
+    | KWReservedMixin = (IsReservedKeyword ||| KW.ReservedMixin)
+    | KWReservedParallel = (IsReservedKeyword ||| KW.ReservedParallel)
+    | KWReservedParams = (IsReservedKeyword ||| KW.ReservedParams)
+    | KWReservedProcess = (IsReservedKeyword ||| KW.ReservedProcess)
+    | KWReservedProtected = (IsReservedKeyword ||| KW.ReservedProtected)
+    | KWReservedPure = (IsReservedKeyword ||| KW.ReservedPure)
+    | KWReservedSealed = (IsReservedKeyword ||| KW.ReservedSealed)
+    | KWReservedTailcall = (IsReservedKeyword ||| KW.ReservedTailcall)
+    | KWReservedTrait = (IsReservedKeyword ||| KW.ReservedTrait)
+    | KWReservedVirtual = (IsReservedKeyword ||| KW.ReservedVirtual)
+    | KWReservedTwiddle = (IsReservedKeywordOperator ||| KW.ReservedTwiddle) // ~ symbol is reserved
+    | KWReservedBacktick = (IsReservedKeyword ||| KW.ReservedBacktick) // ` symbol is reserved
+
+
+    // 15.1.2 Inserted Tokens
+    // virtual keywords inserted by the parser
+    | VirtualIn = (IsVirtual ||| IsKeyword ||| KW.In)
+    | VirtualDone = (IsVirtual ||| IsKeyword ||| KW.Done)
+    | VirtualBegin = (IsVirtual ||| IsKeyword ||| KW.Begin)
+    | VirtualEnd = (IsVirtual ||| IsKeyword ||| KW.End)
+    | VirtualSep = (IsVirtual ||| IsKeyword ||| 1024us)
+    | VirtualApp = (IsVirtual ||| IsKeyword ||| 1025us)
+    | VirtualTyApp = (IsVirtual ||| IsKeyword ||| 1026us)
+    | VirtualLet = (IsVirtual ||| IsKeywordOperator ||| KW.Let)
+    | VirtualUse = (IsVirtual ||| IsKeywordOperator ||| KW.Use)
+    | VirtualLetBang = (IsVirtual ||| IsKeywordOperator ||| KW.LetBang)
+    | VirtualUseBang = (IsVirtual ||| IsKeywordOperator ||| KW.UseBang)
+    | VirtualDo = (IsVirtual ||| IsKeyword ||| KW.Do)
+    | VirtualDoBang = (IsVirtual ||| IsKeyword ||| KW.DoBang)
+    | VirtualThen = (IsVirtual ||| IsKeyword ||| KW.Then)
+    | VirtualElse = (IsVirtual ||| IsKeyword ||| KW.Else)
+    | VirtualWith = (IsVirtual ||| IsKeyword ||| KW.With)
+    | VirtualFunction = (IsVirtual ||| IsKeywordOperator ||| KW.Function)
+    | VirtualFun = (IsVirtual ||| IsKeywordOperator ||| KW.Fun)
 
     // 19.2 ML Compatibility Keywords
-    | KWAsr = (IsDeprecatedKeywordOperatorIdentifier ||| 122us)
-    | KWLand = (IsDeprecatedKeywordOperatorIdentifier ||| 123us)
-    | KWLor = (IsDeprecatedKeywordOperatorIdentifier ||| 124us)
-    | KWLsl = (IsDeprecatedKeywordOperatorIdentifier ||| 125us)
-    | KWLsr = (IsDeprecatedKeywordOperatorIdentifier ||| 126us)
-    | KWLxor = (IsDeprecatedKeywordOperatorIdentifier ||| 127us)
+    | KWAsr = (IsDeprecatedKeywordOperatorIdentifier ||| KW.Asr)
+    | KWLand = (IsDeprecatedKeywordOperatorIdentifier ||| KW.Land)
+    | KWLor = (IsDeprecatedKeywordOperatorIdentifier ||| KW.Lor)
+    | KWLsl = (IsDeprecatedKeywordOperatorIdentifier ||| KW.Lsl)
+    | KWLsr = (IsDeprecatedKeywordOperatorIdentifier ||| KW.Lsr)
+    | KWLxor = (IsDeprecatedKeywordOperatorIdentifier ||| KW.Lxor)
 
     // 3.6 Symbolic Keywords and Operators
     // Computation Expressions (CE)
-    | KWAndBang = (IsKeyword ||| 7us)
-    | KWDoBang = (IsKeyword ||| 23us)
-    | KWLetBang = (IsKeywordOperator ||| 51us)
-    | KWMatchBang = (IsKeywordOperator ||| 57us)
-    | KWReturnBang = (IsKeyword ||| 79us)
-    | KWUseBang = (IsKeywordOperator ||| 94us)
-    | KWYieldBang = (IsKeywordOperator ||| 102us)
+    | KWAndBang = (IsKeyword ||| KW.AndBang)
+    | KWDoBang = (IsKeyword ||| KW.DoBang)
+    | KWLetBang = (IsKeywordOperator ||| KW.LetBang)
+    | KWMatchBang = (IsKeywordOperator ||| KW.MatchBang)
+    | KWReturnBang = (IsKeyword ||| KW.ReturnBang)
+    | KWUseBang = (IsKeywordOperator ||| KW.UseBang)
+    | KWYieldBang = (IsKeywordOperator ||| KW.YieldBang)
     // Other symbolic keywords
     | OpBar = (IsKeywordOperator ||| 1us) // |
     | OpArrowRight = (IsKeywordOperator ||| 2us) // ->
@@ -747,6 +1084,9 @@ module internal TokenInfo =
     let isNumeric (token: Token) = hasFlag token IsNumericLiteral
 
     let isText (token: Token) = hasFlag token IsTextLiteral
+
+    let isVirtualKeyword (token: Token) =
+        isKeyword token && hasFlag token IsVirtual
 
 [<Struct>]
 type PositionedToken =
