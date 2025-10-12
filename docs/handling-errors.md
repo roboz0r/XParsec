@@ -1,7 +1,7 @@
 ---
 category: Documentation
 categoryindex: 0
-index: 5
+index: 6
 ---
 
 # Handling Errors

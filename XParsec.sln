@@ -67,6 +67,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "docs", "docs", "{0FCD1680-4
 		docs\example-json.md = docs\example-json.md
 		docs\handling-errors.md = docs\handling-errors.md
 		docs\operator-parsing.md = docs\operator-parsing.md
+		docs\parser-ce.md = docs\parser-ce.md
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "images", "images", "{3AAF1CE8-E07E-4289-96F9-9B16FFE67EF1}"
