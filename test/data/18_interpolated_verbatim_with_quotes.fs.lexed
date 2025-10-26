@@ -4,7 +4,7 @@
 60, Whitespace
 61, Identifier
 68, Whitespace
-69, Op527
+69, OpEquality
 70, Whitespace
 71, StringLiteral
 80, Newline
@@ -12,7 +12,7 @@
 84, Whitespace
 85, Identifier
 86, Whitespace
-87, Op527
+87, OpEquality
 88, Whitespace
 89, VerbatimInterpolatedStringOpen
 92, VerbatimInterpolatedStringFragment
