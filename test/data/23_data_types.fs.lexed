@@ -4,7 +4,7 @@
 31, Whitespace
 32, Identifier
 52, Whitespace
-53, Op527
+53, OpEquality
 54, Newline
 55, Indent
 59, OpBraceLeft
@@ -27,7 +27,7 @@
 107, Whitespace
 108, Identifier
 124, Whitespace
-125, Op527
+125, OpEquality
 126, Newline
 127, Indent
 131, OpBraceLeft
@@ -58,7 +58,7 @@
 268, Whitespace
 269, Identifier
 285, Whitespace
-286, Op527
+286, OpEquality
 287, Newline
 288, Indent
 292, OpBar
