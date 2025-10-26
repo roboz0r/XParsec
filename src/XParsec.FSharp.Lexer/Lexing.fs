@@ -1476,6 +1476,7 @@ module Lexing =
                         | "?<-" -> Token.OpDynamicAssignment, CtxOp.NoOp
                         | "!" -> Token.OpDereference, CtxOp.NoOp
                         | "??" -> Token.OpDoubleQuestion, CtxOp.NoOp
+                        | "=" -> Token.OpEquality, CtxOp.NoOp
                         | _ ->
                             let token = Token.ofCustomOperator (op.AsSpan())
                             token, CtxOp.NoOp

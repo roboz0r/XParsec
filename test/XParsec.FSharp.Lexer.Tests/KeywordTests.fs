@@ -125,6 +125,7 @@ let keywords =
         ".()<-", Token.OpIndexSetParenIdentifier
         ".()", Token.OpIndexGetParenIdentifier
         ".[", Token.OpIndexLeft
+        "=", Token.OpEquality
 
         // IsKeywordOperatorIdentifier & IsKeywordIdentifier
         "mod", Token.KWMod

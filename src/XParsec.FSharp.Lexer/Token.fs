@@ -806,6 +806,7 @@ type Token =
     | OpAssignment = (IsDeprecatedKeywordOperator ||| 23us) // := Reference cell operators (deprecated)
     | OpDoubleSemicolon = (IsKeywordOperator ||| 24us) // ;;
     | OpSemicolon = (IsKeywordOperator ||| 25us) // ;
+    | OpEquality = (IsKeywordOperator ||| 18us) // =
     | Wildcard = (IsKeywordIdentifier ||| 26us) // _
     | OpDoubleQuestion = (IsKeywordOperator ||| 27us) // ??
     | OpDeclareMultiply = (IsKeywordOperator ||| 28us) // (*)
@@ -851,7 +852,6 @@ type Token =
     | OpRightShift = (IsOperator ||| Precedence.LogicalAndBitwise) // >>>
     | OpUnaryPlus = (IsOperator ||| CanBePrefix ||| Precedence.Prefix) // ~+
     | OpUnaryNegation = (IsOperator ||| CanBePrefix ||| Precedence.Prefix) // ~-
-    | OpEquality = (IsOperator ||| Precedence.LogicalAndBitwise) // =
     | OpInequality = (IsOperator ||| Precedence.LogicalAndBitwise) // <>
     | OpLessThanOrEqual = (IsOperator ||| Precedence.LogicalAndBitwise) // <=
     | OpGreaterThanOrEqual = (IsOperator ||| Precedence.LogicalAndBitwise) // >=
