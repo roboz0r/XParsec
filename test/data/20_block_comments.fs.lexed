@@ -4,7 +4,7 @@
 21, Whitespace
 22, Identifier
 23, Whitespace
-24, Op527
+24, OpEquality
 25, Whitespace
 26, NumInt32
 27, Newline
@@ -14,7 +14,7 @@
 34, 16387
 35, 16513
 36, 16387
-37, Op16911
+37, 17938
 38, 16387
 39, 16646
 40, 16386

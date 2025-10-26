@@ -4,7 +4,7 @@
 37, Whitespace
 38, Identifier
 39, Whitespace
-40, Op527
+40, OpEquality
 41, Whitespace
 42, StringLiteral
 46, Newline
@@ -13,7 +13,7 @@
 51, Whitespace
 52, Identifier
 53, Whitespace
-54, Op527
+54, OpEquality
 55, Newline
 56, Indent
 60, Interpolated3StringOpen
