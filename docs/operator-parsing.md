@@ -146,7 +146,7 @@ runParser "1 + 2 + 3"
 runParser "1 + 2 * 3"
 runParser "(1 + 2) * 3"
 runParser "-5 ** 2"
-runParser "2 ** 3 ** 2"
+runParser "2 ** 3 ** 4"
 ```
 
 ### Expected Output
