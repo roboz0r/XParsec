@@ -639,3 +639,75 @@ let tests4 =
                 |> List.iter parserShouldFail
             }
         ]
+
+
+module Docs =
+    // Tests for operator-parsing.md documentation
+    type Expr =
+        | Number of int
+        | Add of Expr * Expr
+        | Multiply of Expr * Expr
+        | Power of Expr * Expr
+        | Negate of Expr
+
+    // A parser for an integer, wrapped in our `Number` AST case.
+    let pAtom = pint32 .>> spaces |>> Expr.Number
+
+    // A helper to parse an operator token and skip any trailing whitespace.
+    let op p = p .>> spaces
+
+    let operators: Operators<string, obj, Expr, char, unit, ReadableString, ReadableStringSlice> =
+        [
+            // P1: Addition and Subtraction (Left-associative)
+            Operator.infixLeftAssoc "+" P1 (op (pchar '+') >>% "+") (fun l r -> Add(l, r))
+            Operator.infixLeftAssoc "-" P1 (op (pchar '-') >>% "-") (fun l r -> Add(l, Negate r)) // Subtraction as adding a negation
+
+            // P2: Multiplication (Left-associative)
+            Operator.infixLeftAssoc "*" P2 (op (pchar '*') >>% "*") (fun l r -> Multiply(l, r))
+            // P3: Exponentiation (Right-associative)
+            Operator.infixRightAssoc "**" P3 (op (pstring "**")) (fun l r -> Power(l, r))
+
+            // P4: Unary Negation (Prefix)
+            Operator.prefix "-" P4 (op (pchar '-') >>% "-") (fun expr -> Negate expr)
+
+            // P10: Grouping (Highest precedence)
+            // This tells the main parser how to handle parentheses. Using `id` means the
+            // parentheses only control precedence and don't add a node to the AST.
+            Operator.enclosedBy "(" ")" P10 (op (pchar '(') >>% "(") (op (pchar ')') >>% ")") id
+        ]
+        |> Operator.create // Compile the list into an efficient lookup table.
+
+    // The full expression parser. It handles optional leading whitespace,
+    // then calls the generated operator parser.
+    let pExpression = spaces >>. (Operator.parser pAtom operators)
+
+    let runParser input =
+        printfn $"Parsing: '{input}'"
+
+        match pExpression (Reader.ofString input ()) with
+        | Ok success -> printfn $"  Success: %A{success.Parsed}"
+        | Error e ->
+            let errorMsg = ErrorFormatting.formatStringError input e
+            printfn $"  Error:\n%s{errorMsg}"
+
+    let testParser input expected =
+        match pExpression (Reader.ofString input ()) with
+        | Ok success -> Expect.equal success.Parsed expected $"Parsing '{input}'"
+        | Error e -> failwith $"Parsing '{input}' failed with error: %A{e}"
+
+#if !FABLE_COMPILER
+[<Tests>]
+#endif
+let testsDocs =
+    test "Operator Documentation Tests" {
+        Docs.testParser "1 + 2 + 3" (Docs.Add(Docs.Add(Docs.Number 1, Docs.Number 2), Docs.Number 3))
+        Docs.testParser "1 + 2 * 3" (Docs.Add(Docs.Number 1, Docs.Multiply(Docs.Number 2, Docs.Number 3)))
+        Docs.testParser "(1 + 2) * 3" (Docs.Multiply(Docs.Add(Docs.Number 1, Docs.Number 2), Docs.Number 3))
+        Docs.testParser "-5 ** 2" (Docs.Power(Docs.Number -5, Docs.Number 2))
+        Docs.testParser "2 ** 3 ** 4" (Docs.Power(Docs.Number 2, Docs.Power(Docs.Number 3, Docs.Number 4)))
+        Docs.runParser "1 + 2 + 3"
+        Docs.runParser "1 + 2 * 3"
+        Docs.runParser "(1 + 2) * 3"
+        Docs.runParser "-5 ** 2"
+        Docs.runParser "2 ** 3 ** 4"
+    }

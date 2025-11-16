@@ -91,7 +91,7 @@ Next, we define a parser for the most basic element of our language: a number. T
 
 ```fsharp
 // A parser for an integer, wrapped in our `Number` AST case.
-let pAtom = pint32 |>> Expr.Number
+let pAtom = pint32 .>> spaces |>> Expr.Number
 ```
 
 ### 3. Define the Operator Table
@@ -102,25 +102,24 @@ Now, we create a list of all our operators and their precedences. This is where 
 // A helper to parse an operator token and skip any trailing whitespace.
 let op p = p .>> spaces
 
-let operators =
+let operators: Operators<string, obj, Expr, char, unit, ReadableString, ReadableStringSlice> =
     [
         // P1: Addition and Subtraction (Left-associative)
-        Operator.infixLeftAssoc '+' P1 (op (pchar '+')) (fun l r -> Add(l, r))
-        Operator.infixLeftAssoc '-' P1 (op (pchar '-')) (fun l r -> Add(l, Negate r)) // Subtraction as adding a negation
+        Operator.infixLeftAssoc "+" P1 (op (pchar '+') >>% "+") (fun l r -> Add(l, r))
+        Operator.infixLeftAssoc "-" P1 (op (pchar '-') >>% "-") (fun l r -> Add(l, Negate r)) // Subtraction as adding a negation
 
         // P2: Multiplication (Left-associative)
-        Operator.infixLeftAssoc '*' P2 (op (pchar '*')) (fun l r -> Multiply(l, r))
-
+        Operator.infixLeftAssoc "*" P2 (op (pchar '*') >>% "*") (fun l r -> Multiply(l, r))
         // P3: Exponentiation (Right-associative)
         Operator.infixRightAssoc "**" P3 (op (pstring "**")) (fun l r -> Power(l, r))
 
         // P4: Unary Negation (Prefix)
-        Operator.prefix '-' P4 (op (pchar '-')) (fun expr -> Negate expr)
+        Operator.prefix "-" P4 (op (pchar '-') >>% "-") (fun expr -> Negate expr)
 
         // P10: Grouping (Highest precedence)
         // This tells the main parser how to handle parentheses. Using `id` means the
         // parentheses only control precedence and don't add a node to the AST.
-        Operator.enclosedBy '(' ')' P10 (op (pchar '(')) (pchar ')') id
+        Operator.enclosedBy "(" ")" P10 (op (pchar '(') >>% "(") (op (pchar ')') >>% ")") id
     ]
     |> Operator.create // Compile the list into an efficient lookup table.
 ```
@@ -138,11 +137,12 @@ let pExpression =
 let runParser input =
     printfn $"Parsing: '{input}'"
     match pExpression (Reader.ofString input ()) with
-    | Ok success -> printfn "  Success: %A{success.Parsed}"
+    | Ok success -> printfn $"  Success: %A{success.Parsed}"
     | Error e ->
         let errorMsg = ErrorFormatting.formatStringError input e
-        printfn "  Error:\n%s{errorMsg}"
+        printfn $"  Error:\n%s{errorMsg}"
 
+runParser "1 + 2 + 3"
 runParser "1 + 2 * 3"
 runParser "(1 + 2) * 3"
 runParser "-5 ** 2"
@@ -154,12 +154,14 @@ runParser "2 ** 3 ** 2"
 The generated parser correctly constructs the abstract syntax tree according to the rules of precedence and associativity we defined.
 
 ```text
+Parsing: '1 + 2 + 3'
+  Success: Add (Add (Number 1, Number 2), Number 3)
 Parsing: '1 + 2 * 3'
   Success: Add (Number 1, Multiply (Number 2, Number 3))
 Parsing: '(1 + 2) * 3'
   Success: Multiply (Add (Number 1, Number 2), Number 3)
 Parsing: '-5 ** 2'
-  Success: Power (Negate (Number 5), Number 2)
-Parsing: '2 ** 3 ** 2'
-  Success: Power (Number 2, Power (Number 3, Number 2))
+  Success: Power (Number -5, Number 2)
+Parsing: '2 ** 3 ** 4'
+  Success: Power (Number 2, Power (Number 3, Number 4))
 ```
