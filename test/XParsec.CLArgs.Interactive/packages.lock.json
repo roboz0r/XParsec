@@ -23,7 +23,7 @@
       "xparsec.clargs": {
         "type": "Project",
         "dependencies": {
-          "XParsec": "[0.2.5, )"
+          "XParsec": "[0.3.0, )"
         }
       },
       "FSharp.Core": {
