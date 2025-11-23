@@ -120,6 +120,15 @@ type RHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
         leftPower: byte *
         completeInfix: ('Expr -> 'Expr -> 'Expr)
 
+    /// Used for operators like the Tuple comma (,) which are technically "Not Associative"
+    /// in type theory (creating a flat list rather than nested pairs) but strictly
+    /// require chaining in the parser.
+    | InfixNary of
+        op: 'Op *
+        parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
+        leftPower: byte *
+        completeNary: (ResizeArray<'Expr> -> 'Expr)
+
     | Postfix of
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
@@ -260,6 +269,51 @@ module internal Pratt =
                     | Ok rhs -> parseRhs (completeInfix lhs rhs.Parsed) reader
                     | Error e -> Error e
 
+            | InfixNary(op, parseOp, leftPower, completeNary) ->
+                if leftPower < minBinding then
+                    reader.Position <- pos
+                    preturn lhs reader
+                elif leftPower = minBinding then
+                    fail ambiguous reader
+                else
+                    // Loop to consume all chained n-ary operators and expressions (e.g. commas in a tuple)
+                    let rec loopNary (items: ResizeArray<_>) =
+                        // Bind tighter (leftPower + 1) to parse the next expression.
+                        // If the inner `parseLhs` encounters another comma (precedence = leftPower),
+                        // it will see (leftPower < minBinding), stop, and return the expression.
+                        // This allows us to catch the comma here in the loop.
+                        let rightPower = leftPower + 1uy
+
+                        match parseLhs rightPower reader with
+                        | Error e -> Error e
+                        | Ok { Parsed = next } ->
+                            items.Add next
+
+                            let nextPos = reader.Position
+
+                            // Peek/Consume the next operator using the `RhsParser` to check the next token
+                            // We only want to continue if it is the SAME operator (e.g. another comma).
+                            match ops.RhsParser reader with
+                            | Ok { Parsed = nextOp } ->
+                                match nextOp with
+                                | InfixNary(nextSym, _, _, _) when nextSym = op -> loopNary items
+                                | _ ->
+                                    // Found a different operator (e.g. ')' or '+').
+                                    // Backtrack so the outer recursive call or caller can handle it.
+                                    reader.Position <- nextPos
+                                    preturn items reader
+                            | Error _ ->
+                                // EOF or no operator found. Backtrack and finish.
+                                reader.Position <- nextPos
+                                preturn items reader
+
+                    let items = ResizeArray()
+                    items.Add lhs
+
+                    match loopNary items with
+                    | Ok { Parsed = items } -> parseRhs (completeNary items) reader
+                    | Error e -> Error e
+
             | Indexer(op, parseOp, leftPower, closeOp, parseCloseOp, innerParser, completeIndexer) ->
                 if leftPower < minBinding then
                     reader.Position <- pos
@@ -364,7 +418,8 @@ module Operator =
         function
         | InfixLeft(op, _, _, _)
         | InfixRight(op, _, _, _)
-        | InfixNonAssociative(op, _, _, _) -> op
+        | InfixNonAssociative(op, _, _, _)
+        | InfixNary(op, _, _, _)
         | Postfix(op, _, _, _)
         | Indexer(op, _, _, _, _, _, _)
         | Ternary(op, _, _, _, _) -> op
@@ -373,7 +428,8 @@ module Operator =
         function
         | InfixLeft(_, parseOp, _, _)
         | InfixRight(_, parseOp, _, _)
-        | InfixNonAssociative(_, parseOp, _, _) -> parseOp
+        | InfixNonAssociative(_, parseOp, _, _)
+        | InfixNary(_, parseOp, _, _) -> parseOp
         | Postfix(_, parseOp, _, _)
         | Indexer(_, parseOp, _, _, _, _, _)
         | Ternary(_, parseOp, _, _, _) -> parseOp
@@ -382,7 +438,8 @@ module Operator =
         function
         | InfixLeft(_, _, leftPower, _)
         | InfixRight(_, _, leftPower, _)
-        | InfixNonAssociative(_, _, leftPower, _) -> leftPower
+        | InfixNonAssociative(_, _, leftPower, _)
+        | InfixNary(_, _, leftPower, _)
         | Postfix(_, _, leftPower, _)
         | Indexer(_, _, leftPower, _, _, _, _)
         | Ternary(_, _, leftPower, _, _) -> leftPower
@@ -392,6 +449,7 @@ module Operator =
         | InfixLeft(_, _, leftPower, _) -> leftPower + 1uy
         | InfixRight(_, _, leftPower, _) -> leftPower - 1uy
         | InfixNonAssociative(_, _, leftPower, _) -> leftPower
+        | InfixNary(_, _, leftPower, _) -> leftPower
         | Ternary(_, _, leftPower, _, _) -> leftPower - 1uy
         | Postfix(_, _, _, _)
         | Indexer(_, _, _, _, _, _, _) -> Precedence.MinP
@@ -476,6 +534,12 @@ module Operator =
     let infixNonAssoc op power parseOp complete =
         let power = Precedence.value power
         RHS(InfixNonAssociative(op, parseOp, power, complete))
+
+    /// Creates an n-ary infix operator with the specified properties.
+    /// N-ary operators are similar to left-associative operators but allow chaining without ambiguity.
+    let infixNary op power parseOp complete =
+        let power = Precedence.value power
+        RHS(InfixNary(op, parseOp, power, complete))
 
     /// Creates a prefix operator with the specified properties.
     let prefix op power parseOp complete =
