@@ -177,6 +177,7 @@ type RangeExpr<'T> =
     | SimpleRange of fromExpr: Expr<'T> * dotdot: 'T * toExpr: Expr<'T>
     | SteppedRange of fromExpr: Expr<'T> * dotdot1: 'T * stepExpr: Expr<'T> * dotdot2: 'T * toExpr: Expr<'T>
 
+[<RequireQualifiedAccess>]
 type ExprOrRange<'T> =
     | Expr of Expr<'T>
     | Range of RangeExpr<'T>
