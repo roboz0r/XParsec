@@ -12,39 +12,18 @@ open XParsec.CharParsers
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-//let x = 1
-//x
-
-let exprsToTest =
-    [
-        "1"
-        "x"
-        "let x = 1 in x"
-        """let x = 1
-x"""
-    ]
-
-
 [<Tests>]
 let tests =
     testList
         "ParserTests"
         [
-            ftest "Temp test expr" {
-                let source = """let x = 1
-x"""
-
-                match Lexing.lexString source with
-                | Error e -> failtestf "Lexing failed: %A" e
-                | Ok { Parsed = lexed } ->
-                    let reader = Reader.ofLexed lexed
-
-                    match Expr.parse reader with
-                    | Error e -> failtestf "Parsing failed: %A" e
-                    | Ok { Parsed = expr} ->
-                        let tw = new IndentedTextWriter(new StringWriter(), "  ")
-                        Debug.printExpr tw source lexed expr
-                        let str = tw.InnerWriter.ToString()
-                        printfn "Parsed expression:\n%s" str
-            }
+            testCase "Simple Expression"
+                (fun () ->
+                    let path = Path.Combine(testDataDir.Value, "00_simple_expr.fs")
+                    testParseFile path)
+            testCase "Simple Arithmetic"
+                (fun () ->
+                    let path = Path.Combine(testDataDir.Value, "01_simple_arithmetic.fs")
+                    testParseFile path)
         ]
+
