@@ -11,15 +11,15 @@
       "xparsec": {
         "type": "Project",
         "dependencies": {
-          "FSharp.Core": "[8.0.100, )",
+          "FSharp.Core": "[8.0.300, )",
           "System.Collections.Immutable": "[8.0.0, )"
         }
       },
       "FSharp.Core": {
         "type": "CentralTransitive",
-        "requested": "[8.0.100, )",
-        "resolved": "8.0.100",
-        "contentHash": "ZOVZ/o+jI3ormTZOa28Wh0tSRoyle1f7lKFcUN61sPiXI7eDZu8eSveFybgTeyIEyW0ujjp31cp7GOglDgsNEg=="
+        "requested": "[8.0.300, )",
+        "resolved": "8.0.300",
+        "contentHash": "Jv44fV7TNglyMku89lQcA4Q6mFKLyHb2bs1Yb72nvSVc+cHplEnoZ4XQUaaTLJGUTx/iMqcrkYGtaLzkkIhpaA=="
       }
     }
   }

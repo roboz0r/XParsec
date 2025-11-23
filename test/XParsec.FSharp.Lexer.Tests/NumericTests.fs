@@ -298,7 +298,7 @@ let tests1 =
                     match NumericLiterals.pXIntBase reader with
                     | Ok { Parsed = actualBase } ->
                         "" |> Expect.equal actualBase expectedBase
-                        "" |> Expect.equal reader.Index (int64 (input.TrimEnd('_').Length))
+                        "" |> Expect.equal reader.Index (input.TrimEnd('_').Length)
                     | Error err -> failtestf "Lexing failed: %A" err
                 }
         ]
