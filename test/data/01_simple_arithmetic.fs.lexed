@@ -1,0 +1,11 @@
+0, NumInt32
+1, Whitespace
+2, Op595
+3, Whitespace
+4, NumInt32
+5, Whitespace
+6, Op532
+7, Whitespace
+8, NumInt32
+9, Newline
+10, EOF

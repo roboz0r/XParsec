@@ -12,6 +12,7 @@
     <Compile Include="Declarations.fs" />
     <Compile Include="Signatures.fs" />
     <Compile Include="ProgramStructure.fs" />
+    <Compile Include="OperatorParser.fs" />
     <Compile Include="Parsing.fs" />
     <Compile Include="Debug.fs" />
   </ItemGroup>
