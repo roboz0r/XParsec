@@ -48,8 +48,8 @@ let tests =
                 let reader = Reader.ofArray tokens ()
 
                 let ops =
-                    [ Operator.infixLeftAssoc (Op '+') P1 (pitem (Op '+')) (Expr.infix (Op '+')) ]
-                    |> Operator.create
+                    [ Operator.infixLeftAssoc (Op '+') P1 (Expr.infix (Op '+')) ]
+                    |> Operator.createSimple
 
                 let p = Operator.parser (pid |>> Token) ops
 
@@ -69,10 +69,10 @@ let tests =
 
                 let ops =
                     [
-                        Operator.infixLeftAssoc (Op '+') P1 (pitem (Op '+')) (Expr.infix (Op '+'))
-                        Operator.infixLeftAssoc (Op '*') P2 (pitem (Op '*')) (Expr.infix (Op '*'))
+                        Operator.infixLeftAssoc (Op '+') P1 (Expr.infix (Op '+'))
+                        Operator.infixLeftAssoc (Op '*') P2 (Expr.infix (Op '*'))
                     ]
-                    |> Operator.create
+                    |> Operator.createSimple
 
                 let p = Operator.parser (pid |>> Expr.Token) ops
 
@@ -94,10 +94,10 @@ let tests =
 
                 let ops =
                     [
-                        Operator.infixLeftAssoc (Op '+') P1 (pitem (Op '+')) (Expr.infix (Op '+'))
-                        Operator.infixLeftAssoc (Op '*') P2 (pitem (Op '*')) (Expr.infix (Op '*'))
+                        Operator.infixLeftAssoc (Op '+') P1 (Expr.infix (Op '+'))
+                        Operator.infixLeftAssoc (Op '*') P2 (Expr.infix (Op '*'))
                     ]
-                    |> Operator.create
+                    |> Operator.createSimple
 
                 let p = Operator.parser (pid |>> Expr.Token) ops
 
@@ -119,10 +119,10 @@ let tests =
 
                 let ops =
                     [
-                        Operator.infixLeftAssoc (Op '-') P1 (pitem (Op '-')) (Expr.infix (Op '-'))
-                        Operator.infixLeftAssoc (Op '+') P1 (pitem (Op '+')) (Expr.infix (Op '+'))
+                        Operator.infixLeftAssoc (Op '-') P1 (Expr.infix (Op '-'))
+                        Operator.infixLeftAssoc (Op '+') P1 (Expr.infix (Op '+'))
                     ]
-                    |> Operator.create
+                    |> Operator.createSimple
 
                 let p = Operator.parser (pid |>> Expr.Token) ops
 
@@ -144,10 +144,10 @@ let tests =
 
                 let ops =
                     [
-                        Operator.infixRightAssoc (Op '-') P1 (pitem (Op '-')) (Expr.infix (Op '-'))
-                        Operator.infixRightAssoc (Op '+') P1 (pitem (Op '+')) (Expr.infix (Op '+'))
+                        Operator.infixRightAssoc (Op '-') P1 (Expr.infix (Op '-'))
+                        Operator.infixRightAssoc (Op '+') P1 (Expr.infix (Op '+'))
                     ]
-                    |> Operator.create
+                    |> Operator.createSimple
 
                 let p = Operator.parser (pid |>> Expr.Token) ops
 
@@ -169,9 +169,9 @@ let tests =
 
                 let ops =
                     [
-                        Operator.ternary (Op '?') P1 (pitem (Op '?')) (pitem (Op ':')) (Expr.ternary (Op '?') (Op ':'))
+                        Operator.ternary (Op '?') P1 (pitem (Op ':')) (Expr.ternary (Op '?') (Op ':'))
                     ]
-                    |> Operator.create
+                    |> Operator.createSimple
 
                 let p = Operator.parser (pid |>> Expr.Token) ops
 
@@ -264,33 +264,25 @@ let tests2 =
 
     let ops =
         [
-            Operator.ternary If P1 (pitem If) (pitem Else) (Expr.ternary If Else)
+            Operator.ternary If P1 (pitem Else) (Expr.ternary If Else)
 
-            Operator.infixLeftAssoc Add P2 (pitem Add) (Expr.infix Add)
-            Operator.infixLeftAssoc Sub P2 (pitem Sub) (Expr.infix Sub)
+            Operator.infixLeftAssoc Add P2 (Expr.infix Add)
+            Operator.infixLeftAssoc Sub P2 (Expr.infix Sub)
 
-            Operator.infixLeftAssoc Mul P3 (pitem Mul) (Expr.infix Mul)
-            Operator.infixLeftAssoc Div P3 (pitem Div) (Expr.infix Div)
+            Operator.infixLeftAssoc Mul P3 (Expr.infix Mul)
+            Operator.infixLeftAssoc Div P3 (Expr.infix Div)
+            Operator.infixRightAssoc Pow P4 (Expr.infix Pow)
 
-            Operator.infixRightAssoc Pow P4 (pitem Pow) (Expr.infix Pow)
+            Operator.prefix Sub P5 (Expr.prefix Sub)
+            Operator.prefix Add P5 (Expr.prefix Add)
 
-            Operator.prefix Sub P5 (pitem Sub) (Expr.prefix Sub)
-            Operator.prefix Add P5 (pitem Add) (Expr.prefix Add)
+            Operator.postfix Factorial P6 (Expr.postfix Factorial)
 
-            Operator.postfix Factorial P6 (pitem Factorial) (Expr.postfix Factorial)
+            Operator.indexer LIdx P7 (satisfy Tokens2.isNumber |>> Expr.Token) (pitem RIdx) (Expr.indexer LIdx RIdx)
 
-            Operator.indexer
-                LIdx
-                RIdx
-                P7
-                (pitem LIdx)
-                (satisfy Tokens2.isNumber |>> Expr.Token)
-                (pitem RIdx)
-                (Expr.indexer LIdx RIdx)
-
-            Operator.enclosedBy LParen RParen P10 (pitem LParen) (pitem RParen) (Expr.bracketed LParen RParen)
+            Operator.enclosedBy LParen P10 (pitem RParen) (Expr.bracketed LParen RParen)
         ]
-        |> Operator.create
+        |> Operator.createSimple
 
     let testParser (tokens, expected) =
         let p = Operator.parser (satisfy Tokens2.isNumber |>> Token) ops
@@ -400,39 +392,59 @@ let tests3 =
 
     let ops =
         [
-            Operator.ternary If P1 (pitem '?' >>% If) (pitem ':' >>% Else) (Expr.ternary If Else)
+            Operator.ternary If P1 (pitem ':' >>% Else) (Expr.ternary If Else)
 
-            Operator.infixLeftAssoc Add P2 (pitem '+' >>% Add) (Expr.infix Add)
-            Operator.infixLeftAssoc Sub P2 (pitem '-' >>% Sub) (Expr.infix Sub)
+            Operator.infixLeftAssoc Add P2 (Expr.infix Add)
+            Operator.infixLeftAssoc Sub P2 (Expr.infix Sub)
 
-            Operator.infixLeftAssoc Mul P3 (pitem '*' >>% Mul) (Expr.infix Mul)
-            Operator.infixLeftAssoc Div P3 (pitem '/' >>% Div) (Expr.infix Div)
+            Operator.infixLeftAssoc Mul P3 (Expr.infix Mul)
+            Operator.infixLeftAssoc Div P3 (Expr.infix Div)
 
-            Operator.infixRightAssoc Pow P4 (pstring "**" >>% Pow) (Expr.infix Pow)
+            Operator.infixRightAssoc Pow P4 (Expr.infix Pow)
 
-            Operator.prefix Sub P5 (pitem '-' >>% Sub) (Expr.prefix Sub)
-            Operator.prefix Add P5 (pitem '+' >>% Add) (Expr.prefix Add)
+            Operator.prefix Sub P5 (Expr.prefix Sub)
+            Operator.prefix Add P5 (Expr.prefix Add)
 
-            Operator.postfix Factorial P6 (pitem '!' >>% Factorial) (Expr.postfix Factorial)
+            Operator.postfix Factorial P6 (Expr.postfix Factorial)
 
-            Operator.indexer
-                LIdx
-                RIdx
-                P7
-                (pitem '[' >>% LIdx)
-                (pNum |>> Expr.Token)
-                (pitem ']' >>% RIdx)
-                (Expr.indexer LIdx RIdx)
+            Operator.indexer LIdx P7 (pNum |>> Expr.Token) (pitem ']' >>% RIdx) (Expr.indexer LIdx RIdx)
 
-            Operator.enclosedBy
-                LParen
-                RParen
-                P10
-                (pitem '(' >>% LParen)
-                (pitem ')' >>% RParen)
-                (Expr.bracketed LParen RParen)
+            Operator.enclosedBy LParen P10 (pitem ')' >>% RParen) (Expr.bracketed LParen RParen)
         ]
-        |> Operator.create
+        |> Operator.create (fun lhsLookup rhsLookup ->
+
+            let lhsLookup2 = ImmutableLookupBuilder<char, _>()
+            lhsLookup2.Add('-', lhsLookup.[Sub])
+            lhsLookup2.Add('+', lhsLookup.[Add])
+            lhsLookup2.Add('(', lhsLookup.[LParen])
+            let lhsLookup2 = lhsLookup2.ToImmutable()
+
+            let rhsLookup2 = ImmutableLookupBuilder<char, _>()
+            rhsLookup2.Add('?', If)
+            rhsLookup2.Add('+', Add)
+            rhsLookup2.Add('-', Sub)
+            rhsLookup2.Add('*', Mul)
+            rhsLookup2.Add('/', Div)
+            rhsLookup2.Add('!', Factorial)
+            rhsLookup2.Add('[', LIdx)
+            let rhsLookup2 = rhsLookup2.ToImmutable()
+
+            let lhsParser: Parser<_, _, _, _, _> = pLookupL lhsLookup2 "LHS operator"
+
+            let rhsParser: Parser<_, _, _, _, _> =
+                pLookupL rhsLookup2 "RHS operator"
+                >>= function
+                    | Mul ->
+                        // Handle '**' for Pow. We alread consumed the first '*'.
+                        pchar '*' >>% rhsLookup.[Pow] <|>% rhsLookup.[Mul]
+                    | op -> preturn rhsLookup.[op]
+
+
+            { new Operators<_, _, _, _, _, _, _> with
+                member _.LhsParser = lhsParser
+                member _.RhsParser = rhsParser
+            }
+        )
 
     let testParser (tokens, expected) =
 
@@ -542,27 +554,66 @@ let tests4 =
 
     let ops =
         [
-            Operator.infixLeftAssoc Add P2 (pitem '+' >>% Add) (Expr.infix Add)
-            Operator.infixLeftAssoc Sub P2 (pitem '-' >>% Sub) (Expr.infix Sub)
+            Operator.infixLeftAssoc Add P2 (Expr.infix Add)
+            Operator.infixLeftAssoc Sub P2 (Expr.infix Sub)
 
-            Operator.infixLeftAssoc Mul P3 (pitem '*' >>% Mul) (Expr.infix Mul)
-            Operator.infixLeftAssoc Div P3 (pitem '/' >>% Div) (Expr.infix Div)
-            Operator.infixNonAssoc Pow P3 (pstring "**" >>% Pow) (Expr.infix Pow)
+            Operator.infixLeftAssoc Mul P3 (Expr.infix Mul)
+            Operator.infixLeftAssoc Div P3 (Expr.infix Div)
+            Operator.infixNonAssoc Pow P3 (Expr.infix Pow)
 
-            Operator.prefix Sub P5 (pitem '-' >>% Sub) (Expr.prefix Sub)
-            Operator.prefix Add P5 (pitem '+' >>% Add) (Expr.prefix Add)
+            Operator.prefix Sub P5 (Expr.prefix Sub)
+            Operator.prefix Add P5 (Expr.prefix Add)
 
-            Operator.postfix Factorial P6 (pitem '!' >>% Factorial) (Expr.postfix Factorial)
+            Operator.postfix Factorial P6 (Expr.postfix Factorial)
 
-            Operator.enclosedBy
-                LParen
-                RParen
-                P10
-                (pitem '(' >>% LParen)
-                (pitem ')' >>% RParen)
-                (Expr.bracketed LParen RParen)
+            Operator.enclosedBy LParen P10 (pitem ')' >>% RParen) (Expr.bracketed LParen RParen)
         ]
-        |> Operator.create
+        |> Operator.create (fun lhsLookup rhsLookup ->
+            let lhsParser: Parser<_, _, _, _, _> =
+                fun reader ->
+                    match reader.Peek() with
+                    | ValueNone -> fail EndOfInput reader
+                    | ValueSome '-' ->
+                        reader.Skip()
+                        preturn (lhsLookup.[Sub]) reader
+                    | ValueSome '+' ->
+                        reader.Skip()
+                        preturn (lhsLookup.[Add]) reader
+                    | ValueSome '(' ->
+                        reader.Skip()
+                        preturn (lhsLookup.[LParen]) reader
+                    | ValueSome _ -> fail (Message "LHS operator") reader
+
+            let rhsParser: Parser<_, _, _, _, _> =
+                fun reader ->
+                    match reader.Peek() with
+                    | ValueNone -> fail EndOfInput reader
+                    | ValueSome '?' ->
+                        reader.Skip()
+                        preturn (rhsLookup.[If]) reader
+                    | ValueSome '+' ->
+                        reader.Skip()
+                        preturn (rhsLookup.[Add]) reader
+                    | ValueSome '-' ->
+                        reader.Skip()
+                        preturn (rhsLookup.[Sub]) reader
+                    | ValueSome '*' ->
+                        reader.Skip()
+                        ((pchar '*' >>% (rhsLookup.[Pow])) <|>% (rhsLookup.[Mul])) reader
+                    | ValueSome '/' ->
+                        reader.Skip()
+                        preturn (rhsLookup.[Div]) reader
+                    | ValueSome '!' ->
+                        reader.Skip()
+                        preturn (rhsLookup.[Factorial]) reader
+                    | ValueSome _ -> fail (Message "RHS operator") reader
+
+
+            { new Operators<_, _, _, _, _, _, _> with
+                member _.LhsParser = lhsParser
+                member _.RhsParser = rhsParser
+            }
+        )
 
     let testParser (tokens, expected) =
         let p = Operator.parser (pNum |>> Token) ops
@@ -659,23 +710,34 @@ module Docs =
     let operators: Operators<string, obj, Expr, char, unit, ReadableString, ReadableStringSlice> =
         [
             // P1: Addition and Subtraction (Left-associative)
-            Operator.infixLeftAssoc "+" P1 (op (pchar '+') >>% "+") (fun l r -> Add(l, r))
-            Operator.infixLeftAssoc "-" P1 (op (pchar '-') >>% "-") (fun l r -> Add(l, Negate r)) // Subtraction as adding a negation
+            Operator.infixLeftAssoc "+" P1 (fun l r -> Add(l, r))
+            Operator.infixLeftAssoc "-" P1 (fun l r -> Add(l, Negate r)) // Subtraction as adding a negation
 
             // P2: Multiplication (Left-associative)
-            Operator.infixLeftAssoc "*" P2 (op (pchar '*') >>% "*") (fun l r -> Multiply(l, r))
+            Operator.infixLeftAssoc "*" P2 (fun l r -> Multiply(l, r))
             // P3: Exponentiation (Right-associative)
-            Operator.infixRightAssoc "**" P3 (op (pstring "**")) (fun l r -> Power(l, r))
+            Operator.infixRightAssoc "**" P3 (fun l r -> Power(l, r))
 
             // P4: Unary Negation (Prefix)
-            Operator.prefix "-" P4 (op (pchar '-') >>% "-") (fun expr -> Negate expr)
+            Operator.prefix "-" P4 (fun expr -> Negate expr)
 
             // P10: Grouping (Highest precedence)
             // This tells the main parser how to handle parentheses. Using `id` means the
             // parentheses only control precedence and don't add a node to the AST.
-            Operator.enclosedBy "(" ")" P10 (op (pchar '(') >>% "(") (op (pchar ')') >>% ")") id
+            Operator.enclosedBy "(" P10 (op (pchar ')') >>% ")") id
         ]
-        |> Operator.create // Compile the list into an efficient lookup table.
+        |> Operator.create (fun lhsLookup rhsLookup ->
+            { new Operators<_, _, _, _, _, _, _> with
+                member _.LhsParser =
+                    // TODO: Use a better way to build parsers from keys/values
+                    choiceL (lhsLookup.Keys |> Seq.map (fun k -> pstring k |>> fun k -> lhsLookup.[k])) "lhs"
+                    .>> spaces
+
+                member _.RhsParser =
+                    choiceL (rhsLookup.Keys |> Seq.map (fun k -> pstring k |>> fun k -> rhsLookup.[k])) "rhs"
+                    .>> spaces
+            }
+        )
 
     // The full expression parser. It handles optional leading whitespace,
     // then calls the generated operator parser.
