@@ -308,7 +308,7 @@ module LexBuilder =
         | Token.InterpolatedStringFragment -> true
         | _ -> false
 
-    let appendI token idx ctxOp (state: LexBuilder) =
+    let appendI token (idx: int) ctxOp (state: LexBuilder) =
         // Coalesce adjacent string fragments
         // TODO: Handle literal negation
         // Consider if this should be done in the `lex` function instead
@@ -1144,7 +1144,7 @@ module Lexing =
                     updateUserState (fun state ->
                         state
                         |> LexBuilder.append Token.SingleQuote pos CtxOp.NoOp
-                        |> LexBuilder.appendI token (pos.Index + 1L) CtxOp.NoOp
+                        |> LexBuilder.appendI token (pos.Index + 1) CtxOp.NoOp
 
                     )
             | false, _ -> do! updateUserState (LexBuilder.append Token.TypeParameter pos CtxOp.NoOp)
@@ -1233,7 +1233,7 @@ module Lexing =
                         |> LexBuilder.appendI Token.Interpolated3StringFragment idx CtxOp.NoOp
                         |> LexBuilder.appendI
                             Token.InterpolatedExpressionOpen
-                            (idx + int64 diff)
+                            (idx + diff)
                             (CtxOp.Push LexContext.InterpolatedExpression)
                 )
         }
@@ -1293,7 +1293,7 @@ module Lexing =
 
                         for i in 0 .. (braces.Length - 1) do
                             // We have some number of braces, but not enough to close the expression
-                            state <- LexBuilder.appendI Token.OpBraceRight (pos.Index + int64 i) CtxOp.NoOp state
+                            state <- LexBuilder.appendI Token.OpBraceRight (pos.Index + i) CtxOp.NoOp state
 
                         state
                     )
@@ -1381,7 +1381,7 @@ module Lexing =
                     while count > 1 do
                         // "" is an escape sequence for '"'
                         state <- LexBuilder.appendI Token.VerbatimEscapeQuote idx CtxOp.NoOp state
-                        idx <- idx + 2L
+                        idx <- idx + 2
                         count <- count - 2
 
                     match count with
@@ -1938,7 +1938,7 @@ module Lexing =
                     while count > 1 do
                         if count >= 2 then // %% is an escape sequence for '%'
                             tokens.Add(PositionedToken.Create(Token.EscapePercent, idx))
-                            idx <- idx + 2L
+                            idx <- idx + 2
                             count <- count - 2
 
                     match count with
@@ -2107,7 +2107,7 @@ module Lexing =
 
             if tokens.Count = 0 then
                 // No previous tokens, must be at start of input
-                preturn (pos = 0L) reader
+                preturn (pos = 0) reader
             else
                 let lastToken = tokens[tokens.Count - 1]
                 preturn (lastToken.Token = Token.Indent) reader

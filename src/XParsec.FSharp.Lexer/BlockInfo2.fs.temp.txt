@@ -1,0 +1,49 @@
+
+[<Struct>]
+type BlockInfo2 =
+    {
+        BlockIndex: int<block>
+        BlockTokenIndex: int<token>
+        StartIndex: int64
+        IndentLevel: int
+    }
+
+module Lexed =
+    let blockInfoAt (index: int<block>) (lexed: Lexed) =
+        if index < 0<_> || int index >= lexed.Blocks.Length then
+            invalidArg (nameof index) "Index out of range"
+
+        let ti = lexed.Blocks[index].TokenIndex
+        let token = lexed.Tokens[ti]
+        // Safe because Blocks only contains indices of Indent tokens and the last token is always EOF
+        let nextToken = lexed.Tokens[ti + 1<_>]
+
+        let indentLevel = nextToken.StartIndex - token.StartIndex
+
+        {
+            BlockIndex = index
+            BlockTokenIndex = ti
+            StartIndex = token.StartIndex
+            IndentLevel = int indentLevel
+        }
+
+    let tryFindBlockEnd (blockInfo: BlockInfo2) (lexed: Lexed) =
+        let startIndent = blockInfo.IndentLevel
+        let mutable i = blockInfo.BlockIndex + 1<_>
+        let mutable endIndex = blockInfo.BlockTokenIndex
+        let mutable found = false
+
+        while int i < lexed.Blocks.Length && not found do
+            let bi = blockInfoAt i lexed
+
+            if bi.IndentLevel < startIndent then
+                // This block is at a lower indentation level, so the previous block ends before this one
+                found <- true
+                endIndex <- bi.BlockTokenIndex
+
+            i <- i + 1<_>
+
+        if found then
+            endIndex
+        else
+            (lexed.Tokens.Length - 1) * 1<token> // EOF
