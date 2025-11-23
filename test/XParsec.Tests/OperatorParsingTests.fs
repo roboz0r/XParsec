@@ -545,7 +545,7 @@ let tests4 =
             Operator.infixLeftAssoc Add P2 (pitem '+' >>% Add) (Expr.infix Add)
             Operator.infixLeftAssoc Sub P2 (pitem '-' >>% Sub) (Expr.infix Sub)
 
-            Operator.infixLeftAssoc Mul P3 (pitem '*' >>% Mul) (Expr.infix Mul)
+            Operator.infixLeftAssoc Mul P3 ((pitem '*' .>> notFollowedBy (pitem '*')) >>% Mul) (Expr.infix Mul)
             Operator.infixLeftAssoc Div P3 (pitem '/' >>% Div) (Expr.infix Div)
             Operator.infixNonAssoc Pow P3 (pstring "**" >>% Pow) (Expr.infix Pow)
 
@@ -711,3 +711,72 @@ let testsDocs =
         Docs.runParser "-5 ** 2"
         Docs.runParser "2 ** 3 ** 4"
     }
+
+#if !FABLE_COMPILER
+[<Tests>]
+#endif
+let sortingBugTests =
+    testList
+        "Operator Sorting Bug"
+        [
+            test "Ensure operators are sorted by precedence so longer/stronger operators are tried first" {
+                // Setup a simple parser for numbers
+                let pNum = anyInRange '0' '9' |>> (string >> int >> Number >> Token)
+
+                // Define operators specifically in this order:
+                // 1. High Precedence
+                // 2. Lower Precedence
+                let ops =
+                    [
+                        Operator.infixRightAssoc
+                            (Op '^')
+                            P4
+                            (pstring "**" .>> spaces >>% (Op '^'))
+                            (Expr.infix (Op '^'))
+
+                        Operator.infixLeftAssoc (Op '*') P3 (pstring "*" .>> spaces >>% (Op '*')) (Expr.infix (Op '*'))
+                    ]
+                    |> Operator.create
+
+                let p = Operator.parser pNum ops
+
+                // Input that requires the longer operator "**" to be matched
+                let input = "1**2"
+                let reader = Reader.ofString input ()
+
+                match p reader with
+                | Ok success ->
+                    Expect.equal
+                        success.Parsed
+                        (Infix(Op '^', Token(Number 1), Token(Number 2)))
+                        "Should parse '**' correctly as Power operator"
+                | Error e -> failwith $"Parsing failed. This indicates 'Mul' was tried before 'Pow'.\nError: %A{e}"
+
+                // Reverse input order to ensure consistent behavior
+                let ops =
+                    [
+                        Operator.infixLeftAssoc (Op '*') P3 (pstring "*" .>> spaces >>% (Op '*')) (Expr.infix (Op '*'))
+
+                        Operator.infixRightAssoc
+                            (Op '^')
+                            P4
+                            (pstring "**" .>> spaces >>% (Op '^'))
+                            (Expr.infix (Op '^'))
+                    ]
+                    |> Operator.create
+
+                let p = Operator.parser pNum ops
+
+                // Input that requires the longer operator "**" to be matched
+                let input = "1**2"
+                let reader = Reader.ofString input ()
+
+                match p reader with
+                | Ok success ->
+                    Expect.equal
+                        success.Parsed
+                        (Infix(Op '^', Token(Number 1), Token(Number 2)))
+                        "Should parse '**' correctly as Power operator"
+                | Error e -> failwith $"Parsing failed. This indicates 'Mul' was tried before 'Pow'.\nError: %A{e}"
+            }
+        ]

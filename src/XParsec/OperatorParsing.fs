@@ -422,7 +422,7 @@ module Operator =
         | LHS op -> lhsRightPower op
 
     let private powerForSort op =
-        ((int (leftPower op)) <<< 8) &&& (int (rightPower op))
+        ((int (leftPower op)) <<< 8) ||| (int (rightPower op))
 
     /// Creates an `Operators` instance from a collection of operators.
     /// The returned instance can be used to parse expressions using the defined operators.
