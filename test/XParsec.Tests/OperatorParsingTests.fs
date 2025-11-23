@@ -25,6 +25,7 @@ type Expr<'Token> =
     | Bracketed of left: 'Token * right: 'Token * expr: Expr<'Token>
     | Indexer of left: 'Token * right: 'Token * Expr<'Token> * Expr<'Token>
     | Ternary of opLeft: 'Token * opRight: 'Token * cond: Expr<'Token> * thenExpr: Expr<'Token> * elseExpr: Expr<'Token>
+    | Nary of op: 'Token * exprs: Expr<'Token> list
 
 module Expr =
     let infix op lhs rhs = Infix(op, lhs, rhs)
@@ -35,6 +36,10 @@ module Expr =
 
     let ternary opLeft opRight cond thenExpr elseExpr =
         Ternary(opLeft, opRight, cond, thenExpr, elseExpr)
+
+    let nary op exprs = Nary(op, exprs)
+
+    let tupleReducer x exprs = Nary(x, List.ofSeq exprs)
 
 #if !FABLE_COMPILER
 [<Tests>]
@@ -186,6 +191,27 @@ let tests =
 
                 | Error err -> failwith $"%A{err}"
             }
+
+            test "Tuple operator" {
+                let tokens = [| Number 1; Op ','; Number 2; Op ','; Number 3 |]
+
+                let reader = Reader.ofArray tokens ()
+
+                let ops =
+                    [ Operator.infixNary (Op ',') P1 (pitem (Op ',')) (Expr.tupleReducer (Op ',')) ]
+                    |> Operator.create
+
+                let p = Operator.parser (pid |>> Expr.Token) ops
+
+                match p (reader) with
+                | Ok success ->
+                    ""
+                    |> Expect.equal success.Parsed (Nary(Op ',', [ Token(Number 1); Token(Number 2); Token(Number 3) ]))
+
+                    "" |> Expect.isTrue (reader.AtEnd)
+
+                | Error err -> failwith $"%A{err}"
+            }
         ]
 
 
@@ -212,6 +238,7 @@ type Tokens2 =
     | Else
     | LIdx
     | RIdx
+    | Tuple
 
 module Tokens2 =
     let ofString (s: string) =
@@ -240,6 +267,7 @@ module Tokens2 =
             | ':' -> Else
             | '[' -> LIdx
             | ']' -> RIdx
+            | ',' -> Tuple
             | _ -> failwith $"Invalid token '{c}' in '{s}'"
         )
 
@@ -266,23 +294,25 @@ let tests2 =
         [
             Operator.ternary If P1 (pitem If) (pitem Else) (Expr.ternary If Else)
 
-            Operator.infixLeftAssoc Add P2 (pitem Add) (Expr.infix Add)
-            Operator.infixLeftAssoc Sub P2 (pitem Sub) (Expr.infix Sub)
+            Operator.infixNary Tuple P2 (pitem Tuple) (Expr.tupleReducer Tuple)
 
-            Operator.infixLeftAssoc Mul P3 (pitem Mul) (Expr.infix Mul)
-            Operator.infixLeftAssoc Div P3 (pitem Div) (Expr.infix Div)
+            Operator.infixLeftAssoc Add P3 (pitem Add) (Expr.infix Add)
+            Operator.infixLeftAssoc Sub P3 (pitem Sub) (Expr.infix Sub)
 
-            Operator.infixRightAssoc Pow P4 (pitem Pow) (Expr.infix Pow)
+            Operator.infixLeftAssoc Mul P4 (pitem Mul) (Expr.infix Mul)
+            Operator.infixLeftAssoc Div P4 (pitem Div) (Expr.infix Div)
 
-            Operator.prefix Sub P5 (pitem Sub) (Expr.prefix Sub)
-            Operator.prefix Add P5 (pitem Add) (Expr.prefix Add)
+            Operator.infixRightAssoc Pow P5 (pitem Pow) (Expr.infix Pow)
 
-            Operator.postfix Factorial P6 (pitem Factorial) (Expr.postfix Factorial)
+            Operator.prefix Sub P6 (pitem Sub) (Expr.prefix Sub)
+            Operator.prefix Add P6 (pitem Add) (Expr.prefix Add)
+
+            Operator.postfix Factorial P7 (pitem Factorial) (Expr.postfix Factorial)
 
             Operator.indexer
                 LIdx
                 RIdx
-                P7
+                P8
                 (pitem LIdx)
                 (satisfy Tokens2.isNumber |>> Expr.Token)
                 (pitem RIdx)
@@ -294,15 +324,15 @@ let tests2 =
 
     let testParser (tokens, expected) =
         let p = Operator.parser (satisfy Tokens2.isNumber |>> Token) ops
-        let tokens = Tokens2.ofString tokens
-        let reader = Reader.ofArray tokens ()
+        let tokens2 = Tokens2.ofString tokens
+        let reader = Reader.ofArray tokens2 ()
 
         match p (reader) with
         | Ok success ->
             "" |> Expect.equal success.Parsed expected
 
             "" |> Expect.isTrue (reader.AtEnd)
-        | Error err -> failwith $"%A{err}"
+        | Error err -> failwith $"parsing '{tokens}' failed\n%A{err}"
 
     testList
         "OperatorParsing2"
@@ -320,6 +350,8 @@ let tests2 =
                     "(1)", Bracketed(LParen, RParen, Token(N1))
                     "1?2:3", Ternary(If, Else, Token(N1), Token(N2), Token(N3))
                     "1[2]", Indexer(LIdx, RIdx, Token(N1), Token(N2))
+                    "1,2", Nary(Tuple, [ Token(N1); Token(N2) ])
+                    "1,2,3", Nary(Tuple, [ Token(N1); Token(N2); Token(N3) ])
                 ]
                 |> List.iter testParser
             }
@@ -368,8 +400,43 @@ let tests2 =
                             Token(N7)
                         )
                     )
+
+                    "1,2+3,4", Nary(Tuple, [ Token(N1); Infix(Add, Token(N2), Token(N3)); Token(N4) ])
+
+                    "1*2,3+4", Nary(Tuple, [ Infix(Mul, Token(N1), Token(N2)); Infix(Add, Token(N3), Token(N4)) ])
+
+                    "(1,2),3",
+                    Nary(Tuple, [ Bracketed(LParen, RParen, Nary(Tuple, [ Token(N1); Token(N2) ])); Token(N3) ])
+
+                    "1,2?3:4", Ternary(If, Else, Nary(Tuple, [ Token(N1); Token(N2) ]), Token(N3), Token(N4))
+
+                    "1?2,3:4", Ternary(If, Else, Token(N1), Nary(Tuple, [ Token(N2); Token(N3) ]), Token(N4))
+
+                    "-1,-2", Nary(Tuple, [ Prefix(Sub, Token(N1)); Prefix(Sub, Token(N2)) ])
+
+                    "(1,2),(3,4)",
+                    Nary(
+                        Tuple,
+                        [
+                            Bracketed(LParen, RParen, Nary(Tuple, [ Token(N1); Token(N2) ]))
+                            Bracketed(LParen, RParen, Nary(Tuple, [ Token(N3); Token(N4) ]))
+                        ]
+                    )
                 ]
                 |> List.iter testParser
+            }
+
+            test "Tuple Stress Test" {
+                // Generate: "1,1,1,..."
+                // Ensures we don't stack overflow on large n-ary operator usage
+                let count = 10_000
+                let hugeTupleString = String.concat "," (List.replicate count "1")
+
+                // Expected: Tuple [Token(N1); Token(N1); ...]
+                let expectedItems = List.replicate count (Token(N1))
+                let expected = Nary(Tuple, expectedItems)
+
+                testParser (hugeTupleString, expected)
             }
         ]
 
@@ -517,6 +584,31 @@ let tests3 =
         ]
 
 
+[<RequireQualifiedAccess>]
+type SimpleError<'T> =
+    | Expected of 'T
+    | ExpectedSeq of 'T list
+    | Unexpected of 'T
+    | UnexpectedSeq of 'T list
+    | Message of string
+    | EndOfInput
+    | Nested of parent: SimpleError<'T> * children: SimpleError<'T> list
+
+[<RequireQualifiedAccess>]
+module SimpleError =
+
+    /// Recursively converts the complex ErrorType into a test-friendly SimpleError
+    let rec ofErrorType (e: ErrorType<'T, 'State>) : SimpleError<'T> =
+        match e with
+        | Expected x -> SimpleError.Expected x
+        | ExpectedSeq xs -> SimpleError.ExpectedSeq(List.ofSeq xs)
+        | Unexpected x -> SimpleError.Unexpected x
+        | UnexpectedSeq xs -> SimpleError.UnexpectedSeq(List.ofSeq xs)
+        | Message s -> SimpleError.Message s
+        | EndOfInput -> SimpleError.EndOfInput
+        | Nested(parent, children) ->
+            SimpleError.Nested(ofErrorType parent, children |> List.map (fun c -> ofErrorType c.Errors))
+
 #if !FABLE_COMPILER
 [<Tests>]
 #endif
@@ -542,17 +634,20 @@ let tests4 =
 
     let ops =
         [
-            Operator.infixLeftAssoc Add P2 (pitem '+' >>% Add) (Expr.infix Add)
-            Operator.infixLeftAssoc Sub P2 (pitem '-' >>% Sub) (Expr.infix Sub)
+            Operator.ternary If P1 (pitem '?' >>% If) (pitem ':' >>% Else) (Expr.ternary If Else)
+            Operator.infixNary Tuple P2 (pitem ',' >>% Tuple) (Expr.tupleReducer Tuple)
 
-            Operator.infixLeftAssoc Mul P3 ((pitem '*' .>> notFollowedBy (pitem '*')) >>% Mul) (Expr.infix Mul)
-            Operator.infixLeftAssoc Div P3 (pitem '/' >>% Div) (Expr.infix Div)
-            Operator.infixNonAssoc Pow P3 (pstring "**" >>% Pow) (Expr.infix Pow)
+            Operator.infixLeftAssoc Add P3 (pitem '+' >>% Add) (Expr.infix Add)
+            Operator.infixLeftAssoc Sub P3 (pitem '-' >>% Sub) (Expr.infix Sub)
 
-            Operator.prefix Sub P5 (pitem '-' >>% Sub) (Expr.prefix Sub)
-            Operator.prefix Add P5 (pitem '+' >>% Add) (Expr.prefix Add)
+            Operator.infixLeftAssoc Mul P4 ((pitem '*' .>> notFollowedBy (pitem '*')) >>% Mul) (Expr.infix Mul)
+            Operator.infixLeftAssoc Div P4 (pitem '/' >>% Div) (Expr.infix Div)
+            Operator.infixNonAssoc Pow P4 (pstring "**" >>% Pow) (Expr.infix Pow)
 
-            Operator.postfix Factorial P6 (pitem '!' >>% Factorial) (Expr.postfix Factorial)
+            Operator.prefix Sub P6 (pitem '-' >>% Sub) (Expr.prefix Sub)
+            Operator.prefix Add P6 (pitem '+' >>% Add) (Expr.prefix Add)
+
+            Operator.postfix Factorial P7 (pitem '!' >>% Factorial) (Expr.postfix Factorial)
 
             Operator.enclosedBy
                 LParen
@@ -581,7 +676,9 @@ let tests4 =
 
         match p (reader) with
         | Ok success -> failwith $"Expected failure but got {success}"
-        | Error err -> tokens |> Expect.equal (err.Errors, err.Position.Index) expected
+        | Error err ->
+            tokens
+            |> Expect.equal (SimpleError.ofErrorType err.Errors, err.Position.Index) expected
 
     testList
         "Multi Char OperatorParsing NonAssoc"
@@ -633,8 +730,38 @@ let tests4 =
 
             test "Failing Precedence expressions" {
                 [
-                    "1**2**3", (Message "Ambiguous operator associativity", 6L)
-                    "1**2*3", (Message "Ambiguous operator associativity", 5L)
+                    "1**2**3", (SimpleError.Message "Ambiguous operator associativity", 6L)
+                    "1**2*3", (SimpleError.Message "Ambiguous operator associativity", 5L)
+
+                    "1,",
+                    (SimpleError.Nested(
+                        SimpleError.Message "Operator parsing failed",
+                        [
+                            SimpleError.Message "LHS did not match any known operator"
+                            SimpleError.EndOfInput
+                        ]
+                     ),
+                     2L)
+
+                    "1,2,",
+                    (SimpleError.Nested(
+                        SimpleError.Message "Operator parsing failed",
+                        [
+                            SimpleError.Message "LHS did not match any known operator"
+                            SimpleError.EndOfInput
+                        ]
+                     ),
+                     4L)
+
+                    "1,,2",
+                    (SimpleError.Nested(
+                        SimpleError.Message "Operator parsing failed",
+                        [
+                            SimpleError.Message "LHS did not match any known operator"
+                            SimpleError.Unexpected ','
+                        ]
+                     ),
+                     2L)
                 ]
                 |> List.iter parserShouldFail
             }
