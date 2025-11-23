@@ -67,14 +67,14 @@
       "xparsec": {
         "type": "Project",
         "dependencies": {
-          "FSharp.Core": "[8.0.100, )",
+          "FSharp.Core": "[8.0.403, )",
           "System.Collections.Immutable": "[8.0.0, )"
         }
       },
       "xparsec.json": {
         "type": "Project",
         "dependencies": {
-          "XParsec": "[0.2.0, )"
+          "XParsec": "[0.2.3, )"
         }
       },
       "Fable.Core": {
