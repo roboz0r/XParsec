@@ -180,15 +180,27 @@ type Operator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
 /// Use `Operator.create` to create an instance of this type.
 type Operators<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
     when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
+    abstract LhsParser:
+        Parser<LHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>, 'T, 'State, 'Input, 'InputSlice>
+
+    abstract RhsParser:
+        Parser<RHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>, 'T, 'State, 'Input, 'InputSlice>
+
+type OperatorsCollection<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
+    when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
     internal
         {
             LhsOperators: OperatorLookup<'Op, LHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>>
             RhsOperators: OperatorLookup<'Op, RHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>>
-            LhsParser:
+            LhsParserImpl:
                 Parser<LHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>, 'T, 'State, 'Input, 'InputSlice>
-            RhsParser:
+            RhsParserImpl:
                 Parser<RHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>, 'T, 'State, 'Input, 'InputSlice>
         }
+
+    interface Operators<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice> with
+        member this.LhsParser = this.LhsParserImpl
+        member this.RhsParser = this.RhsParserImpl
 
 
 module internal Pratt =
@@ -516,9 +528,10 @@ module Operator =
         {
             LhsOperators = lhsOps.ToOperatorLookup()
             RhsOperators = rhsOps.ToOperatorLookup()
-            LhsParser = choiceL lhsParsers "LHS did not match any known operator"
-            RhsParser = choiceL rhsParsers "RHS did not match any known operator"
+            LhsParserImpl = choiceL lhsParsers "LHS did not match any known operator"
+            RhsParserImpl = choiceL rhsParsers "RHS did not match any known operator"
         }
+        :> Operators<_, _, _, _, _, _, _>
 
     /// Creates a left-associative infix operator with the specified properties.
     let infixLeftAssoc op power parseOp complete =
