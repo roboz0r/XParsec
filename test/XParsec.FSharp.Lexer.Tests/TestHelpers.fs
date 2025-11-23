@@ -293,3 +293,28 @@ let testLexFileBlocks (filePath: string) =
     else
         let expected = readLexed expectedPath
         testLexedBlocks input expected
+
+let testParseFile (filePath: string) =
+    let input = File.ReadAllText filePath
+    let input = input.Replace("\r\n", "\n")
+    let expectedPath = filePath + ".parsed"
+
+    let actual =
+        match Lexing.lexString input with
+        | Error e -> failwithf "Lexing failed: %A" e
+        | Ok { Parsed = lexed } ->
+            let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed
+            match XParsec.FSharp.Parser.Expr.parse reader with
+            | Error e -> failwithf "Parsing failed: %A" e
+            | Ok { Parsed = expr } ->
+                use sw = new StringWriter()
+                use tw = new System.CodeDom.Compiler.IndentedTextWriter(sw, "  ")
+                XParsec.FSharp.Parser.Debug.printExpr tw input lexed expr
+                sw.ToString()
+
+    if not (File.Exists expectedPath) then
+        File.WriteAllText(expectedPath, actual)
+        failtestf "Created expected parsed file at %s, please verify it is correct" expectedPath
+    else
+        let expected = File.ReadAllText expectedPath
+        Expect.equal actual expected "Parsed output does not match expected output."

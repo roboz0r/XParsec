@@ -1,0 +1,5 @@
+InfixApp: +(2)
+  Const: 1(0) NumInt32 (NumInt32)
+  InfixApp: *(6)
+    Const: 2(4) NumInt32 (NumInt32)
+    Const: 3(8) NumInt32 (NumInt32)

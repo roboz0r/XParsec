@@ -3,11 +3,10 @@ namespace rec XParsec.FSharp.Parser
 open System
 open System.Collections.Generic
 open System.Collections.Immutable
-
-
 open XParsec
 open XParsec.Parsers
 open XParsec.FSharp.Lexer
+open XParsec.FSharp.Parser.OperatorParsing
 
 #nowarn "40" // recursive references
 
@@ -299,6 +298,7 @@ module internal Keywords =
         // TODO: Where does VirtualLet get inserted?
         nextNonTriviaTokenSatisfiesL (fun synTok -> synTok.Token = Token.KWLet) "Expected 'let' keyword"
 
+[<RequireQualifiedAccess>]
 module Pat =
     let pNamedSimple: Parser<Pat<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         nextNonTriviaTokenSatisfiesL
@@ -309,6 +309,7 @@ module Pat =
     let parse: Parser<Pat<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         choiceL [ pNamedSimple ] "Pattern"
 
+[<RequireQualifiedAccess>]
 module ValueDefn =
 
     let parse: Parser<ValueDefn<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
@@ -323,6 +324,7 @@ module ValueDefn =
             return ValueDefn(mut, access, pat, typarDefns, returnType, eq, expr)
         }
 
+[<RequireQualifiedAccess>]
 module Constant =
     let pLiteral: Parser<Constant<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         nextNonTriviaTokenSatisfiesL (fun synTok -> synTok.Token.IsNumeric) "Expected constant literal"
@@ -331,36 +333,77 @@ module Constant =
     let parse: Parser<Constant<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         choiceL [ pLiteral ] "Constant"
 
+[<RequireQualifiedAccess>]
 module Expr =
-    let test =
-        let x = 1
-        x + 2
 
-    let pConst: Parser<Expr<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        Constant.parse |>> Expr.Const
+    type FSharpOperatorParser() =
+        let completeInfix (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) = Expr.InfixApp(l, op, r)
+        let completePrefix (op: SyntaxToken) (e: Expr<_>) = Expr.PrefixApp(op, e)
 
-    let pIdent: Parser<Expr<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        nextNonTriviaTokenSatisfiesL (fun synTok -> synTok.Token = Token.Identifier) "Expected identifier"
-        |>> Expr.Ident
+        interface Operators<SyntaxToken, unit, Expr<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, ReadableImmutableArraySlice<PositionedToken>> with
+            member _.LhsParser =
+                parser {
+                    let! token = nextNonTriviaToken
+                    match OperatorInfo.TryCreate(token.PositionedToken) with
+                    | ValueSome opInfo when opInfo.CanBePrefix ->
+                        let power = byte opInfo.Precedence * 2uy
+                        let p = preturn token
+                        let op = Prefix(token, p, power, completePrefix)
+                        return op
+                    | _ ->
+                        return! fail (Message "Not a prefix operator")
+                }
 
-    let pLetValue: Parser<Expr<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+            member _.RhsParser =
+                parser {
+                    let! token = nextNonTriviaToken
+                    match OperatorInfo.TryCreate(token.PositionedToken) with
+                    | ValueSome opInfo ->
+                        let power = byte opInfo.Precedence * 2uy
+                        let p = preturn token
+                        let op =
+                            match opInfo.Associativity with
+                            | Associativity.Left -> InfixLeft(token, p, power, completeInfix)
+                            | Associativity.Right -> InfixRight(token, p, power + 1uy, completeInfix)
+                            | Associativity.Non -> InfixNonAssociative(token, p, power, completeInfix)
+                        return op
+                    | _ ->
+                        return! fail (Message "Not an infix operator")
+                }
+
+    let p = RefParser<_, _, _, _, _>()
+
+    let pConst = Constant.parse |>> Expr.Const
+    let pIdent = nextNonTriviaTokenSatisfiesL (fun synTok -> synTok.Token = Token.Identifier) "Expected identifier" |>> Expr.Ident
+
+    let pLetValue =
         parser {
-            // LetValue of letToken: 'T * valueDefn: ValueDefn<'T> * inToken: 'T * expr: Expr<'T>
             let! letTok = pLet
-            // do! pushMinimumIndentationLevel (letTok.StartIndex + 1L)
             let! valueDefn = ValueDefn.parse
-            // do! popMinimumIndentationLevel
-            // do! pushMinimumIndentationLevel letTok.StartIndex
             let! inTok = pIn
-            let! expr = parse
-            // do! popMinimumIndentationLevel
+            let! expr = p.Parser
             return Expr.LetValue(letTok, valueDefn, inTok, expr)
         }
 
-    let parse: Parser<Expr<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        // TODO: Peek and match for performance
-        choiceL [ pConst; pLetValue; pIdent ] "Expression"
+    let pParen =
+        parser {
+            let! l = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpParenLeft) "Expected '('"
+            let! e = p.Parser
+            let! r = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpParenRight) "Expected ')'"
+            return Expr.ParentBlock(l, e, r)
+        }
 
+    let atomExpr =
+        choiceL [ pConst; pIdent; pLetValue; pParen ] "atom expression"
+
+    let operators = FSharpOperatorParser()
+    
+    do p.Set(Operator.parser atomExpr operators)
+
+    let parse = p.Parser
+
+
+[<RequireQualifiedAccess>]
 module Reader =
     let ofLexed (lexed: Lexed) =
         let initialState = ParseState.create lexed
