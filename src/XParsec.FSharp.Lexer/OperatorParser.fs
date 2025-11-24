@@ -7,6 +7,7 @@ open System.Collections.Immutable
 open XParsec
 
 #nowarn "44" // Suppress warning for obsolete member usage
+
 [<AutoOpen>]
 module private Precedence =
     let MinP = 0uy
@@ -104,10 +105,11 @@ type Operator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
 /// Use `Operator.create` to create an instance of this type.
 type Operators<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
     when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
-            abstract LhsParser:
-                Parser<LHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>, 'T, 'State, 'Input, 'InputSlice>
-            abstract RhsParser:
-                Parser<RHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>, 'T, 'State, 'Input, 'InputSlice>
+    abstract LhsParser:
+        Parser<LHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>, 'T, 'State, 'Input, 'InputSlice>
+
+    abstract RhsParser:
+        Parser<RHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>, 'T, 'State, 'Input, 'InputSlice>
 
 
 module internal Pratt =
@@ -135,6 +137,7 @@ module internal Pratt =
         match ops.RhsParser reader with
         | Ok op ->
             let op = op.Parsed
+
             match op with
             | Postfix(op, parseOp, leftPower, completePostfix) ->
                 if leftPower < minBinding then
@@ -253,6 +256,7 @@ module internal Pratt =
             match ops.LhsParser(reader) with
             | Ok op ->
                 let op = op.Parsed
+
                 match op with
                 | Prefix(op, parseOp, rightPower, completePrefix) ->
                     match parseLhs rightPower (reader) with

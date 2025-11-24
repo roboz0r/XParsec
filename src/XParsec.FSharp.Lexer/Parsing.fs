@@ -340,41 +340,54 @@ module Expr =
         let completeInfix (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) = Expr.InfixApp(l, op, r)
         let completePrefix (op: SyntaxToken) (e: Expr<_>) = Expr.PrefixApp(op, e)
 
-        interface Operators<SyntaxToken, unit, Expr<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, ReadableImmutableArraySlice<PositionedToken>> with
+        interface Operators<
+            SyntaxToken,
+            unit,
+            Expr<SyntaxToken>,
+            PositionedToken,
+            ParseState,
+            ReadableImmutableArray<PositionedToken>,
+            ReadableImmutableArraySlice<PositionedToken>
+         > with
             member _.LhsParser =
                 parser {
                     let! token = nextNonTriviaToken
+
                     match OperatorInfo.TryCreate(token.PositionedToken) with
                     | ValueSome opInfo when opInfo.CanBePrefix ->
                         let power = byte opInfo.Precedence * 2uy
                         let p = preturn token
                         let op = Prefix(token, p, power, completePrefix)
                         return op
-                    | _ ->
-                        return! fail (Message "Not a prefix operator")
+                    | _ -> return! fail (Message "Not a prefix operator")
                 }
 
             member _.RhsParser =
                 parser {
                     let! token = nextNonTriviaToken
+
                     match OperatorInfo.TryCreate(token.PositionedToken) with
                     | ValueSome opInfo ->
                         let power = byte opInfo.Precedence * 2uy
                         let p = preturn token
+
                         let op =
                             match opInfo.Associativity with
                             | Associativity.Left -> InfixLeft(token, p, power, completeInfix)
                             | Associativity.Right -> InfixRight(token, p, power + 1uy, completeInfix)
                             | Associativity.Non -> InfixNonAssociative(token, p, power, completeInfix)
+
                         return op
-                    | _ ->
-                        return! fail (Message "Not an infix operator")
+                    | _ -> return! fail (Message "Not an infix operator")
                 }
 
     let p = RefParser<_, _, _, _, _>()
 
     let pConst = Constant.parse |>> Expr.Const
-    let pIdent = nextNonTriviaTokenSatisfiesL (fun synTok -> synTok.Token = Token.Identifier) "Expected identifier" |>> Expr.Ident
+
+    let pIdent =
+        nextNonTriviaTokenSatisfiesL (fun synTok -> synTok.Token = Token.Identifier) "Expected identifier"
+        |>> Expr.Ident
 
     let pLetValue =
         parser {
@@ -393,11 +406,10 @@ module Expr =
             return Expr.ParentBlock(l, e, r)
         }
 
-    let atomExpr =
-        choiceL [ pConst; pIdent; pLetValue; pParen ] "atom expression"
+    let atomExpr = choiceL [ pConst; pIdent; pLetValue; pParen ] "atom expression"
 
     let operators = FSharpOperatorParser()
-    
+
     do p.Set(Operator.parser atomExpr operators)
 
     let parse = p.Parser
