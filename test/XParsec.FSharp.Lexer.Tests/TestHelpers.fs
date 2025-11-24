@@ -304,6 +304,7 @@ let testParseFile (filePath: string) =
         | Error e -> failwithf "Lexing failed: %A" e
         | Ok { Parsed = lexed } ->
             let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed
+
             match XParsec.FSharp.Parser.Expr.parse reader with
             | Error e -> failwithf "Parsing failed: %A" e
             | Ok { Parsed = expr } ->
