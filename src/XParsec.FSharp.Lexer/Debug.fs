@@ -7,10 +7,8 @@ open XParsec.FSharp.Lexer
 
 let printTokenMin (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (token: SyntaxToken) =
     match token.Index with
-    | TokenIndex.Regular iT ->
-        tw.Write($"{token.Token}({iT})")
-    | TokenIndex.Virtual ->
-        tw.Write($"{token.Token}(<virt>)")
+    | TokenIndex.Regular iT -> tw.Write($"{token.Token}({iT})")
+    | TokenIndex.Virtual -> tw.Write($"{token.Token}(<virt>)")
 
 let printTokenFull (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (token: SyntaxToken) =
     match token.Index with
@@ -20,21 +18,25 @@ let printTokenFull (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (toke
         let i1 = t1.StartIndex
         let iEnd = i1 - 1L
         let len = iEnd - i
-        let tokenStr = 
+
+        let tokenStr =
             if len > 10L then
                 input.[int i .. int (i - 10L)] + "..."
             else
                 input.[int i .. int (i1 - 1L)]
-        tw.Write($"{token.Token}({iT}) '{tokenStr}'")
-    | TokenIndex.Virtual ->
-        tw.Write($"{token.Token}(<virt>)")
 
-let printConstant  (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (x: XParsec.FSharp.Parser.Constant<SyntaxToken>) =
+        tw.Write($"{token.Token}({iT}) '{tokenStr}'")
+    | TokenIndex.Virtual -> tw.Write($"{token.Token}(<virt>)")
+
+let printConstant
+    (tw: IndentedTextWriter)
+    (input: string)
+    (lexed: Lexed)
+    (x: XParsec.FSharp.Parser.Constant<SyntaxToken>)
+    =
     match x with
-    | Constant.Literal value ->
-        printTokenFull tw input lexed value
-    | Constant.MeasuredLiteral (value, lAngle, measure, rAngle) ->
-        failwith "Not implemented"
+    | Constant.Literal value -> printTokenFull tw input lexed value
+    | Constant.MeasuredLiteral(value, lAngle, measure, rAngle) -> failwith "Not implemented"
 
 let printPat (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (pat: XParsec.FSharp.Parser.Pat<SyntaxToken>) =
     match pat with
@@ -46,12 +48,16 @@ let printPat (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (pat: XPars
         tw.Write("Pat.NamedSimple: ")
         printTokenFull tw input lexed ident
         tw.WriteLine()
-    | _ ->
-        failwith "Not implemented"
+    | _ -> failwith "Not implemented"
 
-let printValueDefn (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (valueDefn: XParsec.FSharp.Parser.ValueDefn<SyntaxToken>) =
+let printValueDefn
+    (tw: IndentedTextWriter)
+    (input: string)
+    (lexed: Lexed)
+    (valueDefn: XParsec.FSharp.Parser.ValueDefn<SyntaxToken>)
+    =
     match valueDefn with
-    | ValueDefn (mutableToken, access, pat, typarDefns, returnType, equals, expr) ->
+    | ValueDefn(mutableToken, access, pat, typarDefns, returnType, equals, expr) ->
         match mutableToken with
         | ValueSome t ->
             printTokenMin tw input lexed t
@@ -67,13 +73,11 @@ let printValueDefn (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (valu
         printPat tw input lexed pat
 
         match typarDefns with
-        | ValueSome typars ->
-            failwith "Not implemented"
+        | ValueSome typars -> failwith "Not implemented"
         | ValueNone -> ()
 
         match returnType with
-        | ValueSome returnType ->
-            failwith "Not implemented"
+        | ValueSome returnType -> failwith "Not implemented"
         | ValueNone -> ()
 
         printTokenMin tw input lexed equals
@@ -92,7 +96,7 @@ let printExpr (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (expr: XPa
         tw.Write("Ident: ")
         printTokenFull tw input lexed ident
         tw.WriteLine()
-    | Expr.LetValue (letToken, valueDefn, inToken, body) ->
+    | Expr.LetValue(letToken, valueDefn, inToken, body) ->
         tw.Write("LetValue: ")
         printTokenMin tw input lexed letToken
         tw.WriteLine()
@@ -105,5 +109,4 @@ let printExpr (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (expr: XPa
         tw.Indent <- tw.Indent + 1
         printExpr tw input lexed body
         tw.Indent <- tw.Indent - 1
-    | _ ->
-        failwith "Not implemented"  
+    | _ -> failwith "Not implemented"
