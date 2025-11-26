@@ -358,7 +358,13 @@ module internal Pratt =
                             match parseLhs Precedence.MinP reader with
                             | Ok rhs -> parseRhs (completeTernary lhs mid.Parsed rhs.Parsed) reader
                             | Error e -> Error e
-                        | Error e -> Error e
+                        | Error e ->
+                            let expectedMsg =
+                                { e with
+                                    Errors = Message "Expected close ternary operator"
+                                }
+
+                            ParseError.createNested failure [ expectedMsg; e ] e.Position
                     | Error e -> Error e
 
         | Error _ ->
@@ -404,7 +410,13 @@ module internal Pratt =
                         | Ok closeTok ->
                             let closeOp = closeTok.Parsed
                             parseRhs (completeBracket inner.Parsed) reader
-                        | Error e -> Error e
+                        | Error e ->
+                            let expectedMsg =
+                                { e with
+                                    Errors = Message $"Expected closing operator '{closeOp}'"
+                                }
+
+                            ParseError.createNested failure [ expectedMsg; e ] e.Position
                     | Error e -> Error e
 
             | Error e -> ParseError.createNested failure [ e; e0 ] pos
