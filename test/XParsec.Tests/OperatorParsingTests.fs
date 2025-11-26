@@ -762,6 +762,26 @@ let tests4 =
                         ]
                      ),
                      2L)
+
+                    "1?2",
+                    (SimpleError.Nested(
+                        SimpleError.Message "Operator parsing failed",
+                        [
+                            SimpleError.Message "Expected close ternary operator"
+                            SimpleError.EndOfInput
+                        ]
+                     ),
+                     3L)
+
+                    "(1",
+                    (SimpleError.Nested(
+                        SimpleError.Message "Operator parsing failed",
+                        [
+                            SimpleError.Message "Expected closing operator 'RParen'"
+                            SimpleError.EndOfInput
+                        ]
+                     ),
+                     2L)
                 ]
                 |> List.iter parserShouldFail
             }
