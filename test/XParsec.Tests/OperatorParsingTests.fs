@@ -26,13 +26,15 @@ type Expr<'Token> =
     | Indexer of left: 'Token * right: 'Token * Expr<'Token> * Expr<'Token>
     | Ternary of opLeft: 'Token * opRight: 'Token * cond: Expr<'Token> * thenExpr: Expr<'Token> * elseExpr: Expr<'Token>
     | Nary of op: 'Token * exprs: Expr<'Token> list
+    | IfThen of cond: Expr<'Token> * body: Expr<'Token>
+    | Dot of lhs: Expr<'Token> * rhs: 'Token
 
 module Expr =
     let infix lhs op rhs = Infix(op, lhs, rhs)
     let prefix op expr = Prefix(op, expr)
     let postfix expr op = Postfix(op, expr)
     let bracketed left expr right = Bracketed(left, right, expr)
-    let indexer lhs left index right = Indexer(left, right, lhs, index)
+    let indexer lhs left index right = Indexer(left, right, lhs, Token index)
 
     let ternary cond opLeft thenExpr opRight elseExpr =
         Ternary(opLeft, opRight, cond, thenExpr, elseExpr)
@@ -40,6 +42,8 @@ module Expr =
     let nary op exprs = Nary(op, exprs)
 
     let tupleReducer exprs x = Nary(Seq.head x, List.ofSeq exprs)
+    let lhsTernary _ cond _ body = IfThen(cond, body)
+    let dot lhs _ rhs = Dot(lhs, rhs)
 
 #if !FABLE_COMPILER
 [<Tests>]
@@ -237,6 +241,9 @@ type Tokens2 =
     | LIdx
     | RIdx
     | Tuple
+    | Dot // For InfixMapped
+    | IfKey
+    | ThenKey // For LHSTernary (represented by 'i' and 't' in string)
 
 module Tokens2 =
     let ofString (s: string) =
@@ -266,6 +273,9 @@ module Tokens2 =
             | '[' -> LIdx
             | ']' -> RIdx
             | ',' -> Tuple
+            | '.' -> Dot
+            | 'i' -> IfKey // 'i' stands for "if"
+            | 't' -> ThenKey // 't' stands for "then"
             | _ -> failwith $"Invalid token '{c}' in '{s}'"
         )
 
@@ -292,6 +302,10 @@ let tests2 =
         [
             Operator.ternary If P1 (pitem If) (pitem Else) Expr.ternary
 
+            // LHS Ternary / Mixfix (if cond then body)
+            // Note: We use a low precedence (P1) so it wraps loosely
+            Operator.lhsTernary IfKey P1 (pitem IfKey) ThenKey (pitem ThenKey) Expr.lhsTernary
+
             Operator.infixNary Tuple P2 (pitem Tuple) Expr.tupleReducer
 
             Operator.infixLeftAssoc Add P3 (pitem Add) Expr.infix
@@ -307,14 +321,9 @@ let tests2 =
 
             Operator.postfix Factorial P7 (pitem Factorial) Expr.postfix
 
-            Operator.indexer
-                LIdx
-                RIdx
-                P8
-                (pitem LIdx)
-                (satisfy Tokens2.isNumber |>> Expr.Token)
-                (pitem RIdx)
-                Expr.indexer
+            Operator.indexer LIdx RIdx P8 (pitem LIdx) (satisfy Tokens2.isNumber) (pitem RIdx) Expr.indexer
+
+            Operator.infixMapped Dot P9 (pitem Dot) (satisfy Tokens2.isNumber) Expr.dot
 
             Operator.enclosedBy LParen RParen P10 (pitem LParen) (pitem RParen) Expr.bracketed
         ]
@@ -327,9 +336,8 @@ let tests2 =
 
         match p (reader) with
         | Ok success ->
-            "" |> Expect.equal success.Parsed expected
-
-            "" |> Expect.isTrue (reader.AtEnd)
+            $"{tokens} wasn't parsed" |> Expect.equal success.Parsed expected
+            "Parser did not consume all input" |> Expect.isTrue reader.AtEnd
         | Error err -> failwith $"parsing '{tokens}' failed\n%A{err}"
 
     testList
@@ -350,6 +358,8 @@ let tests2 =
                     "1[2]", Indexer(LIdx, RIdx, Token(N1), Token(N2))
                     "1,2", Nary(Tuple, [ Token(N1); Token(N2) ])
                     "1,2,3", Nary(Tuple, [ Token(N1); Token(N2); Token(N3) ])
+                    "1.2", Expr.Dot(Token(N1), N2)
+                    "i1t2", IfThen(Token(N1), Token(N2))
                 ]
                 |> List.iter testParser
             }
@@ -420,6 +430,47 @@ let tests2 =
                             Bracketed(LParen, RParen, Nary(Tuple, [ Token(N3); Token(N4) ]))
                         ]
                     )
+
+                    // InfixMapped (Dot) has P9, Mul has P4
+                    // 1.2 * 3 -> (1.2) * 3
+                    "1.2*3", Infix(Mul, Expr.Dot(Token(N1), N2), Token(N3))
+
+                    // Dot vs Indexer (P9 vs P8)
+                    // 1[2].3 -> (1[2]).3
+                    "1[2].3", Expr.Dot(Indexer(LIdx, RIdx, Token(N1), Token(N2)), N3)
+
+                    // 1.2[3] -> (1.2)[3]
+                    "1.2[3]", Indexer(LIdx, RIdx, Expr.Dot(Token(N1), N2), Token(N3))
+
+                    // Chained Dot
+                    // 1.2.3 -> (1.2).3
+                    "1.2.3", Expr.Dot(Expr.Dot(Token(N1), N2), N3)
+                ]
+                |> List.iter testParser
+            }
+
+            test "LHS Ternary Interaction" {
+                [
+                    // i 1 t 2 + 3
+                    // If is P1, Add is P3.
+                    // Should parse as: if 1 then (2 + 3)
+                    // Because 'Then' acts as a delimiter, the RHS of 'Then' starts with MinPrecedence.
+                    // However, 'If' itself returns an Expr that participates in the outer loop.
+                    // If 'LHSTernary' P1 < Add P3, then `(if ...) + 3` isn't possible unless enclosed.
+
+                    // Case 1: Inside the body
+                    "i1t2+3", IfThen(Token(N1), Infix(Add, Token(N2), Token(N3)))
+
+                    // Case 2: Inside the condition
+                    "i1+2t3", IfThen(Infix(Add, Token(N1), Token(N2)), Token(N3))
+
+                    // Case 3: Chaining (Right Associative recursion in the body)
+                    // if 1 then if 2 then 3
+                    "i1ti2t3", IfThen(Token(N1), IfThen(Token(N2), Token(N3)))
+
+                    // Case 4: Operator on the result of the If (Needs Parens usually if precedence is low)
+                    // (if 1 then 2) + 3
+                    "(i1t2)+3", Infix(Add, Bracketed(LParen, RParen, IfThen(Token(N1), Token(N2))), Token(N3))
                 ]
                 |> List.iter testParser
             }
@@ -480,7 +531,7 @@ let tests3 =
 
             Operator.postfix Factorial P6 (pitem '!' >>% Factorial) Expr.postfix
 
-            Operator.indexer LIdx RIdx P7 (pitem '[' >>% LIdx) (pNum |>> Expr.Token) (pitem ']' >>% RIdx) Expr.indexer
+            Operator.indexer LIdx RIdx P7 (pitem '[' >>% LIdx) pNum (pitem ']' >>% RIdx) Expr.indexer
 
             Operator.enclosedBy LParen RParen P10 (pitem '(' >>% LParen) (pitem ')' >>% RParen) Expr.bracketed
         ]
@@ -495,8 +546,7 @@ let tests3 =
         match p (reader) with
         | Ok success ->
             $"{tokens} wasn't parsed" |> Expect.equal success.Parsed expected
-
-            "" |> Expect.isTrue (reader.AtEnd)
+            "Parser did not consume all input" |> Expect.isTrue reader.AtEnd
         | Error err -> failwith $"{tokens} wasn't parsed\n%A{err}"
 
     testList
