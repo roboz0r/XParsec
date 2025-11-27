@@ -556,7 +556,7 @@ type PrecedenceLevel =
     | HighApplication = 26
     | HighTypeApplication = 27
 
-[<Struct>]
+[<Struct; RequireQualifiedAccess>]
 type Associativity =
     | Non
     | Right

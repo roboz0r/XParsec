@@ -339,6 +339,18 @@ module Expr =
     type FSharpOperatorParser() =
         let completeInfix (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) = Expr.InfixApp(l, op, r)
         let completePrefix (op: SyntaxToken) (e: Expr<_>) = Expr.PrefixApp(op, e)
+        let completeTuple (elements: ResizeArray<Expr<_>>) ops = Expr.Tuple(List.ofSeq elements)
+
+        let printOpInfo (op: OperatorInfo) =
+            printfn
+                $"Operator: {op.Token}({op.StartIndex}), Precedence: {op.Precedence}, Associativity: %A{op.Associativity}"
+
+        let opComparer =
+            // For parsing, we only care about the operator token itself for equality
+            { new IEqualityComparer<SyntaxToken> with
+                member _.Equals(x, y) = x.Token = y.Token
+                member _.GetHashCode(obj) = hash obj.Token
+            }
 
         interface Operators<
             SyntaxToken,
@@ -351,10 +363,12 @@ module Expr =
          > with
             member _.LhsParser =
                 parser {
-                    let! token = nextNonTriviaToken
+                    let! token =
+                        nextNonTriviaTokenSatisfiesL (fun synTok -> synTok.Token.IsOperator) "Expected LHS operator"
 
                     match OperatorInfo.TryCreate(token.PositionedToken) with
                     | ValueSome opInfo when opInfo.CanBePrefix ->
+                        printOpInfo opInfo
                         let power = byte opInfo.Precedence * 2uy
                         let p = preturn token
                         let op = Prefix(token, p, power, completePrefix)
@@ -364,10 +378,12 @@ module Expr =
 
             member _.RhsParser =
                 parser {
-                    let! token = nextNonTriviaToken
+                    let! token =
+                        nextNonTriviaTokenSatisfiesL (fun synTok -> synTok.Token.IsOperator) "Expected RHS operator"
 
                     match OperatorInfo.TryCreate(token.PositionedToken) with
                     | ValueSome opInfo ->
+                        printOpInfo opInfo
                         let power = byte opInfo.Precedence * 2uy
                         let p = preturn token
 
@@ -375,11 +391,17 @@ module Expr =
                             match opInfo.Associativity with
                             | Associativity.Left -> InfixLeft(token, p, power, completeInfix)
                             | Associativity.Right -> InfixRight(token, p, power + 1uy, completeInfix)
-                            | Associativity.Non -> InfixNonAssociative(token, p, power, completeInfix)
+                            | Associativity.Non ->
+                                if token.Token = Token.OpComma then
+                                    InfixNary(token, p, power, completeTuple)
+                                else
+                                    InfixNonAssociative(token, p, power, completeInfix)
 
                         return op
                     | _ -> return! fail (Message "Not an infix operator")
                 }
+
+            member _.OpComparer = opComparer
 
     let p = RefParser<_, _, _, _, _>()
 

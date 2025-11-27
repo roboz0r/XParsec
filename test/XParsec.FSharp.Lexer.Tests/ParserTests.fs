@@ -17,16 +17,16 @@ let tests =
     testList
         "ParserTests"
         [
-            testCase
-                "Simple Expression"
-                (fun () ->
-                    let path = Path.Combine(testDataDir.Value, "00_simple_expr.fs")
-                    testParseFile path
-                )
-            testCase
-                "Simple Arithmetic"
-                (fun () ->
-                    let path = Path.Combine(testDataDir.Value, "01_simple_arithmetic.fs")
-                    testParseFile path
-                )
+            test "Simple Expression" {
+                let path = Path.Combine(testDataDir.Value, "00_simple_expr.fs")
+                testParseFile path
+            }
+            test "Simple Arithmetic" {
+                let path = Path.Combine(testDataDir.Value, "01_simple_arithmetic.fs")
+                testParseFile path
+            }
+            test "Simple Tuple" {
+                let path = Path.Combine(testDataDir.Value, "02_simple_tuple.fs")
+                testParseFile path
+            }
         ]
