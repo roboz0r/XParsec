@@ -2,6 +2,7 @@ namespace XParsec.OperatorParsing
 
 open System
 open System.Collections.Immutable
+open System.Collections.Generic
 open XParsec
 
 #nowarn "44" // Suppress warning for obsolete member usage
@@ -100,7 +101,7 @@ type OperatorLookup<'Key, 'Value when 'Key: equality> =
 
 
 type RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
-    when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
+    when 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
     | InfixLeft of
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
@@ -161,7 +162,7 @@ type RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
         completeTernary: ('Expr -> 'Op -> 'Expr -> 'Op -> 'Expr -> 'Expr)
 
 type LHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
-    when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
+    when 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
     | Prefix of
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
@@ -187,7 +188,7 @@ type LHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
 
 
 type Operator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
-    when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
+    when 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
     | RHS of RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>
     | LHS of LHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>
 
@@ -195,12 +196,14 @@ type Operator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
 /// It contains both left-hand side (LHS) and right-hand side (RHS) operators, along with their associated parsers.
 /// Use `Operator.create` to create an instance of this type.
 type Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
-    when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
+    when 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
     abstract LhsParser:
         Parser<LHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>, 'T, 'State, 'Input, 'InputSlice>
 
     abstract RhsParser:
         Parser<RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>, 'T, 'State, 'Input, 'InputSlice>
+
+    abstract OpComparer: IEqualityComparer<'Op>
 
 type OperatorsCollection<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
     when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
@@ -217,6 +220,7 @@ type OperatorsCollection<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
     interface Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice> with
         member this.LhsParser = this.LhsParserImpl
         member this.RhsParser = this.RhsParserImpl
+        member this.OpComparer = EqualityComparer<'Op>.Default
 
 
 module internal Pratt =
@@ -324,7 +328,7 @@ module internal Pratt =
                             match ops.RhsParser reader with
                             | Ok { Parsed = nextOp } ->
                                 match nextOp with
-                                | InfixNary(nextSym, _, _, _) when nextSym = op ->
+                                | InfixNary(nextSym, _, _, _) when ops.OpComparer.Equals(nextSym, op) ->
                                     parsedOps.Add nextSym
                                     loopNary items parsedOps
                                 | _ ->
