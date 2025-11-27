@@ -38,7 +38,7 @@ let printTokenFull (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (toke
 
         let len = i1 - i
         let tokenStr = input.Substring(i, len)
-        tw.Write($"{tokenStr}({iT}) {token.Token} ({token.Token.WithoutCommentFlags})")
+        tw.Write($"{tokenStr}({iT}) {token.Token} (0x%04x{uint16 token.Token.WithoutCommentFlags})")
     | TokenIndex.Virtual -> tw.Write($"{getOperatorText input lexed token}")
 
 let printConstant
@@ -129,5 +129,13 @@ let printExpr (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (expr: XPa
         tw.Indent <- tw.Indent + 1
         printExpr tw input lexed left
         printExpr tw input lexed right
+        tw.Indent <- tw.Indent - 1
+    | Expr.Tuple elements ->
+        tw.WriteLine("Tuple:")
+        tw.Indent <- tw.Indent + 1
+
+        for elem in elements do
+            printExpr tw input lexed elem
+
         tw.Indent <- tw.Indent - 1
     | _ -> failwith "Not implemented"

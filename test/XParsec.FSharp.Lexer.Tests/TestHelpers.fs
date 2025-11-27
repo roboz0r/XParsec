@@ -315,7 +315,7 @@ let testParseFile (filePath: string) =
 
     if not (File.Exists expectedPath) then
         File.WriteAllText(expectedPath, actual)
-        failtestf "Created expected parsed file at %s, please verify it is correct" expectedPath
+        failtestf "---\n%s\n---\nCreated expected parsed file at %s, please verify it is correct" actual expectedPath
     else
         let expected = File.ReadAllText expectedPath
         Expect.equal actual expected "Parsed output does not match expected output."
