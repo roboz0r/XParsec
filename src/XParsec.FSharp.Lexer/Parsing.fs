@@ -4,9 +4,9 @@ open System
 open System.Collections.Generic
 open System.Collections.Immutable
 open XParsec
+open XParsec.OperatorParsing
 open XParsec.Parsers
 open XParsec.FSharp.Lexer
-open XParsec.FSharp.Parser.OperatorParsing
 
 #nowarn "40" // recursive references
 
