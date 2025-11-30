@@ -9,15 +9,15 @@
 26, NumInt32
 27, Newline
 28, BlockCommentStart
-30, 16386
-31, 17970
-34, 16387
-35, 16513
-36, 16387
-37, 17938
-38, 16387
-39, 16646
-40, 16386
+30, Newline (in comment)
+31, KWLet (in comment)
+34, Whitespace (in comment)
+35, Identifier (in comment)
+36, Whitespace (in comment)
+37, OpEquality (in comment)
+38, Whitespace (in comment)
+39, NumInt32 (in comment)
+40, Newline (in comment)
 41, BlockCommentEnd
 43, Newline
 44, EOF

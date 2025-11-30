@@ -1,5 +1,5 @@
-InfixApp: +(2)
-  Const: 1(0) NumInt32 (0x0106)
-  InfixApp: *(6)
-    Const: 2(4) NumInt32 (0x0106)
-    Const: 3(8) NumInt32 (0x0106)
+InfixApp: 2, Operator 0b1000000001010011 InfixAdd (can be prefix)(2<token>)
+  Const: 0, NumInt32(0<token>) '1'
+  InfixApp: 6, Operator 0b1000000000010100 InfixMultiply(6<token>)
+    Const: 4, NumInt32(4<token>) '2'
+    Const: 8, NumInt32(8<token>) '3'

@@ -1,0 +1,14 @@
+0, KWLBracket
+1, Whitespace
+2, NumInt32
+3, OpSemicolon
+4, Whitespace
+5, NumInt32
+6, OpSemicolon
+7, Whitespace
+8, NumInt32
+9, OpSemicolon
+10, Whitespace
+11, KWRBracket
+12, Newline
+13, EOF

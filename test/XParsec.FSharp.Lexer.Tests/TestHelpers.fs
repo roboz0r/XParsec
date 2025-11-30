@@ -27,23 +27,13 @@ let escapeSpecialCharacters (s: string) =
 let private sprintToken (input: string) (pt: PositionedToken) (p1: int) =
     let p = int pt.StartIndex
 
-    let isBlockComment =
-        if pt.Token.InBlockComment then
-            " (in block comment)"
-        else
-            ""
-
-    let isInOCamlBlockComment =
-        if pt.Token.InOCamlBlockComment then
-            " (in OCaml block comment)"
-        else
-            ""
+    let isInComment = if pt.Token.InComment then " (in comment)" else ""
 
     match pt.TokenWithoutCommentFlags with
     | t when t.IsOperator ->
         let id = input.AsSpan(p, p1 - p).ToString()
 
-        sprintf "%d, %s (%s) %s %s" p (Operator.generateOperatorName t id) id isBlockComment isInOCamlBlockComment
+        sprintf "%d, %s (%s) %s" p (Operator.generateOperatorName t id) id isInComment
     | Token.InvalidOperator
     | Token.Identifier
     | Token.OtherUnlexed
@@ -62,10 +52,10 @@ let private sprintToken (input: string) (pt: PositionedToken) (p1: int) =
     | Token.VerbatimInterpolatedStringOpen
     | Token.VerbatimInterpolatedStringClose as t ->
         let id = input.AsSpan(p, p1 - p).ToString()
-        sprintf "%d, %A (%s) %s %s" p t id isBlockComment isInOCamlBlockComment
+        sprintf "%d, %A (%s) %s" p t id isInComment
     | t when t.IsNumeric ->
         let id = input.AsSpan(p, p1 - p).ToString()
-        sprintf "%d, %A (%s) %s %s" p t id isBlockComment isInOCamlBlockComment
+        sprintf "%d, %A (%s) %s" p t id isInComment
     | Token.StringLiteral
     | Token.UnterminatedStringLiteral
     | Token.VerbatimStringLiteral
@@ -79,9 +69,9 @@ let private sprintToken (input: string) (pt: PositionedToken) (p1: int) =
         let id = input.AsSpan(p, p1 - p).ToString()
         let id = escapeSpecialCharacters id
         let id = truncateMiddle 40 id
-        sprintf "%d, %A (%s) %s %s" p t id isBlockComment isInOCamlBlockComment
+        sprintf "%d, %A (%s) %s" p t id isInComment
 
-    | t -> sprintf "%d, %A %s %s" p t isBlockComment isInOCamlBlockComment
+    | t -> sprintf "%d, %A %s" p t isInComment
 
 let printLexed (input: string) (x: Lexed) =
     let rec f i =
@@ -130,19 +120,13 @@ let printLexedBlocks (input: string) (x: Lexed) =
 
     f 0
 
-let private getTokenString (t: PositionedToken) =
-    if t.Token.IsOperator && not t.Token.IsKeyword then
-        $"%d{int t.StartIndex}, Op%d{uint64 t.Token}"
-    else
-        $"%d{int t.StartIndex}, %A{t.Token}"
-
 let writeLexed (path: string) (x: Lexed) =
     use writer = new StreamWriter(path)
 
     let rec f i =
         if i < x.Tokens.Length then
             let t = x.Tokens[i * 1<token>]
-            writer.WriteLine(getTokenString t)
+            writer.WriteLine(t.ToString())
             f (i + 1)
 
     f 0
@@ -154,10 +138,29 @@ let writeLexedBlocks (path: string) (x: Lexed) =
         if i < x.Blocks.Length then
             let ti = x.Blocks[i * 1<block>].TokenIndex
             let token = x.Tokens[ti]
-            writer.WriteLine(getTokenString token)
+            writer.WriteLine(token.ToString())
             f (i + 1)
 
     f 0
+
+let pOperatorToken =
+    let pPrecedence =
+        typeof<PrecedenceLevel>.GetEnumValues()
+        |> Seq.cast<PrecedenceLevel>
+        |> Seq.map (fun level -> pstring (level.ToString()) >>% level)
+        |> choice
+
+    parser {
+        let! _ = pstring "Operator "
+        let! tokNoFlags = puint16
+        let! precedence = pchar ' ' >>. pPrecedence
+        let! canBePrefix = (pstring " (can be prefix)" >>% true) <|>% false
+        let! inComment = (pstring " (in comment)" >>% TokenRepresentation.InComment) <|>% 0us
+        let! isVirtual = (pstring " (virtual)" >>% TokenRepresentation.IsVirtual) <|>% 0us
+
+        let tok = tokNoFlags ||| inComment ||| isVirtual
+        return LanguagePrimitives.EnumOfValue<_, Token> tok
+    }
 
 let pToken =
     // Get enum cases
@@ -166,22 +169,36 @@ let pToken =
     |> Seq.toArray
     |> Array.map (fun case ->
         // printfn "Creating parser for %O" case
-        pstring (case.ToString()) >>% case
+        parser {
+            let! tokNoFlags = pstring (case.ToString()) >>% (uint16 case)
+            let! inComment = (pstring " (in comment)" >>% TokenRepresentation.InComment) <|>% 0us
+            let! isVirtual = (pstring " (virtual)" >>% TokenRepresentation.IsVirtual) <|>% 0us
+
+            let tok = tokNoFlags ||| inComment ||| isVirtual
+            return LanguagePrimitives.EnumOfValue<_, Token> tok
+        }
     )
     |> fun ps ->
         choiceL
             (seq {
                 yield! ps
-                yield (pstring "Op" >>. puint16) |>> LanguagePrimitives.EnumOfValue // Fallback for operators which encode associativity and precedence in the enum value
+                yield pOperatorToken // Fallback for operators which encode associativity and precedence in the enum value
                 yield puint16 |>> LanguagePrimitives.EnumOfValue // Fallback for any missing cases e.g. flagged with block comments
             })
             "token"
 
 
 let readLexed (path: string) =
-    let parser =
-        many (pipe4 pint32 (pstring ", ") pToken newline (fun pos _ tok _ -> PositionedToken.Create(tok, pos)))
-        .>> eof
+    let pLine =
+        parser {
+            let! pos = pint64
+            let! _ = pstring ", "
+            let! tok = pToken
+            let! _ = newline
+            return PositionedToken.Create(tok, pos)
+        }
+
+    let parser = many pLine .>> eof
 
     let text = File.ReadAllText path
 
@@ -310,7 +327,7 @@ let testParseFile (filePath: string) =
             | Ok { Parsed = expr } ->
                 use sw = new StringWriter()
                 use tw = new System.CodeDom.Compiler.IndentedTextWriter(sw, "  ")
-                XParsec.FSharp.Parser.Debug.printExpr tw input lexed expr
+                XParsec.FSharp.Debug.printExpr tw input lexed expr
                 sw.ToString()
 
     if not (File.Exists expectedPath) then

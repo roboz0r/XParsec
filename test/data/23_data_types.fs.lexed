@@ -7,7 +7,7 @@
 53, OpEquality
 54, Newline
 55, Indent
-59, OpBraceLeft
+59, KWLBrace
 60, Whitespace
 61, Identifier
 67, OpColon
@@ -20,7 +20,7 @@
 91, Whitespace
 92, Identifier
 99, Whitespace
-100, OpBraceRight
+100, KWRBrace
 101, Newline
 102, Newline
 103, KWType
@@ -30,7 +30,7 @@
 125, OpEquality
 126, Newline
 127, Indent
-131, OpBraceLeft
+131, KWLBrace
 132, Whitespace
 133, Identifier
 139, OpColon
@@ -49,7 +49,7 @@
 190, Whitespace
 191, Identifier
 195, Whitespace
-196, OpBraceRight
+196, KWRBrace
 197, Newline
 198, Newline
 199, LineComment
