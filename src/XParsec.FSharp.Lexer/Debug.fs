@@ -119,6 +119,14 @@ let printExpr (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (expr: Exp
             printExpr tw input lexed elem
 
         tw.Indent <- tw.Indent - 1
+    | Expr.StructTuple(kw, lParen, elements, rParen) ->
+        tw.WriteLine("StructTuple:")
+        tw.Indent <- tw.Indent + 1
+
+        for elem in elements do
+            printExpr tw input lexed elem
+
+        tw.Indent <- tw.Indent - 1
     | Expr.List(lBracket, elements, rBracket) ->
         tw.Write("List: ")
         printTokenMin tw input lexed lBracket

@@ -1,0 +1,10 @@
+0, KWStruct
+6, KWLParen
+7, NumInt32
+8, OpComma
+9, NumInt32
+10, OpComma
+11, NumInt32
+12, KWRParen
+13, Newline
+14, EOF
