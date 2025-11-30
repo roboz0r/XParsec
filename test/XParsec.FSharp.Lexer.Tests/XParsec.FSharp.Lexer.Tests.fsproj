@@ -7,7 +7,6 @@
     <GenerateProgramFile>false</GenerateProgramFile>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="Debug.fs" />
     <Compile Include="TestHelpers.fs" />
     <Compile Include="KeywordTests.fs" />
     <Compile Include="NumericTests.fs" />

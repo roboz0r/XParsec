@@ -181,7 +181,7 @@ module Parsing =
         }
 
     let isTriviaToken (state: ParseState) (token: PositionedToken) =
-        if token.InBlockComment || token.InOCamlBlockComment then
+        if token.InComment then
             true
         else
             match token.TokenWithoutCommentFlags with
@@ -190,10 +190,10 @@ module Parsing =
             | Token.Whitespace
             | Token.BlockCommentStart
             | Token.BlockCommentEnd
-            | Token.KWStartFSharpBlockComment
-            | Token.KWEndFSharpBlockComment
-            | Token.KWStartOCamlBlockComment
-            | Token.KWEndOCamlBlockComment
+            | Token.StartFSharpBlockComment
+            | Token.EndFSharpBlockComment
+            | Token.StartOCamlBlockComment
+            | Token.EndOCamlBlockComment
             | Token.Newline -> true
             | Token.Tab -> state.IndentDirective = Syntax.Verbose
             | _ -> false
@@ -206,6 +206,7 @@ module Parsing =
             reader.Skip()
             nextNonTriviaToken reader
         | ValueSome token ->
+            // printfn "Next non-trivia token: %A at index %A" token.Token reader.Index
             let t = syntaxToken token reader.Index
             reader.Skip()
             preturn t reader
@@ -333,8 +334,14 @@ module Constant =
     let parse: Parser<Constant<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         choiceL [ pLiteral ] "Constant"
 
+type Aux = | TODO
+
 [<RequireQualifiedAccess>]
 module Expr =
+    let bp x =
+        LanguagePrimitives.ByteWithMeasure<bp> x
+
+    let pl x : PrecedenceLevel = LanguagePrimitives.EnumOfValue x
 
     type FSharpOperatorParser() =
         let completeInfix (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) = Expr.InfixApp(l, op, r)
@@ -343,7 +350,7 @@ module Expr =
 
         let printOpInfo (op: OperatorInfo) =
             printfn
-                $"Operator: {op.Token}({op.StartIndex}), Precedence: {op.Precedence}, Associativity: %A{op.Associativity}"
+                $"Operator: {op.PositionedToken}({op.StartIndex}), Precedence: {op.Precedence}, Associativity: %A{op.Associativity}"
 
         let opComparer =
             // For parsing, we only care about the operator token itself for equality
@@ -351,6 +358,103 @@ module Expr =
                 member _.Equals(x, y) = x.Token = y.Token
                 member _.GetHashCode(obj) = hash obj.Token
             }
+
+
+        let rhsOperators
+            : (SyntaxToken
+                  -> RHSOperator<
+                      SyntaxToken,
+                      unit,
+                      Expr<SyntaxToken>,
+                      PositionedToken,
+                      ParseState,
+                      ReadableImmutableArray<PositionedToken>,
+                      ReadableImmutableArraySlice<PositionedToken>
+                   >) array =
+            Array.init
+                29
+                (fun i ->
+                    let pl = pl i
+                    let power = BindingPower.fromLevel i
+
+                    match pl with
+                    // Pattern only keywords
+                    // | PrecedenceLevel.As -> (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
+                    // | PrecedenceLevel.When -> (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
+                    | PrecedenceLevel.Pipe -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
+                    | PrecedenceLevel.Semicolon ->
+                        (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
+                    // Atom keywords
+                    // | PrecedenceLevel.Let -> (fun op -> InfixNonAssociative(op, preturn op, power, completeInfix))
+                    // | PrecedenceLevel.Function -> (fun op -> InfixNonAssociative(op, preturn op, power, completeInfix))
+                    // | PrecedenceLevel.If -> (fun op -> InfixNonAssociative(op, preturn op, power, completeInfix))
+                    | PrecedenceLevel.Arrow ->
+                        (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
+                    | PrecedenceLevel.Assignment ->
+                        (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
+                    | PrecedenceLevel.Comma -> (fun op -> InfixNary(op, preturn op, power, completeTuple))
+                    | PrecedenceLevel.LogicalOr -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
+                    | PrecedenceLevel.LogicalAnd -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
+                    // TODO: Implement mapped infix operator and Aux type
+                    // | PrecedenceLevel.Cast -> (fun op -> InfixMapped(op, preturn op, power, completeInfix))
+                    | PrecedenceLevel.LogicalAndBitwise -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
+                    | PrecedenceLevel.Caret ->
+                        (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
+                    | PrecedenceLevel.Cons ->
+                        (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
+                    // | PrecedenceLevel.TypeTest -> Pattern only operator :?
+                    | PrecedenceLevel.InfixAdd -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
+                    | PrecedenceLevel.InfixMultiply -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
+                    | PrecedenceLevel.Power ->
+                        (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
+                    | PrecedenceLevel.Application -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
+                    // | PrecedenceLevel.PatternMatchBar -> Pattern only operator
+                    // | PrecedenceLevel.Prefix -> LHS only
+                    | PrecedenceLevel.Dot -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
+                    | PrecedenceLevel.HighApplication -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
+                    | PrecedenceLevel.HighTypeApplication ->
+                        (fun op -> InfixLeft(op, preturn op, power, completeInfix))
+                    // | PrecedenceLevel.Parens -> LHS only
+                    | _ -> Unchecked.defaultof<_>
+                )
+
+        let pApplication =
+            // Treat whitespace followed by an atom as application
+            // Technically also need to handle line breaks with proper indentation here and interstitial comments
+            // This parser also need to handle high-precedence application f(x) and f<x>
+            parser {
+                // printfn "Parsing application operator (whitespace)"
+                return! fail (Message "Application operator not implemented yet")
+            }
+
+        let rhsParser =
+            // First try to parse application operator (whitespace) or high-precedence application
+            // then try to parse explicit operator
+            (pApplication <|> nextNonTriviaToken)
+            >>= fun token ->
+                match OperatorInfo.TryCreate token.PositionedToken with
+                | ValueNone -> fail (Message "Expected RHS operator")
+                | ValueSome opInfo ->
+                    // printOpInfo opInfo
+                    let pl = opInfo.Precedence
+                    let x = rhsOperators[LanguagePrimitives.EnumToValue pl]token
+
+                    if obj.ReferenceEquals(x, null) then
+                        fail (Message "Not a valid RHS operator")
+                    else
+                        preturn x
+
+        let lhsParser =
+            nextNonTriviaToken
+            >>= fun token ->
+                match OperatorInfo.TryCreate(token.PositionedToken) with
+                | ValueSome opInfo when opInfo.CanBePrefix ->
+                    // printOpInfo opInfo
+                    let power = bp (byte opInfo.Precedence * 2uy)
+                    let p = preturn token
+                    let op = Prefix(token, p, power, completePrefix)
+                    preturn op
+                | _ -> fail (Message "Not a prefix operator")
 
         interface Operators<
             SyntaxToken,
@@ -361,49 +465,12 @@ module Expr =
             ReadableImmutableArray<PositionedToken>,
             ReadableImmutableArraySlice<PositionedToken>
          > with
-            member _.LhsParser =
-                parser {
-                    let! token =
-                        nextNonTriviaTokenSatisfiesL (fun synTok -> synTok.Token.IsOperator) "Expected LHS operator"
-
-                    match OperatorInfo.TryCreate(token.PositionedToken) with
-                    | ValueSome opInfo when opInfo.CanBePrefix ->
-                        printOpInfo opInfo
-                        let power = byte opInfo.Precedence * 2uy
-                        let p = preturn token
-                        let op = Prefix(token, p, power, completePrefix)
-                        return op
-                    | _ -> return! fail (Message "Not a prefix operator")
-                }
-
-            member _.RhsParser =
-                parser {
-                    let! token =
-                        nextNonTriviaTokenSatisfiesL (fun synTok -> synTok.Token.IsOperator) "Expected RHS operator"
-
-                    match OperatorInfo.TryCreate(token.PositionedToken) with
-                    | ValueSome opInfo ->
-                        printOpInfo opInfo
-                        let power = byte opInfo.Precedence * 2uy
-                        let p = preturn token
-
-                        let op =
-                            match opInfo.Associativity with
-                            | Associativity.Left -> InfixLeft(token, p, power, completeInfix)
-                            | Associativity.Right -> InfixRight(token, p, power + 1uy, completeInfix)
-                            | Associativity.Non ->
-                                if token.Token = Token.OpComma then
-                                    InfixNary(token, p, power, completeTuple)
-                                else
-                                    InfixNonAssociative(token, p, power, completeInfix)
-
-                        return op
-                    | _ -> return! fail (Message "Not an infix operator")
-                }
-
+            member _.LhsParser = lhsParser
+            member _.RhsParser = rhsParser
             member _.OpComparer = opComparer
 
-    let p = RefParser<_, _, _, _, _>()
+    let private refExpr = RefParser<_, _, _, _, _>()
+    let private refExprInList = RefParser<_, _, _, _, _>()
 
     let pConst = Constant.parse |>> Expr.Const
 
@@ -416,25 +483,45 @@ module Expr =
             let! letTok = pLet
             let! valueDefn = ValueDefn.parse
             let! inTok = pIn
-            let! expr = p.Parser
+            let! expr = refExpr.Parser
             return Expr.LetValue(letTok, valueDefn, inTok, expr)
         }
 
     let pParen =
         parser {
-            let! l = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpParenLeft) "Expected '('"
-            let! e = p.Parser
-            let! r = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpParenRight) "Expected ')'"
+            let! l = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWLParen) "Expected '('"
+            let! e = refExpr.Parser
+            let! r = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWRParen) "Expected ')'"
             return Expr.ParentBlock(l, e, r)
         }
 
-    let atomExpr = choiceL [ pConst; pIdent; pLetValue; pParen ] "atom expression"
+    let pList =
+        parser {
+            let! l = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWLBracket) "Expected '['"
+
+            let! elems, seps =
+                sepEndBy
+                    refExprInList.Parser
+                    (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpSemicolon) "Expected ';'")
+
+            let! r = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWRBracket) "Expected ']'"
+            return Expr.List(l, [ yield! elems ], r)
+        }
+
+    let atomExpr =
+        choiceL [ pConst; pIdent; pLetValue; pParen; pList ] "atom expression"
 
     let operators = FSharpOperatorParser()
 
-    do p.Set(Operator.parser atomExpr operators)
+    refExpr.Set(Operator.parser atomExpr operators)
+    // Semicolon has special handling in F# lists
+    // so we create a separate parser for expressions in lists
+    // and set the starting precedence one level higher so it will be parsed in `pList`
+    refExprInList.Set(
+        Operator.parserAt (int PrecedenceLevel.Semicolon + 1 |> BindingPower.fromLevel) atomExpr operators
+    )
 
-    let parse = p.Parser
+    let parse = refExpr.Parser
 
 
 [<RequireQualifiedAccess>]

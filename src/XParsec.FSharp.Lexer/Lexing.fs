@@ -143,7 +143,7 @@ module LexBuilder =
                 // Empty line doesn't change blocks
                 let token = tokens[iTok]
 
-                if token.InBlockComment || token.InOCamlBlockComment then
+                if token.InComment then
                     firstNonTrivialOnLine (iTok + 1<_>) iTokEnd
                 else
                     match token.TokenWithoutCommentFlags with
@@ -154,10 +154,10 @@ module LexBuilder =
                     | Token.Tab
                     | Token.BlockCommentStart
                     | Token.BlockCommentEnd
-                    | Token.KWStartFSharpBlockComment
-                    | Token.KWEndFSharpBlockComment
-                    | Token.KWStartOCamlBlockComment
-                    | Token.KWEndOCamlBlockComment -> firstNonTrivialOnLine (iTok + 1<_>) iTokEnd
+                    | Token.StartFSharpBlockComment
+                    | Token.EndFSharpBlockComment
+                    | Token.StartOCamlBlockComment
+                    | Token.EndOCamlBlockComment -> firstNonTrivialOnLine (iTok + 1<_>) iTokEnd
                     | Token.Newline -> invalidOp "Unexpected Newline token in line"
 
                     | _ -> Some(iTok, token)
@@ -326,27 +326,21 @@ module LexBuilder =
 
 
         match token with
-        | Token.KWEndOCamlBlockComment -> state.IsInOCamlBlockComment <- false
+        | Token.EndOCamlBlockComment -> state.IsInOCamlBlockComment <- false
         | Token.BlockCommentEnd -> state.IsInBlockComment <- false
         | _ -> ()
 
         if addToken then
             let token =
-                if state.IsInBlockComment then
-                    uint16 token ||| TokenRepresentation.InBlockComment |> Token.ofUInt16
-                else
-                    token
-
-            let token =
-                if state.IsInOCamlBlockComment then
-                    uint16 token ||| TokenRepresentation.InOCamlBlockComment |> Token.ofUInt16
+                if state.IsInBlockComment || state.IsInOCamlBlockComment then
+                    uint16 token ||| TokenRepresentation.InComment |> Token.ofUInt16
                 else
                     token
 
             state.Tokens.Add(PositionedToken.Create(token, idx))
 
         match token with
-        | Token.KWStartOCamlBlockComment -> state.IsInOCamlBlockComment <- true
+        | Token.StartOCamlBlockComment -> state.IsInOCamlBlockComment <- true
         | Token.BlockCommentStart -> state.IsInBlockComment <- true
         | _ -> ()
 
@@ -504,10 +498,8 @@ module Lexing =
             "elif", Token.KWElif
             "else", Token.KWElse
             "end", Token.KWEnd
-            "event", Token.KWEvent
             "exception", Token.KWException
             "extern", Token.KWExtern
-            "external", Token.KWExternal
             "false", Token.KWFalse
             "finally", Token.KWFinally
             "fixed", Token.KWFixed
@@ -532,7 +524,6 @@ module Lexing =
             "mutable", Token.KWMutable
             "namespace", Token.KWNamespace
             "new", Token.KWNew
-            "not", Token.KWNot
             "null", Token.KWNull
             "of", Token.KWOf
             "open", Token.KWOpen
@@ -547,7 +538,6 @@ module Lexing =
             "rec", Token.KWRec
             "return", Token.KWReturn
             "sealed", Token.KWReservedSealed
-            "select", Token.KWContextualSelect
             "sig", Token.KWSig
             "static", Token.KWStatic
             "struct", Token.KWStruct
@@ -738,7 +728,7 @@ module Lexing =
             match id with
             | "F#*)"
             | "ENDIF-FSHARP*)" ->
-                do! updateUserState (LexBuilder.append Token.KWEndFSharpBlockComment pos CtxOp.NoOp)
+                do! updateUserState (LexBuilder.append Token.EndFSharpBlockComment pos CtxOp.NoOp)
 
                 return ()
             | _ ->
@@ -756,7 +746,7 @@ module Lexing =
                     | false, _ ->
                         match suffix with
                         | ValueNone -> Token.Identifier
-                        | ValueSome '!' -> Token.ReservedIdentifierBang
+                        | ValueSome '!' -> Token.OpDereference
                         | ValueSome '#' -> Token.ReservedIdentifierHash
                         | ValueSome c -> invalidOp $"Unexpected identifier suffix '{c}'"
 
@@ -1143,7 +1133,7 @@ module Lexing =
                 do!
                     updateUserState (fun state ->
                         state
-                        |> LexBuilder.append Token.SingleQuote pos CtxOp.NoOp
+                        |> LexBuilder.append Token.KWSingleQuote pos CtxOp.NoOp
                         |> LexBuilder.appendI token (pos.Index + 1) CtxOp.NoOp
 
                     )
@@ -1240,22 +1230,22 @@ module Lexing =
 
 
     let pOpenBraceExpressionContext =
-        pTokenPushCtx (pchar '{') Token.OpBraceLeft LexContext.BracedExpression
+        pTokenPushCtx (pchar '{') Token.KWLBrace LexContext.BracedExpression
 
     let pCloseBraceExpressionContext =
-        pTokenPopCtx (pchar '}') Token.OpBraceRight LexContext.BracedExpression
+        pTokenPopCtx (pchar '}') Token.KWRBrace LexContext.BracedExpression
 
     let pOpenParenExpressionContext =
-        pTokenPushCtx (pchar '(') Token.OpParenLeft LexContext.ParenthesExpression
+        pTokenPushCtx (pchar '(') Token.KWLParen LexContext.ParenthesExpression
 
     let pCloseParenExpressionContext =
-        pTokenPopCtx (pchar ')') Token.OpParenRight LexContext.ParenthesExpression
+        pTokenPopCtx (pchar ')') Token.KWRParen LexContext.ParenthesExpression
 
     let pOpenBracketExpressionContext =
-        pTokenPushCtx (pchar '[') Token.OpBracketLeft LexContext.BracketedExpression
+        pTokenPushCtx (pchar '[') Token.KWLBracket LexContext.BracketedExpression
 
     let pCloseBracketExpressionContext =
-        pTokenPopCtx (pchar ']') Token.OpBracketRight LexContext.BracketedExpression
+        pTokenPopCtx (pchar ']') Token.KWRBracket LexContext.BracketedExpression
 
     let pInterpolatedExpressionEndToken =
         parser {
@@ -1293,7 +1283,7 @@ module Lexing =
 
                         for i in 0 .. (braces.Length - 1) do
                             // We have some number of braces, but not enough to close the expression
-                            state <- LexBuilder.appendI Token.OpBraceRight (pos.Index + i) CtxOp.NoOp state
+                            state <- LexBuilder.appendI Token.KWRBrace (pos.Index + i) CtxOp.NoOp state
 
                         state
                     )
@@ -1475,7 +1465,7 @@ module Lexing =
                         | "?" -> Token.OpDynamic, CtxOp.NoOp
                         | "?<-" -> Token.OpDynamicAssignment, CtxOp.NoOp
                         | "!" -> Token.OpDereference, CtxOp.NoOp
-                        | "??" -> Token.OpDoubleQuestion, CtxOp.NoOp
+                        | "??" -> Token.OpQMarkQMark, CtxOp.NoOp
                         | "=" -> Token.OpEquality, CtxOp.NoOp
                         | _ ->
                             let token = Token.ofCustomOperator (op.AsSpan())
@@ -1498,11 +1488,9 @@ module Lexing =
                 ".[,,]", (Token.OpIndexGet3Identifier, CtxOp.NoOp)
                 ".[,,,]<-", (Token.OpIndexSet4Identifier, CtxOp.NoOp)
                 ".[,,,]", (Token.OpIndexGet4Identifier, CtxOp.NoOp)
-                ".[", (Token.OpIndexLeft, CtxOp.Push LexContext.BracketedExpression)
                 // ML style index operators
                 ".()<-", (Token.OpIndexSetParenIdentifier, CtxOp.NoOp)
                 ".()", (Token.OpIndexGetParenIdentifier, CtxOp.NoOp)
-                ".(", (Token.OpIndexLeftParen, CtxOp.Push LexContext.ParenthesExpression)
             |]
 
         let pSpecialOperatorToken = anyStringReturn specialOperators
@@ -1647,14 +1635,29 @@ module Lexing =
                     | "L" -> Token.NumInt64
                     | "uL"
                     | "UL" -> Token.NumUInt64
-                    | "Q"
-                    | "R"
-                    | "Z"
-                    | "I"
-                    | "N"
+                    | "Q" ->
+                        match numBase with
+                        | NumericBase.Decimal -> Token.NumBigIntegerQ
+                        | _ -> Token.ReservedNumericLiteral
+                    | "R" ->
+                        match numBase with
+                        | NumericBase.Decimal -> Token.NumBigIntegerR
+                        | _ -> Token.ReservedNumericLiteral
+                    | "Z" ->
+                        match numBase with
+                        | NumericBase.Decimal -> Token.NumBigIntegerZ
+                        | _ -> Token.ReservedNumericLiteral
+                    | "I" ->
+                        match numBase with
+                        | NumericBase.Decimal -> Token.NumBigIntegerI
+                        | _ -> Token.ReservedNumericLiteral
+                    | "N" ->
+                        match numBase with
+                        | NumericBase.Decimal -> Token.NumBigIntegerN
+                        | _ -> Token.ReservedNumericLiteral
                     | "G" ->
                         match numBase with
-                        | NumericBase.Decimal -> Token.NumBigInteger
+                        | NumericBase.Decimal -> Token.NumBigIntegerG
                         | _ -> Token.ReservedNumericLiteral
                     | "m"
                     | "M" ->
@@ -1679,8 +1682,8 @@ module Lexing =
                         | _ -> Token.NumIEEE32
                     | _ -> Token.ReservedNumericLiteral
 
-            // Combine the base into the token using the 5,4 bits of a 16 bit int
-            let numBase = uint16 numBase <<< 4
+            // Combine the base into the token
+            let numBase = uint16 numBase <<< TokenRepresentation.NumericBaseShift
             Token.ofUInt16 (uint16 token ||| numBase)
 
         let getDecimalFloatToken (suffix: string) =
@@ -2008,10 +2011,10 @@ module Lexing =
         choiceL
             [
                 // 19.1 Conditional Compilation for ML Compatibility
-                pToken (pstring "(*ENDIF-OCAML*)") Token.KWEndOCamlBlockComment
-                pToken (pstring "(*IF-OCAML*)") Token.KWStartOCamlBlockComment
-                pToken (pstring "(*IF-FSHARP") Token.KWStartFSharpBlockComment
-                pToken (pstring "(*F#") Token.KWStartFSharpBlockComment
+                pToken (pstring "(*ENDIF-OCAML*)") Token.EndOCamlBlockComment
+                pToken (pstring "(*IF-OCAML*)") Token.StartOCamlBlockComment
+                pToken (pstring "(*IF-FSHARP") Token.StartFSharpBlockComment
+                pToken (pstring "(*F#") Token.StartFSharpBlockComment
                 // 3.2 Comments
                 pToken (pstring "(*") Token.BlockCommentStart
                 pToken (pstring "()") Token.Unit
@@ -2022,21 +2025,21 @@ module Lexing =
     let pLBacketToken =
         choiceL
             [
-                pToken pLAttrBrack Token.OpAttributeBracketLeft
-                pToken pLArrayBrack Token.OpArrayBracketLeft
+                pToken pLAttrBrack Token.KWLAttrBracket
+                pToken pLArrayBrack Token.KWLArrayBracket
                 pToken (pstring "[]") Token.OpNil
                 pOpenBracketExpressionContext
             ]
             "Left bracket or empty array"
 
     let pGreaterThanToken =
-        choiceL [ pToken pRAttrBrack Token.OpAttributeBracketRight; pOperatorToken ] "Right bracket or operator"
+        choiceL [ pToken pRAttrBrack Token.KWRAttrBracket; pOperatorToken ] "Right bracket or operator"
 
     let pDoubleQuoteToken =
         choiceL [ pString3LiteralToken; pStringLiteralToken ] "String literal"
 
     let pSingleQuoteToken =
-        choiceL [ pCharToken; pTypeParamToken; pToken (pchar '\'') Token.SingleQuote ] "Single quote"
+        choiceL [ pCharToken; pTypeParamToken; pToken (pchar '\'') Token.KWSingleQuote ] "Single quote"
 
     let pDollarToken =
         choiceL
@@ -2072,7 +2075,7 @@ module Lexing =
     let pCustomOperatorToken =
         choiceL
             [
-                pToken pRArrayBrack Token.OpArrayBracketRight
+                pToken pRArrayBrack Token.KWRArrayBracket
                 // 3.2 Comments
                 pToken (pstring "*)") Token.BlockCommentEnd
                 pOperatorToken
