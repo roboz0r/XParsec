@@ -41,43 +41,76 @@ type Precedence =
     | P29
     | P30
 
+/// A unit of measure representing binding power for operators.
+/// Binding power is used in Pratt parsing to determine the precedence and associativity of operators.
+/// Higher binding power indicates higher precedence.
+/// By convention, binding powers are odd numbers N with the next higher even number indicating the operator associativity.
+/// A left-associative operator with binding power N has left power N and right power N + 1.
+/// A right-associative operator with binding power N has left power N + 1 and right power N.
+/// A non-associative operator with binding power N has both left and right power N.
+[<Measure>]
+type bp
+
+/// Binding power is used in Pratt parsing to determine the precedence and associativity of operators.
+/// Higher binding power indicates higher precedence.
+/// By convention, binding powers are odd numbers N with the next higher even number indicating the operator associativity.
+/// A left-associative operator with binding power N has left power N and right power N + 1.
+/// A right-associative operator with binding power N has left power N + 1 and right power N.
+/// A non-associative operator with binding power N has both left and right power N.
+module BindingPower =
+    /// Converts a raw precedence level (0-126) into a Base Binding Power (Odd Number).
+    /// Level 0 -> 1<bp>, Level 1 -> 3<bp>, Level 10 -> 21<bp>.
+    let fromLevel (level: int) : byte<bp> =
+        let oddBase = (byte level * 2uy) + 1uy
+        LanguagePrimitives.ByteWithMeasure oddBase
+
+    /// Calculates the recursion power for a Left Associative operator.
+    /// (LBP = N, RBP = N + 1)
+    let leftAssocRhs (basePower: byte<bp>) = basePower + 1uy<bp>
+
+    /// Calculates the LHS power for a Right Associative operator.
+    /// (LBP = N + 1, RBP = N)
+    let rightAssocLhs (basePower: byte<bp>) = basePower + 1uy<bp>
+
+    let internal rightAssocRhs (leftPower: byte<bp>) = leftPower - 1uy<bp>
+
 [<RequireQualifiedAccess>]
 module internal Precedence =
-    let value =
+    let bindingPower =
         function
-        | P1 -> 1uy
-        | P2 -> 3uy
-        | P3 -> 5uy
-        | P4 -> 7uy
-        | P5 -> 9uy
-        | P6 -> 11uy
-        | P7 -> 13uy
-        | P8 -> 15uy
-        | P9 -> 17uy
-        | P10 -> 19uy
-        | P11 -> 21uy
-        | P12 -> 23uy
-        | P13 -> 25uy
-        | P14 -> 27uy
-        | P15 -> 29uy
-        | P16 -> 31uy
-        | P17 -> 33uy
-        | P18 -> 35uy
-        | P19 -> 37uy
-        | P20 -> 39uy
-        | P21 -> 41uy
-        | P22 -> 43uy
-        | P23 -> 45uy
-        | P24 -> 47uy
-        | P25 -> 49uy
-        | P26 -> 51uy
-        | P27 -> 53uy
-        | P28 -> 55uy
-        | P29 -> 57uy
-        | P30 -> 59uy
+        | P1 -> 1uy<bp>
+        | P2 -> 3uy<bp>
+        | P3 -> 5uy<bp>
+        | P4 -> 7uy<bp>
+        | P5 -> 9uy<bp>
+        | P6 -> 11uy<bp>
+        | P7 -> 13uy<bp>
+        | P8 -> 15uy<bp>
+        | P9 -> 17uy<bp>
+        | P10 -> 19uy<bp>
+        | P11 -> 21uy<bp>
+        | P12 -> 23uy<bp>
+        | P13 -> 25uy<bp>
+        | P14 -> 27uy<bp>
+        | P15 -> 29uy<bp>
+        | P16 -> 31uy<bp>
+        | P17 -> 33uy<bp>
+        | P18 -> 35uy<bp>
+        | P19 -> 37uy<bp>
+        | P20 -> 39uy<bp>
+        | P21 -> 41uy<bp>
+        | P22 -> 43uy<bp>
+        | P23 -> 45uy<bp>
+        | P24 -> 47uy<bp>
+        | P25 -> 49uy<bp>
+        | P26 -> 51uy<bp>
+        | P27 -> 53uy<bp>
+        | P28 -> 55uy<bp>
+        | P29 -> 57uy<bp>
+        | P30 -> 59uy<bp>
 
     [<Literal>]
-    let MinP = 0uy
+    let MinP = 0uy<bp>
 
 [<Struct; NoEquality; NoComparison>]
 type OperatorLookup<'Key, 'Value when 'Key: equality> =
@@ -105,19 +138,19 @@ type RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
     | InfixLeft of
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
-        leftPower: byte *
+        leftPower: byte<bp> *
         completeInfix: ('Expr -> 'Op -> 'Expr -> 'Expr)
 
     | InfixRight of
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
-        leftPower: byte *
+        leftPower: byte<bp> *
         completeInfix: ('Expr -> 'Op -> 'Expr -> 'Expr)
 
     | InfixNonAssociative of
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
-        leftPower: byte *
+        leftPower: byte<bp> *
         completeInfix: ('Expr -> 'Op -> 'Expr -> 'Expr)
 
     /// Used for operators like the Tuple comma (,) which are technically "Not Associative"
@@ -126,7 +159,7 @@ type RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
     | InfixNary of
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
-        leftPower: byte *
+        leftPower: byte<bp> *
         completeNary: (ResizeArray<'Expr> -> ResizeArray<'Op> -> 'Expr)
 
     /// A generalized infix operator where the Right-Hand Side is NOT necessarily an expression.
@@ -135,20 +168,20 @@ type RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
     | InfixMapped of
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
-        leftPower: byte *
+        leftPower: byte<bp> *
         parseRight: Parser<'Aux, 'T, 'State, 'Input, 'InputSlice> *  // <--- Custom Parser
         complete: ('Expr -> 'Op -> 'Aux -> 'Expr)
 
     | Postfix of
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
-        leftPower: byte *
+        leftPower: byte<bp> *
         completePostfix: ('Expr -> 'Op -> 'Expr)
 
     | Indexer of
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
-        leftPower: byte *
+        leftPower: byte<bp> *
         closeOp: 'Op *
         parseCloseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
         parseInnerExpr: Parser<'Aux, 'T, 'State, 'Input, 'InputSlice> *
@@ -157,7 +190,7 @@ type RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
     | Ternary of
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
-        leftPower: byte *
+        leftPower: byte<bp> *
         parseTernaryOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
         completeTernary: ('Expr -> 'Op -> 'Expr -> 'Op -> 'Expr -> 'Expr)
 
@@ -166,13 +199,13 @@ type LHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
     | Prefix of
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
-        rightPower: byte *
+        rightPower: byte<bp> *
         completePrefix: ('Op -> 'Expr -> 'Expr)
 
     | Enclosed of
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
-        rightPower: byte *
+        rightPower: byte<bp> *
         closeOp: 'Op *
         parseCloseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
         complete: ('Op -> 'Expr -> 'Op -> 'Expr)
@@ -181,7 +214,7 @@ type LHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
     | LHSTernary of
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
-        rightPower: byte *  // Binding power for the 'condition' (middle expr)
+        rightPower: byte<bp> *  // Binding power for the 'condition' (middle expr)
         delimiter: 'Op *
         parseDelimiter: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
         complete: ('Op -> 'Expr -> 'Op -> 'Expr -> 'Expr)
@@ -269,7 +302,7 @@ module internal Pratt =
                 elif leftPower = minBinding then
                     fail ambiguous reader
                 else
-                    let rightPower = leftPower + 1uy
+                    let rightPower = leftPower + 1uy<bp>
                     // Found operator has higher binding than existing tokens so need to get next operator recursively
                     match parseLhs rightPower reader with
                     | Ok { Parsed = rhs } -> parseRhs (completeInfix lhs op rhs) reader
@@ -282,7 +315,7 @@ module internal Pratt =
                 elif leftPower = minBinding then
                     fail ambiguous reader
                 else
-                    let rightPower = leftPower - 1uy
+                    let rightPower = leftPower - 1uy<bp>
 
                     match parseLhs rightPower reader with
                     | Ok { Parsed = rhs } -> parseRhs (completeInfix lhs op rhs) reader
@@ -314,7 +347,7 @@ module internal Pratt =
                         // If the inner `parseLhs` encounters another comma (precedence = leftPower),
                         // it will see (leftPower < minBinding), stop, and return the expression.
                         // This allows us to catch the comma here in the loop.
-                        let rightPower = leftPower + 1uy
+                        let rightPower = leftPower + 1uy<bp>
 
                         match parseLhs rightPower reader with
                         | Error e -> Error e
@@ -385,7 +418,7 @@ module internal Pratt =
                 elif leftPower = minBinding then
                     fail ambiguous reader
                 else
-                    let rightPower = leftPower - 1uy
+                    let rightPower = leftPower - 1uy<bp>
 
                     match parseLhs rightPower reader with
                     | Ok { Parsed = mid } ->
@@ -533,12 +566,12 @@ module Operator =
 
     let private rhsRightPower =
         function
-        | InfixLeft(_, _, leftPower, _) -> leftPower + 1uy
-        | InfixRight(_, _, leftPower, _) -> leftPower - 1uy
+        | InfixLeft(_, _, leftPower, _) -> BindingPower.leftAssocRhs leftPower
+        | InfixRight(_, _, leftPower, _) -> BindingPower.rightAssocRhs leftPower
         | InfixNonAssociative(_, _, leftPower, _) -> leftPower
         | InfixNary(_, _, leftPower, _) -> leftPower
-        | InfixMapped(_, _, leftPower, _, _) -> leftPower
-        | Ternary(_, _, leftPower, _, _) -> leftPower - 1uy
+        | InfixMapped(_, _, leftPower, _, _) -> BindingPower.leftAssocRhs leftPower
+        | Ternary(_, _, leftPower, _, _) -> BindingPower.rightAssocRhs leftPower
         | Postfix(_, _, _, _)
         | Indexer(_, _, _, _, _, _, _) -> Precedence.MinP
 
@@ -613,64 +646,64 @@ module Operator =
         :> Operators<_, _, _, _, _, _, _>
 
     /// Creates a left-associative infix operator with the specified properties.
-    let infixLeftAssoc op power parseOp complete =
-        let power = Precedence.value power
+    let infixLeftAssoc op precedence parseOp complete =
+        let power = Precedence.bindingPower precedence
         RHS(InfixLeft(op, parseOp, power, complete))
 
     /// Creates a right-associative infix operator with the specified properties.
-    let infixRightAssoc op power parseOp complete =
-        let power = Precedence.value power
-        RHS(InfixRight(op, parseOp, power + 1uy, complete))
+    let infixRightAssoc op precedence parseOp complete =
+        let power = Precedence.bindingPower precedence
+        RHS(InfixRight(op, parseOp, BindingPower.rightAssocLhs power, complete))
 
     /// Creates a non-associative infix operator with the specified properties.
-    let infixNonAssoc op power parseOp complete =
-        let power = Precedence.value power
+    let infixNonAssoc op precedence parseOp complete =
+        let power = Precedence.bindingPower precedence
         RHS(InfixNonAssociative(op, parseOp, power, complete))
 
     /// Creates an n-ary infix operator with the specified properties.
     /// N-ary operators are similar to left-associative operators but allow chaining without ambiguity.
-    let infixNary op power parseOp complete =
-        let power = Precedence.value power
+    let infixNary op precedence parseOp complete =
+        let power = Precedence.bindingPower precedence
         RHS(InfixNary(op, parseOp, power, complete))
 
     /// Creates a prefix operator with the specified properties.
-    let prefix op power parseOp complete =
-        let power = Precedence.value power
+    let prefix op precedence parseOp complete =
+        let power = Precedence.bindingPower precedence
         LHS(Prefix(op, parseOp, power, complete))
 
     /// Creates a postfix operator with the specified properties.
-    let postfix op power parseOp complete =
-        let power = Precedence.value power
+    let postfix op precedence parseOp complete =
+        let power = Precedence.bindingPower precedence
         RHS(Postfix(op, parseOp, power, complete))
 
     /// Creates an operator defining a pair of delimiters with the specified properties.
-    let enclosedBy op closeOp power parseOp parseCloseOp complete =
-        let power = Precedence.value power
+    let enclosedBy op closeOp precedence parseOp parseCloseOp complete =
+        let power = Precedence.bindingPower precedence
         LHS(Enclosed(op, parseOp, power, closeOp, parseCloseOp, complete))
 
     /// Creates an operator defining a pair of brackets with the specified properties.
     [<Obsolete("Use 'enclosedBy' for clarity.")>]
-    let brackets op closeOp power parseOp parseCloseOp complete =
-        enclosedBy op closeOp power parseOp parseCloseOp complete
+    let brackets op closeOp precedence parseOp parseCloseOp complete =
+        enclosedBy op closeOp precedence parseOp parseCloseOp complete
 
     /// Creates an indexer operator with the specified properties.
-    let indexer op closeOp power parseOp innerParser parseCloseOp complete =
-        let power = Precedence.value power
+    let indexer op closeOp precedence parseOp innerParser parseCloseOp complete =
+        let power = Precedence.bindingPower precedence
         RHS(Indexer(op, parseOp, power, closeOp, parseCloseOp, innerParser, complete))
 
     /// Creates a ternary operator with the specified properties.
     /// Ternary operators are always right associative.
-    let ternary op power parseOp parseTernaryOp complete =
-        let power = Precedence.value power
-        RHS(Ternary(op, parseOp, power + 1uy, parseTernaryOp, complete))
+    let ternary op precedence parseOp parseTernaryOp complete =
+        let power = Precedence.bindingPower precedence
+        RHS(Ternary(op, parseOp, BindingPower.rightAssocLhs power, parseTernaryOp, complete))
 
     /// Creates a left-hand side ternary operator with the specified properties.
-    let lhsTernary op power parseOp delimiter parseDelimiter complete =
-        let power = Precedence.value power
+    let lhsTernary op precedence parseOp delimiter parseDelimiter complete =
+        let power = Precedence.bindingPower precedence
         LHS(LHSTernary(op, parseOp, power, delimiter, parseDelimiter, complete))
 
-    let infixMapped op power parseOp parseRight complete =
-        let power = Precedence.value power
+    let infixMapped op precedence parseOp parseRight complete =
+        let power = Precedence.bindingPower precedence
         RHS(InfixMapped(op, parseOp, power, parseRight, complete))
 
     /// Parses an expression using the provided expression parser and operator definitions.
@@ -679,3 +712,13 @@ module Operator =
         (operators: Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>)
         : Parser<'Expr, _, _, _, _> =
         Pratt.parseLhs pExpr operators Precedence.MinP
+
+    /// Parses an expression starting at a specific minimum precedence.
+    /// Use this when parsing expressions inside delimiters (like lists or array indices)
+    /// where you want to stop parsing before consuming the delimiter.
+    let parserAt
+        (minBindingPower: byte<bp>)
+        (pExpr: Parser<'Expr, _, _, _, _>)
+        (operators: Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>)
+        : Parser<'Expr, _, _, _, _> =
+        Pratt.parseLhs pExpr operators minBindingPower
