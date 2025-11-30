@@ -1,0 +1,5 @@
+0, Identifier
+1, Whitespace
+2, Identifier
+3, Newline
+4, EOF

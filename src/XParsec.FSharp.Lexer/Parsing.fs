@@ -423,8 +423,30 @@ module Expr =
             // Technically also need to handle line breaks with proper indentation here and interstitial comments
             // This parser also need to handle high-precedence application f(x) and f<x>
             parser {
-                // printfn "Parsing application operator (whitespace)"
-                return! fail (Message "Application operator not implemented yet")
+                let! i = getPosition
+
+                let! token =
+                    satisfyL (fun (t: PositionedToken) -> t.Token = Token.Whitespace) "Whitespace for application"
+
+                do!
+                    followedBy (fun reader ->
+                        match reader.Peek() with
+                        | ValueNone -> fail EndOfInput reader
+                        | ValueSome t ->
+                            if t.Token.IsIdentifier then
+                                preturn () reader
+                            elif t.Token.IsLiteral then
+                                preturn () reader
+                            elif t.Token = Token.KWLParen then
+                                preturn () reader
+                            elif t.Token = Token.KWLBracket then
+                                preturn () reader
+                            else
+                                fail (Message "Expected expression after application whitespace") reader
+                    )
+
+                let t = syntaxToken token i.Index
+                return t
             }
 
         let rhsParser =
