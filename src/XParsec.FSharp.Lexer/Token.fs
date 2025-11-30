@@ -1733,6 +1733,7 @@ module internal TokenInfo =
     let isOperator (token: Token) = token |> kind = TokenKind.Operator
     let isKeyword (token: Token) = token |> kind = TokenKind.Keyword
     let isInvalid (token: Token) = token |> kind = TokenKind.Invalid
+    let isSpecial (token: Token) = token |> kind = TokenKind.Special
 
     let isDeprecated (token: Token) = failwith "TODO: Implement isDeprecated"
     let isReserved (token: Token) = failwith "TODO: Implement isReserved"
@@ -1756,7 +1757,7 @@ module internal TokenInfo =
 
     let isOperatorKeyword (token: Token) =
         if isKeyword token then
-            match withoutCommentFlags token with
+            match token with
             | Token.OpSemicolon
             | Token.OpArrowRight
             | Token.OpAssignment
@@ -1771,13 +1772,17 @@ module internal TokenInfo =
             | Token.OpDowncast
             | Token.OpUpcast -> true
             | _ -> false
+        elif isSpecial token then
+            match token with
+            | Token.Whitespace -> true
+            | _ -> false
         else
             false
 
     let operatorPrecedence (token: Token) : PrecedenceLevel =
         if isKeyword token then
             // All keyword operators are left associative
-            match withoutCommentFlags token with
+            match token with
             | Token.KWAs -> PrecedenceLevel.As
             | Token.KWWhen -> PrecedenceLevel.When
             | Token.OpSemicolon -> PrecedenceLevel.Semicolon
@@ -1811,6 +1816,10 @@ module internal TokenInfo =
             | Token.KWRArrayBracket
             | Token.KWLBrace
             | Token.KWRBrace -> PrecedenceLevel.Parens
+            | t -> raise (new NotImplementedException($"{t}"))
+        elif isSpecial token then
+            match token with
+            | Token.Whitespace -> PrecedenceLevel.Application
             | t -> raise (new NotImplementedException($"{t}"))
         else
             uint16 token &&& PrecedenceMask |> int |> enum
