@@ -35,7 +35,7 @@
 112, InterpolatedExpressionOpen
 113, Identifier
 114, Whitespace
-115, Op595
+115, Operator 0b1000000001010011 InfixAdd (can be prefix)
 116, Whitespace
 117, Identifier
 118, InterpolatedExpressionClose

@@ -1,0 +1,5 @@
+List: 0, KWLBracket(0<token>)
+  Const: 2, NumInt32(2<token>) '1'
+  Const: 5, NumInt32(5<token>) '2'
+  Const: 8, NumInt32(8<token>) '3'
+11, KWRBracket(11<token>)
