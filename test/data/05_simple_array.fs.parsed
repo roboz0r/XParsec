@@ -1,0 +1,5 @@
+Array: 0, KWLArrayBracket(0<token>)
+  Ident: 3, Identifier(2<token>) 'abc'
+  Ident: 8, Identifier(5<token>) 'def'
+  Ident: 13, Identifier(8<token>) 'ghi'
+18, KWRArrayBracket(11<token>)

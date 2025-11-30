@@ -131,4 +131,16 @@ let printExpr (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (expr: Exp
         tw.Indent <- tw.Indent - 1
         printTokenMin tw input lexed rBracket
         tw.WriteLine()
+    | Expr.Array(lBracket, elements, rBracket) ->
+        tw.Write("Array: ")
+        printTokenMin tw input lexed lBracket
+        tw.WriteLine()
+        tw.Indent <- tw.Indent + 1
+
+        for elem in elements do
+            printExpr tw input lexed elem
+
+        tw.Indent <- tw.Indent - 1
+        printTokenMin tw input lexed rBracket
+        tw.WriteLine()
     | _ -> failwith "Not implemented"

@@ -492,7 +492,7 @@ module Expr =
             member _.OpComparer = opComparer
 
     let private refExpr = RefParser<_, _, _, _, _>()
-    let private refExprInList = RefParser<_, _, _, _, _>()
+    let private refExprInCollection = RefParser<_, _, _, _, _>()
 
     let pConst = Constant.parse |>> Expr.Const
 
@@ -517,21 +517,27 @@ module Expr =
             return Expr.ParentBlock(l, e, r)
         }
 
-    let pList =
+    let pCollection openTok closeTok complete =
         parser {
-            let! l = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWLBracket) "Expected '['"
+            let! l = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = openTok) $"Expected '{openTok}'"
 
             let! elems, seps =
                 sepEndBy
-                    refExprInList.Parser
+                    refExprInCollection.Parser
                     (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpSemicolon) "Expected ';'")
 
-            let! r = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWRBracket) "Expected ']'"
-            return Expr.List(l, [ yield! elems ], r)
+            let! r = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = closeTok) $"Expected '{closeTok}'"
+            return complete l elems r
         }
 
+    let pList =
+        pCollection Token.KWLBracket Token.KWRBracket (fun l elems r -> Expr.List(l, List.ofSeq elems, r))
+
+    let pArray =
+        pCollection Token.KWLArrayBracket Token.KWRArrayBracket (fun l elems r -> Expr.Array(l, List.ofSeq elems, r))
+
     let atomExpr =
-        choiceL [ pConst; pIdent; pLetValue; pParen; pList ] "atom expression"
+        choiceL [ pConst; pIdent; pLetValue; pParen; pList; pArray ] "atom expression"
 
     let operators = FSharpOperatorParser()
 
@@ -539,7 +545,7 @@ module Expr =
     // Semicolon has special handling in F# lists
     // so we create a separate parser for expressions in lists
     // and set the starting precedence one level higher so it will be parsed in `pList`
-    refExprInList.Set(
+    refExprInCollection.Set(
         Operator.parserAt (int PrecedenceLevel.Semicolon + 1 |> BindingPower.fromLevel) atomExpr operators
     )
 
