@@ -1,0 +1,7 @@
+LetValue: 0, KWLet(0<token>)
+  Pat.NamedSimple: 4, Identifier(2<token>) 'x'
+  6, OpEquality(4<token>)
+    Const: 8, NumInt32(6<token>) '1'
+  10, KWIn(8<token>)
+  Body:
+    Ident: 13, Identifier(10<token>) 'x'
