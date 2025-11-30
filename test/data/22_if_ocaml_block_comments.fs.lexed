@@ -8,16 +8,16 @@
 34, Whitespace
 35, NumInt32
 36, Newline
-37, KWStartOCamlBlockComment
-49, 32770
-50, 34354
-53, 32771
-54, 32897
-55, 32771
-56, 34322
-57, 32771
-58, 33030
-59, 32770
-60, KWEndOCamlBlockComment
+37, StartOCamlBlockComment
+49, Newline (in comment)
+50, KWLet (in comment)
+53, Whitespace (in comment)
+54, Identifier (in comment)
+55, Whitespace (in comment)
+56, OpEquality (in comment)
+57, Whitespace (in comment)
+58, NumInt32 (in comment)
+59, Newline (in comment)
+60, EndOCamlBlockComment
 75, Newline
 76, EOF

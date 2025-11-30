@@ -31,10 +31,8 @@ let keywords =
         "elif", Token.KWElif
         "else", Token.KWElse
         "end", Token.KWEnd
-        "event", Token.KWEvent
         "exception", Token.KWException
         "extern", Token.KWExtern
-        "external", Token.KWExternal
         "false", Token.KWFalse
         "finally", Token.KWFinally
         "fixed", Token.KWFixed
@@ -56,7 +54,6 @@ let keywords =
         "public", Token.KWPublic
         "rec", Token.KWRec
         "return", Token.KWReturn
-        "select", Token.KWContextualSelect
         "sig", Token.KWSig
         "static", Token.KWStatic
         "struct", Token.KWStruct
@@ -78,7 +75,7 @@ let keywords =
         "return!", Token.KWReturnBang
         "use!", Token.KWUseBang
         "yield!", Token.KWYieldBang
-        "'", Token.SingleQuote
+        "'", Token.KWSingleQuote
         "#", Token.ReservedIdentifierHash
 
         // IsKeywordOperator
@@ -99,23 +96,23 @@ let keywords =
         ".", Token.OpDot
         ":", Token.OpColon
         ",", Token.OpComma
-        "(", Token.OpParenLeft
-        ")", Token.OpParenRight
-        "[", Token.OpBracketLeft
-        "]", Token.OpBracketRight
-        "[<", Token.OpAttributeBracketLeft
-        ">]", Token.OpAttributeBracketRight
-        "[|", Token.OpArrayBracketLeft
-        "|]", Token.OpArrayBracketRight
-        "{", Token.OpBraceLeft
-        "}", Token.OpBraceRight
+        "(", Token.KWLParen
+        ")", Token.KWRParen
+        "[", Token.KWLBracket
+        "]", Token.KWRBracket
+        "[<", Token.KWLAttrBracket
+        ">]", Token.KWRAttrBracket
+        "[|", Token.KWLArrayBracket
+        "|]", Token.KWRArrayBracket
+        "{", Token.KWLBrace
+        "}", Token.KWRBrace
         ":?", Token.OpTypeTest
         ":>", Token.OpUpcast
         ":?>", Token.OpDowncast
         "..", Token.OpRange
         ";;", Token.OpDoubleSemicolon
         ";", Token.OpSemicolon
-        "??", Token.OpDoubleQuestion
+        "??", Token.OpQMarkQMark
         "[]", Token.OpNil
         "!", Token.OpDereference
         "<@", Token.OpQuotationTypedLeft
@@ -124,12 +121,10 @@ let keywords =
         "@@>", Token.OpQuotationUntypedRight
         ".()<-", Token.OpIndexSetParenIdentifier
         ".()", Token.OpIndexGetParenIdentifier
-        ".[", Token.OpIndexLeft
         "=", Token.OpEquality
 
         // IsKeywordOperatorIdentifier & IsKeywordIdentifier
         "mod", Token.KWMod
-        "not", Token.KWNot
         "null", Token.KWNull
         "or", Token.KWOr
         "::", Token.OpCons
@@ -175,7 +170,6 @@ let keywords =
         ".[,,]", Token.OpIndexGet3Identifier
         ".[,,,]<-", Token.OpIndexSet4Identifier
         ".[,,,]", Token.OpIndexGet4Identifier
-        ".(", Token.OpIndexLeftParen
     ]
 
 [<Tests>]
