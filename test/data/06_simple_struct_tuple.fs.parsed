@@ -1,0 +1,4 @@
+StructTuple:
+  Const: 7, NumInt32(2<token>) '1'
+  Const: 9, NumInt32(4<token>) '2'
+  Const: 11, NumInt32(6<token>) '3'
