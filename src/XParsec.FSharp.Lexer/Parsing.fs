@@ -536,8 +536,23 @@ module Expr =
     let pArray =
         pCollection Token.KWLArrayBracket Token.KWRArrayBracket (fun l elems r -> Expr.Array(l, List.ofSeq elems, r))
 
+    let pStructTuple =
+        parser {
+            let! kw = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWStruct) "Expected 'struct'"
+            let! l = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWLParen) "Expected '('"
+            let! e = refExpr.Parser
+            let! r = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWRParen) "Expected ')'"
+
+            let e =
+                match e with
+                | Expr.Tuple(es) -> es
+                | e -> [ e ]
+
+            return Expr.StructTuple(kw, l, e, r)
+        }
+
     let atomExpr =
-        choiceL [ pConst; pIdent; pLetValue; pParen; pList; pArray ] "atom expression"
+        choiceL [ pConst; pIdent; pLetValue; pParen; pList; pArray; pStructTuple ] "atom expression"
 
     let operators = FSharpOperatorParser()
 

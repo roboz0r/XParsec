@@ -41,4 +41,8 @@ let tests =
                 let path = Path.Combine(testDataDir.Value, "05_simple_array.fs")
                 testParseFile path
             }
+            test "Simple Struct Tuple" {
+                let path = Path.Combine(testDataDir.Value, "06_simple_struct_tuple.fs")
+                testParseFile path
+            }
         ]
