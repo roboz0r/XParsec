@@ -37,4 +37,8 @@ let tests =
                 let path = Path.Combine(testDataDir.Value, "04_simple_application.fs")
                 testParseFile path
             }
+            test "Simple Array" {
+                let path = Path.Combine(testDataDir.Value, "05_simple_array.fs")
+                testParseFile path
+            }
         ]
