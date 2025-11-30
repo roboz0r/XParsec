@@ -1,0 +1,14 @@
+0, KWLArrayBracket
+2, Whitespace
+3, Identifier
+6, OpSemicolon
+7, Whitespace
+8, Identifier
+11, OpSemicolon
+12, Whitespace
+13, Identifier
+16, OpSemicolon
+17, Whitespace
+18, KWRArrayBracket
+20, Newline
+21, EOF
