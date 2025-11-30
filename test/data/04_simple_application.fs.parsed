@@ -1,0 +1,3 @@
+InfixApp: 1, Whitespace(1<token>)
+  Ident: 0, Identifier(0<token>) 'f'
+  Ident: 2, Identifier(2<token>) 'x'
