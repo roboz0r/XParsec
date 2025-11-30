@@ -96,12 +96,12 @@ let printExpr (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (expr: Exp
         tw.WriteLine()
         tw.Indent <- tw.Indent + 1
         printValueDefn tw input lexed valueDefn
-        tw.Indent <- tw.Indent - 1
         printTokenMin tw input lexed inToken
         tw.WriteLine()
         tw.WriteLine("Body:")
         tw.Indent <- tw.Indent + 1
         printExpr tw input lexed body
+        tw.Indent <- tw.Indent - 1
         tw.Indent <- tw.Indent - 1
     | Expr.InfixApp(left, op, right) ->
         tw.Write("InfixApp: ")
