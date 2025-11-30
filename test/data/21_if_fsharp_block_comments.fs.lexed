@@ -8,7 +8,7 @@
 35, Whitespace
 36, NumInt32
 37, Newline
-38, KWStartFSharpBlockComment
+38, StartFSharpBlockComment
 42, Newline
 43, KWLet
 46, Whitespace
@@ -18,9 +18,9 @@
 50, Whitespace
 51, NumInt32
 52, Newline
-53, KWEndFSharpBlockComment
+53, EndFSharpBlockComment
 57, Newline
-58, KWStartFSharpBlockComment
+58, StartFSharpBlockComment
 69, Newline
 70, KWLet
 73, Whitespace
@@ -30,6 +30,6 @@
 77, Whitespace
 78, NumInt32
 79, Newline
-80, KWEndFSharpBlockComment
+80, EndFSharpBlockComment
 94, Newline
 95, EOF

@@ -1,10 +1,10 @@
 0, NumInt32
 1, Whitespace
-2, Op595
+2, Operator 0b1000000001010011 InfixAdd (can be prefix)
 3, Whitespace
 4, NumInt32
 5, Whitespace
-6, Op532
+6, Operator 0b1000000000010100 InfixMultiply
 7, Whitespace
 8, NumInt32
 9, Newline

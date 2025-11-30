@@ -225,18 +225,18 @@ let integerLiteralCases =
 
         // BigNum (arbitrary precision integer) literals
         // Note: Hex, Octal, and Binary forms are not supported for BigNum in this implementation
-        ("123Q", Token.NumBigInteger)
-        ("456R", Token.NumBigInteger)
-        ("789Z", Token.NumBigInteger)
-        ("101112I", Token.NumBigInteger)
-        ("131415N", Token.NumBigInteger)
-        ("161718G", Token.NumBigInteger)
-        ("0Q", Token.NumBigInteger)
-        ("0R", Token.NumBigInteger)
-        ("0Z", Token.NumBigInteger)
-        ("0I", Token.NumBigInteger)
-        ("0N", Token.NumBigInteger)
-        ("0G", Token.NumBigInteger)
+        ("123Q", Token.NumBigIntegerQ)
+        ("456R", Token.NumBigIntegerR)
+        ("789Z", Token.NumBigIntegerZ)
+        ("101112I", Token.NumBigIntegerI)
+        ("131415N", Token.NumBigIntegerN)
+        ("161718G", Token.NumBigIntegerG)
+        ("0Q", Token.NumBigIntegerQ)
+        ("0R", Token.NumBigIntegerR)
+        ("0Z", Token.NumBigIntegerZ)
+        ("0I", Token.NumBigIntegerI)
+        ("0N", Token.NumBigIntegerN)
+        ("0G", Token.NumBigIntegerG)
     |]
 
 let floatLiteralCases =
