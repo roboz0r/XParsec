@@ -918,7 +918,7 @@ module Combinators =
                 match pSep reader with
                 | Ok sep ->
                     seps.Add(sep.Parsed)
-                    let pos = reader.Position
+                    let posSep = reader.Position
 
                     match p reader with
                     | Ok s ->
@@ -927,7 +927,7 @@ module Combinators =
 
                         xs.Add(s.Parsed)
                     | Error _ ->
-                        reader.Position <- pos
+                        reader.Position <- posSep
                         ok <- false
                 | Error e ->
                     reader.Position <- pos

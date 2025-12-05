@@ -1240,13 +1240,32 @@ let tests =
 
                     "" |> Expect.equal reader.Index 18L
                 | Error e -> failwithf "%A" e
+                
+                let input = "input,,input,X"
+
+                let p1 = pstring "input" |> opt
+                let p2 = pchar ','
+                let p = sepEndBy p1 p2
+                let reader = Reader.ofString input ()
+                let result = p reader
+
+                match result with
+                | Ok result ->
+                    ""
+                    |> Expect.equal
+                        result.Parsed
+                        ([| ValueSome "input"; ValueNone; ValueSome "input"; ValueNone |].ToImmutableArray(),
+                         ImmutableArray.CreateRange([| ','; ','; ',' |]))
+
+                    "" |> Expect.equal reader.Index 13L
+                | Error e -> failwithf "%A" e
 
                 let reader = Reader.ofString "X" ()
                 let result = p reader
 
                 match result with
                 | Ok result ->
-                    "" |> Expect.equal result.Parsed (ImmutableArray.Empty, ImmutableArray.Empty)
+                    "" |> Expect.equal result.Parsed ([| ValueNone |].ToImmutableArray(), ImmutableArray.Empty)
                     "" |> Expect.equal reader.Index 0L
                 | Error e -> failwithf "%A" e
 
