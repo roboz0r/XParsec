@@ -2,6 +2,7 @@ namespace XParsec.Json
 
 open System
 open System.Collections.Immutable
+open System.Globalization
 open System.Text
 
 open XParsec
@@ -84,7 +85,7 @@ type JsonParsers<'Input, 'InputSlice
 
                 let number = sb.ToString()
 
-                match Double.TryParse(number) with
+                match Double.TryParse(number, CultureInfo.InvariantCulture) with
                 | true, result -> preturn result
                 | _ -> failwithf "Failed to parse number: %s" number
 
