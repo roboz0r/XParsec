@@ -118,6 +118,8 @@ type Reader<'T, 'State, 'Input, 'InputSlice
 type ErrorType<'T, 'State> =
     | Expected of 'T
     | ExpectedSeq of 'T seq
+    | ExpectedOneOf of 'T seq
+    | ExpectedSeqOneOf of 'T seq seq
     | Unexpected of 'T
     | UnexpectedSeq of 'T seq
     | Message of string

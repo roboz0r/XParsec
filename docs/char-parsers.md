@@ -64,6 +64,34 @@ These parsers match sequences of characters.
 
 ---
 
+### Multi-String Parsers
+
+These parsers are optimized to match **one of many** strings, such as a list of keywords.
+
+**Key Features:**
+
+1. **Greedy Matching:** They always attempt to match the longest candidate first. For example, if your candidates are `["=", "=="]`, matching against `==` will correctly consume both characters.
+2. **Performance:** Much faster than using `choice` or `<|>` over a list of strings.
+3. **Canonical Returns:** The `CI` (Case Insensitive) variants return the string *as defined in your list*, effectively normalizing the input case.
+
+| Parser | Description | Example Usage |
+|---|---|---|
+| `anyString xs` | Matches any string in `xs`. Returns the matched string. | `anyString ["yes"; "no"]` |
+| `anyStringCI xs` | Case-insensitive match. Returns the string from `xs` (canonical form). | `anyStringCI ["Select"; "From"]` |
+| `anyStringReturn xs` | Matches a string key, returns the associated value. | `anyStringReturn ["+", Add; "-", Sub]` |
+| `anyStringCIReturn xs` | Case-insensitive version of `anyStringReturn`. | `anyStringCIReturn ["true", true]` |
+| `anyStringBy comp xs` | Matches any string in `xs` using the provided `StringComparison`. Returns the matched string. | `anyStringBy StringComparison.CurrentCulture ["yes"; "no"]` |
+| `anyStringByReturn comp xs` | Matches any string in `xs` using the provided `StringComparison`. Returns the associated value. | `anyStringByReturn StringComparison.CurrentCulture ["yes", true; "no", false]` |
+
+> **Note:** All parsers above have an **`L`** variant (e.g., `anyStringL`, `anyStringReturnL`) which accepts a `message: string`. These are highly recommended for production parsers as they avoid allocating detailed error lists on failure.
+>
+> ```fsharp
+> // Efficient usage with a custom label
+> let operator = anyStringL ["+"; "-"; "*"; "/"] "arithmetic operator"
+> ```
+
+---
+
 ## Whitespace and Newline Parsers
 
 These are common helpers for handling whitespace and line endings.

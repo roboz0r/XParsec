@@ -232,6 +232,10 @@ module ErrorFormatting =
             match errors with
             | EndOfInput -> sb |> appendPrefixes prefixes |> appendString "Unexpected end of input"
             | Expected e -> sb |> appendPrefixes prefixes |> appendString "Expected " |> formatOne e
+            | ExpectedOneOf es -> sb |> appendPrefixes prefixes |> appendString "Expected one of " |> formatSeq es
+            | ExpectedSeqOneOf ess ->
+                sb |> appendPrefixes prefixes |> appendString "Expected one of " |> ignore
+                (sb, ess) ||> Seq.fold (fun sb es -> sb |> formatSeq es)
 
             | ExpectedSeq es -> sb |> appendPrefixes prefixes |> appendString "Expected " |> formatSeq es
             | Unexpected e -> sb |> appendPrefixes prefixes |> appendString "Unexpected " |> formatOne e

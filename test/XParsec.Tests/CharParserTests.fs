@@ -11,6 +11,10 @@ open XParsec
 open XParsec.CharParsers
 open XParsec.Parsers
 
+
+let expectedOneOf (candidates: string list) =
+    candidates |> Seq.map (fun s -> s :> char seq) |> ExpectedSeqOneOf
+
 let confirm msg input expected (parser: Parser<_, _, _, _, _>) =
     let reader = Reader.ofString input ()
 
@@ -24,7 +28,22 @@ let confirm msg input expected (parser: Parser<_, _, _, _, _>) =
     | Error expected ->
         match parser reader with
         | Ok _ -> failwithf "%s: Expected error %A but got a successful parse." msg expected
-        | Error err -> msg |> Expect.equal err.Errors expected
+        | Error err ->
+
+            match expected with
+            | ExpectedSeqOneOf xss ->
+                match err.Errors with
+                | ExpectedSeqOneOf yss ->
+                    // Compare sequences of sequences isn't automatic, so do it manually
+                    let expectedSets =
+                        xss |> Seq.map (fun xs -> xs |> Seq.toArray |> String) |> Seq.toArray
+
+                    let actualSets =
+                        yss |> Seq.map (fun ys -> ys |> Seq.toArray |> String) |> Seq.toArray
+
+                    msg |> Expect.equal actualSets expectedSets
+                | _ -> failwithf "%s: Expected ExpectedSeqOneOf error but got %A" msg err.Errors
+            | _ -> msg |> Expect.equal err.Errors expected
 
 let confirmAt msg input expected endIndex (parser: Parser<_, _, _, _, _>) =
     let reader = Reader.ofString input ()
@@ -295,5 +314,92 @@ let tests =
                     let msg = $"Parsing '{input}' with anyOf failed."
                     confirm msg input expected (CharParsers.anyOf chars)
                     confirm msg input expected (CharParsers.anyOf [ 'A'; 'a'; '1' ])
+            }
+
+            test "anyString - Greedy matching" {
+                // Crucial Test: Ensure "==" is matched before "="
+                // even though "=" appears first in the list, "==" is longer.
+                let p = anyString [ "="; "=="; "==="; "!=" ]
+
+                let errorExpected =
+                    // Note: The parser sorts candidates by length desc, then ordinal
+                    expectedOneOf [ "==="; "!="; "=="; "=" ]
+
+                let cases =
+                    [
+                        "===", Ok "==="
+                        "==", Ok "=="
+                        "=", Ok "="
+                        "!=", Ok "!="
+                        "!", Error errorExpected
+                        "", Error EndOfInput
+                    ]
+
+                for input, expected in cases do
+                    confirm $"Greedy matching failed for '{input}'" input expected p
+            }
+
+            test "anyStringCI - Case Insensitivity and Normalization" {
+                // Tests that we match case-insensitively,
+                // BUT return the canonical string defined in the list.
+                let p = anyStringCI [ "Select"; "From"; "Where" ]
+
+                let errorExpected = expectedOneOf [ "Select"; "Where"; "From" ] // Sorted by Length Desc
+
+                let cases =
+                    [
+                        "select", Ok "Select"
+                        "SELECT", Ok "Select"
+                        "SeLeCt", Ok "Select"
+                        "from", Ok "From"
+                        "sel", Error errorExpected
+                    ]
+
+                for input, expected in cases do
+                    confirm $"CI matching failed for '{input}'" input expected p
+            }
+
+            test "anyStringReturn - Value Mapping" {
+                let p = anyStringReturn [ "true", true; "false", false; "yes", true; "no", false ]
+
+                let cases =
+                    [
+                        "true", Ok true
+                        "false", Ok false
+                        "yes", Ok true
+                        "no", Ok false
+                        "yep", Error(expectedOneOf [ "false"; "true"; "yes"; "no" ])
+                    ]
+
+                for input, expected in cases do
+                    confirm $"Value mapping failed for '{input}'" input expected p
+            }
+
+            test "anyStringL / anyStringReturnL - Custom Error Messages" {
+                // 1. Test string return with label
+                let p1 = anyStringL [ "foo"; "bar" ] "expected identifier"
+
+                let cases1 = [ "foo", Ok "foo"; "baz", Error(Message "expected identifier") ]
+
+                for input, expected in cases1 do
+                    confirm $"anyStringL failed for '{input}'" input expected p1
+
+                // 2. Test value return with label
+                let p2 = anyStringReturnL [ "+", "Add"; "-", "Sub" ] "arithmetic operator"
+
+                let cases2 = [ "+", Ok "Add"; "*", Error(Message "arithmetic operator") ]
+
+                for input, expected in cases2 do
+                    confirm $"anyStringReturnL failed for '{input}'" input expected p2
+            }
+
+            test "anyString - Edge Cases" {
+                // Test logic with overlapping prefixes but different lengths
+                let p = anyString [ "abc"; "ab"; "a" ]
+
+                let cases = [ "abc", Ok "abc"; "ab", Ok "ab"; "a", Ok "a" ]
+
+                for input, expected in cases do
+                    confirm $"Edge case overlap failed for '{input}'" input expected p
             }
         ]

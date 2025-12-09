@@ -67,6 +67,8 @@ module ParseError =
         Message
             "A parser succeeded in a loop without consuming any input, which is likely an infinite loop. This is a bug in the parser."
 
+    let expectedStringLiteral = Message "Expected string literal"
+
 let isLetter c = Char.IsLetter(c)
 
 let isAsciiLetter c =
@@ -928,3 +930,128 @@ module internal FloatParsers =
                 | Error _ -> parseHexOrDecFloat reader
 
 let pfloat (reader: Reader<char, 'State, 'Input, 'InputSlice>) = FloatParsers.parseFloat reader
+
+let private anyStringByReturnImpl (comp: StringComparison) (xs: (string * 'T) seq) (maybeMessage: string option) =
+    // Sort by length (greedy first), then by lexicographic order
+    // TODO: Consider a Trie (or compact DAWG) rather than linear search
+    // This could improve performance for large sets of strings, likely worse for small sets
+    let sorted =
+        xs
+        |> Seq.sortWith (fun (s1, _) (s2, _) ->
+            let lenComp = String.length s2 - String.length s1
+
+            if lenComp = 0 then
+                String.Compare(s1, s2, comp)
+            else
+                sign lenComp
+        )
+        |> Array.ofSeq
+
+    if Array.isEmpty sorted then
+        invalidArg (nameof xs) "The input sequence must not be empty"
+
+    if String.IsNullOrEmpty(sorted |> Array.last |> fst) then
+        invalidArg (nameof xs) "The input sequence must not contain null or empty strings"
+
+    let maxLen = sorted[0] |> fst |> String.length
+
+    let err =
+        let payload =
+            match maybeMessage with
+            | Some msg -> Message msg
+            | None -> sorted |> Seq.map (fun (s, _) -> s :> char seq) |> ExpectedSeqOneOf
+
+        fun pos -> ParseError.create payload pos
+
+    fun (reader: Reader<char, 'State, 'Input, 'InputSlice>) ->
+        let span = reader.PeekN maxLen
+
+        if span.IsEmpty then
+            fail EndOfInput reader
+        else
+            let mutable found = ValueNone
+            let mutable i = 0
+
+            while i < sorted.Length && found.IsNone do
+                let candidate, result = sorted.[i]
+
+                if span.StartsWith(candidate.AsSpan(), comp) then
+                    found <- ValueSome(candidate, result)
+
+                i <- i + 1
+
+            match found with
+            | ValueSome(s, result) ->
+                reader.SkipN s.Length
+                preturn result reader
+            | ValueNone -> err reader.Position
+
+/// Succeeds if the next characters in the reader match any of the given strings (with the given comparison),
+/// and consumes the characters. Returns the associated result.
+/// If no match is found, fails with a detailed error message.
+let anyStringByReturn (comp: StringComparison) (xs: (string * 'T) seq) = anyStringByReturnImpl comp xs None
+
+/// Succeeds if the next characters in the reader match any of the given strings (with the given comparison),
+/// and consumes the characters. Returns the associated result.
+/// If no match is found, fails with the provided message.
+let anyStringByReturnL (comp: StringComparison) (xs: (string * 'T) seq) message =
+    anyStringByReturnImpl comp xs (Some message)
+
+/// Succeeds if the next characters in the reader match any of the given strings (with the given comparison),
+/// and consumes the characters. Returns the matched string.
+/// If no match is found, fails with a detailed error message.
+let anyStringBy (comp: StringComparison) (xs: string seq) =
+    anyStringByReturnImpl comp (xs |> Seq.map (fun s -> s, s)) None
+
+/// Succeeds if the next characters in the reader match any of the given strings (with the given comparison),
+/// and consumes the characters. Returns the matched string.
+/// If no match is found, fails with the provided message.
+let anyStringByL (comp: StringComparison) (xs: string seq) message =
+    anyStringByReturnImpl comp (xs |> Seq.map (fun s -> s, s)) (Some message)
+
+/// Succeeds if the next characters in the reader match any of the given strings (with ordinal comparison),
+/// and consumes the characters. Returns the matched string.
+/// If no match is found, fails with a detailed error message.
+let anyString (xs: string seq) = anyStringBy StringComparison.Ordinal xs
+
+/// Succeeds if the next characters in the reader match any of the given strings (with ordinal comparison),
+/// and consumes the characters. Returns the matched string.
+/// If no match is found, fails with the provided message.
+let anyStringL (xs: string seq) message =
+    anyStringByL StringComparison.Ordinal xs message
+
+/// Succeeds if the next characters in the reader match any of the given strings (case-insensitive ordinal comparison),
+/// and consumes the characters. Returns the matched string.
+/// If no match is found, fails with a detailed error message.
+let anyStringCI (xs: string seq) =
+    anyStringBy StringComparison.OrdinalIgnoreCase xs
+
+/// Succeeds if the next characters in the reader match any of the given strings (case-insensitive ordinal comparison),
+/// and consumes the characters. Returns the matched string.
+/// If no match is found, fails with the provided message.
+let anyStringCIL (xs: string seq) message =
+    anyStringByL StringComparison.OrdinalIgnoreCase xs message
+
+/// Succeeds if the next characters in the reader match any of the given strings (with ordinal comparison),
+/// and consumes the characters. Returns the associated result.
+/// If no match is found, fails with a detailed error message.
+let anyStringReturn (xs: (string * 'T) seq) =
+    anyStringByReturn StringComparison.Ordinal xs
+
+/// Succeeds if the next characters in the reader match any of the given strings (with ordinal comparison),
+/// and consumes the characters. Returns the associated result.
+/// If no match is found, fails with the provided message.
+let anyStringReturnL (xs: (string * 'T) seq) message =
+    anyStringByReturnL StringComparison.Ordinal xs message
+
+/// Succeeds if the next characters in the reader match any of the given strings (case-insensitive ordinal comparison),
+/// and consumes the characters. Returns the associated result.
+/// If no match is found, fails with a detailed error message.
+let anyStringCIReturn (xs: (string * 'T) seq) =
+    anyStringByReturn StringComparison.OrdinalIgnoreCase xs
+
+/// Succeeds if the next characters in the reader match any of the given strings (case-insensitive ordinal comparison),
+/// and consumes the characters. Returns the associated result.
+/// If no match is found, fails with the provided message.
+let anyStringCIReturnL (xs: (string * 'T) seq) message =
+    anyStringByReturnL StringComparison.OrdinalIgnoreCase xs message

@@ -204,6 +204,12 @@ type MemoryExtensions =
         sx.Equals(sy, comparison)
 
     [<Extension>]
+    static member StartsWith(x: ReadOnlySpan<char>, y: ReadOnlySpan<char>, comparison: System.StringComparison) =
+        let sx = System.String(x.ToArray())
+        let sy = System.String(y.ToArray())
+        sx.StartsWith(sy, comparison)
+
+    [<Extension>]
     static member inline AsSpan<'T>(array: 'T array) : Span<'T> = ArraySpan(array, 0, array.Length)
 
     [<Extension>]
