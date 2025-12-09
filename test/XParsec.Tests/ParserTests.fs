@@ -101,6 +101,20 @@ let tests =
                 | Error e -> failwithf "%A" e
             }
 
+            test "Skip" {
+                let input = "input"
+
+                let p = skip
+                let reader = Reader.ofString input ()
+                let result = p reader
+
+                match result with
+                | Ok result ->
+                    "" |> Expect.equal result.Parsed ()
+                    "" |> Expect.equal reader.Index 1L
+                | Error e -> failwithf "%A" e
+            }
+
             test "Satisfy" {
                 let input = "input"
 

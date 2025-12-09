@@ -43,6 +43,7 @@ These are the most basic parsers for controlling success and failure.
 | `fail msg`| Always fails with a specific error message `msg`. | `fail "Something went wrong"` |
 | `eof` | Succeeds (returning `unit`) only if at the end of the input stream. | `pIdentifier .>> eof` |
 | `pid` | Consumes and returns a single item of any kind. Fails at the end of input. | `pid` |
+| `skip` | Consumes a single item of any kind. Returns unit. Fails at the end of input. | `skip` |
 
 ---
 

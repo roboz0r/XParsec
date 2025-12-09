@@ -64,11 +64,19 @@ module Parsers =
         else
             fail ParseError.expectedEnd reader
 
-    /// Succeeds if the Reader position is not at the end of the input, and consumes one item.
+    /// Succeeds if the Reader position is not at the end of the input, consumes and returns one item.
     let inline pid (reader: Reader<'T, 'State, 'Input, 'InputSlice>) =
         match reader.TryRead() with
         | ValueSome(x) -> preturn x reader
         | ValueNone -> fail EndOfInput reader
+
+    /// Succeeds if the Reader position is not at the end of the input, and consumes one item, returning unit.
+    let skip (reader: Reader<'T, 'State, 'Input, 'InputSlice>) =
+        if reader.AtEnd then
+            fail EndOfInput reader
+        else
+            reader.Skip()
+            preturn () reader
 
     /// Contains generalized parser implementations, not intended to be used directly.
     [<RequireQualifiedAccess>]
