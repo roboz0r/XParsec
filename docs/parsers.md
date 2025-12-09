@@ -63,6 +63,8 @@ These parsers match specific items or sequences in the input.
 | `skipAnyOf cs`| Like `anyOf`, but discards the result. | `skipAnyOf " \t"` |
 | `anyInRange min max`| Parses any single item within the inclusive range. | `anyInRange 'a' 'z'` |
 | `skipAnyInRange min max`| Like `anyInRange`, but discards the result. | `skipAnyInRange '0' '9'`|
+| `fold state folder p` | Applies `p` zero or more times. The result of each `p` is passed to `folder` along with the accumulated state. | `fold 0 (+) pint32` (Sum integers) |
+| `fold1 state folder p` | Same as `fold`, but `p` must succeed at least once. | `fold1 0 (+) pint32` (Sum integers) |
 
 ---
 
@@ -80,6 +82,8 @@ For many parsers with simple grammars, a custom state is unnecessary. In these c
 | `userStateSatisfies p`| Succeeds if the current state satisfies predicate `p`. Fails otherwise. | `userStateSatisfies ((=) 0)` |
 | `getPosition` | Returns the current `Position` struct, which can be saved for later. | `getPosition` |
 | `setPosition pos` | Jumps the parser to a previously saved `Position`. **Note:** This will fail if the `Position` came from a different `Reader`. | `setPosition savedPosition` |
+| `foldUserState folder p` | Applies `p` zero or more times. Updates the `Reader.State` using the `folder` function after every match. Returns `unit`. | `foldUserState (+) pint32` |
+| `foldUserState1 folder p` | Same as `foldUserState`, but requires at least one match. | `foldUserState1 (+) pint32` |
 
 ### Example: Using State to Count
 

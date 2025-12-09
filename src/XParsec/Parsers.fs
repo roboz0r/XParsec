@@ -329,6 +329,89 @@ module Parsers =
             let arr = Seq.toArray xs
             Internal.pArrayReturn arr result
 
+    /// Applies the `folder` function to each result of the given parser and the initial `state` zero or more times,
+    /// accumulating a final result.
+    /// The parser is applied until it fails, and the final state is returned.
+    let inline fold
+        state
+        ([<InlineIfLambda>] folder)
+        ([<InlineIfLambda>] p: Parser<'Parsed, 'T, 'State, 'Input, 'InputSlice>)
+        (reader: Reader<'T, 'State, 'Input, 'InputSlice>)
+        =
+        let mutable keepGoing = true
+        let mutable state = state
+
+        while keepGoing do
+            let pos = reader.Position
+
+            match p reader with
+            | Ok { Parsed = x } ->
+                if pos = reader.Position then
+                    raise (InfiniteLoopException pos)
+
+                state <- folder state x
+            | Error _ ->
+                reader.Position <- pos
+                keepGoing <- false
+
+        ParseSuccess.create state
+
+    /// Applies the `folder` function to each result of the given parser and the initial `state` one or more times,
+    /// accumulating a final result.
+    /// The parser is applied until it fails, and the final state is returned.
+    let inline fold1
+        state
+        ([<InlineIfLambda>] folder)
+        ([<InlineIfLambda>] p: Parser<'Parsed, 'T, 'State, 'Input, 'InputSlice>)
+        (reader: Reader<'T, 'State, 'Input, 'InputSlice>)
+        =
+        let pos = reader.Position
+
+        match p reader with
+        | Ok { Parsed = x } -> fold (folder state x) folder p reader
+        | Error e -> ParseError.createNested ParseError.expectedAtLeastOne [ e ] pos
+
+    /// Applies a `folder` function to each result of the given parser and the current user state zero or more times,
+    /// updating the user state.
+    /// The parser is applied until it fails. Returns unit.
+    let inline foldUserState
+        ([<InlineIfLambda>] folder)
+        ([<InlineIfLambda>] p: Parser<'Parsed, 'T, 'State, 'Input, 'InputSlice>)
+        (reader: Reader<'T, 'State, 'Input, 'InputSlice>)
+        =
+        let mutable keepGoing = true
+
+        while keepGoing do
+            let pos = reader.Position
+
+            match p reader with
+            | Ok { Parsed = x } ->
+                if pos = reader.Position then
+                    raise (InfiniteLoopException pos)
+
+                reader.State <- folder reader.State x
+            | Error _ ->
+                reader.Position <- pos
+                keepGoing <- false
+
+        ParseSuccess.create ()
+
+    /// Applies a `folder` function to each result of the given parser and the current user state one or more times,
+    /// updating the user state.
+    /// The parser is applied until it fails. Returns unit.
+    let inline foldUserState1
+        ([<InlineIfLambda>] folder)
+        ([<InlineIfLambda>] p: Parser<'Parsed, 'T, 'State, 'Input, 'InputSlice>)
+        (reader: Reader<'T, 'State, 'Input, 'InputSlice>)
+        =
+        let pos = reader.Position
+
+        match p reader with
+        | Ok { Parsed = x } ->
+            reader.State <- folder reader.State x
+            foldUserState folder p reader
+        | Error e -> ParseError.createNested ParseError.expectedAtLeastOne [ e ] pos
+
 /// Holds a mutable reference to a parser allowing the creation of forward-reference or mutually recursive parsers
 [<Sealed>]
 type RefParser<'Parsed, 'T, 'State, 'Input, 'InputSlice
