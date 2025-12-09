@@ -101,8 +101,14 @@ let pPlus = pchar '+' >>% (+) // Parses '+' and returns the addition function
 | `countMany1Satisfies predicate`| Applies a predicate one or more times and returns the count. Fails if the predicate doesn't match the first element. | `countMany1Satisfies isDigit` on "a123" -> `Fails` |
 | `skipManySatisfies predicate` | Skips zero or more elements that satisfy a predicate. An efficient way to skip input like whitespace. Always succeeds. | `skipManySatisfies isDigit` on "123a" -> `Ok ()` |
 | `skipMany1Satisfies predicate`| Skips one or more elements that satisfy a predicate. Fails if the predicate doesn't match the first element. | `skipMany1Satisfies isDigit` on "a123" -> `Fails` |
-| `sepBy p sep` | Parses zero or more occurrences of `p` separated by `sep`. | `sepBy pint32 pComma` on "1,2,3" -> `Ok [1;2;3]` |
-| `sepBy1 p sep`| Parses one or more occurrences of `p` separated by `sep`. | `sepBy1 pint32 pComma` on "" -> `Fails` |
+| `sepBy p sep` | Parses zero or more occurrences of `p` separated by `sep`. Returns a tuple of the parsed values and separators. | `sepBy pint32 pComma` on "1,2,3" -> `Ok ([1;2;3], [',';','])` |
+| `sepBy1 p sep`| Parses one or more occurrences of `p` separated by `sep`. Returns a tuple of the parsed values and separators. | `sepBy1 pint32 pComma` on "" -> `Fails` |
+| `skipSepBy`| Parses zero or more occurrences of `p` separated by `sep`. Returns unit. | `skipSepBy pint32 pComma` on "1,2,3" -> `Ok ()` |
+| `skipSepBy1`| Parses one or more occurrences of `p` separated by `sep`. Returns unit. | `skipSepBy1 pint32 pComma` on "" -> `Fails` |
+| `sepEndBy`| Parses zero or more occurrences of `p` separated and optionally ended by `sep`. Returns a tuple of the parsed values and separators. | `sepEndBy pint32 pComma` on "1,2,3," -> `Ok ([1;2;3], [',';',';','])` |
+| `sepEndBy1`| Parses one or more occurrences of `p` separated by `sep`. Returns a tuple of the parsed values and separators. | `skipSepBy1 pint32 pComma` on "" -> `Fails` |
+| `skipSepEndBy`| Parses zero or more occurrences of `p` separated and optionally ended by `sep`. Returns unit. | `sepEndBy pint32 pComma` on "1,2,3," -> `Ok ()` |
+| `skipSepEndBy1`| Parses one or more occurrences of `p` separated and optionally ended by `sep`. Returns unit. | `skipSepEndBy1 pint32 pComma` on "" -> `Fails` |
 | `manyTill p end` | Applies `p` until the `end` parser succeeds. Returns the list of `p`'s results and the result of `end`.| `manyTill pid (pitem '!')` on "abc!" -> `Ok (['a';'b';'c'], '!')` |
 | `chainl1 p op` | Parses one or more `p`, separated by `op`, and applies the operator left-associatively. | `chainl1 pint32 pPlus` on "1+2+3" -> `Ok 6` |
 | `chainr1 p op` | Like `chainl1`, but applies the operator right-associatively. | `chainr1 ...` (useful for power operators) |
