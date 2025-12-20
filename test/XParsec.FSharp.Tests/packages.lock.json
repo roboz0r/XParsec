@@ -139,7 +139,7 @@
           "FSharp.Core": "[8.0.300, )"
         }
       },
-      "xparsec.fsharp.lexer": {
+      "xparsec.fsharp": {
         "type": "Project",
         "dependencies": {
           "XParsec": "[0.3.0, )"
