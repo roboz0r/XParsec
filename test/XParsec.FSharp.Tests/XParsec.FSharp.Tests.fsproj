@@ -23,6 +23,6 @@
     <PackageReference Include="FSharp.Core" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\XParsec.FSharp.Lexer\XParsec.FSharp.Lexer.fsproj" />
+    <ProjectReference Include="..\..\src\XParsec.FSharp\XParsec.FSharp.fsproj" />
   </ItemGroup>
 </Project>
