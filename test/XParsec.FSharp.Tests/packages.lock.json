@@ -156,11 +156,11 @@
           "System.Collections.Immutable": "[8.0.0, )"
         }
       },
-      "xparsec.fsharp.lexer": {
+      "xparsec.fsharp": {
         "type": "Project",
         "dependencies": {
           "System.Collections.Immutable": "[8.0.0, )",
-          "XParsec": "[0.2.3, )"
+          "XParsec": "[0.2.4, )"
         }
       },
       "System.Collections.Immutable": {
