@@ -2250,9 +2250,3 @@ module Lexing =
     let lexString (input: string) =
         let reader = Reader.ofString input (LexBuilder.init ())
         lex () reader
-
-
-    let f xs =
-        match xs with
-        | [] -> 0
-        | _ -> 1
