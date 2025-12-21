@@ -151,4 +151,22 @@ let printExpr (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (expr: Exp
         tw.Indent <- tw.Indent - 1
         printTokenMin tw input lexed rBracket
         tw.WriteLine()
+    | Expr.ParenBlock(l, expr, r) ->
+        tw.Write("ParenBlock: ")
+        printTokenMin tw input lexed l
+        tw.WriteLine()
+        tw.Indent <- tw.Indent + 1
+        printExpr tw input lexed expr
+        tw.Indent <- tw.Indent - 1
+        printTokenMin tw input lexed r
+        tw.WriteLine()
+    | Expr.BeginEndBlock(l, expr, r) ->
+        tw.Write("BeginEndBlock: ")
+        printTokenMin tw input lexed l
+        tw.WriteLine()
+        tw.Indent <- tw.Indent + 1
+        printExpr tw input lexed expr
+        tw.Indent <- tw.Indent - 1
+        printTokenMin tw input lexed r
+        tw.WriteLine()
     | _ -> failwith "Not implemented"

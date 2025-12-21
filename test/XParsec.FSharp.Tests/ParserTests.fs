@@ -49,4 +49,8 @@ let tests =
                 let path = Path.Combine(testDataDir.Value, "07_simple_let.fs")
                 testParseFile path
             }
+            test "Simple Begin-End Block" {
+                let path = Path.Combine(testDataDir.Value, "08_simple_begin_end.fs")
+                testParseFile path
+            }
         ]
