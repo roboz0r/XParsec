@@ -1,0 +1,4 @@
+LongIdentOrOp: LongIdent: 
+  0, Identifier(0<token>) 'System'
+  7, Identifier(2<token>) 'Math'
+  12, Identifier(4<token>) 'PI'

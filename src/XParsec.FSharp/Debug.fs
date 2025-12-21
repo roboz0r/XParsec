@@ -37,6 +37,98 @@ let printConstant (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (x: Co
     | Constant.Literal value -> printTokenFull tw input lexed value
     | Constant.MeasuredLiteral(value, lAngle, measure, rAngle) -> failwith "Not implemented"
 
+let rec printIdentOrOp (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (identOrOp: IdentOrOp<SyntaxToken>) =
+    match identOrOp with
+    | IdentOrOp.Ident ident ->
+        tw.Write("Ident: ")
+        printTokenFull tw input lexed ident
+        tw.WriteLine()
+    | IdentOrOp.ParenOp(lParen, opName, rParen) ->
+        tw.Write("ParenOp: ")
+        tw.WriteLine()
+        tw.Indent <- tw.Indent + 1
+        printTokenMin tw input lexed lParen
+        tw.WriteLine()
+        printOpName tw input lexed opName
+        printTokenMin tw input lexed rParen
+        tw.Indent <- tw.Indent - 1
+        tw.WriteLine()
+
+    | IdentOrOp.StarOp(lParen, star, rParen) -> tw.Write("StarOp: ")
+
+and printOpName (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (opName: OpName<SyntaxToken>) =
+    match opName with
+    | OpName.SymbolicOp op ->
+        tw.Write("SymbolicOp: ")
+        printTokenFull tw input lexed op
+        tw.WriteLine()
+    | OpName.RangeOp rangeOp ->
+        tw.Write("RangeOp: ")
+        printRangeOpName tw input lexed rangeOp
+    | OpName.ActivePatternOp activePatternOp ->
+        tw.Write("ActivePatternOp: ")
+        printActivePatternOpName tw input lexed activePatternOp
+
+and printRangeOpName (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (rangeOpName: RangeOpName<SyntaxToken>) =
+    match rangeOpName with
+    | RangeOpName.DotDot dotDot ->
+        tw.Write("DotDot: ")
+        printTokenFull tw input lexed dotDot
+        tw.WriteLine()
+    | RangeOpName.DotDotDotDot dotDotDotDot ->
+        tw.Write("DotDotDotDot: ")
+        printTokenFull tw input lexed dotDotDotDot
+        tw.WriteLine()
+
+and printActivePatternOpName
+    (tw: IndentedTextWriter)
+    (input: string)
+    (lexed: Lexed)
+    (activePatternOpName: ActivePatternOpName<SyntaxToken>)
+    =
+    match activePatternOpName with
+    | ActivePatternOpName.ActivePatternOp(lBar, idents, finalUnderscore, rBar) ->
+        tw.Write("ActivePatternOp: ")
+        tw.WriteLine()
+        tw.Indent <- tw.Indent + 1
+        printTokenMin tw input lexed lBar
+        tw.WriteLine()
+
+        for ident in idents do
+            printTokenFull tw input lexed ident
+            tw.WriteLine()
+
+        match finalUnderscore with
+        | ValueSome u ->
+            printTokenFull tw input lexed u
+            tw.WriteLine()
+        | ValueNone -> ()
+
+        printTokenMin tw input lexed rBar
+        tw.Indent <- tw.Indent - 1
+        tw.WriteLine()
+
+let printLongIdentOrOp
+    (tw: IndentedTextWriter)
+    (input: string)
+    (lexed: Lexed)
+    (longIdentOrOp: LongIdentOrOp<SyntaxToken>)
+    =
+    match longIdentOrOp with
+    | LongIdentOrOp.LongIdent idents ->
+        tw.Write("LongIdent: ")
+        tw.WriteLine()
+        tw.Indent <- tw.Indent + 1
+
+        for ident in idents do
+            printTokenFull tw input lexed ident
+            tw.WriteLine()
+
+        tw.Indent <- tw.Indent - 1
+    | LongIdentOrOp.Op identOrOp -> tw.Write("Op: ")
+    | LongIdentOrOp.QualifiedOp(longIdent, dot, op) -> tw.Write("QualifiedOp: ")
+
+
 let printPat (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (pat: Pat<SyntaxToken>) =
     match pat with
     | Pat.Const value ->
@@ -169,4 +261,7 @@ let printExpr (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (expr: Exp
         tw.Indent <- tw.Indent - 1
         printTokenMin tw input lexed r
         tw.WriteLine()
+    | Expr.LongIdentOrOp longIdentOrOp ->
+        tw.Write("LongIdentOrOp: ")
+        printLongIdentOrOp tw input lexed longIdentOrOp
     | _ -> failwith "Not implemented"
