@@ -172,6 +172,73 @@ let printValueDefn (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (valu
         printExpr tw input lexed expr
         tw.Indent <- tw.Indent - 1
 
+let printTypar (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (typar: Typar<SyntaxToken>) =
+    match typar with
+    | Typar.Anon underscore ->
+        tw.Write("Typar.Anon: ")
+        printTokenFull tw input lexed underscore
+        tw.WriteLine()
+    | Typar.Named(quote, ident) ->
+        tw.Write("Typar.Named: ")
+        printTokenFull tw input lexed quote
+        tw.Write(" ")
+        printTokenFull tw input lexed ident
+        tw.WriteLine()
+    | Typar.Static(caret, ident) ->
+        tw.Write("Typar.Static: ")
+        printTokenFull tw input lexed caret
+        tw.Write(" ")
+        printTokenFull tw input lexed ident
+        tw.WriteLine()
+
+
+let printTypeArg (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (typeArg: TypeArg<SyntaxToken>) =
+    match typeArg with
+    | TypeArg.Type ty ->
+        tw.Write("TypeArg.Type: ")
+        printType tw input lexed ty
+    | TypeArg.Measure measure ->
+        tw.Write("TypeArg.Measure: ")
+        printTokenFull tw input lexed measure
+        tw.WriteLine()
+    | TypeArg.StaticParameter staticParam ->
+        tw.Write("TypeArg.StaticParameter: ")
+        printTokenFull tw input lexed staticParam
+        tw.WriteLine()
+
+
+let printType (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (ty: Type<SyntaxToken>) =
+    match ty with
+    | Type.ParenType(lParen, typ, rParen) ->
+        tw.Write("ParenType: ")
+        printTokenMin tw input lexed lParen
+        tw.WriteLine()
+        tw.Indent <- tw.Indent + 1
+        printType tw input lexed typ
+        tw.Indent <- tw.Indent - 1
+        printTokenMin tw input lexed rParen
+        tw.WriteLine()
+    | Type.VarType typar ->
+        tw.Write("VarType: ")
+        printTypar tw input lexed typar
+    | Type.NamedType longIdent ->
+        tw.Write("NamedType: ")
+        printLongIdentOrOp tw input lexed (LongIdentOrOp.LongIdent longIdent)
+    | Type.GenericType(longIdent, lAngle, typeArgs, rAngle) ->
+        tw.Write("GenericType: ")
+        printLongIdentOrOp tw input lexed (LongIdentOrOp.LongIdent longIdent)
+        printTokenMin tw input lexed lAngle
+        tw.WriteLine()
+        tw.Indent <- tw.Indent + 1
+
+        for typeArg in typeArgs do
+            printTypeArg tw input lexed typeArg
+
+        tw.Indent <- tw.Indent - 1
+        printTokenMin tw input lexed rAngle
+        tw.WriteLine()
+    | _ -> failwith "Not implemented"
+
 let printExpr (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (expr: Expr<SyntaxToken>) =
     match expr with
     | Expr.Const value ->
@@ -264,4 +331,35 @@ let printExpr (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (expr: Exp
     | Expr.LongIdentOrOp longIdentOrOp ->
         tw.Write("LongIdentOrOp: ")
         printLongIdentOrOp tw input lexed longIdentOrOp
-    | _ -> failwith "Not implemented"
+    | Expr.TypeApp(expr, lAngle, types, rAngle) ->
+        tw.WriteLine("TypeApp:")
+        tw.Indent <- tw.Indent + 1
+        tw.WriteLine("Expr:")
+        tw.Indent <- tw.Indent + 1
+        printExpr tw input lexed expr
+        tw.Indent <- tw.Indent - 1
+        tw.WriteLine("Types:")
+        tw.Indent <- tw.Indent + 1
+
+        for ty in types do
+            printType tw input lexed ty
+
+        tw.Indent <- tw.Indent - 1
+        tw.Indent <- tw.Indent - 1
+    | Expr.DotLookup(expr, dot, longIdentOrOp) ->
+        tw.WriteLine("DotLookup:")
+        tw.Indent <- tw.Indent + 1
+        tw.WriteLine("Expr:")
+        tw.Indent <- tw.Indent + 1
+        printExpr tw input lexed expr
+        tw.Indent <- tw.Indent - 1
+        tw.Write("Dot: ")
+        printTokenMin tw input lexed dot
+        tw.WriteLine()
+        tw.WriteLine("LongIdentOrOp:")
+        tw.Indent <- tw.Indent + 1
+        printLongIdentOrOp tw input lexed longIdentOrOp
+        tw.Indent <- tw.Indent - 1
+        tw.Indent <- tw.Indent - 1
+
+    | _ -> failwithf "Not implemented %A" expr

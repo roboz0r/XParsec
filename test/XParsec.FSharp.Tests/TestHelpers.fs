@@ -147,8 +147,8 @@ let pOperatorToken =
     let pPrecedence =
         typeof<PrecedenceLevel>.GetEnumValues()
         |> Seq.cast<PrecedenceLevel>
-        |> Seq.map (fun level -> pstring (level.ToString()) >>% level)
-        |> choice
+        |> Seq.map (fun level -> level.ToString(), level)
+        |> anyStringReturn
 
     parser {
         let! _ = pstring "Operator "
@@ -320,7 +320,7 @@ let testParseFile (filePath: string) =
         match Lexing.lexString input with
         | Error e -> failwithf "Lexing failed: %A" e
         | Ok { Parsed = lexed } ->
-            let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed
+            let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed input
 
             match XParsec.FSharp.Parser.Expr.parse reader with
             | Error e -> failwithf "Parsing failed: %A" e
