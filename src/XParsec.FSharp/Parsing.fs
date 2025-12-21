@@ -61,12 +61,14 @@ type Syntax =
 
 type ParseState =
     {
+        Input: string
         Lexed: Lexed
         // Context: Stack<ParserContext>
         Diagnostics: ImmutableArray<Diagnostic>.Builder
         mutable IndentDirective: Syntax
         mutable MinimumIndentationStack: int64 list
         mutable LastLine: int<line>
+        mutable ReprocessOpAfterTypeDeclaration: bool
     }
 
     member this.MinimumIndentation =
@@ -75,14 +77,16 @@ type ParseState =
         | x :: _ -> x
 
 module ParseState =
-    let create (lexed: Lexed) =
+    let create (lexed: Lexed) input =
         {
+            Input = input
             Lexed = lexed
             // Context = Stack<ParserContext>()
             Diagnostics = ImmutableArray.CreateBuilder()
             IndentDirective = Syntax.Light
             MinimumIndentationStack = []
             LastLine = 0<line>
+            ReprocessOpAfterTypeDeclaration = false
         }
 
     let addDiagnostic code startToken endToken (state: ParseState) =
@@ -197,6 +201,23 @@ module Parsing =
             | Token.Newline -> true
             | Token.Tab -> state.IndentDirective = Syntax.Verbose
             | _ -> false
+
+    let tokenStringIs (s: string) (token: SyntaxToken) (state: ParseState) =
+        match token.Index with
+        | TokenIndex.Virtual -> false
+        | TokenIndex.Regular iT ->
+            let t1 = state.Lexed.Tokens[iT + 1<_>]
+            let tokenStr = state.Input.[int token.StartIndex .. int (t1.StartIndex - 1L)]
+            // printfn "Comparing token string '%s' to '%s'" tokenStr s
+            tokenStr = s
+
+    let tokenStringStartsWith (s: string) (token: SyntaxToken) (state: ParseState) =
+        match token.Index with
+        | TokenIndex.Virtual -> false
+        | TokenIndex.Regular iT ->
+            let t1 = state.Lexed.Tokens[iT + 1<_>]
+            let tokenStr = state.Input.[int token.StartIndex .. int (t1.StartIndex - 1L)]
+            tokenStr.StartsWith(s)
 
     let rec nextNonTriviaToken (reader: Reader<PositionedToken, ParseState, 'a, 'b>) =
         // TODO: We also need to consider handling preprocessor directives here
@@ -335,7 +356,62 @@ module Constant =
         choiceL [ pLiteral ] "Constant"
 
 [<RequireQualifiedAccess>]
-type Aux = | Ident of SyntaxToken
+module Typar =
+    let pAnon =
+        nextNonTriviaTokenSatisfiesL
+            (fun synTok -> synTok.Token = Token.Wildcard)
+            "Expected '_' for anonymous type parameter"
+        |>> Typar.Anon
+
+    let pNamed =
+        parser {
+            let! quote =
+                nextNonTriviaTokenSatisfiesL
+                    (fun synTok -> synTok.Token = Token.KWSingleQuote)
+                    "Expected ''' for named type parameter"
+
+            let! ident =
+                nextNonTriviaTokenSatisfiesL
+                    (fun synTok -> synTok.Token = Token.Identifier)
+                    "Expected identifier for named type parameter"
+
+            return Typar.Named(quote, ident)
+        }
+
+    // TODO: Caret?
+    // let pStatic =
+    //     parser {
+    //         let! caret = nextNonTriviaTokenSatisfiesL (fun synTok -> synTok.Token = Token.Op) "Expected '^' for static type parameter"
+    //         let! ident = nextNonTriviaTokenSatisfiesL (fun synTok -> synTok.Token = Token.Identifier) "Expected identifier for static type parameter"
+    //         return Typar.Static(caret, ident)
+    //     }
+
+    let parse: Parser<Typar<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+        choiceL [ pAnon; pNamed ] "Type Parameter"
+
+[<RequireQualifiedAccess>]
+module Type =
+    let pVarType: Parser<Type<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+        Typar.parse |>> Type.VarType
+
+    let pNamedType: Parser<Type<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+        parser {
+            // TODO: LongIdent
+            let! ident =
+                nextNonTriviaTokenSatisfiesL
+                    (fun synTok -> synTok.Token = Token.Identifier)
+                    "Expected identifier for named type"
+
+            return Type.NamedType [ ident ]
+        }
+
+    let parse: Parser<Type<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+        choiceL [ pVarType; pNamedType ] "Type"
+
+[<RequireQualifiedAccess>]
+type Aux =
+    | Ident of SyntaxToken
+    | TypeApp of Type<SyntaxToken> list * SyntaxToken
 
 [<RequireQualifiedAccess>]
 module Expr =
@@ -384,6 +460,50 @@ module Expr =
 
                     Expr.LongIdentOrOp(LongIdentOrOp.LongIdent newLongIdent)
                 | _ -> Expr.DotLookup(expr, op, LongIdentOrOp.LongIdent [ ident ])
+            | _ -> failwith "Unexpected Aux type for dot completion"
+
+        let pTypeAppRhs =
+            parser {
+                let! types, _ =
+                    sepBy
+                        Type.parse
+                        (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpComma) "Expected ',' between types")
+
+                let! state = getUserState
+
+                let! rAngle =
+                    nextNonTriviaTokenSatisfiesL
+                        (fun t ->
+                            match t.Token with
+                            | Token.OpGreaterThan -> tokenStringIs ">" t state
+                            | _ -> false
+                        )
+                        "Expected '>' for type application"
+                    <|> parser {
+                        let! pos = getPosition
+                        let! token = nextNonTriviaToken
+                        let! state = getUserState
+                        // printfn "Handling special case for type application '>' token: %A" token
+                        if token.Token = Token.OpGreaterThan then
+                            if tokenStringStartsWith ">" token state then
+                                // We have an operator like '>>' or '>>=' that needs to be reprocessed
+                                // after the type application that takes the first '>' as its left operand
+                                state.ReprocessOpAfterTypeDeclaration <- true
+                                do! setPosition pos
+                                return token
+                            else
+                                return! fail (Message "Expected '>' for type application") // Could be a different operator
+                        else
+                            return! fail (Message "Expected '>' for type application") // Could be a different operator
+                    }
+
+                return Aux.TypeApp(List.ofSeq types, rAngle)
+            }
+
+        let completeTypeApp (expr: Expr<_>) (op: SyntaxToken) (aux: Aux) =
+            match aux with
+            | Aux.TypeApp(types, rAngle) -> Expr.TypeApp(expr, op, types, rAngle)
+            | _ -> failwith "Unexpected Aux type for type application completion"
 
         let rhsOperators
             : (SyntaxToken
@@ -438,7 +558,7 @@ module Expr =
                     | PrecedenceLevel.Dot -> (fun op -> InfixMapped(op, preturn op, power, parseDotRhs, completeDot))
                     | PrecedenceLevel.HighApplication -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
                     | PrecedenceLevel.HighTypeApplication ->
-                        (fun op -> InfixLeft(op, preturn op, power, completeInfix))
+                        (fun op -> InfixMapped(op, preturn op, power, pTypeAppRhs, completeTypeApp))
                     // | PrecedenceLevel.Parens -> LHS only
                     | _ -> Unchecked.defaultof<_>
                 )
@@ -474,22 +594,120 @@ module Expr =
                 return t
             }
 
+        let pTypeApplication =
+            // Treat '<' followed by a type and '>' as type application
+            parser {
+                let! state = getUserState
+
+                let! lAngle =
+                    nextNonTriviaTokenSatisfiesL
+                        (fun synTok ->
+                            match synTok.Token with
+                            | Token.OpLessThan -> tokenStringIs "<" synTok state
+                            | _ -> false
+                        )
+                        "Expected '<' for type application"
+
+                do!
+                    followedBy (fun reader ->
+                        match reader.Peek() with
+                        | ValueNone -> fail EndOfInput reader
+                        | ValueSome t ->
+                            if t.Token.IsIdentifier then
+                                preturn () reader
+                            elif t.Token.IsLiteral then
+                                preturn () reader
+                            else
+                                fail (Message "Expected type after '<' for type application") reader
+                    )
+
+                let typeAngle =
+                    { lAngle with
+                        PositionedToken =
+                            PositionedToken.Create(
+                                Token.ofUInt16 (
+                                    TokenRepresentation.KindOperator
+                                    ||| TokenRepresentation.Precedence.HighTypeApplication
+                                ),
+                                lAngle.PositionedToken.StartIndex
+                            )
+                    }
+
+                return typeAngle
+            }
+
         let rhsParser =
             // First try to parse application operator (whitespace) or high-precedence application
             // then try to parse explicit operator
-            (pApplication <|> nextNonTriviaToken)
+            (pTypeApplication <|> pApplication <|> nextNonTriviaToken)
             >>= fun token ->
                 match OperatorInfo.TryCreate token.PositionedToken with
                 | ValueNone -> fail (Message "Expected RHS operator")
                 | ValueSome opInfo ->
-                    // printOpInfo opInfo
-                    let pl = opInfo.Precedence
-                    let x = rhsOperators[LanguagePrimitives.EnumToValue pl]token
+                    parser {
+                        let! state = getUserState
 
-                    if obj.ReferenceEquals(x, null) then
-                        fail (Message "Not a valid RHS operator")
-                    else
-                        preturn x
+                        if state.ReprocessOpAfterTypeDeclaration then
+                            // We have an operator like '>>' or '>>=' that needs to be reprocessed
+                            // after the type application that takes the first '>' to close the type application
+                            state.ReprocessOpAfterTypeDeclaration <- false
+
+                            let reprocessedToken =
+                                let newStart = token.StartIndex + 1L // Adjust start index to account for consumed '>'
+
+                                let tokenString =
+                                    match token.Index with
+                                    | TokenIndex.Virtual -> failwith "Cannot re-lex virtual token"
+                                    | TokenIndex.Regular iT ->
+                                        let t1 = state.Lexed.Tokens[iT + 1<token>] // Next token after operator always exists as EOF is present
+                                        state.Input.[int newStart .. int (t1.StartIndex - 1L)]
+                                // printfn "Re-lexing operator after type declaration: '%s'" tokenString
+                                let t =
+                                    match tokenString with
+                                    | "" ->
+                                        failwith "Unexpected empty operator string in ReprocessOpAfterTypeDeclaration"
+                                    | "." ->
+                                        // Special case for dot operator as it is common after type declarations
+                                        Token.OpDot
+                                    | _ ->
+                                        // Need to re-lex to discover the correct operator token (mostly for precedence)
+                                        match Lexing.lexString tokenString with
+                                        | Error e -> failwithf "Failed to re-lex operator after type declaration %A" e
+                                        | Ok lexed ->
+                                            if lexed.Parsed.Tokens.Length <> 2 then
+                                                // Expect exactly two tokens: the operator and EOF
+                                                failwithf
+                                                    "Re-lexed operator did not produce exactly one token: %A"
+                                                    lexed.Parsed.Tokens
+                                            else
+                                                let relexedToken = lexed.Parsed.Tokens[0<token>]
+                                                relexedToken.Token
+
+                                { token with
+                                    PositionedToken = PositionedToken.Create(t, newStart)
+                                }
+
+                            match OperatorInfo.TryCreate reprocessedToken.PositionedToken with
+                            | ValueNone -> return! fail (Message "Not a valid RHS operator after type declaration")
+                            | ValueSome opInfo ->
+                                // printOpInfo opInfo
+                                let pl = opInfo.Precedence
+                                let x = rhsOperators[LanguagePrimitives.EnumToValue pl]reprocessedToken
+
+                                if obj.ReferenceEquals(x, null) then
+                                    return! fail (Message "Not a valid RHS operator after type declaration")
+                                else
+                                    return x
+                        else
+                            // printOpInfo opInfo
+                            let pl = opInfo.Precedence
+                            let x = rhsOperators[LanguagePrimitives.EnumToValue pl]token
+
+                            if obj.ReferenceEquals(x, null) then
+                                return! fail (Message "Not a valid RHS operator")
+                            else
+                                return x
+                    }
 
         let lhsParser =
             nextNonTriviaToken
@@ -602,6 +820,6 @@ module Expr =
 
 [<RequireQualifiedAccess>]
 module Reader =
-    let ofLexed (lexed: Lexed) =
-        let initialState = ParseState.create lexed
+    let ofLexed (lexed: Lexed) input =
+        let initialState = ParseState.create lexed input
         Reader.ofImmutableArray (lexed.Tokens.ToImmutableArray()) initialState
