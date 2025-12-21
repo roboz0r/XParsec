@@ -53,4 +53,8 @@ let tests =
                 let path = Path.Combine(testDataDir.Value, "08_simple_begin_end.fs")
                 testParseFile path
             }
+            test "Simple Long Ident" {
+                let path = Path.Combine(testDataDir.Value, "09_simple_long_ident.fs")
+                testParseFile path
+            }
         ]

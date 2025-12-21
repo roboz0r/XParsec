@@ -334,7 +334,8 @@ module Constant =
     let parse: Parser<Constant<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         choiceL [ pLiteral ] "Constant"
 
-type Aux = | TODO
+[<RequireQualifiedAccess>]
+type Aux = | Ident of SyntaxToken
 
 [<RequireQualifiedAccess>]
 module Expr =
@@ -359,12 +360,36 @@ module Expr =
                 member _.GetHashCode(obj) = hash obj.Token
             }
 
+        let parseDotRhs: Parser<Aux, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+            parser {
+                // For now we just parse an identifier after the dot
+                let! ident =
+                    nextNonTriviaTokenSatisfiesL
+                        (fun synTok -> synTok.Token = Token.Identifier)
+                        "Expected identifier after '.'"
+
+                return Aux.Ident ident
+            }
+
+        let completeDot (expr: Expr<_>) (op: SyntaxToken) (aux: Aux) =
+            match aux with
+            | Aux.Ident ident ->
+                match expr with
+                | Expr.Ident firstIdent -> Expr.LongIdentOrOp(LongIdentOrOp.LongIdent [ firstIdent; ident ])
+                | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent longIdentOrOp) ->
+                    let newLongIdent =
+                        match longIdentOrOp with
+                        | [] -> [ ident ]
+                        | _ -> longIdentOrOp @ [ ident ]
+
+                    Expr.LongIdentOrOp(LongIdentOrOp.LongIdent newLongIdent)
+                | _ -> Expr.DotLookup(expr, op, LongIdentOrOp.LongIdent [ ident ])
 
         let rhsOperators
             : (SyntaxToken
                   -> RHSOperator<
                       SyntaxToken,
-                      unit,
+                      Aux,
                       Expr<SyntaxToken>,
                       PositionedToken,
                       ParseState,
@@ -410,7 +435,7 @@ module Expr =
                     | PrecedenceLevel.Application -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
                     // | PrecedenceLevel.PatternMatchBar -> Pattern only operator
                     // | PrecedenceLevel.Prefix -> LHS only
-                    | PrecedenceLevel.Dot -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
+                    | PrecedenceLevel.Dot -> (fun op -> InfixMapped(op, preturn op, power, parseDotRhs, completeDot))
                     | PrecedenceLevel.HighApplication -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
                     | PrecedenceLevel.HighTypeApplication ->
                         (fun op -> InfixLeft(op, preturn op, power, completeInfix))
@@ -480,7 +505,7 @@ module Expr =
 
         interface Operators<
             SyntaxToken,
-            unit,
+            Aux,
             Expr<SyntaxToken>,
             PositionedToken,
             ParseState,
