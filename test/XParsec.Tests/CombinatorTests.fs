@@ -1240,7 +1240,7 @@ let tests =
 
                     "" |> Expect.equal reader.Index 18L
                 | Error e -> failwithf "%A" e
-                
+
                 let input = "input,,input,X"
 
                 let p1 = pstring "input" |> opt
@@ -1265,7 +1265,9 @@ let tests =
 
                 match result with
                 | Ok result ->
-                    "" |> Expect.equal result.Parsed ([| ValueNone |].ToImmutableArray(), ImmutableArray.Empty)
+                    ""
+                    |> Expect.equal result.Parsed ([| ValueNone |].ToImmutableArray(), ImmutableArray.Empty)
+
                     "" |> Expect.equal reader.Index 0L
                 | Error e -> failwithf "%A" e
 
