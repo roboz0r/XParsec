@@ -1,0 +1,7 @@
+0, KWBegin
+5, Whitespace
+6, NumInt32
+9, Whitespace
+10, KWEnd
+13, Newline
+14, EOF

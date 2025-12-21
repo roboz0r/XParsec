@@ -1,0 +1,3 @@
+BeginEndBlock: 0, KWBegin(0<token>)
+  Const: 6, NumInt32(2<token>) '123'
+10, KWEnd(4<token>)
