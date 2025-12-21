@@ -1,0 +1,14 @@
+DotLookup:
+  Expr:
+    TypeApp:
+      Expr:
+        Ident: 0, Identifier(0<token>) 'Map'
+      Types:
+        NamedType: LongIdent: 
+          4, Identifier(2<token>) 'int'
+        NamedType: LongIdent: 
+          9, Identifier(5<token>) 'string'
+  Dot: 16, OpDot(6<token>)
+  LongIdentOrOp:
+    LongIdent: 
+      17, Identifier(7<token>) 'empty'
