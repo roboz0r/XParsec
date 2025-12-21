@@ -246,7 +246,7 @@ type CompOrRangeExpr<'T> =
 and [<RequireQualifiedAccess>] Expr<'T> =
     // Constants and Blocks
     | Const of value: Constant<'T>
-    | ParentBlock of lParen: 'T * expr: Expr<'T> * rParen: 'T
+    | ParenBlock of lParen: 'T * expr: Expr<'T> * rParen: 'T
     | BeginEndBlock of beginToken: 'T * expr: Expr<'T> * endToken: 'T
     // Lookups and Applications
     | LongIdentOrOp of longIdentOrOp: LongIdentOrOp<'T>

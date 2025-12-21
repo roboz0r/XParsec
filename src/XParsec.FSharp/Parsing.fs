@@ -514,7 +514,15 @@ module Expr =
             let! l = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWLParen) "Expected '('"
             let! e = refExpr.Parser
             let! r = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWRParen) "Expected ')'"
-            return Expr.ParentBlock(l, e, r)
+            return Expr.ParenBlock(l, e, r)
+        }
+
+    let pBeginEnd =
+        parser {
+            let! l = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWBegin) "Expected 'begin'"
+            let! e = refExpr.Parser
+            let! r = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWEnd) "Expected 'end'"
+            return Expr.BeginEndBlock(l, e, r)
         }
 
     let pCollection openTok closeTok complete =
@@ -552,7 +560,7 @@ module Expr =
         }
 
     let atomExpr =
-        choiceL [ pConst; pIdent; pLetValue; pParen; pList; pArray; pStructTuple ] "atom expression"
+        choiceL [ pConst; pIdent; pLetValue; pParen; pList; pArray; pStructTuple; pBeginEnd ] "atom expression"
 
     let operators = FSharpOperatorParser()
 
