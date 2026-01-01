@@ -14,19 +14,19 @@ type LineEndings<'Input, 'InputSlice
         parser {
             let! _ = skipManyTill pid newline
             let! pos = getPosition
-            return pos.Index - 1L
+            return pos.Index - 1
         }
 
     static let lineEndings: Parser<_, _, _, 'Input, 'InputSlice> = many lineEndingParser
 
     static member Parser = lineEndings
 
-type LineIndex(endings: ImmutableArray<int64>, maxIndex) =
+type LineIndex(endings: ImmutableArray<int>, maxIndex) =
 
     member _.Indices = endings
 
     /// Returns the 1-based line number and column number of the given 0-based index
-    member _.GetLineCol(index: int64) =
+    member _.GetLineCol(index: int) =
         if index < 0 then
             invalidArg "index" "Index must be non-negative"
 
@@ -34,12 +34,12 @@ type LineIndex(endings: ImmutableArray<int64>, maxIndex) =
             raise (IndexOutOfRangeException $"Index must be less than or equal to {maxIndex}")
         // Line and column are 1-based
         if endings.IsEmpty then
-            struct (1, index + 1L)
+            struct (1, index + 1)
         else
             let minV = endings.[0]
 
             if index <= minV then
-                1, index + 1L
+                1, index + 1
             else
                 // Binary search for the line number
                 let rec findIndex low high =
@@ -61,10 +61,10 @@ type LineIndex(endings: ImmutableArray<int64>, maxIndex) =
                 let iLine = findIndex 0 (endings.Length - 1)
 
                 match index - endings.[iLine] with
-                | 0L -> iLine + 1, index - endings.[iLine - 1]
+                | 0 -> iLine + 1, index - endings.[iLine - 1]
                 | col -> iLine + 2, col
 
-    member _.GetIndex(line: int, col: int64) =
+    member _.GetIndex(line: int, col: int) =
         if line < 1 then
             invalidArg "line" "Line must be greater than 0"
 
@@ -72,10 +72,10 @@ type LineIndex(endings: ImmutableArray<int64>, maxIndex) =
             invalidArg "col" "Column must be greater than 0"
 
         match line with
-        | 1 -> col - 1L
+        | 1 -> col - 1
         | _ ->
             let iLine = endings.[line - 2]
-            let i = iLine + int64 col
+            let i = iLine + col
 
             if i > maxIndex then
                 raise (IndexOutOfRangeException $"Index must be less than or equal to {maxIndex}")
@@ -84,7 +84,7 @@ type LineIndex(endings: ImmutableArray<int64>, maxIndex) =
 
     static member OfString(input: string) =
         match LineEndings.Parser(Reader.ofString input ()) with
-        | Ok result -> LineIndex(result.Parsed, int64 (input.Length - 1))
+        | Ok result -> LineIndex(result.Parsed, input.Length - 1)
         | Error _ -> invalidOp "LineIndex: Failed to parse line endings"
 
     static member OfString(input: string, maxLength: int) =
@@ -94,18 +94,17 @@ type LineIndex(endings: ImmutableArray<int64>, maxIndex) =
         if maxLength > input.Length then
             raise (ArgumentOutOfRangeException $"maxLength must be less than or equal to {input.Length}")
 
-        let maxLength = int64 maxLength
         let reader = Reader.ofString input ()
-        let reader = reader.Slice(0L, int64 maxLength)
+        let reader = reader.Slice(0, maxLength)
 
         match LineEndings.Parser reader with
-        | Ok result -> LineIndex(result.Parsed, maxLength - 1L)
+        | Ok result -> LineIndex(result.Parsed, maxLength - 1)
         | Error _ -> invalidOp "LineIndex: Failed to parse line endings"
 
 
 module ErrorFormatting =
     type StringBuilder with
-        member this.Append(input: #IReadable<char, 'InputSlice>, start: int64, count: int) =
+        member this.Append(input: #IReadable<char, 'InputSlice>, start: int, count: int) =
             let span = input.SpanSlice(start, count)
 #if !FABLE_COMPILER && NET8_0_OR_GREATER
             this.Append(span)
@@ -120,7 +119,7 @@ module ErrorFormatting =
             if input.Length > Int32.MaxValue then
                 invalidOp "StringBuilder.Append: input is too long"
 
-            let span = input.SpanSlice(0L, int input.Length)
+            let span = input.SpanSlice(0, input.Length)
 #if !FABLE_COMPILER && NET8_0_OR_GREATER
             this.Append(span)
 #else
@@ -141,25 +140,25 @@ module ErrorFormatting =
 
     [<Literal>]
     let private VerticalRight = '\u251C'
-    // TODO: Generalizing to IReadable int -> int64 conversion issues
-    let private findIndexBack (input: #IReadable<char, 'InputSlice>) (index: int64) (backLimit: int) =
-        let backLimit = int64 backLimit
+
+    let private findIndexBack (input: #IReadable<char, 'InputSlice>) (index: int) (backLimit: int) =
+        let backLimit = backLimit
 
         let rec loop i =
-            if i <= 0L then
-                0L
+            if i <= 0 then
+                0
             else
-                let i = min (input.Length - 1L) i
+                let i = min (input.Length - 1) i
 
                 match input.[i] with
                 | '\r'
-                | '\n' -> min (i + 1L) index
-                | _ -> if index - i > backLimit then i else loop (i - 1L)
+                | '\n' -> min (i + 1) index
+                | _ -> if index - i > backLimit then i else loop (i - 1)
 
         loop index
 
-    let private findIndexForward (input: #IReadable<char, 'InputSlice>) (index: int64) (forwardLimit: int) =
-        let forwardLimit = int64 forwardLimit
+    let private findIndexForward (input: #IReadable<char, 'InputSlice>) (index: int) (forwardLimit: int) =
+        let forwardLimit = forwardLimit
 
         let rec loop i =
             if i >= input.Length then
@@ -167,8 +166,8 @@ module ErrorFormatting =
             else
                 match input.[i] with
                 | '\r'
-                | '\n' -> max (i - 1L) index
-                | _ -> if i - index > forwardLimit then i else loop (i + 1L)
+                | '\n' -> max (i - 1) index
+                | _ -> if i - index > forwardLimit then i else loop (i + 1)
 
         loop index
 
@@ -187,7 +186,7 @@ module ErrorFormatting =
     let formatErrorsLine
         (lineIndex: LineIndex)
         (input: #IReadable<char, 'InputSlice>)
-        (index: int64)
+        (index: int)
         (sb: StringBuilder)
         : StringBuilder =
         let iBack = findIndexBack input index 25

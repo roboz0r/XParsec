@@ -29,11 +29,11 @@ let testParse input format value =
     | Error e -> failwithf "%A" e
 
     let actualFormat =
-        let reader = Reader.ofStream (new MemoryStream(input)) 128 ()
+        let reader = Reader.ofArray input ()
         pFormat () reader
 
     let actualValue =
-        let reader = Reader.ofStream (new MemoryStream(input)) 128 ()
+        let reader = Reader.ofArray input ()
         pObject () reader
 
     match actualFormat with

@@ -287,7 +287,7 @@ let confirm msg input expected p =
         match result with
         | Ok result ->
             msg |> Expect.equal result.Parsed expected
-            msg |> Expect.equal reader.Index (int64 input.Length)
+            msg |> Expect.equal reader.Index input.Length
         | Error e -> failwithf "%s Expected Ok %A, but got Error %A" msg expected e
     | Error expected ->
         match result with
@@ -304,13 +304,13 @@ let confirmFloat msg input expected p =
             match result with
             | Ok result ->
                 msg |> Expect.isTrue (Double.IsNaN result.Parsed)
-                msg |> Expect.equal reader.Index (int64 input.Length)
+                msg |> Expect.equal reader.Index input.Length
             | Error e -> failwithf "%s Expected Ok NaN, but got Error %A" msg e
         elif expected = Double.PositiveInfinity || expected = Double.NegativeInfinity then
             match result with
             | Ok result ->
                 msg |> Expect.equal result.Parsed expected
-                msg |> Expect.equal reader.Index (int64 input.Length)
+                msg |> Expect.equal reader.Index input.Length
             | Error e -> failwithf "%s Expected Ok %A, but got Error %A" msg expected e
         else
             match result with
@@ -327,7 +327,7 @@ let confirmFloat msg input expected p =
                 |> Expect.isLessThan relativeDifference 1e-15
 
                 msg |> Expect.equal result.Parsed expected
-                msg |> Expect.equal reader.Index (int64 input.Length)
+                msg |> Expect.equal reader.Index input.Length
             | Error e -> failwithf "%s Expected Ok %A, but got Error %A" msg expected e
     | Error expected ->
         match result with

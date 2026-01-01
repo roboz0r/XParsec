@@ -77,7 +77,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.isTrue result.Parsed
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
             }
 
@@ -91,7 +91,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.isTrue result.Parsed
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
             }
 
@@ -107,7 +107,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed "ut"
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
             }
 
@@ -123,7 +123,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed "inp"
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
             }
 
@@ -139,7 +139,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ("inp", "ut")
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
             }
 
@@ -156,7 +156,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed "input"
-                    "" |> Expect.equal reader.Index 7L
+                    "" |> Expect.equal reader.Index 7
                 | Error e -> failwithf "%A" e
             }
 
@@ -170,7 +170,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed 5
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
             }
 
@@ -186,7 +186,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed "input"
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
             }
 
@@ -203,7 +203,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed "input"
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
             }
 
@@ -221,7 +221,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed "input"
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
             }
 
@@ -240,7 +240,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed "input"
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
             }
 
@@ -256,7 +256,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed "input"
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
 
                 let p = p2 <|> p1
@@ -266,7 +266,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed "input"
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
             }
 
@@ -282,7 +282,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed "input"
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
             }
 
@@ -298,7 +298,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed "input"
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
             }
 
@@ -314,7 +314,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed "input"
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
 
                 let p = p2 <|>% "true"
@@ -324,7 +324,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed "true"
-                    "" |> Expect.equal reader.Index 0L
+                    "" |> Expect.equal reader.Index 0
                 | Error e -> failwithf "%A" e
             }
 
@@ -340,7 +340,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed (ValueSome "input")
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
 
                 let p = opt p2
@@ -350,7 +350,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ValueNone
-                    "" |> Expect.equal reader.Index 0L
+                    "" |> Expect.equal reader.Index 0
                 | Error e -> failwithf "%A" e
             }
 
@@ -366,7 +366,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ()
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
 
                 let p = optional p2
@@ -376,7 +376,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ()
-                    "" |> Expect.equal reader.Index 0L
+                    "" |> Expect.equal reader.Index 0
                 | Error e -> failwithf "%A" e
             }
 
@@ -391,7 +391,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed "input"
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
 
                 let p = notEmpty (preturn ())
@@ -403,7 +403,7 @@ let tests =
                 | Error e ->
                     let err = e.Position.Index, e.Errors
 
-                    "" |> Expect.equal err (0L, ParseError.shouldConsume)
+                    "" |> Expect.equal err (0, ParseError.shouldConsume)
             }
 
             test "FollowedBy" {
@@ -426,7 +426,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed "inp"
-                    "" |> Expect.equal reader.Index 3L
+                    "" |> Expect.equal reader.Index 3
                 | Error e -> failwithf "%A" e
 
                 let p = p1 .>> (followedBy p2)
@@ -437,7 +437,7 @@ let tests =
                 | Ok result -> "Parser should fail" |> Expect.isFalse true
                 | Error e ->
                     let err = e.Position.Index, e.Errors
-                    "" |> Expect.equal err (3L, ParseError.shouldNotConsume)
+                    "" |> Expect.equal err (3, ParseError.shouldNotConsume)
             }
 
             test "FollowedByL" {
@@ -460,7 +460,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed "inp"
-                    "" |> Expect.equal reader.Index 3L
+                    "" |> Expect.equal reader.Index 3
                 | Error e -> failwithf "%A" e
 
                 let p = p1 .>> (followedByL p2 "Test")
@@ -471,7 +471,7 @@ let tests =
                 | Ok result -> "Parser should fail" |> Expect.isFalse true
                 | Error e ->
                     let err = e.Position.Index, e.Errors
-                    "" |> Expect.equal err (3L, Message "Test")
+                    "" |> Expect.equal err (3, Message "Test")
             }
 
             test "NotFollowedBy" {
@@ -487,7 +487,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed "inp"
-                    "" |> Expect.equal reader.Index 3L
+                    "" |> Expect.equal reader.Index 3
                 | Error e -> failwithf "%A" e
 
 
@@ -501,7 +501,7 @@ let tests =
                 | Error e ->
                     let err = e.Position.Index, e.Errors
 
-                    "" |> Expect.equal err (3L, ParseError.shouldNotSucceed)
+                    "" |> Expect.equal err (3, ParseError.shouldNotSucceed)
 
                 let p4 = pchar 'u' .>>. pchar 'X'
                 let p = p1 .>> (notFollowedBy p4)
@@ -533,7 +533,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed "inp"
-                    "" |> Expect.equal reader.Index 3L
+                    "" |> Expect.equal reader.Index 3
                 | Error e -> failwithf "%A" e
 
                 let p3 = pstring "ut"
@@ -546,7 +546,7 @@ let tests =
                 | Error e ->
                     let err = e.Position.Index, e.Errors
 
-                    "" |> Expect.equal err (3L, Message "Test")
+                    "" |> Expect.equal err (3, Message "Test")
 
                 let p4 = pchar 'u' .>>. pchar 'X'
                 let p = p1 .>> (notFollowedByL p4 "Test")
@@ -578,7 +578,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed "inp"
-                    "" |> Expect.equal reader.Index 3L
+                    "" |> Expect.equal reader.Index 3
                 | Error e -> failwithf "%A" e
 
                 let p = p1 .>> (lookAhead p1)
@@ -590,7 +590,7 @@ let tests =
                 | Error e ->
                     let err = e.Position.Index, e.Errors
 
-                    "" |> Expect.equal err (3L, ExpectedSeq "inp")
+                    "" |> Expect.equal err (3, ExpectedSeq "inp")
             }
 
             test "ReplaceError" {
@@ -605,7 +605,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed "input"
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
 
                 let p2 = pstring "output"
@@ -618,7 +618,7 @@ let tests =
                 | Error e ->
                     let err = e.Position.Index, e.Errors
 
-                    "" |> Expect.equal err (0L, Message "Test")
+                    "" |> Expect.equal err (0, Message "Test")
 
 
                 let p3 = pstring "in" .>>. pstring "X"
@@ -632,7 +632,7 @@ let tests =
                     let msg = ParseErrors.summarize e
                     let err = e.Position.Index, e.Errors
 
-                    "" |> Expect.equal err (2L, ExpectedSeq "X")
+                    "" |> Expect.equal err (2, ExpectedSeq "X")
             }
 
             test "ReplaceErrorNested" {
@@ -647,7 +647,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed "input"
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
 
                 let p2 = pstring "output"
@@ -660,7 +660,7 @@ let tests =
                 | Error e ->
                     let err = e.Position.Index, e.Errors
 
-                    "" |> Expect.equal err (0L, Message "Test")
+                    "" |> Expect.equal err (0, Message "Test")
 
                 let p3 = pstring "in" .>>. pstring "X"
                 let p = p3 <??> "Test"
@@ -692,7 +692,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ("inp", "ut")
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
             }
 
@@ -710,7 +710,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ("i", "n", "put")
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
             }
 
@@ -729,7 +729,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ("i", "n", "p", "ut")
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
             }
 
@@ -749,7 +749,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ("i", "n", "p", "u", "t")
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
             }
 
@@ -772,7 +772,7 @@ let tests =
                             "input"
                         })
 
-                    "" |> Expect.equal reader.Index 15L
+                    "" |> Expect.equal reader.Index 15
                 | Error e -> failwithf "%A" e
             }
 
@@ -787,7 +787,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ()
-                    "" |> Expect.equal reader.Index 15L
+                    "" |> Expect.equal reader.Index 15
                 | Error e -> failwithf "%A" e
             }
 
@@ -810,7 +810,7 @@ let tests =
                             "input"
                         })
 
-                    "" |> Expect.equal reader.Index 15L
+                    "" |> Expect.equal reader.Index 15
                 | Error e -> failwithf "%A" e
 
                 let reader = Reader.ofString "X" ()
@@ -819,7 +819,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed (ImmutableArray.Empty)
-                    "" |> Expect.equal reader.Index 0L
+                    "" |> Expect.equal reader.Index 0
                 | Error e -> failwithf "%A" e
 
                 let p1 = lookAhead p1
@@ -852,7 +852,7 @@ let tests =
                             "input"
                         })
 
-                    "" |> Expect.equal reader.Index 15L
+                    "" |> Expect.equal reader.Index 15
                 | Error e -> failwithf "%A" e
 
                 let reader = Reader.ofString "X" ()
@@ -891,7 +891,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ()
-                    "" |> Expect.equal reader.Index 15L
+                    "" |> Expect.equal reader.Index 15
                 | Error e -> failwithf "%A" e
 
                 let reader = Reader.ofString "X" ()
@@ -900,7 +900,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ()
-                    "" |> Expect.equal reader.Index 0L
+                    "" |> Expect.equal reader.Index 0
                 | Error e -> failwithf "%A" e
 
                 let p1 = lookAhead p1
@@ -925,7 +925,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ()
-                    "" |> Expect.equal reader.Index 15L
+                    "" |> Expect.equal reader.Index 15
                 | Error e -> failwithf "%A" e
 
                 let reader = Reader.ofString "X" ()
@@ -964,7 +964,7 @@ let tests =
                 match result1 with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed 3L
-                    "" |> Expect.equal reader1.Index 3L
+                    "" |> Expect.equal reader1.Index 3
                 | Error e -> failwithf "Parser should have succeeded: %A" e
 
                 // Test with no matches (always succeeds)
@@ -974,7 +974,7 @@ let tests =
                 match result2 with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed 0L
-                    "" |> Expect.equal reader2.Index 0L
+                    "" |> Expect.equal reader2.Index 0
                 | Error e -> failwithf "Parser should have succeeded: %A" e
             }
 
@@ -989,7 +989,7 @@ let tests =
                 match result1 with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed 3L
-                    "" |> Expect.equal reader1.Index 3L
+                    "" |> Expect.equal reader1.Index 3
                 | Error e -> failwithf "Parser should have succeeded: %A" e
 
                 // Test with no matches (should fail)
@@ -1019,7 +1019,7 @@ let tests =
                 match result1 with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ()
-                    "" |> Expect.equal reader1.Index 3L
+                    "" |> Expect.equal reader1.Index 3
                 | Error e -> failwithf "Parser should have succeeded: %A" e
 
                 // Test with no matches (always succeeds)
@@ -1029,7 +1029,7 @@ let tests =
                 match result2 with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ()
-                    "" |> Expect.equal reader2.Index 0L
+                    "" |> Expect.equal reader2.Index 0
                 | Error e -> failwithf "Parser should have succeeded: %A" e
             }
 
@@ -1044,7 +1044,7 @@ let tests =
                 match result1 with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ()
-                    "" |> Expect.equal reader1.Index 3L
+                    "" |> Expect.equal reader1.Index 3
                 | Error e -> failwithf "Parser should have succeeded: %A" e
 
                 // Test with no matches (should fail)
@@ -1079,7 +1079,7 @@ let tests =
                         result.Parsed
                         ([| "input"; "input"; "input" |].ToImmutableArray(), ImmutableArray.CreateRange([| ','; ',' |]))
 
-                    "" |> Expect.equal reader.Index 17L
+                    "" |> Expect.equal reader.Index 17
                 | Error e -> failwithf "%A" e
 
                 let reader = Reader.ofString "X" ()
@@ -1088,7 +1088,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed (ImmutableArray.Empty, ImmutableArray.Empty)
-                    "" |> Expect.equal reader.Index 0L
+                    "" |> Expect.equal reader.Index 0
                 | Error e -> failwithf "%A" e
 
                 let p1 = lookAhead p1
@@ -1118,7 +1118,7 @@ let tests =
                         result.Parsed
                         ([| "input"; "input"; "input" |].ToImmutableArray(), ImmutableArray.CreateRange([| ','; ',' |]))
 
-                    "" |> Expect.equal reader.Index 17L
+                    "" |> Expect.equal reader.Index 17
                 | Error e -> failwithf "%A" e
 
                 let reader = Reader.ofString "X" ()
@@ -1158,7 +1158,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ()
-                    "" |> Expect.equal reader.Index 17L
+                    "" |> Expect.equal reader.Index 17
                 | Error e -> failwithf "%A" e
 
                 let reader = Reader.ofString "X" ()
@@ -1167,7 +1167,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ()
-                    "" |> Expect.equal reader.Index 0L
+                    "" |> Expect.equal reader.Index 0
                 | Error e -> failwithf "%A" e
 
                 let p1 = lookAhead p1
@@ -1193,7 +1193,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ()
-                    "" |> Expect.equal reader.Index 17L
+                    "" |> Expect.equal reader.Index 17
                 | Error e -> failwithf "%A" e
 
                 let reader = Reader.ofString "X" ()
@@ -1238,7 +1238,7 @@ let tests =
                         ([| "input"; "input"; "input" |].ToImmutableArray(),
                          ImmutableArray.CreateRange([| ','; ','; ',' |]))
 
-                    "" |> Expect.equal reader.Index 18L
+                    "" |> Expect.equal reader.Index 18
                 | Error e -> failwithf "%A" e
 
                 let input = "input,,input,X"
@@ -1257,7 +1257,7 @@ let tests =
                         ([| ValueSome "input"; ValueNone; ValueSome "input"; ValueNone |].ToImmutableArray(),
                          ImmutableArray.CreateRange([| ','; ','; ',' |]))
 
-                    "" |> Expect.equal reader.Index 13L
+                    "" |> Expect.equal reader.Index 13
                 | Error e -> failwithf "%A" e
 
                 let reader = Reader.ofString "X" ()
@@ -1268,7 +1268,7 @@ let tests =
                     ""
                     |> Expect.equal result.Parsed ([| ValueNone |].ToImmutableArray(), ImmutableArray.Empty)
 
-                    "" |> Expect.equal reader.Index 0L
+                    "" |> Expect.equal reader.Index 0
                 | Error e -> failwithf "%A" e
 
                 let p1 = lookAhead p1
@@ -1299,7 +1299,7 @@ let tests =
                         ([| "input"; "input"; "input" |].ToImmutableArray(),
                          ImmutableArray.CreateRange([| ','; ','; ',' |]))
 
-                    "" |> Expect.equal reader.Index 18L
+                    "" |> Expect.equal reader.Index 18
                 | Error e -> failwithf "%A" e
 
                 let reader = Reader.ofString "X" ()
@@ -1339,7 +1339,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ()
-                    "" |> Expect.equal reader.Index 18L
+                    "" |> Expect.equal reader.Index 18
                 | Error e -> failwithf "%A" e
 
                 let reader = Reader.ofString "X" ()
@@ -1348,7 +1348,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ()
-                    "" |> Expect.equal reader.Index 0L
+                    "" |> Expect.equal reader.Index 0
                 | Error e -> failwithf "%A" e
 
                 let p1 = lookAhead p1
@@ -1374,7 +1374,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ()
-                    "" |> Expect.equal reader.Index 18L
+                    "" |> Expect.equal reader.Index 18
                 | Error e -> failwithf "%A" e
 
                 let reader = Reader.ofString "X" ()
@@ -1416,7 +1416,7 @@ let tests =
                     ""
                     |> Expect.equal result.Parsed ([| "input"; "input"; "input" |].ToImmutableArray(), "X")
 
-                    "" |> Expect.equal reader.Index 16L
+                    "" |> Expect.equal reader.Index 16
                 | Error e -> failwithf "%A" e
 
                 let reader = Reader.ofString "X" ()
@@ -1425,7 +1425,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed (ImmutableArray.Empty, "X")
-                    "" |> Expect.equal reader.Index 1L
+                    "" |> Expect.equal reader.Index 1
                 | Error e -> failwithf "%A" e
 
                 let p1 = lookAhead p1
@@ -1453,7 +1453,7 @@ let tests =
                     ""
                     |> Expect.equal result.Parsed ([| "input"; "input"; "input" |].ToImmutableArray(), "X")
 
-                    "" |> Expect.equal reader.Index 16L
+                    "" |> Expect.equal reader.Index 16
                 | Error e -> failwithf "%A" e
 
                 let reader = Reader.ofString "X" ()
@@ -1493,7 +1493,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ()
-                    "" |> Expect.equal reader.Index 16L
+                    "" |> Expect.equal reader.Index 16
                 | Error e -> failwithf "%A" e
 
                 let reader = Reader.ofString "X" ()
@@ -1502,7 +1502,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ()
-                    "" |> Expect.equal reader.Index 1L
+                    "" |> Expect.equal reader.Index 1
                 | Error e -> failwithf "%A" e
 
                 let p1 = lookAhead p1
@@ -1528,7 +1528,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ()
-                    "" |> Expect.equal reader.Index 16L
+                    "" |> Expect.equal reader.Index 16
                 | Error e -> failwithf "%A" e
 
                 let reader = Reader.ofString "X" ()
@@ -1568,7 +1568,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed (Add(Add(Add(Num 1, Num 2), Num 3), Num 4))
-                    "" |> Expect.equal reader.Index 7L
+                    "" |> Expect.equal reader.Index 7
                 | Error e -> failwithf "%A" e
 
                 let p1 = lookAhead p1
@@ -1594,7 +1594,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed (Add(Add(Add(Num 1, Num 2), Num 3), Num 4))
-                    "" |> Expect.equal reader.Index 7L
+                    "" |> Expect.equal reader.Index 7
                 | Error e -> failwithf "%A" e
 
                 let reader = Reader.ofString "X" ()
@@ -1603,7 +1603,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed (Num 0)
-                    "" |> Expect.equal reader.Index 0L
+                    "" |> Expect.equal reader.Index 0
                 | Error e -> failwithf "%A" e
 
                 let p1 = lookAhead p1
@@ -1629,7 +1629,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed (Add(Num 1, Add(Num 2, Add(Num 3, Num 4))))
-                    "" |> Expect.equal reader.Index 7L
+                    "" |> Expect.equal reader.Index 7
                 | Error e -> failwithf "%A" e
 
                 let p1 = lookAhead p1
@@ -1655,7 +1655,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed (Add(Num 1, Add(Num 2, Add(Num 3, Num 4))))
-                    "" |> Expect.equal reader.Index 7L
+                    "" |> Expect.equal reader.Index 7
                 | Error e -> failwithf "%A" e
 
                 let reader = Reader.ofString "X" ()
@@ -1664,7 +1664,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed (Num 0)
-                    "" |> Expect.equal reader.Index 0L
+                    "" |> Expect.equal reader.Index 0
                 | Error e -> failwithf "%A" e
 
                 let p1 = lookAhead p1
@@ -1693,7 +1693,7 @@ let tests =
                     ""
                     |> Expect.equal result.Parsed ([| "input1"; "input2"; "input2" |].ToImmutableArray())
 
-                    "" |> Expect.equal reader.Index 18L
+                    "" |> Expect.equal reader.Index 18
                 | Error e -> failwithf "%A" e
 
                 let reader = Reader.ofString "X" ()

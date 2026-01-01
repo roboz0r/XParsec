@@ -29,7 +29,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.isTrue result.Parsed
-                    "" |> Expect.equal reader.Index 0L
+                    "" |> Expect.equal reader.Index 0
                 | Error e -> failwithf "%A" e
             }
 
@@ -43,9 +43,9 @@ let tests =
                 match result with
                 | Ok result -> "Parser should fail" |> Expect.isFalse true
                 | Error e ->
-                    "" |> Expect.equal e.Position.Index 0L
+                    "" |> Expect.equal e.Position.Index 0
                     "" |> Expect.equal e.Errors ParseError.zero
-                    "" |> Expect.equal reader.Index 0L
+                    "" |> Expect.equal reader.Index 0
             }
 
             test "UserState" {
@@ -73,7 +73,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed "state"
-                    "" |> Expect.equal reader.Index 0L
+                    "" |> Expect.equal reader.Index 0
                     "" |> Expect.equal reader.State "STATE"
                 | Error e -> failwithf "%A" e
             }
@@ -86,7 +86,7 @@ let tests =
                 let result = p reader
 
                 match result with
-                | Ok result -> "" |> Expect.equal reader.Index 0L
+                | Ok result -> "" |> Expect.equal reader.Index 0
                 | Error e -> failwithf "%A" e
             }
 
@@ -100,7 +100,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed 'i'
-                    "" |> Expect.equal reader.Index 1L
+                    "" |> Expect.equal reader.Index 1
                 | Error e -> failwithf "%A" e
             }
 
@@ -114,7 +114,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ()
-                    "" |> Expect.equal reader.Index 1L
+                    "" |> Expect.equal reader.Index 1
                 | Error e -> failwithf "%A" e
             }
 
@@ -128,7 +128,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed 'i'
-                    "" |> Expect.equal reader.Index 1L
+                    "" |> Expect.equal reader.Index 1
                 | Error e -> failwithf "%A" e
             }
 
@@ -142,7 +142,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed 'i'
-                    "" |> Expect.equal reader.Index 1L
+                    "" |> Expect.equal reader.Index 1
                 | Error e -> failwithf "%A" e
             }
 
@@ -156,7 +156,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.isTrue result.Parsed
-                    "" |> Expect.equal reader.Index 1L
+                    "" |> Expect.equal reader.Index 1
                 | Error e -> failwithf "%A" e
             }
 
@@ -170,7 +170,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ('i', 'n')
-                    "" |> Expect.equal reader.Index 2L
+                    "" |> Expect.equal reader.Index 2
                 | Error e -> failwithf "%A" e
             }
 
@@ -184,7 +184,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ((), ())
-                    "" |> Expect.equal reader.Index 2L
+                    "" |> Expect.equal reader.Index 2
                 | Error e -> failwithf "%A" e
             }
 
@@ -198,7 +198,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed 'i'
-                    "" |> Expect.equal reader.Index 1L
+                    "" |> Expect.equal reader.Index 1
                 | Error e -> failwithf "%A" e
             }
 
@@ -212,7 +212,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ()
-                    "" |> Expect.equal reader.Index 1L
+                    "" |> Expect.equal reader.Index 1
                 | Error e -> failwithf "%A" e
             }
 
@@ -226,7 +226,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ('i', 'n')
-                    "" |> Expect.equal reader.Index 2L
+                    "" |> Expect.equal reader.Index 2
                 | Error e -> failwithf "%A" e
             }
 
@@ -240,7 +240,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.equal result.Parsed ((), ())
-                    "" |> Expect.equal reader.Index 2L
+                    "" |> Expect.equal reader.Index 2
                 | Error e -> failwithf "%A" e
             }
 
@@ -259,7 +259,7 @@ let tests =
 #else
                     "" |> Expect.sequenceEqual result.Parsed "input"
 #endif
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
             }
 
@@ -273,7 +273,7 @@ let tests =
                 match result with
                 | Ok result ->
                     "" |> Expect.isTrue result.Parsed
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
             }
             test "fold - Summation" {
@@ -413,7 +413,7 @@ let tests =
 #else
                     "" |> Expect.sequenceEqual result.Parsed "input"
 #endif
-                    "" |> Expect.equal reader.Index 5L
+                    "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
             }
         ]

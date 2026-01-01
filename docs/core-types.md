@@ -143,11 +143,11 @@ This interface makes XParsec extensible. It defines a contract for readable, sli
 type IReadable<'T, 'Slice when 'Slice :> IReadable<'T, 'Slice>> =
     // 'T is the item type (e.g. char)
     // 'Slice is the type of a readable slice
-    abstract Item: int64 -> 'T with get
-    abstract TryItem: index: int64 -> 'T voption
-    abstract SpanSlice: start: int64 * length: int -> ReadOnlySpan<'T>
-    abstract Length: int64
-    abstract Slice: newStart: int64 * newLength: int64 -> 'Slice
+    abstract Item: int -> 'T with get
+    abstract TryItem: index: int -> 'T voption
+    abstract SpanSlice: start: int * length: int -> ReadOnlySpan<'T>
+    abstract Length: int
+    abstract Slice: newStart: int * newLength: int -> 'Slice
 ```
 
 ### Position: A Snapshot in Time
@@ -158,7 +158,7 @@ A struct representing a snapshot of the reader's state (index and user state) at
 type Position<'State> =
     {
         Id: ReaderId
-        Index: int64
+        Index: int
         State: 'State
     }
 ```
@@ -171,6 +171,8 @@ This discriminated union represents the different kinds of errors that can occur
 type ErrorType<'T, 'State> =
     | Expected of 'T
     | ExpectedSeq of 'T seq
+    | ExpectedOneOf of 'T seq
+    | ExpectedSeqOneOf of 'T seq seq
     | Unexpected of 'T
     | UnexpectedSeq of 'T seq
     | Message of string

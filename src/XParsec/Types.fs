@@ -8,11 +8,11 @@ open System
 /// Use the Reader module for common input types like string, array, etc.
 /// </summary>
 type IReadable<'T, 'Slice when 'Slice :> IReadable<'T, 'Slice>> =
-    abstract Item: int64 -> 'T with get
-    abstract TryItem: index: int64 -> 'T voption
-    abstract SpanSlice: start: int64 * length: int -> ReadOnlySpan<'T>
-    abstract Length: int64
-    abstract Slice: newStart: int64 * newLength: int64 -> 'Slice
+    abstract Item: int -> 'T with get
+    abstract TryItem: index: int -> 'T voption
+    abstract SpanSlice: start: int * length: int -> ReadOnlySpan<'T>
+    abstract Length: int
+    abstract Slice: newStart: int * newLength: int -> 'Slice
 
 
 [<Struct>]
@@ -37,7 +37,7 @@ open ReaderUtils
 type Position<'State> =
     {
         Id: ReaderId
-        Index: int64
+        Index: int
         State: 'State
     }
 
@@ -48,7 +48,7 @@ type Position<'State> =
 [<Sealed>]
 type Reader<'T, 'State, 'Input, 'InputSlice
     when 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>>
-    (input: 'Input, state: 'State, index: int64) =
+    (input: 'Input, state: 'State, index: int) =
 
     let mutable index = index
     let mutable state = state
@@ -85,11 +85,9 @@ type Reader<'T, 'State, 'Input, 'InputSlice
 
     member _.Skip() =
         if index < input.Length then
-            index <- index + 1L
+            index <- index + 1
         else
             invalidOp "Attempted to skip past end of input"
-
-    member this.SkipN(count: int) = this.SkipN(int64 count)
 
     member _.SkipN(count) =
         if index + count > input.Length then
@@ -101,7 +99,7 @@ type Reader<'T, 'State, 'Input, 'InputSlice
         let x = input.TryItem(index)
 
         match x with
-        | ValueSome _ -> index <- index + 1L
+        | ValueSome _ -> index <- index + 1
         | ValueNone -> ()
 
         x
@@ -110,10 +108,10 @@ type Reader<'T, 'State, 'Input, 'InputSlice
     member _.AtEnd = index >= input.Length
 
     member _.Slice(newStart, newLength) =
-        Reader(input.Slice(index - newStart, newLength), (), 0L)
+        Reader(input.Slice(index - newStart, newLength), (), 0)
 
     member _.Slice(newStart, newLength, newState) =
-        Reader(input.Slice(index - newStart, newLength), newState, 0L)
+        Reader(input.Slice(index - newStart, newLength), newState, 0)
 
 type ErrorType<'T, 'State> =
     | Expected of 'T

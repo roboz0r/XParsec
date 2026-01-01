@@ -762,8 +762,8 @@ let tests4 =
 
             test "Failing Precedence expressions" {
                 [
-                    "1**2**3", (SimpleError.Message "Ambiguous operator associativity", 6L)
-                    "1**2*3", (SimpleError.Message "Ambiguous operator associativity", 5L)
+                    "1**2**3", (SimpleError.Message "Ambiguous operator associativity", 6)
+                    "1**2*3", (SimpleError.Message "Ambiguous operator associativity", 5)
 
                     "1,",
                     (SimpleError.Nested(
@@ -773,7 +773,7 @@ let tests4 =
                             SimpleError.EndOfInput
                         ]
                      ),
-                     2L)
+                     2)
 
                     "1,2,",
                     (SimpleError.Nested(
@@ -783,7 +783,7 @@ let tests4 =
                             SimpleError.EndOfInput
                         ]
                      ),
-                     4L)
+                     4)
 
                     "1,,2",
                     (SimpleError.Nested(
@@ -793,7 +793,7 @@ let tests4 =
                             SimpleError.Unexpected ','
                         ]
                      ),
-                     2L)
+                     2)
 
                     "1?2",
                     (SimpleError.Nested(
@@ -803,7 +803,7 @@ let tests4 =
                             SimpleError.EndOfInput
                         ]
                      ),
-                     3L)
+                     3)
 
                     "(1",
                     (SimpleError.Nested(
@@ -813,7 +813,7 @@ let tests4 =
                             SimpleError.EndOfInput
                         ]
                      ),
-                     2L)
+                     2)
                 ]
                 |> List.iter parserShouldFail
             }

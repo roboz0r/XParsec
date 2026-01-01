@@ -55,7 +55,7 @@ let confirmAt msg input expected endIndex (parser: Parser<_, _, _, _, _>) =
             msg |> Expect.equal value expected
 
             $"{msg}: Reader should be at {endIndex} after parsing."
-            |> Expect.equal (reader.Index) (int64 endIndex)
+            |> Expect.equal (reader.Index) endIndex
         | Error err -> failwithf "%s: %A" msg err
     | Error expected ->
         match parser reader with
@@ -64,7 +64,7 @@ let confirmAt msg input expected endIndex (parser: Parser<_, _, _, _, _>) =
             msg |> Expect.equal err.Errors expected
 
             $"{msg}: Reader should be at {endIndex} after parsing."
-            |> Expect.equal (reader.Index) (int64 endIndex)
+            |> Expect.equal (reader.Index) endIndex
 
 #if !FABLE_COMPILER
 [<Tests>]

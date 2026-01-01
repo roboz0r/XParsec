@@ -15,46 +15,46 @@ type ReadableStringSlice(s: string, start: int, length: int) =
     interface IReadable<char, ReadableStringSlice> with
         member _.Item
             with get index =
-                if index < 0L || index >= int64 length then
+                if index < 0 || index >= length then
                     raise (IndexOutOfRangeException())
 
-                s.[start + int index]
+                s.[start + index]
 
         member _.TryItem(index) =
-            if index < int64 length then
-                ValueSome(s.[start + int index])
+            if index < length then
+                ValueSome(s.[start + index])
             else
                 ValueNone
 
         member _.SpanSlice(index, count) =
-            if index < 0L then
+            if index < 0 then
                 invalidArg "index" "Index must be non-negative."
 
             if count < 0 then
                 invalidArg "count" "Count must be non-negative."
 
-            if index > int64 length then
+            if index > length then
                 ReadOnlySpan.Empty
             else
                 let length = min count (length - int index)
                 s.AsSpan(start + int index, length)
 
-        member _.Length = int64 length
+        member _.Length = length
 
-        member _.Slice(newStart: int64, newLength: int64) =
-            if newStart < 0L then
+        member _.Slice(newStart: int, newLength: int) =
+            if newStart < 0 then
                 invalidArg "newStart" "New start must be non-negative."
 
             if newLength < 0 then
                 invalidArg "newLength" "New length must be non-negative."
 
-            let newStart = (int64 start) + newStart
+            let newStart = start + newStart
 
-            if newStart > int64 s.Length then
+            if newStart > s.Length then
                 ReadableStringSlice(s, start, 0)
             else
-                let newLength = min newLength (int64 s.Length - newStart) |> int
-                ReadableStringSlice(s, start + (int newStart), newLength)
+                let newLength = min newLength (s.Length - newStart)
+                ReadableStringSlice(s, start + newStart, newLength)
 
 /// A string that can be read as input by the parser.
 [<Struct>]
@@ -62,44 +62,41 @@ type ReadableString(s: string) =
     interface IReadable<char, ReadableStringSlice> with
         member _.Item
             with get index =
-                if index < 0L || index >= int64 s.Length then
+                if index < 0 || index >= s.Length then
                     raise (IndexOutOfRangeException())
 
-                s.[int index]
+                s.[index]
 
         member _.TryItem(index) =
-            if index < int64 s.Length then
-                ValueSome(s.[int index])
-            else
-                ValueNone
+            if index < s.Length then ValueSome(s.[index]) else ValueNone
 
         member _.SpanSlice(index, count) =
-            if index < 0L then
+            if index < 0 then
                 invalidArg "index" "Index must be non-negative."
 
             if count < 0 then
                 invalidArg "count" "Count must be non-negative."
 
-            if index > int64 s.Length then
+            if index > s.Length then
                 ReadOnlySpan.Empty
             else
-                let length = min count (s.Length - int index)
-                s.AsSpan(int index, length)
+                let length = min count (s.Length - index)
+                s.AsSpan(index, length)
 
-        member _.Length = int64 s.Length
+        member _.Length = s.Length
 
-        member _.Slice(newStart: int64, newLength: int64) =
-            if newStart < 0L then
+        member _.Slice(newStart: int, newLength: int) =
+            if newStart < 0 then
                 invalidArg "newStart" "New start must be non-negative."
 
             if newLength < 0 then
                 invalidArg "newLength" "New length must be non-negative."
 
-            if newStart > int64 s.Length then
+            if newStart > s.Length then
                 ReadableStringSlice(s, 0, 0)
             else
-                let newLength = min newLength (int64 s.Length - newStart) |> int
-                ReadableStringSlice(s, int newStart, newLength)
+                let newLength = min newLength (s.Length - newStart)
+                ReadableStringSlice(s, newStart, newLength)
 
 /// An array slice that can be read as input by the parser.
 [<Struct>]
@@ -107,50 +104,50 @@ type ReadableArraySlice<'T>(arr: 'T array, start: int, length: int) =
     interface IReadable<'T, ReadableArraySlice<'T>> with
         member _.Item
             with get index =
-                if index < 0L || index >= int64 length then
+                if index < 0 || index >= length then
                     raise (IndexOutOfRangeException())
 
-                arr.[start + int index]
+                arr.[start + index]
 
         member _.TryItem(index) =
-            if index < int64 length then
-                ValueSome(arr.[start + int index])
+            if index < length then
+                ValueSome(arr.[start + index])
             else
                 ValueNone
 
         member _.SpanSlice(index, count) =
-            if index < 0L then
+            if index < 0 then
                 invalidArg "index" "Index must be non-negative."
 
             if count < 0 then
                 invalidArg "count" "Count must be non-negative."
 
-            if index > int64 length then
+            if index > length then
                 ReadOnlySpan.Empty
             else
-                let length = min count (length - int index)
+                let length = min count (length - index)
 #if FABLE_COMPILER
-                ArraySpan<'T>(arr, start + int index, length) :> ReadOnlySpan<'T>
+                ArraySpan<'T>(arr, start + index, length) :> ReadOnlySpan<'T>
 #else
-                ReadOnlySpan<'T>(arr, start + int index, length)
+                ReadOnlySpan<'T>(arr, start + index, length)
 #endif
 
-        member _.Length = int64 length
+        member _.Length = length
 
-        member _.Slice(newStart: int64, newLength: int64) =
-            if newStart < 0L then
+        member _.Slice(newStart: int, newLength: int) =
+            if newStart < 0 then
                 invalidArg "newStart" "New start must be non-negative."
 
             if newLength < 0 then
                 invalidArg "newLength" "New length must be non-negative."
 
-            let newStart = (int64 start) + newStart
+            let newStart = start + newStart
 
-            if newStart > int64 arr.Length then
+            if newStart > arr.Length then
                 ReadableArraySlice(arr, start, 0)
             else
-                let newLength = min newLength (int64 arr.Length - newStart) |> int
-                ReadableArraySlice(arr, start + (int newStart), newLength)
+                let newLength = min newLength (arr.Length - newStart)
+                ReadableArraySlice(arr, start + newStart, newLength)
 
 /// An array that can be read as input by the parser.
 [<Struct>]
@@ -158,48 +155,48 @@ type ReadableArray<'T>(arr: 'T array) =
     interface IReadable<'T, ReadableArraySlice<'T>> with
         member _.Item
             with get index =
-                if index < 0L || index >= int64 arr.Length then
+                if index < 0 || index >= arr.Length then
                     raise (IndexOutOfRangeException())
 
-                arr.[int index]
+                arr.[index]
 
         member _.TryItem(index) =
-            if index < int64 arr.Length then
-                ValueSome(arr.[int index])
+            if index < arr.Length then
+                ValueSome(arr.[index])
             else
                 ValueNone
 
         member _.SpanSlice(index, count) =
-            if index < 0L then
+            if index < 0 then
                 invalidArg "index" "Index must be non-negative."
 
             if count < 0 then
                 invalidArg "count" "Count must be non-negative."
 
-            if index > int64 arr.Length then
+            if index > arr.Length then
                 ReadOnlySpan.Empty
             else
-                let length = min count (arr.Length - int index)
+                let length = min count (arr.Length - index)
 #if FABLE_COMPILER
-                ArraySpan<'T>(arr, int index, length) :> ReadOnlySpan<'T>
+                ArraySpan<'T>(arr, index, length) :> ReadOnlySpan<'T>
 #else
-                ReadOnlySpan<'T>(arr, int index, length)
+                ReadOnlySpan<'T>(arr, index, length)
 #endif
 
-        member _.Length = int64 arr.Length
+        member _.Length = arr.Length
 
-        member _.Slice(newStart: int64, newLength: int64) =
-            if newStart < 0L then
+        member _.Slice(newStart: int, newLength: int) =
+            if newStart < 0 then
                 invalidArg "newStart" "New start must be non-negative."
 
             if newLength < 0 then
                 invalidArg "newLength" "New length must be non-negative."
 
-            if newStart > int64 arr.Length then
+            if newStart > arr.Length then
                 ReadableArraySlice(arr, 0, 0)
             else
-                let newLength = min newLength (int64 arr.Length - newStart) |> int
-                ReadableArraySlice(arr, int newStart, newLength)
+                let newLength = min newLength (arr.Length - newStart)
+                ReadableArraySlice(arr, newStart, newLength)
 
 /// An immutable array slice that can be read as input by the parser.
 [<Struct>]
@@ -207,46 +204,46 @@ type ReadableImmutableArraySlice<'T>(arr: ImmutableArray<'T>, start: int, length
     interface IReadable<'T, ReadableImmutableArraySlice<'T>> with
         member _.Item
             with get index =
-                if index < 0L || index >= int64 length then
+                if index < 0 || index >= length then
                     raise (IndexOutOfRangeException())
 
-                arr.[start + int index]
+                arr.[start + index]
 
         member _.TryItem(index) =
-            if index < int64 length then
-                ValueSome(arr.[start + int index])
+            if index < length then
+                ValueSome(arr.[start + index])
             else
                 ValueNone
 
         member _.SpanSlice(index, count) =
-            if index < 0L then
+            if index < 0 then
                 invalidArg "index" "Index must be non-negative."
 
             if count < 0 then
                 invalidArg "count" "Count must be non-negative."
 
-            if index > int64 length then
+            if index > length then
                 ReadOnlySpan.Empty
             else
-                let length = min count (length - int index)
-                arr.AsSpan(start + int index, length)
+                let length = min count (length - index)
+                arr.AsSpan(start + index, length)
 
-        member _.Length = int64 length
+        member _.Length = length
 
-        member _.Slice(newStart: int64, newLength: int64) =
-            if newStart < 0L then
+        member _.Slice(newStart: int, newLength: int) =
+            if newStart < 0 then
                 invalidArg "newStart" "New start must be non-negative."
 
             if newLength < 0 then
                 invalidArg "newLength" "New length must be non-negative."
 
-            let newStart = (int64 start) + newStart
+            let newStart = start + newStart
 
-            if newStart > int64 arr.Length then
+            if newStart > arr.Length then
                 ReadableImmutableArraySlice(arr, start, 0)
             else
-                let newLength = min newLength (int64 arr.Length - newStart) |> int
-                ReadableImmutableArraySlice(arr, start + (int newStart), newLength)
+                let newLength = min newLength (arr.Length - newStart)
+                ReadableImmutableArraySlice(arr, start + newStart, newLength)
 
 /// An immutable array that can be read as input by the parser.
 [<Struct>]
@@ -254,44 +251,44 @@ type ReadableImmutableArray<'T>(arr: ImmutableArray<'T>) =
     interface IReadable<'T, ReadableImmutableArraySlice<'T>> with
         member _.Item
             with get index =
-                if index < 0L || index >= int64 arr.Length then
+                if index < 0 || index >= arr.Length then
                     raise (IndexOutOfRangeException())
 
-                arr.[int index]
+                arr.[index]
 
         member _.TryItem(index) =
-            if index < int64 arr.Length then
-                ValueSome(arr.[int index])
+            if index < arr.Length then
+                ValueSome(arr.[index])
             else
                 ValueNone
 
         member _.SpanSlice(index, count) =
-            if index < 0L then
+            if index < 0 then
                 invalidArg "index" "Index must be non-negative."
 
             if count < 0 then
                 invalidArg "count" "Count must be non-negative."
 
-            if index > int64 arr.Length then
+            if index > arr.Length then
                 ReadOnlySpan.Empty
             else
-                let length = min count (arr.Length - int index)
-                arr.AsSpan(int index, length)
+                let length = min count (arr.Length - index)
+                arr.AsSpan(index, length)
 
-        member _.Length = int64 arr.Length
+        member _.Length = arr.Length
 
-        member _.Slice(newStart: int64, newLength: int64) =
-            if newStart < 0L then
+        member _.Slice(newStart: int, newLength: int) =
+            if newStart < 0 then
                 invalidArg "newStart" "New start must be non-negative."
 
             if newLength < 0 then
                 invalidArg "newLength" "New length must be non-negative."
 
-            if newStart > int64 arr.Length then
+            if newStart > arr.Length then
                 ReadableImmutableArraySlice(arr, 0, 0)
             else
-                let newLength = min newLength (int64 arr.Length - newStart) |> int
-                ReadableImmutableArraySlice(arr, int newStart, newLength)
+                let newLength = min newLength (arr.Length - newStart)
+                ReadableImmutableArraySlice(arr, newStart, newLength)
 
 #if NET5_0_OR_GREATER // No good way to get a span from a ResizeArray in .NET Standard 2.0
 /// A ResizeArray slice that can be read as input by the parser.
@@ -300,159 +297,39 @@ type ReadableResizeArraySlice<'T>(arr: ResizeArray<'T>, start: int, length: int)
     interface IReadable<'T, ReadableResizeArraySlice<'T>> with
         member _.Item
             with get index =
-                if index < 0L || index >= int64 length then
+                if index < 0 || index >= length then
                     raise (IndexOutOfRangeException())
 
-                arr.[start + int index]
-
-        member _.TryItem(index) =
-            if index < int64 length then
-                ValueSome(arr.[start + int index])
-            else
-                ValueNone
-
-        member _.SpanSlice(index, count) =
-            if index < 0L then
-                invalidArg "index" "Index must be non-negative."
-
-            if count < 0 then
-                invalidArg "count" "Count must be non-negative."
-
-            if index > int64 length then
-                ReadOnlySpan.Empty
-            else
-                let length = min count (length - int index)
-#if FABLE_COMPILER
-                ResizeArraySpan<'T>(arr, start + int index, length) :> ReadOnlySpan<'T>
-#else
-                let span = CollectionsMarshal.AsSpan(arr)
-                Span.op_Implicit (span.Slice(start + int index, length))
-#endif
-
-        member _.Length = int64 length
-
-        member _.Slice(newStart: int64, newLength: int64) =
-            if newStart < 0L then
-                invalidArg "newStart" "New start must be non-negative."
-
-            if newLength < 0 then
-                invalidArg "newLength" "New length must be non-negative."
-
-            let newStart = (int64 start) + newStart
-
-            if newStart > int64 arr.Count then
-                ReadableResizeArraySlice(arr, start, 0)
-            else
-                let newLength = min newLength (int64 arr.Count - newStart) |> int
-                ReadableResizeArraySlice(arr, start + (int newStart), newLength)
-
-/// A ResizeArray that can be read as input by the parser.
-[<Struct>]
-type ReadableResizeArray<'T>(arr: ResizeArray<'T>) =
-    interface IReadable<'T, ReadableResizeArraySlice<'T>> with
-        member _.Item
-            with get index =
-                if index < 0L || index >= int64 arr.Count then
-                    raise (IndexOutOfRangeException())
-
-                arr.[int index]
-
-        member _.TryItem(index) =
-            if index < int64 arr.Count then
-                ValueSome(arr.[int index])
-            else
-                ValueNone
-
-        member _.SpanSlice(index, count) =
-            if index < 0L then
-                invalidArg "index" "Index must be non-negative."
-
-            if count < 0 then
-                invalidArg "count" "Count must be non-negative."
-
-            if index > int64 arr.Count then
-                ReadOnlySpan.Empty
-            else
-                let length = min count (arr.Count - int index)
-#if FABLE_COMPILER
-                ResizeArraySpan<'T>(arr, int index, length) :> ReadOnlySpan<'T>
-#else
-                let span = CollectionsMarshal.AsSpan(arr)
-                Span.op_Implicit (span.Slice(int index, length))
-#endif
-
-        member _.Length = int64 arr.Count
-
-        member _.Slice(newStart: int64, newLength: int64) =
-            if newStart < 0L then
-                invalidArg "newStart" "New start must be non-negative."
-
-            if newLength < 0 then
-                invalidArg "newLength" "New length must be non-negative."
-
-            if newStart > int64 arr.Count then
-                ReadableResizeArraySlice(arr, 0, 0)
-            else
-                let newLength = min newLength (int64 arr.Count - newStart) |> int
-                ReadableResizeArraySlice(arr, int newStart, newLength)
-#endif
-
-#if !FABLE_COMPILER
-/// A stream slice that can be read as input by the parser.
-[<Struct>]
-type ReadableStreamSlice(stream: Stream, start: int64, length: int64, buffer: byte[]) =
-    interface IReadable<byte, ReadableStreamSlice> with
-        member _.Item
-            with get index =
-                if index < 0L || index >= length then
-                    raise (IndexOutOfRangeException())
-
-                if stream.Position <> start + index then
-                    stream.Seek(start + index, IO.SeekOrigin.Begin) |> ignore
-
-                let b = stream.ReadByte()
-
-                if b = -1 then
-                    raise (IndexOutOfRangeException())
-
-                byte b
+                arr.[start + index]
 
         member _.TryItem(index) =
             if index < length then
-                if stream.Position <> start + index then
-                    stream.Seek(start + index, IO.SeekOrigin.Begin) |> ignore
-
-                let b = stream.ReadByte()
-                if b <> -1 then ValueSome(byte b) else ValueNone
+                ValueSome(arr.[start + index])
             else
                 ValueNone
 
         member _.SpanSlice(index, count) =
-            if index < 0L then
+            if index < 0 then
                 invalidArg "index" "Index must be non-negative."
 
             if count < 0 then
                 invalidArg "count" "Count must be non-negative."
 
             if index > length then
-                ReadOnlySpan<byte>.Empty
+                ReadOnlySpan.Empty
             else
-                let length = min (int64 count) (length - (int64 index)) |> int
+                let length = min count (length - index)
+#if FABLE_COMPILER
+                ResizeArraySpan<'T>(arr, start + index, length) :> ReadOnlySpan<'T>
+#else
+                let span = CollectionsMarshal.AsSpan(arr)
+                Span.op_Implicit (span.Slice(start + index, length))
+#endif
 
-                if length > buffer.Length then
-                    invalidArg "count" "Count must be less than or equal to buffer length."
-                    ReadOnlySpan<byte>.Empty
-                else
-                    if stream.Position <> start + index then
-                        stream.Seek(start + index, IO.SeekOrigin.Begin) |> ignore
+        member _.Length = length
 
-                    let read = stream.Read(buffer, 0, length)
-                    ReadOnlySpan(buffer).Slice(0, read)
-
-        member _.Length = int64 length
-
-        member _.Slice(newStart: int64, newLength: int64) =
-            if newStart < 0L then
+        member _.Slice(newStart: int, newLength: int) =
+            if newStart < 0 then
                 invalidArg "newStart" "New start must be non-negative."
 
             if newLength < 0 then
@@ -460,151 +337,129 @@ type ReadableStreamSlice(stream: Stream, start: int64, length: int64, buffer: by
 
             let newStart = start + newStart
 
-            if newStart > stream.Length then
-                ReadableStreamSlice(stream, start, 0, buffer)
+            if newStart > arr.Count then
+                ReadableResizeArraySlice(arr, start, 0)
             else
-                let newLength = min newLength (stream.Length - newStart) |> int
-                ReadableStreamSlice(stream, newStart, newLength, buffer)
+                let newLength = min newLength (arr.Count - newStart)
+                ReadableResizeArraySlice(arr, start + newStart, newLength)
 
-/// A stream that can be read as input by the parser.
+/// A ResizeArray that can be read as input by the parser.
 [<Struct>]
-type ReadableStream(stream: Stream, buffer: byte[]) =
-    interface IReadable<byte, ReadableStreamSlice> with
+type ReadableResizeArray<'T>(arr: ResizeArray<'T>) =
+    interface IReadable<'T, ReadableResizeArraySlice<'T>> with
         member _.Item
             with get index =
-                if index < 0L || index >= stream.Length then
+                if index < 0 || index >= arr.Count then
                     raise (IndexOutOfRangeException())
 
-                if stream.Position <> index then
-                    stream.Seek(index, IO.SeekOrigin.Begin) |> ignore
-
-                let b = stream.ReadByte()
-
-                if b = -1 then
-                    raise (IndexOutOfRangeException())
-
-                byte b
+                arr.[index]
 
         member _.TryItem(index) =
-            if index < 0L then
-                invalidArg "index" "Index must be non-negative."
-
-            if index < stream.Length then
-                if stream.Position <> index then
-                    stream.Seek(index, IO.SeekOrigin.Begin) |> ignore
-
-                let buffer = Array.zeroCreate<byte> 1
-                stream.Read(buffer, 0, 1) |> ignore
-                ValueSome(buffer.[0])
+            if index < arr.Count then
+                ValueSome(arr.[index])
             else
                 ValueNone
 
         member _.SpanSlice(index, count) =
-            // TODO: ReadableStream could probably be an object instead of a struct
-            // We should track what bytes are in the buffer and only read more if necessary
-            if index < 0L then
+            if index < 0 then
                 invalidArg "index" "Index must be non-negative."
 
             if count < 0 then
                 invalidArg "count" "Count must be non-negative."
 
-            if index > stream.Length then
-                ReadOnlySpan<byte>.Empty
+            if index > arr.Count then
+                ReadOnlySpan.Empty
             else
-                let length = min (int64 count) (stream.Length - index) |> int
+                let length = min count (arr.Count - index)
+#if FABLE_COMPILER
+                ResizeArraySpan<'T>(arr, index, length) :> ReadOnlySpan<'T>
+#else
+                let span = CollectionsMarshal.AsSpan(arr)
+                Span.op_Implicit (span.Slice(index, length))
+#endif
 
-                if length > buffer.Length then
-                    invalidArg "count" "Count must be less than or equal to buffer length."
-                    ReadOnlySpan<byte>.Empty
-                else
-                    if stream.Position <> index then
-                        stream.Seek(index, IO.SeekOrigin.Begin) |> ignore
+        member _.Length = arr.Count
 
-                    let read = stream.Read(buffer, 0, length)
-                    ReadOnlySpan(buffer).Slice(0, read)
-
-        member _.Length = stream.Length
-
-        member _.Slice(newStart: int64, newLength: int64) =
-            if newStart < 0L then
+        member _.Slice(newStart: int, newLength: int) =
+            if newStart < 0 then
                 invalidArg "newStart" "New start must be non-negative."
 
             if newLength < 0 then
                 invalidArg "newLength" "New length must be non-negative."
 
-            if newStart > stream.Length then
-                ReadableStreamSlice(stream, 0, 0, buffer)
+            if newStart > arr.Count then
+                ReadableResizeArraySlice(arr, 0, 0)
             else
-                let newLength = min newLength (stream.Length - newStart)
-                ReadableStreamSlice(stream, newStart, newLength, buffer)
+                let newLength = min newLength (arr.Count - newStart)
+                ReadableResizeArraySlice(arr, newStart, newLength)
+#endif
 
+#if !FABLE_COMPILER
 /// A memory slice that can be read as input by the parser.
 [<Struct>]
 type ReadableMemory<'T>(memory: ReadOnlyMemory<'T>) =
     interface IReadable<'T, ReadableMemory<'T>> with
         member _.Item
             with get index =
-                if index < 0L || index >= int64 memory.Length then
+                if index < 0 || index >= memory.Length then
                     raise (IndexOutOfRangeException())
 
-                memory.Span[int index]
+                memory.Span[index]
 
         member _.TryItem(index) =
-            if index < int64 memory.Length then
-                ValueSome(memory.Span[int index])
+            if index < memory.Length then
+                ValueSome(memory.Span[index])
             else
                 ValueNone
 
         member _.SpanSlice(index, count) =
-            if index < 0L then
+            if index < 0 then
                 invalidArg "index" "Index must be non-negative."
 
             if count < 0 then
                 invalidArg "count" "Count must be non-negative."
 
-            if index > int64 memory.Length then
+            if index > memory.Length then
                 ReadOnlySpan.Empty
             else
-                let length = min count (memory.Length - int index)
-                memory.Span.Slice(int index, length)
+                let length = min count (memory.Length - index)
+                memory.Span.Slice(index, length)
 
-        member _.Length = int64 memory.Length
+        member _.Length = memory.Length
 
-        member _.Slice(newStart: int64, newLength: int64) =
-            if newStart < 0L then
+        member _.Slice(newStart: int, newLength: int) =
+            if newStart < 0 then
                 invalidArg "newStart" "New start must be non-negative."
 
             if newLength < 0 then
                 invalidArg "newLength" "New length must be non-negative."
 
-            if newStart > int64 memory.Length then
+            if newStart > memory.Length then
                 ReadableMemory(memory.Slice(0, 0))
             else
-                let newLength = min newLength (int64 memory.Length - newStart)
-                ReadableMemory(memory.Slice(int newStart, int newLength))
+                let newLength = min newLength (memory.Length - newStart)
+                ReadableMemory(memory.Slice(newStart, newLength))
 
     new(memory: Memory<'T>) = ReadableMemory(memory)
 #endif
 
 module Reader =
     /// Creates a new reader from the input string and state.
-    let ofString (s: string) state = Reader(ReadableString s, state, 0L)
+    let ofString (s: string) state = Reader(ReadableString s, state, 0)
 
     /// Creates a new reader from the input array and state.
-    let ofArray (a: 'T array) state = Reader(ReadableArray a, state, 0L)
+    let ofArray (a: 'T array) state = Reader(ReadableArray a, state, 0)
 
     /// Creates a new reader from the input immutable array and state.
     let ofImmutableArray (a: ImmutableArray<'T>) state =
-        Reader(ReadableImmutableArray a, state, 0L)
+        Reader(ReadableImmutableArray a, state, 0)
 
 #if NET5_0_OR_GREATER
     /// Creates a new reader from the input resize array and state.
-    let ofResizeArray (a: ResizeArray<'T>) state =
-        Reader(ReadableResizeArray a, state, 0L)
+    let ofResizeArray (a: ResizeArray<'T>) state = Reader(ReadableResizeArray a, state, 0)
 #endif
 
 #if !FABLE_COMPILER
-    /// Creates a new reader from the input stream and state.
-    let ofStream (stream: Stream) bufferSize state =
-        Reader(ReadableStream(stream, Array.zeroCreate<byte> bufferSize), state, 0L)
+    /// Creates a new reader from the input memory and state.
+    let ofMemory (m: ReadOnlyMemory<'T>) state = Reader(ReadableMemory m, state, 0)
 #endif
