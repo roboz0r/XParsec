@@ -28,18 +28,18 @@ type Expr<'Token> =
     | Nary of op: 'Token * exprs: Expr<'Token> list
 
 module Expr =
-    let infix op lhs rhs = Infix(op, lhs, rhs)
+    let infix lhs op rhs = Infix(op, lhs, rhs)
     let prefix op expr = Prefix(op, expr)
-    let postfix op expr = Postfix(op, expr)
-    let bracketed left right expr = Bracketed(left, right, expr)
-    let indexer left right lhs index = Indexer(left, right, lhs, index)
+    let postfix expr op = Postfix(op, expr)
+    let bracketed left expr right = Bracketed(left, right, expr)
+    let indexer lhs left index right = Indexer(left, right, lhs, index)
 
-    let ternary opLeft opRight cond thenExpr elseExpr =
+    let ternary cond opLeft thenExpr opRight elseExpr =
         Ternary(opLeft, opRight, cond, thenExpr, elseExpr)
 
     let nary op exprs = Nary(op, exprs)
 
-    let tupleReducer x exprs = Nary(x, List.ofSeq exprs)
+    let tupleReducer exprs x = Nary(Seq.head x, List.ofSeq exprs)
 
 #if !FABLE_COMPILER
 [<Tests>]
@@ -53,7 +53,7 @@ let tests =
                 let reader = Reader.ofArray tokens ()
 
                 let ops =
-                    [ Operator.infixLeftAssoc (Op '+') P1 (pitem (Op '+')) (Expr.infix (Op '+')) ]
+                    [ Operator.infixLeftAssoc (Op '+') P1 (pitem (Op '+')) Expr.infix ]
                     |> Operator.create
 
                 let p = Operator.parser (pid |>> Token) ops
@@ -74,8 +74,8 @@ let tests =
 
                 let ops =
                     [
-                        Operator.infixLeftAssoc (Op '+') P1 (pitem (Op '+')) (Expr.infix (Op '+'))
-                        Operator.infixLeftAssoc (Op '*') P2 (pitem (Op '*')) (Expr.infix (Op '*'))
+                        Operator.infixLeftAssoc (Op '+') P1 (pitem (Op '+')) Expr.infix
+                        Operator.infixLeftAssoc (Op '*') P2 (pitem (Op '*')) Expr.infix
                     ]
                     |> Operator.create
 
@@ -99,8 +99,8 @@ let tests =
 
                 let ops =
                     [
-                        Operator.infixLeftAssoc (Op '+') P1 (pitem (Op '+')) (Expr.infix (Op '+'))
-                        Operator.infixLeftAssoc (Op '*') P2 (pitem (Op '*')) (Expr.infix (Op '*'))
+                        Operator.infixLeftAssoc (Op '+') P1 (pitem (Op '+')) Expr.infix
+                        Operator.infixLeftAssoc (Op '*') P2 (pitem (Op '*')) Expr.infix
                     ]
                     |> Operator.create
 
@@ -124,8 +124,8 @@ let tests =
 
                 let ops =
                     [
-                        Operator.infixLeftAssoc (Op '-') P1 (pitem (Op '-')) (Expr.infix (Op '-'))
-                        Operator.infixLeftAssoc (Op '+') P1 (pitem (Op '+')) (Expr.infix (Op '+'))
+                        Operator.infixLeftAssoc (Op '-') P1 (pitem (Op '-')) Expr.infix
+                        Operator.infixLeftAssoc (Op '+') P1 (pitem (Op '+')) Expr.infix
                     ]
                     |> Operator.create
 
@@ -149,8 +149,8 @@ let tests =
 
                 let ops =
                     [
-                        Operator.infixRightAssoc (Op '-') P1 (pitem (Op '-')) (Expr.infix (Op '-'))
-                        Operator.infixRightAssoc (Op '+') P1 (pitem (Op '+')) (Expr.infix (Op '+'))
+                        Operator.infixRightAssoc (Op '-') P1 (pitem (Op '-')) Expr.infix
+                        Operator.infixRightAssoc (Op '+') P1 (pitem (Op '+')) Expr.infix
                     ]
                     |> Operator.create
 
@@ -173,9 +173,7 @@ let tests =
                 let reader = Reader.ofArray tokens ()
 
                 let ops =
-                    [
-                        Operator.ternary (Op '?') P1 (pitem (Op '?')) (pitem (Op ':')) (Expr.ternary (Op '?') (Op ':'))
-                    ]
+                    [ Operator.ternary (Op '?') P1 (pitem (Op '?')) (pitem (Op ':')) Expr.ternary ]
                     |> Operator.create
 
                 let p = Operator.parser (pid |>> Expr.Token) ops
@@ -198,7 +196,7 @@ let tests =
                 let reader = Reader.ofArray tokens ()
 
                 let ops =
-                    [ Operator.infixNary (Op ',') P1 (pitem (Op ',')) (Expr.tupleReducer (Op ',')) ]
+                    [ Operator.infixNary (Op ',') P1 (pitem (Op ',')) Expr.tupleReducer ]
                     |> Operator.create
 
                 let p = Operator.parser (pid |>> Expr.Token) ops
@@ -292,22 +290,22 @@ let tests2 =
 
     let ops =
         [
-            Operator.ternary If P1 (pitem If) (pitem Else) (Expr.ternary If Else)
+            Operator.ternary If P1 (pitem If) (pitem Else) Expr.ternary
 
-            Operator.infixNary Tuple P2 (pitem Tuple) (Expr.tupleReducer Tuple)
+            Operator.infixNary Tuple P2 (pitem Tuple) Expr.tupleReducer
 
-            Operator.infixLeftAssoc Add P3 (pitem Add) (Expr.infix Add)
-            Operator.infixLeftAssoc Sub P3 (pitem Sub) (Expr.infix Sub)
+            Operator.infixLeftAssoc Add P3 (pitem Add) Expr.infix
+            Operator.infixLeftAssoc Sub P3 (pitem Sub) Expr.infix
 
-            Operator.infixLeftAssoc Mul P4 (pitem Mul) (Expr.infix Mul)
-            Operator.infixLeftAssoc Div P4 (pitem Div) (Expr.infix Div)
+            Operator.infixLeftAssoc Mul P4 (pitem Mul) Expr.infix
+            Operator.infixLeftAssoc Div P4 (pitem Div) Expr.infix
 
-            Operator.infixRightAssoc Pow P5 (pitem Pow) (Expr.infix Pow)
+            Operator.infixRightAssoc Pow P5 (pitem Pow) Expr.infix
 
-            Operator.prefix Sub P6 (pitem Sub) (Expr.prefix Sub)
-            Operator.prefix Add P6 (pitem Add) (Expr.prefix Add)
+            Operator.prefix Sub P6 (pitem Sub) Expr.prefix
+            Operator.prefix Add P6 (pitem Add) Expr.prefix
 
-            Operator.postfix Factorial P7 (pitem Factorial) (Expr.postfix Factorial)
+            Operator.postfix Factorial P7 (pitem Factorial) Expr.postfix
 
             Operator.indexer
                 LIdx
@@ -316,9 +314,9 @@ let tests2 =
                 (pitem LIdx)
                 (satisfy Tokens2.isNumber |>> Expr.Token)
                 (pitem RIdx)
-                (Expr.indexer LIdx RIdx)
+                Expr.indexer
 
-            Operator.enclosedBy LParen RParen P10 (pitem LParen) (pitem RParen) (Expr.bracketed LParen RParen)
+            Operator.enclosedBy LParen RParen P10 (pitem LParen) (pitem RParen) Expr.bracketed
         ]
         |> Operator.create
 
@@ -467,37 +465,24 @@ let tests3 =
 
     let ops =
         [
-            Operator.ternary If P1 (pitem '?' >>% If) (pitem ':' >>% Else) (Expr.ternary If Else)
+            Operator.ternary If P1 (pitem '?' >>% If) (pitem ':' >>% Else) Expr.ternary
 
-            Operator.infixLeftAssoc Add P2 (pitem '+' >>% Add) (Expr.infix Add)
-            Operator.infixLeftAssoc Sub P2 (pitem '-' >>% Sub) (Expr.infix Sub)
+            Operator.infixLeftAssoc Add P2 (pitem '+' >>% Add) Expr.infix
+            Operator.infixLeftAssoc Sub P2 (pitem '-' >>% Sub) Expr.infix
 
-            Operator.infixLeftAssoc Mul P3 (pitem '*' >>% Mul) (Expr.infix Mul)
-            Operator.infixLeftAssoc Div P3 (pitem '/' >>% Div) (Expr.infix Div)
+            Operator.infixLeftAssoc Mul P3 (pitem '*' >>% Mul) Expr.infix
+            Operator.infixLeftAssoc Div P3 (pitem '/' >>% Div) Expr.infix
 
-            Operator.infixRightAssoc Pow P4 (pstring "**" >>% Pow) (Expr.infix Pow)
+            Operator.infixRightAssoc Pow P4 (pstring "**" >>% Pow) Expr.infix
 
-            Operator.prefix Sub P5 (pitem '-' >>% Sub) (Expr.prefix Sub)
-            Operator.prefix Add P5 (pitem '+' >>% Add) (Expr.prefix Add)
+            Operator.prefix Sub P5 (pitem '-' >>% Sub) Expr.prefix
+            Operator.prefix Add P5 (pitem '+' >>% Add) Expr.prefix
 
-            Operator.postfix Factorial P6 (pitem '!' >>% Factorial) (Expr.postfix Factorial)
+            Operator.postfix Factorial P6 (pitem '!' >>% Factorial) Expr.postfix
 
-            Operator.indexer
-                LIdx
-                RIdx
-                P7
-                (pitem '[' >>% LIdx)
-                (pNum |>> Expr.Token)
-                (pitem ']' >>% RIdx)
-                (Expr.indexer LIdx RIdx)
+            Operator.indexer LIdx RIdx P7 (pitem '[' >>% LIdx) (pNum |>> Expr.Token) (pitem ']' >>% RIdx) Expr.indexer
 
-            Operator.enclosedBy
-                LParen
-                RParen
-                P10
-                (pitem '(' >>% LParen)
-                (pitem ')' >>% RParen)
-                (Expr.bracketed LParen RParen)
+            Operator.enclosedBy LParen RParen P10 (pitem '(' >>% LParen) (pitem ')' >>% RParen) Expr.bracketed
         ]
         |> Operator.create
 
@@ -634,28 +619,21 @@ let tests4 =
 
     let ops =
         [
-            Operator.ternary If P1 (pitem '?' >>% If) (pitem ':' >>% Else) (Expr.ternary If Else)
-            Operator.infixNary Tuple P2 (pitem ',' >>% Tuple) (Expr.tupleReducer Tuple)
+            Operator.ternary If P1 (pitem '?' >>% If) (pitem ':' >>% Else) Expr.ternary
+            Operator.infixNary Tuple P2 (pitem ',' >>% Tuple) Expr.tupleReducer
 
-            Operator.infixLeftAssoc Add P3 (pitem '+' >>% Add) (Expr.infix Add)
-            Operator.infixLeftAssoc Sub P3 (pitem '-' >>% Sub) (Expr.infix Sub)
+            Operator.infixLeftAssoc Add P3 (pitem '+' >>% Add) Expr.infix
+            Operator.infixLeftAssoc Sub P3 (pitem '-' >>% Sub) Expr.infix
+            Operator.infixLeftAssoc Mul P4 ((pitem '*' .>> notFollowedBy (pitem '*')) >>% Mul) Expr.infix
+            Operator.infixLeftAssoc Div P4 (pitem '/' >>% Div) Expr.infix
+            Operator.infixNonAssoc Pow P4 (pstring "**" >>% Pow) Expr.infix
 
-            Operator.infixLeftAssoc Mul P4 ((pitem '*' .>> notFollowedBy (pitem '*')) >>% Mul) (Expr.infix Mul)
-            Operator.infixLeftAssoc Div P4 (pitem '/' >>% Div) (Expr.infix Div)
-            Operator.infixNonAssoc Pow P4 (pstring "**" >>% Pow) (Expr.infix Pow)
+            Operator.prefix Sub P6 (pitem '-' >>% Sub) Expr.prefix
+            Operator.prefix Add P6 (pitem '+' >>% Add) Expr.prefix
 
-            Operator.prefix Sub P6 (pitem '-' >>% Sub) (Expr.prefix Sub)
-            Operator.prefix Add P6 (pitem '+' >>% Add) (Expr.prefix Add)
+            Operator.postfix Factorial P7 (pitem '!' >>% Factorial) Expr.postfix
 
-            Operator.postfix Factorial P7 (pitem '!' >>% Factorial) (Expr.postfix Factorial)
-
-            Operator.enclosedBy
-                LParen
-                RParen
-                P10
-                (pitem '(' >>% LParen)
-                (pitem ')' >>% RParen)
-                (Expr.bracketed LParen RParen)
+            Operator.enclosedBy LParen RParen P10 (pitem '(' >>% LParen) (pitem ')' >>% RParen) Expr.bracketed
         ]
         |> Operator.create
 
@@ -806,21 +784,21 @@ module Docs =
     let operators: Operators<string, obj, Expr, char, unit, ReadableString, ReadableStringSlice> =
         [
             // P1: Addition and Subtraction (Left-associative)
-            Operator.infixLeftAssoc "+" P1 (op (pchar '+') >>% "+") (fun l r -> Add(l, r))
-            Operator.infixLeftAssoc "-" P1 (op (pchar '-') >>% "-") (fun l r -> Add(l, Negate r)) // Subtraction as adding a negation
+            Operator.infixLeftAssoc "+" P1 (op (pchar '+') >>% "+") (fun l _ r -> Add(l, r))
+            Operator.infixLeftAssoc "-" P1 (op (pchar '-') >>% "-") (fun l _ r -> Add(l, Negate r)) // Subtraction as adding a negation
 
             // P2: Multiplication (Left-associative)
-            Operator.infixLeftAssoc "*" P2 (op (pchar '*') >>% "*") (fun l r -> Multiply(l, r))
+            Operator.infixLeftAssoc "*" P2 (op (pchar '*') >>% "*") (fun l _ r -> Multiply(l, r))
             // P3: Exponentiation (Right-associative)
-            Operator.infixRightAssoc "**" P3 (op (pstring "**")) (fun l r -> Power(l, r))
+            Operator.infixRightAssoc "**" P3 (op (pstring "**")) (fun l _ r -> Power(l, r))
 
             // P4: Unary Negation (Prefix)
-            Operator.prefix "-" P4 (op (pchar '-') >>% "-") (fun expr -> Negate expr)
+            Operator.prefix "-" P4 (op (pchar '-') >>% "-") (fun _ expr -> Negate expr)
 
             // P10: Grouping (Highest precedence)
             // This tells the main parser how to handle parentheses. Using `id` means the
             // parentheses only control precedence and don't add a node to the AST.
-            Operator.enclosedBy "(" ")" P10 (op (pchar '(') >>% "(") (op (pchar ')') >>% ")") id
+            Operator.enclosedBy "(" ")" P10 (op (pchar '(') >>% "(") (op (pchar ')') >>% ")") (fun _ expr _ -> expr)
         ]
         |> Operator.create // Compile the list into an efficient lookup table.
 
@@ -875,13 +853,9 @@ let sortingBugTests =
                 // 2. Lower Precedence
                 let ops =
                     [
-                        Operator.infixRightAssoc
-                            (Op '^')
-                            P4
-                            (pstring "**" .>> spaces >>% (Op '^'))
-                            (Expr.infix (Op '^'))
+                        Operator.infixRightAssoc (Op '^') P4 (pstring "**" .>> spaces >>% (Op '^')) Expr.infix
 
-                        Operator.infixLeftAssoc (Op '*') P3 (pstring "*" .>> spaces >>% (Op '*')) (Expr.infix (Op '*'))
+                        Operator.infixLeftAssoc (Op '*') P3 (pstring "*" .>> spaces >>% (Op '*')) Expr.infix
                     ]
                     |> Operator.create
 
@@ -902,13 +876,9 @@ let sortingBugTests =
                 // Reverse input order to ensure consistent behavior
                 let ops =
                     [
-                        Operator.infixLeftAssoc (Op '*') P3 (pstring "*" .>> spaces >>% (Op '*')) (Expr.infix (Op '*'))
+                        Operator.infixLeftAssoc (Op '*') P3 (pstring "*" .>> spaces >>% (Op '*')) Expr.infix
 
-                        Operator.infixRightAssoc
-                            (Op '^')
-                            P4
-                            (pstring "**" .>> spaces >>% (Op '^'))
-                            (Expr.infix (Op '^'))
+                        Operator.infixRightAssoc (Op '^') P4 (pstring "**" .>> spaces >>% (Op '^')) Expr.infix
                     ]
                     |> Operator.create
 

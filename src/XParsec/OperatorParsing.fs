@@ -101,24 +101,23 @@ type OperatorLookup<'Key, 'Value when 'Key: equality> =
 
 type RHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
     when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
-    internal
     | InfixLeft of
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
         leftPower: byte *
-        completeInfix: ('Expr -> 'Expr -> 'Expr)
+        completeInfix: ('Expr -> 'Op -> 'Expr -> 'Expr)
 
     | InfixRight of
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
         leftPower: byte *
-        completeInfix: ('Expr -> 'Expr -> 'Expr)
+        completeInfix: ('Expr -> 'Op -> 'Expr -> 'Expr)
 
     | InfixNonAssociative of
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
         leftPower: byte *
-        completeInfix: ('Expr -> 'Expr -> 'Expr)
+        completeInfix: ('Expr -> 'Op -> 'Expr -> 'Expr)
 
     /// Used for operators like the Tuple comma (,) which are technically "Not Associative"
     /// in type theory (creating a flat list rather than nested pairs) but strictly
@@ -127,13 +126,13 @@ type RHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
         leftPower: byte *
-        completeNary: (ResizeArray<'Expr> -> 'Expr)
+        completeNary: (ResizeArray<'Expr> -> ResizeArray<'Op> -> 'Expr)
 
     | Postfix of
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
         leftPower: byte *
-        completePostfix: ('Expr -> 'Expr)
+        completePostfix: ('Expr -> 'Op -> 'Expr)
 
     | Indexer of
         op: 'Op *
@@ -142,23 +141,22 @@ type RHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
         closeOp: 'Op *
         parseCloseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
         parseInnerExpr: Parser<'Index, 'T, 'State, 'Input, 'InputSlice> *
-        completeIndexer: ('Expr -> 'Index -> 'Expr)
+        completeIndexer: ('Expr -> 'Op -> 'Index -> 'Op -> 'Expr)
 
     | Ternary of
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
         leftPower: byte *
         parseTernaryOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
-        completeTernary: ('Expr -> 'Expr -> 'Expr -> 'Expr)
+        completeTernary: ('Expr -> 'Op -> 'Expr -> 'Op -> 'Expr -> 'Expr)
 
 type LHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
     when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
-    internal
     | Prefix of
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
         rightPower: byte *
-        completePrefix: ('Expr -> 'Expr)
+        completePrefix: ('Op -> 'Expr -> 'Expr)
 
     | Enclosed of
         op: 'Op *
@@ -166,12 +164,11 @@ type LHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
         rightPower: byte *
         closeOp: 'Op *
         parseCloseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
-        complete: ('Expr -> 'Expr)
+        complete: ('Op -> 'Expr -> 'Op -> 'Expr)
 
 
 type Operator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice
     when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
-    internal
     | RHS of RHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>
     | LHS of LHSOperator<'Op, 'Index, 'Expr, 'T, 'State, 'Input, 'InputSlice>
 
@@ -240,7 +237,7 @@ module internal Pratt =
                     // Ambiguous case: both sides have the same binding power
                     fail ambiguous reader
                 else
-                    parseRhs (completePostfix lhs) reader
+                    parseRhs (completePostfix lhs op) reader
 
             | InfixLeft(op, parseOp, leftPower, completeInfix) ->
                 if leftPower < minBinding then
@@ -252,7 +249,7 @@ module internal Pratt =
                     let rightPower = leftPower + 1uy
                     // Found operator has higher binding than existing tokens so need to get next operator recursively
                     match parseLhs rightPower reader with
-                    | Ok rhs -> parseRhs (completeInfix lhs rhs.Parsed) reader
+                    | Ok { Parsed = rhs } -> parseRhs (completeInfix lhs op rhs) reader
                     | Error e -> Error e
 
             | InfixRight(op, parseOp, leftPower, completeInfix) ->
@@ -265,7 +262,7 @@ module internal Pratt =
                     let rightPower = leftPower - 1uy
 
                     match parseLhs rightPower reader with
-                    | Ok rhs -> parseRhs (completeInfix lhs rhs.Parsed) reader
+                    | Ok { Parsed = rhs } -> parseRhs (completeInfix lhs op rhs) reader
                     | Error e -> Error e
 
             | InfixNonAssociative(op, parseOp, leftPower, completeInfix) ->
@@ -278,7 +275,7 @@ module internal Pratt =
                     let rightPower = leftPower
                     // Found operator has higher binding than existing tokens so need to get next operator recursively
                     match parseLhs rightPower reader with
-                    | Ok rhs -> parseRhs (completeInfix lhs rhs.Parsed) reader
+                    | Ok { Parsed = rhs } -> parseRhs (completeInfix lhs op rhs) reader
                     | Error e -> Error e
 
             | InfixNary(op, parseOp, leftPower, completeNary) ->
@@ -289,7 +286,7 @@ module internal Pratt =
                     fail ambiguous reader
                 else
                     // Loop to consume all chained n-ary operators and expressions (e.g. commas in a tuple)
-                    let rec loopNary (items: ResizeArray<_>) =
+                    let rec loopNary (items: ResizeArray<'Expr>) (parsedOps: ResizeArray<'Op>) =
                         // Bind tighter (leftPower + 1) to parse the next expression.
                         // If the inner `parseLhs` encounters another comma (precedence = leftPower),
                         // it will see (leftPower < minBinding), stop, and return the expression.
@@ -308,7 +305,9 @@ module internal Pratt =
                             match ops.RhsParser reader with
                             | Ok { Parsed = nextOp } ->
                                 match nextOp with
-                                | InfixNary(nextSym, _, _, _) when nextSym = op -> loopNary items
+                                | InfixNary(nextSym, _, _, _) when nextSym = op ->
+                                    parsedOps.Add nextSym
+                                    loopNary items parsedOps
                                 | _ ->
                                     // Found a different operator (e.g. ')' or '+').
                                     // Backtrack so the outer recursive call or caller can handle it.
@@ -320,10 +319,12 @@ module internal Pratt =
                                 preturn items reader
 
                     let items = ResizeArray()
+                    let parsedOps = ResizeArray()
                     items.Add lhs
+                    parsedOps.Add op
 
-                    match loopNary items with
-                    | Ok { Parsed = items } -> parseRhs (completeNary items) reader
+                    match loopNary items parsedOps with
+                    | Ok { Parsed = items } -> parseRhs (completeNary items parsedOps) reader
                     | Error e -> Error e
 
             | Indexer(op, parseOp, leftPower, closeOp, parseCloseOp, innerParser, completeIndexer) ->
@@ -333,11 +334,11 @@ module internal Pratt =
                 elif leftPower = minBinding then
                     fail ambiguous reader
                 else
-                    match innerParser (reader) with
-                    | Ok inner ->
+                    match innerParser reader with
+                    | Ok { Parsed = inner } ->
 
-                        match parseCloseOp (reader) with
-                        | Ok closeTok -> parseRhs (completeIndexer lhs inner.Parsed) reader
+                        match parseCloseOp reader with
+                        | Ok { Parsed = closeTok } -> parseRhs (completeIndexer lhs op inner closeTok) reader
                         | Error e -> Error e
                     | Error e -> Error e
 
@@ -351,12 +352,12 @@ module internal Pratt =
                     let rightPower = leftPower - 1uy
 
                     match parseLhs rightPower reader with
-                    | Ok mid ->
+                    | Ok { Parsed = mid } ->
 
-                        match parseTernaryOp (reader) with
-                        | Ok ternaryOp ->
+                        match parseTernaryOp reader with
+                        | Ok { Parsed = ternaryOp } ->
                             match parseLhs Precedence.MinP reader with
-                            | Ok rhs -> parseRhs (completeTernary lhs mid.Parsed rhs.Parsed) reader
+                            | Ok { Parsed = rhs } -> parseRhs (completeTernary lhs op mid ternaryOp rhs) reader
                             | Error e -> Error e
                         | Error e ->
                             let expectedMsg =
@@ -400,16 +401,14 @@ module internal Pratt =
                 match op.Parsed with
                 | Prefix(op, parseOp, rightPower, completePrefix) ->
                     match parseLhs rightPower (reader) with
-                    | Ok rhs -> parseRhs (completePrefix rhs.Parsed) reader
+                    | Ok { Parsed = rhs } -> parseRhs (completePrefix op rhs) reader
                     | Error e -> Error e
 
                 | Enclosed(op, parseOp, rightPower, closeOp, closeOpParser, completeBracket) ->
                     match parseLhs Precedence.MinP (reader) with
-                    | Ok inner ->
-                        match closeOpParser (reader) with
-                        | Ok closeTok ->
-                            let closeOp = closeTok.Parsed
-                            parseRhs (completeBracket inner.Parsed) reader
+                    | Ok { Parsed = inner } ->
+                        match closeOpParser reader with
+                        | Ok { Parsed = closeTok } -> parseRhs (completeBracket op inner closeTok) reader
                         | Error e ->
                             let expectedMsg =
                                 { e with
