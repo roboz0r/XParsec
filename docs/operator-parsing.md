@@ -30,10 +30,12 @@ These appear between two operands.
 * `Operator.infixLeftAssoc`: For left-associative operators like `+` and `*`.
 * `Operator.infixRightAssoc`: For right-associative operators like `**` (power).
 * `Operator.infixNonAssoc`: For non-associative operators.
+* `Operator.infixNary`: For n-ary operators like `,` (tuple)
+* `Operator.infixMapped`: For operators like `.` (member access) where the rhs is not an expression.
 
 ```fsharp
 // Defines a left-associative '+' operator that builds an `Add` AST node.
-Operator.infixLeftAssoc '+' P1 (pchar '+') (fun lhs rhs -> Add(lhs, rhs))
+Operator.infixLeftAssoc '+' P1 (pchar '+') (fun lhs op rhs -> Add(lhs, rhs))
 ```
 
 #### Prefix and Postfix Operators (e.g., unary `-`, `!`)
@@ -45,7 +47,7 @@ These appear before or after a single operand.
 
 ```fsharp
 // Defines a prefix '-' operator for negation.
-Operator.prefix '-' P5 (pchar '-') (fun expr -> Negate expr)
+Operator.prefix '-' P5 (pchar '-') (fun op expr -> Negate expr)
 ```
 
 #### Enclosing and Other Operators
@@ -54,6 +56,7 @@ Operator.prefix '-' P5 (pchar '-') (fun expr -> Negate expr)
 
 * `Operator.ternary`: For operators like C's `?:`.
 * `Operator.indexer`: For array/map access like `expr[index]`.
+* `Operator.lhsTernary`: For operators like "if `expr` then `expr`"
 
 ```fsharp
 // Defines standard parentheses for grouping. The `id` function means the
@@ -102,24 +105,24 @@ Now, we create a list of all our operators and their precedences. This is where 
 // A helper to parse an operator token and skip any trailing whitespace.
 let op p = p .>> spaces
 
-let operators: Operators<string, obj, Expr, char, unit, ReadableString, ReadableStringSlice> =
+let operators: Operators<string, unit, Expr, char, unit, ReadableString, ReadableStringSlice> =
     [
         // P1: Addition and Subtraction (Left-associative)
-        Operator.infixLeftAssoc "+" P1 (op (pchar '+') >>% "+") (fun l r -> Add(l, r))
-        Operator.infixLeftAssoc "-" P1 (op (pchar '-') >>% "-") (fun l r -> Add(l, Negate r)) // Subtraction as adding a negation
+        Operator.infixLeftAssoc "+" P1 (op (pchar '+') >>% "+") (fun l _ r -> Add(l, r))
+        Operator.infixLeftAssoc "-" P1 (op (pchar '-') >>% "-") (fun l _ r -> Add(l, Negate r)) // Subtraction as adding a negation
 
         // P2: Multiplication (Left-associative)
-        Operator.infixLeftAssoc "*" P2 (op (pchar '*') >>% "*") (fun l r -> Multiply(l, r))
+        Operator.infixLeftAssoc "*" P2 (op (pchar '*') >>% "*") (fun l _ r -> Multiply(l, r))
         // P3: Exponentiation (Right-associative)
-        Operator.infixRightAssoc "**" P3 (op (pstring "**")) (fun l r -> Power(l, r))
+        Operator.infixRightAssoc "**" P3 (op (pstring "**")) (fun l _ r -> Power(l, r))
 
         // P4: Unary Negation (Prefix)
-        Operator.prefix "-" P4 (op (pchar '-') >>% "-") (fun expr -> Negate expr)
+        Operator.prefix "-" P4 (op (pchar '-') >>% "-") (fun _ expr -> Negate expr)
 
         // P10: Grouping (Highest precedence)
         // This tells the main parser how to handle parentheses. Using `id` means the
         // parentheses only control precedence and don't add a node to the AST.
-        Operator.enclosedBy "(" ")" P10 (op (pchar '(') >>% "(") (op (pchar ')') >>% ")") id
+        Operator.enclosedBy "(" ")" P10 (op (pchar '(') >>% "(") (op (pchar ')') >>% ")") (fun _ expr _ -> expr)
     ]
     |> Operator.create // Compile the list into an efficient lookup table.
 ```
@@ -164,4 +167,23 @@ Parsing: '-5 ** 2'
   Success: Power (Number -5, Number 2)
 Parsing: '2 ** 3 ** 4'
   Success: Power (Number 2, Power (Number 3, Number 4))
+```
+
+## Advanced Operator Parsing
+
+If the simplified operator parsing table approach cannot describe your grammar then the `Operators` interface can be implemented directly. An example of such a scenario is when the grammar allows for arbitrary custom operators with dynamically determined precedence and associativity like the F# language.
+
+```fs
+/// A collection of operators used for parsing expressions.
+/// It contains both left-hand side (LHS) and right-hand side (RHS) operators, along with their associated parsers.
+/// Use `Operator.create` to create an instance of this type.
+type Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
+    when 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
+    abstract LhsParser:
+        Parser<LHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>, 'T, 'State, 'Input, 'InputSlice>
+
+    abstract RhsParser:
+        Parser<RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>, 'T, 'State, 'Input, 'InputSlice>
+
+    abstract OpComparer: IEqualityComparer<'Op>
 ```
