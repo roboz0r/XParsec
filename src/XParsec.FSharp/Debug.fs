@@ -361,5 +361,54 @@ let printExpr (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (expr: Exp
         printLongIdentOrOp tw input lexed longIdentOrOp
         tw.Indent <- tw.Indent - 1
         tw.Indent <- tw.Indent - 1
+    | Expr.IfThenElse(ifToken, condition, thenToken, thenExpr, elifBranches, elseBranch) ->
+        tw.WriteLine("IfThenElse:")
+        tw.Indent <- tw.Indent + 1
+        tw.Write("IfToken: ")
+        printTokenMin tw input lexed ifToken
+        tw.WriteLine()
+        tw.WriteLine("Condition:")
+        tw.Indent <- tw.Indent + 1
+        printExpr tw input lexed condition
+        tw.Indent <- tw.Indent - 1
+        tw.Write("ThenToken: ")
+        printTokenMin tw input lexed thenToken
+        tw.WriteLine()
+        tw.WriteLine("ThenExpr:")
+        tw.Indent <- tw.Indent + 1
+        printExpr tw input lexed thenExpr
+        tw.Indent <- tw.Indent - 1
 
+        for elif' in elifBranches do
+            tw.WriteLine("ElifBranch:")
+            tw.Indent <- tw.Indent + 1
+            let (ElifBranch.ElifBranch(elifToken, elifCondition, thenToken, elifExpr)) = elif'
+            tw.Write("ElifToken: ")
+            printTokenMin tw input lexed elifToken
+            tw.WriteLine()
+            tw.WriteLine("ElifCondition:")
+            tw.Indent <- tw.Indent + 1
+            printExpr tw input lexed elifCondition
+            tw.Indent <- tw.Indent - 1
+            tw.Write("ThenToken: ")
+            printTokenMin tw input lexed thenToken
+            tw.WriteLine()
+            tw.WriteLine("ElifExpr:")
+            tw.Indent <- tw.Indent + 1
+            printExpr tw input lexed elifExpr
+            tw.Indent <- tw.Indent - 1
+            tw.Indent <- tw.Indent - 1
+
+        match elseBranch with
+        | ValueSome(ElseBranch.ElseBranch(elseToken, elseExpr)) ->
+            tw.Write("ElseToken: ")
+            printTokenMin tw input lexed elseToken
+            tw.WriteLine()
+            tw.WriteLine("ElseExpr:")
+            tw.Indent <- tw.Indent + 1
+            printExpr tw input lexed elseExpr
+            tw.Indent <- tw.Indent - 1
+        | ValueNone -> ()
+
+        tw.Indent <- tw.Indent - 1
     | _ -> failwithf "Not implemented %A" expr

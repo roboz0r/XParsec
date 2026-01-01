@@ -21,11 +21,10 @@ type Attribute<'T> =
 and AttributeSet<'T> =
     | AttributeSet of
         lBracket: 'T *  // Represents the [< token
-        attributes: (Attribute<'T> * 'T (* semicolon *) option) list *
+        attributes: (Attribute<'T> * 'T (* semicolon *) voption) list *
         rBracket: 'T // Represents the >] token
 
 // Represents: attributes := attribute-set ... attribute-set
-// This is the final type that should replace the placeholder.
 and Attributes<'T> = AttributeSet<'T> list
 
 // Represents: ident-or-op
@@ -147,6 +146,7 @@ type ValueDefn<'T> =
         equals: 'T *
         expr: Expr<'T>
 
+[<RequireQualifiedAccess>]
 type FunctionOrValueDefn<'T> =
     | Function of FunctionDefn<'T>
     | Value of ValueDefn<'T>
@@ -163,7 +163,9 @@ type BaseCall<'T> =
     | NamedBaseCall of construction: ObjectConstruction<'T> * asToken: 'T * ident: 'T
 
 type ObjectMembers<'T> = | ObjectMembers of withToken: 'T * memberDefns: MemberDefn<'T> list * endToken: 'T
-type InterfaceImpl<'T> = | InterfaceImpl of interfaceToken: 'T * typ: Type<'T> * objectMembers: ObjectMembers<'T> option
+
+type InterfaceImpl<'T> =
+    | InterfaceImpl of interfaceToken: 'T * typ: Type<'T> * objectMembers: ObjectMembers<'T> voption
 
 // Represents: range and slice grammar
 type SliceRange<'T> =
@@ -313,7 +315,7 @@ and [<RequireQualifiedAccess>] Expr<'T> =
         thenToken: 'T *
         thenExpr: Expr<'T> *
         elifBranches: ElifBranch<'T> list *
-        elseBranch: ElseBranch<'T> option
+        elseBranch: ElseBranch<'T> voption
     | While of whileToken: 'T * condition: Expr<'T> * doToken: 'T * body: Expr<'T> * doneToken: 'T
     | ForTo of
         forToken: 'T *
