@@ -62,7 +62,11 @@ module BindingPower =
     /// Level 0 -> 1<bp>, Level 1 -> 3<bp>, Level 10 -> 21<bp>.
     let fromLevel (level: int) : byte<bp> =
         let oddBase = (byte level * 2uy) + 1uy
+#if FABLE_COMPILER
+        oddBase * 1uy<bp>
+#else
         LanguagePrimitives.ByteWithMeasure oddBase
+#endif
 
     /// Calculates the recursion power for a Left Associative operator.
     /// (LBP = N, RBP = N + 1)

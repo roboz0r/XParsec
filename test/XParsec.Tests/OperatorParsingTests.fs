@@ -623,6 +623,8 @@ let tests3 =
 type SimpleError<'T> =
     | Expected of 'T
     | ExpectedSeq of 'T list
+    | ExpectedOneOf of 'T seq
+    | ExpectedSeqOneOf of 'T seq seq
     | Unexpected of 'T
     | UnexpectedSeq of 'T list
     | Message of string
@@ -637,6 +639,8 @@ module SimpleError =
         match e with
         | Expected x -> SimpleError.Expected x
         | ExpectedSeq xs -> SimpleError.ExpectedSeq(List.ofSeq xs)
+        | ExpectedOneOf xs -> SimpleError.ExpectedOneOf xs
+        | ExpectedSeqOneOf xss -> SimpleError.ExpectedSeqOneOf xss
         | Unexpected x -> SimpleError.Unexpected x
         | UnexpectedSeq xs -> SimpleError.UnexpectedSeq(List.ofSeq xs)
         | Message s -> SimpleError.Message s
