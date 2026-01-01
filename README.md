@@ -15,25 +15,35 @@ It aims to be a successor to the popular [FParsec](https://github.com/stephan-to
 
 - Generalization over collection and token types
 
-With XParsec all common contiguous collections `string` `'T array` `ResizeArray<'T>` `ImmutableArray<'T>` and `Stream` can be parsed with essentially the same code.
+With XParsec all common contiguous collections `string` `'T array` `ResizeArray<'T>` `ImmutableArray<'T>` and `ReadOnlyMemory<'T>` can be parsed with essentially the same code.
 
 - Pure F# implementation
 
-F# is a great .NET language but with the power of Fable, a powerful JavaScript language too. By implementing XParsec in completely in F#, I aim to provide an equally robust and easy to use parsing library for Fable target languages.
+F# is a great .NET language but with the [Fable compiler](https://fable.io/), a powerful JavaScript language too. By implementing XParsec completely in F#, I aim to provide an equally robust and easy to use parsing library for Fable target languages.
 
 - More Performant
 
 By making use of newer F# & .NET technologies like `[<InlineIfLambda>]` `Span<'T>` and `struct` unions I aim to make XParsec competitive with imperative parsing libraries while remaining terse and easy to reason about.
 
-Initial results are encoraging with roughly 2/3 the execution time and 1/4 the allocations for the equivalent parser code parsing a single large json file.
+Initial results are encoraging with roughly 2/3 the execution time and 1/5 the allocations for the equivalent parser code parsing a single large json file.
 
-| Method      | Mean     | Error    | StdDev   | Gen0      | Gen1     | Gen2     | Allocated |
-|------------ |---------:|---------:|---------:|----------:|---------:|---------:|----------:|
-| XParsecJson | 41.40 ms | 0.205 ms | 0.182 ms | 1000.0000 | 916.6667 |        - |  50.91 MB |
-| FParsecJson | 67.38 ms | 1.247 ms | 1.106 ms | 4375.0000 | 875.0000 | 250.0000 | 200.98 MB |
+| Method      | Mean     | Error    | StdDev   | Gen0       | Gen1      | Gen2     | Allocated |
+|------------ |---------:|---------:|---------:|-----------:|----------:|---------:|----------:|
+| XParsecJson | 47.00 ms | 0.900 ms | 0.798 ms |  3363.6364 |  818.1818 | 272.7273 |  36.99 MB |
+| FParsecJson | 73.77 ms | 1.325 ms | 1.240 ms | 17714.2857 | 1285.7143 | 428.5714 | 208.37 MB |
 
 - Simplified operator precedence parsing
-- No line number tracking by default
+- No line number tracking by default. A separate line ending parser is available for generating detailed error messages.
+
+```log
+The quick brown fox jumps over the lazy dog.
+    ^ At index 4 (Ln 1, Col 5)
+All choices failed.
+├───Expected 'a'
+└───All choices failed.
+    ├───Unexpected 'q'
+    └───Expected 'c'
+```
 
 ## Running Tests
 
