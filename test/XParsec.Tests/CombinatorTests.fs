@@ -286,6 +286,25 @@ let tests =
                 | Error e -> failwithf "%A" e
             }
 
+            test "Choice (implied backtracking)" {
+                // "food" consumes 3 chars ("foo") then fails at 'd' vs 'b'.
+                // Standard parsec would fail here. XParsec should backtrack and try "foobar".
+                let input = "foobar"
+
+                let p1 = pstring "fo" .>>. pstring "d" |>> (fun struct (x, y) -> x + y)
+                let p2 = pstring "foobar"
+                let p = choice [ p1; p2 ]
+
+                let reader = Reader.ofString input ()
+                let result = p reader
+
+                match result with
+                | Ok result ->
+                    "" |> Expect.equal result.Parsed "foobar"
+                    "" |> Expect.equal reader.Index 6
+                | Error e -> failwithf "Should have backtracked and succeeded: %A" e
+            }
+
             test "ChoiceL" {
                 let input = "input"
 
@@ -1745,5 +1764,63 @@ let tests =
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
 #endif
+            }
+
+            test "Dispatch" {
+                let input = "b"
+
+                let p =
+                    dispatch (
+                        function
+                        | ValueSome 'a' -> pchar 'a'
+                        | ValueSome 'b' -> pchar 'b'
+                        | ValueSome c -> fail (Unexpected c)
+                        | ValueNone -> fail EndOfInput
+                    )
+
+                let reader = Reader.ofString input ()
+                let result = p reader
+
+                match result with
+                | Ok result ->
+                    "" |> Expect.equal result.Parsed 'b'
+                    "" |> Expect.equal reader.Index 1
+                | Error e -> failwithf "%A" e
+            }
+
+            test "DispatchWithState" {
+                let input = "a"
+
+                // Define a parser that behaves differently based on the state integer:
+                // State 1: Parses 'a' and returns "Mode 1"
+                // State 2: Parses 'a' and returns "Mode 2"
+                let p =
+                    dispatchWithState (fun state token ->
+                        match state, token with
+                        | 1, ValueSome 'a' -> pchar 'a' >>% "Mode 1"
+                        | 2, ValueSome 'a' -> pchar 'a' >>% "Mode 2"
+                        | _, ValueSome c -> fail (Unexpected c)
+                        | _, ValueNone -> fail EndOfInput
+                    )
+
+                // Scenario A: Initialize Reader with State = 1
+                let reader1 = Reader.ofString input 1
+                let result1 = p reader1
+
+                match result1 with
+                | Ok result ->
+                    "" |> Expect.equal result.Parsed "Mode 1"
+                    "" |> Expect.equal reader1.Index 1
+                | Error e -> failwithf "State 1 failed: %A" e
+
+                // Scenario B: Initialize Reader with State = 2
+                let reader2 = Reader.ofString input 2
+                let result2 = p reader2
+
+                match result2 with
+                | Ok result ->
+                    "" |> Expect.equal result.Parsed "Mode 2"
+                    "" |> Expect.equal reader2.Index 1
+                | Error e -> failwithf "State 2 failed: %A" e
             }
         ]
