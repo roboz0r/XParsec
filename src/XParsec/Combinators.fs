@@ -1330,3 +1330,51 @@ module Combinators =
                 preturn (xs.ToImmutable())
             )
             reader
+
+    /// <summary>
+    /// Peeks at the next token (without consuming it) and uses it to select
+    /// the next parser to run.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This combinator is ideal for implementing <strong>LL(1) grammars</strong> (predictive parsing).
+    /// It allows the parser to branch deterministically based on a single lookahead token.
+    /// </para>
+    /// <para>
+    /// Use <c>dispatch</c> instead of <c>choice</c> when the next token uniquely identifies
+    /// which parser to use. This avoids the overhead of sequential trial-and-error and
+    /// prevents unnecessary backtracking.
+    /// </para>
+    /// </remarks>
+    /// <param name="f">A function that maps the lookahead token (or ValueNone at the end of input) to a parser.</param>
+    let inline dispatch
+        ([<InlineIfLambda>] f: 'T voption -> Parser<'Parsed, 'T, 'State, 'Input, 'InputSlice>)
+        (reader: Reader<'T, 'State, 'Input, 'InputSlice>)
+        =
+        let t = reader.Peek()
+        let p = f t
+        p reader
+
+    /// <summary>
+    /// Peeks at the next token (without consuming it) and retrieves the current user state,
+    /// using both to select the next parser to run.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is an optimization for <strong>Context-Sensitive LL(1) grammars</strong>.
+    /// </para>
+    /// <para>
+    /// It avoids the overhead of <c>getUserState >>= ...</c> by passing the state directly
+    /// to the dispatch function. This is particularly useful for parsers that need to switch
+    /// behavior based on a context.
+    /// </para>
+    /// </remarks>
+    /// <param name="f">A function that maps the current state and lookahead token to a parser.</param>
+    let inline dispatchWithState
+        ([<InlineIfLambda>] f: 'State -> 'T voption -> Parser<'Parsed, 'T, 'State, 'Input, 'InputSlice>)
+        (reader: Reader<'T, 'State, 'Input, 'InputSlice>)
+        =
+        let s = reader.State
+        let t = reader.Peek()
+        let p = f s t
+        p reader
