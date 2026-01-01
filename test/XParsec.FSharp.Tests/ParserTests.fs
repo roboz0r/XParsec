@@ -61,4 +61,8 @@ let tests =
                 let path = Path.Combine(testDataDir.Value, "10_simple_typed_ident.fs")
                 testParseFile path
             }
+            test "Simple If Expression" {
+                let path = Path.Combine(testDataDir.Value, "11_simple_if.fs")
+                testParseFile path
+            }
         ]
