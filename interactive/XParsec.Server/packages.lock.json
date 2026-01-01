@@ -1,7 +1,7 @@
 {
   "version": 2,
   "dependencies": {
-    "net9.0": {
+    "net10.0": {
       "FSharp.Core": {
         "type": "Direct",
         "requested": "[9.0.201, )",
@@ -27,14 +27,8 @@
         "dependencies": {
           "FSharp.Core": "5.0.2",
           "Fable.Core": "4.1.0",
-          "System.Text.Json": "9.0.0",
           "Thoth.Json.Core": "0.7.0"
         }
-      },
-      "Microsoft.Extensions.ObjectPool": {
-        "type": "Transitive",
-        "resolved": "9.0.0",
-        "contentHash": "UbsU/gYe4nv1DeqMXIVzDfNNek7Sk2kKuAOXL/Y+sLcAR0HwFUqzg1EPiU88jeHNe0g81aPvvHbvHarQr3r9IA=="
       },
       "Microsoft.IO.RecyclableMemoryStream": {
         "type": "Transitive",
@@ -46,14 +40,8 @@
         "resolved": "1.1.0",
         "contentHash": "VjdtK+Bwui0nPf/T4wVWhxgGMpyt3hEjaRxtFT3HKdzlr+JbH0C1qd/SxhKsuD90jM9EJObCgPrgBdPj576HVw==",
         "dependencies": {
-          "FSharp.Core": "9.0.100",
-          "Microsoft.Extensions.ObjectPool": "9.0.0"
+          "FSharp.Core": "9.0.100"
         }
-      },
-      "System.Text.Json": {
-        "type": "Transitive",
-        "resolved": "9.0.0",
-        "contentHash": "js7+qAu/9mQvnhA4EfGMZNEzXtJCDxgkgj8ohuxq/Qxv+R56G+ljefhiJHOxTNiw54q8vmABCWUwkMulNdlZ4A=="
       },
       "Thoth.Json.Core": {
         "type": "Transitive",
@@ -67,14 +55,13 @@
       "xparsec": {
         "type": "Project",
         "dependencies": {
-          "FSharp.Core": "[8.0.100, )",
-          "System.Collections.Immutable": "[8.0.0, )"
+          "FSharp.Core": "[8.0.300, )"
         }
       },
       "xparsec.json": {
         "type": "Project",
         "dependencies": {
-          "XParsec": "[0.2.0, )"
+          "XParsec": "[0.2.5, )"
         }
       },
       "Fable.Core": {
@@ -82,12 +69,6 @@
         "requested": "[4.5.0, )",
         "resolved": "4.5.0",
         "contentHash": "ZcX8XN5sQZGCbrS8VYnsa/ynhrCBfpDyqDkTl33GTXOpgfKibxoq0+W0hCSbRzuukVNoLtqGL/B6+8yTNDXbNA=="
-      },
-      "System.Collections.Immutable": {
-        "type": "CentralTransitive",
-        "requested": "[8.0.0, )",
-        "resolved": "8.0.0",
-        "contentHash": "AurL6Y5BA1WotzlEvVaIDpqzpIPvYnnldxru8oXJU2yFxFUy3+pNXjXd1ymO+RA0rq0+590Q8gaz2l3Sr7fmqg=="
       }
     }
   }
