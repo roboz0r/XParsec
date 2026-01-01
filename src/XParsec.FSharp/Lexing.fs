@@ -2174,78 +2174,79 @@ module Lexing =
         choiceL [ pDirectiveToken; pToken (pchar '#') Token.ReservedIdentifierHash ] "Hash or Directive"
 
     [<TailCall>]
-    let rec lex () (reader: Reader<char, LexBuilder, ReadableString, _>) =
-        let ctx = LexBuilder.currentContext reader.State
-        let c = reader.Peek()
+    let rec lex () (reader: Reader<char, LexBuilder, ReadableString, _>) = dispatchWithState dispatcher reader
+
+    and private complete (reader: Reader<char, LexBuilder, ReadableString, _>) =
+        ParseSuccess.create (LexBuilder.complete reader.Position.Index reader.State)
+
+    and private dispatcher state c =
+        let ctx = LexBuilder.currentContext state
         // printfn "At %A, Context: %A, Next char: %A" reader.Position.Index ctx c
         match c, ctx with
-        | ValueNone, _ -> preturn (LexBuilder.complete reader.Position.Index reader.State) reader
-        | ValueSome('\r' | '\n'), ExpressionCtx -> (pNewlineToken >>= lex) reader
-        | ValueSome ' ', ExpressionCtx -> (pIndentOrWhitespaceToken >>= lex) reader
-        | ValueSome '\t', ExpressionCtx -> (pTabToken >>= lex) reader
-        | ValueSome ',', ExpressionCtx -> (pCommaToken >>= lex) reader
-        | ValueSome '(', ExpressionCtx -> (pLParenToken >>= lex) reader
-        | ValueSome ')', ExpressionCtx -> (pCloseParenExpressionContext >>= lex) reader
-        | ValueSome '[', ExpressionCtx -> (pLBacketToken >>= lex) reader
-        | ValueSome '>', ExpressionCtx -> (pGreaterThanToken >>= lex) reader
-        | ValueSome ']', ExpressionCtx -> (pCloseBracketExpressionContext >>= lex) reader
+        | ValueNone, _ -> complete
+        | ValueSome('\r' | '\n'), ExpressionCtx -> pNewlineToken >>= lex
+        | ValueSome ' ', ExpressionCtx -> pIndentOrWhitespaceToken >>= lex
+        | ValueSome '\t', ExpressionCtx -> pTabToken >>= lex
+        | ValueSome ',', ExpressionCtx -> pCommaToken >>= lex
+        | ValueSome '(', ExpressionCtx -> pLParenToken >>= lex
+        | ValueSome ')', ExpressionCtx -> pCloseParenExpressionContext >>= lex
+        | ValueSome '[', ExpressionCtx -> pLBacketToken >>= lex
+        | ValueSome '>', ExpressionCtx -> pGreaterThanToken >>= lex
+        | ValueSome ']', ExpressionCtx -> pCloseBracketExpressionContext >>= lex
         | ValueSome '{', LexContext.InterpolatedString ->
             // In an interpolated string, { starts an expression or is escaped as {{
-            (pInterpolatedExpressionStartToken >>= lex) reader
+            pInterpolatedExpressionStartToken >>= lex
         | ValueSome '{', LexContext.VerbatimInterpolatedString ->
             // In a verbatim interpolated string, { starts an expression or is escaped as {{
-            (pInterpolatedExpressionStartToken >>= lex) reader
+            pInterpolatedExpressionStartToken >>= lex
         | ValueSome '{', LexContext.Interpolated3String level ->
             // In a triple-quoted interpolated string, { * level starts an expression or is escaped as {{
-            (pInterpolated3ExpressionStartToken >>= lex) reader
-        | ValueSome '{', _ -> (pOpenBraceExpressionContext >>= lex) reader
+            pInterpolated3ExpressionStartToken >>= lex
+        | ValueSome '{', _ -> pOpenBraceExpressionContext >>= lex
         | ValueSome '}', LexContext.InterpolatedString ->
             // In an interpolated string, } is escaped as }}
-            (pInterpolatedStringFragmentRBraces >>= lex) reader
+            pInterpolatedStringFragmentRBraces >>= lex
         | ValueSome '}', LexContext.VerbatimInterpolatedString ->
             // In a verbatim interpolated string, } is escaped as }}
-            (pInterpolatedStringFragmentRBraces >>= lex) reader
+            pInterpolatedStringFragmentRBraces >>= lex
         | ValueSome '}', LexContext.Interpolated3String level ->
             // In a triple-quoted interpolated string, required } depends on level
-            (pInterpolated3StringFragmentRBraces >>= lex) reader
+            pInterpolated3StringFragmentRBraces >>= lex
         | ValueSome '}', LexContext.InterpolatedExpression ->
             // In an interpolated expression, } ends the expression
-            (pInterpolatedExpressionEndToken >>= lex) reader
-        | ValueSome '}', NonInterpolatedExpressionCtx -> (pCloseBraceExpressionContext >>= lex) reader
-        | ValueSome '"', LexContext.InterpolatedString -> (pInterpolatedStringEndToken >>= lex) reader
-        | ValueSome '"', LexContext.VerbatimInterpolatedString -> (pVerbatimInterpolatedStringQuoteToken >>= lex) reader
-        | ValueSome '"', LexContext.Interpolated3String _ -> (pInterpolated3EndToken >>= lex) reader
+            pInterpolatedExpressionEndToken >>= lex
+        | ValueSome '}', NonInterpolatedExpressionCtx -> pCloseBraceExpressionContext >>= lex
+        | ValueSome '"', LexContext.InterpolatedString -> pInterpolatedStringEndToken >>= lex
+        | ValueSome '"', LexContext.VerbatimInterpolatedString -> pVerbatimInterpolatedStringQuoteToken >>= lex
+        | ValueSome '"', LexContext.Interpolated3String _ -> pInterpolated3EndToken >>= lex
         | ValueSome '"', _ ->
             // String or triple-quoted string literals
-            (pDoubleQuoteToken >>= lex) reader
+            pDoubleQuoteToken >>= lex
         | ValueSome ''', ExpressionCtx ->
             // Char literals, type parameters, or a single quote
-            (pSingleQuoteToken >>= lex) reader
+            pSingleQuoteToken >>= lex
         | ValueSome '$', ExpressionCtx ->
             // Interpolated strings
-            (pDollarToken >>= lex) reader
+            pDollarToken >>= lex
         | ValueSome '@', ExpressionCtx ->
             // Verbatim strings
-            (pAtToken >>= lex) reader
-        | ValueSome '/', ExpressionCtx -> (pSlashToken >>= lex) reader
+            pAtToken >>= lex
+        | ValueSome '/', ExpressionCtx -> pSlashToken >>= lex
         | ValueSome '%',
           (LexContext.InterpolatedString | LexContext.VerbatimInterpolatedString | LexContext.Interpolated3String _) ->
-            (pFormatSpecifierTokens >>= lex) reader
-        | ValueSome _, LexContext.InterpolatedString -> (pInterpolatedStringFragmentToken >>= lex) reader
-        | ValueSome _, LexContext.VerbatimInterpolatedString ->
-            (pVerbatimInterpolatedStringFragmentToken >>= lex) reader
-        | ValueSome _, LexContext.Interpolated3String _ -> (pInterpolated3StringFragmentToken >>= lex) reader
-        | ValueSome ';', ExpressionCtx -> (pSemicolonToken >>= lex) reader
-        | ValueSome '.', ExpressionCtx -> (pDotToken >>= lex) reader
-        | ValueSome '#', ExpressionCtx -> (pHashToken >>= lex) reader
-        | ValueSome c, ExpressionCtx when NumericLiterals.isDecimalDigit c ->
-            (NumericLiterals.parseToken >>= lex) reader
+            pFormatSpecifierTokens >>= lex
+        | ValueSome _, LexContext.InterpolatedString -> pInterpolatedStringFragmentToken >>= lex
+        | ValueSome _, LexContext.VerbatimInterpolatedString -> pVerbatimInterpolatedStringFragmentToken >>= lex
+        | ValueSome _, LexContext.Interpolated3String _ -> pInterpolated3StringFragmentToken >>= lex
+        | ValueSome ';', ExpressionCtx -> pSemicolonToken >>= lex
+        | ValueSome '.', ExpressionCtx -> pDotToken >>= lex
+        | ValueSome '#', ExpressionCtx -> pHashToken >>= lex
+        | ValueSome c, ExpressionCtx when NumericLiterals.isDecimalDigit c -> NumericLiterals.parseToken >>= lex
         | ValueSome c, ExpressionCtx when customOperatorChars.Contains c ->
             // TODO: Consider computing names like https://learn.microsoft.com/en-us/dotnet/fsharp/language-reference/operator-overloading#overloaded-operator-names
-            (pCustomOperatorToken >>= lex) reader
-        | ValueSome c, ExpressionCtx when isIdentStartChar c -> (pIdentifierOrKeywordToken >>= lex) reader
-        | ValueSome _, _ -> (pOtherToken >>= lex) reader
-
+            pCustomOperatorToken >>= lex
+        | ValueSome c, ExpressionCtx when isIdentStartChar c -> pIdentifierOrKeywordToken >>= lex
+        | ValueSome _, _ -> pOtherToken >>= lex
 
     let lexString (input: string) =
         let reader = Reader.ofString input (LexBuilder.init ())
