@@ -4,7 +4,7 @@
 3, Whitespace
 4, NumInt32
 5, Whitespace
-6, Operator 0b1000000000010100 InfixMultiply
+6, OpMultiply
 7, Whitespace
 8, NumInt32
 9, Newline
