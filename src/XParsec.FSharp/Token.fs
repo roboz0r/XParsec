@@ -666,8 +666,20 @@ module TokenRepresentation =
         [<Literal>]
         let Comma = 183us // , (Tuples, Arguments)
 
+        [<Literal>]
+        let Amp = 184us // &
+
+        [<Literal>]
+        let Star = 185us // *
+
+        [<Literal>]
+        let Slash = 186us // /
+
+        [<Literal>]
+        let Hat = 187us // ^
+
         // ==========================================================
-        // Available 184-199us
+        // Available 188-199us
         // ==========================================================
 
         [<Literal>]
@@ -1402,6 +1414,13 @@ type Token =
     | OpComma = (KindKeyword ||| KW.Comma) // , (Tuples, Arguments)
     | ReservedOperator = (KindKeyword ||| KW.ReservedOperator) // A reserved operator (i.e. containing a reserved symbol $ or :)
 
+    // & Note: '&' isn't listed as a symbolic keyword in the spec, but it is used in patterns so treat as a keyword to avoid rechecking the text
+    | OpAmp = (KindKeyword ||| KW.Amp)
+    // These are not listed as symbolic operators in the spec, but we define them as unique tokens to simplify measure parsing
+    | OpMultiply = (KindKeyword ||| KW.Star) // *
+    | OpDivision = (KindKeyword ||| KW.Slash) // /
+    | OpConcatenate = (KindKeyword ||| KW.Hat) // ^
+
     // Indexer Operators, deprecated and undocumented but still recognized by the lexer
     | OpIndexSetIdentifier = (KindKeyword ||| KW.OpIndexSetIdentifier) // op_IndexSet .[]<-
     | OpIndexGetIdentifier = (KindKeyword ||| KW.OpIndexGetIdentifier) // op_IndexGet .[]
@@ -1455,11 +1474,8 @@ type Token =
     // The values in this section define their precedence and properties, they are not unique IDs
     | OpAddition = (KindOperator ||| CanBePrefix ||| Precedence.InfixAdd) // +
     | OpSubtraction = (KindOperator ||| CanBePrefix ||| Precedence.InfixAdd) // -
-    | OpMultiply = (KindOperator ||| Precedence.InfixMultiply) // *
-    | OpDivision = (KindOperator ||| Precedence.InfixMultiply) // /
     | OpExponentiation = (KindOperator ||| Precedence.Exponentiation) // **
     | OpAppend = (KindOperator ||| Precedence.Concatenate) // @ precedence is not documented, assuming Concatenate level
-    | OpConcatenate = (KindOperator ||| Precedence.Concatenate) // ^
     | OpModulus = (KindOperator ||| CanBePrefix ||| Precedence.InfixMultiply) // %
     | OpBitwiseAnd = (KindOperator ||| Precedence.LogicalAndBitwise) // &&&
     | OpBitwiseOr = (KindOperator ||| Precedence.LogicalAndBitwise) // |||
@@ -1770,7 +1786,11 @@ module internal TokenInfo =
             | Token.KWDowncast
             | Token.KWUpcast
             | Token.OpDowncast
-            | Token.OpUpcast -> true
+            | Token.OpUpcast
+            | Token.OpAmp
+            | Token.OpMultiply
+            | Token.OpDivision
+            | Token.OpConcatenate -> true
             | _ -> false
         elif isSpecial token then
             match token with
@@ -1806,6 +1826,10 @@ module internal TokenInfo =
             | Token.KWAssert -> PrecedenceLevel.Function // same as function application
             | Token.OpBar -> PrecedenceLevel.PatternMatchBar // pattern match bar
             | Token.OpDot -> PrecedenceLevel.Dot
+            | Token.OpAmp -> PrecedenceLevel.LogicalAnd
+            | Token.OpMultiply
+            | Token.OpDivision -> PrecedenceLevel.InfixMultiply
+            | Token.OpConcatenate -> PrecedenceLevel.Power
             | Token.KWLParen
             | Token.KWRParen
             | Token.KWLBracket
