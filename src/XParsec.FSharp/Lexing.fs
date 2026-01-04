@@ -1467,6 +1467,10 @@ module Lexing =
                         | "!" -> Token.OpDereference, CtxOp.NoOp
                         | "??" -> Token.OpQMarkQMark, CtxOp.NoOp
                         | "=" -> Token.OpEquality, CtxOp.NoOp
+                        | "&" -> Token.OpAmp, CtxOp.NoOp
+                        | "*" -> Token.OpMultiply, CtxOp.NoOp
+                        | "/" -> Token.OpDivision, CtxOp.NoOp
+                        | "^" -> Token.OpConcatenate, CtxOp.NoOp
                         | _ ->
                             let token = Token.ofCustomOperator (op.AsSpan())
                             token, CtxOp.NoOp
@@ -2242,9 +2246,7 @@ module Lexing =
         | ValueSome '.', ExpressionCtx -> pDotToken >>= lex
         | ValueSome '#', ExpressionCtx -> pHashToken >>= lex
         | ValueSome c, ExpressionCtx when NumericLiterals.isDecimalDigit c -> NumericLiterals.parseToken >>= lex
-        | ValueSome c, ExpressionCtx when customOperatorChars.Contains c ->
-            // TODO: Consider computing names like https://learn.microsoft.com/en-us/dotnet/fsharp/language-reference/operator-overloading#overloaded-operator-names
-            pCustomOperatorToken >>= lex
+        | ValueSome c, ExpressionCtx when customOperatorChars.Contains c -> pCustomOperatorToken >>= lex
         | ValueSome c, ExpressionCtx when isIdentStartChar c -> pIdentifierOrKeywordToken >>= lex
         | ValueSome _, _ -> pOtherToken >>= lex
 
