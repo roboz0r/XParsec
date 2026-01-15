@@ -133,6 +133,7 @@ type ImmutableArray<'T> =
             (this.Array :> System.Collections.Generic.IEnumerable<'T>).GetEnumerator()
 
 type ImmutableArray =
+    static member inline Create<'T>(x: 'T) = { Array = [| x |] }
     static member inline CreateRange<'T>(xs: 'T seq) = { Array = Array.ofSeq<'T> xs }
     static member inline CreateBuilder<'T>() = ResizeArray<'T>()
     static member inline CreateBuilder<'T>(initialCapacity: int) = ResizeArray<'T>(initialCapacity)

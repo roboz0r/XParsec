@@ -1058,40 +1058,43 @@ module Combinators =
         =
         let pos = reader.Position
 
-        match p reader with
-        | Ok s1 ->
-            let xs = ImmutableArray.CreateBuilder()
-            xs.Add(s1.Parsed)
-            let mutable endTok = ValueNone
-            let mutable err = []
-
-            while endTok.IsNone && err = [] do
-                let pos = reader.Position
-
-                match pEnd reader with
-                | Ok s -> endTok <- ValueSome s.Parsed
-                | Error eEnd ->
-                    reader.Position <- pos
-
-                    match p reader with
-                    | Ok s ->
-                        if reader.Position = pos then
-                            raise (InfiniteLoopException pos)
-
-                        xs.Add(s.Parsed)
-                    | Error e ->
-                        reader.Position <- pos
-                        err <- [ eEnd; e ]
-
-            match err with
-            | [] -> preturn struct (xs.ToImmutable(), endTok.Value) reader
-            | err -> ParseError.createNested ParseError.bothFailed err pos
-        | Error _ ->
+        match pEnd reader with
+        | Ok s -> preturn struct (ImmutableArray.Empty, s.Parsed) reader
+        | Error eEnd ->
+            let ePos = reader.Position
             reader.Position <- pos
 
-            match pEnd reader with
-            | Ok s -> preturn struct (ImmutableArray.Empty, s.Parsed) reader
-            | Error eEnd -> Error eEnd
+            match p reader with
+            | Ok s1 ->
+                let xs = ImmutableArray.CreateBuilder()
+                xs.Add(s1.Parsed)
+                let mutable endTok = ValueNone
+                let mutable err = []
+
+                while endTok.IsNone && err = [] do
+                    let pos = reader.Position
+
+                    match pEnd reader with
+                    | Ok s -> endTok <- ValueSome s.Parsed
+                    | Error eEnd ->
+                        reader.Position <- pos
+
+                        match p reader with
+                        | Ok s ->
+                            if reader.Position = pos then
+                                raise (InfiniteLoopException pos)
+
+                            xs.Add(s.Parsed)
+                        | Error e ->
+                            reader.Position <- pos
+                            err <- [ eEnd; e ]
+
+                match err with
+                | [] -> preturn struct (xs.ToImmutable(), endTok.Value) reader
+                | err -> ParseError.createNested ParseError.bothFailed err pos
+            | Error _ ->
+                reader.Position <- ePos
+                Error eEnd
 
     /// Applies the parser `p` one or more times, until `pEnd` succeeds. If it succeeds, returns the results as an ImmutableArray and the result of `pEnd`.
     /// If `p` fails on the first attempt, this parser fails.

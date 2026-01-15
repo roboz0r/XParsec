@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1 - 2026-01-15
+
+### 0.3.1 Fixes
+
+- Ensure `pEnd` is tried first in `manyTill` so that if `p` conflicts with `pEnd` then `pEnd` will cause the parser to stop.
+
 ## 0.3.0 - 2026-01-01
 
 ### 0.3.0 Added

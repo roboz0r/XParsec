@@ -1439,6 +1439,32 @@ let tests =
 #endif
             }
 
+            test "ManyTill with ambiguous pEnd" {
+                let input = "aa"
+                let p1 = pchar 'a' <|> pchar 'b'
+                // Ensure that pEnd is tried before p1 to avoid consuming input that should be matched by pEnd
+                let pEnd = pstring "aa"
+                let p = manyTill p1 pEnd
+                let reader = Reader.ofString input ()
+                let result = p reader
+
+                match result with
+                | Ok result ->
+                    "" |> Expect.equal result.Parsed (ImmutableArray.Empty, "aa")
+                    "" |> Expect.equal reader.Index 2
+                | Error e -> failwithf "%A" e
+
+                let input = "baa"
+                let reader = Reader.ofString input ()
+                let result = p reader
+
+                match result with
+                | Ok result ->
+                    "" |> Expect.equal result.Parsed (ImmutableArray.Create('b'), "aa")
+                    "" |> Expect.equal reader.Index 3
+                | Error e -> failwithf "%A" e
+            }
+
             test "Many1Till" {
                 let input = "inputinputinputX"
 
