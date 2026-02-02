@@ -21,11 +21,11 @@ let testParse input format value =
         pObject () reader
 
     match actualFormat with
-    | Ok f -> "Format" |> Expect.equal f.Parsed format
+    | Ok f -> "Format" |> Expect.equal f format
     | Error e -> failwithf "%A" e
 
     match actualValue with
-    | Ok v -> "Value" |> Expect.equal v.Parsed value
+    | Ok v -> "Value" |> Expect.equal v value
     | Error e -> failwithf "%A" e
 
     let actualFormat =
@@ -37,11 +37,11 @@ let testParse input format value =
         pObject () reader
 
     match actualFormat with
-    | Ok f -> "Format Stream" |> Expect.equal f.Parsed format
+    | Ok f -> "Format Stream" |> Expect.equal f format
     | Error e -> failwithf "%A" e
 
     match actualValue with
-    | Ok v -> "Value Stream" |> Expect.equal v.Parsed value
+    | Ok v -> "Value Stream" |> Expect.equal v value
     | Error e -> failwithf "%A" e
 
 [<Tests>]

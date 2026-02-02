@@ -20,7 +20,7 @@ let tests =
                 let result = p reader
 
                 match result with
-                | Ok result -> "" |> Expect.equal expected result.Parsed
+                | Ok result -> "" |> Expect.equal expected result
                 | Error e -> failwithf "%A" e
             }
 
@@ -31,7 +31,7 @@ let tests =
                     let result = JsonParsers.Parser(Reader.ofString input ())
 
                     match result with
-                    | Ok result -> "" |> Expect.equal expected result.Parsed
+                    | Ok result -> "" |> Expect.equal expected result
                     | Error e -> failwithf "%A" e
                 )
             }
@@ -59,7 +59,7 @@ let tests =
                     let result = JsonParsers.Parser(Reader.ofString input ())
 
                     match result with
-                    | Ok result -> "" |> Expect.equal expected result.Parsed
+                    | Ok result -> "" |> Expect.equal expected result
                     | Error e -> failwithf "%A" e
                 )
             }
@@ -86,7 +86,7 @@ let tests =
                     let result = JsonParsers.Parser(Reader.ofString input ())
 
                     match result with
-                    | Ok result -> "" |> Expect.equal expected result.Parsed
+                    | Ok result -> "" |> Expect.equal expected result
                     | Error e -> failwithf "%A" e
                 )
             }
@@ -111,7 +111,7 @@ let tests =
                     let result = JsonParsers.Parser(Reader.ofString input ())
 
                     match result with
-                    | Ok result -> "" |> Expect.equal expected result.Parsed
+                    | Ok result -> "" |> Expect.equal expected result
                     | Error e -> failwithf "%A" e
                 )
             }
@@ -166,7 +166,7 @@ let tests =
                     let result = JsonParsers.Parser(Reader.ofString input ())
 
                     match result with
-                    | Ok result -> "" |> Expect.equal expected result.Parsed
+                    | Ok result -> "" |> Expect.equal expected result
                     | Error e -> failwithf "%A" e
                 )
             }

@@ -130,16 +130,7 @@ and [<Struct>] ParseError<'T, 'State> =
         Errors: ErrorType<'T, 'State>
     }
 
-
-[<Struct>]
-type ParseSuccess<'Parsed> = { Parsed: 'Parsed }
-
-type ParseResult<'Parsed, 'T, 'State> = Result<ParseSuccess<'Parsed>, ParseError<'T, 'State>>
-
-module ParseSuccess =
-    let inline create tokens = Ok { Parsed = tokens }
-
-    let inline map f x = { Parsed = f x.Parsed }
+type ParseResult<'Parsed, 'T, 'State> = Result<'Parsed, ParseError<'T, 'State>>
 
 module ParseError =
     let inline create error position : ParseResult<'Parsed, 'T, 'State> =

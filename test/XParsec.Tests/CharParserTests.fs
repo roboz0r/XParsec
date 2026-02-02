@@ -21,7 +21,7 @@ let confirm msg input expected (parser: Parser<_, _, _, _, _>) =
     match expected with
     | Ok expected ->
         match parser reader with
-        | Ok { Parsed = value } ->
+        | Ok value ->
             msg |> Expect.equal value expected
             $"{msg}: Reader should be at end after parsing." |> Expect.isTrue (reader.AtEnd)
         | Error err -> failwithf "%s: %A" msg err
@@ -51,7 +51,7 @@ let confirmAt msg input expected endIndex (parser: Parser<_, _, _, _, _>) =
     match expected with
     | Ok expected ->
         match parser reader with
-        | Ok { Parsed = value } ->
+        | Ok value ->
             msg |> Expect.equal value expected
 
             $"{msg}: Reader should be at {endIndex} after parsing."

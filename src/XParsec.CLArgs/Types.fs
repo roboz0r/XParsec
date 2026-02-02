@@ -24,7 +24,7 @@ module NestedParser =
             match pInner innerReader with
             | Ok result ->
                 reader.Skip()
-                ParseSuccess.create result.Parsed
+                Ok result
 
             | Error e ->
                 let formatError = ErrorFormatting.formatStringError x e

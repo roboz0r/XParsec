@@ -100,7 +100,7 @@ is_beta = true
                 | Ok success ->
                     printfn "Successfully parsed config:"
 
-                    for kvp in success.Parsed do
+                    for kvp in success do
                         printfn $"- {kvp.Key}: {kvp.Value}"
                 | Error err ->
                     // This case is handled in the next section.
