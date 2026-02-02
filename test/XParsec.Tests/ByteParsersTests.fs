@@ -17,7 +17,7 @@ let testParser<'T when 'T: equality> p (input, expected) =
 
     match p reader with
     | Ok result ->
-        "" |> Expect.equal (result.Parsed: 'T) expected
+        "" |> Expect.equal (result: 'T) expected
         "" |> Expect.equal reader.Index sizeof<'T>
     | Error e -> failwithf "%A" e
 
@@ -255,7 +255,7 @@ let tests =
 
                 match result with
                 | Ok result ->
-                    "" |> Expect.equal result.Parsed expected
+                    "" |> Expect.equal result expected
                     "" |> Expect.equal reader.Index 14
                 | Error e -> failwithf "%A" e
             }
@@ -279,7 +279,7 @@ let tests =
 
                 match result with
                 | Ok result ->
-                    "" |> Expect.equal result.Parsed expected
+                    "" |> Expect.equal result expected
                     "" |> Expect.equal reader.Index 28
                 | Error e -> failwithf "%A" e
             }

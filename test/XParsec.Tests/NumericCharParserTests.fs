@@ -286,7 +286,7 @@ let confirm msg input expected p =
     | Ok expected ->
         match result with
         | Ok result ->
-            msg |> Expect.equal result.Parsed expected
+            msg |> Expect.equal result expected
             msg |> Expect.equal reader.Index input.Length
         | Error e -> failwithf "%s Expected Ok %A, but got Error %A" msg expected e
     | Error expected ->
@@ -303,13 +303,13 @@ let confirmFloat msg input expected p =
         if Double.IsNaN expected then
             match result with
             | Ok result ->
-                msg |> Expect.isTrue (Double.IsNaN result.Parsed)
+                msg |> Expect.isTrue (Double.IsNaN result)
                 msg |> Expect.equal reader.Index input.Length
             | Error e -> failwithf "%s Expected Ok NaN, but got Error %A" msg e
         elif expected = Double.PositiveInfinity || expected = Double.NegativeInfinity then
             match result with
             | Ok result ->
-                msg |> Expect.equal result.Parsed expected
+                msg |> Expect.equal result expected
                 msg |> Expect.equal reader.Index input.Length
             | Error e -> failwithf "%s Expected Ok %A, but got Error %A" msg expected e
         else
@@ -317,16 +317,15 @@ let confirmFloat msg input expected p =
             | Ok result ->
                 let relativeDifference =
                     if expected = 0.0 then
-                        Math.Abs(result.Parsed - expected)
+                        Math.Abs(result - expected)
                     else
-                        Math.Abs((result.Parsed - expected) / expected)
+                        Math.Abs((result - expected) / expected)
 
                 // We expct the parsed value to be exactly equal, but check for relative difference
                 // first to identify floating point precision issues
-                $"{msg} {result.Parsed} {expected}"
-                |> Expect.isLessThan relativeDifference 1e-15
+                $"{msg} {result} {expected}" |> Expect.isLessThan relativeDifference 1e-15
 
-                msg |> Expect.equal result.Parsed expected
+                msg |> Expect.equal result expected
                 msg |> Expect.equal reader.Index input.Length
             | Error e -> failwithf "%s Expected Ok %A, but got Error %A" msg expected e
     | Error expected ->

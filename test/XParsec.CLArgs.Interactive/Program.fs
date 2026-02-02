@@ -27,7 +27,7 @@ let main argv =
 
     match parser reader with
     | Ok result ->
-        let args = result.Parsed
+        let args = result
 
         if args.Length = 0 then
             // printfn "No arguments."

@@ -19,7 +19,7 @@ let testParser options (input, expected) =
     let reader = Reader.ofArray input ()
 
     match parser reader with
-    | Ok result -> "" |> Expect.equal result.Parsed expected
+    | Ok result -> "" |> Expect.equal result expected
     | Error e -> failwithf "%A" e
 
 let testMany options inputCases =

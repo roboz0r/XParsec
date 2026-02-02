@@ -16,7 +16,7 @@ module Combinators =
         =
         match p reader with
         | Ok success ->
-            let p2 = binder success.Parsed
+            let p2 = binder success
             p2 reader
         | Error err -> Error err
 
@@ -53,7 +53,7 @@ module Combinators =
         match p1 reader with
         | Ok success1 ->
             match p2 reader with
-            | Ok success2 -> preturn success1.Parsed reader
+            | Ok success2 -> preturn success1 reader
             | Error err -> Error err
         | Error err -> Error err
 
@@ -66,7 +66,7 @@ module Combinators =
         match p1 reader with
         | Ok success1 ->
             match p2 reader with
-            | Ok success2 -> preturn struct (success1.Parsed, success2.Parsed) reader
+            | Ok success2 -> preturn struct (success1, success2) reader
             | Error err -> Error err
         | Error err -> Error err
 
@@ -82,7 +82,7 @@ module Combinators =
             match p reader with
             | Ok s2 ->
                 match pClose reader with
-                | Ok s3 -> preturn s2.Parsed reader
+                | Ok s3 -> preturn s2 reader
                 | Error err -> Error err
             | Error err -> Error err
         | Error err -> Error err
@@ -94,7 +94,7 @@ module Combinators =
         (reader: Reader<_, _, _, _>)
         =
         match p reader with
-        | Ok success -> preturn (mapping success.Parsed) reader
+        | Ok success -> preturn (mapping success) reader
         | Error err -> Error err
 
     [<Sealed>]
@@ -138,11 +138,11 @@ module Combinators =
             ) =
             fun reader ->
                 let mutable doContinue = true
-                let mutable result = Ok { Parsed = () }
+                let mutable result = Ok()
 
                 while doContinue && guard () do
                     match generator reader with
-                    | Ok { Parsed = () } -> ()
+                    | Ok() -> ()
                     | Error e ->
                         doContinue <- false
                         result <- Error e
@@ -165,7 +165,7 @@ module Combinators =
             ) =
             fun reader ->
                 match first reader with
-                | Ok { Parsed = () } -> second reader
+                | Ok() -> second reader
                 | Error e -> Error e
 
 
@@ -182,7 +182,7 @@ module Combinators =
         match p1 reader with
         | Ok s1 ->
             match p2 reader with
-            | Ok s2 -> preturn (f s1.Parsed s2.Parsed) reader
+            | Ok s2 -> preturn (f s1 s2) reader
             | Error err -> Error err
         | Error err -> Error err
 
@@ -199,7 +199,7 @@ module Combinators =
             match p2 reader with
             | Ok s2 ->
                 match p3 reader with
-                | Ok s3 -> preturn (f s1.Parsed s2.Parsed s3.Parsed) reader
+                | Ok s3 -> preturn (f s1 s2 s3) reader
                 | Error err -> Error err
             | Error err -> Error err
         | Error err -> Error err
@@ -327,7 +327,7 @@ module Combinators =
         let p = reader.Position
 
         match p1 reader with
-        | Ok s1 -> preturn (ValueSome s1.Parsed) reader
+        | Ok s1 -> preturn (ValueSome s1) reader
         | Error _ ->
             reader.Position <- p
             preturn ValueNone reader
@@ -558,7 +558,7 @@ module Combinators =
         while err.IsNone && i < n do
             match p reader with
             | Ok s ->
-                xs.Add(s.Parsed)
+                xs.Add(s)
                 i <- i + 1
             | Error e -> err <- ValueSome e
 
@@ -611,7 +611,7 @@ module Combinators =
                 if reader.Position = pos then
                     raise (InfiniteLoopException pos)
 
-                xs.Add(s.Parsed)
+                xs.Add(s)
             | Error e ->
                 reader.Position <- pos
                 ok <- false
@@ -625,7 +625,7 @@ module Combinators =
             p
             (fun x0 ->
                 let xs = ImmutableArray.CreateBuilder()
-                xs.Add(x0.Parsed)
+                xs.Add(x0)
                 let mutable ok = true
 
                 while ok do
@@ -636,7 +636,7 @@ module Combinators =
                         if reader.Position = pos then
                             raise (InfiniteLoopException pos)
 
-                        xs.Add(s.Parsed)
+                        xs.Add(s)
                     | Error e ->
                         reader.Position <- pos
                         ok <- false
@@ -762,7 +762,7 @@ module Combinators =
         | Ok s ->
             let xs = ImmutableArray.CreateBuilder()
             let seps = ImmutableArray.CreateBuilder()
-            xs.Add(s.Parsed)
+            xs.Add(s)
 
             let mutable ok = true
 
@@ -776,8 +776,8 @@ module Combinators =
                         if reader.Position = pos then
                             raise (InfiniteLoopException pos)
 
-                        seps.Add(sep.Parsed)
-                        xs.Add(s.Parsed)
+                        seps.Add(sep)
+                        xs.Add(s)
                     | Error _ ->
                         reader.Position <- pos
                         ok <- false
@@ -802,7 +802,7 @@ module Combinators =
             (fun s ->
                 let xs = ImmutableArray.CreateBuilder()
                 let seps = ImmutableArray.CreateBuilder()
-                xs.Add(s.Parsed)
+                xs.Add(s)
 
                 let mutable ok = true
 
@@ -816,8 +816,8 @@ module Combinators =
                             if reader.Position = pos then
                                 raise (InfiniteLoopException pos)
 
-                            seps.Add(sep.Parsed)
-                            xs.Add(s.Parsed)
+                            seps.Add(sep)
+                            xs.Add(s)
                         | Error _ ->
                             reader.Position <- pos
                             ok <- false
@@ -908,7 +908,7 @@ module Combinators =
         | Ok s ->
             let xs = ImmutableArray.CreateBuilder()
             let seps = ImmutableArray.CreateBuilder()
-            xs.Add(s.Parsed)
+            xs.Add(s)
 
             let mutable ok = true
 
@@ -917,7 +917,7 @@ module Combinators =
 
                 match pSep reader with
                 | Ok sep ->
-                    seps.Add(sep.Parsed)
+                    seps.Add(sep)
                     let posSep = reader.Position
 
                     match p reader with
@@ -925,7 +925,7 @@ module Combinators =
                         if reader.Position = pos then
                             raise (InfiniteLoopException pos)
 
-                        xs.Add(s.Parsed)
+                        xs.Add(s)
                     | Error _ ->
                         reader.Position <- posSep
                         ok <- false
@@ -950,7 +950,7 @@ module Combinators =
             (fun s ->
                 let xs = ImmutableArray.CreateBuilder()
                 let seps = ImmutableArray.CreateBuilder()
-                xs.Add(s.Parsed)
+                xs.Add(s)
 
                 let mutable ok = true
 
@@ -959,7 +959,7 @@ module Combinators =
 
                     match pSep reader with
                     | Ok sep ->
-                        seps.Add(sep.Parsed)
+                        seps.Add(sep)
                         let posSep = reader.Position
 
                         match p reader with
@@ -967,7 +967,7 @@ module Combinators =
                             if reader.Position = pos then
                                 raise (InfiniteLoopException pos)
 
-                            xs.Add(s.Parsed)
+                            xs.Add(s)
                         | Error _ ->
                             reader.Position <- posSep
                             ok <- false
@@ -1059,7 +1059,7 @@ module Combinators =
         let pos = reader.Position
 
         match pEnd reader with
-        | Ok s -> preturn struct (ImmutableArray.Empty, s.Parsed) reader
+        | Ok s -> preturn struct (ImmutableArray.Empty, s) reader
         | Error eEnd ->
             let ePos = reader.Position
             reader.Position <- pos
@@ -1067,7 +1067,7 @@ module Combinators =
             match p reader with
             | Ok s1 ->
                 let xs = ImmutableArray.CreateBuilder()
-                xs.Add(s1.Parsed)
+                xs.Add(s1)
                 let mutable endTok = ValueNone
                 let mutable err = []
 
@@ -1075,7 +1075,7 @@ module Combinators =
                     let pos = reader.Position
 
                     match pEnd reader with
-                    | Ok s -> endTok <- ValueSome s.Parsed
+                    | Ok s -> endTok <- ValueSome s
                     | Error eEnd ->
                         reader.Position <- pos
 
@@ -1084,7 +1084,7 @@ module Combinators =
                             if reader.Position = pos then
                                 raise (InfiniteLoopException pos)
 
-                            xs.Add(s.Parsed)
+                            xs.Add(s)
                         | Error e ->
                             reader.Position <- pos
                             err <- [ eEnd; e ]
@@ -1108,7 +1108,7 @@ module Combinators =
             p
             (fun s1 reader ->
                 let xs = ImmutableArray.CreateBuilder()
-                xs.Add(s1.Parsed)
+                xs.Add(s1)
                 let mutable endTok = ValueNone
                 let mutable err = []
                 let errPos = reader.Position
@@ -1117,7 +1117,7 @@ module Combinators =
                     let pos = reader.Position
 
                     match pEnd reader with
-                    | Ok s -> endTok <- ValueSome s.Parsed
+                    | Ok s -> endTok <- ValueSome s
                     | Error eEnd ->
                         reader.Position <- pos
 
@@ -1126,7 +1126,7 @@ module Combinators =
                             if reader.Position = pos then
                                 raise (InfiniteLoopException pos)
 
-                            xs.Add(s.Parsed)
+                            xs.Add(s)
                         | Error e ->
                             reader.Position <- pos
                             err <- [ eEnd; e ]
@@ -1155,7 +1155,7 @@ module Combinators =
                 let pos = reader.Position
 
                 match pEnd reader with
-                | Ok s -> endTok <- ValueSome s.Parsed
+                | Ok s -> endTok <- ValueSome s
                 | Error eEnd ->
                     reader.Position <- pos
 
@@ -1196,7 +1196,7 @@ module Combinators =
                     let pos = reader.Position
 
                     match pEnd reader with
-                    | Ok s -> endTok <- ValueSome s.Parsed
+                    | Ok s -> endTok <- ValueSome s
                     | Error eEnd ->
                         reader.Position <- pos
 
@@ -1231,7 +1231,7 @@ module Combinators =
                     if reader.Position = pos then
                         raise (InfiniteLoopException pos)
 
-                    let acc' = sOp.Parsed acc s.Parsed
+                    let acc' = sOp acc s
                     parseLeft acc' reader
                 | Error e -> Error e
             | Error _ ->
@@ -1239,7 +1239,7 @@ module Combinators =
                 preturn acc reader
 
         match p reader with
-        | Ok s -> parseLeft s.Parsed reader
+        | Ok s -> parseLeft s reader
         | Error e -> Error e
 
     /// Applies the parser `p` zero or more times, separated by `pOp`. If `pOp` succeeds, combines the results of `p` before and after in a left-associative manner.
@@ -1269,11 +1269,11 @@ module Combinators =
 
                 match pOp reader with
                 | Ok sOp ->
-                    let acc = (sOp.Parsed, s.Parsed) :: acc
+                    let acc = (sOp, s) :: acc
                     parseRight reader.Position acc reader
                 | Error _ ->
                     reader.Position <- pos
-                    preturn (acc, s.Parsed) reader
+                    preturn (acc, s) reader
             | Error e -> Error e
 
         match p reader with
@@ -1282,16 +1282,16 @@ module Combinators =
 
             match pOp reader with
             | Ok sOp ->
-                let acc = [ (sOp.Parsed, s.Parsed) ]
+                let acc = [ (sOp, s) ]
 
                 match parseRight reader.Position acc reader with
                 | Ok stack ->
-                    let (acc, pLast) = stack.Parsed
+                    let (acc, pLast) = stack
                     (fold acc pLast) reader
                 | Error e -> Error e
             | Error _ ->
                 reader.Position <- pos
-                preturn s.Parsed reader
+                preturn s reader
         | Error e -> Error e
 
     /// Applies the parser `p` zero or more times, separated by `pOp`. If `pOp` succeeds, combines the results of `p` before and after in a right-associative manner.
@@ -1311,7 +1311,7 @@ module Combinators =
             (fun s1 ->
                 let xs = ImmutableArray.CreateBuilder()
                 let inline append (c) = xs.Add(c)
-                append s1.Parsed
+                append s1
                 let mutable ok = true
 
                 while ok do
@@ -1322,7 +1322,7 @@ module Combinators =
                         if reader.Position = pos then
                             raise (InfiniteLoopException pos)
 
-                        append sx.Parsed
+                        append sx
                     | Error _ ->
                         reader.Position <- pos
                         ok <- false

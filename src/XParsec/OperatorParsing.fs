@@ -283,7 +283,7 @@ module internal Pratt =
         let pos = reader.Position
 
         match ops.RhsParser reader with
-        | Ok { Parsed = op } ->
+        | Ok op ->
 
             match op with
             | Postfix(op, parseOp, leftPower, completePostfix) ->
@@ -309,7 +309,7 @@ module internal Pratt =
                     let rightPower = leftPower + 1uy<bp>
                     // Found operator has higher binding than existing tokens so need to get next operator recursively
                     match parseLhs rightPower reader with
-                    | Ok { Parsed = rhs } -> parseRhs (completeInfix lhs op rhs) reader
+                    | Ok rhs -> parseRhs (completeInfix lhs op rhs) reader
                     | Error e -> Error e
 
             | InfixRight(op, parseOp, leftPower, completeInfix) ->
@@ -322,7 +322,7 @@ module internal Pratt =
                     let rightPower = leftPower - 1uy<bp>
 
                     match parseLhs rightPower reader with
-                    | Ok { Parsed = rhs } -> parseRhs (completeInfix lhs op rhs) reader
+                    | Ok rhs -> parseRhs (completeInfix lhs op rhs) reader
                     | Error e -> Error e
 
             | InfixNonAssociative(op, parseOp, leftPower, completeInfix) ->
@@ -335,7 +335,7 @@ module internal Pratt =
                     let rightPower = leftPower
                     // Found operator has higher binding than existing tokens so need to get next operator recursively
                     match parseLhs rightPower reader with
-                    | Ok { Parsed = rhs } -> parseRhs (completeInfix lhs op rhs) reader
+                    | Ok rhs -> parseRhs (completeInfix lhs op rhs) reader
                     | Error e -> Error e
 
             | InfixNary(op, parseOp, leftPower, completeNary) ->
@@ -355,7 +355,7 @@ module internal Pratt =
 
                         match parseLhs rightPower reader with
                         | Error e -> Error e
-                        | Ok { Parsed = next } ->
+                        | Ok next ->
                             items.Add next
 
                             let nextPos = reader.Position
@@ -363,7 +363,7 @@ module internal Pratt =
                             // Peek/Consume the next operator using the `RhsParser` to check the next token
                             // We only want to continue if it is the SAME operator (e.g. another comma).
                             match ops.RhsParser reader with
-                            | Ok { Parsed = nextOp } ->
+                            | Ok nextOp ->
                                 match nextOp with
                                 | InfixNary(nextSym, _, _, _) when ops.OpComparer.Equals(nextSym, op) ->
                                     parsedOps.Add nextSym
@@ -384,7 +384,7 @@ module internal Pratt =
                     parsedOps.Add op
 
                     match loopNary items parsedOps with
-                    | Ok { Parsed = items } -> parseRhs (completeNary items parsedOps) reader
+                    | Ok items -> parseRhs (completeNary items parsedOps) reader
                     | Error e -> Error e
 
             | InfixMapped(op, parseOp, leftPower, parseRight, complete) ->
@@ -395,7 +395,7 @@ module internal Pratt =
                     fail ambiguous reader
                 else
                     match parseRight reader with
-                    | Ok { Parsed = rightContent } ->
+                    | Ok rightContent ->
                         // Resume Pratt parsing loop with the combined result
                         parseRhs (complete lhs op rightContent) reader
                     | Error e -> Error e
@@ -408,10 +408,10 @@ module internal Pratt =
                     fail ambiguous reader
                 else
                     match innerParser reader with
-                    | Ok { Parsed = inner } ->
+                    | Ok inner ->
 
                         match parseCloseOp reader with
-                        | Ok { Parsed = closeTok } -> parseRhs (completeIndexer lhs op inner closeTok) reader
+                        | Ok closeTok -> parseRhs (completeIndexer lhs op inner closeTok) reader
                         | Error e -> Error e
                     | Error e -> Error e
 
@@ -425,12 +425,12 @@ module internal Pratt =
                     let rightPower = leftPower - 1uy<bp>
 
                     match parseLhs rightPower reader with
-                    | Ok { Parsed = mid } ->
+                    | Ok mid ->
 
                         match parseTernaryOp reader with
-                        | Ok { Parsed = ternaryOp } ->
+                        | Ok ternaryOp ->
                             match parseLhs Precedence.MinP reader with
-                            | Ok { Parsed = rhs } -> parseRhs (completeTernary lhs op mid ternaryOp rhs) reader
+                            | Ok rhs -> parseRhs (completeTernary lhs op mid ternaryOp rhs) reader
                             | Error e -> Error e
                         | Error e ->
                             let expectedMsg =
@@ -465,25 +465,25 @@ module internal Pratt =
 
         // 1. Try to parse an atomic expression (Integer, Identifier, etc.)
         match pExpr (reader) with
-        | Ok { Parsed = lhsSuccess } -> parseRhs lhsSuccess reader
+        | Ok lhsSuccess -> parseRhs lhsSuccess reader
         | Error e0 ->
             reader.Position <- pos
 
             // 2. If atom failed, try to match an LHS Operator (Prefix, Enclosed, LHSTernary)
             match ops.LhsParser(reader) with
-            | Ok { Parsed = op } ->
+            | Ok op ->
 
                 match op with
                 | Prefix(op, parseOp, rightPower, completePrefix) ->
                     match parseLhs rightPower (reader) with
-                    | Ok { Parsed = rhs } -> parseRhs (completePrefix op rhs) reader
+                    | Ok rhs -> parseRhs (completePrefix op rhs) reader
                     | Error e -> Error e
 
                 | Enclosed(op, parseOp, rightPower, closeOp, closeOpParser, completeBracket) ->
                     match parseLhs Precedence.MinP (reader) with
-                    | Ok { Parsed = inner } ->
+                    | Ok inner ->
                         match closeOpParser reader with
-                        | Ok { Parsed = closeTok } -> parseRhs (completeBracket op inner closeTok) reader
+                        | Ok closeTok -> parseRhs (completeBracket op inner closeTok) reader
                         | Error e ->
                             let expectedMsg =
                                 { e with
@@ -496,15 +496,15 @@ module internal Pratt =
                 | LHSTernary(op, parseOp, rightPower, delim, parseDelim, complete) ->
                     // 1. Parse the "Condition" using the specified binding power
                     match parseLhs rightPower reader with
-                    | Ok { Parsed = condition } ->
+                    | Ok condition ->
 
                         // 2. Expect the delimiter (e.g., "then", "do", "in")
                         match parseDelim reader with
-                        | Ok { Parsed = delimTok } ->
+                        | Ok delimTok ->
 
                             // 3. Parse the "Body" (usually with Min Precedence)
                             match parseLhs Precedence.MinP reader with
-                            | Ok { Parsed = body } -> parseRhs (complete op condition delimTok body) reader
+                            | Ok body -> parseRhs (complete op condition delimTok body) reader
                             | Error e -> Error e
 
                         | Error e ->

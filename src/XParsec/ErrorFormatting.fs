@@ -84,7 +84,7 @@ type LineIndex(endings: ImmutableArray<int>, maxIndex) =
 
     static member OfString(input: string) =
         match LineEndings.Parser(Reader.ofString input ()) with
-        | Ok result -> LineIndex(result.Parsed, input.Length - 1)
+        | Ok result -> LineIndex(result, input.Length - 1)
         | Error _ -> invalidOp "LineIndex: Failed to parse line endings"
 
     static member OfString(input: string, maxLength: int) =
@@ -98,7 +98,7 @@ type LineIndex(endings: ImmutableArray<int>, maxIndex) =
         let reader = reader.Slice(0, maxLength)
 
         match LineEndings.Parser reader with
-        | Ok result -> LineIndex(result.Parsed, maxLength - 1)
+        | Ok result -> LineIndex(result, maxLength - 1)
         | Error _ -> invalidOp "LineIndex: Failed to parse line endings"
 
 

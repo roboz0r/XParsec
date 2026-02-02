@@ -169,7 +169,7 @@ let manyChars (p1: Parser<_, char, _, _, _>) (reader: Reader<char, 'State, 'Inpu
     | Ok s1 ->
         let sb = StringBuilder()
         let inline append (c: char) = sb.Append(c) |> ignore
-        append s1.Parsed
+        append s1
         let mutable ok = ManyMode.Continue
 
         while ok = ManyMode.Continue do
@@ -180,7 +180,7 @@ let manyChars (p1: Parser<_, char, _, _, _>) (reader: Reader<char, 'State, 'Inpu
                 if pos = reader.Position then
                     ok <- ManyMode.InfiniteLoop
 
-                append sx.Parsed
+                append sx
             | Error _ ->
                 reader.Position <- pos
                 ok <- ManyMode.Stop
@@ -202,7 +202,7 @@ let many1Chars (p1: Parser<_, char, _, _, _>) (reader: Reader<char, 'State, 'Inp
     | Ok s1 ->
         let sb = StringBuilder()
         let inline append (c: char) = sb.Append(c) |> ignore
-        append s1.Parsed
+        append s1
         let mutable ok = ManyMode.Continue
 
         while ok = ManyMode.Continue do
@@ -213,7 +213,7 @@ let many1Chars (p1: Parser<_, char, _, _, _>) (reader: Reader<char, 'State, 'Inp
                 if pos = reader.Position then
                     ok <- ManyMode.InfiniteLoop
 
-                append sx.Parsed
+                append sx
             | Error _ ->
                 reader.Position <- pos
                 ok <- ManyMode.Stop
@@ -268,14 +268,14 @@ let many1Chars2
     | Ok s1 ->
         let sb = StringBuilder()
         let inline append (c: char) = sb.Append(c) |> ignore
-        append s1.Parsed
+        append s1
         let mutable ok = true
 
         while ok do
             let pos = reader.Position
 
             match p reader with
-            | Ok sx -> append sx.Parsed
+            | Ok sx -> append sx
             | Error _ ->
                 reader.Position <- pos
                 ok <- false
@@ -297,10 +297,10 @@ let manyCharsTill
 
     while endTok.IsNone && err.IsNone do
         match pEnd reader with
-        | Ok s -> endTok <- Some s.Parsed
+        | Ok s -> endTok <- Some s
         | Error _ ->
             match p reader with
-            | Ok s -> xs.Append(s.Parsed) |> ignore
+            | Ok s -> xs.Append(s) |> ignore
             | Error e -> err <- Some e
 
     match err with
@@ -449,12 +449,12 @@ let private pint minValue maxValue (reader: Reader<char, 'State, 'Input, 'InputS
         else
             match value with
             | Ok v ->
-                if sign = -1L && v.Parsed = minValue then
+                if sign = -1L && v = minValue then
                     // Special case for the minimum value, which is negative.
                     // We need to check if the sign is positive and the value is the minimum value.
                     fail ParseError.intOutOfRange reader
                 else
-                    let v = v.Parsed * sign
+                    let v = v * sign
 
                     if v < minValue || v > maxValue then
                         fail ParseError.intOutOfRange reader
@@ -550,8 +550,6 @@ let private puint maxValue (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
         else
             match value with
             | Ok v ->
-                let v = v.Parsed
-
                 if v > maxValue then
                     fail ParseError.intOutOfRange reader
                 else
@@ -823,8 +821,7 @@ module internal FloatParsers =
                         let exponent = pint32 reader
 
                         match exponent with
-                        | Ok { Parsed = exponent } ->
-                            convertToFloat (sign * significand) (sigExponent + exponent) reader
+                        | Ok exponent -> convertToFloat (sign * significand) (sigExponent + exponent) reader
                         | Error e -> fail ParseError.floatInvalid reader
                 | _ -> convertToFloat (sign * significand) sigExponent reader
 
@@ -852,7 +849,7 @@ module internal FloatParsers =
                     fail ParseError.floatInvalid reader
                 else
                     match significand with
-                    | Ok { Parsed = significand } ->
+                    | Ok significand ->
                         let significand, sigExponent =
                             match reader.Peek() with
                             | ValueSome '.' ->
@@ -882,7 +879,7 @@ module internal FloatParsers =
                                     fail ParseError.floatInvalid reader
                                 else
                                     match exponent with
-                                    | Ok { Parsed = exponent } ->
+                                    | Ok exponent ->
 #if NET8_0_OR_GREATER
                                         preturn
                                             (float (sign * significand) * Double.Exp2(float (sigExponent + exponent)))

@@ -28,7 +28,7 @@ let tests =
 
                 match result with
                 | Ok result ->
-                    "" |> Expect.isTrue result.Parsed
+                    "" |> Expect.isTrue result
                     "" |> Expect.equal reader.Index 0
                 | Error e -> failwithf "%A" e
             }
@@ -72,7 +72,7 @@ let tests =
 
                 match result with
                 | Ok result ->
-                    "" |> Expect.equal result.Parsed "state"
+                    "" |> Expect.equal result "state"
                     "" |> Expect.equal reader.Index 0
                     "" |> Expect.equal reader.State "STATE"
                 | Error e -> failwithf "%A" e
@@ -99,7 +99,7 @@ let tests =
 
                 match result with
                 | Ok result ->
-                    "" |> Expect.equal result.Parsed 'i'
+                    "" |> Expect.equal result 'i'
                     "" |> Expect.equal reader.Index 1
                 | Error e -> failwithf "%A" e
             }
@@ -113,7 +113,7 @@ let tests =
 
                 match result with
                 | Ok result ->
-                    "" |> Expect.equal result.Parsed ()
+                    "" |> Expect.equal result ()
                     "" |> Expect.equal reader.Index 1
                 | Error e -> failwithf "%A" e
             }
@@ -127,7 +127,7 @@ let tests =
 
                 match result with
                 | Ok result ->
-                    "" |> Expect.equal result.Parsed 'i'
+                    "" |> Expect.equal result 'i'
                     "" |> Expect.equal reader.Index 1
                 | Error e -> failwithf "%A" e
             }
@@ -141,7 +141,7 @@ let tests =
 
                 match result with
                 | Ok result ->
-                    "" |> Expect.equal result.Parsed 'i'
+                    "" |> Expect.equal result 'i'
                     "" |> Expect.equal reader.Index 1
                 | Error e -> failwithf "%A" e
             }
@@ -155,7 +155,7 @@ let tests =
 
                 match result with
                 | Ok result ->
-                    "" |> Expect.isTrue result.Parsed
+                    "" |> Expect.isTrue result
                     "" |> Expect.equal reader.Index 1
                 | Error e -> failwithf "%A" e
             }
@@ -169,7 +169,7 @@ let tests =
 
                 match result with
                 | Ok result ->
-                    "" |> Expect.equal result.Parsed ('i', 'n')
+                    "" |> Expect.equal result ('i', 'n')
                     "" |> Expect.equal reader.Index 2
                 | Error e -> failwithf "%A" e
             }
@@ -183,7 +183,7 @@ let tests =
 
                 match result with
                 | Ok result ->
-                    "" |> Expect.equal result.Parsed ((), ())
+                    "" |> Expect.equal result ((), ())
                     "" |> Expect.equal reader.Index 2
                 | Error e -> failwithf "%A" e
             }
@@ -197,7 +197,7 @@ let tests =
 
                 match result with
                 | Ok result ->
-                    "" |> Expect.equal result.Parsed 'i'
+                    "" |> Expect.equal result 'i'
                     "" |> Expect.equal reader.Index 1
                 | Error e -> failwithf "%A" e
             }
@@ -211,7 +211,7 @@ let tests =
 
                 match result with
                 | Ok result ->
-                    "" |> Expect.equal result.Parsed ()
+                    "" |> Expect.equal result ()
                     "" |> Expect.equal reader.Index 1
                 | Error e -> failwithf "%A" e
             }
@@ -225,7 +225,7 @@ let tests =
 
                 match result with
                 | Ok result ->
-                    "" |> Expect.equal result.Parsed ('i', 'n')
+                    "" |> Expect.equal result ('i', 'n')
                     "" |> Expect.equal reader.Index 2
                 | Error e -> failwithf "%A" e
             }
@@ -239,7 +239,7 @@ let tests =
 
                 match result with
                 | Ok result ->
-                    "" |> Expect.equal result.Parsed ((), ())
+                    "" |> Expect.equal result ((), ())
                     "" |> Expect.equal reader.Index 2
                 | Error e -> failwithf "%A" e
             }
@@ -255,9 +255,9 @@ let tests =
                 | Ok result ->
 #if FABLE_COMPILER
                     for i in 0..4 do
-                        "" |> Expect.equal (result.Parsed[i]) (input[i])
+                        "" |> Expect.equal (result[i]) (input[i])
 #else
-                    "" |> Expect.sequenceEqual result.Parsed "input"
+                    "" |> Expect.sequenceEqual result "input"
 #endif
                     "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
@@ -272,7 +272,7 @@ let tests =
 
                 match result with
                 | Ok result ->
-                    "" |> Expect.isTrue result.Parsed
+                    "" |> Expect.isTrue result
                     "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
             }
@@ -295,7 +295,7 @@ let tests =
                     let reader = Reader.ofString input ()
 
                     match p reader, expected with
-                    | Ok result, Ok expected -> "" |> Expect.equal result.Parsed expected
+                    | Ok result, Ok expected -> "" |> Expect.equal result expected
                     | Error actual, Error expected -> "" |> Expect.equal actual expected
                     | actual, exp -> failwith $"Input '{input}': Expected {exp}, got {actual}"
             }
@@ -334,7 +334,7 @@ let tests =
                     // Note: For Error checking in tests, you might need to adjust
                     // to match your Nested error structure
                     match p (Reader.ofString input ()), expected with
-                    | Ok a, Ok b -> "" |> Expect.equal a.Parsed b
+                    | Ok a, Ok b -> "" |> Expect.equal a b
                     | Error {
                                 Position = _
                                 Errors = Nested(actual, _)
@@ -409,9 +409,9 @@ let tests =
                 | Ok result ->
 #if FABLE_COMPILER
                     for i in 0..4 do
-                        "" |> Expect.equal (result.Parsed[i]) (input[i])
+                        "" |> Expect.equal (result[i]) (input[i])
 #else
-                    "" |> Expect.sequenceEqual result.Parsed "input"
+                    "" |> Expect.sequenceEqual result "input"
 #endif
                     "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e

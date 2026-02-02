@@ -64,8 +64,7 @@ let tests =
 
                 match p (reader) with
                 | Ok success ->
-                    ""
-                    |> Expect.equal success.Parsed (Infix(Op '+', Token(Number 1), Token(Number 2)))
+                    "" |> Expect.equal success (Infix(Op '+', Token(Number 1), Token(Number 2)))
 
                     "" |> Expect.isTrue (reader.AtEnd)
                 | Error err -> failwith $"%A{err}"
@@ -89,7 +88,7 @@ let tests =
                 | Ok success ->
                     ""
                     |> Expect.equal
-                        success.Parsed
+                        success
                         (Infix(Op '+', Token(Number 1), Infix(Op '*', Token(Number 2), Token(Number 3))))
 
                     "" |> Expect.isTrue (reader.AtEnd)
@@ -114,7 +113,7 @@ let tests =
                 | Ok success ->
                     ""
                     |> Expect.equal
-                        success.Parsed
+                        success
                         (Infix(Op '+', Infix(Op '*', Token(Number 1), Token(Number 2)), Token(Number 3)))
 
                     "" |> Expect.isTrue (reader.AtEnd)
@@ -139,7 +138,7 @@ let tests =
                 | Ok success ->
                     ""
                     |> Expect.equal
-                        success.Parsed
+                        success
                         (Infix(Op '+', Infix(Op '-', Token(Number 1), Token(Number 2)), Token(Number 3)))
 
                     "" |> Expect.isTrue (reader.AtEnd)
@@ -164,7 +163,7 @@ let tests =
                 | Ok success ->
                     ""
                     |> Expect.equal
-                        success.Parsed
+                        success
                         (Infix(Op '-', Token(Number 1), Infix(Op '+', Token(Number 2), Token(Number 3))))
 
                     "" |> Expect.isTrue (reader.AtEnd)
@@ -185,9 +184,7 @@ let tests =
                 match p (reader) with
                 | Ok success ->
                     ""
-                    |> Expect.equal
-                        success.Parsed
-                        (Ternary(Op '?', Op ':', Token(Number 1), Token(Number 2), Token(Number 3)))
+                    |> Expect.equal success (Ternary(Op '?', Op ':', Token(Number 1), Token(Number 2), Token(Number 3)))
 
                     "" |> Expect.isTrue (reader.AtEnd)
 
@@ -208,7 +205,7 @@ let tests =
                 match p (reader) with
                 | Ok success ->
                     ""
-                    |> Expect.equal success.Parsed (Nary(Op ',', [ Token(Number 1); Token(Number 2); Token(Number 3) ]))
+                    |> Expect.equal success (Nary(Op ',', [ Token(Number 1); Token(Number 2); Token(Number 3) ]))
 
                     "" |> Expect.isTrue (reader.AtEnd)
 
@@ -336,7 +333,7 @@ let tests2 =
 
         match p (reader) with
         | Ok success ->
-            $"{tokens} wasn't parsed" |> Expect.equal success.Parsed expected
+            $"{tokens} wasn't parsed" |> Expect.equal success expected
             "Parser did not consume all input" |> Expect.isTrue reader.AtEnd
         | Error err -> failwith $"parsing '{tokens}' failed\n%A{err}"
 
@@ -545,7 +542,7 @@ let tests3 =
 
         match p (reader) with
         | Ok success ->
-            $"{tokens} wasn't parsed" |> Expect.equal success.Parsed expected
+            $"{tokens} wasn't parsed" |> Expect.equal success expected
             "Parser did not consume all input" |> Expect.isTrue reader.AtEnd
         | Error err -> failwith $"{tokens} wasn't parsed\n%A{err}"
 
@@ -697,7 +694,7 @@ let tests4 =
 
         match p (reader) with
         | Ok success ->
-            $"{tokens} wasn't parsed" |> Expect.equal success.Parsed expected
+            $"{tokens} wasn't parsed" |> Expect.equal success expected
 
             "" |> Expect.isTrue (reader.AtEnd)
         | Error err -> failwith $"{tokens} wasn't parsed\n%A{err}"
@@ -864,14 +861,14 @@ module Docs =
         printfn $"Parsing: '{input}'"
 
         match pExpression (Reader.ofString input ()) with
-        | Ok success -> printfn $"  Success: %A{success.Parsed}"
+        | Ok success -> printfn $"  Success: %A{success}"
         | Error e ->
             let errorMsg = ErrorFormatting.formatStringError input e
             printfn $"  Error:\n%s{errorMsg}"
 
     let testParser input expected =
         match pExpression (Reader.ofString input ()) with
-        | Ok success -> Expect.equal success.Parsed expected $"Parsing '{input}'"
+        | Ok success -> Expect.equal success expected $"Parsing '{input}'"
         | Error e -> failwith $"Parsing '{input}' failed with error: %A{e}"
 
 #if !FABLE_COMPILER
@@ -922,7 +919,7 @@ let sortingBugTests =
                 match p reader with
                 | Ok success ->
                     Expect.equal
-                        success.Parsed
+                        success
                         (Infix(Op '^', Token(Number 1), Token(Number 2)))
                         "Should parse '**' correctly as Power operator"
                 | Error e -> failwith $"Parsing failed. This indicates 'Mul' was tried before 'Pow'.\nError: %A{e}"
@@ -945,7 +942,7 @@ let sortingBugTests =
                 match p reader with
                 | Ok success ->
                     Expect.equal
-                        success.Parsed
+                        success
                         (Infix(Op '^', Token(Number 1), Token(Number 2)))
                         "Should parse '**' correctly as Power operator"
                 | Error e -> failwith $"Parsing failed. This indicates 'Mul' was tried before 'Pow'.\nError: %A{e}"

@@ -7,8 +7,7 @@ module Parsers =
 
     /// Always succeeds and returns the given value.
     /// This parser does not consume any input.
-    let preturn x (reader: Reader<'T, 'State, 'Input, 'InputSlice>) : ParseResult<'Parsed, 'T, 'State> =
-        ParseSuccess.create x
+    let preturn x (reader: Reader<'T, 'State, 'Input, 'InputSlice>) : ParseResult<'Parsed, 'T, 'State> = Ok x
 
     /// Always fails with the zero error.
     /// This parser does not consume any input.
@@ -345,7 +344,7 @@ module Parsers =
             let pos = reader.Position
 
             match p reader with
-            | Ok { Parsed = x } ->
+            | Ok x ->
                 if pos = reader.Position then
                     raise (InfiniteLoopException pos)
 
@@ -354,7 +353,7 @@ module Parsers =
                 reader.Position <- pos
                 keepGoing <- false
 
-        ParseSuccess.create state
+        Ok state
 
     /// Applies the `folder` function to each result of the given parser and the initial `state` one or more times,
     /// accumulating a final result.
@@ -368,7 +367,7 @@ module Parsers =
         let pos = reader.Position
 
         match p reader with
-        | Ok { Parsed = x } -> fold (folder state x) folder p reader
+        | Ok x -> fold (folder state x) folder p reader
         | Error e -> ParseError.createNested ParseError.expectedAtLeastOne [ e ] pos
 
     /// Applies a `folder` function to each result of the given parser and the current user state zero or more times,
@@ -385,7 +384,7 @@ module Parsers =
             let pos = reader.Position
 
             match p reader with
-            | Ok { Parsed = x } ->
+            | Ok x ->
                 if pos = reader.Position then
                     raise (InfiniteLoopException pos)
 
@@ -394,7 +393,7 @@ module Parsers =
                 reader.Position <- pos
                 keepGoing <- false
 
-        ParseSuccess.create ()
+        Ok()
 
     /// Applies a `folder` function to each result of the given parser and the current user state one or more times,
     /// updating the user state.
@@ -407,7 +406,7 @@ module Parsers =
         let pos = reader.Position
 
         match p reader with
-        | Ok { Parsed = x } ->
+        | Ok x ->
             reader.State <- folder reader.State x
             foldUserState folder p reader
         | Error e -> ParseError.createNested ParseError.expectedAtLeastOne [ e ] pos
