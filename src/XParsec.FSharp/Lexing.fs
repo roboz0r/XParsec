@@ -800,7 +800,7 @@ module Lexing =
             match span[0], span[1] with
             | '`', '`' ->
                 match pRest reader with
-                | Ok { Parsed = token } ->
+                | Ok token ->
                     reader.State <- LexBuilder.append token pos CtxOp.NoOp reader.State
                     preturn () reader
                 | Error e -> Error e
@@ -1584,7 +1584,7 @@ module Lexing =
                 if isDecimalDigit span[0] then
                     // We need at least 3 chars to have a base prefix
                     match pIntBase reader with
-                    | Ok { Parsed = () } -> preturn NumericBase.Decimal reader
+                    | Ok() -> preturn NumericBase.Decimal reader
                     | Error e -> invalidOp $"Unreachable error parsing decimal number: {e}"
                 else
                     fail expectedBasePrefix reader
@@ -1595,27 +1595,27 @@ module Lexing =
                     reader.SkipN(2)
 
                     match pHexBase reader with
-                    | Ok { Parsed = () } -> preturn NumericBase.Hex reader
+                    | Ok() -> preturn NumericBase.Hex reader
                     | Error e -> invalidOp $"Unreachable error parsing hexadecimal number: {e}"
 
                 | '0', ('o' | 'O' as c), c2 when isOctalDigit c2 ->
                     reader.SkipN(2)
 
                     match pOctalBase reader with
-                    | Ok { Parsed = () } -> preturn NumericBase.Octal reader
+                    | Ok() -> preturn NumericBase.Octal reader
                     | Error e -> invalidOp $"Unreachable error parsing octal number: {e}"
 
                 | '0', ('b' | 'B' as c), c2 when isBinaryDigit c2 ->
                     reader.SkipN(2)
 
                     match pBinaryBase reader with
-                    | Ok { Parsed = () } -> preturn NumericBase.Binary reader
+                    | Ok() -> preturn NumericBase.Binary reader
                     | Error e -> invalidOp $"Unreachable error parsing binary number: {e}"
 
                 | c, _, _ when isDecimalDigit c ->
                     // Decimal base
                     match pIntBase reader with
-                    | Ok { Parsed = () } -> preturn NumericBase.Decimal reader
+                    | Ok() -> preturn NumericBase.Decimal reader
                     | Error e -> invalidOp $"Unreachable error parsing decimal number: {e}"
 
                 | _ -> fail expectedBasePrefix reader
@@ -2181,7 +2181,7 @@ module Lexing =
     let rec lex () (reader: Reader<char, LexBuilder, ReadableString, _>) = dispatchWithState dispatcher reader
 
     and private complete (reader: Reader<char, LexBuilder, ReadableString, _>) =
-        ParseSuccess.create (LexBuilder.complete reader.Position.Index reader.State)
+        Ok(LexBuilder.complete reader.Position.Index reader.State)
 
     and private dispatcher state c =
         let ctx = LexBuilder.currentContext state

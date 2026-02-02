@@ -296,7 +296,7 @@ let tests1 =
                     let reader = Reader.ofString input (LexBuilder.init ())
 
                     match NumericLiterals.pXIntBase reader with
-                    | Ok { Parsed = actualBase } ->
+                    | Ok actualBase ->
                         "" |> Expect.equal actualBase expectedBase
                         "" |> Expect.equal reader.Index (input.TrimEnd('_').Length)
                     | Error err -> failtestf "Lexing failed: %A" err

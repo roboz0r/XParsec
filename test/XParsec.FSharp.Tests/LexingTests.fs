@@ -69,7 +69,7 @@ let tests =
                 printfn "Lexing\n%s\n-----\n%s\n-----" fileName snippet
 
                 match lexString snippet with
-                | Ok { Parsed = lexed } ->
+                | Ok lexed ->
                     printLexed snippet lexed
                     let expectedFile = file + ".lexed"
                     let expected = readLexed expectedFile

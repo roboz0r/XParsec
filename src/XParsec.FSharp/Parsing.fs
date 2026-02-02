@@ -260,7 +260,7 @@ module Parsing =
     let rec nextNonTriviaTokenSatisfiesL (predicate: SyntaxToken -> bool) msg reader =
         match nextNonTriviaToken reader with
         | Error e -> Error e
-        | Ok { Parsed = token } ->
+        | Ok token ->
             if predicate token then
                 preturn token reader
             else
@@ -1847,13 +1847,13 @@ module Expr =
                                         match Lexing.lexString tokenString with
                                         | Error e -> failwithf "Failed to re-lex operator after type declaration %A" e
                                         | Ok lexed ->
-                                            if lexed.Parsed.Tokens.Length <> 2 then
+                                            if lexed.Tokens.Length <> 2 then
                                                 // Expect exactly two tokens: the operator and EOF
                                                 failwithf
                                                     "Re-lexed operator did not produce exactly one token: %A"
-                                                    lexed.Parsed.Tokens
+                                                    lexed.Tokens
                                             else
-                                                let relexedToken = lexed.Parsed.Tokens[0<token>]
+                                                let relexedToken = lexed.Tokens[0<token>]
                                                 relexedToken.Token
 
                                 { token with
