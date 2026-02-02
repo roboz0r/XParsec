@@ -203,7 +203,7 @@ let readLexed (path: string) =
     let text = File.ReadAllText path
 
     match parser (Reader.ofString text ()) with
-    | Ok { Parsed = result } -> result |> List.ofSeq
+    | Ok result -> result |> List.ofSeq
     | Error err ->
         ErrorFormatting.formatStringError text err |> printfn "%s"
         failwithf "Failed to parse lexed file at %s" path
@@ -214,7 +214,7 @@ let testLexed (input: string) (expected: _ list) =
     let input = input.Replace("\r\n", "\n")
 
     match lexString input with
-    | Ok { Parsed = lexed } ->
+    | Ok lexed ->
         try
             "" |> Expect.equal (lexed.Tokens |> List.ofSeq) expected
         with ex ->
@@ -231,7 +231,7 @@ let testLexedBlocks (input: string) (expected: _ list) =
     let input = input.Replace("\r\n", "\n")
 
     match lexString input with
-    | Ok { Parsed = lexed } ->
+    | Ok lexed ->
         try
             ""
             |> Expect.equal (lexed.Blocks |> Seq.map (fun b -> lexed.Tokens[b.TokenIndex]) |> List.ofSeq) expected
@@ -266,7 +266,7 @@ let testLexFile (filePath: string) =
     if not (File.Exists expectedPath) then
         // Doesn't exist so create it
         match lexString input with
-        | Ok { Parsed = lexed } ->
+        | Ok lexed ->
             printfn "Expected lexed file does not exist at %s" expectedPath
             printfn "-------------\nInput was:\n%s" input
             printfn "-------------\nLexed output is:\n"
@@ -293,7 +293,7 @@ let testLexFileBlocks (filePath: string) =
     if not (File.Exists expectedPath) then
         // Doesn't exist so create it
         match lexString input with
-        | Ok { Parsed = lexed } ->
+        | Ok lexed ->
             printfn "Expected blocks file does not exist at %s" expectedPath
             printfn "-------------\nInput was:\n%s" input
             printfn "-------------\nLexed output is:\n"
@@ -319,12 +319,12 @@ let testParseFile (filePath: string) =
     let actual =
         match Lexing.lexString input with
         | Error e -> failwithf "Lexing failed: %A" e
-        | Ok { Parsed = lexed } ->
+        | Ok lexed ->
             let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed input
 
             match XParsec.FSharp.Parser.Expr.parse reader with
             | Error e -> failwithf "Parsing failed: %A" e
-            | Ok { Parsed = expr } ->
+            | Ok expr ->
                 use sw = new StringWriter()
                 use tw = new System.CodeDom.Compiler.IndentedTextWriter(sw, "  ")
                 XParsec.FSharp.Debug.printExpr tw input lexed expr
