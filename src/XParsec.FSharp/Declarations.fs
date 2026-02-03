@@ -17,14 +17,14 @@ type CompilerDirectiveDecl<'T> = | CompilerDirectiveDecl of hash: 'T * ident: 'T
 
 // Represents: module-function-or-value-defn
 type ModuleFunctionOrValueDefn<'T> =
-    | LetFunction of attributes: Attributes<'T> option * letToken: 'T * functionDefn: FunctionDefn<'T>
-    | LetValue of attributes: Attributes<'T> option * letToken: 'T * valueDefn: ValueDefn<'T>
+    | LetFunction of attributes: Attributes<'T> voption * letToken: 'T * functionDefn: FunctionDefn<'T>
+    | LetValue of attributes: Attributes<'T> voption * letToken: 'T * valueDefn: ValueDefn<'T>
     | LetRec of
-        attributes: Attributes<'T> option *
+        attributes: Attributes<'T> voption *
         letToken: 'T *
-        recToken: 'T option *
+        recToken: 'T voption *
         defns: FunctionOrValueDefn<'T> list
-    | Do of attributes: Attributes<'T> option * doToken: 'T * expr: Expr<'T>
+    | Do of attributes: Attributes<'T> voption * doToken: 'T * expr: Expr<'T>
 
 // Represents: module-elem
 type ModuleElem<'T> =
@@ -40,14 +40,14 @@ type ModuleElem<'T> =
 and ModuleElems<'T> = ModuleElem<'T> list
 
 // Represents: module-defn-body := begin module-elemsopt end
-and ModuleDefnBody<'T> = | ModuleDefnBody of beginToken: 'T * elements: ModuleElems<'T> option * endToken: 'T
+and ModuleDefnBody<'T> = | ModuleDefnBody of beginToken: 'T * elements: ModuleElems<'T> voption * endToken: 'T
 
 // Represents: module-defn
 and ModuleDefn<'T> =
     | ModuleDefn of
-        attributes: Attributes<'T> option *
+        attributes: Attributes<'T> voption *
         moduleToken: 'T *
-        access: Access<'T> option *
+        access: Access<'T> voption *
         ident: 'T *
         equals: 'T *
         body: ModuleDefnBody<'T>
