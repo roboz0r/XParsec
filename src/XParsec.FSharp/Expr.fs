@@ -69,7 +69,7 @@ type Type<'T> =
     | SubtypeConstraint of typar: Typar<'T> * colonGreaterThan: 'T * typ: Type<'T>
     | AnonymousSubtype of hash: 'T * typ: Type<'T>
 
-and TypeArg<'T> =
+and [<RequireQualifiedAccess>] TypeArg<'T> =
     | Type of Type<'T>
     | Measure of 'T // Placeholder for measure grammar
     | StaticParameter of 'T // Placeholder for static-parameter grammar
@@ -362,6 +362,7 @@ and [<RequireQualifiedAccess>] Expr<'T> =
 
 
 // Represents: pat-param
+[<RequireQualifiedAccess>]
 type PatParam<'T> =
     | Const of value: 'T
     | LongIdent of ident: LongIdent<'T>
@@ -387,17 +388,17 @@ and RecordPat<'T> = | RecordPat of lBrace: 'T * fieldPats: FieldPat<'T> list * r
 
 // Represents: pat and its variations
 and [<RequireQualifiedAccess>] Pat<'T> =
-    | Const of value: 'T
+    | Const of value: Constant<'T>
     | NamedSimple of ident: 'T
-    | Named of longIdent: LongIdent<'T> * param: PatParam<'T> voption * pat: Pat<'T> option
+    | Named of longIdent: LongIdent<'T> * param: PatParam<'T> voption * pat: Pat<'T> voption
     | Wildcard of underscore: 'T
     | As of pat: Pat<'T> * asToken: 'T * ident: 'T
     | Or of left: Pat<'T> * bar: 'T * right: Pat<'T>
     | And of left: Pat<'T> * ampersand: 'T * right: Pat<'T>
     | Cons of head: Pat<'T> * consToken: 'T * tail: Pat<'T>
     | Typed of pat: Pat<'T> * colon: 'T * typ: Type<'T>
-    | Tuple of patterns: Pat<'T> list
-    | StructTuple of structToken: 'T * lParen: 'T * patterns: Pat<'T> list * rParen: 'T
+    | Tuple of patterns: Pat<'T> list * commas: 'T list
+    | StructTuple of structToken: 'T * lParen: 'T * patterns: Pat<'T> list * commas: 'T list * rParen: 'T
     | Paren of lParen: 'T * pat: Pat<'T> * rParen: 'T
     | List of listPat: ListPat<'T>
     | Array of arrayPat: ArrayPat<'T>
@@ -406,6 +407,7 @@ and [<RequireQualifiedAccess>] Pat<'T> =
     | TypeTestAs of colonQuestion: 'T * typ: Type<'T> * asToken: 'T * ident: 'T
     | Null of nullToken: 'T
     | Attributed of attributes: Attributes<'T> * pat: Pat<'T>
+    | Struct of structToken: 'T * Pat<'T> // For error recovery
 
 // Represents: pattern-guard := when expr
 and PatternGuard<'T> = | PatternGuard of whenToken: 'T * expr: Expr<'T>
@@ -414,7 +416,7 @@ and PatternGuard<'T> = | PatternGuard of whenToken: 'T * expr: Expr<'T>
 and Rule<'T> = | Rule of pat: Pat<'T> * guard: PatternGuard<'T> voption * arrow: 'T * expr: Expr<'T>
 
 // Represents: rules := '|'~opt rule '|' ... '|' rule
-and Rules<'T> = | Rules of rules: ('T (* bar *) voption * Rule<'T>) list
+and Rules<'T> = | Rules of leadingBar: 'T voption * rules: Rule<'T> list * bars: 'T list
 
 
 // 8 Type Definitions
@@ -441,7 +443,7 @@ type TypeName<'T> =
         attributes: Attributes<'T> voption *
         access: 'T voption *  // Placeholder for access modifier
         ident: 'T *
-        typarDefns: TyparDefns<'T> option
+        typarDefns: TyparDefns<'T> voption
 
 // Represents: type-defn-element and related constructs
 type TypeDefnElement<'T> =
@@ -472,7 +474,7 @@ and MemberSig<'T> =
         colon: 'T *
         sign: CurriedSig<'T> *
         withToken: 'T *
-        getSet: ('T * 'T option) // (get, option<set>) or (set, option<get>)
+        getSet: ('T * 'T voption) // (get, option<set>) or (set, option<get>)
 
 // Represents: method-or-prop-defn
 and MethodOrPropDefn<'T> =
@@ -484,7 +486,7 @@ and MethodOrPropDefn<'T> =
         ident: 'T *
         equals: 'T *
         expr: Expr<'T> *
-        withClause: ('T * 'T * 'T option) voption // with, get/set, optional comma and other get/set
+        withClause: ('T * 'T * 'T voption) voption // with, get/set, optional comma and other get/set
 
 // Represents: additional-constr-defn and its expression body
 and AdditionalConstrExpr<'T> =
@@ -548,7 +550,7 @@ and MemberDefn<'T> =
     | AdditionalConstructor of constr: AdditionalConstrDefn<'T>
 
 // Represents: class, struct, and interface bodies
-and ClassInheritsDecl<'T> = | ClassInheritsDecl of inheritToken: 'T * typ: Type<'T> * expr: Expr<'T> option
+and ClassInheritsDecl<'T> = | ClassInheritsDecl of inheritToken: 'T * typ: Type<'T> * expr: Expr<'T> voption
 
 and ClassFunctionOrValueDefn<'T> =
     | LetRecDefns of
@@ -563,7 +565,7 @@ and ClassTypeBody<'T> =
     | ClassTypeBody of
         inherits: ClassInheritsDecl<'T> voption *
         defns: ClassFunctionOrValueDefn<'T> list *
-        elements: TypeDefnElements<'T> option
+        elements: TypeDefnElements<'T> voption
 
 and StructTypeBody<'T> = | StructTypeBody of elements: TypeDefnElements<'T>
 
@@ -625,12 +627,12 @@ and TypeDefn<'T> =
         lBrace: 'T *
         fields: RecordFields<'T> *
         rBrace: 'T *
-        extensions: TypeExtensionElements<'T> option
+        extensions: TypeExtensionElements<'T> voption
     | Union of
         typeName: TypeName<'T> *
         equals: 'T *
         cases: UnionTypeCases<'T> *
-        extensions: TypeExtensionElements<'T> option
+        extensions: TypeExtensionElements<'T> voption
     | Anon of
         typeName: TypeName<'T> *
         primaryConstr: PrimaryConstrArgs<'T> voption *
@@ -662,59 +664,26 @@ and TypeDefn<'T> =
 
 
 // 9 Units of Measure
+// Below are the F# types that model the provided grammar for units of measure.
+// Represents: measure and measure-literal (simplified to a single type)
+[<RequireQualifiedAccess>]
+type Measure<'T> =
+    // Base cases
+    | Named of LongIdent<'T> // e.g., kg or Microsoft.FSharp.SI.kg
+    | One of oneToken: 'T // 1 (Dimensionless)
+    | Anonymous of underscore: 'T // _ (The wildcard)
 
-// Represents: measure-literal-atom
-type MeasureLiteralAtom<'T> =
-    | LongIdent of LongIdent<'T>
-    | Paren of lParen: 'T * measure: MeasureLiteralSimp<'T> * rParen: 'T
+    // Type variable, permitted on type-level `measure` but not `measure-literal`s
+    | Typar of Typar<'T> // e.g., 'u
 
-// Represents: measure-literal-power
-and MeasureLiteralPower<'T> =
-    | Atom of MeasureLiteralAtom<'T>
-    | Power of atom: MeasureLiteralAtom<'T> * caret: 'T * power: 'T // int32 token
+    // Recursive operations
+    | Juxtaposition of Measure<'T> list * ops: 'T list // e.g., m s (implicit multiplication)
+    | Power of Measure<'T> * power: 'T * int: 'T // e.g., m^2
+    | Product of Measure<'T> * prod: 'T * Measure<'T> // e.g., m * s
+    | Quotient of Measure<'T> * div: 'T * Measure<'T> // e.g., m / s
+    | Reciprocal of div: 'T * Measure<'T> // e.g., / s
+    | Paren of l: 'T * Measure<'T> * r: 'T // e.g., (m / s)
 
-// Represents: measure-literal-seq (implicit product)
-and MeasureLiteralSeq<'T> = MeasureLiteralPower<'T> list
-
-// Represents: measure-literal-simp
-and MeasureLiteralSimp<'T> =
-    | Seq of MeasureLiteralSeq<'T>
-    | Product of left: MeasureLiteralSimp<'T> * star: 'T * right: MeasureLiteralSimp<'T>
-    | Quotient of left: MeasureLiteralSimp<'T> * slash: 'T * right: MeasureLiteralSimp<'T>
-    | Reciprocal of slash: 'T * measure: MeasureLiteralSimp<'T>
-    | One of oneToken: 'T
-
-// Represents: measure-literal, the top-level type for literals
-and MeasureLiteral<'T> =
-    | Anon of underscore: 'T
-    | Simple of measure: MeasureLiteralSimp<'T>
-
-// Represents: measure-atom
-type MeasureAtom<'T> =
-    | Typar of Typar<'T>
-    | LongIdent of LongIdent<'T>
-    | Paren of lParen: 'T * measure: MeasureSimp<'T> * rParen: 'T
-
-// Represents: measure-power
-and MeasurePower<'T> =
-    | Atom of MeasureAtom<'T>
-    | Power of atom: MeasureAtom<'T> * caret: 'T * power: 'T // int32 token
-
-// Represents: measure-seq (implicit product)
-and MeasureSeq<'T> = MeasurePower<'T> list
-
-// Represents: measure-simp
-and MeasureSimp<'T> =
-    | Seq of MeasureSeq<'T>
-    | Product of left: MeasureSimp<'T> * star: 'T * right: MeasureSimp<'T>
-    | Quotient of left: MeasureSimp<'T> * slash: 'T * right: MeasureSimp<'T>
-    | Reciprocal of slash: 'T * measure: MeasureSimp<'T>
-    | One of oneToken: 'T
-
-// Represents: measure, the top-level type for type-level measures
-and Measure<'T> =
-    | Anon of underscore: 'T
-    | Simple of measure: MeasureSimp<'T>
 
 // Represents: const, simplified to leverage the rich Token type
 [<RequireQualifiedAccess>]
@@ -725,4 +694,4 @@ type Constant<'T> =
 
     /// A numeric literal followed by a unit of measure annotation.
     /// e.g., `10<kg>` or `9.8<m/s^2>`
-    | MeasuredLiteral of value: 'T * lAngle: 'T * measure: MeasureLiteral<'T> * rAngle: 'T
+    | MeasuredLiteral of value: 'T * lAngle: 'T * measure: Measure<'T> * rAngle: 'T
