@@ -133,7 +133,7 @@ let printPat (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (pat: Pat<S
     match pat with
     | Pat.Const value ->
         tw.Write("Pat.Const: ")
-        printTokenFull tw input lexed value
+        printConstant tw input lexed value
         tw.WriteLine()
     | Pat.NamedSimple ident ->
         tw.Write("Pat.NamedSimple: ")

@@ -10,7 +10,7 @@ type ImmutableArrayM<'T, [<Measure>] 'M>(arr: ImmutableArray<'T>) =
     member this.Item
         with get (i: int<'M>) = arr[int i]
 
-    member this.ToImmutableArray() = arr
+    member this.AsImmutableArray() = arr
 
     interface System.Collections.Generic.IReadOnlyList<'T> with
         member this.Count = arr.Length
