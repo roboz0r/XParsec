@@ -67,9 +67,9 @@
       },
       "Microsoft.NET.ILLink.Tasks": {
         "type": "Direct",
-        "requested": "[8.0.22, )",
-        "resolved": "8.0.22",
-        "contentHash": "MhcMithKEiyyNkD2ZfbDZPmcOdi0GheGfg8saEIIEfD/fol3iHmcV8TsZkD4ZYz5gdUuoX4YtlVySUU7Sxl9SQ=="
+        "requested": "[8.0.23, )",
+        "resolved": "8.0.23",
+        "contentHash": "GqHiB1HbbODWPbY/lc5xLQH8siEEhNA0ptpJCC6X6adtAYNEzu5ZlqV3YHA3Gh7fuEwgA8XqVwMtH2KNtuQM1Q=="
       },
       "System.Collections.Immutable": {
         "type": "Direct",
