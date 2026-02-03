@@ -1469,7 +1469,7 @@ let tests =
 
                 match result with
                 | Ok result ->
-                    "" |> Expect.equal result.Parsed (ImmutableArray.Empty, "aa")
+                    "" |> Expect.equal result (ImmutableArray.Empty, "aa")
                     "" |> Expect.equal reader.Index 2
                 | Error e -> failwithf "%A" e
 
@@ -1479,7 +1479,7 @@ let tests =
 
                 match result with
                 | Ok result ->
-                    "" |> Expect.equal result.Parsed (ImmutableArray.Create('b'), "aa")
+                    "" |> Expect.equal result (ImmutableArray.Create('b'), "aa")
                     "" |> Expect.equal reader.Index 3
                 | Error e -> failwithf "%A" e
             }
