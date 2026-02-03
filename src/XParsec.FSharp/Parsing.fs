@@ -46,6 +46,7 @@ type SyntaxToken =
 type DiagnosticCode =
     // TODO: Use F# error codes
     | Other of string
+    | TyparInConstant of Typar<SyntaxToken>
 
 type Diagnostic =
     {
@@ -184,6 +185,12 @@ module Parsing =
             Index = TokenIndex.Regular(int index * 1<token>)
         }
 
+    let virtualToken token =
+        {
+            PositionedToken = token
+            Index = TokenIndex.Virtual
+        }
+
     let isTriviaToken (state: ParseState) (token: PositionedToken) =
         if token.InComment then
             true
@@ -275,6 +282,13 @@ module Parsing =
         let indent = ParseState.getIndent state index
         preturn indent reader
 
+    let opComparer =
+        // For parsing, we only care about the operator token itself for equality
+        { new IEqualityComparer<SyntaxToken> with
+            member _.Equals(x, y) = x.Token = y.Token
+            member _.GetHashCode(obj) = hash obj.Token
+        }
+
 [<AutoOpen>]
 module internal Helpers =
     let pushMinimumIndentationLevel (col: int64) (reader: Reader<PositionedToken, ParseState, 'a, 'b>) =
@@ -365,6 +379,11 @@ module internal Keywords =
 
     let pToOrDownTo =
         nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWTo || t.Token = Token.KWDownto) "to/downto"
+
+    let pLParen = nextNonTriviaTokenIsL Token.KWLParen "("
+    let pRParen = nextNonTriviaTokenIsL Token.KWRParen ")"
+    let pOpConcatenate = nextNonTriviaTokenIsL Token.OpConcatenate "^"
+    let pOpMultiply = nextNonTriviaTokenIsL Token.OpMultiply "*"
 
 [<RequireQualifiedAccess>]
 module AttributeTarget =
@@ -562,17 +581,17 @@ module IdentOrOp =
                 })
                 // Subcase 2b: Parsed as separate tokens ( * )
                 <|> (parser {
-                    let! l = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWLParen) "Expected '('"
-                    let! s = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpMultiply) "Expected '*'"
-                    let! r = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWRParen) "Expected ')'"
+                    let! l = pLParen
+                    let! s = pOpMultiply
+                    let! r = pRParen
                     return IdentOrOp.StarOp(l, s, r)
                 })
 
                 // Case 3: Parenthesized Operator (op) or Active Pattern (| ... |)
                 <|> (parser {
-                    let! l = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWLParen) "Expected '('"
+                    let! l = pLParen
                     let! op = OpName.parse
-                    let! r = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWRParen) "Expected ')'"
+                    let! r = pRParen
                     return IdentOrOp.ParenOp(l, op, r)
                 })
             ]
@@ -654,7 +673,7 @@ module Typar =
             // Often ^identifier is lexed as a single token or Op + Ident.
             // Here assuming standard token stream:
             let! state = getUserState
-            let! caret = nextNonTriviaTokenSatisfiesL (fun t -> tokenStringIs "^" t state) "Expected '^'"
+            let! caret = pOpConcatenate
             let! ident = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.Identifier) "Expected identifier"
             return Typar.Static(caret, ident)
         }
@@ -834,8 +853,7 @@ module Type =
                     let! s = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWStruct) "struct"
                     let! l = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWLParen) "("
 
-                    let! ts, _ =
-                        sepBy refType.Parser (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpMultiply) "*")
+                    let! ts, _ = sepBy refType.Parser pOpMultiply
 
                     let! r = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWRParen) ")"
                     return Type.StructTupleType(s, l, List.ofSeq ts, r)
@@ -926,7 +944,7 @@ module Type =
             let! rest =
                 many (
                     parser {
-                        let! _ = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpMultiply) "*"
+                        let! _ = pOpMultiply
                         return! pPostfixType
                     }
                 )
@@ -1116,19 +1134,6 @@ module BaseCall =
         }
 
 [<RequireQualifiedAccess>]
-module MemberDefn =
-    // STUB: Real MemberDefn parsing is very complex (properties, methods, let bindings, etc.)
-    // This simple implementation allows ObjectMembers to compile.
-    let parse: Parser<MemberDefn<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        parser {
-            let! token = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWMember) "Expected 'member'"
-            // In a real implementation, this would parse the full member body
-            return failwith "MemberDefn parsing not implemented"
-        }
-
-    do refMemberDefn.Set parse
-
-[<RequireQualifiedAccess>]
 module ObjectMembers =
     let parse: Parser<ObjectMembers<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
@@ -1161,9 +1166,7 @@ module InterfaceImpl =
 [<RequireQualifiedAccess>]
 module SliceRange =
 
-    let private pAll =
-        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpMultiply) "Expected '*'"
-        |>> SliceRange.All
+    let private pAll = pOpMultiply |>> SliceRange.All
 
     let private pTo =
         parser {
@@ -1570,12 +1573,91 @@ module Constant =
         || t = Token.ByteArrayLiteral
         || t = Token.VerbatimByteArrayLiteral
 
-    let pLiteral: Parser<Constant<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+    let private pLiteral: Parser<_, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         nextNonTriviaTokenSatisfiesL isLiteralToken "Expected constant literal"
-        |>> Constant.Literal
+
+    let private pMeasure =
+        parser {
+            let! pos = getPosition
+
+            let! lAngle = // '<' must be immediately after literal
+                satisfyL (fun (t: PositionedToken) -> t.Token = Token.OpLessThan) "Expected '<' for measure"
+
+            let! m = Measure.parse
+            let! rAngle = nextNonTriviaTokenIsL (Token.OpGreaterThan) "Expected '>' for measure"
+            return struct (syntaxToken lAngle pos.Index, m, rAngle)
+        }
+
+    /// <summary>
+    /// Traverses the measure AST and collects all Type Variable nodes (e.g. 'u).
+    /// Used to validate that a measure literal (e.g. float<...>) does not contain type variables.
+    /// </summary>
+    let collectTypars (measure: Measure<'T>) : ResizeArray<Typar<'T>> =
+        let results = ResizeArray()
+
+        let rec visit m =
+            match m with
+            // The Target: Found a type variable
+            | Measure.Typar token -> results.Add(token)
+
+            // Base cases: Clean
+            | Measure.Named _
+            | Measure.One _
+            | Measure.Anonymous _ -> ()
+
+            // Unary recursive cases
+            | Measure.Paren(_, inner, _)
+            | Measure.Reciprocal(_, inner)
+            | Measure.Power(inner, _, _) -> visit inner
+
+            // Binary recursive cases
+            | Measure.Product(l, _, r)
+            | Measure.Quotient(l, _, r) ->
+                visit l
+                visit r
+
+            // N-ary recursive case
+            | Measure.Juxtaposition(ms, ops) ->
+                for m in ms do
+                    visit m
+
+        visit measure
+        results
+
+    let validateMeasureNoTypars (measure: Measure<SyntaxToken>) (reader: Reader<_, _, _, _>) =
+        let typars = collectTypars measure
+
+        if typars.Count > 0 then
+            let state: ParseState = reader.State
+
+            for t in typars do
+                let code = TyparInConstant t
+
+                let tokStart, tokEnd =
+                    match t with
+                    | Typar.Anon x -> x.PositionedToken, None
+                    | Typar.Named(x, x1) -> x.PositionedToken, Some x1.PositionedToken
+                    | Typar.Static(x, x1) -> x.PositionedToken, Some x1.PositionedToken
+
+                ParseState.addDiagnostic code tokStart tokEnd state
+
+        preturn () reader
 
     let parse: Parser<Constant<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        choiceL [ pLiteral ] "Constant"
+        parser {
+            let! literal = pLiteral
+
+            if literal.Token.IsNumeric then
+                let! measure = opt pMeasure
+
+                match measure with
+                | ValueSome(lAngle, m, rAngle) ->
+                    do! validateMeasureNoTypars m
+                    return Constant.MeasuredLiteral(literal, lAngle, m, rAngle)
+                | ValueNone -> return Constant.Literal literal
+            else
+                return Constant.Literal literal
+        }
 
 [<RequireQualifiedAccess>]
 type ExprAux =
@@ -1602,12 +1684,6 @@ module Expr =
             printfn
                 $"Operator: {op.PositionedToken}({op.StartIndex}), Precedence: {op.Precedence}, Associativity: %A{op.Associativity}"
 
-        let opComparer =
-            // For parsing, we only care about the operator token itself for equality
-            { new IEqualityComparer<SyntaxToken> with
-                member _.Equals(x, y) = x.Token = y.Token
-                member _.GetHashCode(obj) = hash obj.Token
-            }
 
         let parseDotRhs: Parser<ExprAux, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
             parser {
@@ -2023,18 +2099,11 @@ module Expr =
 
     let parse = refExpr.Parser
 
-
-[<AutoOpen>]
-module private PatHelpers =
-    let refPat =
-        RefParser<Pat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _>()
-
-    let refPatParam =
-        RefParser<PatParam<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _>()
-
 [<RequireQualifiedAccess>]
 module PatParam =
-    // PatParam is a restricted subset of patterns often used for active pattern arguments
+    // PatParam is a restricted subset of patterns used for active pattern arguments
+    let private refPatParam =
+        RefParser<PatParam<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _>()
 
     let private pAtom =
         choiceL
@@ -2104,9 +2173,158 @@ module PatParam =
 
     do refPatParam.Set parse
 
-[<RequireQualifiedAccess>]
-module FieldPat =
-    let parse: Parser<FieldPat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+module Pat =
+
+    [<RequireQualifiedAccess>]
+    type PatAux =
+        | Type of Type<SyntaxToken>
+        | AsIdent of SyntaxToken
+
+    type PatOperatorParser() =
+        // --- Precedence Definitions ---
+        static let tuplePrecedence = BindingPower.fromLevel (int PrecedenceLevel.Comma)
+        static let asPrecedence = BindingPower.fromLevel (int PrecedenceLevel.As)
+        static let pipePrecedence = BindingPower.fromLevel (int PrecedenceLevel.Pipe)
+        static let andPrecedence = BindingPower.fromLevel (int PrecedenceLevel.LogicalAnd)
+        static let colonPrecedence = BindingPower.fromLevel (int PrecedenceLevel.TypeTest)
+        static let consPrecedence = BindingPower.fromLevel (int PrecedenceLevel.Cons)
+        static let parenPrecedence = BindingPower.fromLevel (int PrecedenceLevel.Parens)
+        static let structPrecedence = BindingPower.fromLevel (int PrecedenceLevel.HighApplication)
+
+        // --- Completion Functions ---
+
+        static let completeInfix (l: Pat<SyntaxToken>) (op: SyntaxToken) (r: Pat<SyntaxToken>) =
+            match op.Token with
+            | Token.OpBar -> Pat.Or(l, op, r)
+            | Token.OpAmp -> Pat.And(l, op, r)
+            | Token.KWColonColon -> Pat.Cons(l, op, r)
+            | _ -> failwithf "Unexpected infix pattern operator: %A" op
+
+        static let completeTuple (elements: ResizeArray<Pat<SyntaxToken>>) (ops: ResizeArray<SyntaxToken>) =
+            Pat.Tuple(List.ofSeq elements, List.ofSeq ops)
+
+        static let completeTyped (l: Pat<SyntaxToken>) (op: SyntaxToken) (aux: PatAux) =
+            match aux with
+            | PatAux.Type t -> Pat.Typed(l, op, t)
+            | _ -> failwith "Expected Type aux for Typed pattern"
+
+        static let completeAs (l: Pat<SyntaxToken>) (op: SyntaxToken) (aux: PatAux) =
+            match aux with
+            | PatAux.AsIdent ident -> Pat.As(l, op, ident)
+            | _ -> failwith "Expected Ident aux for As pattern"
+
+        static let completeParen (l: SyntaxToken) (p: Pat<SyntaxToken>) (r: SyntaxToken) = Pat.Paren(l, p, r)
+
+        static let completeStruct (op: SyntaxToken) (r: Pat<SyntaxToken>) =
+            match r with
+            | Pat.Paren(l, Pat.Tuple(elements, ops), r) -> Pat.StructTuple(op, l, elements, ops, r)
+            | _ ->
+                // TODO: Error - struct must be followed by tuple
+                Pat.Struct(op, r)
+
+
+        // --- Aux Parsers ---
+
+        static let pTypeRhs = Type.parse |>> PatAux.Type
+
+        static let pAs = nextNonTriviaTokenIsL Token.KWAs "Expected identifier for 'as' pattern"
+
+        static let pAsRhs =
+            parser {
+                let! ident = pAs
+                return PatAux.AsIdent ident
+            }
+
+        // --- Main Parsers ---
+        static let lhsParser =
+            parser {
+                let! token = nextNonTriviaToken
+
+                match token.Token with
+                | Token.KWLParen ->
+                    // Start of tuple pattern ( ... )
+                    // This is a Prefix Operator on a pattern
+                    let p = preturn token
+                    let rParen = virtualToken (PositionedToken.Create(Token.KWRParen, 0L))
+                    let op = Enclosed(token, p, parenPrecedence, rParen, pRParen, completeParen)
+                    return op
+                | Token.KWStruct ->
+                    let p = preturn token
+                    // Create Prefix operator
+                    // This will parse the immediate next pattern (e.g. Paren, or erroneously Literal/List)
+                    let op = Prefix(token, p, structPrecedence, completeStruct)
+                    return op
+                | _ -> return! fail (Message "Not a prefix pattern operator")
+            }
+
+        static let rhsParser =
+            nextNonTriviaToken
+            >>= fun token ->
+                match token.Token with
+                // Infix Left: | (Or), & (And)
+                | Token.OpBar ->
+                    let op = InfixLeft(token, preturn token, pipePrecedence, completeInfix)
+                    preturn op
+
+                | Token.OpAmp ->
+                    let op = InfixLeft(token, preturn token, andPrecedence, completeInfix)
+                    preturn op
+
+                // Infix Right: :: (Cons)
+                | Token.KWColonColon ->
+                    let op = InfixRight(token, preturn token, consPrecedence, completeInfix)
+                    preturn op
+
+                // Infix Mapped: : (Typed)
+                | Token.OpColon ->
+                    let op = InfixMapped(token, preturn token, colonPrecedence, pTypeRhs, completeTyped)
+                    preturn op
+
+                // Infix Mapped: as (As)
+                | Token.KWAs ->
+                    let op = InfixMapped(token, preturn token, asPrecedence, pAsRhs, completeAs)
+                    preturn op
+
+                // Infix N-ary: , (Tuple)
+                | Token.OpComma ->
+                    let op = InfixNary(token, preturn token, tuplePrecedence, completeTuple)
+                    preturn op
+
+                | _ -> fail (Message "Not a valid RHS pattern operator")
+
+        interface Operators<
+            SyntaxToken,
+            PatAux,
+            Pat<SyntaxToken>,
+            PositionedToken,
+            ParseState,
+            ReadableImmutableArray<PositionedToken>,
+            ReadableImmutableArraySlice<PositionedToken>
+         > with
+            member _.LhsParser = lhsParser
+            member _.RhsParser = rhsParser
+            member _.OpComparer = opComparer
+
+    let private refPat =
+        RefParser<Pat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _>()
+
+    let pListPat: Parser<ListPat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+        parser {
+            let! l = nextNonTriviaTokenIsL Token.KWLBracket "["
+            let! pats, _ = sepEndBy refPat.Parser (nextNonTriviaTokenIsL Token.OpSemicolon ";")
+            let! r = nextNonTriviaTokenIsL Token.KWRBracket "]"
+            return ListPat.ListPat(l, List.ofSeq pats, r)
+        }
+
+    let pArrayPat: Parser<ArrayPat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+        parser {
+            let! l = nextNonTriviaTokenIsL Token.KWLArrayBracket "[|"
+            let! pats, _ = sepEndBy refPat.Parser (nextNonTriviaTokenIsL Token.OpSemicolon ";")
+            let! r = nextNonTriviaTokenIsL Token.KWRArrayBracket "|]"
+            return ArrayPat.ArrayPat(l, List.ofSeq pats, r)
+        }
+
+    let pFieldPat =
         parser {
             let! lid = LongIdent.parse
             let! eq = pEquals
@@ -2114,271 +2332,951 @@ module FieldPat =
             return FieldPat.FieldPat(lid, eq, p)
         }
 
-[<RequireQualifiedAccess>]
-module ListPat =
-    let parse: Parser<ListPat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        parser {
-            let! l = nextNonTriviaTokenIsL Token.KWLBracket "["
-            let! pats, _ = sepBy refPat.Parser (nextNonTriviaTokenIsL Token.OpSemicolon ";")
-            let! r = nextNonTriviaTokenIsL Token.KWRBracket "]"
-            return ListPat.ListPat(l, List.ofSeq pats, r)
-        }
-
-[<RequireQualifiedAccess>]
-module ArrayPat =
-    let parse: Parser<ArrayPat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        parser {
-            let! l = nextNonTriviaTokenIsL Token.KWLArrayBracket "[|"
-            let! pats, _ = sepBy refPat.Parser (nextNonTriviaTokenIsL Token.OpSemicolon ";")
-            let! r = nextNonTriviaTokenIsL Token.KWRArrayBracket "|]"
-            return ArrayPat.ArrayPat(l, List.ofSeq pats, r)
-        }
-
-[<RequireQualifiedAccess>]
-module RecordPat =
-    let parse: Parser<RecordPat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+    let pRecordPat: Parser<RecordPat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
             let! l = nextNonTriviaTokenIsL Token.KWLBrace "{"
-            let! fields, _ = sepBy1 FieldPat.parse (nextNonTriviaTokenIsL Token.OpSemicolon ";")
+            let! fields, _ = sepEndBy1 pFieldPat (nextNonTriviaTokenIsL Token.OpSemicolon ";")
             let! r = nextNonTriviaTokenIsL Token.KWRBrace "}"
             return RecordPat.RecordPat(l, List.ofSeq fields, r)
         }
 
-[<RequireQualifiedAccess>]
-module Pat =
+    let pNamed =
+        parser {
+            let! lid = LongIdent.parse
+            let! param = opt PatParam.parse
+            let! arg = opt refPat.Parser
 
-    // --- Precedence Levels ---
-    // 1. Atom
-    // 2. TypeTest / Typed (:? / :)
-    // 3. Cons (::) - Right Assoc
-    // 4. And (&) - Left Assoc
-    // 5. Or (|) - Left Assoc
-    // 6. As (as) - Right Assoc
+            match lid, param, arg with
+            | [ name ], ValueNone, ValueNone ->
+                // Simple named pattern (variable)
+                return Pat.NamedSimple(name)
+            | _ ->
+                // Full named pattern
+                return Pat.Named(lid, param, arg)
+        }
 
-    let private pAtom =
+    let pTypeTest =
+        parser {
+            let! op = nextNonTriviaTokenIsL Token.OpTypeTest ":?"
+            let! t = Type.parse
+            // Check optional 'as ident'
+            let! asClause =
+                opt (
+                    parser {
+                        let! asTok = nextNonTriviaTokenIsL Token.KWAs "as"
+                        let! id = nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "identifier"
+                        return struct (asTok, id)
+                    }
+                )
+
+            match asClause with
+            | ValueSome(asTok, id) -> return Pat.TypeTestAs(op, t, asTok, id)
+            | ValueNone -> return Pat.TypeTest(op, t)
+        }
+
+    let pAttributesPat =
+        parser {
+            let! attrs = Attributes.parse
+            let! pat = refPat.Parser
+            return Pat.Attributed(attrs, pat)
+        }
+
+    let pPatAtom =
         choiceL
             [
                 nextNonTriviaTokenIsL Token.Wildcard "_" |>> Pat.Wildcard
                 nextNonTriviaTokenIsL Token.KWNull "null" |>> Pat.Null
-
-                // Type Tests (:? type)
-                parser {
-                    let! q = nextNonTriviaTokenIsL Token.OpTypeTest ":?"
-                    let! t = Type.parse
-
-                    let! asOpt =
-                        opt (
-                            parser {
-                                let! a = nextNonTriviaTokenIsL Token.KWAs "as"
-                                let! i = nextNonTriviaTokenIsL Token.Identifier "ident"
-                                return (a, i)
-                            }
-                        )
-
-                    match asOpt with
-                    | ValueSome(a, i) -> return Pat.TypeTestAs(q, t, a, i)
-                    | ValueNone -> return Pat.TypeTest(q, t)
-                }
-
-                // Collections
-                ListPat.parse |>> Pat.List
-                ArrayPat.parse |>> Pat.Array
-                RecordPat.parse |>> Pat.Record
-
-                // Struct Tuple
-                parser {
-                    let! s = nextNonTriviaTokenIsL Token.KWStruct "struct"
-                    let! l = nextNonTriviaTokenIsL Token.KWLParen "("
-                    let! pats, _ = sepBy refPat.Parser (nextNonTriviaTokenIsL Token.OpComma ",")
-                    let! r = nextNonTriviaTokenIsL Token.KWRParen ")"
-                    return Pat.StructTuple(s, l, List.ofSeq pats, r)
-                }
-
-                // Paren or Tuple
-                parser {
-                    let! l = nextNonTriviaTokenIsL Token.KWLParen "("
-                    let! pats, _ = sepBy refPat.Parser (nextNonTriviaTokenIsL Token.OpComma ",")
-                    let! r = nextNonTriviaTokenIsL Token.KWRParen ")"
-
-                    let pList = List.ofSeq pats
-
-                    match pList with
-                    | [ x ] -> return Pat.Paren(l, x, r)
-                    | _ -> return Pat.Tuple(pList)
-                }
-
-                // Literals (Const) vs Identifier vs LongIdent (Named)
-                parser {
-                    // If it's a literal token, it's Const
-                    // If Identifier, could be NamedSimple (variable) or Named (constructor)
-                    // If LongIdent, it's Named (Constructor/Literal Enum)
-
-                    // We peek/try LongIdent first.
-                    // Note: Standard literals (1, "s") are single tokens.
-
-                    return!
-                        choice
-                            [
-                                nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsLiteral) "Literal"
-                                |>> Pat.Const
-
-                                parser {
-                                    let! lid = LongIdent.parse
-                                    // Check for arguments (constructor pattern)
-                                    // Arguments could be an Atom (Paren, Struct, List, Array, Record, Const, Null, Wildcard, Ident)
-                                    // But NOT operator based pattern without parens?
-                                    // E.g. Case x is valid. Case x :: xs is (Case x) :: xs.
-                                    // So we try to parse an atomic pattern as the argument.
-
-                                    // BUT: NamedSimple is just `x`. `x` is also `LongIdent [x]`.
-                                    // Distinction: NamedSimple is for bind variables. Named is for Destructuring.
-                                    // Typically, if it starts with uppercase or is multi-part, it's Named.
-                                    // Lowercase single is NamedSimple.
-                                    // This logic is semantic, but parsers often approximate.
-
-                                    // For this implementation:
-                                    // 1. Try parse argument (recursive atomic).
-                                    let! arg = opt pAtom // Recursive call to pAtom? Careful of infinite loop.
-                                    // Actually, recursive call to pAtom is safe because we consumed LongIdent.
-                                    let! state = getUserState
-
-                                    match arg, lid with
-                                    | ValueSome a, _ -> return Pat.Named(lid, ValueNone, Some a)
-                                    | ValueNone, [ id ] when
-                                        not (
-                                            Char.IsUpper(
-                                                tokenStringIs "" id state |> ignore
-                                                'a'
-                                            )
-                                        )
-                                        ->
-                                        // Heuristic: if single ident, use NamedSimple.
-                                        // Real parser checks "is constructor" context or casing convention.
-                                        // Here simplified: simple ident -> NamedSimple.
-                                        return Pat.NamedSimple(id)
-                                    | ValueNone, _ -> return Pat.Named(lid, ValueNone, None)
-                                }
-                            ]
-                }
+                Constant.parse |>> Pat.Const
+                pTypeTest
+                pNamed
+                pListPat |>> Pat.List
+                pArrayPat |>> Pat.Array
+                pRecordPat |>> Pat.Record
+                pAttributesPat
             ]
             "Pattern Atom"
 
-    let private pTyped =
-        parser {
-            let! pat = pAtom
-            let! colon = opt (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpColon) ":")
+    let parse = Operator.parser pPatAtom (PatOperatorParser())
 
-            match colon with
-            | ValueSome c ->
-                let! t = Type.parse
-                return Pat.Typed(pat, c, t)
-            | ValueNone -> return pat
-        }
-
-    let private pCons =
-        let rec loop () =
-            parser {
-                let! head = pTyped
-                let! cons = opt (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWColonColon) "::")
-
-                match cons with
-                | ValueSome c ->
-                    let! tail = loop () // Right associative
-                    return Pat.Cons(head, c, tail)
-                | ValueNone -> return head
-            }
-
-        loop ()
-
-    let private pAnd =
-        chainl1
-            pCons
-            (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpBitwiseAnd) "&"
-             |>> (fun op l r -> Pat.And(l, op, r)))
-
-    let private pOr =
-        chainl1
-            pAnd
-            (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpBar) "|"
-             |>> (fun op l r -> Pat.Or(l, op, r)))
-
-    let private pAs =
-        let rec loop () =
-            parser {
-                let! left = pOr
-                let! asTok = opt (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWAs) "as")
-
-                match asTok with
-                | ValueSome op ->
-                    let! ident = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.Identifier) "ident"
-                    return Pat.As(left, op, ident)
-                | ValueNone -> return left
-            }
-
-        loop ()
-
-    let parse =
-        parser {
-            let! attrs = opt Attributes.parse
-            let! p = pAs
-
-            match attrs with
-            | ValueSome a when not (List.isEmpty a) -> return Pat.Attributed(a, p)
-            | _ -> return p
-        }
-
-    do refPat.Set parse
 
 [<RequireQualifiedAccess>]
 module PatternGuard =
+    let pWhen = nextNonTriviaTokenIsL Token.KWWhen "when"
+
     let parse: Parser<PatternGuard<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
-            let! w = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWWhen) "when"
+            let! w = pWhen
             let! e = Expr.parse
             return PatternGuard.PatternGuard(w, e)
         }
 
 [<RequireQualifiedAccess>]
 module Rule =
+    let pOpArrowRight = nextNonTriviaTokenIsL Token.OpArrowRight "->"
+
     let parse: Parser<Rule<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
             let! pat = Pat.parse
             let! guard = opt PatternGuard.parse
-            let! arrow = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpArrowRight) "->"
+            let! arrow = pOpArrowRight
             let! expr = Expr.parse
             return Rule.Rule(pat, guard, arrow, expr)
         }
 
 [<RequireQualifiedAccess>]
 module Rules =
+    let pOpBar = nextNonTriviaTokenIsL Token.OpBar "|"
+
     let parse: Parser<Rules<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
             // Optional leading bar
-            let! firstBar = opt (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpBar) "|")
+            let! firstBar = opt pOpBar
+            let! rules, bars = sepBy1 Rule.parse pOpBar
+            return Rules(firstBar, List.ofSeq rules, List.ofSeq bars)
+        }
 
-            // First rule
-            let! firstRule = Rule.parse
+[<AutoOpen>]
+module internal TypeDefnHelpers =
+    // Forward reference for MemberDefn (overriding the one in your stub if needed,
+    // or we use the existing refMemberDefn from your provided MemberHelpers)
+    let refAdditionalConstrExpr =
+        RefParser<AdditionalConstrExpr<SyntaxToken>, _, _, _, _>()
 
-            // Subsequent rules separated by bar
-            let! rest =
-                many (
+[<RequireQualifiedAccess>]
+module SimplePat =
+    let parse: Parser<SimplePat<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! ident = nextNonTriviaTokenIsL Token.Identifier "Expected identifier"
+            let! typeAnnotation = opt (nextNonTriviaTokenIsL Token.OpColon ":")
+
+            match typeAnnotation with
+            | ValueSome colon ->
+                let! t = Type.parse
+                return SimplePat.Typed(SimplePat.Ident ident, colon, t)
+            | ValueNone -> return SimplePat.Ident ident
+        }
+
+[<RequireQualifiedAccess>]
+module PrimaryConstrArgs =
+    let parse: Parser<PrimaryConstrArgs<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! attrs = opt Attributes.parse
+            let! access = opt pAccessModifier
+            let! lParen = nextNonTriviaTokenIsL Token.KWLParen "("
+
+            let! pats, _ = sepBy SimplePat.parse (nextNonTriviaTokenIsL Token.OpComma ",")
+
+            let! rParen = nextNonTriviaTokenIsL Token.KWRParen ")"
+
+            return PrimaryConstrArgs.PrimaryConstrArgs(attrs, access, lParen, List.ofSeq pats, rParen)
+        }
+
+[<RequireQualifiedAccess>]
+module TypeName =
+    let parse: Parser<TypeName<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! attrs = opt Attributes.parse
+            let! access = opt pAccessModifier
+            let! ident = nextNonTriviaTokenIsL Token.Identifier "Type Name Identifier"
+            let! typars = opt TyparDefns.parse
+
+            return TypeName.TypeName(attrs, access, ident, typars)
+        }
+
+[<RequireQualifiedAccess>]
+module AsDefn =
+    let parse: Parser<AsDefn<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! asTok = nextNonTriviaTokenIsL Token.KWAs "as"
+            let! ident = nextNonTriviaTokenIsL Token.Identifier "self-identifier"
+            return AsDefn.AsDefn(asTok, ident)
+        }
+
+// ----------------------------------------------------------------------------
+// Signatures (MemberSig, ArgSpec)
+// ----------------------------------------------------------------------------
+
+[<RequireQualifiedAccess>]
+module MemberSig =
+
+    let private pArgNameSpec =
+        parser {
+            let! optional = opt (nextNonTriviaTokenIsL Token.OpDynamic "?")
+            let! ident = nextNonTriviaTokenIsL Token.Identifier "Arg Name"
+            let! colon = nextNonTriviaTokenIsL Token.OpColon ":"
+            return ArgNameSpec.ArgNameSpec(optional, ident, colon)
+        }
+
+    let private pArgSpec =
+        parser {
+            let! attrs = opt Attributes.parse
+            // Try parse "name :" first
+            let! nameSpec = opt pArgNameSpec
+            let! typ = Type.parse
+            return ArgSpec.ArgSpec(attrs, nameSpec, typ)
+        }
+
+    // Parses: Arg -> Arg -> Ret
+    let private pCurriedSig: Parser<CurriedSig<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! args = sepBy1 (sepBy1 pArgSpec pOpMultiply) (nextNonTriviaTokenIsL Token.OpArrowRight "->")
+
+            // The last element of the parsed list is actually the return type,
+            // unless we strictly enforce structure.
+            // Standard F# 'val' signature parsing is complex.
+            // Simplified here: We assume everything before the last arrow are args.
+            // But we need to separate the ReturnType from the ArgsSpec list.
+
+            // To fit the provided AST `CurriedSig of ArgsSpec list * arrow * returnType`,
+            // we need to re-arrange the parsed chain.
+            // This suggests we need to explicitly look for the arrows.
+
+            return! fail (Message "Complex Signature parsing logic needed for CurriedSig")
+        // Placeholder: Implementing full curried signature parser requires looking ahead or backtracking
+        // to distinguish arguments from return types in `a -> b -> c`.
+        // For now, assuming a simplified single arg structure for compilation:
+        }
+
+    // Simplified Stub for compilation
+    let parse: Parser<MemberSig<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! ident = nextNonTriviaTokenIsL Token.Identifier "Member Name"
+            let! typars = opt TyparDefns.parse
+            let! colon = nextNonTriviaTokenIsL Token.OpColon ":"
+
+            // Placeholder for full signature logic
+            // We fake a CurriedSig to satisfy the type system for the demo
+            let! retType = Type.parse
+            let fakeSig = CurriedSig.CurriedSig([], Unchecked.defaultof<_>, retType)
+
+            // Check for 'with get, set'
+            let! withGetSet =
+                opt (
                     parser {
-                        let! bar = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpBar) "|"
-                        let! rule = Rule.parse
-                        return (ValueSome bar, rule)
+                        let! w = nextNonTriviaTokenIsL Token.KWWith "with"
+                        let! get = nextNonTriviaTokenIsL Token.Identifier "get" // Simplified
+                        return (w, (get, ValueNone))
                     }
                 )
 
-            let rulesList =
-                let first = firstBar, firstRule
-                first :: List.ofSeq rest
-
-            return Rules.Rules(rulesList)
+            match withGetSet with
+            | ValueSome(w, gs) -> return MemberSig.PropSig(ident, typars, colon, fakeSig, w, gs)
+            | ValueNone -> return MemberSig.MethodOrPropSig(ident, typars, colon, fakeSig)
         }
 
+// ----------------------------------------------------------------------------
+// Member Definitions (Method, Property, Ctor)
+// ----------------------------------------------------------------------------
+
+[<RequireQualifiedAccess>]
+module MethodOrPropDefn =
+
+    // Distinguishes:
+    // member x.P = ... (Property)
+    // member x.M args = ... (Method)
+    // member x.P with get ... (PropWithGetSet)
+
+    let parse: Parser<MethodOrPropDefn<SyntaxToken>, _, _, _, _> =
+        parser {
+            // NOTE: The caller (MemberDefn) has consumed 'member', 'override', etc.
+            // and likely the access modifier.
+            // This parser focuses on the Identifier/Pattern and Body.
+
+            // 1. Parse Identifier part (e.g. "x.Method" or "Method")
+            // There might be a 'this' binding prefix: "x."
+            // AST `identPrefix` captures the instance identifier.
+
+            let! part1 = nextNonTriviaTokenIsL Token.Identifier "Member Identifier"
+            let! dot = opt (nextNonTriviaTokenIsL Token.OpDot ".")
+
+            let! identPrefix, ident =
+                match dot with
+                | ValueSome _ ->
+                    parser {
+                        let! part2 = nextNonTriviaTokenIsL Token.Identifier "Member Name"
+                        return (ValueSome part1, part2)
+                    }
+                | ValueNone -> preturn (ValueNone, part1)
+
+            // 2. Check for Arguments (Method) vs Immediate `=` or `with` (Property)
+
+            // If next is arguments, it's a method. Arguments are Patterns.
+            // If next is `=`, it's a Property (or Method with unit arg omitted? F# rules apply).
+            // If next is `with`, it's PropertyWithGetSet.
+
+            let! nextTok = pid
+
+            match nextTok with
+            | t when t.Token = Token.KWWith ->
+                // Property with get/set
+                let! withTok = nextNonTriviaTokenIsL Token.KWWith "with"
+                // Parse get/set definitions (FunctionOrValueDefn list)
+                // This usually requires a loop parsing `member val` or just `get() = ...`
+                // Stubbing list for brevity:
+                return MethodOrPropDefn.PropertyWithGetSet(identPrefix, ident, withTok, [])
+
+            | t when t.Token = Token.OpEquality ->
+                // Property (Get-only usually)
+                // AST: Property of ident voption * ValueDefn
+                // Note: ValueDefn parser usually starts with `let`/`mutable`.
+                // Here we construct a ValueDefn-like structure from `ident = expr`.
+                let! eq = pEquals
+                let! expr = Expr.parse
+
+                // Construct a synthetic ValueDefn for the AST
+                let valDefn =
+                    ValueDefn.ValueDefn(
+                        ValueNone,
+                        ValueNone,
+                        Pat.NamedSimple(ident), // Simplified pattern
+                        ValueNone,
+                        ValueNone,
+                        eq,
+                        expr
+                    )
+
+                return MethodOrPropDefn.Property(identPrefix, valDefn)
+
+            | _ ->
+                // Method
+                // We parse parameters until `=`
+                // Reuse FunctionDefn, but we've already consumed the name.
+                // We need to feed the name back or use a specialized parser.
+
+                // Let's assume FunctionDefn.parse can handle the rest if we hadn't consumed ident.
+                // Since we did, we reconstruct:
+
+                let! args = many1 Pat.parse
+                let! retType = opt ReturnType.parse
+                let! eq = pEquals
+                let! expr = Expr.parse
+
+                let funcDefn =
+                    FunctionDefn.FunctionDefn(
+                        ValueNone,
+                        ValueNone,
+                        IdentOrOp.Ident ident,
+                        ValueNone,
+                        List.ofSeq args,
+                        retType,
+                        eq,
+                        expr
+                    )
+
+                return MethodOrPropDefn.Method(identPrefix, funcDefn)
+        }
+
+[<RequireQualifiedAccess>]
+module AdditionalConstrExpr =
+
+    let private pInit =
+        choiceL
+            [
+                parser {
+                    let! lBrace = nextNonTriviaTokenIsL Token.KWLBrace "{"
+                    // Helper for inherits: inherit Type(expr)
+                    let! inherits =
+                        parser {
+                            let! inh = nextNonTriviaTokenIsL Token.KWInherit "inherit"
+                            let! t = Type.parse
+                            let! e = opt Expr.parse
+                            return ClassInheritsDecl.ClassInheritsDecl(inh, t, e)
+                        }
+
+                    let! inits = many FieldInitializer.parse // Simplified loop
+                    let! rBrace = nextNonTriviaTokenIsL Token.KWRBrace "}"
+                    return AdditionalConstrInitExpr.Explicit(lBrace, inherits, List.ofSeq inits, rBrace)
+                }
+                parser {
+                    let! newTok = nextNonTriviaTokenIsL Token.KWNew "new"
+                    let! t = Type.parse
+                    let! e = Expr.parse
+                    return AdditionalConstrInitExpr.Delegated(newTok, t, e)
+                }
+            ]
+            "Constructor Init"
+
+    let parse =
+        parser {
+            // Simplified recursive parser for constructor body
+            let! init = pInit
+            return AdditionalConstrExpr.Init init
+        }
+
+    do refAdditionalConstrExpr.Set parse
+
+[<RequireQualifiedAccess>]
+module AdditionalConstrDefn =
+    let parse: Parser<AdditionalConstrDefn<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! attrs = opt Attributes.parse
+            let! access = opt pAccessModifier
+            let! newTok = nextNonTriviaTokenIsL Token.KWNew "new"
+            let! pat = Pat.parse
+            let! asDefn = opt AsDefn.parse
+            let! equals = pEquals
+            let! body = refAdditionalConstrExpr.Parser
+
+            return AdditionalConstrDefn.AdditionalConstrDefn(attrs, access, newTok, pat, asDefn, equals, body)
+        }
+
+[<RequireQualifiedAccess>]
+module MemberDefn =
+    // Implementation of the forward reference stub
+    let parse: Parser<MemberDefn<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! attrs = opt Attributes.parse
+
+            // Check for 'new' (Additional Constructor)
+            let! isNew = opt (lookAhead (nextNonTriviaTokenIsL Token.KWNew "new"))
+
+            match isNew with
+            | ValueSome _ ->
+                let! ctor = AdditionalConstrDefn.parse
+                return MemberDefn.AdditionalConstructor ctor
+            | ValueNone ->
+
+                let! staticTok = opt (nextNonTriviaTokenIsL Token.KWStatic "static")
+                let! access = opt pAccessModifier
+
+                let! keyword =
+                    choiceL
+                        [
+                            nextNonTriviaTokenIsL Token.KWMember "member"
+                            nextNonTriviaTokenIsL Token.KWOverride "override"
+                            nextNonTriviaTokenIsL Token.KWAbstract "abstract"
+                            nextNonTriviaTokenIsL Token.KWDefault "default"
+                            nextNonTriviaTokenIsL Token.KWVal "val"
+                        ]
+                        "Member Keyword"
+
+                match keyword.Token with
+                | Token.KWAbstract ->
+                    let! memTok = opt (nextNonTriviaTokenIsL Token.KWMember "member")
+                    let! sigDef = MemberSig.parse
+                    return MemberDefn.Abstract(attrs, keyword, memTok, access, sigDef)
+
+                | Token.KWVal ->
+                    let! mut = opt (nextNonTriviaTokenIsL Token.KWMutable "mutable")
+                    let! ident = nextNonTriviaTokenIsL Token.Identifier "val identifier"
+                    let! colon = nextNonTriviaTokenIsL Token.OpColon ":"
+                    let! t = Type.parse
+                    return MemberDefn.Value(attrs, staticTok, keyword, mut, access, ident, colon, t)
+
+                | Token.KWOverride ->
+                    let! defn = MethodOrPropDefn.parse
+                    return MemberDefn.Override(attrs, keyword, access, defn)
+
+                | Token.KWDefault ->
+                    let! defn = MethodOrPropDefn.parse
+                    return MemberDefn.Default(attrs, keyword, access, defn)
+
+                | _ -> // Token.KWMember
+                    let! defn = MethodOrPropDefn.parse
+                    return MemberDefn.Concrete(attrs, staticTok, keyword, access, defn)
+        }
+
+    // Set the forward reference in your existing framework
+    do refMemberDefn.Set parse
+
+// ----------------------------------------------------------------------------
+// Type Body Elements
+// ----------------------------------------------------------------------------
+
+[<RequireQualifiedAccess>]
+module TypeDefnElement =
+    let parse: Parser<TypeDefnElement<SyntaxToken>, _, _, _, _> =
+        choiceL
+            [
+                (parser {
+                    let! intf = nextNonTriviaTokenIsL Token.KWInterface "interface"
+                    let! t = Type.parse
+                    // Distinguish between InterfaceSpec (in abstract class) and InterfaceImpl (with members)
+                    let! withTok = opt (nextNonTriviaTokenIsL Token.KWWith "with")
+
+                    match withTok with
+                    | ValueSome _ ->
+                        // InterfaceImpl requires members, usually `member ...`
+                        // Reusing ObjectMembers parser logic roughly
+                        // For precise AST `InterfaceImpl` expects `InterfaceImpl` type which has `opt ObjectMembers`
+                        // Here we map roughly:
+                        let! members = opt ObjectMembers.parse
+                        return TypeDefnElement.InterfaceImpl(InterfaceImpl.InterfaceImpl(intf, t, members))
+                    | ValueNone -> return TypeDefnElement.InterfaceSpec(InterfaceSpec.InterfaceSpec(intf, t))
+                })
+                (MemberDefn.parse |>> TypeDefnElement.Member)
+            ]
+            "Type Definition Element"
+
+[<RequireQualifiedAccess>]
+module TypeDefnElements =
+    // Parses a list of elements until 'end' or other terminator
+    let parseTill terminator =
+        manyTill TypeDefnElement.parse terminator
+
+// ----------------------------------------------------------------------------
+// Specific Type Bodies (Class, Union, Record, etc.)
+// ----------------------------------------------------------------------------
+
+[<RequireQualifiedAccess>]
+module ClassInheritsDecl =
+    let parse: Parser<ClassInheritsDecl<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! inh = nextNonTriviaTokenIsL Token.KWInherit "inherit"
+            let! t = Type.parse
+            // Optional constructor args
+            let! e = opt Expr.parse
+            return ClassInheritsDecl.ClassInheritsDecl(inh, t, e)
+        }
+
+[<RequireQualifiedAccess>]
+module ClassFunctionOrValueDefn =
+    let parse: Parser<ClassFunctionOrValueDefn<SyntaxToken>, _, _, _, _> =
+        choiceL
+            [
+                parser {
+                    let! attrs = opt Attributes.parse
+                    let! stat = opt (nextNonTriviaTokenIsL Token.KWStatic "static")
+                    let! d = nextNonTriviaTokenIsL Token.KWDo "do"
+                    let! e = Expr.parse
+                    return ClassFunctionOrValueDefn.Do(attrs, stat, d, e)
+                }
+                parser {
+                    let! attrs = opt Attributes.parse
+                    let! stat = opt (nextNonTriviaTokenIsL Token.KWStatic "static")
+                    let! l = nextNonTriviaTokenIsL Token.KWLet "let"
+                    let! r = opt (nextNonTriviaTokenIsL Token.KWRec "rec")
+                    // Parsing multiple let bindings is complex in top level,
+                    // assuming one for now or loop needed.
+                    // FunctionOrValueDefn.parse handles one.
+                    let! defn = FunctionOrValueDefn.parse
+                    return ClassFunctionOrValueDefn.LetRecDefns(attrs, stat, l, r, [ defn ])
+                }
+            ]
+            "Class Let/Do"
+
+[<RequireQualifiedAccess>]
+module ClassTypeBody =
+    let parse terminator : Parser<ClassTypeBody<SyntaxToken>, _, _, _, _> =
+        parser {
+            // Implicit class body:
+            // inherit?
+            // let/do bindings*
+            // member/interface elements*
+
+            let! inh = opt ClassInheritsDecl.parse
+
+            // Allow interleaving of let/do and members in implicit constructors?
+            // Strictly F# puts let/do before members usually, but implicit classes allow mix slightly.
+            // Simplified: Parse Let/Dos, then Elements.
+
+            let! lets = many ClassFunctionOrValueDefn.parse
+
+            let! elems =
+                opt (TypeDefnElements.parseTill terminator)
+                |>> function
+                    | ValueSome(es, _) -> ValueSome(List.ofSeq es)
+                    | ValueNone -> ValueNone
+
+            return ClassTypeBody.ClassTypeBody(inh, List.ofSeq lets, elems)
+        }
+
+[<RequireQualifiedAccess>]
+module StructTypeBody =
+    let parse terminator =
+        parser {
+            let! elems, _ = TypeDefnElements.parseTill terminator
+            return StructTypeBody.StructTypeBody(List.ofSeq elems)
+        }
+
+[<RequireQualifiedAccess>]
+module InterfaceTypeBody =
+    let parse terminator =
+        parser {
+            let! elems, _ = TypeDefnElements.parseTill terminator
+            return InterfaceTypeBody.InterfaceTypeBody(List.ofSeq elems)
+        }
+
+// --- Union ---
+
+[<RequireQualifiedAccess>]
+module UnionTypeCase =
+    let parse: Parser<UnionTypeCase<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! attrs = opt Attributes.parse
+            // Leading bar is handled by the list parser usually, but we check logic below.
+
+            let! ident = nextNonTriviaTokenIsL Token.Identifier "Union Case"
+
+            // Check for 'of'
+            let! caseData =
+                parser {
+                    let! ofTok = opt (nextNonTriviaTokenIsL Token.KWOf "of")
+
+                    match ofTok with
+                    | ValueNone -> return UnionTypeCaseData.Nullary ident
+                    | ValueSome ofK ->
+                        // Fields: int * string OR name:int * name:string
+                        // Simplified: Use Type.parse (which handles tuples)
+                        // and map to Unnamed for now, as specific 'name:type' parsing requires specialized Type parser.
+                        let! t = Type.parse
+                        // Wrap in Unnamed field list
+                        let fields = [ UnionTypeField.Unnamed t ]
+                        return UnionTypeCaseData.Nary(ident, ofK, fields)
+                }
+
+            return UnionTypeCase.UnionTypeCase(attrs, caseData)
+        }
+
+[<RequireQualifiedAccess>]
+module UnionTypeCases =
+    let parse =
+        parser {
+            let! firstBar = opt (nextNonTriviaTokenIsL Token.OpBar "|")
+            let! cases, _ = sepBy1 UnionTypeCase.parse (nextNonTriviaTokenIsL Token.OpBar "|")
+            return List.ofSeq cases
+        }
+
+// --- Record ---
+
+[<RequireQualifiedAccess>]
+module RecordField =
+    let parse: Parser<RecordField<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! attrs = opt Attributes.parse
+            let! mut = opt (nextNonTriviaTokenIsL Token.KWMutable "mutable")
+            let! acc = opt pAccessModifier
+            let! id = nextNonTriviaTokenIsL Token.Identifier "Field Name"
+            let! col = nextNonTriviaTokenIsL Token.OpColon ":"
+            let! t = Type.parse
+            return RecordField.RecordField(attrs, mut, acc, id, col, t)
+        }
+
+// --- Enum ---
+
+[<RequireQualifiedAccess>]
+module EnumTypeCase =
+    let parse: Parser<EnumTypeCase<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! id = nextNonTriviaTokenIsL Token.Identifier "Enum Name"
+            let! eq = pEquals
+            let! c = nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsNumeric) "Enum Constant"
+            return EnumTypeCase.EnumTypeCase(id, eq, c)
+        }
+
+[<RequireQualifiedAccess>]
+module EnumTypeCases =
+    let parse =
+        parser {
+            let! firstBar = opt (nextNonTriviaTokenIsL Token.OpBar "|")
+            let! cases, _ = sepBy1 EnumTypeCase.parse (nextNonTriviaTokenIsL Token.OpBar "|")
+            return List.ofSeq cases
+        }
+
+// --- Type Extensions ---
+
+[<RequireQualifiedAccess>]
+module TypeExtensionElements =
+    let parse: Parser<TypeExtensionElements<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! withTok = nextNonTriviaTokenIsL Token.KWWith "with"
+            let endTokParser = nextNonTriviaTokenIsL Token.KWEnd "end"
+            let! elems, _ = TypeDefnElements.parseTill endTokParser
+            let! endTok = endTokParser
+            return TypeExtensionElements.TypeExtensionElements(withTok, List.ofSeq elems, endTok)
+        }
+
+[<RequireQualifiedAccess>]
+module DelegateSig =
+    let parse: Parser<DelegateSig<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! del = nextNonTriviaTokenIsL Token.KWDelegate "delegate"
+            let! ofTok = nextNonTriviaTokenIsL Token.KWOf "of"
+            let! t = Type.parse // Simplified mapping to UncurriedSig
+            // Construct fake UncurriedSig for AST compliance
+            let sigData = UncurriedSig.UncurriedSig([], Unchecked.defaultof<_>, t)
+            return DelegateSig.DelegateSig(del, ofTok, sigData)
+        }
+
+
+// ----------------------------------------------------------------------------
+// Top Level TypeDefn
+// ----------------------------------------------------------------------------
+
+[<RequireQualifiedAccess>]
+module TypeDefn =
+
+    // Helper to detect specific type bodies based on lookahead or specific tokens
+
+    let parse: Parser<TypeDefn<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! typeKw = nextNonTriviaTokenIsL Token.KWType "type" // Consumed but typically part of TypeName?
+            // Note: AST TypeName doesn't include 'type' keyword, but TypeDefn implies it's wrapped or parsed before.
+            // Assuming we are at the name:
+
+            let! typeName = TypeName.parse
+
+            // 1. Check for Primary Constructor (Class/Struct)
+            let! primaryConstr = opt PrimaryConstrArgs.parse
+
+            // 2. Check for '='
+            let! equals = pEquals
+
+            // 3. Branch based on what follows
+
+            let! next = pid
+
+            match next with
+            | t when t.Token = Token.KWStruct ->
+                // Explicit Struct
+                let! str = nextNonTriviaTokenIsL Token.KWStruct "struct"
+                let endTokParser = nextNonTriviaTokenIsL Token.KWEnd "end"
+                let! body = StructTypeBody.parse endTokParser
+                let! endTok = endTokParser
+                return TypeDefn.Struct(typeName, primaryConstr, ValueNone, equals, str, body, endTok)
+
+            | t when t.Token = Token.KWInterface ->
+                // Interface
+                let! intf = nextNonTriviaTokenIsL Token.KWInterface "interface"
+                let endTokParser = nextNonTriviaTokenIsL Token.KWEnd "end"
+                let! body = InterfaceTypeBody.parse endTokParser
+                let! endTok = endTokParser
+                return TypeDefn.Interface(typeName, equals, intf, body, endTok)
+
+            | t when t.Token = Token.KWClass ->
+                // Explicit Class
+                let! cls = nextNonTriviaTokenIsL Token.KWClass "class"
+                let endTokParser = nextNonTriviaTokenIsL Token.KWEnd "end"
+                let! body = ClassTypeBody.parse endTokParser
+                let! endTok = endTokParser
+                return TypeDefn.Class(typeName, primaryConstr, ValueNone, equals, cls, body, endTok)
+
+            | t when t.Token = Token.KWDelegate ->
+                let! delSig = DelegateSig.parse
+                return TypeDefn.Delegate(typeName, equals, delSig)
+
+            | t when t.Token = Token.KWLBrace ->
+                // Record
+                let! lBrace = nextNonTriviaTokenIsL Token.KWLBrace "{"
+                let! fields, _ = sepBy1 RecordField.parse (nextNonTriviaTokenIsL Token.OpSemicolon ";")
+                let! rBrace = nextNonTriviaTokenIsL Token.KWRBrace "}"
+                let! ext = opt TypeExtensionElements.parse
+                return TypeDefn.Record(typeName, equals, lBrace, List.ofSeq fields, rBrace, ext)
+
+            | t when t.Token = Token.OpBar ->
+                // Union or Enum
+                // Look ahead deeper to distinguish?
+                // Heuristic: Parse first case. If it has '=', it's Enum.
+                // Reusing UnionTypeCases but catching Enum pattern is complex without backtracking.
+                // Assuming Union for now as it's more common with '|' start.
+                let! cases = UnionTypeCases.parse
+                let! ext = opt TypeExtensionElements.parse
+                return TypeDefn.Union(typeName, equals, cases, ext)
+
+            | _ ->
+                // Abbreviation or Implicit Class?
+                // If it starts with Type, it's Abbrev.
+                // If it starts with 'member', 'val', 'new', 'inherit' -> Implicit Class.
+
+                // We attempt to parse Type. If successful and consumed everything? Abbrev.
+                // But 'new' is not a type start. 'member' is not.
+
+                // Let's lookahead at tokens that start a Class Body
+                let! isImplicitClass =
+                    lookAhead (
+                        choiceL
+                            [
+                                nextNonTriviaTokenIsL Token.KWMember "member"
+                                nextNonTriviaTokenIsL Token.KWVal "val"
+                                nextNonTriviaTokenIsL Token.KWNew "new"
+                                nextNonTriviaTokenIsL Token.KWInherit "inherit"
+                                nextNonTriviaTokenIsL Token.KWAbstract "abstract"
+                                nextNonTriviaTokenIsL Token.KWDefault "default"
+                                nextNonTriviaTokenIsL Token.KWOverride "override"
+                                // If primary constructor was present, it's definitely a class/struct
+                                (if primaryConstr.IsSome then
+                                     preturn (Unchecked.defaultof<_>)
+                                 else
+                                     fail (Message "Not implicit"))
+                            ]
+                            "Implicit check"
+                    )
+                    |> opt
+
+                match isImplicitClass with
+                | ValueSome _ ->
+                    // Implicit Class
+                    // AST `Anon` is often used for Implicit Class definitions (begin/end inferred or explicit)
+                    // Or `Class` with implicit tokens.
+                    // The AST `Anon` expects `begin`/`end`. F# implicit classes don't always have them.
+                    // We'll synthesize tokens or expect `begin`/`end` if the grammar strictly requires AST matching.
+                    // Assuming AST requires `begin` `end`:
+                    let! beginTok = nextNonTriviaTokenVirtualIfNot Token.KWBegin
+                    let endTokParser = nextNonTriviaTokenVirtualIfNot Token.KWEnd
+                    let! body = ClassTypeBody.parse endTokParser
+                    let! endTok = endTokParser // consume the virtual/real end
+                    return TypeDefn.Anon(typeName, primaryConstr, ValueNone, equals, beginTok, body, endTok)
+                | ValueNone ->
+                    // Abbreviation
+                    let! t = Type.parse
+                    return TypeDefn.Abbrev(typeName, equals, t)
+        }
+
+// ----------------------------------------------------------------------------
+// Units of Measure Parsers
+// ----------------------------------------------------------------------------
+
+module Measure =
+    [<RequireQualifiedAccess>]
+    type MeasureAux = | PowerOperand of SyntaxToken
+
+    type MeasureOperatorParser() =
+        static let productPrecedence = BindingPower.fromLevel 1 // * and /
+        static let juxtapositionPrecedence = BindingPower.fromLevel 2 // Implicit (whitespace)
+        static let powerPrecedence = BindingPower.fromLevel 3 // ^
+        static let reciprocalPrecedence = BindingPower.fromLevel 4 // / (Reciprocal)
+        static let parenPrecedence = BindingPower.fromLevel 10 // ( ... )
+
+        // --- Completion Functions ---
+
+        static let completeInfix (l: Measure<SyntaxToken>) (op: SyntaxToken) (r: Measure<SyntaxToken>) =
+            match op.Token with
+            | Token.OpMultiply -> Measure.Product(l, op, r)
+            | Token.OpDivision -> Measure.Quotient(l, op, r)
+            | _ -> failwithf "Unexpected infix measure operator: %A" op
+
+        static let completePrefix (op: SyntaxToken) (e: Measure<SyntaxToken>) =
+            match op.Token with
+            | Token.OpDivision -> Measure.Reciprocal(op, e)
+            | _ -> failwithf "Unexpected prefix measure operator: %A" op
+
+        static let completePower (l: Measure<SyntaxToken>) (op: SyntaxToken) (aux: MeasureAux) =
+            match aux with
+            | MeasureAux.PowerOperand exponentToken -> Measure.Power(l, op, exponentToken)
+
+        static let completeJuxtaposition (elements: ResizeArray<Measure<SyntaxToken>>) (ops: ResizeArray<SyntaxToken>) =
+            Measure.Juxtaposition(List.ofSeq elements, List.ofSeq ops)
+
+        static let completeParen (l: SyntaxToken) (m: Measure<SyntaxToken>) (r: SyntaxToken) = Measure.Paren(l, m, r)
+
+        // --- Aux Parsers ---
+
+        static let pPowerRhs =
+            parser {
+                let! intToken = nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsNumeric) "Expected integer exponent"
+                return MeasureAux.PowerOperand intToken
+            }
+
+        static let pJuxtapositionOp =
+            parser {
+                let! pos = getPosition
+                let! token = satisfyL (fun (t: PositionedToken) -> t.Token = Token.Whitespace) "Whitespace"
+
+                // Lookahead to confirm we are adjacent to a measure atom
+                let! _ =
+                    lookAhead (
+                        nextNonTriviaTokenSatisfiesL
+                            (fun t ->
+                                t.Token.IsIdentifier
+                                || t.Token = Token.OpLessThan
+                                || t.Token = Token.KWSingleQuote
+                                || t.Token = Token.Wildcard
+                                || t.Token = Token.KWLParen
+                                || t.Token.IsNumeric
+                            )
+                            "Measure Atom or Literal"
+                    )
+
+                return syntaxToken token pos.Index
+            }
+
+        // --- Parsers ---
+
+        static let lhsParser =
+            nextNonTriviaToken
+            >>= fun token ->
+                match token.Token with
+                | Token.OpDivision ->
+                    let p = preturn token
+                    // Reciprocal: / s
+                    let op = Prefix(token, p, reciprocalPrecedence, completePrefix)
+                    preturn op
+                | Token.KWLParen ->
+                    // Parenthesized measure
+                    let p = preturn token
+                    let rParen = virtualToken (PositionedToken.Create(Token.KWRParen, 0L))
+                    let op = Enclosed(token, p, parenPrecedence, rParen, pRParen, completeParen)
+
+                    preturn op
+                | _ -> fail (Message "Not a prefix measure operator")
+
+        static let rhsParser =
+            // Try whitespace (juxtaposition) first, then standard tokens
+            (pJuxtapositionOp <|> nextNonTriviaToken)
+            >>= fun token ->
+                match token.Token with
+                | Token.OpMultiply
+                | Token.OpDivision ->
+                    // Product: * or /
+                    let op = InfixLeft(token, preturn token, productPrecedence, completeInfix)
+                    preturn op
+
+                | Token.Whitespace ->
+                    // Juxtaposition: implicit multiplication
+                    let op =
+                        InfixNary(token, preturn token, juxtapositionPrecedence, completeJuxtaposition)
+
+                    preturn op
+
+                | Token.OpConcatenate ->
+                    // Power: ^
+                    // InfixMapped handles the parsing of the integer operand (Aux)
+                    let op =
+                        InfixMapped(token, preturn token, powerPrecedence, pPowerRhs, completePower)
+
+                    preturn op
+
+                | _ -> fail (Message "Not a valid RHS measure operator")
+
+        interface Operators<
+            SyntaxToken,
+            MeasureAux,
+            Measure<SyntaxToken>,
+            PositionedToken,
+            ParseState,
+            ReadableImmutableArray<PositionedToken>,
+            ReadableImmutableArraySlice<PositionedToken>
+         > with
+            member _.LhsParser = lhsParser
+            member _.RhsParser = rhsParser
+            member _.OpComparer = opComparer
+
+    let pOneLiteral =
+        parser {
+            let! state = getUserState
+
+            let! t =
+                nextNonTriviaTokenSatisfiesL
+                    (fun t -> t.Token = Token.NumInt32 && tokenStringIs "1" t state)
+                    "Expected '1'"
+
+            return Measure.One t
+        }
+
+    let pAnonymous = nextNonTriviaTokenIsL Token.Wildcard "_" |>> Measure.Anonymous
+    let pTypar = Typar.parse |>> Measure.Typar
+    let pNamed = LongIdent.parse |>> Measure.Named
+
+    let atomMeasureParser: Parser<Measure<SyntaxToken>, _, _, _, _> =
+        choiceL [ pOneLiteral; pAnonymous; pTypar; pNamed ] "Measure Atom"
+
+    let measureOperatorParser = MeasureOperatorParser()
+
+    let parse: Parser<Measure<SyntaxToken>, _, _, _, _> =
+        Operator.parser atomMeasureParser measureOperatorParser
 
 [<RequireQualifiedAccess>]
 module Reader =
     let ofLexed (lexed: Lexed) input =
         let initialState = ParseState.create lexed input
-        Reader.ofImmutableArray (lexed.Tokens.ToImmutableArray()) initialState
+        Reader.ofImmutableArray (lexed.Tokens.AsImmutableArray()) initialState
