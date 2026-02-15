@@ -191,7 +191,7 @@ let pToken =
 let readLexed (path: string) =
     let pLine =
         parser {
-            let! pos = pint64
+            let! pos = pint32
             let! _ = pstring ", "
             let! tok = pToken
             let! _ = newline
@@ -320,7 +320,7 @@ let testParseFile (filePath: string) =
         match Lexing.lexString input with
         | Error e -> failwithf "Lexing failed: %A" e
         | Ok lexed ->
-            let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed input
+            let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed input Set.empty
 
             match XParsec.FSharp.Parser.Expr.parse reader with
             | Error e -> failwithf "Parsing failed: %A" e
