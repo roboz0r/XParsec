@@ -462,11 +462,11 @@ and ArgSpec<'T> = | ArgSpec of attributes: Attributes<'T> voption * name: ArgNam
 
 and ArgsSpec<'T> = ArgSpec<'T> list
 
-and CurriedSig<'T> = | CurriedSig of args: ArgsSpec<'T> list * arrow: 'T * returnType: Type<'T>
+and CurriedSig<'T> = | CurriedSig of args: (struct (ArgsSpec<'T> * 'T)) list * returnType: Type<'T>
 
 and UncurriedSig<'T> = | UncurriedSig of args: ArgsSpec<'T> * arrow: 'T * returnType: Type<'T>
 
-and MemberSig<'T> =
+and [<RequireQualifiedAccess>] MemberSig<'T> =
     | MethodOrPropSig of ident: 'T * typarDefns: TyparDefns<'T> voption * colon: 'T * sign: CurriedSig<'T>
     | PropSig of
         ident: 'T *
@@ -572,11 +572,11 @@ and StructTypeBody<'T> = | StructTypeBody of elements: TypeDefnElements<'T>
 and InterfaceTypeBody<'T> = | InterfaceTypeBody of elements: TypeDefnElements<'T>
 
 // Represents: union-type-defn and its cases
-and UnionTypeField<'T> =
+and [<RequireQualifiedAccess>] UnionTypeField<'T> =
     | Unnamed of typ: Type<'T>
     | Named of ident: 'T * colon: 'T * typ: Type<'T>
 
-and UnionTypeCaseData<'T> =
+and [<RequireQualifiedAccess>] UnionTypeCaseData<'T> =
     | Nullary of ident: 'T
     | Nary of ident: 'T * ofToken: 'T * fields: UnionTypeField<'T> list
     | NaryUncurried of ident: 'T * colon: 'T * sign: UncurriedSig<'T>
@@ -606,7 +606,7 @@ and EnumTypeCases<'T> = EnumTypeCase<'T> list
 and TypeExtensionElements<'T> = | TypeExtensionElements of withToken: 'T * elements: TypeDefnElements<'T> * endToken: 'T
 
 // Represents: exception-defn
-and ExceptionDefn<'T> =
+and [<RequireQualifiedAccess>] ExceptionDefn<'T> =
     | Full of attributes: Attributes<'T> voption * exceptionToken: 'T * caseData: UnionTypeCaseData<'T>
     | Abbreviation of
         attributes: Attributes<'T> voption *
