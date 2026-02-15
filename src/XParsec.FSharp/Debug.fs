@@ -17,14 +17,14 @@ let printTokenFull (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (synT
         let t1 = lexed.Tokens.[iT + 1<_>]
         let i = synTok.StartIndex
         let i1 = t1.StartIndex
-        let iEnd = i1 - 1L
+        let iEnd = i1 - 1
         let len = iEnd - i
 
         let tokenStr =
-            if len > 10L then
-                input.[int i .. int (i - 10L)] + "..."
+            if len > 10 then
+                input.[int i .. int (i - 10)] + "..."
             else
-                input.[int i .. int (i1 - 1L)]
+                input.[int i .. int (i1 - 1)]
 
         let tokenStr =
             tokenStr.Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t")
