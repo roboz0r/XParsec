@@ -42,6 +42,51 @@ type Lexed =
         let tokenIndex = this.Blocks[blockIndex].TokenIndex
         this.Tokens[tokenIndex]
 
+    member this.GetLineForToken(i: int<token>) =
+        if i < 0<_> || int i >= this.Tokens.Length then
+            invalidArg (nameof i) "Index out of range"
+
+        // Binary search for the line containing the token
+
+        let rec loop (low: int<line>) (high: int<line>) =
+            if low > high then
+                invalidOp "Token index not found in any line"
+
+            let mid = (low + high) / 2
+            let lineStart = this.LineStarts[mid]
+
+            if lineStart = i then
+                mid
+            elif lineStart < i then
+                if mid + 1<_> < this.LineStarts.LengthM then
+                    let nextLineStart = this.LineStarts[mid + 1<_>]
+
+                    if nextLineStart > i then
+                        mid
+                    else
+                        let low = mid + 1<_>
+                        loop low high
+                else
+                    mid
+            else
+                let high = mid - 1<_>
+                loop low high
+
+        loop 0<_> (this.LineStarts.LengthM - 1<_>)
+
+    member this.GetTokenRangeOnLine(lineIndex: int<line>) =
+        if lineIndex < 0<_> || int lineIndex >= this.LineStarts.Length then
+            invalidArg (nameof lineIndex) "Index out of range"
+
+        let startTokenIndex = this.LineStarts[lineIndex]
+
+        let endTokenIndex =
+            if lineIndex + 1<_> < this.LineStarts.LengthM then
+                this.LineStarts[lineIndex + 1<_>] - 1<_>
+            else
+                this.Tokens.LengthM - 1<_>
+
+        startTokenIndex, endTokenIndex
 
 // Format specifications for printf formats are strings with % markers
 // that indicate format. Format placeholders consist of %[flags][width][.precision][type]
@@ -95,6 +140,8 @@ type LexContext =
     | BracketedExpression
     | QuotedExpression
     | TypedQuotedExpression
+    /// #if context has different rules for identifiers and operators, so we track it with a separate context
+    | IfDirective
 
 type LexBuilder =
     {
@@ -679,7 +726,6 @@ module Lexing =
                 true
             | _ -> false
 
-    let pIdentStartChar = satisfyL isIdentStartChar "identifier start character"
 
     let isIdentChar c =
         if c = '_' || c = '\'' then
@@ -703,10 +749,9 @@ module Lexing =
                 true
             | _ -> false
 
+    let pIdentStartChar = satisfyL isIdentStartChar "identifier start character"
     let pIdentChar = satisfyL isIdentChar "identifier character"
-
-    let pIdentifier: Parser<_, char, LexBuilder, ReadableString, _> =
-        many1Chars2 pIdentStartChar pIdentChar
+    let pIdentifier = many1Chars2 pIdentStartChar pIdentChar
 
     let pIdentifierOrKeywordToken =
         let keywords = dict identifierKeywords
@@ -809,6 +854,62 @@ module Lexing =
                 reader.State <- LexBuilder.append Token.KWReservedBacktick pos CtxOp.NoOp reader.State
                 preturn () reader
             | _ -> fail (Message "Expected backticked identifier") reader
+
+    module IfDirective =
+        // 3.3 Conditional Compilation
+        // The #if directive allows conditional compilation based on the presence of compiler symbols.
+        // The syntax doesn't allow most things that are normally allowed in F#, so we use a separate context to handle it.
+        let pNewlineToken =
+            parser {
+                let! pos = getPosition
+                do! skipNewline
+
+                do!
+                    updateUserState (fun x ->
+                        x
+                        |> LexBuilder.append Token.Newline pos CtxOp.NoOp
+                        |> LexBuilder.popExactContext LexContext.IfDirective
+                    )
+            }
+
+        let pIdentifierOrOther =
+            choiceL [ pToken pIdentifier Token.Identifier; pToken pid Token.OtherUnlexed ] "#if Identifier or keyword"
+
+        let pAnd =
+            choiceL
+                [
+                    pToken (pstring "&&") Token.OpAmpAmp
+                    pToken (pchar '&') Token.OpAmp // & is invalid in #if but we want the lexer to always succeed
+                ]
+                "#if And operator"
+
+        let pOr =
+            choiceL [ pToken (pstring "||") Token.OpBarBar; pToken (pchar '|') Token.OpBar ] "#if Or operator"
+
+        let pNot = pToken (pstring "!") Token.OpDereference
+
+        let pLParenToken =
+            choiceL
+                [
+                    // 3.2 Comments
+                    // Block comments are not allowed in #if directives, but we want the lexer to recognize
+                    // the start of a block comment so that it can be flagged as an error later
+                    pToken (pstring "(*") Token.BlockCommentStart
+                    //
+                    pToken (pchar '(') Token.KWLParen
+                ]
+                "Left parenthesis or unit"
+
+        let pWhitespaceToken =
+            parser {
+                let! pos = getPosition
+                let! spaces = many1Chars (pchar ' ')
+
+                do! updateUserState (LexBuilder.append Token.Whitespace pos CtxOp.NoOp)
+            }
+
+        let pRParenToken =
+            choiceL [ pToken (pchar ')') Token.KWRParen ] "Right parenthesis or unit"
 
     // https://fsharp.github.io/fslang-spec/lexical-analysis/#35-strings-and-characters
 
@@ -2151,26 +2252,32 @@ module Lexing =
 
             if not atStart then
                 return! fail (Message "Directives must be at start of line or immediately after indentation")
+            else
+                let! pos = getPosition
 
-            let! pos = getPosition
+                let! token =
+                    choiceL
+                        [
+                            anyStringReturn directives
+                            // # int
+                            // We just peek the int to distinguish from InvalidDirective
+                            // The actual int is lexed to a separate token
+                            tuple3
+                                (pchar '#')
+                                (many1Chars (pchar ' '))
+                                (followedBy (many1Chars (satisfy NumericLiterals.isDecimalDigit)))
+                            >>% Token.LineIntDirective
+                            pchar '#' .>> manyChars pIdentChar >>% Token.InvalidDirective
+                        ]
+                        "Directive"
 
-            let! token =
-                choiceL
-                    [
-                        anyStringReturn directives
-                        // # int
-                        // We just peek the int to distinguish from InvalidDirective
-                        // The actual int is lexed to a separate token
-                        tuple3
-                            (pchar '#')
-                            (many1Chars (pchar ' '))
-                            (followedBy (many1Chars (satisfy NumericLiterals.isDecimalDigit)))
-                        >>% Token.LineIntDirective
-                        pchar '#' .>> manyChars pIdentChar >>% Token.InvalidDirective
-                    ]
-                    "Directive"
-
-            do! updateUserState (LexBuilder.append token pos CtxOp.NoOp)
+                do!
+                    updateUserState (fun x ->
+                        match token with
+                        | Token.IfDirective -> x |> LexBuilder.pushContext LexContext.IfDirective
+                        | _ -> x
+                        |> LexBuilder.append token pos CtxOp.NoOp
+                    )
         }
 
 
@@ -2184,71 +2291,81 @@ module Lexing =
         Ok(LexBuilder.complete reader.Position.Index reader.State)
 
     and private dispatcher state c =
-        let ctx = LexBuilder.currentContext state
-        // printfn "At %A, Context: %A, Next char: %A" reader.Position.Index ctx c
-        match c, ctx with
-        | ValueNone, _ -> complete
-        | ValueSome('\r' | '\n'), ExpressionCtx -> pNewlineToken >>= lex
-        | ValueSome ' ', ExpressionCtx -> pIndentOrWhitespaceToken >>= lex
-        | ValueSome '\t', ExpressionCtx -> pTabToken >>= lex
-        | ValueSome ',', ExpressionCtx -> pCommaToken >>= lex
-        | ValueSome '(', ExpressionCtx -> pLParenToken >>= lex
-        | ValueSome ')', ExpressionCtx -> pCloseParenExpressionContext >>= lex
-        | ValueSome '[', ExpressionCtx -> pLBacketToken >>= lex
-        | ValueSome '>', ExpressionCtx -> pGreaterThanToken >>= lex
-        | ValueSome ']', ExpressionCtx -> pCloseBracketExpressionContext >>= lex
-        | ValueSome '{', LexContext.InterpolatedString ->
-            // In an interpolated string, { starts an expression or is escaped as {{
-            pInterpolatedExpressionStartToken >>= lex
-        | ValueSome '{', LexContext.VerbatimInterpolatedString ->
-            // In a verbatim interpolated string, { starts an expression or is escaped as {{
-            pInterpolatedExpressionStartToken >>= lex
-        | ValueSome '{', LexContext.Interpolated3String level ->
-            // In a triple-quoted interpolated string, { * level starts an expression or is escaped as {{
-            pInterpolated3ExpressionStartToken >>= lex
-        | ValueSome '{', _ -> pOpenBraceExpressionContext >>= lex
-        | ValueSome '}', LexContext.InterpolatedString ->
-            // In an interpolated string, } is escaped as }}
-            pInterpolatedStringFragmentRBraces >>= lex
-        | ValueSome '}', LexContext.VerbatimInterpolatedString ->
-            // In a verbatim interpolated string, } is escaped as }}
-            pInterpolatedStringFragmentRBraces >>= lex
-        | ValueSome '}', LexContext.Interpolated3String level ->
-            // In a triple-quoted interpolated string, required } depends on level
-            pInterpolated3StringFragmentRBraces >>= lex
-        | ValueSome '}', LexContext.InterpolatedExpression ->
-            // In an interpolated expression, } ends the expression
-            pInterpolatedExpressionEndToken >>= lex
-        | ValueSome '}', NonInterpolatedExpressionCtx -> pCloseBraceExpressionContext >>= lex
-        | ValueSome '"', LexContext.InterpolatedString -> pInterpolatedStringEndToken >>= lex
-        | ValueSome '"', LexContext.VerbatimInterpolatedString -> pVerbatimInterpolatedStringQuoteToken >>= lex
-        | ValueSome '"', LexContext.Interpolated3String _ -> pInterpolated3EndToken >>= lex
-        | ValueSome '"', _ ->
-            // String or triple-quoted string literals
-            pDoubleQuoteToken >>= lex
-        | ValueSome ''', ExpressionCtx ->
-            // Char literals, type parameters, or a single quote
-            pSingleQuoteToken >>= lex
-        | ValueSome '$', ExpressionCtx ->
-            // Interpolated strings
-            pDollarToken >>= lex
-        | ValueSome '@', ExpressionCtx ->
-            // Verbatim strings
-            pAtToken >>= lex
-        | ValueSome '/', ExpressionCtx -> pSlashToken >>= lex
-        | ValueSome '%',
-          (LexContext.InterpolatedString | LexContext.VerbatimInterpolatedString | LexContext.Interpolated3String _) ->
-            pFormatSpecifierTokens >>= lex
-        | ValueSome _, LexContext.InterpolatedString -> pInterpolatedStringFragmentToken >>= lex
-        | ValueSome _, LexContext.VerbatimInterpolatedString -> pVerbatimInterpolatedStringFragmentToken >>= lex
-        | ValueSome _, LexContext.Interpolated3String _ -> pInterpolated3StringFragmentToken >>= lex
-        | ValueSome ';', ExpressionCtx -> pSemicolonToken >>= lex
-        | ValueSome '.', ExpressionCtx -> pDotToken >>= lex
-        | ValueSome '#', ExpressionCtx -> pHashToken >>= lex
-        | ValueSome c, ExpressionCtx when NumericLiterals.isDecimalDigit c -> NumericLiterals.parseToken >>= lex
-        | ValueSome c, ExpressionCtx when customOperatorChars.Contains c -> pCustomOperatorToken >>= lex
-        | ValueSome c, ExpressionCtx when isIdentStartChar c -> pIdentifierOrKeywordToken >>= lex
-        | ValueSome _, _ -> pOtherToken >>= lex
+        match c with
+        | ValueNone -> complete
+        | ValueSome c ->
+            let ctx = LexBuilder.currentContext state
+            // printfn "At %A, Context: %A, Next char: %A" reader.Position.Index ctx c
+            match c, ctx with
+            | ('\r' | '\n'), LexContext.IfDirective -> IfDirective.pNewlineToken >>= lex
+            | '(', LexContext.IfDirective -> IfDirective.pLParenToken >>= lex
+            | ')', LexContext.IfDirective -> IfDirective.pRParenToken >>= lex
+            | '&', LexContext.IfDirective -> IfDirective.pAnd >>= lex
+            | '|', LexContext.IfDirective -> IfDirective.pOr >>= lex
+            | '!', LexContext.IfDirective -> IfDirective.pNot >>= lex
+            | ' ', LexContext.IfDirective -> IfDirective.pWhitespaceToken >>= lex
+            | _, LexContext.IfDirective -> IfDirective.pIdentifierOrOther >>= lex
+            | ('\r' | '\n'), ExpressionCtx -> pNewlineToken >>= lex
+            | ' ', ExpressionCtx -> pIndentOrWhitespaceToken >>= lex
+            | '\t', ExpressionCtx -> pTabToken >>= lex
+            | ',', ExpressionCtx -> pCommaToken >>= lex
+            | '(', ExpressionCtx -> pLParenToken >>= lex
+            | ')', ExpressionCtx -> pCloseParenExpressionContext >>= lex
+            | '[', ExpressionCtx -> pLBacketToken >>= lex
+            | '>', ExpressionCtx -> pGreaterThanToken >>= lex
+            | ']', ExpressionCtx -> pCloseBracketExpressionContext >>= lex
+            | '{', LexContext.InterpolatedString ->
+                // In an interpolated string, { starts an expression or is escaped as {{
+                pInterpolatedExpressionStartToken >>= lex
+            | '{', LexContext.VerbatimInterpolatedString ->
+                // In a verbatim interpolated string, { starts an expression or is escaped as {{
+                pInterpolatedExpressionStartToken >>= lex
+            | '{', LexContext.Interpolated3String level ->
+                // In a triple-quoted interpolated string, { * level starts an expression or is escaped as {{
+                pInterpolated3ExpressionStartToken >>= lex
+            | '{', _ -> pOpenBraceExpressionContext >>= lex
+            | '}', LexContext.InterpolatedString ->
+                // In an interpolated string, } is escaped as }}
+                pInterpolatedStringFragmentRBraces >>= lex
+            | '}', LexContext.VerbatimInterpolatedString ->
+                // In a verbatim interpolated string, } is escaped as }}
+                pInterpolatedStringFragmentRBraces >>= lex
+            | '}', LexContext.Interpolated3String level ->
+                // In a triple-quoted interpolated string, required } depends on level
+                pInterpolated3StringFragmentRBraces >>= lex
+            | '}', LexContext.InterpolatedExpression ->
+                // In an interpolated expression, } ends the expression
+                pInterpolatedExpressionEndToken >>= lex
+            | '}', NonInterpolatedExpressionCtx -> pCloseBraceExpressionContext >>= lex
+            | '"', LexContext.InterpolatedString -> pInterpolatedStringEndToken >>= lex
+            | '"', LexContext.VerbatimInterpolatedString -> pVerbatimInterpolatedStringQuoteToken >>= lex
+            | '"', LexContext.Interpolated3String _ -> pInterpolated3EndToken >>= lex
+            | '"', _ ->
+                // String or triple-quoted string literals
+                pDoubleQuoteToken >>= lex
+            | ''', ExpressionCtx ->
+                // Char literals, type parameters, or a single quote
+                pSingleQuoteToken >>= lex
+            | '$', ExpressionCtx ->
+                // Interpolated strings
+                pDollarToken >>= lex
+            | '@', ExpressionCtx ->
+                // Verbatim strings
+                pAtToken >>= lex
+            | '/', ExpressionCtx -> pSlashToken >>= lex
+            | '%',
+              (LexContext.InterpolatedString | LexContext.VerbatimInterpolatedString | LexContext.Interpolated3String _) ->
+                pFormatSpecifierTokens >>= lex
+            | _, LexContext.InterpolatedString -> pInterpolatedStringFragmentToken >>= lex
+            | _, LexContext.VerbatimInterpolatedString -> pVerbatimInterpolatedStringFragmentToken >>= lex
+            | _, LexContext.Interpolated3String _ -> pInterpolated3StringFragmentToken >>= lex
+            | ';', ExpressionCtx -> pSemicolonToken >>= lex
+            | '.', ExpressionCtx -> pDotToken >>= lex
+            | '#', ExpressionCtx -> pHashToken >>= lex
+            | c, ExpressionCtx when NumericLiterals.isDecimalDigit c -> NumericLiterals.parseToken >>= lex
+            | c, ExpressionCtx when customOperatorChars.Contains c -> pCustomOperatorToken >>= lex
+            | c, ExpressionCtx when isIdentStartChar c -> pIdentifierOrKeywordToken >>= lex
+            | _, _ -> pOtherToken >>= lex
 
     let lexString (input: string) =
         let reader = Reader.ofString input (LexBuilder.init ())

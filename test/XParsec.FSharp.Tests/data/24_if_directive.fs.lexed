@@ -1,0 +1,16 @@
+0, ReservedIdentifierHash
+1, KWIf
+3, Whitespace
+4, Identifier
+5, Whitespace
+6, Operator 0b1000000000001111 LogicalAndBitwise
+8, Whitespace
+9, Identifier
+10, Whitespace
+11, Operator 0b1000000001001111 LogicalAndBitwise (can be prefix)
+13, Whitespace
+14, OpDereference
+15, Identifier
+16, Whitespace
+17, LineComment
+26, EOF
