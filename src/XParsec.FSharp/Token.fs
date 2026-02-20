@@ -678,8 +678,14 @@ module TokenRepresentation =
         [<Literal>]
         let Hat = 187us // ^
 
+        [<Literal>]
+        let AmpAmp = 188us // &&
+
+        [<Literal>]
+        let BarBar = 189us // ||
+
         // ==========================================================
-        // Available 188-199us
+        // Available 190-199us
         // ==========================================================
 
         [<Literal>]
@@ -1230,7 +1236,6 @@ type Token =
     | StartOCamlBlockComment = (KindSpecial ||| Special.StartOCamlBlockComment) // "(*IF-CAML*)" | "(*IF-OCAML*)" starts a block comment ignored by OCaml
     | EndOCamlBlockComment = (KindSpecial ||| Special.EndOCamlBlockComment) // "ENDIF-CAML*)" | "ENDIF-OCAML*)" ends a block comment ignored by OCaml
 
-
     // ==============================================================================
     // 2. IDENTIFIERS (KindIdentifier 0x2000)
     // ==============================================================================
@@ -1416,6 +1421,9 @@ type Token =
 
     // & Note: '&' isn't listed as a symbolic keyword in the spec, but it is used in patterns so treat as a keyword to avoid rechecking the text
     | OpAmp = (KindKeyword ||| KW.Amp)
+    // Note: '&&' and '||' aren't listed as a symbolic keyword in the spec, but it is used in conditional compilation so treat as a keyword to avoid rechecking the text
+    | OpAmpAmp = (KindKeyword ||| KW.AmpAmp)
+    | OpBarBar = (KindKeyword ||| KW.BarBar)
     // These are not listed as symbolic operators in the spec, but we define them as unique tokens to simplify measure parsing
     | OpMultiply = (KindKeyword ||| KW.Star) // *
     | OpDivision = (KindKeyword ||| KW.Slash) // /
@@ -1788,6 +1796,8 @@ module internal TokenInfo =
             | Token.OpDowncast
             | Token.OpUpcast
             | Token.OpAmp
+            | Token.OpAmpAmp
+            | Token.OpBarBar
             | Token.OpMultiply
             | Token.OpDivision
             | Token.OpConcatenate -> true
@@ -1815,7 +1825,8 @@ module internal TokenInfo =
             | Token.OpArrowRight -> PrecedenceLevel.Arrow
             | Token.OpAssignment -> PrecedenceLevel.Assignment
             | Token.OpComma -> PrecedenceLevel.Comma
-            | Token.KWOr -> PrecedenceLevel.LogicalOr
+            | Token.KWOr
+            | Token.OpBarBar -> PrecedenceLevel.LogicalOr
             | Token.KWDowncast
             | Token.KWUpcast
             | Token.OpDowncast
@@ -1826,7 +1837,8 @@ module internal TokenInfo =
             | Token.KWAssert -> PrecedenceLevel.Function // same as function application
             | Token.OpBar -> PrecedenceLevel.PatternMatchBar // pattern match bar
             | Token.OpDot -> PrecedenceLevel.Dot
-            | Token.OpAmp -> PrecedenceLevel.LogicalAnd
+            | Token.OpAmp
+            | Token.OpAmpAmp -> PrecedenceLevel.LogicalAnd
             | Token.OpMultiply
             | Token.OpDivision -> PrecedenceLevel.InfixMultiply
             | Token.OpConcatenate -> PrecedenceLevel.Power
@@ -1859,7 +1871,7 @@ type PositionedToken =
     val private value: uint64
     private new(value: uint64) = { value = value }
 
-    static member Create(tokenValue: Token, startIndex: int64) =
+    static member Create(tokenValue: Token, startIndex: int) =
         let indexPart = uint64 startIndex <<< 16
         let tokenPart = uint64 tokenValue
         PositionedToken(indexPart ||| tokenPart)
@@ -1867,7 +1879,7 @@ type PositionedToken =
     member this.Token: Token =
         this.value &&& TokenMask |> uint16 |> LanguagePrimitives.EnumOfValue
 
-    member this.StartIndex: int64 = int64 (this.value >>> 16)
+    member this.StartIndex: int = int (this.value >>> 16)
 
     override this.ToString() =
         let inComment =

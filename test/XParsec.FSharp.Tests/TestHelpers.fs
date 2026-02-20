@@ -167,8 +167,8 @@ let pToken =
     typeof<Token>.GetEnumValues()
     |> Seq.cast<Token>
     |> Seq.toArray
+    |> Array.sortByDescending (fun t -> t.ToString().Length) // Sort by length to ensure longer matches are tried first (e.g. OpBarBar before OpBar)
     |> Array.map (fun case ->
-        // printfn "Creating parser for %O" case
         parser {
             let! tokNoFlags = pstring (case.ToString()) >>% (uint16 case)
             let! inComment = (pstring " (in comment)" >>% TokenRepresentation.InComment) <|>% 0us
