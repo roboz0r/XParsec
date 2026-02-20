@@ -244,7 +244,7 @@ let testLexedBlocks (input: string) (expected: _ list) =
         failwith "Lexing failed"
 
 let testDataDir =
-    lazy DirectoryInfo(IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "data")).FullName
+    lazy DirectoryInfo(IO.Path.Combine(__SOURCE_DIRECTORY__, "data")).FullName
 
 let blocksTestDataDir = lazy IO.Path.Combine(testDataDir.Value, "blocks")
 
