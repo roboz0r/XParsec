@@ -147,13 +147,17 @@ module Parsing =
         match reader.Peek() with
         | ValueNone -> fail EndOfInput reader
         | ValueSome token when isTriviaToken reader.State token ->
-            let indent = ParseState.getIndent reader.State (tokenIndex reader)
             reader.Skip()
-            nextNonTriviaToken reader
+            nextNonTriviaTokenVirtualIfNot t reader // recurse past trivia with the same target token
         | ValueSome token ->
             if token.Token = t then
-                preturn (syntaxToken token reader.Index) reader
+                // Real token matches: consume it and return it.
+                let st = syntaxToken token reader.Index
+                reader.Skip()
+                preturn st reader
             else
+                // Real token doesn't match: synthesise a virtual token in its place without
+                // consuming the actual token (the caller's body parser will see it next).
                 let pt =
                     PositionedToken.Create(
                         Token.ofUInt16 (uint16 t ||| TokenRepresentation.IsVirtual),
@@ -1552,6 +1556,7 @@ module Expr =
 
     type ExprOperatorParser() =
         let completeInfix (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) = Expr.InfixApp(l, op, r)
+        let completeSemicolon (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) = Expr.Sequential(l, op, r)
         let completePrefix (op: SyntaxToken) (e: Expr<_>) = Expr.PrefixApp(op, e)
         let completeTuple (elements: ResizeArray<Expr<_>>) ops = Expr.Tuple(List.ofSeq elements)
 
@@ -1656,7 +1661,7 @@ module Expr =
                     // | PrecedenceLevel.When -> (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
                     | PrecedenceLevel.Pipe -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
                     | PrecedenceLevel.Semicolon ->
-                        (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
+                        (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeSemicolon))
                     // Atom keywords
                     // | PrecedenceLevel.Let -> (fun op -> InfixNonAssociative(op, preturn op, power, completeInfix))
                     // | PrecedenceLevel.Function -> (fun op -> InfixNonAssociative(op, preturn op, power, completeInfix))
