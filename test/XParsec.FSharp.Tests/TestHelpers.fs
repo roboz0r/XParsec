@@ -354,3 +354,6 @@ let testParseFileWith (definedSymbols: Set<string>) (filePath: string) =
         Expect.equal actual expected "Parsed output does not match expected output."
 
 let testParseFile (filePath: string) = testParseFileWith Set.empty filePath
+
+let testParseFileWithSymbols (symbols: string list) (filePath: string) =
+    testParseFileWith (Set.ofList symbols) filePath
