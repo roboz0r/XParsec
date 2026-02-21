@@ -311,16 +311,32 @@ let testLexFileBlocks (filePath: string) =
         let expected = readLexed expectedPath
         testLexedBlocks input expected
 
-let testParseFile (filePath: string) =
+/// Parses a source file using the given set of defined preprocessor symbols and compares
+/// the result against a golden `.parsed` file.
+///
+/// The golden file path is derived from the source path:
+///   - no symbols  → `<filePath>.parsed`
+///   - with symbols → `<filePath>.<sym1>_<sym2>….parsed`  (symbols sorted for determinism)
+///
+/// If the golden file does not yet exist it is created and the test fails with a prompt
+/// to verify the generated output.
+let testParseFileWith (definedSymbols: Set<string>) (filePath: string) =
     let input = File.ReadAllText filePath
     let input = input.Replace("\r\n", "\n")
-    let expectedPath = filePath + ".parsed"
+
+    let symbolSuffix =
+        if definedSymbols.IsEmpty then
+            ""
+        else
+            "." + (definedSymbols |> String.concat "_")
+
+    let expectedPath = filePath + symbolSuffix + ".parsed"
 
     let actual =
         match Lexing.lexString input with
         | Error e -> failwithf "Lexing failed: %A" e
         | Ok lexed ->
-            let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed input Set.empty
+            let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed input definedSymbols
 
             match XParsec.FSharp.Parser.Expr.parse reader with
             | Error e -> failwithf "Parsing failed: %A" e
@@ -336,3 +352,5 @@ let testParseFile (filePath: string) =
     else
         let expected = File.ReadAllText expectedPath
         Expect.equal actual expected "Parsed output does not match expected output."
+
+let testParseFile (filePath: string) = testParseFileWith Set.empty filePath
