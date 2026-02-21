@@ -85,7 +85,11 @@ type OffsideContext =
     | Vanilla
 
 type Offside =
-    { Context: OffsideContext; Indent: int }
+    {
+        Context: OffsideContext
+        Indent: int
+        Token: PositionedToken
+    }
 
 [<RequireQualifiedAccess>]
 type DiagnosticCode =

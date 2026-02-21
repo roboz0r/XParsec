@@ -189,6 +189,58 @@ module Parsing =
         let indent = ParseState.getIndent state index
         preturn indent reader
 
+    /// Returns the column (0-based) of the next non-trivia token without consuming it.
+    /// Returns -1 at EOF.
+    let peekNonTriviaIndent =
+        lookAhead
+            (fun r ->
+                match nextNonTriviaToken r with
+                | Error _ -> preturn -1 r
+                | Ok token ->
+                    match token.Index with
+                    | TokenIndex.Virtual -> preturn 0 r
+                    | TokenIndex.Regular tokenIdx ->
+                        let indent = ParseState.getIndent r.State tokenIdx
+                        preturn indent r)
+
+    /// Synthesises a VirtualSep (virtual `;`) token at the current reader position
+    /// without consuming any input.
+    let makeVirtualSep (reader: Reader<PositionedToken, ParseState, _, _>) =
+        match reader.Peek() with
+        | ValueNone -> fail EndOfInput reader
+        | ValueSome token ->
+            preturn
+                {
+                    PositionedToken = PositionedToken.Create(Token.VirtualSep, token.StartIndex)
+                    Index = TokenIndex.Virtual
+                }
+                reader
+
+    /// Parses a sequence of expressions at the same base indentation as the first element,
+    /// combining them into right-associative Expr.Sequential chains with VirtualSep separators.
+    /// Used inside begin/end blocks and function bodies in light syntax.
+    let pSeqBlock pElem =
+        parser {
+            let! baseIndent = peekNonTriviaIndent
+            let! first = pElem
+
+            let! rest =
+                many (
+                    parser {
+                        let! nextIndent = peekNonTriviaIndent
+
+                        if nextIndent = baseIndent then
+                            let! sep = makeVirtualSep
+                            let! elem = pElem
+                            return (sep, elem)
+                        else
+                            return! fail (Message "Not at base indent")
+                    }
+                )
+
+            return (first, rest) ||> Seq.fold (fun acc (sep, elem) -> Expr.Sequential(acc, sep, elem))
+        }
+
 [<AutoOpen>]
 module internal Keywords =
     let isAccessModifier (token: SyntaxToken) =
@@ -897,7 +949,7 @@ module FunctionDefn =
 
             let! returnType = opt ReturnType.parse
             let! equals = pEquals
-            let! expr = Expr.parse
+            let! expr = pSeqBlock Expr.parse
 
             return
                 FunctionDefn.FunctionDefn(
@@ -924,7 +976,7 @@ module ValueDefn =
             let! typarDefns = opt TyparDefns.parse
             let! returnType = opt ReturnType.parse
             let! equals = pEquals
-            let! expr = Expr.parse
+            let! expr = pSeqBlock Expr.parse
             return ValueDefn.ValueDefn(mut, access, pat, typarDefns, returnType, equals, expr)
         }
 
@@ -1901,7 +1953,7 @@ module Expr =
     let pBeginEnd =
         parser {
             let! l = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWBegin) "Expected 'begin'"
-            let! e = refExpr.Parser
+            let! e = pSeqBlock refExpr.Parser
             let! r = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWEnd) "Expected 'end'"
             return Expr.BeginEndBlock(l, e, r)
         }
