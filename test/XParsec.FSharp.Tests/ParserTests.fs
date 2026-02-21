@@ -72,6 +72,6 @@ let tests =
 
             test "If Directives (active branch)" {
                 let path = Path.Combine(testDataDir.Value, "24_if_directive.fs")
-                testParseFileWith (Set.ofList [ "A" ]) path
+                testParseFileWithSymbols [ "A" ] path
             }
         ]
