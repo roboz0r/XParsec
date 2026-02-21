@@ -1,0 +1,5 @@
+0, NumInt32
+1, OpSemicolon
+2, Whitespace
+3, NumInt32
+4, EOF

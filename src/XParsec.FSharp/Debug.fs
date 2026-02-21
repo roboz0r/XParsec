@@ -270,6 +270,14 @@ let printExpr (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (expr: Exp
         printExpr tw input lexed left
         printExpr tw input lexed right
         tw.Indent <- tw.Indent - 1
+    | Expr.Sequential(left, sep, right) ->
+        tw.Write("Sequential: ")
+        printTokenMin tw input lexed sep
+        tw.WriteLine()
+        tw.Indent <- tw.Indent + 1
+        printExpr tw input lexed left
+        printExpr tw input lexed right
+        tw.Indent <- tw.Indent - 1
     | Expr.Tuple elements ->
         tw.WriteLine("Tuple:")
         tw.Indent <- tw.Indent + 1

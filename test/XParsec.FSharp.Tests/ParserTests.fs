@@ -74,4 +74,12 @@ let tests =
                 let path = Path.Combine(testDataDir.Value, "24_if_directive.fs")
                 testParseFileWithSymbols [ "A" ] path
             }
+            test "Implicit In" {
+                let path = Path.Combine(testDataDir.Value, "25_implicit_in.fs")
+                testParseFile path
+            }
+            test "Sequential" {
+                let path = Path.Combine(testDataDir.Value, "26_sequential.fs")
+                testParseFile path
+            }
         ]
