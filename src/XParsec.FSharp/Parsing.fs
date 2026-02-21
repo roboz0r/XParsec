@@ -915,7 +915,7 @@ module ElifBranch =
             let! elifTok = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWElif) "Expected 'elif'"
             let! condition = Expr.parse
             let! thenTok = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWThen) "Expected 'then'"
-            let! expr = Expr.parse
+            let! expr = pSeqBlock Expr.parse
             return ElifBranch.ElifBranch(elifTok, condition, thenTok, expr)
         }
 
@@ -923,7 +923,7 @@ module ElseBranch =
     let parse: Parser<ElseBranch<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
             let! elseTok = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWElse) "Expected 'else'"
-            let! expr = Expr.parse
+            let! expr = pSeqBlock Expr.parse
             return ElseBranch.ElseBranch(elseTok, expr)
         }
 
@@ -1938,7 +1938,7 @@ module Expr =
             let! letTok = pLet
             let! valueDefn = ValueDefn.parse
             let! inTok = pInVirt
-            let! expr = refExpr.Parser
+            let! expr = pSeqBlock refExpr.Parser
             return Expr.LetValue(letTok, valueDefn, inTok, expr)
         }
 
@@ -1997,7 +1997,7 @@ module Expr =
             let! ifTok = pIf
             let! cond = refExpr.Parser
             let! thenTok = pThen
-            let! thenExpr = refExpr.Parser
+            let! thenExpr = pSeqBlock refExpr.Parser
             let! elifs = many ElifBranch.parse
             let! elseBranch = opt ElseBranch.parse
             return Expr.IfThenElse(ifTok, cond, thenTok, thenExpr, List.ofSeq elifs, elseBranch)

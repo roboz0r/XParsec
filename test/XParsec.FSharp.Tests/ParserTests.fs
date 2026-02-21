@@ -94,4 +94,12 @@ let tests =
                 let path = Path.Combine(testDataDir.Value, "29_let_body_seq.fs")
                 testParseFile path
             }
+            test "Let In-Body Sequential" {
+                let path = Path.Combine(testDataDir.Value, "30_let_in_body_seq.fs")
+                testParseFile path
+            }
+            test "If-Then-Else Sequential" {
+                let path = Path.Combine(testDataDir.Value, "31_if_then_else_seq.fs")
+                testParseFile path
+            }
         ]

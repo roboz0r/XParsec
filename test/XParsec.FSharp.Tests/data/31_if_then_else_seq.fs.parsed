@@ -1,0 +1,14 @@
+IfThenElse:
+  IfToken: 0, KWIf(0<token>)
+  Condition:
+    Const: 3, KWTrue(2<token>) 'true'
+  ThenToken: 8, KWThen(4<token>)
+  ThenExpr:
+    Sequential: 18, 1024 (virtual)(<virt>)
+      Const: 17, NumInt32(7<token>) '1'
+      Const: 23, NumInt32(10<token>) '2'
+  ElseToken: 25, KWElse(12<token>)
+  ElseExpr:
+    Sequential: 35, 1024 (virtual)(<virt>)
+      Const: 34, NumInt32(15<token>) '3'
+      Const: 40, NumInt32(18<token>) '4'
