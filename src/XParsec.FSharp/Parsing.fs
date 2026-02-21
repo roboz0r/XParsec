@@ -7,229 +7,75 @@ open XParsec
 open XParsec.OperatorParsing
 open XParsec.Parsers
 open XParsec.FSharp.Lexer
+open XParsec.FSharp.Parser.SyntaxToken
+open XParsec.FSharp.Parser.ParseState
 
 #nowarn "40" // recursive references
 
-[<RequireQualifiedAccess>]
-[<Struct>]
-type TokenIndex =
-    | Regular of int<token>
-    | Virtual
-
-[<Struct>]
-type SyntaxToken =
-    {
-        PositionedToken: PositionedToken
-        Index: TokenIndex
-    }
-
-    member this.StartIndex = this.PositionedToken.StartIndex
-    member this.Token = this.PositionedToken.Token
-
-// type ParserContext =
-//     | InExpression
-//     | InType
-//     | InPattern
-//     | InImport
-//     | InMember
-//     | InParameter
-//     | InArgument
-//     | InMatchCase
-//     | InTuple
-//     | InArrayOrList
-//     | InRecord
-//     | InUnionCase
-//     | InAttribute
-//     | InComputationExpression
-//     | InInterpolation
-
-type DiagnosticCode =
-    // TODO: Use F# error codes
-    | Other of string
-    | TyparInConstant of Typar<SyntaxToken>
-
-type Diagnostic =
-    {
-        Code: DiagnosticCode
-        Token: PositionedToken
-        TokenEnd: PositionedToken option
-    }
-
-[<RequireQualifiedAccess>]
-type Syntax =
-    | Light
-    | Verbose
-
-type ParseState =
-    {
-        Input: string
-        Lexed: Lexed
-        // Context: Stack<ParserContext>
-        Diagnostics: ImmutableArray<Diagnostic>.Builder
-        mutable IndentDirective: Syntax
-        mutable MinimumIndentationStack: int64 list
-        mutable LastLine: int<line>
-        mutable ReprocessOpAfterTypeDeclaration: bool
-    }
-
-    member this.MinimumIndentation =
-        match this.MinimumIndentationStack with
-        | [] -> 0L
-        | x :: _ -> x
-
-module ParseState =
-    let create (lexed: Lexed) input =
-        {
-            Input = input
-            Lexed = lexed
-            // Context = Stack<ParserContext>()
-            Diagnostics = ImmutableArray.CreateBuilder()
-            IndentDirective = Syntax.Light
-            MinimumIndentationStack = []
-            LastLine = 0<line>
-            ReprocessOpAfterTypeDeclaration = false
-        }
-
-    let addDiagnostic code startToken endToken (state: ParseState) =
-        state.Diagnostics.Add(
-            {
-                Code = code
-                Token = startToken
-                TokenEnd = endToken
-            }
-        )
-
-    let findLineNumber (lexed: Lexed) (guess: int<line>) (index: int<token>) =
-        if index < 0<token> || index >= lexed.Tokens.LengthM then
-            invalidArg (nameof index) "Index out of range"
-
-        let lineStarts = lexed.LineStarts
-        let lineCount = lineStarts.LengthM
-
-        // A recursive function to perform the binary search
-        let rec search (low: int<line>) (high: int<line>) =
-            if low >= high then
-                // If the range is invalid, return the last known valid line,
-                // which is 'high'. In a search for the floor, this will be the correct result.
-                high
-            else
-                let mid = low + (high - low + 1<line>) / 2 // Using ceiling for mid to prevent infinite loops in some cases
-                let midVal = lineStarts.[mid]
-
-                if midVal > index then
-                    // The token is in the lower half
-                    search low (mid - 1<line>)
-                else
-                    // The token is in the upper half.
-                    // mid is a potential answer, so we continue searching to the right
-                    // to find the highest line number that is still less than or equal to the index.
-                    search (mid + 1<line>) high
-
-        // Use the guess to narrow the initial search range
-        let low, high =
-            if guess >= 0<line> && guess < lineCount then
-                if
-                    lineStarts.[guess] <= index
-                    && (guess = lineCount - 1<line> || lineStarts.[guess + 1<line>] > index)
-                then
-                    // The guess is correct, we can determine the result directly
-                    (guess, guess) // Set low and high to the same value to end the search
-                else if lineStarts.[guess] < index then
-                    // The target is after the guess
-                    (guess, lineCount - 1<line>)
-                else
-                    // The target is before the guess
-                    (0<line>, guess)
-            else
-                // Default to a full search if the guess is out of range
-                (0<line>, lineCount - 1<line>)
-
-        // If the guess was correct, low and high will be the same,
-        // and the search will correctly return that value.
-        search low high
-
-    let rec getIndent (state: ParseState) (index: int<token>) =
-        let currentLineTokenIndex = state.Lexed.LineStarts[state.LastLine]
-
-        if index = currentLineTokenIndex then
-            0L
-        elif index > currentLineTokenIndex then
-            let nextLine = state.LastLine + 1<_>
-
-            if nextLine < state.Lexed.LineStarts.LengthM then
-                let nextLineTokenIndex = state.Lexed.LineStarts[nextLine]
-
-                if index < nextLineTokenIndex then
-                    let token = state.Lexed.Tokens[index]
-                    let lineStartToken = state.Lexed.Tokens[currentLineTokenIndex]
-                    token.StartIndex - lineStartToken.StartIndex
-                else
-                    state.LastLine <- findLineNumber state.Lexed nextLine index
-                    getIndent state index
-            else
-                // Last line
-                let token = state.Lexed.Tokens[index]
-                token.StartIndex - state.Lexed.Tokens[currentLineTokenIndex].StartIndex
-        else
-            state.LastLine <- findLineNumber state.Lexed (state.LastLine - 1<_>) index
-            getIndent state index
-
-
 [<AutoOpen>]
 module Parsing =
-    let tokenIndex (reader: Reader<PositionedToken, ParseState, 'a, 'b>) = int reader.Index * 1<token>
+    let tokenIndex (reader: Reader<PositionedToken, ParseState, _, _>) = reader.Index * 1<token>
 
-    let syntaxToken token (index: int64) =
-        {
-            PositionedToken = token
-            Index = TokenIndex.Regular(int index * 1<token>)
-        }
+    let processIfDirective (reader: Reader<PositionedToken, ParseState, _, _>) =
+            // Take a slice of the input starting from the #if directive and parse it with the IfExpr parser to determine if the directive is active or not, then skip it
+            // if it is active, we then skip just the directive line and continue as normal, if it is not active, we skip to the matching #endif or #else and continue from there
+            let state = reader.State
+            let lexed = state.Lexed
+            let currentLine = findLineNumber state (tokenIndex reader)
+            let nextLine = currentLine + 1<_>
+            let nextLineTokenIndex =
+                if nextLine < lexed.LineStarts.LengthM then
+                    lexed.LineStarts[nextLine]
+                else
+                    lexed.Tokens.LengthM - 1<_>
 
-    let virtualToken token =
-        {
-            PositionedToken = token
-            Index = TokenIndex.Virtual
-        }
+            let sliceReader = reader.Slice(
+                0, // The first token is #if directive token itself
+                (nextLineTokenIndex * 1</token>) - reader.Index)
 
-    let isTriviaToken (state: ParseState) (token: PositionedToken) =
-        if token.InComment then
-            true
-        else
-            match token.TokenWithoutCommentFlags with
-            | Token.LineComment
-            | Token.Indent
-            | Token.Whitespace
-            | Token.BlockCommentStart
-            | Token.BlockCommentEnd
-            | Token.StartFSharpBlockComment
-            | Token.EndFSharpBlockComment
-            | Token.StartOCamlBlockComment
-            | Token.EndOCamlBlockComment
-            | Token.Newline -> true
-            | Token.Tab -> state.IndentDirective = Syntax.Verbose
-            | _ -> false
+            reader.Index <- nextLineTokenIndex * 1</token> // Move the reader index to the start of the next line
 
-    let tokenStringIs (s: string) (token: SyntaxToken) (state: ParseState) =
-        match token.Index with
-        | TokenIndex.Virtual -> false
-        | TokenIndex.Regular iT ->
-            let t1 = state.Lexed.Tokens[iT + 1<_>]
-            let tokenStr = state.Input.[int token.StartIndex .. int (t1.StartIndex - 1L)]
-            // printfn "Comparing token string '%s' to '%s'" tokenStr s
-            tokenStr = s
+            match IfExpr.parseSlice sliceReader with
+            | Ok ifExpr ->
+                if IfExpr.evaluateStateful ifExpr reader.State then
+                    // Active, just continue the next line
+                    nextNonTriviaToken reader
+                else
+                    // Inactive, skip to matching #else or #endif
+                    let mutable depth = 0
+                    let mutable foundMatch = false
+                    failwith ""
+                    // while not foundMatch do
+                    //     match reader.Peek() with
+                    //     | ValueNone -> fail EndOfInput reader
+                    //     | ValueSome t when t.Token = Token.IfDirective ->
+                    //         depth <- depth + 1
+                    //         reader.Skip()
+                    //     | ValueSome t when t.Token = Token.EndIfDirective ->
+                    //         if depth = 0 then
+                    //             foundMatch <- true
+                    //         else
+                    //             depth <- depth - 1
 
-    let tokenStringStartsWith (s: string) (token: SyntaxToken) (state: ParseState) =
-        match token.Index with
-        | TokenIndex.Virtual -> false
-        | TokenIndex.Regular iT ->
-            let t1 = state.Lexed.Tokens[iT + 1<_>]
-            let tokenStr = state.Input.[int token.StartIndex .. int (t1.StartIndex - 1L)]
-            tokenStr.StartsWith(s)
+                    //         reader.Skip()
+                    //     | ValueSome t when t.Token = Token.ElseDirective && depth = 0 ->
+                    //         foundMatch <- true
+                    //         reader.Skip()
+                    //     | ValueSome _ ->
+                    //         reader.Skip()
+            | Error e ->
+                // Invalid #if expression, report diagnostic 
+                // and continue as if the directive line was ignored trivia
+                let msg = $"Invalid #if expression: {e}"
+                // reader.State <- addDiagnostic (DiagnosticCode.Other msg) token None reader.State
+                // nextNonTriviaToken reader
+                failwith msg
 
-    let rec nextNonTriviaToken (reader: Reader<PositionedToken, ParseState, 'a, 'b>) =
+    let rec nextNonTriviaToken (reader: Reader<PositionedToken, ParseState, _, _>) =
         // TODO: We also need to consider handling preprocessor directives here
         match reader.Peek() with
         | ValueNone -> fail EndOfInput reader
+        | ValueSome token when token.Token = Token.IfDirective -> processIfDirective reader
         | ValueSome token when isTriviaToken reader.State token ->
             reader.Skip()
             nextNonTriviaToken reader
@@ -239,7 +85,7 @@ module Parsing =
             reader.Skip()
             preturn t reader
 
-    let rec nextNonTriviaTokenVirtualIfNot t (reader: Reader<PositionedToken, ParseState, 'a, 'b>) =
+    let rec nextNonTriviaTokenVirtualIfNot t (reader: Reader<PositionedToken, ParseState, _, _>) =
         // TODO: We also need to consider handling preprocessor directives here
         match reader.Peek() with
         | ValueNone -> fail EndOfInput reader
@@ -282,35 +128,58 @@ module Parsing =
         let indent = ParseState.getIndent state index
         preturn indent reader
 
-    let opComparer =
-        // For parsing, we only care about the operator token itself for equality
-        { new IEqualityComparer<SyntaxToken> with
-            member _.Equals(x, y) = x.Token = y.Token
-            member _.GetHashCode(obj) = hash obj.Token
+[<RequireQualifiedAccess>]
+module IfDirective =
+    let pIfDirective: Parser<_, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+        parser {
+            let! _ = opt (satisfyL (fun t -> t.Token = Token.Indent) "Optional indent before #if")
+            return! satisfyL (fun t -> t.Token = Token.IfDirective) "Expected '#if' directive"
         }
 
-[<AutoOpen>]
-module internal Helpers =
-    let pushMinimumIndentationLevel (col: int64) (reader: Reader<PositionedToken, ParseState, 'a, 'b>) =
-        let state = reader.State
+    let getLineStringAfter (state: ParseState) (i: int<token>) =
+        let token = state.Lexed.Tokens[i]
+        let startIndex = token.StartIndex
+        let line = findLineNumber state i
+        let nextLine = line + 1<_>
 
-        match state.IndentDirective with
-        | Syntax.Verbose -> preturn () reader // No-op in verbose syntax
-        | Syntax.Light ->
-            state.MinimumIndentationStack <- col :: state.MinimumIndentationStack
-            preturn () reader
+        if nextLine >= state.Lexed.LineStarts.LengthM then
+            // Last line
+            state.Input.[startIndex..]
+        else
+            let nextLineTokenIndex = state.Lexed.LineStarts[nextLine]
+            let offEndToken = state.Lexed.Tokens[nextLineTokenIndex]
+            state.Input.[startIndex .. offEndToken.StartIndex - 1]
 
-    let popMinimumIndentationLevel (reader: Reader<PositionedToken, ParseState, 'a, 'b>) =
-        let state = reader.State
+    let skipToIndex i (reader: Reader<_, _, _, _>) =
+        reader.Index <- i
+        Ok()
 
-        match state.IndentDirective with
-        | Syntax.Verbose -> preturn () reader // No-op in verbose syntax
-        | Syntax.Light ->
-            match state.MinimumIndentationStack with
-            | [] -> fail (Message "Indentation level stack underflow") reader
-            | _ :: rest ->
-                state.MinimumIndentationStack <- rest
-                preturn () reader
+// let parse: Parser<IfExpr2 voption, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+//     parser {
+//         let! ifDirective = pIfDirective
+//         let! pos = getPosition
+//         let state = pos.State
+//         let i = int pos.Index * 1<token>
+//         let s = getLineStringAfter state i
+//         let line = ParseState.findLineNumber state.Lexed state.LastLine i
+
+//         let iNext =
+//             if line + 1<_> < state.Lexed.LineStarts.LengthM then
+//                 state.Lexed.LineStarts[line + 1<_>] - 1<_>
+//             else
+//                 state.Lexed.Tokens.LengthM - 1<_>
+
+//         do! skipToIndex (int iNext)
+//         let reader = Reader.ofString s ()
+
+//         match IfExpr2.parse reader with
+//         | Error e ->
+//             // Add diagnostic
+//             // TODO: Better error message, recorrelating position
+//             ParseState.addDiagnostic (DiagnosticCode.Other $"Invalid #if expression {e}") ifDirective None state
+//             return ValueNone
+//         | Ok expr -> return ValueSome expr
+//     }
 
 [<AutoOpen>]
 module internal Keywords =
@@ -568,13 +437,13 @@ module IdentOrOp =
                     let star =
                         { token with
                             Index = TokenIndex.Virtual
-                            PositionedToken = PositionedToken.Create(Token.OpMultiply, token.StartIndex + 1L)
+                            PositionedToken = PositionedToken.Create(Token.OpMultiply, token.StartIndex + 1)
                         }
 
                     let rParen =
                         { token with
                             Index = TokenIndex.Virtual
-                            PositionedToken = PositionedToken.Create(Token.KWRParen, token.StartIndex + 2L)
+                            PositionedToken = PositionedToken.Create(Token.KWRParen, token.StartIndex + 2)
                         }
 
                     return IdentOrOp.StarOp(lParen, star, rParen)
@@ -736,7 +605,7 @@ module Constraint =
         parser {
             let! colonUnit = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpColon) "Expected ':'"
             let! unitTok = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.Unit) "Expected '()'" // Simplified
-            let! arrow = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpArrowRight) "Expected '->'"
+            let! arrow = pArrowRight
             let! quoteT = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.Identifier) "Expected 'T" // Simplified
             let! rParen = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWRParen) "Expected ')'"
             // Re-map unitTok to ensure types align if AST expects specific tokens.
@@ -963,7 +832,7 @@ module Type =
         let rec pFunc () =
             parser {
                 let! lhs = pTupleType
-                let! arrow = opt (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpArrowRight) "->")
+                let! arrow = opt pArrowRight
 
                 match arrow with
                 | ValueSome arr ->
@@ -1628,10 +1497,10 @@ module Constant =
         let typars = collectTypars measure
 
         if typars.Count > 0 then
-            let state: ParseState = reader.State
+            let mutable state: ParseState = reader.State
 
             for t in typars do
-                let code = TyparInConstant t
+                let code = DiagnosticCode.TyparInConstant t
 
                 let tokStart, tokEnd =
                     match t with
@@ -1639,7 +1508,9 @@ module Constant =
                     | Typar.Named(x, x1) -> x.PositionedToken, Some x1.PositionedToken
                     | Typar.Static(x, x1) -> x.PositionedToken, Some x1.PositionedToken
 
-                ParseState.addDiagnostic code tokStart tokEnd state
+                state <- ParseState.addDiagnostic code tokStart tokEnd state
+
+            reader.State <- state
 
         preturn () reader
 
@@ -1729,19 +1600,23 @@ module Expr =
                         )
                         "Expected '>' for type application"
                     <|> parser {
-                        let! pos = getPosition
+                        let! pos: Position<_> = getPosition
                         let! token = nextNonTriviaToken
                         let! state = getUserState
-                        // printfn "Handling special case for type application '>' token: %A" token
-                        if token.Token = Token.OpGreaterThan then
-                            if tokenStringStartsWith ">" token state then
-                                // We have an operator like '>>' or '>>=' that needs to be reprocessed
-                                // after the type application that takes the first '>' as its left operand
-                                state.ReprocessOpAfterTypeDeclaration <- true
-                                do! setPosition pos
-                                return token
-                            else
-                                return! fail (Message "Expected '>' for type application") // Could be a different operator
+                        
+                        if token.Token = Token.OpGreaterThan
+                            && tokenStringStartsWith ">" token state then
+                            // We have an operator like '>>' or '>>=' that needs to be reprocessed
+                            // after the type application that takes the first '>' as its left operand
+                            let pos = 
+                                { pos with 
+                                    State = 
+                                        { pos.State with
+                                            ReprocessOpAfterTypeDeclaration = true
+                                        }
+                                }
+                            do! setPosition pos
+                            return token
                         else
                             return! fail (Message "Expected '>' for type application") // Could be a different operator
                     }
@@ -1895,21 +1770,26 @@ module Expr =
                 | ValueSome opInfo ->
                     parser {
                         let! state = getUserState
-
+                        
                         if state.ReprocessOpAfterTypeDeclaration then
                             // We have an operator like '>>' or '>>=' that needs to be reprocessed
                             // after the type application that takes the first '>' to close the type application
-                            state.ReprocessOpAfterTypeDeclaration <- false
+                            do!
+                                updateUserState (fun state ->
+                                    { state with
+                                        ReprocessOpAfterTypeDeclaration = false
+                                    }
+                                )
 
                             let reprocessedToken =
-                                let newStart = token.StartIndex + 1L // Adjust start index to account for consumed '>'
+                                let newStart = token.StartIndex + 1 // Adjust start index to account for consumed '>'
 
                                 let tokenString =
                                     match token.Index with
                                     | TokenIndex.Virtual -> failwith "Cannot re-lex virtual token"
                                     | TokenIndex.Regular iT ->
                                         let t1 = state.Lexed.Tokens[iT + 1<token>] // Next token after operator always exists as EOF is present
-                                        state.Input.[int newStart .. int (t1.StartIndex - 1L)]
+                                        state.Input.[newStart .. (t1.StartIndex - 1)]
                                 // printfn "Re-lexing operator after type declaration: '%s'" tokenString
                                 let t =
                                     match tokenString with
@@ -2245,7 +2125,7 @@ module Pat =
                     // Start of tuple pattern ( ... )
                     // This is a Prefix Operator on a pattern
                     let p = preturn token
-                    let rParen = virtualToken (PositionedToken.Create(Token.KWRParen, 0L))
+                    let rParen = virtualToken (PositionedToken.Create(Token.KWRParen, 0))
                     let op = Enclosed(token, p, parenPrecedence, rParen, pRParen, completeParen)
                     return op
                 | Token.KWStruct ->
@@ -2412,13 +2292,12 @@ module PatternGuard =
 
 [<RequireQualifiedAccess>]
 module Rule =
-    let pOpArrowRight = nextNonTriviaTokenIsL Token.OpArrowRight "->"
 
     let parse: Parser<Rule<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
             let! pat = Pat.parse
             let! guard = opt PatternGuard.parse
-            let! arrow = pOpArrowRight
+            let! arrow = pArrowRight
             let! expr = Expr.parse
             return Rule.Rule(pat, guard, arrow, expr)
         }
@@ -2497,9 +2376,8 @@ module AsDefn =
 // ----------------------------------------------------------------------------
 
 [<RequireQualifiedAccess>]
-module MemberSig =
-
-    let private pArgNameSpec =
+module ArgNameSpec =
+    let parse =
         parser {
             let! optional = opt (nextNonTriviaTokenIsL Token.OpDynamic "?")
             let! ident = nextNonTriviaTokenIsL Token.Identifier "Arg Name"
@@ -2507,62 +2385,138 @@ module MemberSig =
             return ArgNameSpec.ArgNameSpec(optional, ident, colon)
         }
 
-    let private pArgSpec =
+[<RequireQualifiedAccess>]
+module ArgSpec =
+    let parse =
         parser {
             let! attrs = opt Attributes.parse
             // Try parse "name :" first
-            let! nameSpec = opt pArgNameSpec
+            let! nameSpec = opt ArgNameSpec.parse
             let! typ = Type.parse
             return ArgSpec.ArgSpec(attrs, nameSpec, typ)
         }
 
-    // Parses: Arg -> Arg -> Ret
-    let private pCurriedSig: Parser<CurriedSig<SyntaxToken>, _, _, _, _> =
+
+[<RequireQualifiedAccess>]
+module ArgsSpec =
+    let parse =
+        sepBy1 ArgSpec.parse (nextNonTriviaTokenIsL Token.OpMultiply "*")
+        |>> fun struct (args, _) -> List.ofSeq args
+
+[<RequireQualifiedAccess>]
+module CurriedSig =
+
+    let private pArgsSpec = ArgsSpec.parse .>>. pArrowRight
+
+    let parse: Parser<CurriedSig<SyntaxToken>, _, _, _, _> =
         parser {
-            let! args = sepBy1 (sepBy1 pArgSpec pOpMultiply) (nextNonTriviaTokenIsL Token.OpArrowRight "->")
-
-            // The last element of the parsed list is actually the return type,
-            // unless we strictly enforce structure.
-            // Standard F# 'val' signature parsing is complex.
-            // Simplified here: We assume everything before the last arrow are args.
-            // But we need to separate the ReturnType from the ArgsSpec list.
-
-            // To fit the provided AST `CurriedSig of ArgsSpec list * arrow * returnType`,
-            // we need to re-arrange the parsed chain.
-            // This suggests we need to explicitly look for the arrows.
-
-            return! fail (Message "Complex Signature parsing logic needed for CurriedSig")
-        // Placeholder: Implementing full curried signature parser requires looking ahead or backtracking
-        // to distinguish arguments from return types in `a -> b -> c`.
-        // For now, assuming a simplified single arg structure for compilation:
+            let! (args, ret) = many1Till pArgsSpec Type.parse
+            let args = List.ofSeq args
+            return CurriedSig(args, ret)
         }
 
-    // Simplified Stub for compilation
+[<RequireQualifiedAccess>]
+module UncurriedSig =
+
+    let parse: Parser<UncurriedSig<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! args = ArgsSpec.parse
+            let! arrow = pArrowRight
+            let! retType = Type.parse
+            return UncurriedSig.UncurriedSig(args, arrow, retType)
+        }
+
+[<RequireQualifiedAccess>]
+module MemberSig =
+
+    (*
+member-sig :=
+    ident typar-defns~opt : curried-sig -- method or property signature
+    ident typar-defns~opt : curried-sig with get -- property signature
+    ident typar-defns~opt : curried-sig with set -- property signature
+    ident typar-defns~opt : curried-sig with get,set -- property signature
+    ident typar-defns~opt : curried-sig with set,get -- property signature
+*)
+
+    let private pGet =
+        parser {
+            let! getTok = nextNonTriviaTokenIsL Token.Identifier "get"
+            let! state = getUserState
+
+            if tokenStringIs "get" getTok state then
+                return getTok
+            else
+                return! fail (Message "Expected 'get'")
+        }
+
+    let private pSet =
+        parser {
+            let! setTok = nextNonTriviaTokenIsL Token.Identifier "set"
+            let! state = getUserState
+
+            if tokenStringIs "set" setTok state then
+                return setTok
+            else
+                return! fail (Message "Expected 'set'")
+        }
+
+    let private pGetSet =
+        choiceL
+            [
+                parser {
+                    let! getTok = pGet
+
+                    let! maybeSet =
+                        opt (
+                            parser {
+                                let! comma = nextNonTriviaTokenIsL Token.OpComma ","
+                                let! setTok = pSet
+                                return setTok
+                            }
+                        )
+
+                    return getTok, maybeSet
+                }
+                parser {
+                    let! setTok = pSet
+
+                    let! maybeGet =
+                        opt (
+                            parser {
+                                let! comma = nextNonTriviaTokenIsL Token.OpComma ","
+                                let! getTok = pGet
+                                return getTok
+                            }
+                        )
+
+                    return setTok, maybeGet
+                }
+            ]
+            ""
+
+
     let parse: Parser<MemberSig<SyntaxToken>, _, _, _, _> =
         parser {
-            let! ident = nextNonTriviaTokenIsL Token.Identifier "Member Name"
+            let! ident = nextNonTriviaTokenIsL Token.Identifier "Member Signature Identifier"
             let! typars = opt TyparDefns.parse
             let! colon = nextNonTriviaTokenIsL Token.OpColon ":"
+            let! sigType = CurriedSig.parse
 
-            // Placeholder for full signature logic
-            // We fake a CurriedSig to satisfy the type system for the demo
-            let! retType = Type.parse
-            let fakeSig = CurriedSig.CurriedSig([], Unchecked.defaultof<_>, retType)
-
-            // Check for 'with get, set'
-            let! withGetSet =
+            // Check for optional 'with' get/set
+            let! withClause =
                 opt (
                     parser {
-                        let! w = nextNonTriviaTokenIsL Token.KWWith "with"
-                        let! get = nextNonTriviaTokenIsL Token.Identifier "get" // Simplified
-                        return (w, (get, ValueNone))
+                        let! withTok = nextNonTriviaTokenIsL Token.KWWith "with"
+                        let! getSet = pGetSet
+                        return struct (withTok, getSet)
                     }
                 )
 
-            match withGetSet with
-            | ValueSome(w, gs) -> return MemberSig.PropSig(ident, typars, colon, fakeSig, w, gs)
-            | ValueNone -> return MemberSig.MethodOrPropSig(ident, typars, colon, fakeSig)
+            match withClause with
+            | ValueSome(withTok, getSet) -> return MemberSig.PropSig(ident, typars, colon, sigType, withTok, getSet)
+            | ValueNone -> return MemberSig.MethodOrPropSig(ident, typars, colon, sigType)
         }
+
 
 // ----------------------------------------------------------------------------
 // Member Definitions (Method, Property, Ctor)
@@ -2900,31 +2854,73 @@ module InterfaceTypeBody =
 // --- Union ---
 
 [<RequireQualifiedAccess>]
+module UnionTypeField =
+    let parse: Parser<UnionTypeField<SyntaxToken>, _, _, _, _> =
+        parser {
+            // Try Named first: ident : Type
+            let! namedField =
+                opt (
+                    parser {
+                        let! ident = nextNonTriviaTokenIsL Token.Identifier "Field Name"
+                        let! colon = nextNonTriviaTokenIsL Token.OpColon ":"
+                        let! t = Type.parse
+                        return UnionTypeField.Named(ident, colon, t)
+                    }
+                )
+
+            match namedField with
+            | ValueSome nf -> return nf
+            | ValueNone ->
+                // Unnamed field: just Type
+                let! t = Type.parse
+                return UnionTypeField.Unnamed t
+        }
+
+[<RequireQualifiedAccess>]
+module UnionTypeCaseData =
+    let parseFields: Parser<UnionTypeField<SyntaxToken> list, _, _, _, _> =
+        sepBy1 UnionTypeField.parse (nextNonTriviaTokenIsL Token.OpMultiply "*")
+        |>> fun struct (fields, _) -> List.ofSeq fields
+
+    let parseNary: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! ident = nextNonTriviaTokenIsL Token.Identifier "Union Case Name"
+            let! ofTok = nextNonTriviaTokenIsL Token.KWOf "of"
+
+            // Check for uncurried signature (colon Type) or field list
+            let! next = pid
+
+            match next with
+            | t when t.Token = Token.OpColon ->
+                // UncurriedSig
+                let! colon = nextNonTriviaTokenIsL Token.OpColon ":"
+                let! sign = UncurriedSig.parse
+                return UnionTypeCaseData.NaryUncurried(ident, colon, sign)
+            | _ ->
+                // Field list
+                let! fields = parseFields
+                return UnionTypeCaseData.Nary(ident, ofTok, fields)
+        }
+
+    let parse: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _, _> =
+        parser {
+            // Try Nary first
+            let! nary = opt (lookAhead (nextNonTriviaTokenIsL Token.KWOf "of"))
+
+            match nary with
+            | ValueSome _ -> return! parseNary
+            | ValueNone ->
+                // Nullary
+                let! ident = nextNonTriviaTokenIsL Token.Identifier "Union Case Name"
+                return UnionTypeCaseData.Nullary ident
+        }
+
+[<RequireQualifiedAccess>]
 module UnionTypeCase =
     let parse: Parser<UnionTypeCase<SyntaxToken>, _, _, _, _> =
         parser {
             let! attrs = opt Attributes.parse
-            // Leading bar is handled by the list parser usually, but we check logic below.
-
-            let! ident = nextNonTriviaTokenIsL Token.Identifier "Union Case"
-
-            // Check for 'of'
-            let! caseData =
-                parser {
-                    let! ofTok = opt (nextNonTriviaTokenIsL Token.KWOf "of")
-
-                    match ofTok with
-                    | ValueNone -> return UnionTypeCaseData.Nullary ident
-                    | ValueSome ofK ->
-                        // Fields: int * string OR name:int * name:string
-                        // Simplified: Use Type.parse (which handles tuples)
-                        // and map to Unnamed for now, as specific 'name:type' parsing requires specialized Type parser.
-                        let! t = Type.parse
-                        // Wrap in Unnamed field list
-                        let fields = [ UnionTypeField.Unnamed t ]
-                        return UnionTypeCaseData.Nary(ident, ofK, fields)
-                }
-
+            let! caseData = UnionTypeCaseData.parse
             return UnionTypeCase.UnionTypeCase(attrs, caseData)
         }
 
@@ -3204,7 +3200,7 @@ module Measure =
                 | Token.KWLParen ->
                     // Parenthesized measure
                     let p = preturn token
-                    let rParen = virtualToken (PositionedToken.Create(Token.KWRParen, 0L))
+                    let rParen = virtualToken (PositionedToken.Create(Token.KWRParen, 0))
                     let op = Enclosed(token, p, parenPrecedence, rParen, pRParen, completeParen)
 
                     preturn op
@@ -3276,7 +3272,230 @@ module Measure =
         Operator.parser atomMeasureParser measureOperatorParser
 
 [<RequireQualifiedAccess>]
+module ExceptionDefn =
+    let parse: Parser<ExceptionDefn<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! attrs = opt Attributes.parse
+            let! exTok = nextNonTriviaTokenIsL Token.KWException "exception"
+
+            // Try Full first
+            let! isFull = opt (lookAhead (nextNonTriviaTokenIsL Token.KWOf "of"))
+
+            match isFull with
+            | ValueSome _ ->
+                let! caseData = UnionTypeCaseData.parse
+                return ExceptionDefn.Full(attrs, exTok, caseData)
+            | ValueNone ->
+                let! ident = nextNonTriviaTokenIsL Token.Identifier "Exception Name"
+                let! eq = nextNonTriviaTokenIsL Token.OpEquality "="
+                let! lid = LongIdent.parse
+                return ExceptionDefn.Abbreviation(attrs, exTok, ident, eq, lid)
+        }
+
+
+[<RequireQualifiedAccess>]
+module Access =
+    let parse
+        : Reader<PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, _>
+              -> ParseResult<Access<SyntaxToken>, PositionedToken, ParseState> =
+        nextNonTriviaTokenSatisfiesL
+            (fun t ->
+                t.Token = Token.KWPrivate
+                || t.Token = Token.KWInternal
+                || t.Token = Token.KWPublic
+            )
+            "Access modifier"
+        |>> function
+            | t when t.Token = Token.KWPrivate -> Access.Private t
+            | t when t.Token = Token.KWInternal -> Access.Internal t
+            | t when t.Token = Token.KWPublic -> Access.Public t
+            | _ -> failwith "Unreachable"
+
+[<RequireQualifiedAccess>]
+module ImportDecl =
+    let parse =
+        parser {
+            let! openTok = nextNonTriviaTokenIsL Token.KWOpen "open"
+            let! ident = LongIdent.parse
+            return ImportDecl.ImportDecl(openTok, ident)
+        }
+
+[<RequireQualifiedAccess>]
+module ModuleAbbrev =
+    let parse =
+        parser {
+            let! modTok = nextNonTriviaTokenIsL Token.KWModule "module"
+            let! ident = nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "Expected identifier"
+            let! eq = nextNonTriviaTokenIsL Token.OpEquality "="
+            let! lid = LongIdent.parse
+            return ModuleAbbrev.ModuleAbbrev(modTok, ident, eq, lid)
+        }
+
+[<RequireQualifiedAccess>]
+module CompilerDirectiveDecl =
+    let parse: Parser<CompilerDirectiveDecl<SyntaxToken>, _, _, ReadableImmutableArray<_>, _> =
+        parser {
+            let! hash = nextNonTriviaTokenIsL Token.KWHash "#"
+            let! ident = nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "Directive identifier"
+            let! strings = many (nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsText) "String argument")
+            return CompilerDirectiveDecl(hash, ident, List.ofSeq strings)
+        }
+
+[<RequireQualifiedAccess>]
+module ModuleFunctionOrValueDefn =
+
+    // Helper to distinguish LetValue vs LetFunction based on lookahead or backtracking
+    // Assuming FunctionDefn/ValueDefn handle the body after 'let'
+    let private pLetBinding attrs letTok =
+        parser {
+            let! isRec = opt (nextNonTriviaTokenIsL Token.KWRec "rec")
+
+            match isRec with
+            | ValueSome recTok ->
+                // let rec ...
+                // Parses a list of 'and' connected definitions
+                let! defns, _ = sepBy1 FunctionOrValueDefn.parse (nextNonTriviaTokenIsL Token.KWAnd "and")
+                return ModuleFunctionOrValueDefn.LetRec(attrs, letTok, ValueSome recTok, List.ofSeq defns)
+
+            | ValueNone ->
+                // let ...
+                // Try parsing as a function (params present), if that fails/backtracks, try value.
+                // Note: In a real parser, we might peek for parameters to decide.
+                return!
+                    choiceL
+                        [
+                            parser {
+                                let! fn = FunctionDefn.parse
+                                return ModuleFunctionOrValueDefn.LetFunction(attrs, letTok, fn)
+                            }
+                            parser {
+                                let! valDef = ValueDefn.parse
+                                return ModuleFunctionOrValueDefn.LetValue(attrs, letTok, valDef)
+                            }
+                        ]
+                        ""
+        }
+
+    let parse =
+        parser {
+            let! attrs = opt Attributes.parse
+
+            let! token = nextNonTriviaToken
+
+            match token.Token with
+            | Token.KWDo ->
+                let! expr = Expr.parse
+                return ModuleFunctionOrValueDefn.Do(attrs, token, expr)
+
+            | Token.KWLet -> return! pLetBinding attrs token
+
+            | _ -> return! fail (Message "Expected 'let' or 'do'")
+        }
+
+[<RequireQualifiedAccess>]
+module ModuleDefn =
+
+    let parseBody (elementParser: Parser<ModuleElems<SyntaxToken>, _, _, _, _>) =
+        parser {
+            let! beginTok = nextNonTriviaTokenIsL Token.KWBegin "begin"
+            let! elems = opt elementParser
+            let! endTok = nextNonTriviaTokenIsL Token.KWEnd "end"
+            return ModuleDefnBody.ModuleDefnBody(beginTok, elems, endTok)
+        }
+
+    let parse (elementParser: Parser<ModuleElems<SyntaxToken>, _, _, _, _>) =
+        parser {
+            let! attrs = opt Attributes.parse
+            let! modTok = nextNonTriviaTokenIsL Token.KWModule "module"
+            let! access = opt Access.parse
+            let! ident = nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "Module identifier"
+            let! eq = nextNonTriviaTokenIsL Token.OpEquality "="
+            let! body = parseBody elementParser
+            return ModuleDefn(attrs, modTok, access, ident, eq, body)
+        }
+
+[<RequireQualifiedAccess>]
+module ModuleElem =
+
+    // Forward reference setup to handle: ModuleElem -> ModuleDefn -> ModuleElem
+    let rec private pModuleElems = many parse |>> List.ofSeq
+
+    and parse =
+        // 1. Try parsers that start with unique keywords and usually no attributes
+        //    (Import, Directive)
+        dispatch (fun (lookahead: PositionedToken voption) ->
+            match lookahead with
+            | ValueNone -> fail EndOfInput
+            | ValueSome lookahead ->
+                match lookahead.Token with
+                | Token.KWOpen ->
+                    parser {
+                        let! x = ImportDecl.parse
+                        return ModuleElem.Import x
+                    }
+                | Token.KWHash ->
+                    parser {
+                        let! x = CompilerDirectiveDecl.parse
+                        return ModuleElem.CompilerDirective x
+                    }
+                | _ ->
+                    // 2. Parsers that might be preceeded by Attributes
+                    //    (Module, Type, Exception, Let, Do)
+
+                    // We don't consume attributes here because the specific parsers
+                    // (like ModuleFunctionOrValueDefn and TypeDefn) store them in their nodes.
+                    // We look ahead past attributes to decide which parser to invoke.
+
+                    // Note: We need a utility to skip attributes and see what's next
+                    // to distinguish 'module' vs 'type' vs 'let' etc.
+
+                    // For simplicity in this combinator style, we use choice with backtracking.
+                    choice
+                        [
+                            // Type Definitions
+                            TypeDefn.parse |>> ModuleElem.Type
+
+                            // Exception Definitions
+                            ExceptionDefn.parse |>> ModuleElem.Exception
+
+                            // Module Definition (Recursive)
+                            // Logic: starts with [attributes] module ident = begin ...
+                            (ModuleDefn.parse pModuleElems) |>> ModuleElem.Module
+
+                            // Module Abbreviation
+                            // Logic: starts with module ident = LongIdent
+                            // Note: If ModuleDefn fails (e.g. no 'begin'), this picks up.
+                            ModuleAbbrev.parse |>> ModuleElem.ModuleAbbrev
+
+                            // Let / Do bindings
+                            ModuleFunctionOrValueDefn.parse |>> ModuleElem.FunctionOrValue
+                        ]
+        )
+
+[<RequireQualifiedAccess>]
+module NamespaceDeclGroup =
+    let parse =
+        parser {
+            let! nsTok = nextNonTriviaTokenIsL Token.KWNamespace "namespace"
+
+            // Check for 'global' keyword
+            let! globalTok = opt (nextNonTriviaTokenIsL Token.KWGlobal "global")
+
+            match globalTok with
+            | ValueSome gTok ->
+                // namespace global
+                let! elems = many ModuleElem.parse
+                return NamespaceDeclGroup.Global(nsTok, gTok, List.ofSeq elems)
+
+            | ValueNone ->
+                // namespace LongIdent
+                let! ident = LongIdent.parse
+                let! elems = many ModuleElem.parse
+                return NamespaceDeclGroup.Named(nsTok, ident, List.ofSeq elems)
+        }
+
+[<RequireQualifiedAccess>]
 module Reader =
-    let ofLexed (lexed: Lexed) input =
-        let initialState = ParseState.create lexed input
+    let ofLexed (lexed: Lexed) (input: string) (definedSymbols: Set<string>) : Reader<_, ParseState, _, _> =
+        let initialState = ParseState.create lexed input definedSymbols
         Reader.ofImmutableArray (lexed.Tokens.AsImmutableArray()) initialState
