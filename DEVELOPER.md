@@ -80,6 +80,29 @@ parser {
 }
 ```
 
+### Prefer Statically-Allocated Parser Values
+
+When a parser does not close over any local variables, define it as a **value** (no explicit `reader` parameter) rather than a function. This allocates the combinator closure once at module initialisation instead of on every invocation.
+
+**Prefer (allocated once at startup):**
+```fsharp
+let peekNonTriviaIndent =
+    lookAhead (fun r -> ...)
+```
+
+**Avoid (new closure allocation on every call):**
+```fsharp
+let peekNonTriviaIndent reader =
+    lookAhead (fun r -> ...) reader
+```
+
+The same principle applies to any parser built entirely from other combinators (`many`, `opt`, `choice`, `lookAhead`, etc.) that does not capture a local variable. Compare:
+- `let pLet = nextNonTriviaTokenIsL Token.KWLet "Expected 'let'"` — static value ✓
+- `let pInVirt = nextNonTriviaTokenVirtualIfNot Token.KWIn` — static value ✓
+- `let pSeqBlock pElem = parser { ... }` — parameterised, so each unique `pElem` produces a distinct closure; this is expected and correct
+
+The key rule: if the definition body does not reference any enclosing `let`-bound local variables (only top-level definitions or its own parameters), remove the trailing `reader` application and drop the explicit `reader` parameter so F# computes the result once.
+
 ### Operator Precedence Parsing (Pratt Parsing)
 Used for expressions, patterns, measures, and types. Key types:
 - `Operators<'Parsed, 'T, 'State, 'Input, 'InputSlice>` interface with `LhsParser`, `RhsParser`, `OpComparer`
