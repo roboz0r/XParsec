@@ -12,4 +12,13 @@
 15, Identifier
 16, Whitespace
 17, LineComment
-26, EOF
+26, Newline
+27, NumInt32
+28, Newline
+29, ElseDirective
+34, Newline
+35, NumInt32
+36, Newline
+37, EndIfDirective
+43, Newline
+44, EOF

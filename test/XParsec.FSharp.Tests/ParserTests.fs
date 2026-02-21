@@ -65,7 +65,7 @@ let tests =
                 let path = Path.Combine(testDataDir.Value, "11_simple_if.fs")
                 testParseFile path
             }
-            ftest "If Directives" {
+            test "If Directives" {
                 let path = Path.Combine(testDataDir.Value, "24_if_directive.fs")
                 testParseFile path
             }
