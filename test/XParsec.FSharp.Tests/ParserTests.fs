@@ -65,8 +65,13 @@ let tests =
                 let path = Path.Combine(testDataDir.Value, "11_simple_if.fs")
                 testParseFile path
             }
-            test "If Directives" {
+            test "If Directives (inactive branch)" {
                 let path = Path.Combine(testDataDir.Value, "24_if_directive.fs")
                 testParseFile path
+            }
+
+            test "If Directives (active branch)" {
+                let path = Path.Combine(testDataDir.Value, "24_if_directive.fs")
+                testParseFileWith (Set.ofList [ "A" ]) path
             }
         ]
