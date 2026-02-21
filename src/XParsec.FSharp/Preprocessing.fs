@@ -5,6 +5,13 @@ open XParsec.OperatorParsing
 open XParsec.Parsers
 open XParsec.FSharp.Lexer
 
+/// Reader state for #if expression parsers.
+/// Carries the absolute token index of the slice start so that
+/// SyntaxToken.Index can be set to the correct absolute position
+/// for later text extraction via ParseState.tokenString.
+[<Struct>]
+type IfExprState = { AbsoluteStart: int }
+
 [<RequireQualifiedAccess>]
 module IfExpr =
     open SyntaxToken
@@ -22,18 +29,15 @@ module IfExpr =
 
     /// Ignores trivia tokens and returns the next non-trivia token, or fails if the end of input is reached.
     /// Only for use on #if directive lines.
-    /// The reader state must be an int representing the absolute token index of the slice start,
-    /// so that SyntaxToken.Index is set to the correct absolute position for later text extraction.
-    let rec nextNonTriviaIfToken (reader: Reader<PositionedToken, int, 'Input, 'InputSlice>) =
+    let rec nextNonTriviaIfToken (reader: Reader<PositionedToken, IfExprState, 'Input, 'InputSlice>) =
         match reader.Peek() with
         | ValueNone -> fail EndOfInput reader
         | ValueSome token when isTriviaToken token ->
             reader.Skip()
             nextNonTriviaIfToken reader
         | ValueSome token ->
-            // reader.State is the absolute token index of the slice start;
-            // adding reader.Index (slice-relative) gives the absolute token index.
-            let absoluteIndex = reader.State + reader.Index
+            // AbsoluteStart + slice-relative index = absolute token index in the full Lexed.Tokens array.
+            let absoluteIndex = reader.State.AbsoluteStart + reader.Index
             let t = syntaxToken token absoluteIndex
             reader.Skip()
             preturn t reader
@@ -110,7 +114,15 @@ module IfExpr =
         static let ifDirectiveParser: Parser<_, _, _, 'Input, 'InputSlice> =
             satisfyL (fun token -> token.Token = Token.IfDirective) "Not a #if directive"
 
-        interface Operators<SyntaxToken, IfExprAux, IfExpr<SyntaxToken>, PositionedToken, int, 'Input, 'InputSlice> with
+        interface Operators<
+            SyntaxToken,
+            IfExprAux,
+            IfExpr<SyntaxToken>,
+            PositionedToken,
+            IfExprState,
+            'Input,
+            'InputSlice
+         > with
             member _.LhsParser = lhsParser
             member _.RhsParser = rhsParser
             member _.OpComparer = opComparer
@@ -119,16 +131,16 @@ module IfExpr =
         static member IfDirectiveParser = ifDirectiveParser
 
     let parse: Parser<_, _, _, _, _> =
-        IfExprParser<ReadableImmutableArray<PositionedToken>, _>.IfDirectiveParser >>.
-        Operator.parser
-            IfExprParser<ReadableImmutableArray<PositionedToken>, _>.AtomParser
-            (IfExprParser<ReadableImmutableArray<PositionedToken>, _>())
+        IfExprParser<ReadableImmutableArray<PositionedToken>, _>.IfDirectiveParser
+        >>. Operator.parser
+                IfExprParser<ReadableImmutableArray<PositionedToken>, _>.AtomParser
+                (IfExprParser<ReadableImmutableArray<PositionedToken>, _>())
 
     let parseSlice: Parser<_, _, _, _, _> =
-        IfExprParser<ReadableImmutableArraySlice<PositionedToken>, _>.IfDirectiveParser >>.
-        Operator.parser
-            IfExprParser<ReadableImmutableArraySlice<PositionedToken>, _>.AtomParser
-            (IfExprParser<ReadableImmutableArraySlice<PositionedToken>, _>())
+        IfExprParser<ReadableImmutableArraySlice<PositionedToken>, _>.IfDirectiveParser
+        >>. Operator.parser
+                IfExprParser<ReadableImmutableArraySlice<PositionedToken>, _>.AtomParser
+                (IfExprParser<ReadableImmutableArraySlice<PositionedToken>, _>())
 
     let evaluate (expr: IfExpr<SyntaxToken>) (isDefined: SyntaxToken -> bool) : bool =
         let rec eval e =

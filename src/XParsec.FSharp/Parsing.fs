@@ -90,11 +90,10 @@ module Parsing =
             else
                 lexed.Tokens.LengthM - 1<_>
 
-        // Create a slice of just the #if directive line.
-        // Pass reader.Index as the slice state so that token indices inside the slice
-        // can be converted to absolute token indices (absoluteIndex = state + sliceIndex).
+        // Create a slice of just the #if directive line, carrying the absolute start index
+        // so the IfExpr parser can compute absolute token indices for symbol name extraction.
         let sliceLen = (nextLineTokenIndex * 1</token>) - reader.Index
-        let sliceReader = reader.Slice(0, sliceLen, reader.Index)
+        let sliceReader = reader.Slice(0, sliceLen, { AbsoluteStart = reader.Index })
 
         // Advance the main reader past the #if line before branching
         reader.Index <- nextLineTokenIndex * 1</token>
