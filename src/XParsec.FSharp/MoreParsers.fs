@@ -20,23 +20,23 @@ module MoreParsers =
         elif span.[i] <> x then false
         else allEqual span x (i + 1)
 
-    let manySatisfiesSlice
-        (predicate: 'T -> bool)
-        (sliceState: 'SliceState)
-        (reader: Reader<'T, 'State, 'Input, 'InputSlice>)
-        =
-        let startPos = reader.Position
-        let mutable length = 0
-        let mutable doContinue = true
+    // let manySatisfiesSlice
+    //     (predicate: 'T -> bool)
+    //     (sliceState: 'SliceState)
+    //     (reader: Reader<'T, 'State, 'Input, 'InputSlice>)
+    //     =
+    //     let startPos = reader.Position
+    //     let mutable length = 0
+    //     let mutable doContinue = true
 
-        while doContinue do
-            match reader.Peek() with
-            | ValueSome c when predicate c ->
-                length <- length + 1
-                reader.Skip()
-            | _ -> doContinue <- false
+    //     while doContinue do
+    //         match reader.Peek() with
+    //         | ValueSome c when predicate c ->
+    //             length <- length + 1
+    //             reader.Skip()
+    //         | _ -> doContinue <- false
 
-        preturn (reader.Slice(startPos.Index, length, sliceState)) reader
+    //     preturn (reader.Slice(startPos.Index, length, sliceState)) reader
 
     let skip (reader: Reader<'T, 'State, 'Input, 'InputSlice>) =
         reader.Skip()
