@@ -16,77 +16,135 @@ open XParsec.FSharp.Parser.ParseState
 module Parsing =
     let tokenIndex (reader: Reader<PositionedToken, ParseState, _, _>) = reader.Index * 1<token>
 
-    let processIfDirective (reader: Reader<PositionedToken, ParseState, _, _>) =
-            // Take a slice of the input starting from the #if directive and parse it with the IfExpr parser to determine if the directive is active or not, then skip it
-            // if it is active, we then skip just the directive line and continue as normal, if it is not active, we skip to the matching #endif or #else and continue from there
-            let state = reader.State
-            let lexed = state.Lexed
-            let currentLine = findLineNumber state (tokenIndex reader)
-            let nextLine = currentLine + 1<_>
-            let nextLineTokenIndex =
-                if nextLine < lexed.LineStarts.LengthM then
-                    lexed.LineStarts[nextLine]
-                else
-                    lexed.Tokens.LengthM - 1<_>
+    /// Scans forward past tokens in an inactive branch until reaching #else or #endif at depth 0.
+    /// Nested #if/#endif pairs are depth-tracked and correctly skipped.
+    /// The stop token (#else or #endif) is consumed before returning.
+    /// Returns true if stopped at #else (an else-branch follows), false if stopped at #endif.
+    /// Directives inside block comments (with the InComment flag) are correctly ignored.
+    let skipInactiveBranch (reader: Reader<PositionedToken, ParseState, _, _>) =
+        let mutable depth = 0
+        let mutable foundElse = false
+        let mutable stop = false
 
-            let sliceReader = reader.Slice(
-                0, // The first token is #if directive token itself
-                (nextLineTokenIndex * 1</token>) - reader.Index)
+        while not stop do
+            match reader.Peek() with
+            | ValueNone -> stop <- true // EOF — unclosed #if, stop gracefully
+            | ValueSome t ->
+                match t.Token with
+                | Token.IfDirective ->
+                    // Nested #if: increase depth to track nesting
+                    depth <- depth + 1
+                    reader.Skip()
+                | Token.EndIfDirective when depth = 0 ->
+                    // Matching #endif found: consume it and stop
+                    reader.Skip()
+                    stop <- true
+                | Token.EndIfDirective ->
+                    // #endif for a nested #if: decrease depth
+                    depth <- depth - 1
+                    reader.Skip()
+                | Token.ElseDirective when depth = 0 ->
+                    // Matching #else found: consume it and stop; else-branch is now active
+                    reader.Skip()
+                    foundElse <- true
+                    stop <- true
+                | _ -> reader.Skip()
 
-            reader.Index <- nextLineTokenIndex * 1</token> // Move the reader index to the start of the next line
+        foundElse
 
-            match IfExpr.parseSlice sliceReader with
-            | Ok ifExpr ->
-                if IfExpr.evaluateStateful ifExpr reader.State then
-                    // Active, just continue the next line
+    /// Scans forward past an active else-branch until the matching #endif at depth 0 is consumed.
+    /// Must be called after the #else token itself has already been consumed.
+    let skipElseBranch (reader: Reader<PositionedToken, ParseState, _, _>) =
+        let mutable depth = 0
+        let mutable stop = false
+
+        while not stop do
+            match reader.Peek() with
+            | ValueNone -> stop <- true // EOF — unclosed #endif, stop gracefully
+            | ValueSome t ->
+                match t.Token with
+                | Token.IfDirective ->
+                    depth <- depth + 1
+                    reader.Skip()
+                | Token.EndIfDirective when depth = 0 ->
+                    reader.Skip()
+                    stop <- true
+                | Token.EndIfDirective ->
+                    depth <- depth - 1
+                    reader.Skip()
+                | _ -> reader.Skip()
+
+    /// Processes a #if directive: parses the condition expression, evaluates it against
+    /// the current defined symbols, and either continues into the active branch or skips
+    /// to the matching #else/#endif.
+    /// Must be called with the reader positioned at the #if token (not yet consumed).
+    let processIfDirective (ifToken: PositionedToken) (reader: Reader<PositionedToken, ParseState, _, _>) =
+        let state = reader.State
+        let lexed = state.Lexed
+        let currentLine = findLineNumber state (tokenIndex reader)
+        let nextLine = currentLine + 1<_>
+
+        let nextLineTokenIndex =
+            if nextLine < lexed.LineStarts.LengthM then
+                lexed.LineStarts[nextLine]
+            else
+                lexed.Tokens.LengthM - 1<_>
+
+        // Create a slice of just the #if directive line.
+        // Pass reader.Index as the slice state so that token indices inside the slice
+        // can be converted to absolute token indices (absoluteIndex = state + sliceIndex).
+        let sliceLen = (nextLineTokenIndex * 1</token>) - reader.Index
+        let sliceReader = reader.Slice(0, sliceLen, reader.Index)
+
+        // Advance the main reader past the #if line before branching
+        reader.Index <- nextLineTokenIndex * 1</token>
+
+        match IfExpr.parseSlice sliceReader with
+        | Ok ifExpr ->
+            if IfExpr.evaluateStateful ifExpr reader.State then
+                // Condition is true: the then-branch is active.
+                // #else and #endif encountered later will be handled by nextNonTriviaToken.
+                nextNonTriviaToken reader
+            else
+                // Condition is false: skip over the inactive then-branch.
+                if skipInactiveBranch reader then
+                    // Stopped at #else: the else-branch is now active
                     nextNonTriviaToken reader
                 else
-                    // Inactive, skip to matching #else or #endif
-                    let mutable depth = 0
-                    let mutable foundMatch = false
-                    failwith ""
-                    // while not foundMatch do
-                    //     match reader.Peek() with
-                    //     | ValueNone -> fail EndOfInput reader
-                    //     | ValueSome t when t.Token = Token.IfDirective ->
-                    //         depth <- depth + 1
-                    //         reader.Skip()
-                    //     | ValueSome t when t.Token = Token.EndIfDirective ->
-                    //         if depth = 0 then
-                    //             foundMatch <- true
-                    //         else
-                    //             depth <- depth - 1
-
-                    //         reader.Skip()
-                    //     | ValueSome t when t.Token = Token.ElseDirective && depth = 0 ->
-                    //         foundMatch <- true
-                    //         reader.Skip()
-                    //     | ValueSome _ ->
-                    //         reader.Skip()
-            | Error e ->
-                // Invalid #if expression, report diagnostic 
-                // and continue as if the directive line was ignored trivia
-                let msg = $"Invalid #if expression: {e}"
-                // reader.State <- addDiagnostic (DiagnosticCode.Other msg) token None reader.State
-                // nextNonTriviaToken reader
-                failwith msg
+                    // Stopped at #endif: entire block skipped
+                    nextNonTriviaToken reader
+        | Error e ->
+            // Invalid #if expression: record a diagnostic and treat the whole block as inactive
+            let msg = $"Invalid #if expression: {e}"
+            reader.State <- addDiagnostic (DiagnosticCode.Other msg) ifToken None reader.State
+            skipInactiveBranch reader |> ignore
+            nextNonTriviaToken reader
 
     let rec nextNonTriviaToken (reader: Reader<PositionedToken, ParseState, _, _>) =
-        // TODO: We also need to consider handling preprocessor directives here
         match reader.Peek() with
         | ValueNone -> fail EndOfInput reader
-        | ValueSome token when token.Token = Token.IfDirective -> processIfDirective reader
+        | ValueSome token when token.Token = Token.IfDirective ->
+            // processIfDirective expects the reader to be positioned AT the #if token
+            processIfDirective token reader
+        | ValueSome token when token.Token = Token.ElseDirective ->
+            // We are in an active then-branch that has reached its #else.
+            // Skip the else-branch contents up to and including the matching #endif.
+            reader.Skip() // consume #else
+            skipElseBranch reader
+            nextNonTriviaToken reader
+        | ValueSome token when token.Token = Token.EndIfDirective ->
+            // End of a conditional block whose then-branch was active (no #else encountered).
+            reader.Skip() // consume #endif
+            nextNonTriviaToken reader
         | ValueSome token when isTriviaToken reader.State token ->
             reader.Skip()
             nextNonTriviaToken reader
         | ValueSome token ->
-            // printfn "Next non-trivia token: %A at index %A" token.Token reader.Index
             let t = syntaxToken token reader.Index
             reader.Skip()
             preturn t reader
 
     let rec nextNonTriviaTokenVirtualIfNot t (reader: Reader<PositionedToken, ParseState, _, _>) =
-        // TODO: We also need to consider handling preprocessor directives here
         match reader.Peek() with
         | ValueNone -> fail EndOfInput reader
         | ValueSome token when isTriviaToken reader.State token ->
@@ -127,59 +185,6 @@ module Parsing =
         let index = int reader.Index * 1<token>
         let indent = ParseState.getIndent state index
         preturn indent reader
-
-[<RequireQualifiedAccess>]
-module IfDirective =
-    let pIfDirective: Parser<_, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        parser {
-            let! _ = opt (satisfyL (fun t -> t.Token = Token.Indent) "Optional indent before #if")
-            return! satisfyL (fun t -> t.Token = Token.IfDirective) "Expected '#if' directive"
-        }
-
-    let getLineStringAfter (state: ParseState) (i: int<token>) =
-        let token = state.Lexed.Tokens[i]
-        let startIndex = token.StartIndex
-        let line = findLineNumber state i
-        let nextLine = line + 1<_>
-
-        if nextLine >= state.Lexed.LineStarts.LengthM then
-            // Last line
-            state.Input.[startIndex..]
-        else
-            let nextLineTokenIndex = state.Lexed.LineStarts[nextLine]
-            let offEndToken = state.Lexed.Tokens[nextLineTokenIndex]
-            state.Input.[startIndex .. offEndToken.StartIndex - 1]
-
-    let skipToIndex i (reader: Reader<_, _, _, _>) =
-        reader.Index <- i
-        Ok()
-
-// let parse: Parser<IfExpr2 voption, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-//     parser {
-//         let! ifDirective = pIfDirective
-//         let! pos = getPosition
-//         let state = pos.State
-//         let i = int pos.Index * 1<token>
-//         let s = getLineStringAfter state i
-//         let line = ParseState.findLineNumber state.Lexed state.LastLine i
-
-//         let iNext =
-//             if line + 1<_> < state.Lexed.LineStarts.LengthM then
-//                 state.Lexed.LineStarts[line + 1<_>] - 1<_>
-//             else
-//                 state.Lexed.Tokens.LengthM - 1<_>
-
-//         do! skipToIndex (int iNext)
-//         let reader = Reader.ofString s ()
-
-//         match IfExpr2.parse reader with
-//         | Error e ->
-//             // Add diagnostic
-//             // TODO: Better error message, recorrelating position
-//             ParseState.addDiagnostic (DiagnosticCode.Other $"Invalid #if expression {e}") ifDirective None state
-//             return ValueNone
-//         | Ok expr -> return ValueSome expr
-//     }
 
 [<AutoOpen>]
 module internal Keywords =
