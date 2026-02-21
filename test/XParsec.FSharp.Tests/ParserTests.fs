@@ -82,4 +82,16 @@ let tests =
                 let path = Path.Combine(testDataDir.Value, "26_sequential.fs")
                 testParseFile path
             }
+            test "Begin-End Sequential" {
+                let path = Path.Combine(testDataDir.Value, "27_begin_end_seq.fs")
+                testParseFile path
+            }
+            test "Nested Lets" {
+                let path = Path.Combine(testDataDir.Value, "28_nested_lets.fs")
+                testParseFile path
+            }
+            test "Let Body Sequential" {
+                let path = Path.Combine(testDataDir.Value, "29_let_body_seq.fs")
+                testParseFile path
+            }
         ]

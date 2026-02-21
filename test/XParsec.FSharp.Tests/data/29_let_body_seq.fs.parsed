@@ -1,0 +1,9 @@
+LetValue: 0, KWLet(0<token>)
+  Pat.NamedSimple: 4, Identifier(2<token>) 'x'
+  6, OpEquality(4<token>)
+    Sequential: 13, 1024 (virtual)(<virt>)
+      Const: 12, NumInt32(7<token>) '1'
+      Const: 18, NumInt32(10<token>) '2'
+  20, KWIn (virtual)(<virt>)
+  Body:
+    Ident: 20, Identifier(12<token>) 'x'

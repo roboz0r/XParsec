@@ -1,0 +1,22 @@
+0, KWLet
+3, Whitespace
+4, Identifier
+5, Whitespace
+6, OpEquality
+7, Whitespace
+8, NumInt32
+9, Newline
+10, KWLet
+13, Whitespace
+14, Identifier
+15, Whitespace
+16, OpEquality
+17, Whitespace
+18, NumInt32
+19, Newline
+20, Identifier
+21, Whitespace
+22, Operator 0b1000000001010011 InfixAdd (can be prefix)
+23, Whitespace
+24, Identifier
+25, EOF
