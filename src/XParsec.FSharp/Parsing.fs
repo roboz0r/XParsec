@@ -1882,21 +1882,31 @@ module Expr =
                             | ValueSome opInfo ->
                                 // printOpInfo opInfo
                                 let pl = opInfo.Precedence
-                                let x = rhsOperators[LanguagePrimitives.EnumToValue pl]reprocessedToken
+                                let handler = rhsOperators[LanguagePrimitives.EnumToValue pl]
 
-                                if obj.ReferenceEquals(x, null) then
+                                if obj.ReferenceEquals(handler, null) then
                                     return! fail (Message "Not a valid RHS operator after type declaration")
                                 else
-                                    return x
+                                    let x = handler reprocessedToken
+
+                                    if obj.ReferenceEquals(x, null) then
+                                        return! fail (Message "Not a valid RHS operator after type declaration")
+                                    else
+                                        return x
                         else
                             // printOpInfo opInfo
                             let pl = opInfo.Precedence
-                            let x = rhsOperators[LanguagePrimitives.EnumToValue pl]token
+                            let handler = rhsOperators[LanguagePrimitives.EnumToValue pl]
 
-                            if obj.ReferenceEquals(x, null) then
+                            if obj.ReferenceEquals(handler, null) then
                                 return! fail (Message "Not a valid RHS operator")
                             else
-                                return x
+                                let x = handler token
+
+                                if obj.ReferenceEquals(x, null) then
+                                    return! fail (Message "Not a valid RHS operator")
+                                else
+                                    return x
                     }
 
         let lhsParser =
@@ -2359,7 +2369,7 @@ module Rule =
             let! pat = Pat.parse
             let! guard = opt PatternGuard.parse
             let! arrow = pArrowRight
-            let! expr = Expr.parse
+            let! expr = pSeqBlock Expr.parse
             return Rule.Rule(pat, guard, arrow, expr)
         }
 

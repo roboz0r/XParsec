@@ -102,4 +102,8 @@ let tests =
                 let path = Path.Combine(testDataDir.Value, "31_if_then_else_seq.fs")
                 testParseFile path
             }
+            test "Match Sequential" {
+                let path = Path.Combine(testDataDir.Value, "32_match_seq.fs")
+                testParseFile path
+            }
         ]
