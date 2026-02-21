@@ -16,29 +16,25 @@ module IfExpr =
         else
             match token.TokenWithoutCommentFlags with
             | Token.LineComment
-            | Token.Indent
             | Token.Whitespace
-            | Token.BlockCommentStart
-            | Token.BlockCommentEnd
-            | Token.StartFSharpBlockComment
-            | Token.EndFSharpBlockComment
-            | Token.StartOCamlBlockComment
-            | Token.EndOCamlBlockComment
-            | Token.Newline
             | Token.Tab -> true
             | _ -> false
 
-    /// Ignores trivia tokens and returns the next non-trivia token, or fails if the end of input is reached
-    /// Only for use on #if directive lines
-    let rec nextNonTriviaIfToken (reader: Reader<PositionedToken, unit, 'Input, 'InputSlice>) =
+    /// Ignores trivia tokens and returns the next non-trivia token, or fails if the end of input is reached.
+    /// Only for use on #if directive lines.
+    /// The reader state must be an int representing the absolute token index of the slice start,
+    /// so that SyntaxToken.Index is set to the correct absolute position for later text extraction.
+    let rec nextNonTriviaIfToken (reader: Reader<PositionedToken, int, 'Input, 'InputSlice>) =
         match reader.Peek() with
         | ValueNone -> fail EndOfInput reader
         | ValueSome token when isTriviaToken token ->
             reader.Skip()
             nextNonTriviaIfToken reader
         | ValueSome token ->
-            // printfn "Next non-trivia token: %A at index %A" token.Token reader.Index
-            let t = syntaxToken token reader.Index
+            // reader.State is the absolute token index of the slice start;
+            // adding reader.Index (slice-relative) gives the absolute token index.
+            let absoluteIndex = reader.State + reader.Index
+            let t = syntaxToken token absoluteIndex
             reader.Skip()
             preturn t reader
 
@@ -114,7 +110,7 @@ module IfExpr =
         static let ifDirectiveParser: Parser<_, _, _, 'Input, 'InputSlice> =
             satisfyL (fun token -> token.Token = Token.IfDirective) "Not a #if directive"
 
-        interface Operators<SyntaxToken, IfExprAux, IfExpr<SyntaxToken>, PositionedToken, unit, 'Input, 'InputSlice> with
+        interface Operators<SyntaxToken, IfExprAux, IfExpr<SyntaxToken>, PositionedToken, int, 'Input, 'InputSlice> with
             member _.LhsParser = lhsParser
             member _.RhsParser = rhsParser
             member _.OpComparer = opComparer
