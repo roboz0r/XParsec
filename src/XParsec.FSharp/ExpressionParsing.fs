@@ -951,7 +951,16 @@ module Expr =
         }
 
     let pList =
-        pCollection Token.KWLBracket Token.KWRBracket (fun l elems r -> Expr.List(l, List.ofSeq elems, r))
+        choiceL
+            [
+                // Empty list `[]` is lexed as a single OpNil token
+                parser {
+                    let! t = nextNonTriviaTokenIsL Token.OpNil "[]"
+                    return Expr.List(t, [], t)
+                }
+                pCollection Token.KWLBracket Token.KWRBracket (fun l elems r -> Expr.List(l, List.ofSeq elems, r))
+            ]
+            "list expression"
 
     let pArray =
         pCollection Token.KWLArrayBracket Token.KWRArrayBracket (fun l elems r -> Expr.Array(l, List.ofSeq elems, r))

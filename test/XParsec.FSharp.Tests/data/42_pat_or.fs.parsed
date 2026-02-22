@@ -1,0 +1,19 @@
+Match:
+  MatchToken: 0, KWMatch(0<token>)
+  MatchExpr:
+    Ident: 6, Identifier(2<token>) 'n'
+  WithToken: 8, KWWith(4<token>)
+  Rule:
+    Bar: 13, OpBar(6<token>)
+    Pat: Pat.Or: 17, OpBar(10<token>)
+      Pat.Const: 15, NumInt32(8<token>) '1'
+      Pat.Const: 19, NumInt32(12<token>) '2'
+    Arrow: 21, OpArrowRight(14<token>)
+    Expr:
+      Const: 24, KWTrue(16<token>) 'true'
+  Rule:
+    Bar: 29, OpBar(18<token>)
+    Pat: Pat.Wildcard: 31, Wildcard(20<token>)
+    Arrow: 33, OpArrowRight(22<token>)
+    Expr:
+      Const: 36, KWFalse(24<token>) 'false'

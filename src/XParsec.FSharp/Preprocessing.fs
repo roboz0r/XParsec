@@ -45,6 +45,8 @@ module IfExpr =
     [<RequireQualifiedAccess>]
     type IfExprAux = unit
 
+    // The main expression type for #if expressions, with auxiliary data for operators.
+    // We use a generic type here to allow the parser to be generic over the input type (e.g. ReadableImmutableArray vs ReadableImmutableArraySlice).
     type IfExprParser<'Input, 'InputSlice
         when 'Input :> IReadable<PositionedToken, 'InputSlice>
         and 'InputSlice :> IReadable<PositionedToken, 'InputSlice>>() =

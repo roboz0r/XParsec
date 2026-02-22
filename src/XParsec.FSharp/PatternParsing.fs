@@ -136,11 +136,11 @@ module Pat =
 
         static let pTypeRhs = Type.parse |>> PatAux.Type
 
-        static let pAs = nextNonTriviaTokenIsL Token.KWAs "Expected identifier for 'as' pattern"
-
         static let pAsRhs =
             parser {
-                let! ident = pAs
+                // NOTE: the 'as' token was already consumed by rhsParser's nextNonTriviaToken.
+                // We only need to consume the identifier that follows.
+                let! ident = nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "identifier after 'as'"
                 return PatAux.AsIdent ident
             }
 
@@ -217,12 +217,22 @@ module Pat =
     let private refPat = FSRefParser<Pat<SyntaxToken>>()
 
     let pListPat: Parser<ListPat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        parser {
-            let! l = pLBracket
-            let! pats, _ = sepEndBy refPat.Parser pSemi
-            let! r = pRBracket
-            return ListPat.ListPat(l, List.ofSeq pats, r)
-        }
+        choiceL
+            [
+                // Empty list `[]` is lexed as a single OpNil token
+                parser {
+                    let! t = nextNonTriviaTokenIsL Token.OpNil "[]"
+                    return ListPat.ListPat(t, [], t)
+                }
+                // Non-empty list `[x; y]` with explicit brackets
+                parser {
+                    let! l = pLBracket
+                    let! pats, _ = sepEndBy refPat.Parser pSemi
+                    let! r = pRBracket
+                    return ListPat.ListPat(l, List.ofSeq pats, r)
+                }
+            ]
+            "ListPat"
 
     let pArrayPat: Parser<ArrayPat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
@@ -305,6 +315,8 @@ module Pat =
             "Pattern Atom"
 
     let parse = Operator.parser pPatAtom (PatOperatorParser())
+
+    do refPat.Set parse
 
 
 [<RequireQualifiedAccess>]
