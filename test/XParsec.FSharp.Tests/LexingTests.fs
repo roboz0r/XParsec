@@ -56,6 +56,11 @@ let tests =
 
                 test $"Lexing {name}" { testLexFile file }
 
+            for file in lexOnlyTestData.Value do
+                let name = IO.Path.GetFileName file
+
+                test $"Lexing {name}" { testLexFile file }
+
             ptest "Temp test file" {
                 let file = testData.Value |> Seq.skip 0 |> Seq.head
                 let fileName = IO.Path.GetFileName file

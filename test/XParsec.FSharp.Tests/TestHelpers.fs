@@ -270,6 +270,11 @@ let blocksTestData =
         let dir = blocksTestDataDir.Value
         IO.Directory.GetFiles(dir, "*.fs")
 
+let lexOnlyTestData =
+    lazy
+        let dir = Path.Combine(testDataDir.Value, "lex-only")
+        IO.Directory.GetFiles(dir, "*.fs")
+
 let testLexFile (filePath: string) =
     let input = File.ReadAllText filePath
     let input = input.Replace("\r\n", "\n")
