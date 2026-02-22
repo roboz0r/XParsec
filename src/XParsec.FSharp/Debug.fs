@@ -183,7 +183,171 @@ let printPat (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (pat: Pat<S
         tw.Write("Pat.Wildcard: ")
         printTokenMin tw input lexed underscore
         tw.WriteLine()
-    | _ -> failwith "Not implemented"
+    | Pat.Named(longIdent, param, innerPat) ->
+        printSection
+            tw
+            "Pat.Named"
+            (fun () ->
+                for ident in longIdent do
+                    tw.Write("Ident: ")
+                    printTokenFull tw input lexed ident
+                    tw.WriteLine()
+
+                match param with
+                | ValueSome _ -> failwith "printPat: Pat.Named param not implemented"
+                | ValueNone -> ()
+
+                match innerPat with
+                | ValueSome p ->
+                    tw.Write("Pat: ")
+                    printPat tw input lexed p
+                | ValueNone -> ()
+            )
+    | Pat.As(innerPat, asToken, ident) ->
+        printSection
+            tw
+            "Pat.As"
+            (fun () ->
+                printPat tw input lexed innerPat
+                printLabelledToken "As" tw input lexed asToken
+                tw.Write("Ident: ")
+                printTokenFull tw input lexed ident
+                tw.WriteLine()
+            )
+    | Pat.Or(left, bar, right) ->
+        printLabelledToken "Pat.Or" tw input lexed bar
+
+        indent
+            tw
+            (fun () ->
+                printPat tw input lexed left
+                printPat tw input lexed right
+            )
+    | Pat.And(left, ampersand, right) ->
+        printLabelledToken "Pat.And" tw input lexed ampersand
+
+        indent
+            tw
+            (fun () ->
+                printPat tw input lexed left
+                printPat tw input lexed right
+            )
+    | Pat.Cons(head, consToken, tail) ->
+        printLabelledToken "Pat.Cons" tw input lexed consToken
+
+        indent
+            tw
+            (fun () ->
+                printPat tw input lexed head
+                printPat tw input lexed tail
+            )
+    | Pat.Typed(innerPat, colon, typ) ->
+        printSection
+            tw
+            "Pat.Typed"
+            (fun () ->
+                printPat tw input lexed innerPat
+                printLabelledToken "Colon" tw input lexed colon
+                printType tw input lexed typ
+            )
+    | Pat.Tuple(patterns, _commas) ->
+        printSection
+            tw
+            "Pat.Tuple"
+            (fun () ->
+                for p in patterns do
+                    printPat tw input lexed p
+            )
+    | Pat.StructTuple(structToken, _lParen, patterns, _commas, _rParen) ->
+        printSection
+            tw
+            "Pat.StructTuple"
+            (fun () ->
+                printTokenMin tw input lexed structToken
+                tw.WriteLine()
+
+                for p in patterns do
+                    printPat tw input lexed p
+            )
+    | Pat.Paren(lParen, innerPat, rParen) ->
+        printLabelledToken "Pat.Paren" tw input lexed lParen
+        indent tw (fun () -> printPat tw input lexed innerPat)
+        printTokenMin tw input lexed rParen
+        tw.WriteLine()
+    | Pat.List(ListPat(lBracket, patterns, rBracket)) ->
+        printLabelledToken "Pat.List" tw input lexed lBracket
+
+        indent
+            tw
+            (fun () ->
+                for p in patterns do
+                    printPat tw input lexed p
+            )
+
+        printTokenMin tw input lexed rBracket
+        tw.WriteLine()
+    | Pat.Array(ArrayPat(lBarBracket, patterns, rBarBracket)) ->
+        printLabelledToken "Pat.Array" tw input lexed lBarBracket
+
+        indent
+            tw
+            (fun () ->
+                for p in patterns do
+                    printPat tw input lexed p
+            )
+
+        printTokenMin tw input lexed rBarBracket
+        tw.WriteLine()
+    | Pat.Record(RecordPat(lBrace, fieldPats, rBrace)) ->
+        printLabelledToken "Pat.Record" tw input lexed lBrace
+
+        indent
+            tw
+            (fun () ->
+                for FieldPat(longIdent, equals, innerPat) in fieldPats do
+                    printSection
+                        tw
+                        "FieldPat"
+                        (fun () ->
+                            for ident in longIdent do
+                                tw.Write("Ident: ")
+                                printTokenFull tw input lexed ident
+                                tw.WriteLine()
+
+                            printLabelledToken "=" tw input lexed equals
+                            tw.Write("Pat: ")
+                            printPat tw input lexed innerPat
+                        )
+            )
+
+        printTokenMin tw input lexed rBrace
+        tw.WriteLine()
+    | Pat.TypeTest(colonQuestion, typ) ->
+        printSection
+            tw
+            "Pat.TypeTest"
+            (fun () ->
+                printLabelledToken "ColonQuestion" tw input lexed colonQuestion
+                printType tw input lexed typ
+            )
+    | Pat.TypeTestAs(colonQuestion, typ, asToken, ident) ->
+        printSection
+            tw
+            "Pat.TypeTestAs"
+            (fun () ->
+                printLabelledToken "ColonQuestion" tw input lexed colonQuestion
+                printType tw input lexed typ
+                printLabelledToken "As" tw input lexed asToken
+                tw.Write("Ident: ")
+                printTokenFull tw input lexed ident
+                tw.WriteLine()
+            )
+    | Pat.Null nullToken ->
+        tw.Write("Pat.Null: ")
+        printTokenMin tw input lexed nullToken
+        tw.WriteLine()
+    | Pat.Attributed(_, innerPat) -> failwith "printPat: Pat.Attributed not implemented"
+    | Pat.Struct(structToken, innerPat) -> failwith "printPat: Pat.Struct not implemented"
 
 let printValueDefn (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (valueDefn: ValueDefn<SyntaxToken>) =
     match valueDefn with
