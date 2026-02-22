@@ -1,0 +1,13 @@
+0, KWFun
+3, Whitespace
+4, Identifier
+5, Whitespace
+6, OpArrowRight
+8, Whitespace
+9, Identifier
+10, Whitespace
+11, Operator 0b1000000001010011 InfixAdd (can be prefix)
+12, Whitespace
+13, NumInt32
+14, Newline
+15, EOF

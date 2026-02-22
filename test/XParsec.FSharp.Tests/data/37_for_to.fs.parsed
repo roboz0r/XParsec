@@ -1,0 +1,14 @@
+ForTo: 0, KWFor(0<token>)
+Ident: 4, Identifier(2<token>) 'i'
+Equals: 6, OpEquality(4<token>)
+Start:
+  Const: 8, NumInt32(6<token>) '1'
+ToToken: 10, KWTo(8<token>)
+End:
+  Const: 13, NumInt32(10<token>) '10'
+DoToken: 16, KWDo(12<token>)
+Body:
+  InfixApp: 24, Whitespace(16<token>)
+    Ident: 23, Identifier(15<token>) 'f'
+    Ident: 25, Identifier(17<token>) 'i'
+DoneToken: 27, KWDone (virtual)(<virt>)

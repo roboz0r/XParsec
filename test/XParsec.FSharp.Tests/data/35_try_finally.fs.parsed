@@ -1,0 +1,10 @@
+TryFinally: 0, KWTry(0<token>)
+TryExpr:
+  InfixApp: 9, Whitespace(4<token>)
+    Ident: 8, Identifier(3<token>) 'f'
+    Ident: 10, Identifier(5<token>) 'x'
+FinallyToken: 12, KWFinally(7<token>)
+FinallyExpr:
+  InfixApp: 31, Whitespace(11<token>)
+    Ident: 24, Identifier(10<token>) 'cleanup'
+    Const: 32, Unit(12<token>) '()'

@@ -1,0 +1,15 @@
+0, KWTry
+3, Newline
+4, Indent
+8, Identifier
+9, Whitespace
+10, Identifier
+11, Newline
+12, KWFinally
+19, Newline
+20, Indent
+24, Identifier
+31, Whitespace
+32, Unit
+34, Newline
+35, EOF

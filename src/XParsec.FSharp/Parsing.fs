@@ -304,6 +304,9 @@ module internal Keywords =
     let pFinally = nextNonTriviaTokenIsL Token.KWFinally "finally"
 
     let pWhile = nextNonTriviaTokenIsL Token.KWWhile "while"
+    let pFun = nextNonTriviaTokenIsL Token.KWFun "fun"
+    let pDone: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+        nextNonTriviaTokenVirtualIfNot Token.KWDone
     let pIdent = nextNonTriviaTokenIsL Token.Identifier "identifier"
 
     let pToOrDownTo =
@@ -1767,12 +1770,12 @@ module Expr =
                                 preturn () reader
                             elif t.Token.IsLiteral then
                                 preturn () reader
-                            elif t.Token = Token.KWLParen then
-                                preturn () reader
-                            elif t.Token = Token.KWLBracket then
-                                preturn () reader
                             else
-                                fail (Message "Expected expression after application whitespace") reader
+                                match t.Token with 
+                                | Token.Unit
+                                | Token.KWLParen
+                                | Token.KWLBracket -> preturn () reader
+                                | _ -> fail (Message "Expected expression after application whitespace") reader
                     )
 
                 let t = syntaxToken token i.Index
@@ -2022,12 +2025,101 @@ module Expr =
             return Expr.Match(m, e, w, rules)
         }
 
+    let pFunExpr =
+        parser {
+            let! funTok = pFun
+            let! pats = many1 Pat.parse
+            let! arrow = pArrowRight
+            let! expr = pSeqBlock refExpr.Parser
+            return Expr.Fun(funTok, List.ofSeq pats, arrow, expr)
+        }
+
+    let pTryExpr =
+        parser {
+            let! tryTok = pTry
+            let! tryExpr = pSeqBlock refExpr.Parser
+
+            return!
+                choiceL
+                    [
+                        parser {
+                            let! withTok = pWith
+                            let! rules = Rules.parse
+                            return Expr.TryWith(tryTok, tryExpr, withTok, rules)
+                        }
+                        parser {
+                            let! finTok = pFinally
+                            let! finExpr = pSeqBlock refExpr.Parser
+                            return Expr.TryFinally(tryTok, tryExpr, finTok, finExpr)
+                        }
+                    ]
+                    "Expected 'with' or 'finally'"
+        }
+
+    let pWhileExpr =
+        parser {
+            let! whileTok = pWhile
+            let! cond = refExpr.Parser
+            let! doTok = pDo
+            let! body = pSeqBlock refExpr.Parser
+            let! doneTok = pDone
+            return Expr.While(whileTok, cond, doTok, body, doneTok)
+        }
+
+    let pIdentTok = nextNonTriviaTokenIsL Token.Identifier "identifier"
+
+    let pForExpr =
+        parser {
+            let! forTok = pFor
+
+            return!
+                choiceL
+                    [
+                        // ForTo: for ident = start to/downto end do body done
+                        parser {
+                            let! ident = pIdentTok
+                            let! eq = pEquals
+                            let! startExpr = refExpr.Parser
+                            let! toTok = pToOrDownTo
+                            let! endExpr = refExpr.Parser
+                            let! doTok = pDo
+                            let! body = pSeqBlock refExpr.Parser
+                            let! doneTok = pDone
+                            return Expr.ForTo(forTok, ident, eq, startExpr, toTok, endExpr, doTok, body, doneTok)
+                        }
+                        
+                        // ForIn: for pat in expr do body done
+                        parser {
+                            let! pat = Pat.parse
+                            let! inTok = pInVirt
+                            let! range = ExprOrRange.parse
+                            let! doTok = pDo
+                            let! body = pSeqBlock refExpr.Parser
+                            let! doneTok = pDone
+                            return Expr.ForIn(forTok, pat, inTok, range, doTok, body, doneTok)
+                        }
+                    ]
+                    "Expected for-to or for-in"
+        }
+
+    let pUseExpr =
+        parser {
+            let! useTok = pUse
+            let! ident = pIdentTok
+            let! eq = pEquals
+            let! expr = refExpr.Parser
+            let! inTok = pInVirt
+            let! body = pSeqBlock refExpr.Parser
+            return Expr.Use(useTok, ident, eq, expr, inTok, body)
+        }
+
     let atomExpr =
         choiceL
             [
                 pConst
                 pIdent
                 pLetValue
+                pUseExpr
                 pParen
                 pList
                 pArray
@@ -2035,6 +2127,10 @@ module Expr =
                 pBeginEnd
                 pIfExpr
                 pMatchExpr
+                pFunExpr
+                pTryExpr
+                pWhileExpr
+                pForExpr
             ]
             "atom expression"
 
