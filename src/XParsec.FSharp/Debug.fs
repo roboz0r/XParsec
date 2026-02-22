@@ -41,6 +41,13 @@ let printRules (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (rules: R
                 let (Rule(pat, guard, arrow, ruleExpr)) = ruleList[i]
                 tw.Write("Pat: ")
                 printPat tw input lexed pat
+
+                match guard with
+                | ValueSome(PatternGuard(whenToken, guardExpr)) ->
+                    printLabelledToken "When" tw input lexed whenToken
+                    printSection tw "Guard" (fun () -> printExpr tw input lexed guardExpr)
+                | ValueNone -> ()
+
                 printLabelledToken "Arrow" tw input lexed arrow
                 printSection tw "Expr" (fun () -> printExpr tw input lexed ruleExpr)
             )
@@ -74,7 +81,11 @@ let printTokenFull (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (synT
 let printConstant (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (x: Constant<SyntaxToken>) =
     match x with
     | Constant.Literal value -> printTokenFull tw input lexed value
-    | Constant.MeasuredLiteral(value, lAngle, measure, rAngle) -> failwith "Not implemented"
+    | Constant.MeasuredLiteral(value, lAngle, measure, rAngle) ->
+        printTokenFull tw input lexed value
+        tw.Write(" <")
+        printMeasure tw input lexed measure
+        tw.Write(">")
 
 let rec printIdentOrOp (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (identOrOp: IdentOrOp<SyntaxToken>) =
     match identOrOp with
@@ -405,36 +416,23 @@ let printPat (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (pat: Pat<S
         tw.Write("Pat.Null: ")
         printTokenMin tw input lexed nullToken
         tw.WriteLine()
-    | Pat.Attributed(_, innerPat) -> failwith "printPat: Pat.Attributed not implemented"
-    | Pat.Struct(structToken, innerPat) -> failwith "printPat: Pat.Struct not implemented"
-
-let printValueDefn (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (valueDefn: ValueDefn<SyntaxToken>) =
-    match valueDefn with
-    | ValueDefn(mutableToken, access, pat, typarDefns, returnType, equals, expr) ->
-        match mutableToken with
-        | ValueSome t ->
-            printTokenMin tw input lexed t
-            tw.Write(" ")
-        | ValueNone -> ()
-
-        match access with
-        | ValueSome a ->
-            printTokenMin tw input lexed a
-            tw.Write(" ")
-        | ValueNone -> ()
-
-        printPat tw input lexed pat
-
-        match typarDefns with
-        | ValueSome typars -> failwith "Not implemented"
-        | ValueNone -> ()
-
-        match returnType with
-        | ValueSome returnType -> failwith "Not implemented"
-        | ValueNone -> ()
-
-        printLabelledToken "=" tw input lexed equals
-        indent tw (fun () -> printExpr tw input lexed expr)
+    | Pat.Attributed(attributes, innerPat) ->
+        printSection
+            tw
+            "Pat.Attributed"
+            (fun () ->
+                tw.WriteLine($"(Attributes: {attributes.Length} set(s))")
+                printPat tw input lexed innerPat
+            )
+    | Pat.Struct(structToken, innerPat) ->
+        printSection
+            tw
+            "Pat.Struct"
+            (fun () ->
+                printTokenMin tw input lexed structToken
+                tw.WriteLine()
+                printPat tw input lexed innerPat
+            )
 
 let printTypar (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (typar: Typar<SyntaxToken>) =
     match typar with
@@ -455,6 +453,75 @@ let printTypar (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (typar: T
         printTokenFull tw input lexed ident
         tw.WriteLine()
 
+let printConstraint (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (c: Constraint<SyntaxToken>) =
+    match c with
+    | Constraint.Coercion(typar, colonGT, typ) ->
+        printSection
+            tw
+            "Constraint.Coercion"
+            (fun () ->
+                printTypar tw input lexed typar
+                printLabelledToken ":>" tw input lexed colonGT
+                printType tw input lexed typ
+            )
+    | Constraint.Nullness(typar, _colon, _nullToken) ->
+        printSection tw "Constraint.Nullness" (fun () -> printTypar tw input lexed typar)
+    | Constraint.MemberTrait(_staticTypars, _colon, _lParen, _membersign, _rParen) ->
+        tw.WriteLine("Constraint.MemberTrait: (not fully printed)")
+    | Constraint.DefaultConstructor(typar, _colon, _lParen, _newToken, _colonUnit, _arrow, _quoteT, _rParen) ->
+        printSection tw "Constraint.DefaultConstructor" (fun () -> printTypar tw input lexed typar)
+    | Constraint.Struct(typar, _colon, _structToken) ->
+        printSection tw "Constraint.Struct" (fun () -> printTypar tw input lexed typar)
+    | Constraint.ReferenceType(typar, _colon, _notToken, _structToken) ->
+        printSection tw "Constraint.ReferenceType" (fun () -> printTypar tw input lexed typar)
+    | Constraint.Enum(typar, _colon, _enumToken, _lAngle, typ, _rAngle) ->
+        printSection
+            tw
+            "Constraint.Enum"
+            (fun () ->
+                printTypar tw input lexed typar
+                printType tw input lexed typ
+            )
+    | Constraint.Unmanaged(typar, _colon, _unmanagedToken) ->
+        printSection tw "Constraint.Unmanaged" (fun () -> printTypar tw input lexed typar)
+    | Constraint.Delegate(typar, _colon, _delegateToken, _lAngle, type1, _comma, type2, _rAngle) ->
+        printSection
+            tw
+            "Constraint.Delegate"
+            (fun () ->
+                printTypar tw input lexed typar
+                printType tw input lexed type1
+                printType tw input lexed type2
+            )
+    | Constraint.Equality(typar, _colon, _equalityToken) ->
+        printSection tw "Constraint.Equality" (fun () -> printTypar tw input lexed typar)
+    | Constraint.Comparison(typar, _colon, _comparisonToken) ->
+        printSection tw "Constraint.Comparison" (fun () -> printTypar tw input lexed typar)
+
+let printTyparDefns (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (typars: TyparDefns<SyntaxToken>) =
+    let (TyparDefns(lAngle, defns, constraints, rAngle)) = typars
+
+    printSection
+        tw
+        "TyparDefns"
+        (fun () ->
+            printTokenMin tw input lexed lAngle
+            tw.WriteLine()
+
+            for (TyparDefn(_attrs, typar)) in defns do
+                printTypar tw input lexed typar
+
+            match constraints with
+            | ValueSome(TyparConstraints(whenToken, constraintList)) ->
+                printLabelledToken "when" tw input lexed whenToken
+
+                for c in constraintList do
+                    printConstraint tw input lexed c
+            | ValueNone -> ()
+
+            printTokenMin tw input lexed rAngle
+            tw.WriteLine()
+        )
 
 let printTypeArg (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (typeArg: TypeArg<SyntaxToken>) =
     match typeArg with
@@ -569,7 +636,190 @@ let printType (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (ty: Type<
 
         printTokenMin tw input lexed rAngle
         tw.WriteLine()
-    | _ -> failwith "Not implemented"
+    | Type.FunctionType(fromType, arrow, toType) ->
+        printSection
+            tw
+            "FunctionType"
+            (fun () ->
+                printType tw input lexed fromType
+                printLabelledToken "->" tw input lexed arrow
+                printType tw input lexed toType
+            )
+    | Type.TupleType(types) ->
+        printSection
+            tw
+            "TupleType"
+            (fun () ->
+                for t in types do
+                    printType tw input lexed t
+            )
+    | Type.StructTupleType(structToken, _lParen, types, _rParen) ->
+        printSection
+            tw
+            "StructTupleType"
+            (fun () ->
+                printTokenMin tw input lexed structToken
+                tw.WriteLine()
+
+                for t in types do
+                    printType tw input lexed t
+            )
+    | Type.IncompleteGenericType(longIdent, lAngle, rAngle) ->
+        tw.Write("IncompleteGenericType: ")
+        printLongIdentOrOp tw input lexed (LongIdentOrOp.LongIdent longIdent)
+        printTokenMin tw input lexed lAngle
+        tw.Write(" ")
+        printTokenMin tw input lexed rAngle
+        tw.WriteLine()
+    | Type.SuffixedType(baseType, longIdent) ->
+        printSection
+            tw
+            "SuffixedType"
+            (fun () ->
+                printType tw input lexed baseType
+                printLongIdentOrOp tw input lexed (LongIdentOrOp.LongIdent longIdent)
+            )
+    | Type.ArrayType(baseType, lBracket, commas, rBracket) ->
+        printSection
+            tw
+            "ArrayType"
+            (fun () ->
+                printType tw input lexed baseType
+                printTokenMin tw input lexed lBracket
+                tw.WriteLine()
+
+                for comma in commas do
+                    printTokenMin tw input lexed comma
+                    tw.WriteLine()
+
+                printTokenMin tw input lexed rBracket
+                tw.WriteLine()
+            )
+    | Type.ConstrainedType(typ, constraints) ->
+        printSection
+            tw
+            "ConstrainedType"
+            (fun () ->
+                printType tw input lexed typ
+                printTyparDefns tw input lexed constraints
+            )
+    | Type.SubtypeConstraint(typar, colonGreaterThan, typ) ->
+        printSection
+            tw
+            "SubtypeConstraint"
+            (fun () ->
+                printTypar tw input lexed typar
+                printLabelledToken ":>" tw input lexed colonGreaterThan
+                printType tw input lexed typ
+            )
+    | Type.AnonymousSubtype(hash, typ) ->
+        printSection
+            tw
+            "AnonymousSubtype"
+            (fun () ->
+                printTokenMin tw input lexed hash
+                tw.WriteLine()
+                printType tw input lexed typ
+            )
+
+let printValueDefn (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (valueDefn: ValueDefn<SyntaxToken>) =
+    match valueDefn with
+    | ValueDefn(mutableToken, access, pat, typarDefns, returnType, equals, expr) ->
+        match mutableToken with
+        | ValueSome t ->
+            printTokenMin tw input lexed t
+            tw.Write(" ")
+        | ValueNone -> ()
+
+        match access with
+        | ValueSome a ->
+            printTokenMin tw input lexed a
+            tw.Write(" ")
+        | ValueNone -> ()
+
+        printPat tw input lexed pat
+
+        match typarDefns with
+        | ValueSome typars -> printTyparDefns tw input lexed typars
+        | ValueNone -> ()
+
+        match returnType with
+        | ValueSome(ReturnType(colon, typ)) ->
+            printLabelledToken "ReturnColon" tw input lexed colon
+            printType tw input lexed typ
+        | ValueNone -> ()
+
+        printLabelledToken "=" tw input lexed equals
+        indent tw (fun () -> printExpr tw input lexed expr)
+
+let printFunctionDefn
+    (tw: IndentedTextWriter)
+    (input: string)
+    (lexed: Lexed)
+    (functionDefn: FunctionDefn<SyntaxToken>)
+    =
+    let (FunctionDefn(inlineToken, access, identOrOp, typarDefns, argumentPats, returnType, equals, expr)) =
+        functionDefn
+
+    match inlineToken with
+    | ValueSome t -> printLabelledToken "inline" tw input lexed t
+    | ValueNone -> ()
+
+    match access with
+    | ValueSome a -> printLabelledToken "access" tw input lexed a
+    | ValueNone -> ()
+
+    tw.Write("IdentOrOp: ")
+    printIdentOrOp tw input lexed identOrOp
+
+    match typarDefns with
+    | ValueSome typars -> printTyparDefns tw input lexed typars
+    | ValueNone -> ()
+
+    printSection
+        tw
+        "Pats"
+        (fun () ->
+            for pat in argumentPats do
+                printPat tw input lexed pat
+        )
+
+    match returnType with
+    | ValueSome(ReturnType(colon, typ)) ->
+        printLabelledToken "ReturnColon" tw input lexed colon
+        printType tw input lexed typ
+    | ValueNone -> ()
+
+    printLabelledToken "=" tw input lexed equals
+    indent tw (fun () -> printExpr tw input lexed expr)
+
+let printFunctionOrValueDefn
+    (tw: IndentedTextWriter)
+    (input: string)
+    (lexed: Lexed)
+    (defn: FunctionOrValueDefn<SyntaxToken>)
+    =
+    match defn with
+    | FunctionOrValueDefn.Function functionDefn ->
+        printSection tw "Function" (fun () -> printFunctionDefn tw input lexed functionDefn)
+    | FunctionOrValueDefn.Value valueDefn -> printSection tw "Value" (fun () -> printValueDefn tw input lexed valueDefn)
+
+let printFieldInitializer
+    (tw: IndentedTextWriter)
+    (input: string)
+    (lexed: Lexed)
+    (fieldInit: FieldInitializer<SyntaxToken>)
+    =
+    let (FieldInitializer(longIdent, equals, fieldExpr)) = fieldInit
+
+    printSection
+        tw
+        "Field"
+        (fun () ->
+            printLongIdentOrOp tw input lexed (LongIdentOrOp.LongIdent longIdent)
+            printLabelledToken "=" tw input lexed equals
+            printSection tw "Expr" (fun () -> printExpr tw input lexed fieldExpr)
+        )
 
 let printExpr (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (expr: Expr<SyntaxToken>) =
     match expr with
@@ -795,4 +1045,185 @@ let printExpr (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (expr: Exp
         printSection tw "Expr" (fun () -> printExpr tw input lexed expr)
         printLabelledToken "InToken" tw input lexed inToken
         printSection tw "Body" (fun () -> printExpr tw input lexed body)
+    | Expr.App(funcExpr, argExpr) ->
+        printSection
+            tw
+            "App"
+            (fun () ->
+                printSection tw "Func" (fun () -> printExpr tw input lexed funcExpr)
+                printSection tw "Arg" (fun () -> printExpr tw input lexed argExpr)
+            )
+    | Expr.HighPrecedenceApp(funcExpr, lParen, argExpr, rParen) ->
+        printSection
+            tw
+            "HighPrecedenceApp"
+            (fun () ->
+                printSection tw "Func" (fun () -> printExpr tw input lexed funcExpr)
+                printLabelledToken "(" tw input lexed lParen
+                printSection tw "Arg" (fun () -> printExpr tw input lexed argExpr)
+                printTokenMin tw input lexed rParen
+                tw.WriteLine()
+            )
+    | Expr.TypeAnnotation(innerExpr, colon, typ) ->
+        printSection
+            tw
+            "TypeAnnotation"
+            (fun () ->
+                printSection tw "Expr" (fun () -> printExpr tw input lexed innerExpr)
+                printLabelledToken "Colon" tw input lexed colon
+                printType tw input lexed typ
+            )
+    | Expr.Lazy(lazyToken, innerExpr) ->
+        printLabelledToken "Lazy" tw input lexed lazyToken
+        indent tw (fun () -> printExpr tw input lexed innerExpr)
+    | Expr.Assert(assertToken, innerExpr) ->
+        printLabelledToken "Assert" tw input lexed assertToken
+        indent tw (fun () -> printExpr tw input lexed innerExpr)
+    | Expr.Null nullToken ->
+        tw.Write("Null: ")
+        printTokenMin tw input lexed nullToken
+        tw.WriteLine()
+    | Expr.Function(functionToken, rules) ->
+        printLabelledToken "Function" tw input lexed functionToken
+        indent tw (fun () -> printRules tw input lexed rules)
+    | Expr.LetFunction(letToken, functionDefn, inToken, body) ->
+        printLabelledToken "LetFunction" tw input lexed letToken
+
+        indent
+            tw
+            (fun () ->
+                printFunctionDefn tw input lexed functionDefn
+                printLabelledToken "in" tw input lexed inToken
+                printSection tw "Body" (fun () -> printExpr tw input lexed body)
+            )
+    | Expr.LetRec(letToken, recToken, defns, inToken, body) ->
+        printLabelledToken "LetRec" tw input lexed letToken
+
+        indent
+            tw
+            (fun () ->
+                printLabelledToken "rec" tw input lexed recToken
+
+                for defn in defns do
+                    printFunctionOrValueDefn tw input lexed defn
+
+                printLabelledToken "in" tw input lexed inToken
+                printSection tw "Body" (fun () -> printExpr tw input lexed body)
+            )
+    | Expr.New(newToken, typ, newExpr) ->
+        printLabelledToken "New" tw input lexed newToken
+
+        indent
+            tw
+            (fun () ->
+                printType tw input lexed typ
+                printSection tw "Arg" (fun () -> printExpr tw input lexed newExpr)
+            )
+    | Expr.Assignment(leftExpr, arrow, rightExpr) ->
+        printLabelledToken "Assignment" tw input lexed arrow
+
+        indent
+            tw
+            (fun () ->
+                printExpr tw input lexed leftExpr
+                printExpr tw input lexed rightExpr
+            )
+    | Expr.Record(lBrace, fieldInitializers, rBrace) ->
+        printLabelledToken "Record" tw input lexed lBrace
+
+        indent
+            tw
+            (fun () ->
+                for fi in fieldInitializers do
+                    printFieldInitializer tw input lexed fi
+            )
+
+        printTokenMin tw input lexed rBrace
+        tw.WriteLine()
+    | Expr.RecordClone(lBrace, baseExpr, withToken, fieldInitializers, rBrace) ->
+        printLabelledToken "RecordClone" tw input lexed lBrace
+
+        indent
+            tw
+            (fun () ->
+                printSection tw "Base" (fun () -> printExpr tw input lexed baseExpr)
+                printLabelledToken "with" tw input lexed withToken
+
+                for fi in fieldInitializers do
+                    printFieldInitializer tw input lexed fi
+            )
+
+        printTokenMin tw input lexed rBrace
+        tw.WriteLine()
+    | Expr.IndexedLookup(indexedExpr, lDotBracket, indexArgExpr, rBracket) ->
+        printSection
+            tw
+            "IndexedLookup"
+            (fun () ->
+                printSection tw "Expr" (fun () -> printExpr tw input lexed indexedExpr)
+                printLabelledToken ".[" tw input lexed lDotBracket
+                printSection tw "Index" (fun () -> printExpr tw input lexed indexArgExpr)
+                printTokenMin tw input lexed rBracket
+                tw.WriteLine()
+            )
+    | Expr.StaticUpcast(castExpr, colonGT, typ) ->
+        printSection
+            tw
+            "StaticUpcast"
+            (fun () ->
+                printSection tw "Expr" (fun () -> printExpr tw input lexed castExpr)
+                printLabelledToken ":>" tw input lexed colonGT
+                printType tw input lexed typ
+            )
+    | Expr.DynamicTypeTest(testExpr, colonQ, typ) ->
+        printSection
+            tw
+            "DynamicTypeTest"
+            (fun () ->
+                printSection tw "Expr" (fun () -> printExpr tw input lexed testExpr)
+                printLabelledToken ":?" tw input lexed colonQ
+                printType tw input lexed typ
+            )
+    | Expr.DynamicDowncast(castExpr, colonQGT, typ) ->
+        printSection
+            tw
+            "DynamicDowncast"
+            (fun () ->
+                printSection tw "Expr" (fun () -> printExpr tw input lexed castExpr)
+                printLabelledToken ":?>" tw input lexed colonQGT
+                printType tw input lexed typ
+            )
+    | Expr.Upcast(upcastToken, castExpr) ->
+        printLabelledToken "Upcast" tw input lexed upcastToken
+        indent tw (fun () -> printExpr tw input lexed castExpr)
+    | Expr.Downcast(downcastToken, castExpr) ->
+        printLabelledToken "Downcast" tw input lexed downcastToken
+        indent tw (fun () -> printExpr tw input lexed castExpr)
+    | Expr.UseFixed(useToken, ident, equals, fixedToken, fixedExpr) ->
+        printLabelledToken "UseFixed" tw input lexed useToken
+
+        indent
+            tw
+            (fun () ->
+                tw.Write("Ident: ")
+                printTokenFull tw input lexed ident
+                tw.WriteLine()
+                printLabelledToken "fixed" tw input lexed fixedToken
+                printSection tw "Expr" (fun () -> printExpr tw input lexed fixedExpr)
+            )
+    | Expr.Missing -> tw.WriteLine("Missing")
+    | Expr.SkipsTokens(skippedTokens, innerExpr) ->
+        printSection
+            tw
+            "SkipsTokens"
+            (fun () ->
+                for t in skippedTokens do
+                    printTokenMin tw input lexed t
+                    tw.WriteLine()
+
+                printSection tw "Expr" (fun () -> printExpr tw input lexed innerExpr)
+            )
+    | Expr.Pat innerPat ->
+        tw.Write("Pat: ")
+        printPat tw input lexed innerPat
     | _ -> failwithf "Not implemented %A" expr
