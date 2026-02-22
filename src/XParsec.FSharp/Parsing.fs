@@ -322,6 +322,44 @@ module internal Keywords =
     let pOpConcatenate = nextNonTriviaTokenIsL Token.OpConcatenate "^"
     let pOpMultiply = nextNonTriviaTokenIsL Token.OpMultiply "*"
 
+    // Symbol parsers
+    let pComma = nextNonTriviaTokenIsL Token.OpComma ","
+    let pSemi = nextNonTriviaTokenIsL Token.OpSemicolon ";"
+    let pColon = nextNonTriviaTokenIsL Token.OpColon ":"
+    let pDot = nextNonTriviaTokenIsL Token.OpDot "."
+    let pBar = nextNonTriviaTokenIsL Token.OpBar "|"
+    let pLessThan = nextNonTriviaTokenIsL Token.OpLessThan "<"
+    let pGreaterThan = nextNonTriviaTokenIsL Token.OpGreaterThan ">"
+    let pLBracket = nextNonTriviaTokenIsL Token.KWLBracket "["
+    let pRBracket = nextNonTriviaTokenIsL Token.KWRBracket "]"
+    let pLBrace = nextNonTriviaTokenIsL Token.KWLBrace "{"
+    let pRBrace = nextNonTriviaTokenIsL Token.KWRBrace "}"
+    let pRange = nextNonTriviaTokenIsL Token.OpRange ".."
+    let pHash = nextNonTriviaTokenIsL Token.KWHash "#"
+
+    // Additional keyword parsers
+    let pBegin = nextNonTriviaTokenIsL Token.KWBegin "begin"
+    let pEnd = nextNonTriviaTokenIsL Token.KWEnd "end"
+    let pStruct = nextNonTriviaTokenIsL Token.KWStruct "struct"
+    let pClass = nextNonTriviaTokenIsL Token.KWClass "class"
+    let pInterface = nextNonTriviaTokenIsL Token.KWInterface "interface"
+    let pInherit = nextNonTriviaTokenIsL Token.KWInherit "inherit"
+    let pNew = nextNonTriviaTokenIsL Token.KWNew "new"
+    // Uncomment when needed
+    // let pModule = nextNonTriviaTokenIsL Token.KWModule "module"
+    // let pNamespace = nextNonTriviaTokenIsL Token.KWNamespace "namespace"
+    // let pOpen = nextNonTriviaTokenIsL Token.KWOpen "open"
+    let pAs = nextNonTriviaTokenIsL Token.KWAs "as"
+    let pWhen = nextNonTriviaTokenIsL Token.KWWhen "when"
+    let pAnd = nextNonTriviaTokenIsL Token.KWAnd "and"
+    let pOr = nextNonTriviaTokenIsL Token.KWOr "or"
+    let pStatic = nextNonTriviaTokenIsL Token.KWStatic "static"
+    let pMember = nextNonTriviaTokenIsL Token.KWMember "member"
+    let pOverride = nextNonTriviaTokenIsL Token.KWOverride "override"
+    let pAbstract = nextNonTriviaTokenIsL Token.KWAbstract "abstract"
+    let pDefault = nextNonTriviaTokenIsL Token.KWDefault "default"
+    let pVal = nextNonTriviaTokenIsL Token.KWVal "val"
+
 [<RequireQualifiedAccess>]
 module AttributeTarget =
     let private pId s ctor =
@@ -366,7 +404,7 @@ module Attribute =
                 opt (
                     parser {
                         let! t = AttributeTarget.parse
-                        let! c = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpColon) "Expected ':'"
+                        let! c = pColon
                         return (t, c)
                     }
                 )
@@ -387,10 +425,7 @@ module AttributeSet =
                 let pAttributeItem =
                     parser {
                         let! attr = Attribute.parse
-
-                        let! sep =
-                            opt (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpSemicolon) "Expected ';'")
-
+                        let! sep = opt pSemi
                         return (attr, sep)
                     }
                 // Stop when we hit the closing bracket
@@ -432,10 +467,10 @@ module ActivePatternOpName =
             parser {
                 let! ident = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.Identifier) "Expected identifier"
 
-                let! bar = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpBar) "Expected '|'"
+                let! bar = pBar
 
                 // Look ahead to see if we are at the end (RParen) or if there is a wildcard
-                match! opt (lookAhead (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWRParen) "RParen")) with
+                match! opt (lookAhead pRParen) with
                 | ValueSome _ ->
                     // Found ')', so 'bar' is the rBar
                     return (List.rev (ident :: acc), ValueNone, bar)
@@ -446,7 +481,7 @@ module ActivePatternOpName =
                     with
                     | ValueSome _ ->
                         let! underscore = nextNonTriviaToken // Consume '_'
-                        let! finalBar = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpBar) "Expected '|'"
+                        let! finalBar = pBar
                         return (List.rev (ident :: acc), ValueSome underscore, finalBar)
                     | ValueNone ->
                         // Must be another identifier, loop
@@ -456,7 +491,7 @@ module ActivePatternOpName =
         parser {
             // Parses the inside of (| ... |). The surrounding parens are handled by IdentOrOp.ParenOp.
             // Starts with '|'
-            let! lBar = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpBar) "Expected '|'"
+            let! lBar = pBar
 
             let! idents, underscore, rBar = parseSegments []
 
@@ -540,10 +575,10 @@ module LongIdentOrOp =
     let rec private parseRest ident acc =
         parser {
             // Look ahead for a dot
-            match! opt (lookAhead (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpDot) "Expected '.'")) with
+            match! opt (lookAhead pDot) with
             | ValueSome dot ->
                 // Consume the dot
-                let! dotConsumed = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpDot) "Expected '.'"
+                let! dotConsumed = pDot
 
                 // Parse the next IdentOrOp
                 let! nextIdentOrOp = IdentOrOp.parse
@@ -583,11 +618,8 @@ module private TypeHelpers =
 [<RequireQualifiedAccess>]
 module LongIdent =
     // Simple parser for A.B.C
-    let parse =
-        sepBy1
-            (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.Identifier) "Expected Identifier")
-            (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpDot) "Expected '.'")
-        |>> fun struct (xs, dots) -> List.ofSeq xs
+    let private pIdent = nextNonTriviaTokenIsL Token.Identifier "Expected Identifier"
+    let parse = sepBy1 pIdent pDot |>> fun struct (xs, dots) -> List.ofSeq xs
 
 [<RequireQualifiedAccess>]
 module Typar =
@@ -632,18 +664,18 @@ module StaticTypars =
     // (^T or ^U)
     let pOrList =
         parser {
-            let! lParen = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWLParen) "Expected '('"
+            let! lParen = pLParen
 
             let pItem =
                 parser {
                     let! tp = Typar.parse
-                    let! orTok = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWOr) "Expected 'or'"
+                    let! orTok = pOr
                     return (tp, orTok)
                 }
 
             // This is slightly loose (allows trailing 'or'), strict grammar might require sepBy but AST implies tuple structure
             let! items = many1 pItem
-            let! rParen = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWRParen) "Expected ')'"
+            let! rParen = pRParen
             return StaticTypars.OrList(lParen, List.ofSeq items, rParen)
         }
 
@@ -662,20 +694,20 @@ module Constraint =
     let private pMemberTrait =
         parser {
             let! staticTypars = StaticTypars.parse
-            let! colon = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpColon) "Expected ':'"
-            let! lParen = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWLParen) "Expected '('"
+            let! colon = pColon
+            let! lParen = pLParen
             let! sigs = pMemberSig
-            let! rParen = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWRParen) "Expected ')'"
+            let! rParen = pRParen
             return Constraint.MemberTrait(staticTypars, colon, lParen, sigs, rParen)
         }
 
     let private pDefaultConstructor (typar: Typar<_>) colon lParen (tokenNew: SyntaxToken) =
         parser {
-            let! colonUnit = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpColon) "Expected ':'"
+            let! colonUnit = pColon
             let! unitTok = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.Unit) "Expected '()'" // Simplified
             let! arrow = pArrowRight
             let! quoteT = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.Identifier) "Expected 'T" // Simplified
-            let! rParen = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWRParen) "Expected ')'"
+            let! rParen = pRParen
             // Re-map unitTok to ensure types align if AST expects specific tokens.
             // Note: AST asks for 'colonUnit' then 'arrow', logic adjusted to AST structure:
             return Constraint.DefaultConstructor(typar, colon, lParen, tokenNew, colonUnit, arrow, quoteT, rParen)
@@ -693,7 +725,7 @@ module Constraint =
                 let! typ = refType.Parser
                 return Constraint.Coercion(typar, op, typ)
             | ValueNone ->
-                let! colon = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpColon) "Expected ':'"
+                let! colon = pColon
 
                 // Branch based on next token
                 let! state = getUserState
@@ -703,22 +735,22 @@ module Constraint =
                 | Token.KWNull -> return Constraint.Nullness(typar, colon, token)
                 | Token.KWStruct -> return Constraint.Struct(typar, colon, token)
                 | Token.KWDelegate ->
-                    let! lAngle = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpLessThan) "<"
+                    let! lAngle = pLessThan
                     let! t1 = refType.Parser
-                    let! comma = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpComma) ","
+                    let! comma = pComma
                     let! t2 = refType.Parser
-                    let! rAngle = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpGreaterThan) ">"
+                    let! rAngle = pGreaterThan
                     return Constraint.Delegate(typar, colon, token, lAngle, t1, comma, t2, rAngle)
                 | _ when tokenStringIs "equality" token state -> return Constraint.Equality(typar, colon, token)
                 | _ when tokenStringIs "comparison" token state -> return Constraint.Comparison(typar, colon, token)
                 | _ when tokenStringIs "unmanaged" token state -> return Constraint.Unmanaged(typar, colon, token)
                 | _ when tokenStringIs "not" token state ->
-                    let! structTok = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWStruct) "struct"
+                    let! structTok = pStruct
                     return Constraint.ReferenceType(typar, colon, token, structTok)
                 | _ when tokenStringIs "enum" token state ->
-                    let! lAngle = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpLessThan) "<"
+                    let! lAngle = pLessThan
                     let! t = refType.Parser
-                    let! rAngle = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpGreaterThan) ">"
+                    let! rAngle = pGreaterThan
                     return Constraint.Enum(typar, colon, token, lAngle, t, rAngle)
                 | Token.KWLParen ->
                     // Could be (new : unit -> 'T)
@@ -737,7 +769,7 @@ module Constraint =
 module TyparDefns =
     let parse =
         parser {
-            let! lAngle = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpLessThan) "<"
+            let! lAngle = pLessThan
 
             // Parse list of TyparDefn
             let! defns, _ =
@@ -747,23 +779,20 @@ module TyparDefns =
                         let! tp = Typar.parse
                         return TyparDefn.TyparDefn(attrs, tp)
                     })
-                    (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpComma) ",")
+                    pComma
 
             let! constraints =
                 opt (
                     parser {
-                        let! whenTok = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWWhen) "when"
+                        let! whenTok = pWhen
 
-                        let! constrs, _ =
-                            sepBy1
-                                Constraint.parse
-                                (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWAnd) "and")
+                        let! constrs, _ = sepBy1 Constraint.parse pAnd
 
                         return TyparConstraints.TyparConstraints(whenTok, List.ofSeq constrs)
                     }
                 )
 
-            let! rAngle = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpGreaterThan) ">"
+            let! rAngle = pGreaterThan
 
             return TyparDefns.TyparDefns(lAngle, List.ofSeq defns, constraints, rAngle)
         }
@@ -780,24 +809,24 @@ module Type =
             [
                 // (Type)
                 parser {
-                    let! l = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWLParen) "("
+                    let! l = pLParen
                     let! t = refType.Parser
-                    let! r = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWRParen) ")"
+                    let! r = pRParen
                     return Type.ParenType(l, t, r)
                 }
                 // struct (Type)
                 parser {
-                    let! s = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWStruct) "struct"
-                    let! l = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWLParen) "("
+                    let! s = pStruct
+                    let! l = pLParen
 
                     let! ts, _ = sepBy refType.Parser pOpMultiply
 
-                    let! r = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWRParen) ")"
+                    let! r = pRParen
                     return Type.StructTupleType(s, l, List.ofSeq ts, r)
                 }
                 // #Type
                 parser {
-                    let! h = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWHash) "#"
+                    let! h = pHash
                     let! t = refType.Parser
                     return Type.AnonymousSubtype(h, t)
                 }
@@ -810,12 +839,9 @@ module Type =
                     let! genericPart =
                         opt (
                             parser {
-                                let! l = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpLessThan) "<"
-
-                                let! args, _ =
-                                    sepBy pTypeArg (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpComma) ",")
-
-                                let! r = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpGreaterThan) ">"
+                                let! l = pLessThan
+                                let! args, _ = sepBy pTypeArg pComma
+                                let! r = pGreaterThan
                                 return (l, List.ofSeq args, r)
                             }
                         )
@@ -844,7 +870,7 @@ module Type =
                                     (fun t -> t.Token = Token.KWLArrayBracket || t.Token = Token.KWLBracket)
                                     "["
                             // Parse commas for rank
-                            let! commas = many (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpComma) ",")
+                            let! commas = many pComma
 
                             let! r =
                                 nextNonTriviaTokenSatisfiesL
@@ -918,11 +944,13 @@ module Type =
     do refType.Set parse
 
 module ElifBranch =
+    let private pElif = nextNonTriviaTokenIsL Token.KWElif "Expected 'elif' keyword"
+
     let parse: Parser<ElifBranch<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
-            let! elifTok = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWElif) "Expected 'elif'"
+            let! elifTok = pElif
             let! condition = Expr.parse
-            let! thenTok = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWThen) "Expected 'then'"
+            let! thenTok = pThen
             let! expr = pSeqBlock Expr.parse
             return ElifBranch.ElifBranch(elifTok, condition, thenTok, expr)
         }
@@ -930,7 +958,7 @@ module ElifBranch =
 module ElseBranch =
     let parse: Parser<ElseBranch<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
-            let! elseTok = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWElse) "Expected 'else'"
+            let! elseTok = pElse
             let! expr = pSeqBlock Expr.parse
             return ElseBranch.ElseBranch(elseTok, expr)
         }
@@ -939,7 +967,7 @@ module ElseBranch =
 module ReturnType =
     let parse: Parser<ReturnType<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
-            let! colon = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpColon) "Expected ':'"
+            let! colon = pColon
             let! typ = Type.parse
             return ReturnType.ReturnType(colon, typ)
         }
@@ -1056,11 +1084,8 @@ module BaseCall =
             let! asPart =
                 opt (
                     parser {
-                        let! asTok = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWAs) "Expected 'as'"
-
-                        let! ident =
-                            nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.Identifier) "Expected identifier"
-
+                        let! asTok = pAs
+                        let! ident = pIdent
                         return (asTok, ident)
                     }
                 )
@@ -1074,14 +1099,11 @@ module BaseCall =
 module ObjectMembers =
     let parse: Parser<ObjectMembers<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
-            let! withTok = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWWith) "Expected 'with'"
+            let! withTok = pWith
 
             // Parse list of members until 'end'
             // We use `many` combined with a check for the `end` token to terminate
-            let! members, endTok =
-                manyTill
-                    refMemberDefn.Parser
-                    (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWEnd) "Expected 'end'")
+            let! members, endTok = manyTill refMemberDefn.Parser pEnd
 
             return ObjectMembers.ObjectMembers(withTok, List.ofSeq members, endTok)
         }
@@ -1090,12 +1112,9 @@ module ObjectMembers =
 module InterfaceImpl =
     let parse: Parser<InterfaceImpl<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
-            let! interfaceTok =
-                nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWInterface) "Expected 'interface'"
-
+            let! interfaceTok = pInterface
             let! typ = Type.parse
             let! members = opt ObjectMembers.parse
-
             return InterfaceImpl.InterfaceImpl(interfaceTok, typ, members)
         }
 
@@ -1107,7 +1126,7 @@ module SliceRange =
 
     let private pTo =
         parser {
-            let! dd = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpRange) "Expected '..'"
+            let! dd = pRange
             let! e = Expr.parse
             return SliceRange.To(dd, e)
         }
@@ -1117,7 +1136,7 @@ module SliceRange =
             let! start = Expr.parse
 
             // Check for '..'
-            let! dd = opt (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpRange) "..")
+            let! dd = opt pRange
 
             match dd with
             | ValueNone -> return SliceRange.Single(start)
@@ -1145,11 +1164,11 @@ module RangeExpr =
     let parse: Parser<RangeExpr<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
             let! start = Expr.parse
-            let! dd1 = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpRange) "Expected '..'"
+            let! dd1 = pRange
             let! middle = Expr.parse
 
             // Check for second '..'
-            let! dd2 = opt (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpRange) "..")
+            let! dd2 = opt pRange
 
             match dd2 with
             | ValueSome dotdot2 ->
@@ -1172,7 +1191,7 @@ module ExprOrRange =
             let! start = Expr.parse
 
             // Check for '..' indicating the start of a range
-            let! dd1 = opt (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpRange) "..")
+            let! dd1 = opt pRange
 
             match dd1 with
             | ValueNone -> return ExprOrRange.Expr(start)
@@ -1180,7 +1199,7 @@ module ExprOrRange =
                 // It is a range
                 let! middle = Expr.parse
 
-                let! dd2 = opt (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpRange) "..")
+                let! dd2 = opt pRange
 
                 match dd2 with
                 | ValueSome dotdot2 ->
@@ -1444,7 +1463,7 @@ module CompExpr =
             let! head = pAtomComp
 
             // Check for semicolon
-            let! semi = opt (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpSemicolon) ";")
+            let! semi = opt pSemi
 
             match semi with
             | ValueSome s ->
@@ -1624,14 +1643,13 @@ module Expr =
             printfn
                 $"Operator: {op.PositionedToken}({op.StartIndex}), Precedence: {op.Precedence}, Associativity: %A{op.Associativity}"
 
+        let pIdent = nextNonTriviaTokenIsL Token.Identifier "Expected identifier after '.'"
 
         let parseDotRhs: Parser<ExprAux, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
             parser {
                 // For now we just parse an identifier after the dot
-                let! ident =
-                    nextNonTriviaTokenSatisfiesL
-                        (fun synTok -> synTok.Token = Token.Identifier)
-                        "Expected identifier after '.'"
+                // Note: cannot use module-level pIdent here as that maps to Expr.Ident
+                let! ident = pIdent
 
                 return ExprAux.Ident ident
             }
@@ -1653,10 +1671,7 @@ module Expr =
 
         let pTypeAppRhs =
             parser {
-                let! types, _ =
-                    sepBy
-                        Type.parse
-                        (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpComma) "Expected ',' between types")
+                let! types, _ = sepBy Type.parse pComma
 
                 let! state = getUserState
 
@@ -1962,17 +1977,17 @@ module Expr =
 
     let pParen =
         parser {
-            let! l = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWLParen) "Expected '('"
+            let! l = pLParen
             let! e = refExpr.Parser
-            let! r = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWRParen) "Expected ')'"
+            let! r = pRParen
             return Expr.ParenBlock(l, e, r)
         }
 
     let pBeginEnd =
         parser {
-            let! l = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWBegin) "Expected 'begin'"
+            let! l = pBegin
             let! e = pSeqBlock refExpr.Parser
-            let! r = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWEnd) "Expected 'end'"
+            let! r = pEnd
             return Expr.BeginEndBlock(l, e, r)
         }
 
@@ -1980,10 +1995,7 @@ module Expr =
         parser {
             let! l = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = openTok) $"Expected '{openTok}'"
 
-            let! elems, seps =
-                sepEndBy
-                    refExprInCollection.Parser
-                    (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpSemicolon) "Expected ';'")
+            let! elems, seps = sepEndBy refExprInCollection.Parser pSemi
 
             let! r = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = closeTok) $"Expected '{closeTok}'"
             return complete l elems r
@@ -1997,10 +2009,10 @@ module Expr =
 
     let pStructTuple =
         parser {
-            let! kw = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWStruct) "Expected 'struct'"
-            let! l = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWLParen) "Expected '('"
+            let! kw = pStruct
+            let! l = pLParen
             let! e = refExpr.Parser
-            let! r = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWRParen) "Expected ')'"
+            let! r = pRParen
 
             let e =
                 match e with
@@ -2186,17 +2198,17 @@ module PatParam =
 
                 // List [ ... ]
                 parser {
-                    let! l = nextNonTriviaTokenIsL Token.KWLBracket "["
-                    let! parms, _ = sepBy refPatParam.Parser (nextNonTriviaTokenIsL Token.OpSemicolon ";")
-                    let! r = nextNonTriviaTokenIsL Token.KWRBracket "]"
+                    let! l = pLBracket
+                    let! parms, _ = sepBy refPatParam.Parser pSemi
+                    let! r = pRBracket
                     return PatParam.List(l, List.ofSeq parms, r)
                 }
 
                 // Tuple ( ... )
                 parser {
-                    let! l = nextNonTriviaTokenIsL Token.KWLParen "("
-                    let! parms, _ = sepBy refPatParam.Parser (nextNonTriviaTokenIsL Token.OpComma ",")
-                    let! r = nextNonTriviaTokenIsL Token.KWRParen ")"
+                    let! l = pLParen
+                    let! parms, _ = sepBy refPatParam.Parser pComma
+                    let! r = pRParen
                     return PatParam.Tuple(l, List.ofSeq parms, r)
                 }
 
@@ -2214,7 +2226,7 @@ module PatParam =
         parser {
             let! atom = pAtom
             // Check for Typed: atom : Type
-            let! typed = opt (nextNonTriviaTokenIsL Token.OpColon ":")
+            let! typed = opt pColon
 
             match typed with
             | ValueSome colon ->
@@ -2362,16 +2374,16 @@ module Pat =
 
     let pListPat: Parser<ListPat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
-            let! l = nextNonTriviaTokenIsL Token.KWLBracket "["
-            let! pats, _ = sepEndBy refPat.Parser (nextNonTriviaTokenIsL Token.OpSemicolon ";")
-            let! r = nextNonTriviaTokenIsL Token.KWRBracket "]"
+            let! l = pLBracket
+            let! pats, _ = sepEndBy refPat.Parser pSemi
+            let! r = pRBracket
             return ListPat.ListPat(l, List.ofSeq pats, r)
         }
 
     let pArrayPat: Parser<ArrayPat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
             let! l = nextNonTriviaTokenIsL Token.KWLArrayBracket "[|"
-            let! pats, _ = sepEndBy refPat.Parser (nextNonTriviaTokenIsL Token.OpSemicolon ";")
+            let! pats, _ = sepEndBy refPat.Parser pSemi
             let! r = nextNonTriviaTokenIsL Token.KWRArrayBracket "|]"
             return ArrayPat.ArrayPat(l, List.ofSeq pats, r)
         }
@@ -2386,9 +2398,9 @@ module Pat =
 
     let pRecordPat: Parser<RecordPat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
-            let! l = nextNonTriviaTokenIsL Token.KWLBrace "{"
-            let! fields, _ = sepEndBy1 pFieldPat (nextNonTriviaTokenIsL Token.OpSemicolon ";")
-            let! r = nextNonTriviaTokenIsL Token.KWRBrace "}"
+            let! l = pLBrace
+            let! fields, _ = sepEndBy1 pFieldPat pSemi
+            let! r = pRBrace
             return RecordPat.RecordPat(l, List.ofSeq fields, r)
         }
 
@@ -2415,7 +2427,7 @@ module Pat =
             let! asClause =
                 opt (
                     parser {
-                        let! asTok = nextNonTriviaTokenIsL Token.KWAs "as"
+                        let! asTok = pAs
                         let! id = nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "identifier"
                         return struct (asTok, id)
                     }
@@ -2453,8 +2465,6 @@ module Pat =
 
 [<RequireQualifiedAccess>]
 module PatternGuard =
-    let pWhen = nextNonTriviaTokenIsL Token.KWWhen "when"
-
     let parse: Parser<PatternGuard<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
             let! w = pWhen
@@ -2476,13 +2486,11 @@ module Rule =
 
 [<RequireQualifiedAccess>]
 module Rules =
-    let pOpBar = nextNonTriviaTokenIsL Token.OpBar "|"
-
     let parse: Parser<Rules<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
             // Optional leading bar
-            let! firstBar = opt pOpBar
-            let! rules, bars = sepBy1 Rule.parse pOpBar
+            let! firstBar = opt pBar
+            let! rules, bars = sepBy1 Rule.parse pBar
             return Rules(firstBar, List.ofSeq rules, List.ofSeq bars)
         }
 
@@ -2497,8 +2505,8 @@ module internal TypeDefnHelpers =
 module SimplePat =
     let parse: Parser<SimplePat<SyntaxToken>, _, _, _, _> =
         parser {
-            let! ident = nextNonTriviaTokenIsL Token.Identifier "Expected identifier"
-            let! typeAnnotation = opt (nextNonTriviaTokenIsL Token.OpColon ":")
+            let! ident = pIdent
+            let! typeAnnotation = opt pColon
 
             match typeAnnotation with
             | ValueSome colon ->
@@ -2513,12 +2521,9 @@ module PrimaryConstrArgs =
         parser {
             let! attrs = opt Attributes.parse
             let! access = opt pAccessModifier
-            let! lParen = nextNonTriviaTokenIsL Token.KWLParen "("
-
-            let! pats, _ = sepBy SimplePat.parse (nextNonTriviaTokenIsL Token.OpComma ",")
-
-            let! rParen = nextNonTriviaTokenIsL Token.KWRParen ")"
-
+            let! lParen = pLParen
+            let! pats, _ = sepBy SimplePat.parse pComma
+            let! rParen = pRParen
             return PrimaryConstrArgs.PrimaryConstrArgs(attrs, access, lParen, List.ofSeq pats, rParen)
         }
 
@@ -2528,9 +2533,8 @@ module TypeName =
         parser {
             let! attrs = opt Attributes.parse
             let! access = opt pAccessModifier
-            let! ident = nextNonTriviaTokenIsL Token.Identifier "Type Name Identifier"
+            let! ident = pIdent
             let! typars = opt TyparDefns.parse
-
             return TypeName.TypeName(attrs, access, ident, typars)
         }
 
@@ -2538,8 +2542,8 @@ module TypeName =
 module AsDefn =
     let parse: Parser<AsDefn<SyntaxToken>, _, _, _, _> =
         parser {
-            let! asTok = nextNonTriviaTokenIsL Token.KWAs "as"
-            let! ident = nextNonTriviaTokenIsL Token.Identifier "self-identifier"
+            let! asTok = pAs
+            let! ident = pIdent
             return AsDefn.AsDefn(asTok, ident)
         }
 
@@ -2552,8 +2556,8 @@ module ArgNameSpec =
     let parse =
         parser {
             let! optional = opt (nextNonTriviaTokenIsL Token.OpDynamic "?")
-            let! ident = nextNonTriviaTokenIsL Token.Identifier "Arg Name"
-            let! colon = nextNonTriviaTokenIsL Token.OpColon ":"
+            let! ident = pIdent
+            let! colon = pColon
             return ArgNameSpec.ArgNameSpec(optional, ident, colon)
         }
 
@@ -2572,8 +2576,7 @@ module ArgSpec =
 [<RequireQualifiedAccess>]
 module ArgsSpec =
     let parse =
-        sepBy1 ArgSpec.parse (nextNonTriviaTokenIsL Token.OpMultiply "*")
-        |>> fun struct (args, _) -> List.ofSeq args
+        sepBy1 ArgSpec.parse pOpMultiply |>> fun struct (args, _) -> List.ofSeq args
 
 [<RequireQualifiedAccess>]
 module CurriedSig =
@@ -2641,7 +2644,7 @@ member-sig :=
                     let! maybeSet =
                         opt (
                             parser {
-                                let! comma = nextNonTriviaTokenIsL Token.OpComma ","
+                                let! comma = pComma
                                 let! setTok = pSet
                                 return setTok
                             }
@@ -2655,7 +2658,7 @@ member-sig :=
                     let! maybeGet =
                         opt (
                             parser {
-                                let! comma = nextNonTriviaTokenIsL Token.OpComma ","
+                                let! comma = pComma
                                 let! getTok = pGet
                                 return getTok
                             }
@@ -2669,16 +2672,16 @@ member-sig :=
 
     let parse: Parser<MemberSig<SyntaxToken>, _, _, _, _> =
         parser {
-            let! ident = nextNonTriviaTokenIsL Token.Identifier "Member Signature Identifier"
+            let! ident = pIdent
             let! typars = opt TyparDefns.parse
-            let! colon = nextNonTriviaTokenIsL Token.OpColon ":"
+            let! colon = pColon
             let! sigType = CurriedSig.parse
 
             // Check for optional 'with' get/set
             let! withClause =
                 opt (
                     parser {
-                        let! withTok = nextNonTriviaTokenIsL Token.KWWith "with"
+                        let! withTok = pWith
                         let! getSet = pGetSet
                         return struct (withTok, getSet)
                     }
@@ -2712,8 +2715,8 @@ module MethodOrPropDefn =
             // There might be a 'this' binding prefix: "x."
             // AST `identPrefix` captures the instance identifier.
 
-            let! part1 = nextNonTriviaTokenIsL Token.Identifier "Member Identifier"
-            let! dot = opt (nextNonTriviaTokenIsL Token.OpDot ".")
+            let! part1 = pIdent
+            let! dot = opt pDot
 
             let! identPrefix, ident =
                 match dot with
@@ -2799,22 +2802,22 @@ module AdditionalConstrExpr =
         choiceL
             [
                 parser {
-                    let! lBrace = nextNonTriviaTokenIsL Token.KWLBrace "{"
+                    let! lBrace = pLBrace
                     // Helper for inherits: inherit Type(expr)
                     let! inherits =
                         parser {
-                            let! inh = nextNonTriviaTokenIsL Token.KWInherit "inherit"
+                            let! inh = pInherit
                             let! t = Type.parse
                             let! e = opt Expr.parse
                             return ClassInheritsDecl.ClassInheritsDecl(inh, t, e)
                         }
 
                     let! inits = many FieldInitializer.parse // Simplified loop
-                    let! rBrace = nextNonTriviaTokenIsL Token.KWRBrace "}"
+                    let! rBrace = pRBrace
                     return AdditionalConstrInitExpr.Explicit(lBrace, inherits, List.ofSeq inits, rBrace)
                 }
                 parser {
-                    let! newTok = nextNonTriviaTokenIsL Token.KWNew "new"
+                    let! newTok = pNew
                     let! t = Type.parse
                     let! e = Expr.parse
                     return AdditionalConstrInitExpr.Delegated(newTok, t, e)
@@ -2837,7 +2840,7 @@ module AdditionalConstrDefn =
         parser {
             let! attrs = opt Attributes.parse
             let! access = opt pAccessModifier
-            let! newTok = nextNonTriviaTokenIsL Token.KWNew "new"
+            let! newTok = pNew
             let! pat = Pat.parse
             let! asDefn = opt AsDefn.parse
             let! equals = pEquals
@@ -2854,7 +2857,7 @@ module MemberDefn =
             let! attrs = opt Attributes.parse
 
             // Check for 'new' (Additional Constructor)
-            let! isNew = opt (lookAhead (nextNonTriviaTokenIsL Token.KWNew "new"))
+            let! isNew = opt (lookAhead pNew)
 
             match isNew with
             | ValueSome _ ->
@@ -2862,30 +2865,21 @@ module MemberDefn =
                 return MemberDefn.AdditionalConstructor ctor
             | ValueNone ->
 
-                let! staticTok = opt (nextNonTriviaTokenIsL Token.KWStatic "static")
+                let! staticTok = opt pStatic
                 let! access = opt pAccessModifier
 
-                let! keyword =
-                    choiceL
-                        [
-                            nextNonTriviaTokenIsL Token.KWMember "member"
-                            nextNonTriviaTokenIsL Token.KWOverride "override"
-                            nextNonTriviaTokenIsL Token.KWAbstract "abstract"
-                            nextNonTriviaTokenIsL Token.KWDefault "default"
-                            nextNonTriviaTokenIsL Token.KWVal "val"
-                        ]
-                        "Member Keyword"
+                let! keyword = choiceL [ pMember; pOverride; pAbstract; pDefault; pVal ] "Member Keyword"
 
                 match keyword.Token with
                 | Token.KWAbstract ->
-                    let! memTok = opt (nextNonTriviaTokenIsL Token.KWMember "member")
+                    let! memTok = opt pMember
                     let! sigDef = MemberSig.parse
                     return MemberDefn.Abstract(attrs, keyword, memTok, access, sigDef)
 
                 | Token.KWVal ->
-                    let! mut = opt (nextNonTriviaTokenIsL Token.KWMutable "mutable")
-                    let! ident = nextNonTriviaTokenIsL Token.Identifier "val identifier"
-                    let! colon = nextNonTriviaTokenIsL Token.OpColon ":"
+                    let! mut = opt pMutable
+                    let! ident = pIdent
+                    let! colon = pColon
                     let! t = Type.parse
                     return MemberDefn.Value(attrs, staticTok, keyword, mut, access, ident, colon, t)
 
@@ -2915,10 +2909,10 @@ module TypeDefnElement =
         choiceL
             [
                 (parser {
-                    let! intf = nextNonTriviaTokenIsL Token.KWInterface "interface"
+                    let! intf = pInterface
                     let! t = Type.parse
                     // Distinguish between InterfaceSpec (in abstract class) and InterfaceImpl (with members)
-                    let! withTok = opt (nextNonTriviaTokenIsL Token.KWWith "with")
+                    let! withTok = opt pWith
 
                     match withTok with
                     | ValueSome _ ->
@@ -2948,7 +2942,7 @@ module TypeDefnElements =
 module ClassInheritsDecl =
     let parse: Parser<ClassInheritsDecl<SyntaxToken>, _, _, _, _> =
         parser {
-            let! inh = nextNonTriviaTokenIsL Token.KWInherit "inherit"
+            let! inh = pInherit
             let! t = Type.parse
             // Optional constructor args
             let! e = opt Expr.parse
@@ -2962,15 +2956,15 @@ module ClassFunctionOrValueDefn =
             [
                 parser {
                     let! attrs = opt Attributes.parse
-                    let! stat = opt (nextNonTriviaTokenIsL Token.KWStatic "static")
-                    let! d = nextNonTriviaTokenIsL Token.KWDo "do"
+                    let! stat = opt pStatic
+                    let! d = pDo
                     let! e = Expr.parse
                     return ClassFunctionOrValueDefn.Do(attrs, stat, d, e)
                 }
                 parser {
                     let! attrs = opt Attributes.parse
-                    let! stat = opt (nextNonTriviaTokenIsL Token.KWStatic "static")
-                    let! l = nextNonTriviaTokenIsL Token.KWLet "let"
+                    let! stat = opt pStatic
+                    let! l = pLet
                     let! r = opt (nextNonTriviaTokenIsL Token.KWRec "rec")
                     // Parsing multiple let bindings is complex in top level,
                     // assuming one for now or loop needed.
@@ -3033,8 +3027,8 @@ module UnionTypeField =
             let! namedField =
                 opt (
                     parser {
-                        let! ident = nextNonTriviaTokenIsL Token.Identifier "Field Name"
-                        let! colon = nextNonTriviaTokenIsL Token.OpColon ":"
+                        let! ident = pIdent
+                        let! colon = pColon
                         let! t = Type.parse
                         return UnionTypeField.Named(ident, colon, t)
                     }
@@ -3051,7 +3045,7 @@ module UnionTypeField =
 [<RequireQualifiedAccess>]
 module UnionTypeCaseData =
     let parseFields: Parser<UnionTypeField<SyntaxToken> list, _, _, _, _> =
-        sepBy1 UnionTypeField.parse (nextNonTriviaTokenIsL Token.OpMultiply "*")
+        sepBy1 UnionTypeField.parse pOpMultiply
         |>> fun struct (fields, _) -> List.ofSeq fields
 
     let parseNary: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _, _> =
@@ -3065,7 +3059,7 @@ module UnionTypeCaseData =
             match next with
             | t when t.Token = Token.OpColon ->
                 // UncurriedSig
-                let! colon = nextNonTriviaTokenIsL Token.OpColon ":"
+                let! colon = pColon
                 let! sign = UncurriedSig.parse
                 return UnionTypeCaseData.NaryUncurried(ident, colon, sign)
             | _ ->
@@ -3100,8 +3094,8 @@ module UnionTypeCase =
 module UnionTypeCases =
     let parse =
         parser {
-            let! firstBar = opt (nextNonTriviaTokenIsL Token.OpBar "|")
-            let! cases, _ = sepBy1 UnionTypeCase.parse (nextNonTriviaTokenIsL Token.OpBar "|")
+            let! firstBar = opt pBar
+            let! cases, _ = sepBy1 UnionTypeCase.parse pBar
             return List.ofSeq cases
         }
 
@@ -3112,10 +3106,10 @@ module RecordField =
     let parse: Parser<RecordField<SyntaxToken>, _, _, _, _> =
         parser {
             let! attrs = opt Attributes.parse
-            let! mut = opt (nextNonTriviaTokenIsL Token.KWMutable "mutable")
+            let! mut = opt pMutable
             let! acc = opt pAccessModifier
-            let! id = nextNonTriviaTokenIsL Token.Identifier "Field Name"
-            let! col = nextNonTriviaTokenIsL Token.OpColon ":"
+            let! id = pIdent
+            let! col = pColon
             let! t = Type.parse
             return RecordField.RecordField(attrs, mut, acc, id, col, t)
         }
@@ -3136,8 +3130,8 @@ module EnumTypeCase =
 module EnumTypeCases =
     let parse =
         parser {
-            let! firstBar = opt (nextNonTriviaTokenIsL Token.OpBar "|")
-            let! cases, _ = sepBy1 EnumTypeCase.parse (nextNonTriviaTokenIsL Token.OpBar "|")
+            let! firstBar = opt pBar
+            let! cases, _ = sepBy1 EnumTypeCase.parse pBar
             return List.ofSeq cases
         }
 
@@ -3147,10 +3141,9 @@ module EnumTypeCases =
 module TypeExtensionElements =
     let parse: Parser<TypeExtensionElements<SyntaxToken>, _, _, _, _> =
         parser {
-            let! withTok = nextNonTriviaTokenIsL Token.KWWith "with"
-            let endTokParser = nextNonTriviaTokenIsL Token.KWEnd "end"
-            let! elems, _ = TypeDefnElements.parseTill endTokParser
-            let! endTok = endTokParser
+            let! withTok = pWith
+            let! elems, _ = TypeDefnElements.parseTill pEnd
+            let! endTok = pEnd
             return TypeExtensionElements.TypeExtensionElements(withTok, List.ofSeq elems, endTok)
         }
 
@@ -3159,7 +3152,7 @@ module DelegateSig =
     let parse: Parser<DelegateSig<SyntaxToken>, _, _, _, _> =
         parser {
             let! del = nextNonTriviaTokenIsL Token.KWDelegate "delegate"
-            let! ofTok = nextNonTriviaTokenIsL Token.KWOf "of"
+            let! ofTok = nextNonTriviaTokenIsL Token.KWOf "of" // not a keyword we add: KWOf is rare
             let! t = Type.parse // Simplified mapping to UncurriedSig
             // Construct fake UncurriedSig for AST compliance
             let sigData = UncurriedSig.UncurriedSig([], Unchecked.defaultof<_>, t)
@@ -3197,26 +3190,23 @@ module TypeDefn =
             match next with
             | t when t.Token = Token.KWStruct ->
                 // Explicit Struct
-                let! str = nextNonTriviaTokenIsL Token.KWStruct "struct"
-                let endTokParser = nextNonTriviaTokenIsL Token.KWEnd "end"
-                let! body = StructTypeBody.parse endTokParser
-                let! endTok = endTokParser
+                let! str = pStruct
+                let! body = StructTypeBody.parse pEnd
+                let! endTok = pEnd
                 return TypeDefn.Struct(typeName, primaryConstr, ValueNone, equals, str, body, endTok)
 
             | t when t.Token = Token.KWInterface ->
                 // Interface
-                let! intf = nextNonTriviaTokenIsL Token.KWInterface "interface"
-                let endTokParser = nextNonTriviaTokenIsL Token.KWEnd "end"
-                let! body = InterfaceTypeBody.parse endTokParser
-                let! endTok = endTokParser
+                let! intf = pInterface
+                let! body = InterfaceTypeBody.parse pEnd
+                let! endTok = pEnd
                 return TypeDefn.Interface(typeName, equals, intf, body, endTok)
 
             | t when t.Token = Token.KWClass ->
                 // Explicit Class
-                let! cls = nextNonTriviaTokenIsL Token.KWClass "class"
-                let endTokParser = nextNonTriviaTokenIsL Token.KWEnd "end"
-                let! body = ClassTypeBody.parse endTokParser
-                let! endTok = endTokParser
+                let! cls = pClass
+                let! body = ClassTypeBody.parse pEnd
+                let! endTok = pEnd
                 return TypeDefn.Class(typeName, primaryConstr, ValueNone, equals, cls, body, endTok)
 
             | t when t.Token = Token.KWDelegate ->
@@ -3225,9 +3215,9 @@ module TypeDefn =
 
             | t when t.Token = Token.KWLBrace ->
                 // Record
-                let! lBrace = nextNonTriviaTokenIsL Token.KWLBrace "{"
-                let! fields, _ = sepBy1 RecordField.parse (nextNonTriviaTokenIsL Token.OpSemicolon ";")
-                let! rBrace = nextNonTriviaTokenIsL Token.KWRBrace "}"
+                let! lBrace = pLBrace
+                let! fields, _ = sepBy1 RecordField.parse pSemi
+                let! rBrace = pRBrace
                 let! ext = opt TypeExtensionElements.parse
                 return TypeDefn.Record(typeName, equals, lBrace, List.ofSeq fields, rBrace, ext)
 
@@ -3254,13 +3244,13 @@ module TypeDefn =
                     lookAhead (
                         choiceL
                             [
-                                nextNonTriviaTokenIsL Token.KWMember "member"
-                                nextNonTriviaTokenIsL Token.KWVal "val"
-                                nextNonTriviaTokenIsL Token.KWNew "new"
-                                nextNonTriviaTokenIsL Token.KWInherit "inherit"
-                                nextNonTriviaTokenIsL Token.KWAbstract "abstract"
-                                nextNonTriviaTokenIsL Token.KWDefault "default"
-                                nextNonTriviaTokenIsL Token.KWOverride "override"
+                                pMember
+                                pVal
+                                pNew
+                                pInherit
+                                pAbstract
+                                pDefault
+                                pOverride
                                 // If primary constructor was present, it's definitely a class/struct
                                 (if primaryConstr.IsSome then
                                      preturn (Unchecked.defaultof<_>)
