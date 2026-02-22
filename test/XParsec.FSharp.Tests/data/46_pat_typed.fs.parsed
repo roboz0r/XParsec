@@ -1,0 +1,23 @@
+Match:
+  MatchToken: 0, KWMatch(0<token>)
+  MatchExpr:
+    Ident: 6, Identifier(2<token>) 'x'
+  WithToken: 8, KWWith(4<token>)
+  Rule:
+    Bar: 13, OpBar(6<token>)
+    Pat: Pat.Paren: 15, KWLParen(8<token>)
+      Pat.Typed:
+        Pat.NamedSimple: 16, Identifier(9<token>) 'y'
+        Colon: 18, OpColon(11<token>)
+        NamedType: LongIdent:
+          20, Identifier(13<token>) 'int'
+    23, KWRParen(14<token>)
+    Arrow: 25, OpArrowRight(16<token>)
+    Expr:
+      Ident: 28, Identifier(18<token>) 'y'
+  Rule:
+    Bar: 30, OpBar(20<token>)
+    Pat: Pat.Wildcard: 32, Wildcard(22<token>)
+    Arrow: 34, OpArrowRight(24<token>)
+    Expr:
+      Const: 37, NumInt32(26<token>) '0'

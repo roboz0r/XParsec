@@ -1,0 +1,27 @@
+Match:
+  MatchToken: 0, KWMatch(0<token>)
+  MatchExpr:
+    Ident: 6, Identifier(2<token>) 'xs'
+  WithToken: 9, KWWith(4<token>)
+  Rule:
+    Bar: 14, OpBar(6<token>)
+    Pat: Pat.List: 16, OpNil(8<token>)
+    16, OpNil(8<token>)
+    Arrow: 19, OpArrowRight(10<token>)
+    Expr:
+      Const: 22, NumInt32(12<token>) '0'
+  Rule:
+    Bar: 24, OpBar(14<token>)
+    Pat: Pat.List: 26, KWLBracket(16<token>)
+      Pat.NamedSimple: 27, Identifier(17<token>) 'x'
+    28, KWRBracket(18<token>)
+    Arrow: 30, OpArrowRight(20<token>)
+    Expr:
+      Ident: 33, Identifier(22<token>) 'x'
+  Rule:
+    Bar: 35, OpBar(24<token>)
+    Pat: Pat.Wildcard: 37, Wildcard(26<token>)
+    Arrow: 39, OpArrowRight(28<token>)
+    Expr:
+      PrefixApp: 42, Operator 0b1000000001010011 InfixAdd (can be prefix)(30<token>)
+        Const: 43, NumInt32(31<token>) '1'

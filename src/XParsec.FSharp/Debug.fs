@@ -169,6 +169,63 @@ let printLongIdentOrOp
     | LongIdentOrOp.QualifiedOp(longIdent, dot, op) -> tw.Write("QualifiedOp: ")
 
 
+let printPatParam (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (param: PatParam<SyntaxToken>) =
+    match param with
+    | PatParam.Const value ->
+        tw.Write("PatParam.Const: ")
+        printTokenFull tw input lexed value
+        tw.WriteLine()
+    | PatParam.LongIdent ident ->
+        tw.Write("PatParam.LongIdent: ")
+        printLongIdentOrOp tw input lexed (LongIdentOrOp.LongIdent ident)
+    | PatParam.App(ident, innerParam) ->
+        printSection
+            tw
+            "PatParam.App"
+            (fun () ->
+                printLongIdentOrOp tw input lexed (LongIdentOrOp.LongIdent ident)
+                printPatParam tw input lexed innerParam
+            )
+    | PatParam.List(lBracket, parameters, rBracket) ->
+        printLabelledToken "PatParam.List" tw input lexed lBracket
+
+        indent
+            tw
+            (fun () ->
+                for p in parameters do
+                    printPatParam tw input lexed p
+            )
+
+        printTokenMin tw input lexed rBracket
+        tw.WriteLine()
+    | PatParam.Tuple(lParen, parameters, rParen) ->
+        printLabelledToken "PatParam.Tuple" tw input lexed lParen
+
+        indent
+            tw
+            (fun () ->
+                for p in parameters do
+                    printPatParam tw input lexed p
+            )
+
+        printTokenMin tw input lexed rParen
+        tw.WriteLine()
+    | PatParam.Typed(innerParam, colon, typ) ->
+        printSection
+            tw
+            "PatParam.Typed"
+            (fun () ->
+                printPatParam tw input lexed innerParam
+                printLabelledToken "Colon" tw input lexed colon
+                printType tw input lexed typ
+            )
+    | PatParam.Null nullToken ->
+        tw.Write("PatParam.Null: ")
+        printTokenMin tw input lexed nullToken
+        tw.WriteLine()
+    | PatParam.Quoted _ -> failwith "printPatParam: Quoted not implemented"
+    | PatParam.DoubleQuoted _ -> failwith "printPatParam: DoubleQuoted not implemented"
+
 let printPat (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (pat: Pat<SyntaxToken>) =
     match pat with
     | Pat.Const value ->
@@ -194,7 +251,9 @@ let printPat (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (pat: Pat<S
                     tw.WriteLine()
 
                 match param with
-                | ValueSome _ -> failwith "printPat: Pat.Named param not implemented"
+                | ValueSome p ->
+                    tw.Write("Param: ")
+                    printPatParam tw input lexed p
                 | ValueNone -> ()
 
                 match innerPat with
@@ -541,6 +600,9 @@ let printExpr (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (expr: Exp
                 printExpr tw input lexed left
                 printExpr tw input lexed right
             )
+    | Expr.PrefixApp(op, expr) ->
+        printLabelledToken "PrefixApp" tw input lexed op
+        indent tw (fun () -> printExpr tw input lexed expr)
     | Expr.Sequential(left, sep, right) ->
         printLabelledToken "Sequential" tw input lexed sep
 

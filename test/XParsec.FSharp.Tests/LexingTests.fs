@@ -60,35 +60,4 @@ let tests =
                 let name = IO.Path.GetFileName file
 
                 test $"Lexing {name}" { testLexFile file }
-
-            ptest "Temp test file" {
-                let file = testData.Value |> Seq.skip 0 |> Seq.head
-                let fileName = IO.Path.GetFileName file
-                testLexFile file
-            }
-            ptest "Temp test" {
-                let fileName = "03_simple_triple_dollar.fs"
-                let file = IO.Path.Combine(testDataDir.Value, fileName)
-                let snippet = File.ReadAllText file
-                let snippet = snippet.Replace("\r\n", "\n")
-                printfn "Lexing\n%s\n-----\n%s\n-----" fileName snippet
-
-                match lexString snippet with
-                | Ok lexed ->
-                    printLexed snippet lexed
-                    let expectedFile = file + ".lexed"
-                    let expected = readLexed expectedFile
-
-                    "Lexed tokens should match expected"
-                    |> Expect.equal (lexed.Tokens |> List.ofSeq) expected
-
-                | Error err ->
-                    let lexed = LexBuilder.complete err.Position.Index err.Position.State
-                    printLexed snippet lexed
-                    printfn "-----"
-                    let s = XParsec.ErrorFormatting.formatStringError snippet err
-
-                    printfn "%s" s
-                    failwith "Lexing failed"
-            }
         ]

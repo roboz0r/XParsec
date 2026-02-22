@@ -1,0 +1,20 @@
+Match:
+  MatchToken: 0, KWMatch(0<token>)
+  MatchExpr:
+    Ident: 6, Identifier(2<token>) 'xs'
+  WithToken: 9, KWWith(4<token>)
+  Rule:
+    Bar: 14, OpBar(6<token>)
+    Pat: Pat.Cons: 18, KWColonColon(10<token>)
+      Pat.NamedSimple: 16, Identifier(8<token>) 'x'
+      Pat.NamedSimple: 21, Identifier(12<token>) 'rest'
+    Arrow: 26, OpArrowRight(14<token>)
+    Expr:
+      Ident: 29, Identifier(16<token>) 'x'
+  Rule:
+    Bar: 31, OpBar(18<token>)
+    Pat: Pat.List: 33, OpNil(20<token>)
+    33, OpNil(20<token>)
+    Arrow: 36, OpArrowRight(22<token>)
+    Expr:
+      Const: 39, NumInt32(24<token>) '0'
