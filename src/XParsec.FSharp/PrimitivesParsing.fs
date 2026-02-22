@@ -86,8 +86,7 @@ module AttributeSet =
 [<RequireQualifiedAccess>]
 module Attributes =
     let parse: Parser<Attributes<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        many AttributeSet.parse |>> List.ofSeq
-
+        many1 AttributeSet.parse |>> List.ofSeq
 
 [<RequireQualifiedAccess>]
 module RangeOpName =

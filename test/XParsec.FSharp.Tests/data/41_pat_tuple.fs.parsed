@@ -1,0 +1,15 @@
+Match:
+  MatchToken: 0, KWMatch(0<token>)
+  MatchExpr:
+    Ident: 6, Identifier(2<token>) 'p'
+  WithToken: 8, KWWith(4<token>)
+  Rule:
+    Bar: 13, OpBar(6<token>)
+    Pat: Pat.Tuple:
+      Pat.NamedSimple: 15, Identifier(8<token>) 'a'
+      Pat.NamedSimple: 18, Identifier(11<token>) 'b'
+    Arrow: 20, OpArrowRight(13<token>)
+    Expr:
+      InfixApp: 25, Operator 0b1000000001010011 InfixAdd (can be prefix)(17<token>)
+        Ident: 23, Identifier(15<token>) 'a'
+        Ident: 27, Identifier(19<token>) 'b'
