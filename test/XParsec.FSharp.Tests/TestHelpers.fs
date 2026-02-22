@@ -381,41 +381,6 @@ let testParseFile (filePath: string) = testParseFileWith Set.empty filePath
 let testParseFileWithSymbols (symbols: string list) (filePath: string) =
     testParseFileWith (Set.ofList symbols) filePath
 
-/// Discovers parser test cases from existing `.parsed` golden files in `dataDir`.
-///
-/// Naming convention (produced by `testParseFileWith`):
-///   - `source.fs.parsed`             → run with no preprocessor symbols
-///   - `source.fs.SYM1_SYM2.parsed`   → run with SYM1 and SYM2 defined
-///
-/// Returns `(sourceFilePath, definedSymbols)` pairs sorted by filename then symbol set,
-/// only including entries whose corresponding `.fs` source file exists.
-let discoverParserTests (dataDir: string) : (string * Set<string>) array =
-    Directory.GetFiles(dataDir, "*.parsed")
-    |> Array.choose (fun parsedPath ->
-        let fileName = Path.GetFileName parsedPath
-        // All golden files contain ".fs." as the boundary between source name and suffix.
-        let dotFsIdx = fileName.IndexOf(".fs.")
-
-        if dotFsIdx < 0 then
-            None
-        else
-            let sourceName = fileName.[.. dotFsIdx + 2] // e.g. "07_simple_let.fs"
-            let rest = fileName.[dotFsIdx + 4 ..] // "parsed"  –or–  "SYM.parsed"
-            let sourcePath = Path.Combine(dataDir, sourceName)
-
-            if not (File.Exists sourcePath) then
-                None
-            elif rest = "parsed" then
-                Some(sourcePath, Set.empty)
-            elif rest.EndsWith(".parsed") then
-                // Strip the trailing ".parsed" (7 chars) to get the symbol string
-                let symbolStr = rest.[.. rest.Length - 8]
-                let symbols = symbolStr.Split('_') |> Set.ofArray
-                Some(sourcePath, symbols)
-            else
-                None
-    )
-    |> Array.sortBy (fun (path, syms) -> Path.GetFileName path, syms)
 
 /// Returns paths of golden files (`.parsed`, `.lexed`, `.lexedblocks`) in `dataDir` that have
 /// no corresponding `.fs` source file — i.e. orphans left behind after a source file was renamed
