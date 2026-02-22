@@ -92,11 +92,11 @@ module Parsing =
 
         // Create a slice of just the #if directive line, carrying the absolute start index
         // so the IfExpr parser can compute absolute token indices for symbol name extraction.
-        let sliceLen = (nextLineTokenIndex * 1</token>) - reader.Index
+        let sliceLen = (nextLineTokenIndex * 1< / token>) - reader.Index
         let sliceReader = reader.Slice(0, sliceLen, { AbsoluteStart = reader.Index })
 
         // Advance the main reader past the #if line before branching
-        reader.Index <- nextLineTokenIndex * 1</token>
+        reader.Index <- nextLineTokenIndex * 1< / token>
 
         match IfExpr.parseSlice sliceReader with
         | Ok ifExpr ->
@@ -104,14 +104,15 @@ module Parsing =
                 // Condition is true: the then-branch is active.
                 // #else and #endif encountered later will be handled by nextNonTriviaToken.
                 nextNonTriviaToken reader
-            else
+            else if
                 // Condition is false: skip over the inactive then-branch.
-                if skipInactiveBranch reader then
-                    // Stopped at #else: the else-branch is now active
-                    nextNonTriviaToken reader
-                else
-                    // Stopped at #endif: entire block skipped
-                    nextNonTriviaToken reader
+                skipInactiveBranch reader
+            then
+                // Stopped at #else: the else-branch is now active
+                nextNonTriviaToken reader
+            else
+                // Stopped at #endif: entire block skipped
+                nextNonTriviaToken reader
         | Error e ->
             // Invalid #if expression: record a diagnostic and treat the whole block as inactive
             let msg = $"Invalid #if expression: {e}"
@@ -192,16 +193,16 @@ module Parsing =
     /// Returns the column (0-based) of the next non-trivia token without consuming it.
     /// Returns -1 at EOF.
     let peekNonTriviaIndent =
-        lookAhead
-            (fun r ->
-                match nextNonTriviaToken r with
-                | Error _ -> preturn -1 r
-                | Ok token ->
-                    match token.Index with
-                    | TokenIndex.Virtual -> preturn 0 r
-                    | TokenIndex.Regular tokenIdx ->
-                        let indent = ParseState.getIndent r.State tokenIdx
-                        preturn indent r)
+        lookAhead (fun r ->
+            match nextNonTriviaToken r with
+            | Error _ -> preturn -1 r
+            | Ok token ->
+                match token.Index with
+                | TokenIndex.Virtual -> preturn 0 r
+                | TokenIndex.Regular tokenIdx ->
+                    let indent = ParseState.getIndent r.State tokenIdx
+                    preturn indent r
+        )
 
     /// Synthesises a VirtualSep (virtual `;`) token at the current reader position
     /// without consuming any input.
@@ -238,7 +239,9 @@ module Parsing =
                     }
                 )
 
-            return (first, rest) ||> Seq.fold (fun acc (sep, elem) -> Expr.Sequential(acc, sep, elem))
+            return
+                (first, rest)
+                ||> Seq.fold (fun acc (sep, elem) -> Expr.Sequential(acc, sep, elem))
         }
 
 [<AutoOpen>]
@@ -305,8 +308,10 @@ module internal Keywords =
 
     let pWhile = nextNonTriviaTokenIsL Token.KWWhile "while"
     let pFun = nextNonTriviaTokenIsL Token.KWFun "fun"
+
     let pDone: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         nextNonTriviaTokenVirtualIfNot Token.KWDone
+
     let pIdent = nextNonTriviaTokenIsL Token.Identifier "identifier"
 
     let pToOrDownTo =
@@ -1664,21 +1669,21 @@ module Expr =
                         )
                         "Expected '>' for type application"
                     <|> parser {
-                        let! pos: Position<_> = getPosition
+                        let! (pos: Position<_>) = getPosition
                         let! token = nextNonTriviaToken
                         let! state = getUserState
-                        
-                        if token.Token = Token.OpGreaterThan
-                            && tokenStringStartsWith ">" token state then
+
+                        if token.Token = Token.OpGreaterThan && tokenStringStartsWith ">" token state then
                             // We have an operator like '>>' or '>>=' that needs to be reprocessed
                             // after the type application that takes the first '>' as its left operand
-                            let pos = 
-                                { pos with 
-                                    State = 
+                            let pos =
+                                { pos with
+                                    State =
                                         { pos.State with
                                             ReprocessOpAfterTypeDeclaration = true
                                         }
                                 }
+
                             do! setPosition pos
                             return token
                         else
@@ -1771,7 +1776,7 @@ module Expr =
                             elif t.Token.IsLiteral then
                                 preturn () reader
                             else
-                                match t.Token with 
+                                match t.Token with
                                 | Token.Unit
                                 | Token.KWLParen
                                 | Token.KWLBracket -> preturn () reader
@@ -1834,7 +1839,7 @@ module Expr =
                 | ValueSome opInfo ->
                     parser {
                         let! state = getUserState
-                        
+
                         if state.ReprocessOpAfterTypeDeclaration then
                             // We have an operator like '>>' or '>>=' that needs to be reprocessed
                             // after the type application that takes the first '>' to close the type application
@@ -2087,7 +2092,7 @@ module Expr =
                             let! doneTok = pDone
                             return Expr.ForTo(forTok, ident, eq, startExpr, toTok, endExpr, doTok, body, doneTok)
                         }
-                        
+
                         // ForIn: for pat in expr do body done
                         parser {
                             let! pat = Pat.parse
