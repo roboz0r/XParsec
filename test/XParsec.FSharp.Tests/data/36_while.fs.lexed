@@ -1,0 +1,12 @@
+0, KWWhile
+5, Whitespace
+6, Identifier
+10, Whitespace
+11, KWDo
+13, Newline
+14, Indent
+18, Identifier
+19, Whitespace
+20, Identifier
+21, Newline
+22, EOF

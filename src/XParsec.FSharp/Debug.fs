@@ -22,7 +22,7 @@ let printTokenFull (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (synT
 
         let tokenStr =
             if len > 10 then
-                input.[int i .. int (i - 10)] + "..."
+                input.[int i .. int (i + 9)] + "..."
             else
                 input.[int i .. int (i1 - 1)]
 
@@ -464,5 +464,173 @@ let printExpr (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (expr: Exp
             tw.Indent <- tw.Indent - 1
             tw.Indent <- tw.Indent - 1
 
+        tw.Indent <- tw.Indent - 1
+    | Expr.Fun(funToken, pats, arrow, expr) ->
+        tw.Write("Fun: ")
+        printTokenMin tw input lexed funToken
+        tw.WriteLine()
+        tw.WriteLine("Pats:")
+        tw.Indent <- tw.Indent + 1
+
+        for pat in pats do
+            printPat tw input lexed pat
+
+        tw.Indent <- tw.Indent - 1
+        tw.Write("Arrow: ")
+        printTokenMin tw input lexed arrow
+        tw.WriteLine()
+        tw.WriteLine("Body:")
+        tw.Indent <- tw.Indent + 1
+        printExpr tw input lexed expr
+        tw.Indent <- tw.Indent - 1
+    | Expr.TryWith(tryToken, tryExpr, withToken, rules) ->
+        tw.Write("TryWith: ")
+        printTokenMin tw input lexed tryToken
+        tw.WriteLine()
+        tw.WriteLine("TryExpr:")
+        tw.Indent <- tw.Indent + 1
+        printExpr tw input lexed tryExpr
+        tw.Indent <- tw.Indent - 1
+        tw.Write("WithToken: ")
+        printTokenMin tw input lexed withToken
+        tw.WriteLine()
+
+        let (Rules(firstBar, ruleList, bars)) = rules
+
+        for i in 0 .. ruleList.Length - 1 do
+            let bar = if i = 0 then firstBar else ValueSome bars[i - 1]
+
+            tw.WriteLine("Rule:")
+            tw.Indent <- tw.Indent + 1
+
+            match bar with
+            | ValueSome b ->
+                tw.Write("Bar: ")
+                printTokenMin tw input lexed b
+                tw.WriteLine()
+            | ValueNone -> ()
+
+            let (Rule(pat, guard, arrow, ruleExpr)) = ruleList[i]
+            tw.Write("Pat: ")
+            printPat tw input lexed pat
+            tw.Write("Arrow: ")
+            printTokenMin tw input lexed arrow
+            tw.WriteLine()
+            tw.WriteLine("Expr:")
+            tw.Indent <- tw.Indent + 1
+            printExpr tw input lexed ruleExpr
+            tw.Indent <- tw.Indent - 1
+            tw.Indent <- tw.Indent - 1
+    | Expr.TryFinally(tryToken, tryExpr, finallyToken, finallyExpr) ->
+        tw.Write("TryFinally: ")
+        printTokenMin tw input lexed tryToken
+        tw.WriteLine()
+        tw.WriteLine("TryExpr:")
+        tw.Indent <- tw.Indent + 1
+        printExpr tw input lexed tryExpr
+        tw.Indent <- tw.Indent - 1
+        tw.Write("FinallyToken: ")
+        printTokenMin tw input lexed finallyToken
+        tw.WriteLine()
+        tw.WriteLine("FinallyExpr:")
+        tw.Indent <- tw.Indent + 1
+        printExpr tw input lexed finallyExpr
+        tw.Indent <- tw.Indent - 1
+    | Expr.While(whileToken, cond, doToken, body, doneToken) ->
+        tw.Write("While: ")
+        printTokenMin tw input lexed whileToken
+        tw.WriteLine()
+        tw.WriteLine("Cond:")
+        tw.Indent <- tw.Indent + 1
+        printExpr tw input lexed cond
+        tw.Indent <- tw.Indent - 1
+        tw.Write("DoToken: ")
+        printTokenMin tw input lexed doToken
+        tw.WriteLine()
+        tw.WriteLine("Body:")
+        tw.Indent <- tw.Indent + 1
+        printExpr tw input lexed body
+        tw.Indent <- tw.Indent - 1
+        tw.Write("DoneToken: ")
+        printTokenMin tw input lexed doneToken
+        tw.WriteLine()
+    | Expr.ForTo(forToken, ident, equals, startExpr, toToken, endExpr, doToken, body, doneToken) ->
+        tw.Write("ForTo: ")
+        printTokenMin tw input lexed forToken
+        tw.WriteLine()
+        tw.Write("Ident: ")
+        printTokenFull tw input lexed ident
+        tw.WriteLine()
+        tw.Write("Equals: ")
+        printTokenMin tw input lexed equals
+        tw.WriteLine()
+        tw.WriteLine("Start:")
+        tw.Indent <- tw.Indent + 1
+        printExpr tw input lexed startExpr
+        tw.Indent <- tw.Indent - 1
+        tw.Write("ToToken: ")
+        printTokenMin tw input lexed toToken
+        tw.WriteLine()
+        tw.WriteLine("End:")
+        tw.Indent <- tw.Indent + 1
+        printExpr tw input lexed endExpr
+        tw.Indent <- tw.Indent - 1
+        tw.Write("DoToken: ")
+        printTokenMin tw input lexed doToken
+        tw.WriteLine()
+        tw.WriteLine("Body:")
+        tw.Indent <- tw.Indent + 1
+        printExpr tw input lexed body
+        tw.Indent <- tw.Indent - 1
+        tw.Write("DoneToken: ")
+        printTokenMin tw input lexed doneToken
+        tw.WriteLine()
+    | Expr.ForIn(forToken, pat, inToken, range, doToken, body, doneToken) ->
+        tw.Write("ForIn: ")
+        printTokenMin tw input lexed forToken
+        tw.WriteLine()
+        tw.Write("Pat: ")
+        printPat tw input lexed pat
+        tw.Write("InToken: ")
+        printTokenMin tw input lexed inToken
+        tw.WriteLine()
+        tw.WriteLine("Range:")
+        tw.Indent <- tw.Indent + 1
+
+        match range with
+        | ExprOrRange.Expr e -> printExpr tw input lexed e
+        | ExprOrRange.Range _ -> tw.WriteLine("(range)")
+
+        tw.Indent <- tw.Indent - 1
+        tw.Write("DoToken: ")
+        printTokenMin tw input lexed doToken
+        tw.WriteLine()
+        tw.WriteLine("Body:")
+        tw.Indent <- tw.Indent + 1
+        printExpr tw input lexed body
+        tw.Indent <- tw.Indent - 1
+        tw.Write("DoneToken: ")
+        printTokenMin tw input lexed doneToken
+        tw.WriteLine()
+    | Expr.Use(useToken, ident, equals, expr, inToken, body) ->
+        tw.Write("Use: ")
+        printTokenMin tw input lexed useToken
+        tw.WriteLine()
+        tw.Write("Ident: ")
+        printTokenFull tw input lexed ident
+        tw.WriteLine()
+        tw.Write("Equals: ")
+        printTokenMin tw input lexed equals
+        tw.WriteLine()
+        tw.WriteLine("Expr:")
+        tw.Indent <- tw.Indent + 1
+        printExpr tw input lexed expr
+        tw.Indent <- tw.Indent - 1
+        tw.Write("InToken: ")
+        printTokenMin tw input lexed inToken
+        tw.WriteLine()
+        tw.WriteLine("Body:")
+        tw.Indent <- tw.Indent + 1
+        printExpr tw input lexed body
         tw.Indent <- tw.Indent - 1
     | _ -> failwithf "Not implemented %A" expr

@@ -1,0 +1,12 @@
+TryWith: 0, KWTry(0<token>)
+TryExpr:
+  InfixApp: 9, Whitespace(4<token>)
+    Ident: 8, Identifier(3<token>) 'f'
+    Ident: 10, Identifier(5<token>) 'x'
+WithToken: 12, KWWith(7<token>)
+Rule:
+  Bar: 17, OpBar(9<token>)
+  Pat: Pat.Wildcard: 19, Wildcard(11<token>)
+  Arrow: 21, OpArrowRight(13<token>)
+  Expr:
+    Const: 24, NumInt32(15<token>) '0'
