@@ -2,6 +2,7 @@ namespace rec XParsec.FSharp.Parser
 
 // 13. Custom Attributes and Reflection
 // Represents: attribute-target
+[<RequireQualifiedAccess>]
 type AttributeTarget<'T> =
     | Assembly of assemblyToken: 'T
     | Module of moduleToken: 'T
@@ -28,18 +29,19 @@ and AttributeSet<'T> =
 and Attributes<'T> = AttributeSet<'T> list
 
 // Represents: ident-or-op
+[<RequireQualifiedAccess>]
 type IdentOrOp<'T> =
     | Ident of ident: 'T
     | ParenOp of lParen: 'T * opName: OpName<'T> * rParen: 'T
     | StarOp of lParen: 'T * star: 'T * rParen: 'T
 
 // Represents: op-name and its variations
-and OpName<'T> =
+and [<RequireQualifiedAccess>] OpName<'T> =
     | SymbolicOp of op: 'T
     | RangeOp of rangeOp: RangeOpName<'T>
     | ActivePatternOp of activePatternOp: ActivePatternOpName<'T>
 
-and RangeOpName<'T> =
+and [<RequireQualifiedAccess>] RangeOpName<'T> =
     | DotDot of 'T
     | DotDotDotDot of 'T
 
@@ -48,6 +50,7 @@ and ActivePatternOpName<'T> = | ActivePatternOp of lBar: 'T * idents: 'T list * 
 // Represents: long-ident and long-ident-or-op
 type LongIdent<'T> = 'T list
 
+[<RequireQualifiedAccess>]
 type LongIdentOrOp<'T> =
     | LongIdent of LongIdent<'T>
     | Op of IdentOrOp<'T>
@@ -71,10 +74,10 @@ type Type<'T> =
 
 and [<RequireQualifiedAccess>] TypeArg<'T> =
     | Type of Type<'T>
-    | Measure of 'T // Placeholder for measure grammar
+    | Measure of Measure<'T>
     | StaticParameter of 'T // Placeholder for static-parameter grammar
 
-and Typar<'T> =
+and [<RequireQualifiedAccess>] Typar<'T> =
     | Anon of underscore: 'T
     | Named of quote: 'T * ident: 'T
     | Static of caret: 'T * ident: 'T
@@ -85,7 +88,7 @@ and TyparDefns<'T> =
 and TyparDefn<'T> = | TyparDefn of attributes: Attributes<'T> voption * typar: Typar<'T>
 and TyparConstraints<'T> = | TyparConstraints of whenToken: 'T * constraints: Constraint<'T> list
 
-and Constraint<'T> =
+and [<RequireQualifiedAccess>] Constraint<'T> =
     | Coercion of typar: Typar<'T> * colonGreaterThan: 'T * typ: Type<'T>
     | Nullness of typar: Typar<'T> * colon: 'T * nullToken: 'T
     | MemberTrait of staticTypars: StaticTypars<'T> * colon: 'T * lParen: 'T * membersign: MemberSig<'T> * rParen: 'T
@@ -114,7 +117,7 @@ and Constraint<'T> =
     | Equality of typar: Typar<'T> * colon: 'T * equalityToken: 'T
     | Comparison of typar: Typar<'T> * colon: 'T * comparisonToken: 'T
 
-and StaticTypars<'T> =
+and [<RequireQualifiedAccess>] StaticTypars<'T> =
     | Single of caret: 'T * ident: 'T
     | OrList of lParen: 'T * typars: (Typar<'T> * 'T (* or *) ) list * rParen: 'T
 
@@ -185,6 +188,7 @@ type ExprOrRange<'T> =
     | Range of RangeExpr<'T>
 
 // Represents: computation expression grammar
+[<RequireQualifiedAccess>]
 type CompExpr<'T> =
     | LetBang of letBang: 'T * pat: Pat<'T> * equals: 'T * expr: Expr<'T> * inToken: 'T * comp: CompExpr<'T>
     | Let of letToken: 'T * pat: Pat<'T> * equals: 'T * expr: Expr<'T> * inToken: 'T * comp: CompExpr<'T>

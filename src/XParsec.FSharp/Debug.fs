@@ -240,13 +240,83 @@ let printTypeArg (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (typeAr
         printType tw input lexed ty
     | TypeArg.Measure measure ->
         tw.Write("TypeArg.Measure: ")
-        printTokenFull tw input lexed measure
+        printMeasure tw input lexed measure
         tw.WriteLine()
     | TypeArg.StaticParameter staticParam ->
         tw.Write("TypeArg.StaticParameter: ")
         printTokenFull tw input lexed staticParam
         tw.WriteLine()
 
+let rec printMeasure (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (measure: Measure<SyntaxToken>) =
+    match measure with
+    | Measure.Named longIdent ->
+        tw.Write("Measure.Named: ")
+        printLongIdentOrOp tw input lexed (LongIdentOrOp.LongIdent longIdent)
+        tw.WriteLine()
+    | Measure.One oneToken ->
+        tw.Write("Measure.One: ")
+        printTokenFull tw input lexed oneToken
+        tw.WriteLine()
+    | Measure.Anonymous underscore ->
+        tw.Write("Measure.Anonymous: ")
+        printTokenFull tw input lexed underscore
+        tw.WriteLine()
+    | Measure.Typar typar ->
+        tw.Write("Measure.Typar: ")
+        printTypar tw input lexed typar
+        tw.WriteLine()
+    | Measure.Juxtaposition(measures, ops) ->
+        printSection
+            tw
+            "Measure.Juxtaposition"
+            (fun () ->
+                for m in measures do
+                    printMeasure tw input lexed m
+            )
+    | Measure.Power(baseMeasure, powerToken, exponent) ->
+        printSection
+            tw
+            "Measure.Power"
+            (fun () ->
+                printMeasure tw input lexed baseMeasure
+                printTokenMin tw input lexed powerToken
+                printTokenMin tw input lexed exponent
+            )
+    | Measure.Product(left, mulToken, right) ->
+        printSection
+            tw
+            "Measure.Product"
+            (fun () ->
+                printMeasure tw input lexed left
+                printTokenMin tw input lexed mulToken
+                printMeasure tw input lexed right
+            )
+    | Measure.Quotient(numerator, divToken, denominator) ->
+        printSection
+            tw
+            "Measure.Quotient"
+            (fun () ->
+                printMeasure tw input lexed numerator
+                printTokenMin tw input lexed divToken
+                printMeasure tw input lexed denominator
+            )
+    | Measure.Reciprocal(divToken, measure) ->
+        printSection
+            tw
+            "Measure.Reciprocal"
+            (fun () ->
+                printTokenMin tw input lexed divToken
+                printMeasure tw input lexed measure
+            )
+    | Measure.Paren(lParen, measure, rParen) ->
+        printSection
+            tw
+            "Measure.Paren"
+            (fun () ->
+                printTokenMin tw input lexed lParen
+                printMeasure tw input lexed measure
+                printTokenMin tw input lexed rParen
+            )
 
 let printType (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (ty: Type<SyntaxToken>) =
     match ty with

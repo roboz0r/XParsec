@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.Parser
 
 // Represents: access := private | internal | public
+[<RequireQualifiedAccess>]
 type Access<'T> =
     | Private of privateToken: 'T
     | Internal of internalToken: 'T

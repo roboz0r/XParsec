@@ -346,9 +346,11 @@ module internal Keywords =
     let pInherit = nextNonTriviaTokenIsL Token.KWInherit "inherit"
     let pNew = nextNonTriviaTokenIsL Token.KWNew "new"
     // Uncomment when needed
-    // let pModule = nextNonTriviaTokenIsL Token.KWModule "module"
-    // let pNamespace = nextNonTriviaTokenIsL Token.KWNamespace "namespace"
-    // let pOpen = nextNonTriviaTokenIsL Token.KWOpen "open"
+    let pModule = nextNonTriviaTokenIsL Token.KWModule "module"
+    let pRec = nextNonTriviaTokenIsL Token.KWRec "rec"
+    let pNamespace = nextNonTriviaTokenIsL Token.KWNamespace "namespace"
+    let pGlobal = nextNonTriviaTokenIsL Token.KWGlobal "global"
+    let pOpen = nextNonTriviaTokenIsL Token.KWOpen "open"
     let pAs = nextNonTriviaTokenIsL Token.KWAs "as"
     let pWhen = nextNonTriviaTokenIsL Token.KWWhen "when"
     let pAnd = nextNonTriviaTokenIsL Token.KWAnd "and"
@@ -362,7 +364,7 @@ module internal Keywords =
 
 [<RequireQualifiedAccess>]
 module AttributeTarget =
-    let private pId s ctor =
+    let private pContextualKeyword s ctor =
         parser {
             let! state = getUserState
 
@@ -375,21 +377,20 @@ module AttributeTarget =
         }
 
     let private pKw k ctor =
-        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = k) (sprintf "Expected '%A'" k)
-        |>> ctor
+        nextNonTriviaTokenIsL k (sprintf "Expected '%A'" k) |>> ctor
 
     let parse: Parser<AttributeTarget<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         choiceL
             [
-                pId "assembly" AttributeTarget.Assembly
+                pContextualKeyword "assembly" AttributeTarget.Assembly
                 pKw Token.KWModule AttributeTarget.Module
                 pKw Token.KWReturn AttributeTarget.Return
-                pId "field" AttributeTarget.Field
-                pId "property" AttributeTarget.Property
-                pId "param" AttributeTarget.Param
+                pContextualKeyword "field" AttributeTarget.Field
+                pContextualKeyword "property" AttributeTarget.Property
+                pContextualKeyword "param" AttributeTarget.Param
                 pKw Token.KWType AttributeTarget.Type
-                pId "constructor" AttributeTarget.Constructor
-                pId "event" AttributeTarget.Event
+                pContextualKeyword "constructor" AttributeTarget.Constructor
+                pContextualKeyword "event" AttributeTarget.Event
             ]
             "AttributeTarget"
 
@@ -398,7 +399,7 @@ module Attribute =
     let parse: Parser<Attribute<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
             // Attempt to parse the target (e.g. "assembly:")
-            // We need `attempt` because "assembly" could also be the start of the ObjectConstruction (the Attribute Type name)
+            // We need `opt` because "assembly" could also be the start of the ObjectConstruction (the Attribute Type name)
             // if the colon is missing.
             let! target =
                 opt (
@@ -433,7 +434,7 @@ module AttributeSet =
 
             let! rBracket = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWRAttrBracket) "Expected '>]'"
 
-            return AttributeSet.AttributeSet(lBracket, List.ofSeq attributes, rBracket)
+            return AttributeSet(lBracket, List.ofSeq attributes, rBracket)
         }
 
 [<RequireQualifiedAccess>]
@@ -495,7 +496,7 @@ module ActivePatternOpName =
 
             let! idents, underscore, rBar = parseSegments []
 
-            return ActivePatternOpName.ActivePatternOp(lBar, idents, underscore, rBar)
+            return ActivePatternOp(lBar, idents, underscore, rBar)
         }
 
 [<RequireQualifiedAccess>]
@@ -623,15 +624,13 @@ module LongIdent =
 
 [<RequireQualifiedAccess>]
 module Typar =
-    let pAnon =
-        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.Wildcard) "Expected '_'"
-        |>> Typar.Anon
+    let pAnon = nextNonTriviaTokenIsL Token.Wildcard "Expected '_'" |>> Typar.Anon
 
 
     let pNamed =
         parser {
-            let! quote = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWSingleQuote) "Expected quote"
-            let! ident = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.Identifier) "Expected identifier"
+            let! quote = nextNonTriviaTokenIsL Token.KWSingleQuote "Expected quote"
+            let! ident = nextNonTriviaTokenIsL Token.Identifier "Expected identifier"
             return Typar.Named(quote, ident)
         }
 
@@ -643,7 +642,7 @@ module Typar =
             // Here assuming standard token stream:
             let! state = getUserState
             let! caret = pOpConcatenate
-            let! ident = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.Identifier) "Expected identifier"
+            let! ident = nextNonTriviaTokenIsL Token.Identifier "Expected identifier"
             return Typar.Static(caret, ident)
         }
 
@@ -657,7 +656,7 @@ module StaticTypars =
         parser {
             let! state = getUserState
             let! caret = nextNonTriviaTokenSatisfiesL (fun t -> tokenStringIs "^" t state) "Expected '^'"
-            let! ident = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.Identifier) "Expected identifier"
+            let! ident = nextNonTriviaTokenIsL Token.Identifier "Expected identifier"
             return StaticTypars.Single(caret, ident)
         }
 
@@ -688,7 +687,7 @@ module Constraint =
     let private pMemberSig: Parser<MemberSig<SyntaxToken>, _, _, _, _> =
         // Consumes tokens until matching paren? Placeholder implementation.
         // In real impl, this parses property/method signatures.
-        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.Identifier) "MemberSig Placeholder"
+        nextNonTriviaTokenIsL Token.Identifier "MemberSig Placeholder"
         |>> fun _ -> failwith "MemberSig parsing not implemented"
 
     let private pMemberTrait =
@@ -704,9 +703,9 @@ module Constraint =
     let private pDefaultConstructor (typar: Typar<_>) colon lParen (tokenNew: SyntaxToken) =
         parser {
             let! colonUnit = pColon
-            let! unitTok = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.Unit) "Expected '()'" // Simplified
+            let! unitTok = nextNonTriviaTokenIsL Token.Unit "Expected '()'" // Simplified
             let! arrow = pArrowRight
-            let! quoteT = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.Identifier) "Expected 'T" // Simplified
+            let! quoteT = nextNonTriviaTokenIsL Token.Identifier "Expected 'T" // Simplified
             let! rParen = pRParen
             // Re-map unitTok to ensure types align if AST expects specific tokens.
             // Note: AST asks for 'colonUnit' then 'arrow', logic adjusted to AST structure:
@@ -883,7 +882,7 @@ module Type =
                         // Suffix: int list
                         // We only consume an identifier here if it's NOT a keyword,
                         // and not start of a new construct.
-                        (parser {
+                        parser {
                             // Lookahead or logic to ensure this is a type suffix and not next token
                             let! lid = LongIdent.parse
                             // If we see <, it's a GenericType which is an atom, not a suffix to an existing type in this specific position
@@ -891,7 +890,7 @@ module Type =
                             // `int list list` -> Suffixed(Suffixed(int, list), list)
                             let newAcc = Type.SuffixedType(acc, lid)
                             return! loop newAcc
-                        })
+                        }
                         // Done
                         preturn acc
                     ]
@@ -1349,12 +1348,12 @@ module CompExpr =
             return!
                 choice
                     [
-                        (parser {
+                        parser {
                             let! thenExpr = Expr.parse
                             let! elseTok = pElse
                             let! elseComp = refCompExpr.Parser
                             return CompExpr.IfThenElse(ifTok, cond, thenTok, thenExpr, elseTok, elseComp)
-                        })
+                        }
                         parser {
                             let! thenComp = refCompExpr.Parser
                             return CompExpr.IfThen(ifTok, cond, thenTok, thenComp)
@@ -3477,7 +3476,7 @@ module Access =
 module ImportDecl =
     let parse =
         parser {
-            let! openTok = nextNonTriviaTokenIsL Token.KWOpen "open"
+            let! openTok = pOpen
             let! ident = LongIdent.parse
             return ImportDecl.ImportDecl(openTok, ident)
         }
@@ -3486,9 +3485,9 @@ module ImportDecl =
 module ModuleAbbrev =
     let parse =
         parser {
-            let! modTok = nextNonTriviaTokenIsL Token.KWModule "module"
+            let! modTok = pModule
             let! ident = nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "Expected identifier"
-            let! eq = nextNonTriviaTokenIsL Token.OpEquality "="
+            let! eq = pEquals
             let! lid = LongIdent.parse
             return ModuleAbbrev.ModuleAbbrev(modTok, ident, eq, lid)
         }
@@ -3497,7 +3496,7 @@ module ModuleAbbrev =
 module CompilerDirectiveDecl =
     let parse: Parser<CompilerDirectiveDecl<SyntaxToken>, _, _, ReadableImmutableArray<_>, _> =
         parser {
-            let! hash = nextNonTriviaTokenIsL Token.KWHash "#"
+            let! hash = pHash
             let! ident = nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "Directive identifier"
             let! strings = many (nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsText) "String argument")
             return CompilerDirectiveDecl(hash, ident, List.ofSeq strings)
@@ -3510,13 +3509,13 @@ module ModuleFunctionOrValueDefn =
     // Assuming FunctionDefn/ValueDefn handle the body after 'let'
     let private pLetBinding attrs letTok =
         parser {
-            let! isRec = opt (nextNonTriviaTokenIsL Token.KWRec "rec")
+            let! isRec = opt pRec
 
             match isRec with
             | ValueSome recTok ->
                 // let rec ...
                 // Parses a list of 'and' connected definitions
-                let! defns, _ = sepBy1 FunctionOrValueDefn.parse (nextNonTriviaTokenIsL Token.KWAnd "and")
+                let! defns, _ = sepBy1 FunctionOrValueDefn.parse pAnd
                 return ModuleFunctionOrValueDefn.LetRec(attrs, letTok, ValueSome recTok, List.ofSeq defns)
 
             | ValueNone ->
@@ -3559,19 +3558,19 @@ module ModuleDefn =
 
     let parseBody (elementParser: Parser<ModuleElems<SyntaxToken>, _, _, _, _>) =
         parser {
-            let! beginTok = nextNonTriviaTokenIsL Token.KWBegin "begin"
+            let! beginTok = pBegin
             let! elems = opt elementParser
-            let! endTok = nextNonTriviaTokenIsL Token.KWEnd "end"
+            let! endTok = pEnd
             return ModuleDefnBody.ModuleDefnBody(beginTok, elems, endTok)
         }
 
     let parse (elementParser: Parser<ModuleElems<SyntaxToken>, _, _, _, _>) =
         parser {
             let! attrs = opt Attributes.parse
-            let! modTok = nextNonTriviaTokenIsL Token.KWModule "module"
+            let! modTok = pModule
             let! access = opt Access.parse
             let! ident = nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "Module identifier"
-            let! eq = nextNonTriviaTokenIsL Token.OpEquality "="
+            let! eq = pEquals
             let! body = parseBody elementParser
             return ModuleDefn(attrs, modTok, access, ident, eq, body)
         }
@@ -3638,10 +3637,10 @@ module ModuleElem =
 module NamespaceDeclGroup =
     let parse =
         parser {
-            let! nsTok = nextNonTriviaTokenIsL Token.KWNamespace "namespace"
+            let! nsTok = pNamespace
 
             // Check for 'global' keyword
-            let! globalTok = opt (nextNonTriviaTokenIsL Token.KWGlobal "global")
+            let! globalTok = opt pGlobal
 
             match globalTok with
             | ValueSome gTok ->
