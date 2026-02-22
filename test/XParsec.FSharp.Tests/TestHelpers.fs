@@ -243,6 +243,18 @@ let testLexedBlocks (input: string) (expected: _ list) =
         printfn "Lexing failed: %A" err
         failwith "Lexing failed"
 
+/// When true, golden files are overwritten with fresh output rather than compared.
+/// Activate by setting the UPDATE_SNAPSHOTS environment variable to any non-empty value,
+/// e.g. `UPDATE_SNAPSHOTS=1 dotnet test`. Useful after deliberate debug-output format changes.
+let private updateSnapshots =
+    Environment.GetEnvironmentVariable("UPDATE_SNAPSHOTS") |> isNull |> not
+
+/// When true, a missing golden file causes the test to be skipped rather than failed.
+/// Automatically activated when the CI environment variable is set (standard on GitHub Actions
+/// and most CI platforms).  Keeps CI green on the first push of a new test file — a developer
+/// must run the suite locally to create the golden file and commit it.
+let private isCi = Environment.GetEnvironmentVariable("CI") |> isNull |> not
+
 let testDataDir =
     lazy DirectoryInfo(IO.Path.Combine(__SOURCE_DIRECTORY__, "data")).FullName
 
@@ -263,26 +275,25 @@ let testLexFile (filePath: string) =
     let input = input.Replace("\r\n", "\n")
     let expectedPath = filePath + ".lexed"
 
-    if not (File.Exists expectedPath) then
-        // Doesn't exist so create it
-        match lexString input with
-        | Ok lexed ->
-            printfn "Expected lexed file does not exist at %s" expectedPath
-            printfn "-------------\nInput was:\n%s" input
-            printfn "-------------\nLexed output is:\n"
-            printLexed input lexed
-            printfn "-------------"
+    match lexString input with
+    | Error err ->
+        let pos = err.Position
+        printLexed input (LexBuilder.complete pos.Index pos.State)
+        ErrorFormatting.formatStringError input err |> printfn "%s"
+        failwith "Lexing failed"
+    | Ok lexed ->
+        if updateSnapshots || not (File.Exists expectedPath) then
             writeLexed expectedPath lexed
-            failtestf "Created expected lexed file at %s, please verify it is correct" expectedPath
-        | Error err ->
-            let pos = err.Position
-            printLexed input (LexBuilder.complete pos.Index pos.State)
-            ErrorFormatting.formatStringError input err |> printfn "%s"
-            // printfn "Lexing failed: %A" err
-            failwith "Lexing failed"
-    else
-        let expected = readLexed expectedPath
-        testLexed input expected
+
+            if not updateSnapshots then
+                if isCi then
+                    skiptest
+                        $"Golden file created at {Path.GetFileName expectedPath}; commit it to enable this test in CI"
+                else
+                    failtestf "Created expected lexed file at %s, please verify it is correct" expectedPath
+        else
+            let expected = readLexed expectedPath
+            testLexed input expected
 
 
 let testLexFileBlocks (filePath: string) =
@@ -290,26 +301,25 @@ let testLexFileBlocks (filePath: string) =
     let input = input.Replace("\r\n", "\n")
     let expectedPath = filePath + ".lexedblocks"
 
-    if not (File.Exists expectedPath) then
-        // Doesn't exist so create it
-        match lexString input with
-        | Ok lexed ->
-            printfn "Expected blocks file does not exist at %s" expectedPath
-            printfn "-------------\nInput was:\n%s" input
-            printfn "-------------\nLexed output is:\n"
-            printLexedBlocks input lexed
-            printfn "-------------"
+    match lexString input with
+    | Error err ->
+        let pos = err.Position
+        printLexedBlocks input (LexBuilder.complete pos.Index pos.State)
+        ErrorFormatting.formatStringError input err |> printfn "%s"
+        failwith "Lexing failed"
+    | Ok lexed ->
+        if updateSnapshots || not (File.Exists expectedPath) then
             writeLexedBlocks expectedPath lexed
-            failtestf "Created expected blocks file at %s, please verify it is correct" expectedPath
-        | Error err ->
-            let pos = err.Position
-            printLexedBlocks input (LexBuilder.complete pos.Index pos.State)
-            ErrorFormatting.formatStringError input err |> printfn "%s"
-            // printfn "Lexing failed: %A" err
-            failwith "Lexing failed"
-    else
-        let expected = readLexed expectedPath
-        testLexedBlocks input expected
+
+            if not updateSnapshots then
+                if isCi then
+                    skiptest
+                        $"Golden file created at {Path.GetFileName expectedPath}; commit it to enable this test in CI"
+                else
+                    failtestf "Created expected blocks file at %s, please verify it is correct" expectedPath
+        else
+            let expected = readLexed expectedPath
+            testLexedBlocks input expected
 
 /// Parses a source file using the given set of defined preprocessor symbols and compares
 /// the result against a golden `.parsed` file.
@@ -346,9 +356,17 @@ let testParseFileWith (definedSymbols: Set<string>) (filePath: string) =
                 XParsec.FSharp.Debug.printExpr tw input lexed expr
                 sw.ToString()
 
-    if not (File.Exists expectedPath) then
+    if updateSnapshots || not (File.Exists expectedPath) then
         File.WriteAllText(expectedPath, actual)
-        failtestf "---\n%s\n---\nCreated expected parsed file at %s, please verify it is correct" actual expectedPath
+
+        if not updateSnapshots then
+            if isCi then
+                skiptest $"Golden file created at {Path.GetFileName expectedPath}; commit it to enable this test in CI"
+            else
+                failtestf
+                    "---\n%s\n---\nCreated expected parsed file at %s, please verify it is correct"
+                    actual
+                    expectedPath
     else
         let expected = File.ReadAllText expectedPath
         Expect.equal actual expected "Parsed output does not match expected output."
@@ -357,3 +375,57 @@ let testParseFile (filePath: string) = testParseFileWith Set.empty filePath
 
 let testParseFileWithSymbols (symbols: string list) (filePath: string) =
     testParseFileWith (Set.ofList symbols) filePath
+
+/// Discovers parser test cases from existing `.parsed` golden files in `dataDir`.
+///
+/// Naming convention (produced by `testParseFileWith`):
+///   - `source.fs.parsed`             → run with no preprocessor symbols
+///   - `source.fs.SYM1_SYM2.parsed`   → run with SYM1 and SYM2 defined
+///
+/// Returns `(sourceFilePath, definedSymbols)` pairs sorted by filename then symbol set,
+/// only including entries whose corresponding `.fs` source file exists.
+let discoverParserTests (dataDir: string) : (string * Set<string>) array =
+    Directory.GetFiles(dataDir, "*.parsed")
+    |> Array.choose (fun parsedPath ->
+        let fileName = Path.GetFileName parsedPath
+        // All golden files contain ".fs." as the boundary between source name and suffix.
+        let dotFsIdx = fileName.IndexOf(".fs.")
+
+        if dotFsIdx < 0 then
+            None
+        else
+            let sourceName = fileName.[.. dotFsIdx + 2] // e.g. "07_simple_let.fs"
+            let rest = fileName.[dotFsIdx + 4 ..] // "parsed"  –or–  "SYM.parsed"
+            let sourcePath = Path.Combine(dataDir, sourceName)
+
+            if not (File.Exists sourcePath) then
+                None
+            elif rest = "parsed" then
+                Some(sourcePath, Set.empty)
+            elif rest.EndsWith(".parsed") then
+                // Strip the trailing ".parsed" (7 chars) to get the symbol string
+                let symbolStr = rest.[.. rest.Length - 8]
+                let symbols = symbolStr.Split('_') |> Set.ofArray
+                Some(sourcePath, symbols)
+            else
+                None
+    )
+    |> Array.sortBy (fun (path, syms) -> Path.GetFileName path, syms)
+
+/// Returns paths of golden files (`.parsed`, `.lexed`, `.lexedblocks`) in `dataDir` that have
+/// no corresponding `.fs` source file — i.e. orphans left behind after a source file was renamed
+/// or deleted.
+let findOrphanedGoldenFiles (dataDir: string) : string array =
+    [| "*.parsed"; "*.lexed"; "*.lexedblocks" |]
+    |> Array.collect (fun ext -> Directory.GetFiles(dataDir, ext))
+    |> Array.filter (fun goldenPath ->
+        let fileName = Path.GetFileName goldenPath
+        let dotFsIdx = fileName.IndexOf(".fs.")
+
+        if dotFsIdx < 0 then
+            false // Cannot determine source name; not treated as orphaned
+        else
+            let sourceName = fileName.[.. dotFsIdx + 2]
+            not (File.Exists(Path.Combine(dataDir, sourceName)))
+    )
+    |> Array.sort
