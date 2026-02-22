@@ -302,7 +302,7 @@ module Pat =
     let pPatAtom =
         choiceL
             [
-                nextNonTriviaTokenIsL Token.Wildcard "_" |>> Pat.Wildcard
+                pWildcard |>> Pat.Wildcard
                 nextNonTriviaTokenIsL Token.KWNull "null" |>> Pat.Null
                 Constant.parse |>> Pat.Const
                 pTypeTest

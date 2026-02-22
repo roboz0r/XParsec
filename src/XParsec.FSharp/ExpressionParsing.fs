@@ -401,7 +401,7 @@ module CompExpr =
             // This logic assumes we can look ahead or backtrack
 
             return!
-                choice
+                choiceL
                     [
                         parser {
                             let! thenExpr = refExpr.Parser
@@ -414,6 +414,7 @@ module CompExpr =
                             return CompExpr.IfThen(ifTok, cond, thenTok, thenComp)
                         }
                     ]
+                    "pIfCE"
         }
 
     let private pTryCE =
@@ -422,7 +423,7 @@ module CompExpr =
             let! comp = refCompExpr.Parser
 
             return!
-                choice
+                choiceL
                     [
                         parser {
                             let! withTok = pWith
@@ -435,6 +436,7 @@ module CompExpr =
                             return CompExpr.TryFinally(tryTok, comp, finTok, finExpr)
                         }
                     ]
+                    "pTryCE"
         }
 
     let private pWhileCE =
@@ -455,7 +457,7 @@ module CompExpr =
             let! forTok = pFor
 
             return!
-                choice
+                choiceL
                     [
                         // ForTo: for i = 1 to 10 do
                         (parser {
@@ -480,6 +482,7 @@ module CompExpr =
                             return CompExpr.ForIn(forTok, pat, inTok, exprOrRange, doTok, comp, doneTok)
                         }
                     ]
+                    "pForCE"
         }
 
     let private pBaseExpr = refExpr.Parser |>> CompExpr.BaseExpr
@@ -1041,7 +1044,7 @@ module Expr =
             return Expr.While(whileTok, cond, doTok, body, doneTok)
         }
 
-    let pIdentTok = nextNonTriviaTokenIsL Token.Identifier "identifier"
+    let private pIdentTok = nextNonTriviaTokenIsL Token.Identifier "identifier"
 
     let pForExpr =
         parser {
@@ -1089,25 +1092,26 @@ module Expr =
         }
 
     let atomExpr =
-        choiceL
+        dispatchNextNonTriviaTokenFallback
             [
-                pConst
-                pIdent
-                pLetValue
-                pUseExpr
-                pParen
-                pList
-                pArray
-                pStructTuple
-                pBeginEnd
-                pIfExpr
-                pMatchExpr
-                pFunExpr
-                pTryExpr
-                pWhileExpr
-                pForExpr
+                (Token.Identifier, pIdent)
+                (Token.Unit, pConst)
+                (Token.KWLet, pLetValue)
+                (Token.KWLParen, pParen)
+                (Token.OpNil, pList)
+                (Token.KWLBracket, pList)
+                (Token.KWLArrayBracket, pArray)
+                (Token.KWBegin, pBeginEnd)
+                (Token.KWIf, pIfExpr)
+                (Token.KWMatch, pMatchExpr)
+                (Token.KWFun, pFunExpr)
+                (Token.KWTry, pTryExpr)
+                (Token.KWWhile, pWhileExpr)
+                (Token.KWFor, pForExpr)
+                (Token.KWUse, pUseExpr)
+                (Token.KWStruct, pStructTuple)
             ]
-            "atom expression"
+            pConst
 
     let operators = ExprOperatorParser()
 
