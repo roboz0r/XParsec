@@ -14,7 +14,17 @@
     <Compile Include="ProgramStructure.fs" />
     <Compile Include="ParsingTypes.fs" />
     <Compile Include="Preprocessing.fs" />
-    <Compile Include="Parsing.fs" />
+    <Compile Include="ParsingHelpers.fs" />
+    <Compile Include="KeywordParsing.fs" />
+    <Compile Include="ParserRefs.fs" />
+    <Compile Include="PrimitivesParsing.fs" />
+    <Compile Include="TypeParsing.fs" />
+    <Compile Include="MeasureParsing.fs" />
+    <Compile Include="ConstantParsing.fs" />
+    <Compile Include="PatternParsing.fs" />
+    <Compile Include="ExpressionParsing.fs" />
+    <Compile Include="TypeDefnParsing.fs" />
+    <Compile Include="DeclarationParsing.fs" />
     <Compile Include="Debug.fs" />
   </ItemGroup>
   <ItemGroup>

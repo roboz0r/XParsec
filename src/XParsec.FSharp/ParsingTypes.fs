@@ -4,8 +4,6 @@ open System
 open System.Collections.Generic
 open System.Collections.Immutable
 open XParsec
-open XParsec.OperatorParsing
-open XParsec.Parsers
 open XParsec.FSharp.Lexer
 
 
@@ -329,3 +327,9 @@ module ParseState =
     let isDefined (state: ParseState) (symbolToken: SyntaxToken) =
         let symbol = tokenString symbolToken state
         state.DefinedSymbols.Contains(symbol)
+
+[<RequireQualifiedAccess>]
+module Reader =
+    let ofLexed (lexed: Lexed) (input: string) (definedSymbols: Set<string>) : Reader<_, ParseState, _, _> =
+        let initialState = ParseState.create lexed input definedSymbols
+        Reader.ofImmutableArray (lexed.Tokens.AsImmutableArray()) initialState

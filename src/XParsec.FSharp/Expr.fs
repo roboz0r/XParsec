@@ -493,7 +493,7 @@ and MethodOrPropDefn<'T> =
         withClause: ('T * 'T * 'T voption) voption // with, get/set, optional comma and other get/set
 
 // Represents: additional-constr-defn and its expression body
-and AdditionalConstrExpr<'T> =
+and [<RequireQualifiedAccess>] AdditionalConstrExpr<'T> =
     | SequenceAfter of stmt: 'T * semicolon: 'T * rest: AdditionalConstrExpr<'T> // Placeholder for 'stmt'
     | SequenceBefore of before: AdditionalConstrExpr<'T> * thenToken: 'T * expr: Expr<'T>
     | Conditional of
