@@ -75,7 +75,11 @@ module Parsing =
     /// the current defined symbols, and either continues into the active branch or skips
     /// to the matching #else/#endif.
     /// Must be called with the reader positioned at the #if token (not yet consumed).
-    let rec processIfDirective (ifToken: PositionedToken) (reader: Reader<PositionedToken, ParseState, _, _>) =
+    let processIfDirective
+        (nextNonTriviaToken: Parser<_, _, _, _, _>)
+        (ifToken: PositionedToken)
+        (reader: Reader<PositionedToken, ParseState, _, _>)
+        =
         let state = reader.State
         let lexed = state.Lexed
         let currentLine = findLineNumber state (tokenIndex reader)
@@ -85,7 +89,7 @@ module Parsing =
             if nextLine < lexed.LineStarts.LengthM then
                 lexed.LineStarts[nextLine]
             else
-                lexed.Tokens.LengthM - 1<_>
+                lexed.Tokens.LengthM - 1<_> // EOF, will be handled gracefully by nextNonTriviaToken
 
         // Create a slice of just the #if directive line, carrying the absolute start index
         // so the IfExpr parser can compute absolute token indices for symbol name extraction.
@@ -117,42 +121,55 @@ module Parsing =
             skipInactiveBranch reader |> ignore
             nextNonTriviaToken reader
 
-    and nextNonTriviaToken (reader: Reader<PositionedToken, ParseState, _, _>) =
+    let rec private nextNonTriviaTokenImpl isPeek (reader: Reader<PositionedToken, ParseState, _, _>) =
         match reader.Peek() with
         | ValueNone -> fail EndOfInput reader
         | ValueSome token when token.Token = Token.IfDirective ->
             // processIfDirective expects the reader to be positioned AT the #if token
-            processIfDirective token reader
+            processIfDirective (nextNonTriviaTokenImpl isPeek) token reader
         | ValueSome token when token.Token = Token.ElseDirective ->
             // We are in an active then-branch that has reached its #else.
             // Skip the else-branch contents up to and including the matching #endif.
             reader.Skip() // consume #else
             skipElseBranch reader
-            nextNonTriviaToken reader
+            nextNonTriviaTokenImpl isPeek reader
         | ValueSome token when token.Token = Token.EndIfDirective ->
             // End of a conditional block whose then-branch was active (no #else encountered).
             reader.Skip() // consume #endif
-            nextNonTriviaToken reader
+            nextNonTriviaTokenImpl isPeek reader
         | ValueSome token when isTriviaToken reader.State token ->
             reader.Skip()
-            nextNonTriviaToken reader
+            nextNonTriviaTokenImpl isPeek reader
         | ValueSome token ->
             let t = syntaxToken token reader.Index
-            reader.Skip()
-            preturn t reader
+
+            if isPeek then
+                preturn t reader
+            else
+                reader.Skip()
+                preturn t reader
+
+    let nextNonTriviaToken (reader: Reader<PositionedToken, ParseState, _, _>) = nextNonTriviaTokenImpl false reader
+
+    /// Advanced the reader to the next non-trivia token and returns it without consuming it.
+    /// Allows parser to avoid re-skipping trivia tokens when it needs to look ahead at the next token to decide what to parse.
+    let peekNextNonTriviaToken (reader: Reader<PositionedToken, ParseState, _, _>) = nextNonTriviaTokenImpl true reader
+
+    /// Consumes the given token, which must have been previously returned by `peekNextNotTriviaToken`, and returns it.
+    let consumePeeked (token: SyntaxToken) (reader: Reader<PositionedToken, ParseState, _, _>) =
+        match token.Index with
+        | TokenIndex.Virtual -> invalidOp "Cannot consume a virtual token"
+        | TokenIndex.Regular tokenIdx ->
+            reader.Index <- (tokenIdx + 1<token>) * 1< / token>
+            preturn token reader
 
     let rec nextNonTriviaTokenVirtualIfNot t (reader: Reader<PositionedToken, ParseState, _, _>) =
-        match reader.Peek() with
-        | ValueNone -> fail EndOfInput reader
-        | ValueSome token when isTriviaToken reader.State token ->
-            reader.Skip()
-            nextNonTriviaTokenVirtualIfNot t reader // recurse past trivia with the same target token
-        | ValueSome token ->
+        match peekNextNonTriviaToken reader with
+        | Error e -> Error e
+        | Ok token ->
             if token.Token = t then
                 // Real token matches: consume it and return it.
-                let st = syntaxToken token reader.Index
-                reader.Skip()
-                preturn st reader
+                consumePeeked token reader
             else
                 // Real token doesn't match: synthesise a virtual token in its place without
                 // consuming the actual token (the caller's body parser will see it next).
@@ -170,16 +187,33 @@ module Parsing =
                     reader
 
     let rec nextNonTriviaTokenSatisfiesL (predicate: SyntaxToken -> bool) msg reader =
-        match nextNonTriviaToken reader with
+        match peekNextNonTriviaToken reader with
         | Error e -> Error e
         | Ok token ->
             if predicate token then
-                preturn token reader
+                consumePeeked token reader
             else
                 fail (Message msg) reader
 
     let nextNonTriviaTokenIsL (t: Token) msg =
         nextNonTriviaTokenSatisfiesL (fun synTok -> synTok.Token = t) msg
+
+    let dispatchNextNonTriviaTokenFallback (routes: (Token * Parser<_, _, _, _, _>) list) pFallback =
+        // Note: Routes are typically <20 items, so linear search is fine. Likely to be 5 or less in practice.
+        // So an array is likely more efficient than a dictionary.
+        let items = routes |> List.map fst |> Array.ofList
+        let parsers = routes |> List.map snd |> Array.ofList
+
+        parser {
+            let! next = peekNextNonTriviaToken
+
+            match Array.tryFindIndexV (fun t -> next.Token = t) items with
+            | ValueSome i -> return! parsers[i]
+            | ValueNone -> return! pFallback
+        }
+
+    let dispatchNextNonTriviaTokenL (routes: (Token * Parser<_, _, _, _, _>) list) fallbackMsg =
+        dispatchNextNonTriviaTokenFallback routes (fail (Message fallbackMsg))
 
     let currentIndent (reader: Reader<PositionedToken, ParseState, 'a, 'b>) =
         let state = reader.State

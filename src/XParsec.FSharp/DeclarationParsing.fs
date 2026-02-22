@@ -149,7 +149,7 @@ module ModuleElem =
                     // to distinguish 'module' vs 'type' vs 'let' etc.
 
                     // For simplicity in this combinator style, we use choice with backtracking.
-                    choice
+                    choiceL
                         [
                             // Type Definitions
                             TypeDefn.parse |>> ModuleElem.Type
@@ -169,6 +169,7 @@ module ModuleElem =
                             // Let / Do bindings
                             ModuleFunctionOrValueDefn.parse |>> ModuleElem.FunctionOrValue
                         ]
+                        "ModuleElem"
         )
 
     do refModuleElem.Set parse
