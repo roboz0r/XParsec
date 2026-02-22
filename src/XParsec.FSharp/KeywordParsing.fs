@@ -100,6 +100,7 @@ module internal Keywords =
     let pRBrace: KWParser = nextNonTriviaTokenIsL Token.KWRBrace "}"
     let pRange: KWParser = nextNonTriviaTokenIsL Token.OpRange ".."
     let pHash: KWParser = nextNonTriviaTokenIsL Token.KWHash "#"
+    let pWildcard: KWParser = nextNonTriviaTokenIsL Token.Wildcard "_"
 
     // Additional keyword parsers
     let pBegin: KWParser = nextNonTriviaTokenIsL Token.KWBegin "begin"

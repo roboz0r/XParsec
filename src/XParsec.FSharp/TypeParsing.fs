@@ -11,13 +11,20 @@ open XParsec.FSharp.Parser.ParseState
 
 [<RequireQualifiedAccess>]
 module Typar =
-    let pAnon = nextNonTriviaTokenIsL Token.Wildcard "Expected '_'" |>> Typar.Anon
+    let private pQuote =
+        nextNonTriviaTokenIsL Token.KWSingleQuote "Expected quote for type parameter"
 
+    let private pIdent =
+        nextNonTriviaTokenIsL Token.Identifier "Expected identifier for type parameter"
+
+    let pAnon = pWildcard |>> Typar.Anon
 
     let pNamed =
         parser {
-            let! quote = nextNonTriviaTokenIsL Token.KWSingleQuote "Expected quote"
-            let! ident = nextNonTriviaTokenIsL Token.Identifier "Expected identifier"
+            let! quote = pQuote
+            // This is an oddity of the parser. Technically F# allows bizarre things like
+            // `' (* comment *)          T` as a type parameter name.
+            let! ident = pIdent
             return Typar.Named(quote, ident)
         }
 
@@ -27,14 +34,19 @@ module Typar =
             // Assuming ^ comes as an operator or specific token.
             // Often ^identifier is lexed as a single token or Op + Ident.
             // Here assuming standard token stream:
-            let! state = getUserState
             let! caret = pOpConcatenate
-            let! ident = nextNonTriviaTokenIsL Token.Identifier "Expected identifier"
+            let! ident = pIdent
             return Typar.Static(caret, ident)
         }
 
     let parse: Parser<Typar<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        choiceL [ pAnon; pNamed; pStatic ] "Type Parameter"
+        dispatchNextNonTriviaTokenL
+            [
+                Token.Wildcard, pAnon
+                Token.KWSingleQuote, pNamed
+                Token.OpConcatenate, pStatic
+            ]
+            "Typar"
 
 [<RequireQualifiedAccess>]
 module StaticTypars =
@@ -247,7 +259,7 @@ module Type =
             let! atom = pAtomicType
 
             let rec loop acc =
-                choice
+                choiceL
                     [
                         // Array: [] or [,]
                         parser {
@@ -281,6 +293,7 @@ module Type =
                         // Done
                         preturn acc
                     ]
+                    "pPostfixType"
 
             return! loop atom
         }

@@ -122,9 +122,7 @@ module ActivePatternOpName =
                     return (List.rev (ident :: acc), ValueNone, bar)
                 | ValueNone ->
                     // Check for wildcard '_'
-                    match!
-                        opt (lookAhead (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.Wildcard) "Wildcard"))
-                    with
+                    match! opt (lookAhead pWildcard) with
                     | ValueSome _ ->
                         let! underscore = nextNonTriviaToken // Consume '_'
                         let! finalBar = pBar

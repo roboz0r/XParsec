@@ -13,6 +13,16 @@ module ResizeArray =
         else
             ValueSome(arr.[arr.Count - 1])
 
+[<RequireQualifiedAccess>]
+module Array =
+    let inline tryFindIndexV ([<InlineIfLambda>] predicate: 'T -> bool) (array: 'T[]) =
+        let rec loop i =
+            if i >= array.Length then ValueNone
+            else if predicate array[i] then ValueSome i
+            else loop (i + 1)
+
+        loop 0
+
 [<AutoOpen>]
 module MoreParsers =
     let rec allEqual (span: ReadOnlySpan<'T>) x i =

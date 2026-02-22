@@ -147,7 +147,7 @@ module Measure =
             return Measure.One t
         }
 
-    let pAnonymous = nextNonTriviaTokenIsL Token.Wildcard "_" |>> Measure.Anonymous
+    let pAnonymous = pWildcard |>> Measure.Anonymous
     let pTypar = Typar.parse |>> Measure.Typar
     let pNamed = LongIdent.parse |>> Measure.Named
 
