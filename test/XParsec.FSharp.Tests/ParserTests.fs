@@ -66,6 +66,8 @@ let tests =
                 test name { testParseFileWith symbols path }
 
             ptest "Temp test file" {
+                // Note: this test is intended for quick iteration during development.
+                // It will be skipped by default, but you can temporarily change `ptest` to `ftest` to run it.
                 let fileName = "34_try_with.fs"
                 let path = Path.Combine(testDataDir.Value, fileName)
 
