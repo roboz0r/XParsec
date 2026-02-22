@@ -1,0 +1,12 @@
+Use: 0, KWUse(0<token>)
+Ident: 4, Identifier(2<token>) 'r'
+Equals: 6, OpEquality(4<token>)
+Expr:
+  InfixApp: 20, Whitespace(7<token>)
+    Ident: 8, Identifier(6<token>) 'openResour...'
+    Const: 21, Unit(8<token>) '()'
+InToken: 24, KWIn (virtual)(<virt>)
+Body:
+  InfixApp: 25, Whitespace(11<token>)
+    Ident: 24, Identifier(10<token>) 'f'
+    Ident: 26, Identifier(12<token>) 'r'

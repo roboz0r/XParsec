@@ -1,0 +1,8 @@
+Fun: 0, KWFun(0<token>)
+Pats:
+  Pat.NamedSimple: 4, Identifier(2<token>) 'x'
+Arrow: 6, OpArrowRight(4<token>)
+Body:
+  InfixApp: 11, Operator 0b1000000001010011 InfixAdd (can be prefix)(8<token>)
+    Ident: 9, Identifier(6<token>) 'x'
+    Const: 13, NumInt32(10<token>) '1'

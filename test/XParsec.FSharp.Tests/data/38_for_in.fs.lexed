@@ -1,0 +1,16 @@
+0, KWFor
+3, Whitespace
+4, Identifier
+5, Whitespace
+6, KWIn
+8, Whitespace
+9, Identifier
+11, Whitespace
+12, KWDo
+14, Newline
+15, Indent
+19, Identifier
+20, Whitespace
+21, Identifier
+22, Newline
+23, EOF

@@ -39,6 +39,13 @@ let private parseTestFiles: (string * Set<string>) list =
         "30_let_in_body_seq.fs", Set.empty
         "31_if_then_else_seq.fs", Set.empty
         "32_match_seq.fs", Set.empty
+        "33_fun_expr.fs", Set.empty
+        "34_try_with.fs", Set.empty
+        "35_try_finally.fs", Set.empty
+        "36_while.fs", Set.empty
+        "37_for_to.fs", Set.empty
+        "38_for_in.fs", Set.empty
+        "39_use_expr.fs", Set.empty
     ]
 
 [<Tests>]
@@ -59,8 +66,15 @@ let tests =
                 test name { testParseFileWith symbols path }
 
             ptest "Temp test file" {
-                let fileName = "32_match_seq.fs"
+                let fileName = "34_try_with.fs"
                 let path = Path.Combine(testDataDir.Value, fileName)
+
+                try
+                    testLexFile path
+                with ex ->
+                    printfn "Lexing failed: %s" ex.Message
+                    testParseFile path
+
                 testParseFile path
             }
         ]

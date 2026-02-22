@@ -1,0 +1,11 @@
+ForIn: 0, KWFor(0<token>)
+Pat: Pat.NamedSimple: 4, Identifier(2<token>) 'x'
+InToken: 6, KWIn(4<token>)
+Range:
+  Ident: 9, Identifier(6<token>) 'xs'
+DoToken: 12, KWDo(8<token>)
+Body:
+  InfixApp: 20, Whitespace(12<token>)
+    Ident: 19, Identifier(11<token>) 'f'
+    Ident: 21, Identifier(13<token>) 'x'
+DoneToken: 23, KWDone (virtual)(<virt>)

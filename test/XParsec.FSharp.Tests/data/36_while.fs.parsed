@@ -1,0 +1,9 @@
+While: 0, KWWhile(0<token>)
+Cond:
+  Ident: 6, Identifier(2<token>) 'cond'
+DoToken: 11, KWDo(4<token>)
+Body:
+  InfixApp: 19, Whitespace(8<token>)
+    Ident: 18, Identifier(7<token>) 'f'
+    Ident: 20, Identifier(9<token>) 'x'
+DoneToken: 22, KWDone (virtual)(<virt>)

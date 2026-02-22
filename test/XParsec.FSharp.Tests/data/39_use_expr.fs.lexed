@@ -1,0 +1,15 @@
+0, KWUse
+3, Whitespace
+4, Identifier
+5, Whitespace
+6, OpEquality
+7, Whitespace
+8, Identifier
+20, Whitespace
+21, Unit
+23, Newline
+24, Identifier
+25, Whitespace
+26, Identifier
+27, Newline
+28, EOF
