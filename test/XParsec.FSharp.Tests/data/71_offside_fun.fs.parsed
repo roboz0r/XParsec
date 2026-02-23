@@ -1,0 +1,16 @@
+Fun: 0, KWFun(0<token>)
+Pats:
+  Pat.NamedSimple: 4, Identifier(2<token>) 'x'
+Arrow: 6, OpArrowRight(4<token>)
+Body:
+  LetValue: 13, KWLet(7<token>)
+    Pat.NamedSimple: 17, Identifier(9<token>) 'y'
+    =: 19, OpEquality(11<token>)
+      InfixApp: 23, Operator 0b1000000001010011 InfixAdd (can be prefix)(15<token>)
+        Ident: 21, Identifier(13<token>) 'x'
+        Const: 25, NumInt32(17<token>) '1'
+    in: 31, KWIn (virtual)(<virt>)
+    Body:
+      InfixApp: 33, OpMultiply(22<token>)
+        Ident: 31, Identifier(20<token>) 'y'
+        Const: 35, NumInt32(24<token>) '2'

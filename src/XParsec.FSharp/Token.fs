@@ -2034,7 +2034,10 @@ type OperatorInfo =
     member this.PositionedToken = this._token
     member this.Token: Token = this._token.Token
     member this.StartIndex: int64 = this._token.StartIndex
-    member this.CanBePrefix: bool = TokenInfo.canBePrefix this.Token
+
+    member this.CanBePrefix: bool =
+        TokenInfo.isOperator this.Token && TokenInfo.canBePrefix this.Token
+
     member this.Associativity = OperatorInfo.associativity this.Precedence
     member this.Precedence = this._precedence
 

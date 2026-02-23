@@ -428,6 +428,7 @@ and Rules<'T> = | Rules of leadingBar: 'T voption * rules: Rule<'T> list * bars:
 // Below are the F# types that model the provided grammar for type definitions.
 
 // Represents: simple-pat
+[<RequireQualifiedAccess>]
 type SimplePat<'T> =
     | Ident of ident: 'T
     | Typed of pat: SimplePat<'T> * colon: 'T * typ: Type<'T>
