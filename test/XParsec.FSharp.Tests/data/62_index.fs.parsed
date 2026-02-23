@@ -1,0 +1,8 @@
+IndexedLookup:
+  Expr:
+    Ident: 0, Identifier(0<token>) 'xs'
+  .: 2, OpDot(1<token>)
+  [: 3, KWLBracket(2<token>)
+  Index:
+    Const: 4, NumInt32(3<token>) '0'
+  5, KWRBracket(4<token>)

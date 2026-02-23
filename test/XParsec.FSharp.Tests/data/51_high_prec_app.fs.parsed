@@ -1,0 +1,9 @@
+HighPrecedenceApp:
+  Func:
+    Ident: 0, Identifier(0<token>) 'f'
+  (: 1, KWLParen(1<token>)
+  Arg:
+    Tuple:
+      Ident: 2, Identifier(2<token>) 'x'
+      Ident: 5, Identifier(5<token>) 'y'
+  6, KWRParen(6<token>)

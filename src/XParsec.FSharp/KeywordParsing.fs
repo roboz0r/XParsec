@@ -68,11 +68,14 @@ module internal Keywords =
 
     let pMatch: KWParser = nextNonTriviaTokenIsL Token.KWMatch "match"
     let pIf: KWParser = nextNonTriviaTokenIsL Token.KWIf "if"
+    let pLazy: KWParser = nextNonTriviaTokenIsL Token.KWLazy "lazy"
+    let pAssert: KWParser = nextNonTriviaTokenIsL Token.KWAssert "assert"
     let pTry: KWParser = nextNonTriviaTokenIsL Token.KWTry "try"
     let pFinally: KWParser = nextNonTriviaTokenIsL Token.KWFinally "finally"
 
     let pWhile: KWParser = nextNonTriviaTokenIsL Token.KWWhile "while"
     let pFun: KWParser = nextNonTriviaTokenIsL Token.KWFun "fun"
+    let pFunction: KWParser = nextNonTriviaTokenIsL Token.KWFunction "function"
 
     let pDone: KWParser = nextNonTriviaTokenVirtualIfNot Token.KWDone
 

@@ -1,0 +1,14 @@
+Record: 0, KWLBrace(0<token>)
+  Field:
+    LongIdent:
+      2, Identifier(2<token>) 'X'
+    =: 4, OpEquality(4<token>)
+    Expr:
+      Const: 6, NumInt32(6<token>) '1'
+  Field:
+    LongIdent:
+      9, Identifier(9<token>) 'Y'
+    =: 11, OpEquality(11<token>)
+    Expr:
+      Const: 13, NumInt32(13<token>) '2'
+15, KWRBrace(15<token>)
