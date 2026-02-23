@@ -1,0 +1,21 @@
+LetFunction: 0, KWLet(0<token>)
+  IdentOrOp: Ident: 4, Identifier(2<token>) 'f'
+  Pats:
+    Pat.NamedSimple: 6, Identifier(4<token>) 'x'
+  =: 8, OpEquality(6<token>)
+    LetValue: 14, KWLet(9<token>)
+      Pat.NamedSimple: 18, Identifier(11<token>) 'y'
+      =: 20, OpEquality(13<token>)
+        InfixApp: 24, Operator 0b1000000001010011 InfixAdd (can be prefix)(17<token>)
+          Ident: 22, Identifier(15<token>) 'x'
+          Const: 26, NumInt32(19<token>) '1'
+      in: 32, KWIn (virtual)(<virt>)
+      Body:
+        InfixApp: 34, OpMultiply(24<token>)
+          Ident: 32, Identifier(22<token>) 'y'
+          Const: 36, NumInt32(26<token>) '2'
+  in: 38, KWIn (virtual)(<virt>)
+  Body:
+    InfixApp: 39, Whitespace(29<token>)
+      Ident: 38, Identifier(28<token>) 'f'
+      Const: 40, NumInt32(30<token>) '3'
