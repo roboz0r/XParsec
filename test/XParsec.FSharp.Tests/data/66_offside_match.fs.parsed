@@ -1,0 +1,25 @@
+Match:
+  MatchToken: 0, KWMatch(0<token>)
+  MatchExpr:
+    Ident: 6, Identifier(2<token>) 'x'
+  WithToken: 8, KWWith(4<token>)
+  Rule:
+    Bar: 13, OpBar(6<token>)
+    Pat: Pat.NamedSimple: 15, Identifier(8<token>) 'A'
+    Arrow: 17, OpArrowRight(10<token>)
+    Expr:
+      LetValue: 24, KWLet(13<token>)
+        Pat.NamedSimple: 28, Identifier(15<token>) 'y'
+        =: 30, OpEquality(17<token>)
+          Const: 32, NumInt32(19<token>) '1'
+        in: 38, KWIn (virtual)(<virt>)
+        Body:
+          InfixApp: 40, Operator 0b1000000001010011 InfixAdd (can be prefix)(24<token>)
+            Ident: 38, Identifier(22<token>) 'y'
+            Const: 42, NumInt32(26<token>) '2'
+  Rule:
+    Bar: 44, OpBar(28<token>)
+    Pat: Pat.NamedSimple: 46, Identifier(30<token>) 'B'
+    Arrow: 48, OpArrowRight(32<token>)
+    Expr:
+      Const: 55, NumInt32(35<token>) '3'

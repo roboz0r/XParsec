@@ -1087,20 +1087,24 @@ module Expr =
         }
 
     let pMatchExpr =
-        parser {
-            let! m = pMatch
-            let! e = refExpr.Parser
-            let! w = pWith
-            let! rules = Rules.parse
-            return Expr.Match(m, e, w, rules)
-        }
+        withContext
+            OffsideContext.Match
+            (parser {
+                let! m = pMatch
+                let! e = refExpr.Parser
+                let! w = pWith
+                let! rules = withContext OffsideContext.MatchClauses Rules.parse
+                return Expr.Match(m, e, w, rules)
+            })
 
     let pFunctionExpr =
-        parser {
-            let! funTok = pFunction
-            let! rules = Rules.parse
-            return Expr.Function(funTok, rules)
-        }
+        withContext
+            OffsideContext.Function
+            (parser {
+                let! funTok = pFunction
+                let! rules = withContext OffsideContext.MatchClauses Rules.parse
+                return Expr.Function(funTok, rules)
+            })
 
     let pFunExpr =
         parser {
