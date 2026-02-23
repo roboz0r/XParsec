@@ -1,0 +1,25 @@
+IfThenElse:
+  IfToken: 0, KWIf(0<token>)
+  Condition:
+    Ident: 3, Identifier(2<token>) 'a'
+  ThenToken: 5, KWThen(4<token>)
+  ThenExpr:
+    LetValue: 14, KWLet(7<token>)
+      Pat.NamedSimple: 18, Identifier(9<token>) 'x'
+      =: 20, OpEquality(11<token>)
+        Const: 22, NumInt32(13<token>) '1'
+      in: 28, KWIn (virtual)(<virt>)
+      Body:
+        InfixApp: 30, Operator 0b1000000001010011 InfixAdd (can be prefix)(18<token>)
+          Ident: 28, Identifier(16<token>) 'x'
+          Const: 32, NumInt32(20<token>) '2'
+  ElifBranch:
+    ElifToken: 34, KWElif(22<token>)
+    ElifCondition:
+      Ident: 39, Identifier(24<token>) 'b'
+    ThenToken: 41, KWThen(26<token>)
+    ElifExpr:
+      Const: 50, NumInt32(29<token>) '3'
+  ElseToken: 52, KWElse(31<token>)
+  ElseExpr:
+    Const: 61, NumInt32(34<token>) '4'
