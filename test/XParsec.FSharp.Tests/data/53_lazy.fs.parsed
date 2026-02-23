@@ -1,0 +1,6 @@
+Lazy: 0, KWLazy(0<token>)
+  ParenBlock: 5, KWLParen(2<token>)
+    InfixApp: 8, Operator 0b1000000001010011 InfixAdd (can be prefix)(5<token>)
+      Const: 6, NumInt32(3<token>) '1'
+      Const: 10, NumInt32(7<token>) '1'
+  11, KWRParen(8<token>)

@@ -315,6 +315,7 @@ module Pat =
             "Pattern Atom"
 
     let parse = Operator.parser pPatAtom (PatOperatorParser())
+    let parseMany1 = many1 parse
 
     do refPat.Set parse
 
@@ -324,8 +325,10 @@ module PatternGuard =
     let parse: Parser<PatternGuard<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
             let! w = pWhen
-            let! e = refExpr.Parser
-            return PatternGuard.PatternGuard(w, e)
+            // Use refExprGuard (bounded at Arrow precedence) so '->' is not consumed
+            // as part of the guard expression and remains for Rule.parse's pArrowRight.
+            let! e = refExprGuard.Parser
+            return PatternGuard(w, e)
         }
 
 [<RequireQualifiedAccess>]

@@ -1566,7 +1566,7 @@ module Lexing =
                         | ":?>" -> Token.OpDowncast, CtxOp.NoOp
                         | ".." -> Token.OpRange, CtxOp.NoOp
                         | ".. .." -> Token.OpRangeStep, CtxOp.NoOp
-                        | ":=" -> Token.OpAssignment, CtxOp.NoOp
+                        | ":=" -> Token.OpColonEquals, CtxOp.NoOp
                         | "~" -> Token.KWReservedTwiddle, CtxOp.NoOp
                         | "<@" -> Token.OpQuotationTypedLeft, (CtxOp.Push LexContext.QuotedExpression)
                         | "@>" -> Token.OpQuotationTypedRight, (CtxOp.Pop LexContext.QuotedExpression)

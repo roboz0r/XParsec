@@ -5,11 +5,7 @@ open System.IO
 
 open Expecto
 
-open XParsec
-open XParsec.Parsers
-open XParsec.CharParsers
 open XParsec.FSharp.Lexer
-open XParsec.FSharp.Lexer.Lexing
 
 let keywords =
     [
@@ -165,7 +161,7 @@ let keywords =
         "lsl", Token.KWLsl
         "lsr", Token.KWLsr
         "lxor", Token.KWLxor
-        ":=", Token.OpAssignment
+        ":=", Token.OpColonEquals
         ".[]<-", Token.OpIndexSetIdentifier
         ".[]", Token.OpIndexGetIdentifier
         ".[,]<-", Token.OpIndexSet2Identifier

@@ -1155,13 +1155,14 @@ let printExpr (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (expr: Exp
 
         printTokenMin tw input lexed rBrace
         tw.WriteLine()
-    | Expr.IndexedLookup(indexedExpr, lDotBracket, indexArgExpr, rBracket) ->
+    | Expr.IndexedLookup(indexedExpr, dot, lBracket, indexArgExpr, rBracket) ->
         printSection
             tw
             "IndexedLookup"
             (fun () ->
                 printSection tw "Expr" (fun () -> printExpr tw input lexed indexedExpr)
-                printLabelledToken ".[" tw input lexed lDotBracket
+                printLabelledToken "." tw input lexed dot
+                printLabelledToken "[" tw input lexed lBracket
                 printSection tw "Index" (fun () -> printExpr tw input lexed indexArgExpr)
                 printTokenMin tw input lexed rBracket
                 tw.WriteLine()

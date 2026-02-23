@@ -1,0 +1,8 @@
+New: 0, KWNew(0<token>)
+  NamedType: LongIdent:
+    4, Identifier(2<token>) 'System'
+    11, Identifier(4<token>) 'Exception'
+  Arg:
+    ParenBlock: 20, KWLParen(5<token>)
+      Const: 21, StringLiteral(6<token>) '"error"'
+    28, KWRParen(7<token>)

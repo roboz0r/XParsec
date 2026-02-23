@@ -1,0 +1,22 @@
+Function: 0, KWFunction(0<token>)
+  Rule:
+    Bar: 9, OpBar(2<token>)
+    Pat: Pat.Paren: 11, KWLParen(4<token>)
+      Pat.Typed:
+        Pat.NamedSimple: 12, Identifier(5<token>) 'x'
+        Colon: 14, OpColon(7<token>)
+        TupleType:
+          NamedType: LongIdent:
+            16, Identifier(9<token>) 'int'
+          NamedType: LongIdent:
+            22, Identifier(13<token>) 'string'
+    28, KWRParen(14<token>)
+    Arrow: 30, OpArrowRight(16<token>)
+    Expr:
+      Const: 33, NumInt32(18<token>) '0'
+  Rule:
+    Bar: 35, OpBar(20<token>)
+    Pat: Pat.Wildcard: 37, Wildcard(22<token>)
+    Arrow: 39, OpArrowRight(24<token>)
+    Expr:
+      Const: 42, NumInt32(26<token>) '1'

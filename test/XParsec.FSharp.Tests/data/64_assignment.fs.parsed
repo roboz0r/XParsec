@@ -1,0 +1,3 @@
+Assignment: 2, OpArrowLeft(2<token>)
+  Ident: 0, Identifier(0<token>) 'x'
+  Const: 5, NumInt32(4<token>) '1'
