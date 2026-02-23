@@ -1,0 +1,7 @@
+0, Identifier
+1, Whitespace
+2, OpUpcast
+4, Whitespace
+5, Identifier
+8, Newline
+9, EOF

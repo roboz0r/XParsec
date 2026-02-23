@@ -1,0 +1,19 @@
+LetRec: 0, KWLet(0<token>)
+  rec: 4, KWRec(2<token>)
+  Function:
+    IdentOrOp: Ident: 8, Identifier(4<token>) 'f'
+    Pats:
+      Pat.NamedSimple: 10, Identifier(6<token>) 'x'
+    =: 12, OpEquality(8<token>)
+      InfixApp: 16, Operator 0b1000000001010011 InfixAdd (can be prefix)(12<token>)
+        Ident: 14, Identifier(10<token>) 'g'
+        Ident: 18, Identifier(14<token>) 'x'
+  Value:
+    Pat.NamedSimple: 24, Identifier(18<token>) 'g'
+    =: 26, OpEquality(20<token>)
+      Const: 28, NumInt32(22<token>) '1'
+  in: 30, KWIn (virtual)(<virt>)
+  Body:
+    InfixApp: 31, Whitespace(25<token>)
+      Ident: 30, Identifier(24<token>) 'f'
+      Const: 32, NumInt32(26<token>) '2'

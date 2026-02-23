@@ -1,0 +1,11 @@
+RecordClone: 0, KWLBrace(0<token>)
+  Base:
+    Ident: 2, Identifier(2<token>) 'r'
+  with: 4, KWWith(4<token>)
+  Field:
+    LongIdent:
+      9, Identifier(6<token>) 'X'
+    =: 11, OpEquality(8<token>)
+    Expr:
+      Const: 13, NumInt32(10<token>) '3'
+15, KWRBrace(12<token>)

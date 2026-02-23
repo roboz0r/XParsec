@@ -1,0 +1,9 @@
+0, Identifier
+1, KWLParen
+2, Identifier
+3, OpComma
+4, Whitespace
+5, Identifier
+6, KWRParen
+7, Newline
+8, EOF

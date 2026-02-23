@@ -1391,7 +1391,7 @@ type Token =
     | OpRange = (KindKeyword ||| KW.OpRange) // ..
     | OpRangeStep = (KindKeyword ||| KW.OpRangeStep) // ..
     | KWColonColon = (KindKeyword ||| KW.ColonColon) // ::
-    | OpAssignment = (KindKeyword ||| KW.ColonEquals) // :=
+    | OpColonEquals = (KindKeyword ||| KW.ColonEquals) // :=
     | OpDoubleSemicolon = (KindKeyword ||| KW.SemiSemi) // ;;
     | OpSemicolon = (KindKeyword ||| KW.Semi) // ;
     | OpEquality = (KindKeyword ||| KW.Equals) // =
@@ -1520,6 +1520,8 @@ type Token =
 
 
     | OpCons = (KindKeyword ||| KW.ColonColon) // :: is Structural (KindKeyword), not Operator
+    /// For handling high precedence function application `f(x)` in parsing
+    | OpHighPrecedenceApp = (IsVirtual ||| KindOperator ||| Precedence.HighApplication)
 
     // ==============================================================================
     // 6. NUMERIC LITERALS (KindNumber 0x6000)
@@ -1784,7 +1786,8 @@ module internal TokenInfo =
             match token with
             | Token.OpSemicolon
             | Token.OpArrowRight
-            | Token.OpAssignment
+            | Token.OpArrowLeft
+            | Token.OpColonEquals
             | Token.OpComma
             | Token.OpCons
             | Token.OpTypeTest
@@ -1800,7 +1803,9 @@ module internal TokenInfo =
             | Token.OpBarBar
             | Token.OpMultiply
             | Token.OpDivision
-            | Token.OpConcatenate -> true
+            | Token.OpConcatenate
+            | Token.KWLazy
+            | Token.KWAssert -> true
             | _ -> false
         elif isSpecial token then
             match token with
@@ -1823,7 +1828,8 @@ module internal TokenInfo =
             | Token.KWTry -> PrecedenceLevel.Function
             | Token.KWIf -> PrecedenceLevel.If
             | Token.OpArrowRight -> PrecedenceLevel.Arrow
-            | Token.OpAssignment -> PrecedenceLevel.Assignment
+            | Token.OpArrowLeft // <- isn't in the spec but appears in pars.fsy adjacent to := operator, treating as same precedence
+            | Token.OpColonEquals -> PrecedenceLevel.Assignment
             | Token.OpComma -> PrecedenceLevel.Comma
             | Token.KWOr
             | Token.OpBarBar -> PrecedenceLevel.LogicalOr

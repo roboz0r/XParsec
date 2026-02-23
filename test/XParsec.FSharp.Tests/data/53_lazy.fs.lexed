@@ -1,0 +1,11 @@
+0, KWLazy
+4, Whitespace
+5, KWLParen
+6, NumInt32
+7, Whitespace
+8, Operator 0b1000000001010011 InfixAdd (can be prefix)
+9, Whitespace
+10, NumInt32
+11, KWRParen
+12, Newline
+13, EOF

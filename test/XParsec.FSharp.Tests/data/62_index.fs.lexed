@@ -1,0 +1,7 @@
+0, Identifier
+2, OpDot
+3, KWLBracket
+4, NumInt32
+5, KWRBracket
+6, Newline
+7, EOF
