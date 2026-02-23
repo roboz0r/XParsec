@@ -44,7 +44,7 @@ module FunctionDefn =
 
             let! returnType = opt ReturnType.parse
             let! equals = pEquals
-            let! expr = pSeqBlock refExpr.Parser
+            let! expr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
 
             return
                 FunctionDefn(
@@ -71,7 +71,7 @@ module ValueDefn =
             let! typarDefns = opt TyparDefns.parse
             let! returnType = opt ReturnType.parse
             let! equals = pEquals
-            let! expr = pSeqBlock refExpr.Parser
+            let! expr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
             return ValueDefn.ValueDefn(mut, access, pat, typarDefns, returnType, equals, expr)
         }
 
@@ -995,27 +995,29 @@ module Expr =
         |>> Expr.Ident
 
     let pLetValue =
-        parser {
-            let! letTok = pLet
-            let! recTok = opt pRec
+        withContext
+            OffsideContext.Let
+            (parser {
+                let! letTok = pLet
+                let! recTok = opt pRec
 
-            match recTok with
-            | ValueSome recTok ->
-                let! defns = FunctionOrValueDefn.parseSepByAnd1
-                let! inTok = pInVirt
-                let! expr = pSeqBlock refExpr.Parser
-                return Expr.LetRec(letTok, recTok, defns, inTok, expr)
-            | ValueNone ->
-                match! FunctionOrValueDefn.parse with
-                | FunctionOrValueDefn.Function funcDefn ->
+                match recTok with
+                | ValueSome recTok ->
+                    let! defns = FunctionOrValueDefn.parseSepByAnd1
                     let! inTok = pInVirt
-                    let! expr = pSeqBlock refExpr.Parser
-                    return Expr.LetFunction(letTok, funcDefn, inTok, expr)
-                | FunctionOrValueDefn.Value valueDefn ->
-                    let! inTok = pInVirt
-                    let! expr = pSeqBlock refExpr.Parser
-                    return Expr.LetValue(letTok, valueDefn, inTok, expr)
-        }
+                    let! expr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+                    return Expr.LetRec(letTok, recTok, defns, inTok, expr)
+                | ValueNone ->
+                    match! FunctionOrValueDefn.parse with
+                    | FunctionOrValueDefn.Function funcDefn ->
+                        let! inTok = pInVirt
+                        let! expr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+                        return Expr.LetFunction(letTok, funcDefn, inTok, expr)
+                    | FunctionOrValueDefn.Value valueDefn ->
+                        let! inTok = pInVirt
+                        let! expr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+                        return Expr.LetValue(letTok, valueDefn, inTok, expr)
+            })
 
     let pParen =
         parser {
@@ -1178,15 +1180,17 @@ module Expr =
         }
 
     let pUseExpr =
-        parser {
-            let! useTok = pUse
-            let! ident = pIdentTok
-            let! eq = pEquals
-            let! expr = refExpr.Parser
-            let! inTok = pInVirt
-            let! body = pSeqBlock refExpr.Parser
-            return Expr.Use(useTok, ident, eq, expr, inTok, body)
-        }
+        withContext
+            OffsideContext.Let
+            (parser {
+                let! useTok = pUse
+                let! ident = pIdentTok
+                let! eq = pEquals
+                let! expr = refExpr.Parser
+                let! inTok = pInVirt
+                let! body = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+                return Expr.Use(useTok, ident, eq, expr, inTok, body)
+            })
 
     let pNewExpr =
         parser {

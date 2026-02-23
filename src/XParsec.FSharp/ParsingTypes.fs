@@ -81,6 +81,9 @@ type OffsideContext =
     | MatchClauses
     /// An otherwise unprocessed keyword in a SeqBlock context.
     | Vanilla
+    /// A sequence of items that must be column-aligned (the primary offside context).
+    /// Pushed after `=` in Let/Member, after Then/Else/Try/Finally/Do contexts, after `->` in MatchClauses, etc.
+    | SeqBlock
 
 type Offside =
     {
