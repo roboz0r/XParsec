@@ -339,7 +339,7 @@ module Rule =
             let! pat = Pat.parse
             let! guard = opt PatternGuard.parse
             let! arrow = pArrowRight
-            let! expr = pSeqBlock refExpr.Parser
+            let! expr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
             return Rule.Rule(pat, guard, arrow, expr)
         }
 
