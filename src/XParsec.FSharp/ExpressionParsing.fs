@@ -1109,35 +1109,39 @@ module Expr =
             })
 
     let pFunExpr =
-        parser {
-            let! funTok = pFun
-            let! pats = many1 Pat.parse
-            let! arrow = pArrowRight
-            let! expr = pSeqBlock refExpr.Parser
-            return Expr.Fun(funTok, List.ofSeq pats, arrow, expr)
-        }
+        withContext
+            OffsideContext.Fun
+            (parser {
+                let! funTok = pFun
+                let! pats = many1 Pat.parse
+                let! arrow = pArrowRight
+                let! expr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+                return Expr.Fun(funTok, List.ofSeq pats, arrow, expr)
+            })
 
     let pTryExpr =
-        parser {
-            let! tryTok = pTry
-            let! tryExpr = pSeqBlock refExpr.Parser
+        withContext
+            OffsideContext.Try
+            (parser {
+                let! tryTok = pTry
+                let! tryExpr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
 
-            return!
-                choiceL
-                    [
-                        parser {
-                            let! withTok = pWith
-                            let! rules = Rules.parse
-                            return Expr.TryWith(tryTok, tryExpr, withTok, rules)
-                        }
-                        parser {
-                            let! finTok = pFinally
-                            let! finExpr = pSeqBlock refExpr.Parser
-                            return Expr.TryFinally(tryTok, tryExpr, finTok, finExpr)
-                        }
-                    ]
-                    "Expected 'with' or 'finally'"
-        }
+                return!
+                    choiceL
+                        [
+                            parser {
+                                let! withTok = pWith
+                                let! rules = withContext OffsideContext.MatchClauses Rules.parse
+                                return Expr.TryWith(tryTok, tryExpr, withTok, rules)
+                            }
+                            parser {
+                                let! finTok = pFinally
+                                let! finExpr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+                                return Expr.TryFinally(tryTok, tryExpr, finTok, finExpr)
+                            }
+                        ]
+                        "Expected 'with' or 'finally'"
+            })
 
     let pWhileExpr =
         withContext

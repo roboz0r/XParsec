@@ -202,7 +202,7 @@ module Type =
         // Placeholder handling for TypeArg variations
         refType.Parser |>> TypeArg.Type
 
-    let private pAtomicType =
+    let parseAtomic =
         choiceL
             [
                 // (Type)
@@ -256,7 +256,7 @@ module Type =
     // Using a simple loop for postfix application.
     let private pPostfixType =
         parser {
-            let! atom = pAtomicType
+            let! atom = parseAtomic
 
             let rec loop acc =
                 choiceL
@@ -325,13 +325,23 @@ module Type =
         let rec pFunc () =
             parser {
                 let! lhs = pTupleType
-                let! arrow = opt pArrowRight
 
-                match arrow with
-                | ValueSome arr ->
-                    let! rhs = pFunc ()
-                    return Type.FunctionType(lhs, arr, rhs)
-                | ValueNone -> return lhs
+                return!
+                    choice
+                        [
+                            // Arrow case
+                            parser {
+                                let! arrow = opt pArrowRight
+
+                                match arrow with
+                                | ValueSome arr ->
+                                    let! rhs = pFunc ()
+                                    return Type.FunctionType(lhs, arr, rhs)
+                                | ValueNone -> return lhs
+                            }
+                            // If parsing fails, we return the inner success as the final type
+                            preturn lhs
+                        ]
             }
 
         pFunc ()

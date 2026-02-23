@@ -276,7 +276,7 @@ module Pat =
     let pTypeTest =
         parser {
             let! op = nextNonTriviaTokenIsL Token.OpTypeTest ":?"
-            let! t = Type.parse
+            let! t = Type.parseAtomic
             // Check optional 'as ident'
             let! asClause =
                 opt (
@@ -333,21 +333,19 @@ module PatternGuard =
 
 [<RequireQualifiedAccess>]
 module Rule =
-
     let parse: Parser<Rule<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
             let! pat = Pat.parse
             let! guard = opt PatternGuard.parse
             let! arrow = pArrowRight
             let! expr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
-            return Rule.Rule(pat, guard, arrow, expr)
+            return Rule(pat, guard, arrow, expr)
         }
 
 [<RequireQualifiedAccess>]
 module Rules =
     let parse: Parser<Rules<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
-            // Optional leading bar
             let! firstBar = opt pBar
             let! rules, bars = sepBy1 Rule.parse pBar
             return Rules(firstBar, List.ofSeq rules, List.ofSeq bars)
