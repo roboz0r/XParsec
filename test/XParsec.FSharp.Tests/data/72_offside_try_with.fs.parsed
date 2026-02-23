@@ -1,0 +1,46 @@
+TryWith: 0, KWTry(0<token>)
+TryExpr:
+  LetValue: 8, KWLet(3<token>)
+    Pat.NamedSimple: 12, Identifier(5<token>) 'x'
+    =: 14, OpEquality(7<token>)
+      InfixApp: 23, Whitespace(10<token>)
+        Ident: 16, Identifier(9<token>) 'riskyOp'
+        Const: 24, Unit(11<token>) '()'
+    in: 31, KWIn (virtual)(<virt>)
+    Body:
+      InfixApp: 33, Operator 0b1000000001010011 InfixAdd (can be prefix)(16<token>)
+        Ident: 31, Identifier(14<token>) 'x'
+        Const: 35, NumInt32(18<token>) '1'
+WithToken: 37, KWWith(20<token>)
+Rule:
+  Bar: 42, OpBar(22<token>)
+  Pat: Pat.TypeTestAs:
+    ColonQuestion: 44, OpTypeTest(24<token>)
+    NamedType: LongIdent:
+      47, Identifier(26<token>) 'System'
+      54, Identifier(28<token>) 'Exception'
+    As: 64, KWAs(30<token>)
+    Ident: 67, Identifier(32<token>) 'ex'
+  Arrow: 70, OpArrowRight(34<token>)
+  Expr:
+    LetValue: 77, KWLet(37<token>)
+      Pat.NamedSimple: 81, Identifier(39<token>) 'msg'
+      =: 85, OpEquality(41<token>)
+        LongIdentOrOp: LongIdent:
+          87, Identifier(43<token>) 'ex'
+          90, Identifier(45<token>) 'Message'
+      in: 102, KWIn (virtual)(<virt>)
+      Body:
+        PrefixApp: 102, Operator 0b1000000001010011 InfixAdd (can be prefix)(48<token>)
+          Const: 103, NumInt32(49<token>) '1'
+Rule:
+  Bar: 105, OpBar(51<token>)
+  Pat: Pat.TypeTest:
+    ColonQuestion: 107, OpTypeTest(53<token>)
+    NamedType: LongIdent:
+      110, Identifier(55<token>) 'System'
+      117, Identifier(57<token>) 'InvalidOpe...'
+  Arrow: 143, OpArrowRight(59<token>)
+  Expr:
+    PrefixApp: 150, Operator 0b1000000001010011 InfixAdd (can be prefix)(62<token>)
+      Const: 151, NumInt32(63<token>) '2'

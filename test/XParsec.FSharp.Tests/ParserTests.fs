@@ -27,9 +27,7 @@ let tests =
 
             for (fileName, symbols) in specialFiles do
                 let path = Path.Combine(testDataDir.Value, fileName)
-
                 let name = $"""Parsing {fileName} ({String.concat ", " symbols})"""
-
                 test name { testParseFileWithSymbols symbols path }
         ]
 
