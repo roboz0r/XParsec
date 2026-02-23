@@ -141,13 +141,28 @@ module Parsing =
             reader.Skip()
             nextNonTriviaTokenImpl isPeek reader
         | ValueSome token ->
-            let t = syntaxToken token reader.Index
+            // Offside check (Light syntax only): fail if the token is strictly left of the
+            // innermost context's offside line. Transparent to all callers — stops any parser
+            // that tries to consume a token belonging to an outer block.
+            let isOffside =
+                reader.State.IndentationMode = Syntax.Light
+                && (
+                    match reader.State.Context with
+                    | { Indent = contextIndent } :: _ ->
+                        ParseState.getIndent reader.State (reader.Index * 1<token>) < contextIndent
+                    | [] -> false
+                )
 
-            if isPeek then
-                preturn t reader
+            if isOffside then
+                fail (Message "Offside") reader
             else
-                reader.Skip()
-                preturn t reader
+                let t = syntaxToken token reader.Index
+
+                if isPeek then
+                    preturn t reader
+                else
+                    reader.Skip()
+                    preturn t reader
 
     let nextNonTriviaToken (reader: Reader<PositionedToken, ParseState, _, _>) = nextNonTriviaTokenImpl false reader
 
@@ -274,3 +289,35 @@ module Parsing =
                 (first, rest)
                 ||> Seq.fold (fun acc (sep, elem) -> Expr.Sequential(acc, sep, elem))
         }
+
+    /// Wraps a parser with an offside context. Peeks the first token the inner parser will see
+    /// to establish the offside column, pushes an Offside entry onto ParseState.Context, runs
+    /// the inner parser, then pops the context on success or restores the full saved state on
+    /// failure (keeping the operation safe for backtracking).
+    let withContext (ctx: OffsideContext) innerParser (reader: Reader<PositionedToken, ParseState, _, _>) =
+        let savedState = reader.State
+
+        match peekNextNonTriviaToken reader with
+        | Error e -> Error e
+        | Ok peekTok ->
+            let indent =
+                match peekTok.Index with
+                | TokenIndex.Regular iT -> ParseState.getIndent reader.State iT
+                | TokenIndex.Virtual -> 0
+
+            let entry =
+                {
+                    Context = ctx
+                    Indent = indent
+                    Token = peekTok.PositionedToken
+                }
+
+            reader.State <- ParseState.pushOffside entry reader.State
+
+            match innerParser reader with
+            | Ok result ->
+                reader.State <- ParseState.popOffside reader.State
+                Ok result
+            | Error _ as e ->
+                reader.State <- savedState
+                e
