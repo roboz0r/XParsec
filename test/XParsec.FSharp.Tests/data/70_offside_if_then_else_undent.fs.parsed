@@ -1,0 +1,14 @@
+IfThenElse:
+  IfToken: 0, KWIf(0<token>)
+  Condition:
+    InfixApp: 5, Operator 0b1000000000001111 LogicalAndBitwise(4<token>)
+      Ident: 3, Identifier(2<token>) 'x'
+      Const: 7, NumInt32(6<token>) '2'
+  ThenToken: 9, KWThen(8<token>)
+  ThenExpr:
+    InfixApp: 23, Whitespace(11<token>)
+      Ident: 14, Identifier(10<token>) 'invalidOp'
+      Const: 24, StringLiteral(12<token>) '"error"'
+  ElseToken: 32, KWElse(14<token>)
+  ElseExpr:
+    Ident: 37, Identifier(16<token>) 'x'

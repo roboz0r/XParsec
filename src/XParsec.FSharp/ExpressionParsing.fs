@@ -19,7 +19,7 @@ module ElifBranch =
             let! elifTok = pElif
             let! condition = refExpr.Parser
             let! thenTok = pThen
-            let! expr = pSeqBlock refExpr.Parser
+            let! expr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
             return ElifBranch.ElifBranch(elifTok, condition, thenTok, expr)
         }
 
@@ -27,7 +27,7 @@ module ElseBranch =
     let parse: Parser<ElseBranch<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
             let! elseTok = pElse
-            let! expr = pSeqBlock refExpr.Parser
+            let! expr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
             return ElseBranch.ElseBranch(elseTok, expr)
         }
 
@@ -1076,15 +1076,17 @@ module Expr =
         }
 
     let pIfExpr =
-        parser {
-            let! ifTok = pIf
-            let! cond = refExpr.Parser
-            let! thenTok = pThen
-            let! thenExpr = pSeqBlock refExpr.Parser
-            let! elifs = many ElifBranch.parse
-            let! elseBranch = opt ElseBranch.parse
-            return Expr.IfThenElse(ifTok, cond, thenTok, thenExpr, List.ofSeq elifs, elseBranch)
-        }
+        withContext
+            OffsideContext.If
+            (parser {
+                let! ifTok = pIf
+                let! cond = refExpr.Parser
+                let! thenTok = pThen
+                let! thenExpr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+                let! elifs = many ElifBranch.parse
+                let! elseBranch = opt ElseBranch.parse
+                return Expr.IfThenElse(ifTok, cond, thenTok, thenExpr, List.ofSeq elifs, elseBranch)
+            })
 
     let pMatchExpr =
         withContext
@@ -1138,50 +1140,54 @@ module Expr =
         }
 
     let pWhileExpr =
-        parser {
-            let! whileTok = pWhile
-            let! cond = refExpr.Parser
-            let! doTok = pDo
-            let! body = pSeqBlock refExpr.Parser
-            let! doneTok = pDone
-            return Expr.While(whileTok, cond, doTok, body, doneTok)
-        }
+        withContext
+            OffsideContext.While
+            (parser {
+                let! whileTok = pWhile
+                let! cond = refExpr.Parser
+                let! doTok = pDo
+                let! body = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+                let! doneTok = pDone
+                return Expr.While(whileTok, cond, doTok, body, doneTok)
+            })
 
     let private pIdentTok = nextNonTriviaTokenIsL Token.Identifier "identifier"
 
     let pForExpr =
-        parser {
-            let! forTok = pFor
+        withContext
+            OffsideContext.For
+            (parser {
+                let! forTok = pFor
 
-            return!
-                choiceL
-                    [
-                        // ForTo: for ident = start to/downto end do body done
-                        parser {
-                            let! ident = pIdentTok
-                            let! eq = pEquals
-                            let! startExpr = refExpr.Parser
-                            let! toTok = pToOrDownTo
-                            let! endExpr = refExpr.Parser
-                            let! doTok = pDo
-                            let! body = pSeqBlock refExpr.Parser
-                            let! doneTok = pDone
-                            return Expr.ForTo(forTok, ident, eq, startExpr, toTok, endExpr, doTok, body, doneTok)
-                        }
+                return!
+                    choiceL
+                        [
+                            // ForTo: for ident = start to/downto end do body done
+                            parser {
+                                let! ident = pIdentTok
+                                let! eq = pEquals
+                                let! startExpr = refExpr.Parser
+                                let! toTok = pToOrDownTo
+                                let! endExpr = refExpr.Parser
+                                let! doTok = pDo
+                                let! body = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+                                let! doneTok = pDone
+                                return Expr.ForTo(forTok, ident, eq, startExpr, toTok, endExpr, doTok, body, doneTok)
+                            }
 
-                        // ForIn: for pat in expr do body done
-                        parser {
-                            let! pat = Pat.parse
-                            let! inTok = pInVirt
-                            let! range = ExprOrRange.parse
-                            let! doTok = pDo
-                            let! body = pSeqBlock refExpr.Parser
-                            let! doneTok = pDone
-                            return Expr.ForIn(forTok, pat, inTok, range, doTok, body, doneTok)
-                        }
-                    ]
-                    "Expected for-to or for-in"
-        }
+                            // ForIn: for pat in expr do body done
+                            parser {
+                                let! pat = Pat.parse
+                                let! inTok = pInVirt
+                                let! range = ExprOrRange.parse
+                                let! doTok = pDo
+                                let! body = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+                                let! doneTok = pDone
+                                return Expr.ForIn(forTok, pat, inTok, range, doTok, body, doneTok)
+                            }
+                        ]
+                        "Expected for-to or for-in"
+            })
 
     let pUseExpr =
         withContext
