@@ -1,0 +1,17 @@
+While: 0, KWWhile(0<token>)
+Cond:
+  Ident: 6, Identifier(2<token>) 'condition'
+DoToken: 16, KWDo(4<token>)
+Body:
+  LetValue: 23, KWLet(7<token>)
+    Pat.NamedSimple: 27, Identifier(9<token>) 'x'
+    =: 29, OpEquality(11<token>)
+      Const: 31, NumInt32(13<token>) '1'
+    in: 37, KWIn (virtual)(<virt>)
+    Body:
+      InfixApp: 49, Whitespace(19<token>)
+        InfixApp: 44, Whitespace(17<token>)
+          Ident: 37, Identifier(16<token>) 'printfn'
+          Const: 45, StringLiteral(18<token>) '"%d"'
+        Ident: 50, Identifier(20<token>) 'x'
+DoneToken: 52, KWDone (virtual)(<virt>)

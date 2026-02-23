@@ -1,0 +1,24 @@
+ForTo: 0, KWFor(0<token>)
+Ident: 4, Identifier(2<token>) 'i'
+Equals: 6, OpEquality(4<token>)
+Start:
+  Const: 8, NumInt32(6<token>) '1'
+ToToken: 10, KWTo(8<token>)
+End:
+  Const: 13, NumInt32(10<token>) '10'
+DoToken: 16, KWDo(12<token>)
+Body:
+  LetValue: 23, KWLet(15<token>)
+    Pat.NamedSimple: 27, Identifier(17<token>) 'y'
+    =: 29, OpEquality(19<token>)
+      InfixApp: 33, OpMultiply(23<token>)
+        Ident: 31, Identifier(21<token>) 'i'
+        Const: 35, NumInt32(25<token>) '2'
+    in: 41, KWIn (virtual)(<virt>)
+    Body:
+      InfixApp: 53, Whitespace(31<token>)
+        InfixApp: 48, Whitespace(29<token>)
+          Ident: 41, Identifier(28<token>) 'printfn'
+          Const: 49, StringLiteral(30<token>) '"%d"'
+        Ident: 54, Identifier(32<token>) 'y'
+DoneToken: 56, KWDone (virtual)(<virt>)

@@ -1,0 +1,19 @@
+0, KWIf
+2, Whitespace
+3, Identifier
+4, Whitespace
+5, Operator 0b1000000000001111 LogicalAndBitwise
+6, Whitespace
+7, NumInt32
+8, Whitespace
+9, KWThen
+13, Whitespace
+14, Identifier
+23, Whitespace
+24, StringLiteral
+31, Whitespace
+32, KWElse
+36, Newline
+37, Identifier
+38, Newline
+39, EOF
