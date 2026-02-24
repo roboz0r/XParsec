@@ -391,9 +391,12 @@ module Parsing =
             match peekNextNonTriviaToken reader with
             | Error e -> Error e
             | Ok startTok ->
+                let pos = reader.Position
+
                 match p reader with
                 | Ok result -> Ok result
                 | Error err ->
+                    reader.Position <- pos // backtrack to the start of the failed parse, so we can skip the same tokens it would have seen
                     let skipped = ResizeArray<SyntaxToken>()
                     let mutable keepGoing = true
 
@@ -404,7 +407,7 @@ module Parsing =
                             if stopping tok then
                                 keepGoing <- false
                             else
-                                match nextNonTriviaToken reader with
+                                match consumePeeked tok reader with
                                 | Ok t -> skipped.Add(t)
                                 | Error _ -> keepGoing <- false
 

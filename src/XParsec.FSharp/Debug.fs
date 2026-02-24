@@ -1284,3 +1284,45 @@ let printExpr (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (expr: Exp
         tw.Write("Pat: ")
         printPat tw input lexed innerPat
     | _ -> failwithf "Not implemented %A" expr
+
+/// Formats a DiagnosticCode as a short, stable string suitable for golden-file output.
+let printDiagnosticCode (tw: IndentedTextWriter) (code: DiagnosticCode) =
+    match code with
+    | DiagnosticCode.MissingExpression -> tw.Write("MissingExpression")
+    | DiagnosticCode.MissingPattern -> tw.Write("MissingPattern")
+    | DiagnosticCode.MissingType -> tw.Write("MissingType")
+    | DiagnosticCode.MissingRule -> tw.Write("MissingRule")
+    | DiagnosticCode.MissingTypeDefn -> tw.Write("MissingTypeDefn")
+    | DiagnosticCode.Other msg -> tw.Write($"Other({msg})")
+    | DiagnosticCode.TyparInConstant _ -> tw.Write("TyparInConstant")
+    | DiagnosticCode.UnexpectedTokenSkipped tok ->
+        let base' = TokenInfo.withoutFlags tok.Token
+        tw.Write($"UnexpectedTokenSkipped({base'})")
+    | DiagnosticCode.UnclosedDelimiter(opened, expected) ->
+        let openedBase = TokenInfo.withoutFlags opened.Token
+        let expectedBase = TokenInfo.withoutFlags expected
+        tw.Write($"UnclosedDelimiter({openedBase}, {expectedBase})")
+
+/// Appends a "---\nDiagnostics:" section to `tw` when there are diagnostics.
+/// Diagnostics are emitted in source order (reversed from the accumulation order).
+/// Has no effect when `diagnostics` is empty, so well-formed golden files are not touched.
+let printDiagnostics (tw: IndentedTextWriter) (diagnostics: Diagnostic list) =
+    if not diagnostics.IsEmpty then
+        tw.WriteLine("---")
+        tw.WriteLine("Diagnostics:")
+
+        indent
+            tw
+            (fun () ->
+                for diag in List.rev diagnostics do
+                    let severity =
+                        match diag.Severity with
+                        | DiagnosticSeverity.Error -> "error"
+                        | DiagnosticSeverity.Warning -> "warning"
+                        | DiagnosticSeverity.Info -> "info"
+                        | DiagnosticSeverity.Hint -> "hint"
+
+                    tw.Write($"[{severity}] ")
+                    printDiagnosticCode tw diag.Code
+                    tw.WriteLine($" at {diag.Token.StartIndex}")
+            )

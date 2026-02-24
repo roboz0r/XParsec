@@ -1,0 +1,20 @@
+Match:
+  MatchToken: 0, KWMatch(0<token>)
+  MatchExpr:
+    Const: 6, NumInt32(2<token>) '1'
+  WithToken: 8, KWWith(4<token>)
+  Rule:
+    Bar: 13, OpBar(6<token>)
+    Pat: Pat.Const: 15, NumInt32(8<token>) '1'
+    Arrow: 17, OpArrowRight(10<token>)
+    Expr:
+      Missing
+  Rule:
+    Bar: 20, OpBar(12<token>)
+    Pat: Pat.Const: 22, NumInt32(14<token>) '2'
+    Arrow: 24, OpArrowRight(16<token>)
+    Expr:
+      Const: 27, NumInt32(18<token>) '3'
+---
+Diagnostics:
+  [error] MissingExpression at 20
