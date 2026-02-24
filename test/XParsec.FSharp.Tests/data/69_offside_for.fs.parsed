@@ -1,24 +1,24 @@
-ForTo: 0, KWFor(0<token>)
-Ident: 4, Identifier(2<token>) 'i'
-Equals: 6, OpEquality(4<token>)
+ForTo                'for'             KWFor               tok=   0  pos=   0
+Ident                'i'               Identifier          tok=   2  pos=   4
+Equals               '='               OpEquality          tok=   4  pos=   6
 Start:
-  Const: 8, NumInt32(6<token>) '1'
-ToToken: 10, KWTo(8<token>)
+  Const              '1'               NumInt32            tok=   6  pos=   8
+ToToken              'to'              KWTo                tok=   8  pos=  10
 End:
-  Const: 13, NumInt32(10<token>) '10'
-DoToken: 16, KWDo(12<token>)
+  Const              '10'              NumInt32            tok=  10  pos=  13
+DoToken              'do'              KWDo                tok=  12  pos=  16
 Body:
-  LetValue: 23, KWLet(15<token>)
-    Pat.NamedSimple: 27, Identifier(17<token>) 'y'
-    =: 29, OpEquality(19<token>)
-      InfixApp: 33, OpMultiply(23<token>)
-        Ident: 31, Identifier(21<token>) 'i'
-        Const: 35, NumInt32(25<token>) '2'
-    in: 41, KWIn (virtual)(<virt>)
+  LetValue           'let'             KWLet               tok=  15  pos=  23
+    Pat.NamedSimple  'y'               Identifier          tok=  17  pos=  27
+    =                '='               OpEquality          tok=  19  pos=  29
+      InfixApp       '*'               OpMultiply          tok=  23  pos=  33
+        Ident        'i'               Identifier          tok=  21  pos=  31
+        Const        '2'               NumInt32            tok=  25  pos=  35
+    in               <virt>            KWIn                tok=virt  pos=  41
     Body:
-      InfixApp: 53, Whitespace(31<token>)
-        InfixApp: 48, Whitespace(29<token>)
-          Ident: 41, Identifier(28<token>) 'printfn'
-          Const: 49, StringLiteral(30<token>) '"%d"'
-        Ident: 54, Identifier(32<token>) 'y'
-DoneToken: 56, KWDone (virtual)(<virt>)
+      InfixApp       ' '               Whitespace          tok=  31  pos=  53
+        InfixApp     ' '               Whitespace          tok=  29  pos=  48
+          Ident      'printfn'         Identifier          tok=  28  pos=  41
+          Const      '"%d"'            StringLiteral       tok=  30  pos=  49
+        Ident        'y'               Identifier          tok=  32  pos=  54
+DoneToken            <virt>            KWDone              tok=virt  pos=  56

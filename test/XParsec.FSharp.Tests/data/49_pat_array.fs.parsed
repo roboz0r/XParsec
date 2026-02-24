@@ -1,14 +1,15 @@
 Match:
-  MatchToken: 0, KWMatch(0<token>)
+  MatchToken             'match'           KWMatch             tok=   0  pos=   0
   MatchExpr:
-    Ident: 6, Identifier(2<token>) 'x'
-  WithToken: 8, KWWith(4<token>)
+    Ident                'x'               Identifier          tok=   2  pos=   6
+  WithToken              'with'            KWWith              tok=   4  pos=   8
   Rule:
-    Bar: 13, OpBar(6<token>)
-    Pat: Pat.Array: 15, KWLArrayBracket(8<token>)
-      Pat.NamedSimple: 18, Identifier(10<token>) 'a'
-      Pat.NamedSimple: 21, Identifier(13<token>) 'b'
-    23, KWRArrayBracket(15<token>)
-    Arrow: 26, OpArrowRight(17<token>)
+    Bar                  '|'               OpBar               tok=   6  pos=  13
+    Pat:
+      Pat.Array          '[|'              KWLArrayBracket     tok=   8  pos=  15
+        Pat.NamedSimple  'a'               Identifier          tok=  10  pos=  18
+        Pat.NamedSimple  'b'               Identifier          tok=  13  pos=  21
+                         '|]'              KWRArrayBracket     tok=  15  pos=  23
+    Arrow                '->'              OpArrowRight        tok=  17  pos=  26
     Expr:
-      Ident: 29, Identifier(19<token>) 'a'
+      Ident              'a'               Identifier          tok=  19  pos=  29

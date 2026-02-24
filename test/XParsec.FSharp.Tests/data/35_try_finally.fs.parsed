@@ -1,10 +1,10 @@
-TryFinally: 0, KWTry(0<token>)
+TryFinally    'try'             KWTry               tok=   0  pos=   0
 TryExpr:
-  InfixApp: 9, Whitespace(4<token>)
-    Ident: 8, Identifier(3<token>) 'f'
-    Ident: 10, Identifier(5<token>) 'x'
-FinallyToken: 12, KWFinally(7<token>)
+  InfixApp    ' '               Whitespace          tok=   4  pos=   9
+    Ident     'f'               Identifier          tok=   3  pos=   8
+    Ident     'x'               Identifier          tok=   5  pos=  10
+FinallyToken  'finally'         KWFinally           tok=   7  pos=  12
 FinallyExpr:
-  InfixApp: 31, Whitespace(11<token>)
-    Ident: 24, Identifier(10<token>) 'cleanup'
-    Const: 32, Unit(12<token>) '()'
+  InfixApp    ' '               Whitespace          tok=  11  pos=  31
+    Ident     'cleanup'         Identifier          tok=  10  pos=  24
+    Const     '()'              Unit                tok=  12  pos=  32

@@ -1,26 +1,28 @@
 Match:
-  MatchToken: 0, KWMatch(0<token>)
+  MatchToken              'match'           KWMatch             tok=   0  pos=   0
   MatchExpr:
-    Ident: 6, Identifier(2<token>) 'xs'
-  WithToken: 9, KWWith(4<token>)
+    Ident                 'xs'              Identifier          tok=   2  pos=   6
+  WithToken               'with'            KWWith              tok=   4  pos=   9
   Rule:
-    Bar: 14, OpBar(6<token>)
-    Pat: Pat.As:
-      Pat.Paren: 16, KWLParen(8<token>)
-        Pat.Cons: 19, KWColonColon(11<token>)
-          Pat.Wildcard: 17, Wildcard(9<token>)
-          Pat.Wildcard: 22, Wildcard(13<token>)
-      23, KWRParen(14<token>)
-      As: 25, KWAs(16<token>)
-      Ident: 28, Identifier(18<token>) 'full'
-    Arrow: 33, OpArrowRight(20<token>)
+    Bar                   '|'               OpBar               tok=   6  pos=  14
+    Pat:
+      Pat.As:
+        Pat.Paren         '('               KWLParen            tok=   8  pos=  16
+          Pat.Cons        '::'              KWColonColon        tok=  11  pos=  19
+            Pat.Wildcard  '_'               Wildcard            tok=   9  pos=  17
+            Pat.Wildcard  '_'               Wildcard            tok=  13  pos=  22
+                          ')'               KWRParen            tok=  14  pos=  23
+        As                'as'              KWAs                tok=  16  pos=  25
+        Ident             'full'            Identifier          tok=  18  pos=  28
+    Arrow                 '->'              OpArrowRight        tok=  20  pos=  33
     Expr:
-      Ident: 36, Identifier(22<token>) 'full'
+      Ident               'full'            Identifier          tok=  22  pos=  36
   Rule:
-    Bar: 41, OpBar(24<token>)
-    Pat: Pat.List: 43, OpNil(26<token>)
-    43, OpNil(26<token>)
-    Arrow: 46, OpArrowRight(28<token>)
+    Bar                   '|'               OpBar               tok=  24  pos=  41
+    Pat:
+      Pat.List            '[]'              OpNil               tok=  26  pos=  43
+                          '[]'              OpNil               tok=  26  pos=  43
+    Arrow                 '->'              OpArrowRight        tok=  28  pos=  46
     Expr:
-      List: 49, OpNil(30<token>)
-      49, OpNil(30<token>)
+      List                '[]'              OpNil               tok=  30  pos=  49
+                          '[]'              OpNil               tok=  30  pos=  49

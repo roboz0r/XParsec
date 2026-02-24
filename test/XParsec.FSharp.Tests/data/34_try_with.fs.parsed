@@ -1,12 +1,13 @@
-TryWith: 0, KWTry(0<token>)
+TryWith           'try'             KWTry               tok=   0  pos=   0
 TryExpr:
-  InfixApp: 9, Whitespace(4<token>)
-    Ident: 8, Identifier(3<token>) 'f'
-    Ident: 10, Identifier(5<token>) 'x'
-WithToken: 12, KWWith(7<token>)
+  InfixApp        ' '               Whitespace          tok=   4  pos=   9
+    Ident         'f'               Identifier          tok=   3  pos=   8
+    Ident         'x'               Identifier          tok=   5  pos=  10
+WithToken         'with'            KWWith              tok=   7  pos=  12
 Rule:
-  Bar: 17, OpBar(9<token>)
-  Pat: Pat.Wildcard: 19, Wildcard(11<token>)
-  Arrow: 21, OpArrowRight(13<token>)
+  Bar             '|'               OpBar               tok=   9  pos=  17
+  Pat:
+    Pat.Wildcard  '_'               Wildcard            tok=  11  pos=  19
+  Arrow           '->'              OpArrowRight        tok=  13  pos=  21
   Expr:
-    Const: 24, NumInt32(15<token>) '0'
+    Const         '0'               NumInt32            tok=  15  pos=  24

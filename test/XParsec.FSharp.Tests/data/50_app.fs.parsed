@@ -1,5 +1,5 @@
-InfixApp: 3, Whitespace(3<token>)
-  InfixApp: 1, Whitespace(1<token>)
-    Ident: 0, Identifier(0<token>) 'f'
-    Ident: 2, Identifier(2<token>) 'x'
-  Ident: 4, Identifier(4<token>) 'y'
+InfixApp    ' '               Whitespace          tok=   3  pos=   3
+  InfixApp  ' '               Whitespace          tok=   1  pos=   1
+    Ident   'f'               Identifier          tok=   0  pos=   0
+    Ident   'x'               Identifier          tok=   2  pos=   2
+  Ident     'y'               Identifier          tok=   4  pos=   4

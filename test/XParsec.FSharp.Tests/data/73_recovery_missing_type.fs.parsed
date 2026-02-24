@@ -1,12 +1,12 @@
-LetValue: 0, KWLet(0<token>)
-  Pat.NamedSimple: 4, Identifier(2<token>) 'x'
-  ReturnColon: 6, OpColon(4<token>)
+LetValue           'let'             KWLet               tok=   0  pos=   0
+  Pat.NamedSimple  'x'               Identifier          tok=   2  pos=   4
+  ReturnColon      ':'               OpColon             tok=   4  pos=   6
   Missing
-  =: 8, OpEquality(6<token>)
-    Const: 10, NumInt32(8<token>) '1'
-  in: 12, KWIn(10<token>)
+  =                '='               OpEquality          tok=   6  pos=   8
+    Const          '1'               NumInt32            tok=   8  pos=  10
+  in               'in'              KWIn                tok=  10  pos=  12
   Body:
-    Ident: 15, Identifier(12<token>) 'x'
+    Ident          'x'               Identifier          tok=  12  pos=  15
 ---
 Diagnostics:
   [error] MissingType at 8

@@ -1,25 +1,27 @@
 Match:
-  MatchToken: 0, KWMatch(0<token>)
+  MatchToken             'match'           KWMatch             tok=   0  pos=   0
   MatchExpr:
-    Ident: 6, Identifier(2<token>) 'x'
-  WithToken: 8, KWWith(4<token>)
+    Ident                'x'               Identifier          tok=   2  pos=   6
+  WithToken              'with'            KWWith              tok=   4  pos=   8
   Rule:
-    Bar: 13, OpBar(6<token>)
-    Pat: Pat.NamedSimple: 15, Identifier(8<token>) 'A'
-    Arrow: 17, OpArrowRight(10<token>)
+    Bar                  '|'               OpBar               tok=   6  pos=  13
+    Pat:
+      Pat.NamedSimple    'A'               Identifier          tok=   8  pos=  15
+    Arrow                '->'              OpArrowRight        tok=  10  pos=  17
     Expr:
-      LetValue: 24, KWLet(13<token>)
-        Pat.NamedSimple: 28, Identifier(15<token>) 'y'
-        =: 30, OpEquality(17<token>)
-          Const: 32, NumInt32(19<token>) '1'
-        in: 38, KWIn (virtual)(<virt>)
+      LetValue           'let'             KWLet               tok=  13  pos=  24
+        Pat.NamedSimple  'y'               Identifier          tok=  15  pos=  28
+        =                '='               OpEquality          tok=  17  pos=  30
+          Const          '1'               NumInt32            tok=  19  pos=  32
+        in               <virt>            KWIn                tok=virt  pos=  38
         Body:
-          InfixApp: 40, Operator 0b1000000001010011 InfixAdd (can be prefix)(24<token>)
-            Ident: 38, Identifier(22<token>) 'y'
-            Const: 42, NumInt32(26<token>) '2'
+          InfixApp       '+'               OpSubtractionAssignment  tok=  24  pos=  40
+            Ident        'y'               Identifier          tok=  22  pos=  38
+            Const        '2'               NumInt32            tok=  26  pos=  42
   Rule:
-    Bar: 44, OpBar(28<token>)
-    Pat: Pat.NamedSimple: 46, Identifier(30<token>) 'B'
-    Arrow: 48, OpArrowRight(32<token>)
+    Bar                  '|'               OpBar               tok=  28  pos=  44
+    Pat:
+      Pat.NamedSimple    'B'               Identifier          tok=  30  pos=  46
+    Arrow                '->'              OpArrowRight        tok=  32  pos=  48
     Expr:
-      Const: 55, NumInt32(35<token>) '3'
+      Const              '3'               NumInt32            tok=  35  pos=  55

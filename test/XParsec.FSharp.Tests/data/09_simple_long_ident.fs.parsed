@@ -1,4 +1,5 @@
-LongIdentOrOp: LongIdent:
-  0, Identifier(0<token>) 'System'
-  7, Identifier(2<token>) 'Math'
-  12, Identifier(4<token>) 'PI'
+LongIdentOrOp:
+  LongIdent:
+      'System'          Identifier          tok=   0  pos=   0
+      'Math'            Identifier          tok=   2  pos=   7
+      'PI'              Identifier          tok=   4  pos=  12

@@ -1,8 +1,9 @@
-New: 0, KWNew(0<token>)
-  NamedType: LongIdent:
-    4, Identifier(2<token>) 'System'
-    11, Identifier(4<token>) 'Exception'
+New             'new'             KWNew               tok=   0  pos=   0
+  NamedType:
+    LongIdent:
+                'System'          Identifier          tok=   2  pos=   4
+                'Exception'       Identifier          tok=   4  pos=  11
   Arg:
-    ParenBlock: 20, KWLParen(5<token>)
-      Const: 21, StringLiteral(6<token>) '"error"'
-    28, KWRParen(7<token>)
+    ParenBlock  '('               KWLParen            tok=   5  pos=  20
+      Const     '"error"'         StringLiteral       tok=   6  pos=  21
+                ')'               KWRParen            tok=   7  pos=  28

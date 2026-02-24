@@ -1,5 +1,5 @@
-BeginEndBlock: 0, KWBegin(0<token>)
-  Sequential: 11, 1024 (virtual)(<virt>)
-    Const: 10, NumInt32(3<token>) '1'
-    Const: 16, NumInt32(6<token>) '2'
-18, KWEnd(8<token>)
+BeginEndBlock  'begin'           KWBegin             tok=   0  pos=   0
+  Sequential   <virt>            1024                tok=virt  pos=  11
+    Const      '1'               NumInt32            tok=   3  pos=  10
+    Const      '2'               NumInt32            tok=   6  pos=  16
+               'end'             KWEnd               tok=   8  pos=  18
