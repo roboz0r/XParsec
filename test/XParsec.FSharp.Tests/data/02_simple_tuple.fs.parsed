@@ -1,4 +1,4 @@
 Tuple:
-  Const: 0, NumInt32(0<token>) '1'
-  Const: 3, NumInt32(3<token>) '2'
-  Const: 6, NumInt32(6<token>) '3'
+  Const  '1'               NumInt32            tok=   0  pos=   0
+  Const  '2'               NumInt32            tok=   3  pos=   3
+  Const  '3'               NumInt32            tok=   6  pos=   6

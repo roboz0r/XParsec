@@ -1,170 +1,231 @@
 module rec XParsec.FSharp.Debug
 
 open System
-open System.CodeDom.Compiler
+open System.IO
 
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-/// Temporarily increases the indentation level, runs `f`, then restores it.
-let inline indent (tw: IndentedTextWriter) (f: unit -> unit) =
-    tw.Indent <- tw.Indent + 1
-    f ()
-    tw.Indent <- tw.Indent - 1
+// ---- Buffered output types ----
 
-/// Writes "label: <token>" on a single line using the minimal token format.
-let printLabelledToken (label: string) (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (token: SyntaxToken) =
-    tw.Write($"{label}: ")
-    printTokenMin tw input lexed token
-    tw.WriteLine()
+[<Struct>]
+type private TokenRowData =
+    {
+        IndentLevel: int
+        Label: string
+        QuotedLit: string
+        Kind: string
+        TokIdx: string
+        CharPos: string
+    }
+
+[<RequireQualifiedAccess>]
+type private OutputItem =
+    | Line of indentLevel: int * text: string
+    | TokenRow of TokenRowData
+
+/// Collects print output into a buffer, then emits it with the label column
+/// dynamically sized to fit the deepest indentation level, so that the
+/// literal/kind/index columns align perfectly across the whole output.
+type PrintContext(indentSize: int) =
+    let items = ResizeArray<OutputItem>()
+    let mutable currentIndent = 0
+
+    member _.IndentSize = indentSize
+
+    member _.Indent
+        with get () = currentIndent
+        and set v = currentIndent <- v
+
+    member ctx.WriteLine(text: string) =
+        items.Add(OutputItem.Line(ctx.Indent, text))
+
+    member ctx.AddTokenRow(label: string, quotedLit: string, kind: string, tokIdx: string, charPos: string) =
+        items.Add(
+            OutputItem.TokenRow
+                {
+                    IndentLevel = ctx.Indent
+                    Label = label
+                    QuotedLit = quotedLit
+                    Kind = kind
+                    TokIdx = tokIdx
+                    CharPos = charPos
+                }
+        )
+
+    member _.Flush(writer: TextWriter) =
+        // Dynamic label column width: widest (indent + label) across all token rows.
+        let maxLabelColWidth =
+            let mutable m = 0
+
+            for item in items do
+                match item with
+                | OutputItem.TokenRow row ->
+                    let w = row.IndentLevel * indentSize + row.Label.Length
+
+                    if w > m then
+                        m <- w
+                | _ -> ()
+
+            m
+
+        for item in items do
+            match item with
+            | OutputItem.Line(ind, text) -> writer.WriteLine(String.replicate (ind * indentSize) " " + text)
+            | OutputItem.TokenRow row ->
+                let indentStr = String.replicate (row.IndentLevel * indentSize) " "
+                let labelPadded = (indentStr + row.Label).PadRight(maxLabelColWidth)
+
+                writer.WriteLine(
+                    $"{labelPadded}  {row.QuotedLit, -16}  {row.Kind, -18}  {row.TokIdx, -8}  {row.CharPos}"
+                )
+
+    member ctx.FlushToString() =
+        use sw = new StringWriter()
+        ctx.Flush(sw)
+        sw.ToString()
+
+// ---- Helpers ----
+
+/// Temporarily increases the indentation level, runs `f`, then restores it.
+let inline indent (ctx: PrintContext) (f: unit -> unit) =
+    ctx.Indent <- ctx.Indent + 1
+    f ()
+    ctx.Indent <- ctx.Indent - 1
 
 /// Writes "header:" then runs `f` indented by one level.
-let printSection (tw: IndentedTextWriter) (header: string) (f: unit -> unit) =
-    tw.WriteLine($"{header}:")
-    indent tw f
+let printSection (ctx: PrintContext) (header: string) (f: unit -> unit) =
+    ctx.WriteLine($"{header}:")
+    indent ctx f
 
-/// Prints the list of match/try-with rules (shared logic).
-let printRules (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (rules: Rules<SyntaxToken>) =
+/// Adds a single token row to the print buffer.
+let printTokenRow (label: string) (ctx: PrintContext) (input: string) (lexed: Lexed) (token: SyntaxToken) =
+    match token.Index with
+    | TokenIndex.Virtual ->
+        let kind = $"{TokenInfo.withoutFlags token.PositionedToken.Token}"
+        let charPos = token.PositionedToken.StartIndex
+        ctx.AddTokenRow(label, "<virt>", kind, "tok=virt", $"pos=%4i{charPos}")
+    | TokenIndex.Regular iT ->
+        let t1 = lexed.Tokens.[iT + 1<_>]
+        let charPos = token.PositionedToken.StartIndex
+        let charEnd = t1.StartIndex - 1
+        let len = charEnd - charPos + 1
+
+        let rawLit =
+            if len > 10 then
+                input.[charPos .. charPos + 9] + "..."
+            else
+                input.[charPos..charEnd]
+
+        let lit = rawLit.Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t")
+        let kind = $"{TokenInfo.withoutFlags token.PositionedToken.Token}"
+        ctx.AddTokenRow(label, $"'{lit}'", kind, $"tok=%4i{int iT}", $"pos=%4i{charPos}")
+
+/// Alias for `printTokenRow` — kept so all 96 existing call sites compile unchanged.
+let printLabelledToken (label: string) (ctx: PrintContext) (input: string) (lexed: Lexed) (token: SyntaxToken) =
+    printTokenRow label ctx input lexed token
+
+// ---- Print functions ----
+
+let printRules (ctx: PrintContext) (input: string) (lexed: Lexed) (rules: Rules<SyntaxToken>) =
     let (Rules(firstBar, ruleList, bars)) = rules
 
     for i in 0 .. ruleList.Length - 1 do
         let bar = if i = 0 then firstBar else ValueSome bars[i - 1]
 
         printSection
-            tw
+            ctx
             "Rule"
             (fun () ->
                 match bar with
-                | ValueSome b -> printLabelledToken "Bar" tw input lexed b
+                | ValueSome b -> printLabelledToken "Bar" ctx input lexed b
                 | ValueNone -> ()
 
                 match ruleList[i] with
                 | Rule.Rule(pat, guard, arrow, ruleExpr) ->
-                    tw.Write("Pat: ")
-                    printPat tw input lexed pat
+                    printSection ctx "Pat" (fun () -> printPat ctx input lexed pat)
 
                     match guard with
                     | ValueSome(PatternGuard(whenToken, guardExpr)) ->
-                        printLabelledToken "When" tw input lexed whenToken
-                        printSection tw "Guard" (fun () -> printExpr tw input lexed guardExpr)
+                        printLabelledToken "When" ctx input lexed whenToken
+                        printSection ctx "Guard" (fun () -> printExpr ctx input lexed guardExpr)
                     | ValueNone -> ()
 
-                    printLabelledToken "Arrow" tw input lexed arrow
-                    printSection tw "Expr" (fun () -> printExpr tw input lexed ruleExpr)
-                | Rule.Missing -> tw.WriteLine("Missing")
+                    printLabelledToken "Arrow" ctx input lexed arrow
+                    printSection ctx "Expr" (fun () -> printExpr ctx input lexed ruleExpr)
+                | Rule.Missing -> ctx.WriteLine("Missing")
                 | Rule.SkipsTokens(skippedTokens, innerRule) ->
                     printSection
-                        tw
+                        ctx
                         "SkipsTokens"
                         (fun () ->
                             for t in skippedTokens do
-                                printTokenMin tw input lexed t
-                                tw.WriteLine()
+                                printTokenRow "(skipped)" ctx input lexed t
 
                             printSection
-                                tw
+                                ctx
                                 "Rule"
                                 (fun () ->
                                     match innerRule with
                                     | Rule.Rule(pat, guard, arrow, ruleExpr) ->
-                                        tw.Write("Pat: ")
-                                        printPat tw input lexed pat
+                                        printSection ctx "Pat" (fun () -> printPat ctx input lexed pat)
 
                                         match guard with
                                         | ValueSome(PatternGuard(whenToken, guardExpr)) ->
-                                            printLabelledToken "When" tw input lexed whenToken
-                                            printSection tw "Guard" (fun () -> printExpr tw input lexed guardExpr)
+                                            printLabelledToken "When" ctx input lexed whenToken
+                                            printSection ctx "Guard" (fun () -> printExpr ctx input lexed guardExpr)
                                         | ValueNone -> ()
 
-                                        printLabelledToken "Arrow" tw input lexed arrow
-                                        printSection tw "Expr" (fun () -> printExpr tw input lexed ruleExpr)
-                                    | Rule.Missing -> tw.WriteLine("Missing")
-                                    | Rule.SkipsTokens _ -> tw.WriteLine("SkipsTokens (nested)")
+                                        printLabelledToken "Arrow" ctx input lexed arrow
+                                        printSection ctx "Expr" (fun () -> printExpr ctx input lexed ruleExpr)
+                                    | Rule.Missing -> ctx.WriteLine("Missing")
+                                    | Rule.SkipsTokens _ -> ctx.WriteLine("SkipsTokens (nested)")
                                 )
                         )
             )
 
-let printTokenMin (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (token: SyntaxToken) =
-    match token.Index with
-    | TokenIndex.Regular iT -> tw.Write($"{token.PositionedToken}({iT}<token>)")
-    | TokenIndex.Virtual -> tw.Write($"{token.PositionedToken}(<virt>)")
-
-let printTokenFull (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (synTok: SyntaxToken) =
-    match synTok.Index with
-    | TokenIndex.Regular iT ->
-        let t1 = lexed.Tokens.[iT + 1<_>]
-        let i = synTok.StartIndex
-        let i1 = t1.StartIndex
-        let iEnd = i1 - 1
-        let len = iEnd - i
-
-        let tokenStr =
-            if len > 10 then
-                input.[int i .. int (i + 9)] + "..."
-            else
-                input.[int i .. int (i1 - 1)]
-
-        let tokenStr =
-            tokenStr.Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t")
-
-        tw.Write($"{synTok.PositionedToken}({iT}<token>) '{tokenStr}'")
-    | TokenIndex.Virtual -> tw.Write($"{synTok.PositionedToken}(<virt>)")
-
-let printConstant (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (x: Constant<SyntaxToken>) =
+let printConstant (label: string) (ctx: PrintContext) (input: string) (lexed: Lexed) (x: Constant<SyntaxToken>) =
     match x with
-    | Constant.Literal value -> printTokenFull tw input lexed value
+    | Constant.Literal value -> printTokenRow label ctx input lexed value
     | Constant.MeasuredLiteral(value, lAngle, measure, rAngle) ->
-        printTokenFull tw input lexed value
-        tw.Write(" <")
-        printMeasure tw input lexed measure
-        tw.Write(">")
-
-let rec printIdentOrOp (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (identOrOp: IdentOrOp<SyntaxToken>) =
-    match identOrOp with
-    | IdentOrOp.Ident ident ->
-        tw.Write("Ident: ")
-        printTokenFull tw input lexed ident
-        tw.WriteLine()
-    | IdentOrOp.ParenOp(lParen, opName, rParen) ->
         printSection
-            tw
-            "ParenOp"
+            ctx
+            label
             (fun () ->
-                printTokenMin tw input lexed lParen
-                tw.WriteLine()
-                printOpName tw input lexed opName
-                printTokenMin tw input lexed rParen
-                tw.WriteLine()
+                printTokenRow "Literal" ctx input lexed value
+                printTokenRow "<" ctx input lexed lAngle
+                printSection ctx "Measure" (fun () -> printMeasure ctx input lexed measure)
+                printTokenRow ">" ctx input lexed rAngle
             )
 
-    | IdentOrOp.StarOp(lParen, star, rParen) -> tw.Write("StarOp: ")
+let rec printIdentOrOp (ctx: PrintContext) (input: string) (lexed: Lexed) (identOrOp: IdentOrOp<SyntaxToken>) =
+    match identOrOp with
+    | IdentOrOp.Ident ident -> printTokenRow "Ident" ctx input lexed ident
+    | IdentOrOp.ParenOp(lParen, opName, rParen) ->
+        printSection
+            ctx
+            "ParenOp"
+            (fun () ->
+                printTokenRow "" ctx input lexed lParen
+                printOpName ctx input lexed opName
+                printTokenRow "" ctx input lexed rParen
+            )
+    | IdentOrOp.StarOp(lParen, star, rParen) -> ctx.WriteLine("StarOp: ")
 
-and printOpName (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (opName: OpName<SyntaxToken>) =
+and printOpName (ctx: PrintContext) (input: string) (lexed: Lexed) (opName: OpName<SyntaxToken>) =
     match opName with
-    | OpName.SymbolicOp op ->
-        tw.Write("SymbolicOp: ")
-        printTokenFull tw input lexed op
-        tw.WriteLine()
-    | OpName.RangeOp rangeOp ->
-        tw.Write("RangeOp: ")
-        printRangeOpName tw input lexed rangeOp
+    | OpName.SymbolicOp op -> printTokenRow "SymbolicOp" ctx input lexed op
+    | OpName.RangeOp rangeOp -> printSection ctx "RangeOp" (fun () -> printRangeOpName ctx input lexed rangeOp)
     | OpName.ActivePatternOp activePatternOp ->
-        tw.Write("ActivePatternOp: ")
-        printActivePatternOpName tw input lexed activePatternOp
+        printSection ctx "ActivePatternOp" (fun () -> printActivePatternOpName ctx input lexed activePatternOp)
 
-and printRangeOpName (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (rangeOpName: RangeOpName<SyntaxToken>) =
+and printRangeOpName (ctx: PrintContext) (input: string) (lexed: Lexed) (rangeOpName: RangeOpName<SyntaxToken>) =
     match rangeOpName with
-    | RangeOpName.DotDot dotDot ->
-        tw.Write("DotDot: ")
-        printTokenFull tw input lexed dotDot
-        tw.WriteLine()
-    | RangeOpName.DotDotDotDot dotDotDotDot ->
-        tw.Write("DotDotDotDot: ")
-        printTokenFull tw input lexed dotDotDotDot
-        tw.WriteLine()
+    | RangeOpName.DotDot dotDot -> printTokenRow "DotDot" ctx input lexed dotDot
+    | RangeOpName.DotDotDotDot dotDotDotDot -> printTokenRow "DotDotDotDot" ctx input lexed dotDotDotDot
 
 and printActivePatternOpName
-    (tw: IndentedTextWriter)
+    (ctx: PrintContext)
     (input: string)
     (lexed: Lexed)
     (activePatternOpName: ActivePatternOpName<SyntaxToken>)
@@ -172,696 +233,611 @@ and printActivePatternOpName
     match activePatternOpName with
     | ActivePatternOpName.ActivePatternOp(lBar, idents, finalUnderscore, rBar) ->
         printSection
-            tw
+            ctx
             "ActivePatternOp"
             (fun () ->
-                printTokenMin tw input lexed lBar
-                tw.WriteLine()
+                printTokenRow "" ctx input lexed lBar
 
                 for ident in idents do
-                    printTokenFull tw input lexed ident
-                    tw.WriteLine()
+                    printTokenRow "" ctx input lexed ident
 
                 match finalUnderscore with
-                | ValueSome u ->
-                    printTokenFull tw input lexed u
-                    tw.WriteLine()
+                | ValueSome u -> printTokenRow "" ctx input lexed u
                 | ValueNone -> ()
 
-                printTokenMin tw input lexed rBar
-                tw.WriteLine()
+                printTokenRow "" ctx input lexed rBar
             )
 
-let printLongIdentOrOp
-    (tw: IndentedTextWriter)
-    (input: string)
-    (lexed: Lexed)
-    (longIdentOrOp: LongIdentOrOp<SyntaxToken>)
-    =
+let printLongIdentOrOp (ctx: PrintContext) (input: string) (lexed: Lexed) (longIdentOrOp: LongIdentOrOp<SyntaxToken>) =
     match longIdentOrOp with
     | LongIdentOrOp.LongIdent idents ->
         printSection
-            tw
+            ctx
             "LongIdent"
             (fun () ->
                 for ident in idents do
-                    printTokenFull tw input lexed ident
-                    tw.WriteLine()
+                    printTokenRow "" ctx input lexed ident
             )
-    | LongIdentOrOp.Op identOrOp -> tw.Write("Op: ")
-    | LongIdentOrOp.QualifiedOp(longIdent, dot, op) -> tw.Write("QualifiedOp: ")
+    | LongIdentOrOp.Op identOrOp -> ctx.WriteLine("Op: ")
+    | LongIdentOrOp.QualifiedOp(longIdent, dot, op) -> ctx.WriteLine("QualifiedOp: ")
 
 
-let printPatParam (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (param: PatParam<SyntaxToken>) =
+let printPatParam (ctx: PrintContext) (input: string) (lexed: Lexed) (param: PatParam<SyntaxToken>) =
     match param with
-    | PatParam.Const value ->
-        tw.Write("PatParam.Const: ")
-        printTokenFull tw input lexed value
-        tw.WriteLine()
+    | PatParam.Const value -> printTokenRow "PatParam.Const" ctx input lexed value
     | PatParam.LongIdent ident ->
-        tw.Write("PatParam.LongIdent: ")
-        printLongIdentOrOp tw input lexed (LongIdentOrOp.LongIdent ident)
+        printSection
+            ctx
+            "PatParam.LongIdent"
+            (fun () -> printLongIdentOrOp ctx input lexed (LongIdentOrOp.LongIdent ident))
     | PatParam.App(ident, innerParam) ->
         printSection
-            tw
+            ctx
             "PatParam.App"
             (fun () ->
-                printLongIdentOrOp tw input lexed (LongIdentOrOp.LongIdent ident)
-                printPatParam tw input lexed innerParam
+                printLongIdentOrOp ctx input lexed (LongIdentOrOp.LongIdent ident)
+                printPatParam ctx input lexed innerParam
             )
     | PatParam.List(lBracket, parameters, rBracket) ->
-        printLabelledToken "PatParam.List" tw input lexed lBracket
+        printLabelledToken "PatParam.List" ctx input lexed lBracket
 
         indent
-            tw
+            ctx
             (fun () ->
                 for p in parameters do
-                    printPatParam tw input lexed p
+                    printPatParam ctx input lexed p
             )
 
-        printTokenMin tw input lexed rBracket
-        tw.WriteLine()
+        printTokenRow "" ctx input lexed rBracket
     | PatParam.Tuple(lParen, parameters, rParen) ->
-        printLabelledToken "PatParam.Tuple" tw input lexed lParen
+        printLabelledToken "PatParam.Tuple" ctx input lexed lParen
 
         indent
-            tw
+            ctx
             (fun () ->
                 for p in parameters do
-                    printPatParam tw input lexed p
+                    printPatParam ctx input lexed p
             )
 
-        printTokenMin tw input lexed rParen
-        tw.WriteLine()
+        printTokenRow "" ctx input lexed rParen
     | PatParam.Typed(innerParam, colon, typ) ->
         printSection
-            tw
+            ctx
             "PatParam.Typed"
             (fun () ->
-                printPatParam tw input lexed innerParam
-                printLabelledToken "Colon" tw input lexed colon
-                printType tw input lexed typ
+                printPatParam ctx input lexed innerParam
+                printLabelledToken "Colon" ctx input lexed colon
+                printType ctx input lexed typ
             )
-    | PatParam.Null nullToken ->
-        tw.Write("PatParam.Null: ")
-        printTokenMin tw input lexed nullToken
-        tw.WriteLine()
+    | PatParam.Null nullToken -> printTokenRow "PatParam.Null" ctx input lexed nullToken
     | PatParam.Quoted _ -> failwith "printPatParam: Quoted not implemented"
     | PatParam.DoubleQuoted _ -> failwith "printPatParam: DoubleQuoted not implemented"
 
-let printPat (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (pat: Pat<SyntaxToken>) =
+let printPat (ctx: PrintContext) (input: string) (lexed: Lexed) (pat: Pat<SyntaxToken>) =
     match pat with
-    | Pat.Const value ->
-        tw.Write("Pat.Const: ")
-        printConstant tw input lexed value
-        tw.WriteLine()
-    | Pat.NamedSimple ident ->
-        tw.Write("Pat.NamedSimple: ")
-        printTokenFull tw input lexed ident
-        tw.WriteLine()
-    | Pat.Wildcard underscore ->
-        tw.Write("Pat.Wildcard: ")
-        printTokenMin tw input lexed underscore
-        tw.WriteLine()
+    | Pat.Const value -> printConstant "Pat.Const" ctx input lexed value
+    | Pat.NamedSimple ident -> printTokenRow "Pat.NamedSimple" ctx input lexed ident
+    | Pat.Wildcard underscore -> printTokenRow "Pat.Wildcard" ctx input lexed underscore
     | Pat.Named(longIdent, param, innerPat) ->
         printSection
-            tw
+            ctx
             "Pat.Named"
             (fun () ->
                 for ident in longIdent do
-                    tw.Write("Ident: ")
-                    printTokenFull tw input lexed ident
-                    tw.WriteLine()
+                    printTokenRow "Ident" ctx input lexed ident
 
                 match param with
-                | ValueSome p ->
-                    tw.Write("Param: ")
-                    printPatParam tw input lexed p
+                | ValueSome p -> printSection ctx "Param" (fun () -> printPatParam ctx input lexed p)
                 | ValueNone -> ()
 
                 match innerPat with
-                | ValueSome p ->
-                    tw.Write("Pat: ")
-                    printPat tw input lexed p
+                | ValueSome p -> printSection ctx "Pat" (fun () -> printPat ctx input lexed p)
                 | ValueNone -> ()
             )
     | Pat.As(innerPat, asToken, ident) ->
         printSection
-            tw
+            ctx
             "Pat.As"
             (fun () ->
-                printPat tw input lexed innerPat
-                printLabelledToken "As" tw input lexed asToken
-                tw.Write("Ident: ")
-                printTokenFull tw input lexed ident
-                tw.WriteLine()
+                printPat ctx input lexed innerPat
+                printLabelledToken "As" ctx input lexed asToken
+                printTokenRow "Ident" ctx input lexed ident
             )
     | Pat.Or(left, bar, right) ->
-        printLabelledToken "Pat.Or" tw input lexed bar
+        printLabelledToken "Pat.Or" ctx input lexed bar
 
         indent
-            tw
+            ctx
             (fun () ->
-                printPat tw input lexed left
-                printPat tw input lexed right
+                printPat ctx input lexed left
+                printPat ctx input lexed right
             )
     | Pat.And(left, ampersand, right) ->
-        printLabelledToken "Pat.And" tw input lexed ampersand
+        printLabelledToken "Pat.And" ctx input lexed ampersand
 
         indent
-            tw
+            ctx
             (fun () ->
-                printPat tw input lexed left
-                printPat tw input lexed right
+                printPat ctx input lexed left
+                printPat ctx input lexed right
             )
     | Pat.Cons(head, consToken, tail) ->
-        printLabelledToken "Pat.Cons" tw input lexed consToken
+        printLabelledToken "Pat.Cons" ctx input lexed consToken
 
         indent
-            tw
+            ctx
             (fun () ->
-                printPat tw input lexed head
-                printPat tw input lexed tail
+                printPat ctx input lexed head
+                printPat ctx input lexed tail
             )
     | Pat.Typed(innerPat, colon, typ) ->
         printSection
-            tw
+            ctx
             "Pat.Typed"
             (fun () ->
-                printPat tw input lexed innerPat
-                printLabelledToken "Colon" tw input lexed colon
-                printType tw input lexed typ
+                printPat ctx input lexed innerPat
+                printLabelledToken "Colon" ctx input lexed colon
+                printType ctx input lexed typ
             )
     | Pat.Tuple(patterns, _commas) ->
         printSection
-            tw
+            ctx
             "Pat.Tuple"
             (fun () ->
                 for p in patterns do
-                    printPat tw input lexed p
+                    printPat ctx input lexed p
             )
     | Pat.StructTuple(structToken, _lParen, patterns, _commas, _rParen) ->
         printSection
-            tw
+            ctx
             "Pat.StructTuple"
             (fun () ->
-                printTokenMin tw input lexed structToken
-                tw.WriteLine()
+                printTokenRow "" ctx input lexed structToken
 
                 for p in patterns do
-                    printPat tw input lexed p
+                    printPat ctx input lexed p
             )
     | Pat.Paren(lParen, innerPat, rParen) ->
-        printLabelledToken "Pat.Paren" tw input lexed lParen
-        indent tw (fun () -> printPat tw input lexed innerPat)
-        printTokenMin tw input lexed rParen
-        tw.WriteLine()
+        printLabelledToken "Pat.Paren" ctx input lexed lParen
+        indent ctx (fun () -> printPat ctx input lexed innerPat)
+        printTokenRow "" ctx input lexed rParen
     | Pat.List(ListPat(lBracket, patterns, rBracket)) ->
-        printLabelledToken "Pat.List" tw input lexed lBracket
+        printLabelledToken "Pat.List" ctx input lexed lBracket
 
         indent
-            tw
+            ctx
             (fun () ->
                 for p in patterns do
-                    printPat tw input lexed p
+                    printPat ctx input lexed p
             )
 
-        printTokenMin tw input lexed rBracket
-        tw.WriteLine()
+        printTokenRow "" ctx input lexed rBracket
     | Pat.Array(ArrayPat(lBarBracket, patterns, rBarBracket)) ->
-        printLabelledToken "Pat.Array" tw input lexed lBarBracket
+        printLabelledToken "Pat.Array" ctx input lexed lBarBracket
 
         indent
-            tw
+            ctx
             (fun () ->
                 for p in patterns do
-                    printPat tw input lexed p
+                    printPat ctx input lexed p
             )
 
-        printTokenMin tw input lexed rBarBracket
-        tw.WriteLine()
+        printTokenRow "" ctx input lexed rBarBracket
     | Pat.Record(RecordPat(lBrace, fieldPats, rBrace)) ->
-        printLabelledToken "Pat.Record" tw input lexed lBrace
+        printLabelledToken "Pat.Record" ctx input lexed lBrace
 
         indent
-            tw
+            ctx
             (fun () ->
                 for FieldPat(longIdent, equals, innerPat) in fieldPats do
                     printSection
-                        tw
+                        ctx
                         "FieldPat"
                         (fun () ->
                             for ident in longIdent do
-                                tw.Write("Ident: ")
-                                printTokenFull tw input lexed ident
-                                tw.WriteLine()
+                                printTokenRow "Ident" ctx input lexed ident
 
-                            printLabelledToken "=" tw input lexed equals
-                            tw.Write("Pat: ")
-                            printPat tw input lexed innerPat
+                            printLabelledToken "=" ctx input lexed equals
+                            printSection ctx "Pat" (fun () -> printPat ctx input lexed innerPat)
                         )
             )
 
-        printTokenMin tw input lexed rBrace
-        tw.WriteLine()
+        printTokenRow "" ctx input lexed rBrace
     | Pat.TypeTest(colonQuestion, typ) ->
         printSection
-            tw
+            ctx
             "Pat.TypeTest"
             (fun () ->
-                printLabelledToken "ColonQuestion" tw input lexed colonQuestion
-                printType tw input lexed typ
+                printLabelledToken "ColonQuestion" ctx input lexed colonQuestion
+                printType ctx input lexed typ
             )
     | Pat.TypeTestAs(colonQuestion, typ, asToken, ident) ->
         printSection
-            tw
+            ctx
             "Pat.TypeTestAs"
             (fun () ->
-                printLabelledToken "ColonQuestion" tw input lexed colonQuestion
-                printType tw input lexed typ
-                printLabelledToken "As" tw input lexed asToken
-                tw.Write("Ident: ")
-                printTokenFull tw input lexed ident
-                tw.WriteLine()
+                printLabelledToken "ColonQuestion" ctx input lexed colonQuestion
+                printType ctx input lexed typ
+                printLabelledToken "As" ctx input lexed asToken
+                printTokenRow "Ident" ctx input lexed ident
             )
-    | Pat.Null nullToken ->
-        tw.Write("Pat.Null: ")
-        printTokenMin tw input lexed nullToken
-        tw.WriteLine()
+    | Pat.Null nullToken -> printTokenRow "Pat.Null" ctx input lexed nullToken
     | Pat.Attributed(attributes, innerPat) ->
         printSection
-            tw
+            ctx
             "Pat.Attributed"
             (fun () ->
-                tw.WriteLine($"(Attributes: {attributes.Length} set(s))")
-                printPat tw input lexed innerPat
+                ctx.WriteLine($"(Attributes: {attributes.Length} set(s))")
+                printPat ctx input lexed innerPat
             )
     | Pat.Struct(structToken, innerPat) ->
         printSection
-            tw
+            ctx
             "Pat.Struct"
             (fun () ->
-                printTokenMin tw input lexed structToken
-                tw.WriteLine()
-                printPat tw input lexed innerPat
+                printTokenRow "" ctx input lexed structToken
+                printPat ctx input lexed innerPat
             )
-    | Pat.Missing -> tw.WriteLine("Missing")
+    | Pat.Missing -> ctx.WriteLine("Missing")
     | Pat.SkipsTokens(skippedTokens, innerPat) ->
         printSection
-            tw
+            ctx
             "SkipsTokens"
             (fun () ->
                 for t in skippedTokens do
-                    printTokenMin tw input lexed t
-                    tw.WriteLine()
+                    printTokenRow "(skipped)" ctx input lexed t
 
-                printPat tw input lexed innerPat
+                printPat ctx input lexed innerPat
             )
 
-let printTypar (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (typar: Typar<SyntaxToken>) =
+let printTypar (ctx: PrintContext) (input: string) (lexed: Lexed) (typar: Typar<SyntaxToken>) =
     match typar with
-    | Typar.Anon underscore ->
-        tw.Write("Typar.Anon: ")
-        printTokenFull tw input lexed underscore
-        tw.WriteLine()
+    | Typar.Anon underscore -> printTokenRow "Typar.Anon" ctx input lexed underscore
     | Typar.Named(quote, ident) ->
-        tw.Write("Typar.Named: ")
-        printTokenFull tw input lexed quote
-        tw.Write(" ")
-        printTokenFull tw input lexed ident
-        tw.WriteLine()
+        printSection
+            ctx
+            "Typar.Named"
+            (fun () ->
+                printTokenRow "" ctx input lexed quote
+                printTokenRow "" ctx input lexed ident
+            )
     | Typar.Static(caret, ident) ->
-        tw.Write("Typar.Static: ")
-        printTokenFull tw input lexed caret
-        tw.Write(" ")
-        printTokenFull tw input lexed ident
-        tw.WriteLine()
+        printSection
+            ctx
+            "Typar.Static"
+            (fun () ->
+                printTokenRow "" ctx input lexed caret
+                printTokenRow "" ctx input lexed ident
+            )
 
-let printConstraint (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (c: Constraint<SyntaxToken>) =
+let printConstraint (ctx: PrintContext) (input: string) (lexed: Lexed) (c: Constraint<SyntaxToken>) =
     match c with
     | Constraint.Coercion(typar, colonGT, typ) ->
         printSection
-            tw
+            ctx
             "Constraint.Coercion"
             (fun () ->
-                printTypar tw input lexed typar
-                printLabelledToken ":>" tw input lexed colonGT
-                printType tw input lexed typ
+                printTypar ctx input lexed typar
+                printLabelledToken ":>" ctx input lexed colonGT
+                printType ctx input lexed typ
             )
     | Constraint.Nullness(typar, _colon, _nullToken) ->
-        printSection tw "Constraint.Nullness" (fun () -> printTypar tw input lexed typar)
+        printSection ctx "Constraint.Nullness" (fun () -> printTypar ctx input lexed typar)
     | Constraint.MemberTrait(_staticTypars, _colon, _lParen, _membersign, _rParen) ->
-        tw.WriteLine("Constraint.MemberTrait: (not fully printed)")
+        ctx.WriteLine("Constraint.MemberTrait: (not fully printed)")
     | Constraint.DefaultConstructor(typar, _colon, _lParen, _newToken, _colonUnit, _arrow, _quoteT, _rParen) ->
-        printSection tw "Constraint.DefaultConstructor" (fun () -> printTypar tw input lexed typar)
+        printSection ctx "Constraint.DefaultConstructor" (fun () -> printTypar ctx input lexed typar)
     | Constraint.Struct(typar, _colon, _structToken) ->
-        printSection tw "Constraint.Struct" (fun () -> printTypar tw input lexed typar)
+        printSection ctx "Constraint.Struct" (fun () -> printTypar ctx input lexed typar)
     | Constraint.ReferenceType(typar, _colon, _notToken, _structToken) ->
-        printSection tw "Constraint.ReferenceType" (fun () -> printTypar tw input lexed typar)
+        printSection ctx "Constraint.ReferenceType" (fun () -> printTypar ctx input lexed typar)
     | Constraint.Enum(typar, _colon, _enumToken, _lAngle, typ, _rAngle) ->
         printSection
-            tw
+            ctx
             "Constraint.Enum"
             (fun () ->
-                printTypar tw input lexed typar
-                printType tw input lexed typ
+                printTypar ctx input lexed typar
+                printType ctx input lexed typ
             )
     | Constraint.Unmanaged(typar, _colon, _unmanagedToken) ->
-        printSection tw "Constraint.Unmanaged" (fun () -> printTypar tw input lexed typar)
+        printSection ctx "Constraint.Unmanaged" (fun () -> printTypar ctx input lexed typar)
     | Constraint.Delegate(typar, _colon, _delegateToken, _lAngle, type1, _comma, type2, _rAngle) ->
         printSection
-            tw
+            ctx
             "Constraint.Delegate"
             (fun () ->
-                printTypar tw input lexed typar
-                printType tw input lexed type1
-                printType tw input lexed type2
+                printTypar ctx input lexed typar
+                printType ctx input lexed type1
+                printType ctx input lexed type2
             )
     | Constraint.Equality(typar, _colon, _equalityToken) ->
-        printSection tw "Constraint.Equality" (fun () -> printTypar tw input lexed typar)
+        printSection ctx "Constraint.Equality" (fun () -> printTypar ctx input lexed typar)
     | Constraint.Comparison(typar, _colon, _comparisonToken) ->
-        printSection tw "Constraint.Comparison" (fun () -> printTypar tw input lexed typar)
+        printSection ctx "Constraint.Comparison" (fun () -> printTypar ctx input lexed typar)
 
-let printTyparDefns (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (typars: TyparDefns<SyntaxToken>) =
+let printTyparDefns (ctx: PrintContext) (input: string) (lexed: Lexed) (typars: TyparDefns<SyntaxToken>) =
     let (TyparDefns(lAngle, defns, constraints, rAngle)) = typars
 
     printSection
-        tw
+        ctx
         "TyparDefns"
         (fun () ->
-            printTokenMin tw input lexed lAngle
-            tw.WriteLine()
+            printTokenRow "" ctx input lexed lAngle
 
             for (TyparDefn(_attrs, typar)) in defns do
-                printTypar tw input lexed typar
+                printTypar ctx input lexed typar
 
             match constraints with
             | ValueSome(TyparConstraints(whenToken, constraintList)) ->
-                printLabelledToken "when" tw input lexed whenToken
+                printLabelledToken "when" ctx input lexed whenToken
 
                 for c in constraintList do
-                    printConstraint tw input lexed c
+                    printConstraint ctx input lexed c
             | ValueNone -> ()
 
-            printTokenMin tw input lexed rAngle
-            tw.WriteLine()
+            printTokenRow "" ctx input lexed rAngle
         )
 
-let printTypeArg (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (typeArg: TypeArg<SyntaxToken>) =
+let printTypeArg (ctx: PrintContext) (input: string) (lexed: Lexed) (typeArg: TypeArg<SyntaxToken>) =
     match typeArg with
-    | TypeArg.Type ty ->
-        tw.Write("TypeArg.Type: ")
-        printType tw input lexed ty
-    | TypeArg.Measure measure ->
-        tw.Write("TypeArg.Measure: ")
-        printMeasure tw input lexed measure
-        tw.WriteLine()
-    | TypeArg.StaticParameter staticParam ->
-        tw.Write("TypeArg.StaticParameter: ")
-        printTokenFull tw input lexed staticParam
-        tw.WriteLine()
+    | TypeArg.Type ty -> printSection ctx "TypeArg.Type" (fun () -> printType ctx input lexed ty)
+    | TypeArg.Measure measure -> printSection ctx "TypeArg.Measure" (fun () -> printMeasure ctx input lexed measure)
+    | TypeArg.StaticParameter staticParam -> printTokenRow "TypeArg.StaticParameter" ctx input lexed staticParam
 
-let rec printMeasure (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (measure: Measure<SyntaxToken>) =
+let rec printMeasure (ctx: PrintContext) (input: string) (lexed: Lexed) (measure: Measure<SyntaxToken>) =
     match measure with
     | Measure.Named longIdent ->
-        tw.Write("Measure.Named: ")
-        printLongIdentOrOp tw input lexed (LongIdentOrOp.LongIdent longIdent)
-        tw.WriteLine()
-    | Measure.One oneToken ->
-        tw.Write("Measure.One: ")
-        printTokenFull tw input lexed oneToken
-        tw.WriteLine()
-    | Measure.Anonymous underscore ->
-        tw.Write("Measure.Anonymous: ")
-        printTokenFull tw input lexed underscore
-        tw.WriteLine()
-    | Measure.Typar typar ->
-        tw.Write("Measure.Typar: ")
-        printTypar tw input lexed typar
-        tw.WriteLine()
+        printSection
+            ctx
+            "Measure.Named"
+            (fun () -> printLongIdentOrOp ctx input lexed (LongIdentOrOp.LongIdent longIdent))
+    | Measure.One oneToken -> printTokenRow "Measure.One" ctx input lexed oneToken
+    | Measure.Anonymous underscore -> printTokenRow "Measure.Anonymous" ctx input lexed underscore
+    | Measure.Typar typar -> printSection ctx "Measure.Typar" (fun () -> printTypar ctx input lexed typar)
     | Measure.Juxtaposition(measures, ops) ->
         printSection
-            tw
+            ctx
             "Measure.Juxtaposition"
             (fun () ->
                 for m in measures do
-                    printMeasure tw input lexed m
+                    printMeasure ctx input lexed m
             )
     | Measure.Power(baseMeasure, powerToken, exponent) ->
         printSection
-            tw
+            ctx
             "Measure.Power"
             (fun () ->
-                printMeasure tw input lexed baseMeasure
-                printTokenMin tw input lexed powerToken
-                printTokenMin tw input lexed exponent
+                printMeasure ctx input lexed baseMeasure
+                printTokenRow "" ctx input lexed powerToken
+                printTokenRow "" ctx input lexed exponent
             )
     | Measure.Product(left, mulToken, right) ->
         printSection
-            tw
+            ctx
             "Measure.Product"
             (fun () ->
-                printMeasure tw input lexed left
-                printTokenMin tw input lexed mulToken
-                printMeasure tw input lexed right
+                printMeasure ctx input lexed left
+                printTokenRow "" ctx input lexed mulToken
+                printMeasure ctx input lexed right
             )
     | Measure.Quotient(numerator, divToken, denominator) ->
         printSection
-            tw
+            ctx
             "Measure.Quotient"
             (fun () ->
-                printMeasure tw input lexed numerator
-                printTokenMin tw input lexed divToken
-                printMeasure tw input lexed denominator
+                printMeasure ctx input lexed numerator
+                printTokenRow "" ctx input lexed divToken
+                printMeasure ctx input lexed denominator
             )
     | Measure.Reciprocal(divToken, measure) ->
         printSection
-            tw
+            ctx
             "Measure.Reciprocal"
             (fun () ->
-                printTokenMin tw input lexed divToken
-                printMeasure tw input lexed measure
+                printTokenRow "" ctx input lexed divToken
+                printMeasure ctx input lexed measure
             )
     | Measure.Paren(lParen, measure, rParen) ->
         printSection
-            tw
+            ctx
             "Measure.Paren"
             (fun () ->
-                printTokenMin tw input lexed lParen
-                printMeasure tw input lexed measure
-                printTokenMin tw input lexed rParen
+                printTokenRow "" ctx input lexed lParen
+                printMeasure ctx input lexed measure
+                printTokenRow "" ctx input lexed rParen
             )
 
-let printType (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (ty: Type<SyntaxToken>) =
+let printType (ctx: PrintContext) (input: string) (lexed: Lexed) (ty: Type<SyntaxToken>) =
     match ty with
     | Type.ParenType(lParen, typ, rParen) ->
-        printLabelledToken "ParenType" tw input lexed lParen
-        indent tw (fun () -> printType tw input lexed typ)
-        printTokenMin tw input lexed rParen
-        tw.WriteLine()
-    | Type.VarType typar ->
-        tw.Write("VarType: ")
-        printTypar tw input lexed typar
+        printLabelledToken "ParenType" ctx input lexed lParen
+        indent ctx (fun () -> printType ctx input lexed typ)
+        printTokenRow "" ctx input lexed rParen
+    | Type.VarType typar -> printSection ctx "VarType" (fun () -> printTypar ctx input lexed typar)
     | Type.NamedType longIdent ->
-        tw.Write("NamedType: ")
-        printLongIdentOrOp tw input lexed (LongIdentOrOp.LongIdent longIdent)
+        printSection ctx "NamedType" (fun () -> printLongIdentOrOp ctx input lexed (LongIdentOrOp.LongIdent longIdent))
     | Type.GenericType(longIdent, lAngle, typeArgs, rAngle) ->
-        tw.Write("GenericType: ")
-        printLongIdentOrOp tw input lexed (LongIdentOrOp.LongIdent longIdent)
-        printTokenMin tw input lexed lAngle
-        tw.WriteLine()
-
-        indent
-            tw
+        printSection
+            ctx
+            "GenericType"
             (fun () ->
-                for typeArg in typeArgs do
-                    printTypeArg tw input lexed typeArg
-            )
+                printLongIdentOrOp ctx input lexed (LongIdentOrOp.LongIdent longIdent)
+                printTokenRow "<" ctx input lexed lAngle
 
-        printTokenMin tw input lexed rAngle
-        tw.WriteLine()
+                for typeArg in typeArgs do
+                    printTypeArg ctx input lexed typeArg
+
+                printTokenRow ">" ctx input lexed rAngle
+            )
     | Type.FunctionType(fromType, arrow, toType) ->
         printSection
-            tw
+            ctx
             "FunctionType"
             (fun () ->
-                printType tw input lexed fromType
-                printLabelledToken "->" tw input lexed arrow
-                printType tw input lexed toType
+                printType ctx input lexed fromType
+                printLabelledToken "->" ctx input lexed arrow
+                printType ctx input lexed toType
             )
     | Type.TupleType(types) ->
         printSection
-            tw
+            ctx
             "TupleType"
             (fun () ->
                 for t in types do
-                    printType tw input lexed t
+                    printType ctx input lexed t
             )
     | Type.StructTupleType(structToken, _lParen, types, _rParen) ->
         printSection
-            tw
+            ctx
             "StructTupleType"
             (fun () ->
-                printTokenMin tw input lexed structToken
-                tw.WriteLine()
+                printTokenRow "" ctx input lexed structToken
 
                 for t in types do
-                    printType tw input lexed t
+                    printType ctx input lexed t
             )
     | Type.IncompleteGenericType(longIdent, lAngle, rAngle) ->
-        tw.Write("IncompleteGenericType: ")
-        printLongIdentOrOp tw input lexed (LongIdentOrOp.LongIdent longIdent)
-        printTokenMin tw input lexed lAngle
-        tw.Write(" ")
-        printTokenMin tw input lexed rAngle
-        tw.WriteLine()
+        printSection
+            ctx
+            "IncompleteGenericType"
+            (fun () ->
+                printLongIdentOrOp ctx input lexed (LongIdentOrOp.LongIdent longIdent)
+                printTokenRow "<" ctx input lexed lAngle
+                printTokenRow ">" ctx input lexed rAngle
+            )
     | Type.SuffixedType(baseType, longIdent) ->
         printSection
-            tw
+            ctx
             "SuffixedType"
             (fun () ->
-                printType tw input lexed baseType
-                printLongIdentOrOp tw input lexed (LongIdentOrOp.LongIdent longIdent)
+                printType ctx input lexed baseType
+                printLongIdentOrOp ctx input lexed (LongIdentOrOp.LongIdent longIdent)
             )
     | Type.ArrayType(baseType, lBracket, commas, rBracket) ->
         printSection
-            tw
+            ctx
             "ArrayType"
             (fun () ->
-                printType tw input lexed baseType
-                printTokenMin tw input lexed lBracket
-                tw.WriteLine()
+                printType ctx input lexed baseType
+                printTokenRow "" ctx input lexed lBracket
 
                 for comma in commas do
-                    printTokenMin tw input lexed comma
-                    tw.WriteLine()
+                    printTokenRow "" ctx input lexed comma
 
-                printTokenMin tw input lexed rBracket
-                tw.WriteLine()
+                printTokenRow "" ctx input lexed rBracket
             )
     | Type.ConstrainedType(typ, constraints) ->
         printSection
-            tw
+            ctx
             "ConstrainedType"
             (fun () ->
-                printType tw input lexed typ
-                printTyparDefns tw input lexed constraints
+                printType ctx input lexed typ
+                printTyparDefns ctx input lexed constraints
             )
     | Type.SubtypeConstraint(typar, colonGreaterThan, typ) ->
         printSection
-            tw
+            ctx
             "SubtypeConstraint"
             (fun () ->
-                printTypar tw input lexed typar
-                printLabelledToken ":>" tw input lexed colonGreaterThan
-                printType tw input lexed typ
+                printTypar ctx input lexed typar
+                printLabelledToken ":>" ctx input lexed colonGreaterThan
+                printType ctx input lexed typ
             )
     | Type.AnonymousSubtype(hash, typ) ->
         printSection
-            tw
+            ctx
             "AnonymousSubtype"
             (fun () ->
-                printTokenMin tw input lexed hash
-                tw.WriteLine()
-                printType tw input lexed typ
+                printTokenRow "" ctx input lexed hash
+                printType ctx input lexed typ
             )
-    | Type.Missing -> tw.WriteLine("Missing")
+    | Type.Missing -> ctx.WriteLine("Missing")
     | Type.SkipsTokens(skippedTokens, innerType) ->
         printSection
-            tw
+            ctx
             "SkipsTokens"
             (fun () ->
                 for t in skippedTokens do
-                    printTokenMin tw input lexed t
-                    tw.WriteLine()
+                    printTokenRow "(skipped)" ctx input lexed t
 
-                printType tw input lexed innerType
+                printType ctx input lexed innerType
             )
 
-let printValueDefn (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (valueDefn: ValueDefn<SyntaxToken>) =
+let printValueDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (valueDefn: ValueDefn<SyntaxToken>) =
     match valueDefn with
     | ValueDefn(mutableToken, access, pat, typarDefns, returnType, equals, expr) ->
         match mutableToken with
-        | ValueSome t ->
-            printTokenMin tw input lexed t
-            tw.Write(" ")
+        | ValueSome t -> printTokenRow "mutable" ctx input lexed t
         | ValueNone -> ()
 
         match access with
-        | ValueSome a ->
-            printTokenMin tw input lexed a
-            tw.Write(" ")
+        | ValueSome a -> printTokenRow "access" ctx input lexed a
         | ValueNone -> ()
 
-        printPat tw input lexed pat
+        printPat ctx input lexed pat
 
         match typarDefns with
-        | ValueSome typars -> printTyparDefns tw input lexed typars
+        | ValueSome typars -> printTyparDefns ctx input lexed typars
         | ValueNone -> ()
 
         match returnType with
         | ValueSome(ReturnType(colon, typ)) ->
-            printLabelledToken "ReturnColon" tw input lexed colon
-            printType tw input lexed typ
+            printLabelledToken "ReturnColon" ctx input lexed colon
+            printType ctx input lexed typ
         | ValueNone -> ()
 
-        printLabelledToken "=" tw input lexed equals
-        indent tw (fun () -> printExpr tw input lexed expr)
+        printLabelledToken "=" ctx input lexed equals
+        indent ctx (fun () -> printExpr ctx input lexed expr)
 
-let printFunctionDefn
-    (tw: IndentedTextWriter)
-    (input: string)
-    (lexed: Lexed)
-    (functionDefn: FunctionDefn<SyntaxToken>)
-    =
+let printFunctionDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (functionDefn: FunctionDefn<SyntaxToken>) =
     let (FunctionDefn(inlineToken, access, identOrOp, typarDefns, argumentPats, returnType, equals, expr)) =
         functionDefn
 
     match inlineToken with
-    | ValueSome t -> printLabelledToken "inline" tw input lexed t
+    | ValueSome t -> printLabelledToken "inline" ctx input lexed t
     | ValueNone -> ()
 
     match access with
-    | ValueSome a -> printLabelledToken "access" tw input lexed a
+    | ValueSome a -> printLabelledToken "access" ctx input lexed a
     | ValueNone -> ()
 
-    tw.Write("IdentOrOp: ")
-    printIdentOrOp tw input lexed identOrOp
+    printSection ctx "IdentOrOp" (fun () -> printIdentOrOp ctx input lexed identOrOp)
 
     match typarDefns with
-    | ValueSome typars -> printTyparDefns tw input lexed typars
+    | ValueSome typars -> printTyparDefns ctx input lexed typars
     | ValueNone -> ()
 
     printSection
-        tw
+        ctx
         "Pats"
         (fun () ->
             for pat in argumentPats do
-                printPat tw input lexed pat
+                printPat ctx input lexed pat
         )
 
     match returnType with
     | ValueSome(ReturnType(colon, typ)) ->
-        printLabelledToken "ReturnColon" tw input lexed colon
-        printType tw input lexed typ
+        printLabelledToken "ReturnColon" ctx input lexed colon
+        printType ctx input lexed typ
     | ValueNone -> ()
 
-    printLabelledToken "=" tw input lexed equals
-    indent tw (fun () -> printExpr tw input lexed expr)
+    printLabelledToken "=" ctx input lexed equals
+    indent ctx (fun () -> printExpr ctx input lexed expr)
 
 let printFunctionOrValueDefn
-    (tw: IndentedTextWriter)
+    (ctx: PrintContext)
     (input: string)
     (lexed: Lexed)
     (defn: FunctionOrValueDefn<SyntaxToken>)
     =
     match defn with
     | FunctionOrValueDefn.Function functionDefn ->
-        printSection tw "Function" (fun () -> printFunctionDefn tw input lexed functionDefn)
-    | FunctionOrValueDefn.Value valueDefn -> printSection tw "Value" (fun () -> printValueDefn tw input lexed valueDefn)
+        printSection ctx "Function" (fun () -> printFunctionDefn ctx input lexed functionDefn)
+    | FunctionOrValueDefn.Value valueDefn ->
+        printSection ctx "Value" (fun () -> printValueDefn ctx input lexed valueDefn)
 
 let printFieldInitializer
-    (tw: IndentedTextWriter)
+    (ctx: PrintContext)
     (input: string)
     (lexed: Lexed)
     (fieldInit: FieldInitializer<SyntaxToken>)
@@ -869,450 +845,422 @@ let printFieldInitializer
     let (FieldInitializer(longIdent, equals, fieldExpr)) = fieldInit
 
     printSection
-        tw
+        ctx
         "Field"
         (fun () ->
-            printLongIdentOrOp tw input lexed (LongIdentOrOp.LongIdent longIdent)
-            printLabelledToken "=" tw input lexed equals
-            printSection tw "Expr" (fun () -> printExpr tw input lexed fieldExpr)
+            printLongIdentOrOp ctx input lexed (LongIdentOrOp.LongIdent longIdent)
+            printLabelledToken "=" ctx input lexed equals
+            printSection ctx "Expr" (fun () -> printExpr ctx input lexed fieldExpr)
         )
 
-let printExpr (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (expr: Expr<SyntaxToken>) =
+let printExpr (ctx: PrintContext) (input: string) (lexed: Lexed) (expr: Expr<SyntaxToken>) =
     match expr with
-    | Expr.Const value ->
-        tw.Write("Const: ")
-        printConstant tw input lexed value
-        tw.WriteLine()
-    | Expr.Ident ident ->
-        tw.Write("Ident: ")
-        printTokenFull tw input lexed ident
-        tw.WriteLine()
+    | Expr.Const value -> printConstant "Const" ctx input lexed value
+    | Expr.Ident ident -> printTokenRow "Ident" ctx input lexed ident
     | Expr.LetValue(letToken, valueDefn, inToken, body) ->
-        printLabelledToken "LetValue" tw input lexed letToken
+        printLabelledToken "LetValue" ctx input lexed letToken
 
         indent
-            tw
+            ctx
             (fun () ->
-                printValueDefn tw input lexed valueDefn
-                printLabelledToken "in" tw input lexed inToken
-                printSection tw "Body" (fun () -> printExpr tw input lexed body)
+                printValueDefn ctx input lexed valueDefn
+                printLabelledToken "in" ctx input lexed inToken
+                printSection ctx "Body" (fun () -> printExpr ctx input lexed body)
             )
     | Expr.InfixApp(left, op, right) ->
-        printLabelledToken "InfixApp" tw input lexed op
+        printLabelledToken "InfixApp" ctx input lexed op
 
         indent
-            tw
+            ctx
             (fun () ->
-                printExpr tw input lexed left
-                printExpr tw input lexed right
+                printExpr ctx input lexed left
+                printExpr ctx input lexed right
             )
     | Expr.PrefixApp(op, expr) ->
-        printLabelledToken "PrefixApp" tw input lexed op
-        indent tw (fun () -> printExpr tw input lexed expr)
+        printLabelledToken "PrefixApp" ctx input lexed op
+        indent ctx (fun () -> printExpr ctx input lexed expr)
     | Expr.Sequential(left, sep, right) ->
-        printLabelledToken "Sequential" tw input lexed sep
+        printLabelledToken "Sequential" ctx input lexed sep
 
         indent
-            tw
+            ctx
             (fun () ->
-                printExpr tw input lexed left
-                printExpr tw input lexed right
+                printExpr ctx input lexed left
+                printExpr ctx input lexed right
             )
     | Expr.Tuple elements ->
         printSection
-            tw
+            ctx
             "Tuple"
             (fun () ->
                 for elem in elements do
-                    printExpr tw input lexed elem
+                    printExpr ctx input lexed elem
             )
     | Expr.StructTuple(kw, lParen, elements, rParen) ->
         printSection
-            tw
+            ctx
             "StructTuple"
             (fun () ->
                 for elem in elements do
-                    printExpr tw input lexed elem
+                    printExpr ctx input lexed elem
             )
     | Expr.List(lBracket, elements, rBracket) ->
-        printLabelledToken "List" tw input lexed lBracket
+        printLabelledToken "List" ctx input lexed lBracket
 
         indent
-            tw
+            ctx
             (fun () ->
                 for elem in elements do
-                    printExpr tw input lexed elem
+                    printExpr ctx input lexed elem
             )
 
-        printTokenMin tw input lexed rBracket
-        tw.WriteLine()
+        printTokenRow "" ctx input lexed rBracket
     | Expr.Array(lBracket, elements, rBracket) ->
-        printLabelledToken "Array" tw input lexed lBracket
+        printLabelledToken "Array" ctx input lexed lBracket
 
         indent
-            tw
+            ctx
             (fun () ->
                 for elem in elements do
-                    printExpr tw input lexed elem
+                    printExpr ctx input lexed elem
             )
 
-        printTokenMin tw input lexed rBracket
-        tw.WriteLine()
+        printTokenRow "" ctx input lexed rBracket
     | Expr.ParenBlock(l, expr, r) ->
-        printLabelledToken "ParenBlock" tw input lexed l
-        indent tw (fun () -> printExpr tw input lexed expr)
-        printTokenMin tw input lexed r
-        tw.WriteLine()
+        printLabelledToken "ParenBlock" ctx input lexed l
+        indent ctx (fun () -> printExpr ctx input lexed expr)
+        printTokenRow "" ctx input lexed r
     | Expr.BeginEndBlock(l, expr, r) ->
-        printLabelledToken "BeginEndBlock" tw input lexed l
-        indent tw (fun () -> printExpr tw input lexed expr)
-        printTokenMin tw input lexed r
-        tw.WriteLine()
+        printLabelledToken "BeginEndBlock" ctx input lexed l
+        indent ctx (fun () -> printExpr ctx input lexed expr)
+        printTokenRow "" ctx input lexed r
     | Expr.LongIdentOrOp longIdentOrOp ->
-        tw.Write("LongIdentOrOp: ")
-        printLongIdentOrOp tw input lexed longIdentOrOp
+        printSection ctx "LongIdentOrOp" (fun () -> printLongIdentOrOp ctx input lexed longIdentOrOp)
     | Expr.TypeApp(expr, lAngle, types, rAngle) ->
         printSection
-            tw
+            ctx
             "TypeApp"
             (fun () ->
-                printSection tw "Expr" (fun () -> printExpr tw input lexed expr)
+                printSection ctx "Expr" (fun () -> printExpr ctx input lexed expr)
 
                 printSection
-                    tw
+                    ctx
                     "Types"
                     (fun () ->
                         for ty in types do
-                            printType tw input lexed ty
+                            printType ctx input lexed ty
                     )
             )
     | Expr.DotLookup(expr, dot, longIdentOrOp) ->
         printSection
-            tw
+            ctx
             "DotLookup"
             (fun () ->
-                printSection tw "Expr" (fun () -> printExpr tw input lexed expr)
-                printLabelledToken "Dot" tw input lexed dot
-                printSection tw "LongIdentOrOp" (fun () -> printLongIdentOrOp tw input lexed longIdentOrOp)
+                printSection ctx "Expr" (fun () -> printExpr ctx input lexed expr)
+                printLabelledToken "Dot" ctx input lexed dot
+                printSection ctx "LongIdentOrOp" (fun () -> printLongIdentOrOp ctx input lexed longIdentOrOp)
             )
     | Expr.IfThenElse(ifToken, condition, thenToken, thenExpr, elifBranches, elseBranch) ->
         printSection
-            tw
+            ctx
             "IfThenElse"
             (fun () ->
-                printLabelledToken "IfToken" tw input lexed ifToken
-                printSection tw "Condition" (fun () -> printExpr tw input lexed condition)
-                printLabelledToken "ThenToken" tw input lexed thenToken
-                printSection tw "ThenExpr" (fun () -> printExpr tw input lexed thenExpr)
+                printLabelledToken "IfToken" ctx input lexed ifToken
+                printSection ctx "Condition" (fun () -> printExpr ctx input lexed condition)
+                printLabelledToken "ThenToken" ctx input lexed thenToken
+                printSection ctx "ThenExpr" (fun () -> printExpr ctx input lexed thenExpr)
 
                 for elif' in elifBranches do
                     printSection
-                        tw
+                        ctx
                         "ElifBranch"
                         (fun () ->
                             let (ElifBranch.ElifBranch(elifToken, elifCondition, thenToken, elifExpr)) = elif'
-                            printLabelledToken "ElifToken" tw input lexed elifToken
-                            printSection tw "ElifCondition" (fun () -> printExpr tw input lexed elifCondition)
-                            printLabelledToken "ThenToken" tw input lexed thenToken
-                            printSection tw "ElifExpr" (fun () -> printExpr tw input lexed elifExpr)
+                            printLabelledToken "ElifToken" ctx input lexed elifToken
+                            printSection ctx "ElifCondition" (fun () -> printExpr ctx input lexed elifCondition)
+                            printLabelledToken "ThenToken" ctx input lexed thenToken
+                            printSection ctx "ElifExpr" (fun () -> printExpr ctx input lexed elifExpr)
                         )
 
                 match elseBranch with
                 | ValueSome(ElseBranch.ElseBranch(elseToken, elseExpr)) ->
-                    printLabelledToken "ElseToken" tw input lexed elseToken
-                    printSection tw "ElseExpr" (fun () -> printExpr tw input lexed elseExpr)
+                    printLabelledToken "ElseToken" ctx input lexed elseToken
+                    printSection ctx "ElseExpr" (fun () -> printExpr ctx input lexed elseExpr)
                 | ValueNone -> ()
             )
     | Expr.Match(matchToken, matchExpr, withToken, rules) ->
         printSection
-            tw
+            ctx
             "Match"
             (fun () ->
-                printLabelledToken "MatchToken" tw input lexed matchToken
-                printSection tw "MatchExpr" (fun () -> printExpr tw input lexed matchExpr)
-                printLabelledToken "WithToken" tw input lexed withToken
-                printRules tw input lexed rules
+                printLabelledToken "MatchToken" ctx input lexed matchToken
+                printSection ctx "MatchExpr" (fun () -> printExpr ctx input lexed matchExpr)
+                printLabelledToken "WithToken" ctx input lexed withToken
+                printRules ctx input lexed rules
             )
     | Expr.Fun(funToken, pats, arrow, expr) ->
-        printLabelledToken "Fun" tw input lexed funToken
+        printLabelledToken "Fun" ctx input lexed funToken
 
         printSection
-            tw
+            ctx
             "Pats"
             (fun () ->
                 for pat in pats do
-                    printPat tw input lexed pat
+                    printPat ctx input lexed pat
             )
 
-        printLabelledToken "Arrow" tw input lexed arrow
-        printSection tw "Body" (fun () -> printExpr tw input lexed expr)
+        printLabelledToken "Arrow" ctx input lexed arrow
+        printSection ctx "Body" (fun () -> printExpr ctx input lexed expr)
     | Expr.TryWith(tryToken, tryExpr, withToken, rules) ->
-        printLabelledToken "TryWith" tw input lexed tryToken
-        printSection tw "TryExpr" (fun () -> printExpr tw input lexed tryExpr)
-        printLabelledToken "WithToken" tw input lexed withToken
-        printRules tw input lexed rules
+        printLabelledToken "TryWith" ctx input lexed tryToken
+        printSection ctx "TryExpr" (fun () -> printExpr ctx input lexed tryExpr)
+        printLabelledToken "WithToken" ctx input lexed withToken
+        printRules ctx input lexed rules
     | Expr.TryFinally(tryToken, tryExpr, finallyToken, finallyExpr) ->
-        printLabelledToken "TryFinally" tw input lexed tryToken
-        printSection tw "TryExpr" (fun () -> printExpr tw input lexed tryExpr)
-        printLabelledToken "FinallyToken" tw input lexed finallyToken
-        printSection tw "FinallyExpr" (fun () -> printExpr tw input lexed finallyExpr)
+        printLabelledToken "TryFinally" ctx input lexed tryToken
+        printSection ctx "TryExpr" (fun () -> printExpr ctx input lexed tryExpr)
+        printLabelledToken "FinallyToken" ctx input lexed finallyToken
+        printSection ctx "FinallyExpr" (fun () -> printExpr ctx input lexed finallyExpr)
     | Expr.While(whileToken, cond, doToken, body, doneToken) ->
-        printLabelledToken "While" tw input lexed whileToken
-        printSection tw "Cond" (fun () -> printExpr tw input lexed cond)
-        printLabelledToken "DoToken" tw input lexed doToken
-        printSection tw "Body" (fun () -> printExpr tw input lexed body)
-        printLabelledToken "DoneToken" tw input lexed doneToken
+        printLabelledToken "While" ctx input lexed whileToken
+        printSection ctx "Cond" (fun () -> printExpr ctx input lexed cond)
+        printLabelledToken "DoToken" ctx input lexed doToken
+        printSection ctx "Body" (fun () -> printExpr ctx input lexed body)
+        printLabelledToken "DoneToken" ctx input lexed doneToken
     | Expr.ForTo(forToken, ident, equals, startExpr, toToken, endExpr, doToken, body, doneToken) ->
-        printLabelledToken "ForTo" tw input lexed forToken
-        tw.Write("Ident: ")
-        printTokenFull tw input lexed ident
-        tw.WriteLine()
-        printLabelledToken "Equals" tw input lexed equals
-        printSection tw "Start" (fun () -> printExpr tw input lexed startExpr)
-        printLabelledToken "ToToken" tw input lexed toToken
-        printSection tw "End" (fun () -> printExpr tw input lexed endExpr)
-        printLabelledToken "DoToken" tw input lexed doToken
-        printSection tw "Body" (fun () -> printExpr tw input lexed body)
-        printLabelledToken "DoneToken" tw input lexed doneToken
+        printLabelledToken "ForTo" ctx input lexed forToken
+        printTokenRow "Ident" ctx input lexed ident
+        printLabelledToken "Equals" ctx input lexed equals
+        printSection ctx "Start" (fun () -> printExpr ctx input lexed startExpr)
+        printLabelledToken "ToToken" ctx input lexed toToken
+        printSection ctx "End" (fun () -> printExpr ctx input lexed endExpr)
+        printLabelledToken "DoToken" ctx input lexed doToken
+        printSection ctx "Body" (fun () -> printExpr ctx input lexed body)
+        printLabelledToken "DoneToken" ctx input lexed doneToken
     | Expr.ForIn(forToken, pat, inToken, range, doToken, body, doneToken) ->
-        printLabelledToken "ForIn" tw input lexed forToken
-        tw.Write("Pat: ")
-        printPat tw input lexed pat
-        printLabelledToken "InToken" tw input lexed inToken
+        printLabelledToken "ForIn" ctx input lexed forToken
+        printSection ctx "Pat" (fun () -> printPat ctx input lexed pat)
+        printLabelledToken "InToken" ctx input lexed inToken
 
         printSection
-            tw
+            ctx
             "Range"
             (fun () ->
                 match range with
-                | ExprOrRange.Expr e -> printExpr tw input lexed e
-                | ExprOrRange.Range _ -> tw.WriteLine("(range)")
+                | ExprOrRange.Expr e -> printExpr ctx input lexed e
+                | ExprOrRange.Range _ -> ctx.WriteLine("(range)")
             )
 
-        printLabelledToken "DoToken" tw input lexed doToken
-        printSection tw "Body" (fun () -> printExpr tw input lexed body)
-        printLabelledToken "DoneToken" tw input lexed doneToken
+        printLabelledToken "DoToken" ctx input lexed doToken
+        printSection ctx "Body" (fun () -> printExpr ctx input lexed body)
+        printLabelledToken "DoneToken" ctx input lexed doneToken
     | Expr.Use(useToken, ident, equals, expr, inToken, body) ->
-        printLabelledToken "Use" tw input lexed useToken
-        tw.Write("Ident: ")
-        printTokenFull tw input lexed ident
-        tw.WriteLine()
-        printLabelledToken "Equals" tw input lexed equals
-        printSection tw "Expr" (fun () -> printExpr tw input lexed expr)
-        printLabelledToken "InToken" tw input lexed inToken
-        printSection tw "Body" (fun () -> printExpr tw input lexed body)
+        printLabelledToken "Use" ctx input lexed useToken
+        printTokenRow "Ident" ctx input lexed ident
+        printLabelledToken "Equals" ctx input lexed equals
+        printSection ctx "Expr" (fun () -> printExpr ctx input lexed expr)
+        printLabelledToken "InToken" ctx input lexed inToken
+        printSection ctx "Body" (fun () -> printExpr ctx input lexed body)
     | Expr.App(funcExpr, argExpr) ->
         printSection
-            tw
+            ctx
             "App"
             (fun () ->
-                printSection tw "Func" (fun () -> printExpr tw input lexed funcExpr)
-                printSection tw "Arg" (fun () -> printExpr tw input lexed argExpr)
+                printSection ctx "Func" (fun () -> printExpr ctx input lexed funcExpr)
+                printSection ctx "Arg" (fun () -> printExpr ctx input lexed argExpr)
             )
     | Expr.HighPrecedenceApp(funcExpr, lParen, argExpr, rParen) ->
         printSection
-            tw
+            ctx
             "HighPrecedenceApp"
             (fun () ->
-                printSection tw "Func" (fun () -> printExpr tw input lexed funcExpr)
-                printLabelledToken "(" tw input lexed lParen
-                printSection tw "Arg" (fun () -> printExpr tw input lexed argExpr)
-                printTokenMin tw input lexed rParen
-                tw.WriteLine()
+                printSection ctx "Func" (fun () -> printExpr ctx input lexed funcExpr)
+                printLabelledToken "(" ctx input lexed lParen
+                printSection ctx "Arg" (fun () -> printExpr ctx input lexed argExpr)
+                printTokenRow "" ctx input lexed rParen
             )
     | Expr.TypeAnnotation(innerExpr, colon, typ) ->
         printSection
-            tw
+            ctx
             "TypeAnnotation"
             (fun () ->
-                printSection tw "Expr" (fun () -> printExpr tw input lexed innerExpr)
-                printLabelledToken "Colon" tw input lexed colon
-                printType tw input lexed typ
+                printSection ctx "Expr" (fun () -> printExpr ctx input lexed innerExpr)
+                printLabelledToken "Colon" ctx input lexed colon
+                printType ctx input lexed typ
             )
     | Expr.Lazy(lazyToken, innerExpr) ->
-        printLabelledToken "Lazy" tw input lexed lazyToken
-        indent tw (fun () -> printExpr tw input lexed innerExpr)
+        printLabelledToken "Lazy" ctx input lexed lazyToken
+        indent ctx (fun () -> printExpr ctx input lexed innerExpr)
     | Expr.Assert(assertToken, innerExpr) ->
-        printLabelledToken "Assert" tw input lexed assertToken
-        indent tw (fun () -> printExpr tw input lexed innerExpr)
-    | Expr.Null nullToken ->
-        tw.Write("Null: ")
-        printTokenMin tw input lexed nullToken
-        tw.WriteLine()
+        printLabelledToken "Assert" ctx input lexed assertToken
+        indent ctx (fun () -> printExpr ctx input lexed innerExpr)
+    | Expr.Null nullToken -> printTokenRow "Null" ctx input lexed nullToken
     | Expr.Function(functionToken, rules) ->
-        printLabelledToken "Function" tw input lexed functionToken
-        indent tw (fun () -> printRules tw input lexed rules)
+        printLabelledToken "Function" ctx input lexed functionToken
+        indent ctx (fun () -> printRules ctx input lexed rules)
     | Expr.LetFunction(letToken, functionDefn, inToken, body) ->
-        printLabelledToken "LetFunction" tw input lexed letToken
+        printLabelledToken "LetFunction" ctx input lexed letToken
 
         indent
-            tw
+            ctx
             (fun () ->
-                printFunctionDefn tw input lexed functionDefn
-                printLabelledToken "in" tw input lexed inToken
-                printSection tw "Body" (fun () -> printExpr tw input lexed body)
+                printFunctionDefn ctx input lexed functionDefn
+                printLabelledToken "in" ctx input lexed inToken
+                printSection ctx "Body" (fun () -> printExpr ctx input lexed body)
             )
     | Expr.LetRec(letToken, recToken, defns, inToken, body) ->
-        printLabelledToken "LetRec" tw input lexed letToken
+        printLabelledToken "LetRec" ctx input lexed letToken
 
         indent
-            tw
+            ctx
             (fun () ->
-                printLabelledToken "rec" tw input lexed recToken
+                printLabelledToken "rec" ctx input lexed recToken
 
                 for defn in defns do
-                    printFunctionOrValueDefn tw input lexed defn
+                    printFunctionOrValueDefn ctx input lexed defn
 
-                printLabelledToken "in" tw input lexed inToken
-                printSection tw "Body" (fun () -> printExpr tw input lexed body)
+                printLabelledToken "in" ctx input lexed inToken
+                printSection ctx "Body" (fun () -> printExpr ctx input lexed body)
             )
     | Expr.New(newToken, typ, newExpr) ->
-        printLabelledToken "New" tw input lexed newToken
+        printLabelledToken "New" ctx input lexed newToken
 
         indent
-            tw
+            ctx
             (fun () ->
-                printType tw input lexed typ
-                printSection tw "Arg" (fun () -> printExpr tw input lexed newExpr)
+                printType ctx input lexed typ
+                printSection ctx "Arg" (fun () -> printExpr ctx input lexed newExpr)
             )
     | Expr.Assignment(leftExpr, arrow, rightExpr) ->
-        printLabelledToken "Assignment" tw input lexed arrow
+        printLabelledToken "Assignment" ctx input lexed arrow
 
         indent
-            tw
+            ctx
             (fun () ->
-                printExpr tw input lexed leftExpr
-                printExpr tw input lexed rightExpr
+                printExpr ctx input lexed leftExpr
+                printExpr ctx input lexed rightExpr
             )
     | Expr.Record(lBrace, fieldInitializers, rBrace) ->
-        printLabelledToken "Record" tw input lexed lBrace
+        printLabelledToken "Record" ctx input lexed lBrace
 
         indent
-            tw
+            ctx
             (fun () ->
                 for fi in fieldInitializers do
-                    printFieldInitializer tw input lexed fi
+                    printFieldInitializer ctx input lexed fi
             )
 
-        printTokenMin tw input lexed rBrace
-        tw.WriteLine()
+        printTokenRow "" ctx input lexed rBrace
     | Expr.RecordClone(lBrace, baseExpr, withToken, fieldInitializers, rBrace) ->
-        printLabelledToken "RecordClone" tw input lexed lBrace
+        printLabelledToken "RecordClone" ctx input lexed lBrace
 
         indent
-            tw
+            ctx
             (fun () ->
-                printSection tw "Base" (fun () -> printExpr tw input lexed baseExpr)
-                printLabelledToken "with" tw input lexed withToken
+                printSection ctx "Base" (fun () -> printExpr ctx input lexed baseExpr)
+                printLabelledToken "with" ctx input lexed withToken
 
                 for fi in fieldInitializers do
-                    printFieldInitializer tw input lexed fi
+                    printFieldInitializer ctx input lexed fi
             )
 
-        printTokenMin tw input lexed rBrace
-        tw.WriteLine()
+        printTokenRow "" ctx input lexed rBrace
     | Expr.IndexedLookup(indexedExpr, dot, lBracket, indexArgExpr, rBracket) ->
         printSection
-            tw
+            ctx
             "IndexedLookup"
             (fun () ->
-                printSection tw "Expr" (fun () -> printExpr tw input lexed indexedExpr)
-                printLabelledToken "." tw input lexed dot
-                printLabelledToken "[" tw input lexed lBracket
-                printSection tw "Index" (fun () -> printExpr tw input lexed indexArgExpr)
-                printTokenMin tw input lexed rBracket
-                tw.WriteLine()
+                printSection ctx "Expr" (fun () -> printExpr ctx input lexed indexedExpr)
+                printLabelledToken "." ctx input lexed dot
+                printLabelledToken "[" ctx input lexed lBracket
+                printSection ctx "Index" (fun () -> printExpr ctx input lexed indexArgExpr)
+                printTokenRow "" ctx input lexed rBracket
             )
     | Expr.StaticUpcast(castExpr, colonGT, typ) ->
         printSection
-            tw
+            ctx
             "StaticUpcast"
             (fun () ->
-                printSection tw "Expr" (fun () -> printExpr tw input lexed castExpr)
-                printLabelledToken ":>" tw input lexed colonGT
-                printType tw input lexed typ
+                printSection ctx "Expr" (fun () -> printExpr ctx input lexed castExpr)
+                printLabelledToken ":>" ctx input lexed colonGT
+                printType ctx input lexed typ
             )
     | Expr.DynamicTypeTest(testExpr, colonQ, typ) ->
         printSection
-            tw
+            ctx
             "DynamicTypeTest"
             (fun () ->
-                printSection tw "Expr" (fun () -> printExpr tw input lexed testExpr)
-                printLabelledToken ":?" tw input lexed colonQ
-                printType tw input lexed typ
+                printSection ctx "Expr" (fun () -> printExpr ctx input lexed testExpr)
+                printLabelledToken ":?" ctx input lexed colonQ
+                printType ctx input lexed typ
             )
     | Expr.DynamicDowncast(castExpr, colonQGT, typ) ->
         printSection
-            tw
+            ctx
             "DynamicDowncast"
             (fun () ->
-                printSection tw "Expr" (fun () -> printExpr tw input lexed castExpr)
-                printLabelledToken ":?>" tw input lexed colonQGT
-                printType tw input lexed typ
+                printSection ctx "Expr" (fun () -> printExpr ctx input lexed castExpr)
+                printLabelledToken ":?>" ctx input lexed colonQGT
+                printType ctx input lexed typ
             )
     | Expr.Upcast(upcastToken, castExpr) ->
-        printLabelledToken "Upcast" tw input lexed upcastToken
-        indent tw (fun () -> printExpr tw input lexed castExpr)
+        printLabelledToken "Upcast" ctx input lexed upcastToken
+        indent ctx (fun () -> printExpr ctx input lexed castExpr)
     | Expr.Downcast(downcastToken, castExpr) ->
-        printLabelledToken "Downcast" tw input lexed downcastToken
-        indent tw (fun () -> printExpr tw input lexed castExpr)
+        printLabelledToken "Downcast" ctx input lexed downcastToken
+        indent ctx (fun () -> printExpr ctx input lexed castExpr)
     | Expr.UseFixed(useToken, ident, equals, fixedToken, fixedExpr) ->
-        printLabelledToken "UseFixed" tw input lexed useToken
+        printLabelledToken "UseFixed" ctx input lexed useToken
 
         indent
-            tw
+            ctx
             (fun () ->
-                tw.Write("Ident: ")
-                printTokenFull tw input lexed ident
-                tw.WriteLine()
-                printLabelledToken "fixed" tw input lexed fixedToken
-                printSection tw "Expr" (fun () -> printExpr tw input lexed fixedExpr)
+                printTokenRow "Ident" ctx input lexed ident
+                printLabelledToken "fixed" ctx input lexed fixedToken
+                printSection ctx "Expr" (fun () -> printExpr ctx input lexed fixedExpr)
             )
-    | Expr.Missing -> tw.WriteLine("Missing")
+    | Expr.Missing -> ctx.WriteLine("Missing")
     | Expr.SkipsTokens(skippedTokens, innerExpr) ->
         printSection
-            tw
+            ctx
             "SkipsTokens"
             (fun () ->
                 for t in skippedTokens do
-                    printTokenMin tw input lexed t
-                    tw.WriteLine()
+                    printTokenRow "(skipped)" ctx input lexed t
 
-                printSection tw "Expr" (fun () -> printExpr tw input lexed innerExpr)
+                printSection ctx "Expr" (fun () -> printExpr ctx input lexed innerExpr)
             )
-    | Expr.Pat innerPat ->
-        tw.Write("Pat: ")
-        printPat tw input lexed innerPat
+    | Expr.Pat innerPat -> printSection ctx "Pat" (fun () -> printPat ctx input lexed innerPat)
     | _ -> failwithf "Not implemented %A" expr
 
 /// Formats a DiagnosticCode as a short, stable string suitable for golden-file output.
-let printDiagnosticCode (tw: IndentedTextWriter) (code: DiagnosticCode) =
+let sprintDiagnosticCode (code: DiagnosticCode) : string =
     match code with
-    | DiagnosticCode.MissingExpression -> tw.Write("MissingExpression")
-    | DiagnosticCode.MissingPattern -> tw.Write("MissingPattern")
-    | DiagnosticCode.MissingType -> tw.Write("MissingType")
-    | DiagnosticCode.MissingRule -> tw.Write("MissingRule")
-    | DiagnosticCode.MissingTypeDefn -> tw.Write("MissingTypeDefn")
-    | DiagnosticCode.Other msg -> tw.Write($"Other({msg})")
-    | DiagnosticCode.TyparInConstant _ -> tw.Write("TyparInConstant")
+    | DiagnosticCode.MissingExpression -> "MissingExpression"
+    | DiagnosticCode.MissingPattern -> "MissingPattern"
+    | DiagnosticCode.MissingType -> "MissingType"
+    | DiagnosticCode.MissingRule -> "MissingRule"
+    | DiagnosticCode.MissingTypeDefn -> "MissingTypeDefn"
+    | DiagnosticCode.Other msg -> $"Other({msg})"
+    | DiagnosticCode.TyparInConstant _ -> "TyparInConstant"
     | DiagnosticCode.UnexpectedTokenSkipped tok ->
         let base' = TokenInfo.withoutFlags tok.Token
-        tw.Write($"UnexpectedTokenSkipped({base'})")
+        $"UnexpectedTokenSkipped({base'})"
     | DiagnosticCode.UnclosedDelimiter(opened, expected) ->
         let openedBase = TokenInfo.withoutFlags opened.Token
         let expectedBase = TokenInfo.withoutFlags expected
-        tw.Write($"UnclosedDelimiter({openedBase}, {expectedBase})")
+        $"UnclosedDelimiter({openedBase}, {expectedBase})"
 
-/// Appends a "---\nDiagnostics:" section to `tw` when there are diagnostics.
+/// Appends a "---\nDiagnostics:" section to the buffer when there are diagnostics.
 /// Diagnostics are emitted in source order (reversed from the accumulation order).
 /// Has no effect when `diagnostics` is empty, so well-formed golden files are not touched.
-let printDiagnostics (tw: IndentedTextWriter) (diagnostics: Diagnostic list) =
+let printDiagnostics (ctx: PrintContext) (diagnostics: Diagnostic list) =
     if not diagnostics.IsEmpty then
-        tw.WriteLine("---")
-        tw.WriteLine("Diagnostics:")
+        ctx.WriteLine("---")
+        ctx.WriteLine("Diagnostics:")
 
         indent
-            tw
+            ctx
             (fun () ->
                 for diag in List.rev diagnostics do
                     let severity =
@@ -1322,7 +1270,5 @@ let printDiagnostics (tw: IndentedTextWriter) (diagnostics: Diagnostic list) =
                         | DiagnosticSeverity.Info -> "info"
                         | DiagnosticSeverity.Hint -> "hint"
 
-                    tw.Write($"[{severity}] ")
-                    printDiagnosticCode tw diag.Code
-                    tw.WriteLine($" at {diag.Token.StartIndex}")
+                    ctx.WriteLine($"[{severity}] {sprintDiagnosticCode diag.Code} at {diag.Token.StartIndex}")
             )

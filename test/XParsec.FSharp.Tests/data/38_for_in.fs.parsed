@@ -1,11 +1,12 @@
-ForIn: 0, KWFor(0<token>)
-Pat: Pat.NamedSimple: 4, Identifier(2<token>) 'x'
-InToken: 6, KWIn(4<token>)
+ForIn              'for'             KWFor               tok=   0  pos=   0
+Pat:
+  Pat.NamedSimple  'x'               Identifier          tok=   2  pos=   4
+InToken            'in'              KWIn                tok=   4  pos=   6
 Range:
-  Ident: 9, Identifier(6<token>) 'xs'
-DoToken: 12, KWDo(8<token>)
+  Ident            'xs'              Identifier          tok=   6  pos=   9
+DoToken            'do'              KWDo                tok=   8  pos=  12
 Body:
-  InfixApp: 20, Whitespace(12<token>)
-    Ident: 19, Identifier(11<token>) 'f'
-    Ident: 21, Identifier(13<token>) 'x'
-DoneToken: 23, KWDone (virtual)(<virt>)
+  InfixApp         ' '               Whitespace          tok=  12  pos=  20
+    Ident          'f'               Identifier          tok=  11  pos=  19
+    Ident          'x'               Identifier          tok=  13  pos=  21
+DoneToken          <virt>            KWDone              tok=virt  pos=  23

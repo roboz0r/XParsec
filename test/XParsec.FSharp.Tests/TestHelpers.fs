@@ -356,11 +356,10 @@ let testParseFileWith (definedSymbols: Set<string>) (filePath: string) =
             match XParsec.FSharp.Parser.Expr.parse reader with
             | Error e -> failwithf "Parsing failed: %A" e
             | Ok expr ->
-                use sw = new StringWriter()
-                use tw = new System.CodeDom.Compiler.IndentedTextWriter(sw, "  ")
-                XParsec.FSharp.Debug.printExpr tw input lexed expr
-                XParsec.FSharp.Debug.printDiagnostics tw reader.State.Diagnostics
-                sw.ToString()
+                let ctx = XParsec.FSharp.Debug.PrintContext(2)
+                XParsec.FSharp.Debug.printExpr ctx input lexed expr
+                XParsec.FSharp.Debug.printDiagnostics ctx reader.State.Diagnostics
+                ctx.FlushToString()
 
     if updateSnapshots || not (File.Exists expectedPath) then
         File.WriteAllText(expectedPath, actual)

@@ -1,25 +1,25 @@
 IfThenElse:
-  IfToken: 0, KWIf(0<token>)
+  IfToken              'if'              KWIf                tok=   0  pos=   0
   Condition:
-    Ident: 3, Identifier(2<token>) 'a'
-  ThenToken: 5, KWThen(4<token>)
+    Ident              'a'               Identifier          tok=   2  pos=   3
+  ThenToken            'then'            KWThen              tok=   4  pos=   5
   ThenExpr:
-    LetValue: 14, KWLet(7<token>)
-      Pat.NamedSimple: 18, Identifier(9<token>) 'x'
-      =: 20, OpEquality(11<token>)
-        Const: 22, NumInt32(13<token>) '1'
-      in: 28, KWIn (virtual)(<virt>)
+    LetValue           'let'             KWLet               tok=   7  pos=  14
+      Pat.NamedSimple  'x'               Identifier          tok=   9  pos=  18
+      =                '='               OpEquality          tok=  11  pos=  20
+        Const          '1'               NumInt32            tok=  13  pos=  22
+      in               <virt>            KWIn                tok=virt  pos=  28
       Body:
-        InfixApp: 30, Operator 0b1000000001010011 InfixAdd (can be prefix)(18<token>)
-          Ident: 28, Identifier(16<token>) 'x'
-          Const: 32, NumInt32(20<token>) '2'
+        InfixApp       '+'               OpSubtractionAssignment  tok=  18  pos=  30
+          Ident        'x'               Identifier          tok=  16  pos=  28
+          Const        '2'               NumInt32            tok=  20  pos=  32
   ElifBranch:
-    ElifToken: 34, KWElif(22<token>)
+    ElifToken          'elif'            KWElif              tok=  22  pos=  34
     ElifCondition:
-      Ident: 39, Identifier(24<token>) 'b'
-    ThenToken: 41, KWThen(26<token>)
+      Ident            'b'               Identifier          tok=  24  pos=  39
+    ThenToken          'then'            KWThen              tok=  26  pos=  41
     ElifExpr:
-      Const: 50, NumInt32(29<token>) '3'
-  ElseToken: 52, KWElse(31<token>)
+      Const            '3'               NumInt32            tok=  29  pos=  50
+  ElseToken            'else'            KWElse              tok=  31  pos=  52
   ElseExpr:
-    Const: 61, NumInt32(34<token>) '4'
+    Const              '4'               NumInt32            tok=  34  pos=  61

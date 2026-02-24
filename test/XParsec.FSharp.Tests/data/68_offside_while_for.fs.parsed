@@ -1,17 +1,17 @@
-While: 0, KWWhile(0<token>)
+While                'while'           KWWhile             tok=   0  pos=   0
 Cond:
-  Ident: 6, Identifier(2<token>) 'condition'
-DoToken: 16, KWDo(4<token>)
+  Ident              'condition'       Identifier          tok=   2  pos=   6
+DoToken              'do'              KWDo                tok=   4  pos=  16
 Body:
-  LetValue: 23, KWLet(7<token>)
-    Pat.NamedSimple: 27, Identifier(9<token>) 'x'
-    =: 29, OpEquality(11<token>)
-      Const: 31, NumInt32(13<token>) '1'
-    in: 37, KWIn (virtual)(<virt>)
+  LetValue           'let'             KWLet               tok=   7  pos=  23
+    Pat.NamedSimple  'x'               Identifier          tok=   9  pos=  27
+    =                '='               OpEquality          tok=  11  pos=  29
+      Const          '1'               NumInt32            tok=  13  pos=  31
+    in               <virt>            KWIn                tok=virt  pos=  37
     Body:
-      InfixApp: 49, Whitespace(19<token>)
-        InfixApp: 44, Whitespace(17<token>)
-          Ident: 37, Identifier(16<token>) 'printfn'
-          Const: 45, StringLiteral(18<token>) '"%d"'
-        Ident: 50, Identifier(20<token>) 'x'
-DoneToken: 52, KWDone (virtual)(<virt>)
+      InfixApp       ' '               Whitespace          tok=  19  pos=  49
+        InfixApp     ' '               Whitespace          tok=  17  pos=  44
+          Ident      'printfn'         Identifier          tok=  16  pos=  37
+          Const      '"%d"'            StringLiteral       tok=  18  pos=  45
+        Ident        'x'               Identifier          tok=  20  pos=  50
+DoneToken            <virt>            KWDone              tok=virt  pos=  52

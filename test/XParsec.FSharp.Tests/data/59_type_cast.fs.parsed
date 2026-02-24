@@ -1,6 +1,7 @@
 StaticUpcast:
   Expr:
-    Ident: 0, Identifier(0<token>) 'x'
-  :>: 2, OpUpcast(2<token>)
-  NamedType: LongIdent:
-    5, Identifier(4<token>) 'int'
+    Ident  'x'               Identifier          tok=   0  pos=   0
+  :>       ':>'              OpUpcast            tok=   2  pos=   2
+  NamedType:
+    LongIdent:
+           'int'             Identifier          tok=   4  pos=   5
