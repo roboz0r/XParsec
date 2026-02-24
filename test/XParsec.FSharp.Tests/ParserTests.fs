@@ -29,6 +29,12 @@ let tests =
                 let path = Path.Combine(testDataDir.Value, fileName)
                 let name = $"""Parsing {fileName} ({String.concat ", " symbols})"""
                 test name { testParseFileWithSymbols symbols path }
+
+            ptest "Debug Test" {
+                let fileName = "file.fs"
+                let path = Path.Combine(testDataDir.Value, fileName)
+                testParseFile path
+            }
         ]
 
 [<Tests>]

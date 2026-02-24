@@ -1,9 +1,8 @@
 LetValue: 0, KWLet(0<token>)
-  Pat.Typed:
-    Pat.NamedSimple: 4, Identifier(2<token>) 'x'
-    Colon: 6, OpColon(4<token>)
-    NamedType: LongIdent:
-      8, Identifier(6<token>) 'int'
+  Pat.NamedSimple: 4, Identifier(2<token>) 'x'
+  ReturnColon: 6, OpColon(4<token>)
+  NamedType: LongIdent:
+    8, Identifier(6<token>) 'int'
   =: 12, OpEquality(8<token>)
     Const: 14, NumInt32(10<token>) '1'
   in: 16, KWIn(12<token>)

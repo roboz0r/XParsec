@@ -299,7 +299,7 @@ module Pat =
             return Pat.Attributed(attrs, pat)
         }
 
-    let pPatAtom =
+    let parseAtomic =
         choiceL
             [
                 pWildcard |>> Pat.Wildcard
@@ -314,8 +314,9 @@ module Pat =
             ]
             "Pattern Atom"
 
-    let parse = Operator.parser pPatAtom (PatOperatorParser())
+    let parse = Operator.parser parseAtomic (PatOperatorParser())
     let parseMany1 = many1 parse
+    let parseAtomicMany1 = many1 parseAtomic
 
     do refPat.Set parse
 

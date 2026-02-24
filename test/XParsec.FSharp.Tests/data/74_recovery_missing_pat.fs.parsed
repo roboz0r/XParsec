@@ -1,0 +1,14 @@
+Match:
+  MatchToken: 0, KWMatch(0<token>)
+  MatchExpr:
+    Const: 6, NumInt32(2<token>) '1'
+  WithToken: 8, KWWith(4<token>)
+  Rule:
+    Bar: 13, OpBar(6<token>)
+    Pat: Missing
+    Arrow: 15, OpArrowRight(8<token>)
+    Expr:
+      Const: 18, NumInt32(10<token>) '2'
+---
+Diagnostics:
+  [error] MissingPattern at 15
