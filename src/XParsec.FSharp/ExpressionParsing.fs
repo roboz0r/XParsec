@@ -1023,7 +1023,7 @@ module Expr =
         parser {
             let! l = pLParen
             let! e = refExpr.Parser
-            let! r = pRParen
+            let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) Token.KWRParen
             return Expr.ParenBlock(l, e, r)
         }
 
@@ -1031,7 +1031,7 @@ module Expr =
         parser {
             let! l = pBegin
             let! e = pSeqBlock refExpr.Parser
-            let! r = pEnd
+            let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) Token.KWEnd
             return Expr.BeginEndBlock(l, e, r)
         }
 
@@ -1041,7 +1041,7 @@ module Expr =
 
             let! elems, seps = sepEndBy refExprInCollectionOrRecords.Parser pSemi
 
-            let! r = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = closeTok) $"Expected '{closeTok}'"
+            let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) closeTok
             return complete l elems r
         }
 
