@@ -1,46 +1,51 @@
-TryWith: 0, KWTry(0<token>)
+TryWith                'try'             KWTry               tok=   0  pos=   0
 TryExpr:
-  LetValue: 8, KWLet(3<token>)
-    Pat.NamedSimple: 12, Identifier(5<token>) 'x'
-    =: 14, OpEquality(7<token>)
-      InfixApp: 23, Whitespace(10<token>)
-        Ident: 16, Identifier(9<token>) 'riskyOp'
-        Const: 24, Unit(11<token>) '()'
-    in: 31, KWIn (virtual)(<virt>)
+  LetValue             'let'             KWLet               tok=   3  pos=   8
+    Pat.NamedSimple    'x'               Identifier          tok=   5  pos=  12
+    =                  '='               OpEquality          tok=   7  pos=  14
+      InfixApp         ' '               Whitespace          tok=  10  pos=  23
+        Ident          'riskyOp'         Identifier          tok=   9  pos=  16
+        Const          '()'              Unit                tok=  11  pos=  24
+    in                 <virt>            KWIn                tok=virt  pos=  31
     Body:
-      InfixApp: 33, Operator 0b1000000001010011 InfixAdd (can be prefix)(16<token>)
-        Ident: 31, Identifier(14<token>) 'x'
-        Const: 35, NumInt32(18<token>) '1'
-WithToken: 37, KWWith(20<token>)
+      InfixApp         '+'               OpSubtractionAssignment  tok=  16  pos=  33
+        Ident          'x'               Identifier          tok=  14  pos=  31
+        Const          '1'               NumInt32            tok=  18  pos=  35
+WithToken              'with'            KWWith              tok=  20  pos=  37
 Rule:
-  Bar: 42, OpBar(22<token>)
-  Pat: Pat.TypeTestAs:
-    ColonQuestion: 44, OpTypeTest(24<token>)
-    NamedType: LongIdent:
-      47, Identifier(26<token>) 'System'
-      54, Identifier(28<token>) 'Exception'
-    As: 64, KWAs(30<token>)
-    Ident: 67, Identifier(32<token>) 'ex'
-  Arrow: 70, OpArrowRight(34<token>)
+  Bar                  '|'               OpBar               tok=  22  pos=  42
+  Pat:
+    Pat.TypeTestAs:
+      ColonQuestion    ':?'              OpTypeTest          tok=  24  pos=  44
+      NamedType:
+        LongIdent:
+                       'System'          Identifier          tok=  26  pos=  47
+                       'Exception'       Identifier          tok=  28  pos=  54
+      As               'as'              KWAs                tok=  30  pos=  64
+      Ident            'ex'              Identifier          tok=  32  pos=  67
+  Arrow                '->'              OpArrowRight        tok=  34  pos=  70
   Expr:
-    LetValue: 77, KWLet(37<token>)
-      Pat.NamedSimple: 81, Identifier(39<token>) 'msg'
-      =: 85, OpEquality(41<token>)
-        LongIdentOrOp: LongIdent:
-          87, Identifier(43<token>) 'ex'
-          90, Identifier(45<token>) 'Message'
-      in: 102, KWIn (virtual)(<virt>)
+    LetValue           'let'             KWLet               tok=  37  pos=  77
+      Pat.NamedSimple  'msg'             Identifier          tok=  39  pos=  81
+      =                '='               OpEquality          tok=  41  pos=  85
+        LongIdentOrOp:
+          LongIdent:
+                       'ex'              Identifier          tok=  43  pos=  87
+                       'Message'         Identifier          tok=  45  pos=  90
+      in               <virt>            KWIn                tok=virt  pos= 102
       Body:
-        PrefixApp: 102, Operator 0b1000000001010011 InfixAdd (can be prefix)(48<token>)
-          Const: 103, NumInt32(49<token>) '1'
+        PrefixApp      '-'               OpSubtractionAssignment  tok=  48  pos= 102
+          Const        '1'               NumInt32            tok=  49  pos= 103
 Rule:
-  Bar: 105, OpBar(51<token>)
-  Pat: Pat.TypeTest:
-    ColonQuestion: 107, OpTypeTest(53<token>)
-    NamedType: LongIdent:
-      110, Identifier(55<token>) 'System'
-      117, Identifier(57<token>) 'InvalidOpe...'
-  Arrow: 143, OpArrowRight(59<token>)
+  Bar                  '|'               OpBar               tok=  51  pos= 105
+  Pat:
+    Pat.TypeTest:
+      ColonQuestion    ':?'              OpTypeTest          tok=  53  pos= 107
+      NamedType:
+        LongIdent:
+                       'System'          Identifier          tok=  55  pos= 110
+                       'InvalidOpe...'   Identifier          tok=  57  pos= 117
+  Arrow                '->'              OpArrowRight        tok=  59  pos= 143
   Expr:
-    PrefixApp: 150, Operator 0b1000000001010011 InfixAdd (can be prefix)(62<token>)
-      Const: 151, NumInt32(63<token>) '2'
+    PrefixApp          '-'               OpSubtractionAssignment  tok=  62  pos= 150
+      Const            '2'               NumInt32            tok=  63  pos= 151

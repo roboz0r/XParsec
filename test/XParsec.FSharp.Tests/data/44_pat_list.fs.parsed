@@ -1,27 +1,30 @@
 Match:
-  MatchToken: 0, KWMatch(0<token>)
+  MatchToken             'match'           KWMatch             tok=   0  pos=   0
   MatchExpr:
-    Ident: 6, Identifier(2<token>) 'xs'
-  WithToken: 9, KWWith(4<token>)
+    Ident                'xs'              Identifier          tok=   2  pos=   6
+  WithToken              'with'            KWWith              tok=   4  pos=   9
   Rule:
-    Bar: 14, OpBar(6<token>)
-    Pat: Pat.List: 16, OpNil(8<token>)
-    16, OpNil(8<token>)
-    Arrow: 19, OpArrowRight(10<token>)
+    Bar                  '|'               OpBar               tok=   6  pos=  14
+    Pat:
+      Pat.List           '[]'              OpNil               tok=   8  pos=  16
+                         '[]'              OpNil               tok=   8  pos=  16
+    Arrow                '->'              OpArrowRight        tok=  10  pos=  19
     Expr:
-      Const: 22, NumInt32(12<token>) '0'
+      Const              '0'               NumInt32            tok=  12  pos=  22
   Rule:
-    Bar: 24, OpBar(14<token>)
-    Pat: Pat.List: 26, KWLBracket(16<token>)
-      Pat.NamedSimple: 27, Identifier(17<token>) 'x'
-    28, KWRBracket(18<token>)
-    Arrow: 30, OpArrowRight(20<token>)
+    Bar                  '|'               OpBar               tok=  14  pos=  24
+    Pat:
+      Pat.List           '['               KWLBracket          tok=  16  pos=  26
+        Pat.NamedSimple  'x'               Identifier          tok=  17  pos=  27
+                         ']'               KWRBracket          tok=  18  pos=  28
+    Arrow                '->'              OpArrowRight        tok=  20  pos=  30
     Expr:
-      Ident: 33, Identifier(22<token>) 'x'
+      Ident              'x'               Identifier          tok=  22  pos=  33
   Rule:
-    Bar: 35, OpBar(24<token>)
-    Pat: Pat.Wildcard: 37, Wildcard(26<token>)
-    Arrow: 39, OpArrowRight(28<token>)
+    Bar                  '|'               OpBar               tok=  24  pos=  35
+    Pat:
+      Pat.Wildcard       '_'               Wildcard            tok=  26  pos=  37
+    Arrow                '->'              OpArrowRight        tok=  28  pos=  39
     Expr:
-      PrefixApp: 42, Operator 0b1000000001010011 InfixAdd (can be prefix)(30<token>)
-        Const: 43, NumInt32(31<token>) '1'
+      PrefixApp          '-'               OpSubtractionAssignment  tok=  30  pos=  42
+        Const            '1'               NumInt32            tok=  31  pos=  43

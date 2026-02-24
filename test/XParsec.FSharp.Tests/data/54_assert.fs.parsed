@@ -1,6 +1,6 @@
-Assert: 0, KWAssert(0<token>)
-  ParenBlock: 7, KWLParen(2<token>)
-    InfixApp: 10, Operator 0b1000000000001111 LogicalAndBitwise(5<token>)
-      Ident: 8, Identifier(3<token>) 'x'
-      Const: 12, NumInt32(7<token>) '0'
-  13, KWRParen(8<token>)
+Assert        'assert'          KWAssert            tok=   0  pos=   0
+  ParenBlock  '('               KWLParen            tok=   2  pos=   7
+    InfixApp  '>'               OpPipeLeft2         tok=   5  pos=  10
+      Ident   'x'               Identifier          tok=   3  pos=   8
+      Const   '0'               NumInt32            tok=   7  pos=  12
+              ')'               KWRParen            tok=   8  pos=  13

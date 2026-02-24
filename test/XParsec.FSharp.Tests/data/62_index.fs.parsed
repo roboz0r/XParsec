@@ -1,8 +1,8 @@
 IndexedLookup:
   Expr:
-    Ident: 0, Identifier(0<token>) 'xs'
-  .: 2, OpDot(1<token>)
-  [: 3, KWLBracket(2<token>)
+    Ident  'xs'              Identifier          tok=   0  pos=   0
+  .        '.'               OpDot               tok=   1  pos=   2
+  [        '['               KWLBracket          tok=   2  pos=   3
   Index:
-    Const: 4, NumInt32(3<token>) '0'
-  5, KWRBracket(4<token>)
+    Const  '0'               NumInt32            tok=   3  pos=   4
+           ']'               KWRBracket          tok=   4  pos=   5

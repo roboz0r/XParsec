@@ -1,20 +1,23 @@
 Match:
-  MatchToken: 0, KWMatch(0<token>)
+  MatchToken                 'match'           KWMatch             tok=   0  pos=   0
   MatchExpr:
-    Ident: 6, Identifier(2<token>) 'x'
-  WithToken: 8, KWWith(4<token>)
+    Ident                    'x'               Identifier          tok=   2  pos=   6
+  WithToken                  'with'            KWWith              tok=   4  pos=   8
   Rule:
-    Bar: 13, OpBar(6<token>)
-    Pat: Pat.Record: 15, KWLBrace(8<token>)
-      FieldPat:
-        Ident: 17, Identifier(10<token>) 'Field'
-        =: 23, OpEquality(12<token>)
-        Pat: Pat.NamedSimple: 25, Identifier(14<token>) 'v'
-      FieldPat:
-        Ident: 28, Identifier(17<token>) 'Other'
-        =: 34, OpEquality(19<token>)
-        Pat: Pat.Wildcard: 36, Wildcard(21<token>)
-    38, KWRBrace(23<token>)
-    Arrow: 40, OpArrowRight(25<token>)
+    Bar                      '|'               OpBar               tok=   6  pos=  13
+    Pat:
+      Pat.Record             '{'               KWLBrace            tok=   8  pos=  15
+        FieldPat:
+          Ident              'Field'           Identifier          tok=  10  pos=  17
+          =                  '='               OpEquality          tok=  12  pos=  23
+          Pat:
+            Pat.NamedSimple  'v'               Identifier          tok=  14  pos=  25
+        FieldPat:
+          Ident              'Other'           Identifier          tok=  17  pos=  28
+          =                  '='               OpEquality          tok=  19  pos=  34
+          Pat:
+            Pat.Wildcard     '_'               Wildcard            tok=  21  pos=  36
+                             '}'               KWRBrace            tok=  23  pos=  38
+    Arrow                    '->'              OpArrowRight        tok=  25  pos=  40
     Expr:
-      Ident: 43, Identifier(27<token>) 'v'
+      Ident                  'v'               Identifier          tok=  27  pos=  43

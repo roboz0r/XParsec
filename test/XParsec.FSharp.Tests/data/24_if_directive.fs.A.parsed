@@ -1,1 +1,1 @@
-Const: 27, NumInt32(15<token>) '1'
+Const  '1'               NumInt32            tok=  15  pos=  27

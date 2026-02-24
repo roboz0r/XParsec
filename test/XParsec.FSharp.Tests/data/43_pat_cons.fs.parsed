@@ -1,20 +1,22 @@
 Match:
-  MatchToken: 0, KWMatch(0<token>)
+  MatchToken             'match'           KWMatch             tok=   0  pos=   0
   MatchExpr:
-    Ident: 6, Identifier(2<token>) 'xs'
-  WithToken: 9, KWWith(4<token>)
+    Ident                'xs'              Identifier          tok=   2  pos=   6
+  WithToken              'with'            KWWith              tok=   4  pos=   9
   Rule:
-    Bar: 14, OpBar(6<token>)
-    Pat: Pat.Cons: 18, KWColonColon(10<token>)
-      Pat.NamedSimple: 16, Identifier(8<token>) 'x'
-      Pat.NamedSimple: 21, Identifier(12<token>) 'rest'
-    Arrow: 26, OpArrowRight(14<token>)
+    Bar                  '|'               OpBar               tok=   6  pos=  14
+    Pat:
+      Pat.Cons           '::'              KWColonColon        tok=  10  pos=  18
+        Pat.NamedSimple  'x'               Identifier          tok=   8  pos=  16
+        Pat.NamedSimple  'rest'            Identifier          tok=  12  pos=  21
+    Arrow                '->'              OpArrowRight        tok=  14  pos=  26
     Expr:
-      Ident: 29, Identifier(16<token>) 'x'
+      Ident              'x'               Identifier          tok=  16  pos=  29
   Rule:
-    Bar: 31, OpBar(18<token>)
-    Pat: Pat.List: 33, OpNil(20<token>)
-    33, OpNil(20<token>)
-    Arrow: 36, OpArrowRight(22<token>)
+    Bar                  '|'               OpBar               tok=  18  pos=  31
+    Pat:
+      Pat.List           '[]'              OpNil               tok=  20  pos=  33
+                         '[]'              OpNil               tok=  20  pos=  33
+    Arrow                '->'              OpArrowRight        tok=  22  pos=  36
     Expr:
-      Const: 39, NumInt32(24<token>) '0'
+      Const              '0'               NumInt32            tok=  24  pos=  39

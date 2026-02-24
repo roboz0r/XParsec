@@ -1,8 +1,8 @@
-Fun: 0, KWFun(0<token>)
+Fun                'fun'             KWFun               tok=   0  pos=   0
 Pats:
-  Pat.NamedSimple: 4, Identifier(2<token>) 'x'
-Arrow: 6, OpArrowRight(4<token>)
+  Pat.NamedSimple  'x'               Identifier          tok=   2  pos=   4
+Arrow              '->'              OpArrowRight        tok=   4  pos=   6
 Body:
-  InfixApp: 11, Operator 0b1000000001010011 InfixAdd (can be prefix)(8<token>)
-    Ident: 9, Identifier(6<token>) 'x'
-    Const: 13, NumInt32(10<token>) '1'
+  InfixApp         '+'               OpSubtractionAssignment  tok=   8  pos=  11
+    Ident          'x'               Identifier          tok=   6  pos=   9
+    Const          '1'               NumInt32            tok=  10  pos=  13

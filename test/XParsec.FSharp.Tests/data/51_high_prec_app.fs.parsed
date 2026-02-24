@@ -1,9 +1,9 @@
 HighPrecedenceApp:
   Func:
-    Ident: 0, Identifier(0<token>) 'f'
-  (: 1, KWLParen(1<token>)
+    Ident    'f'               Identifier          tok=   0  pos=   0
+  (          '('               KWLParen            tok=   1  pos=   1
   Arg:
     Tuple:
-      Ident: 2, Identifier(2<token>) 'x'
-      Ident: 5, Identifier(5<token>) 'y'
-  6, KWRParen(6<token>)
+      Ident  'x'               Identifier          tok=   2  pos=   2
+      Ident  'y'               Identifier          tok=   5  pos=   5
+             ')'               KWRParen            tok=   6  pos=   6

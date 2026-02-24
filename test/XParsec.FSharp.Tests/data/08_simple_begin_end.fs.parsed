@@ -1,3 +1,3 @@
-BeginEndBlock: 0, KWBegin(0<token>)
-  Const: 6, NumInt32(2<token>) '123'
-10, KWEnd(4<token>)
+BeginEndBlock  'begin'           KWBegin             tok=   0  pos=   0
+  Const        '123'             NumInt32            tok=   2  pos=   6
+               'end'             KWEnd               tok=   4  pos=  10

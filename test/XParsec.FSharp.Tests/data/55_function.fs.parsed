@@ -1,22 +1,26 @@
-Function: 0, KWFunction(0<token>)
+Function                   'function'        KWFunction          tok=   0  pos=   0
   Rule:
-    Bar: 9, OpBar(2<token>)
-    Pat: Pat.Paren: 11, KWLParen(4<token>)
-      Pat.Typed:
-        Pat.NamedSimple: 12, Identifier(5<token>) 'x'
-        Colon: 14, OpColon(7<token>)
-        TupleType:
-          NamedType: LongIdent:
-            16, Identifier(9<token>) 'int'
-          NamedType: LongIdent:
-            22, Identifier(13<token>) 'string'
-    28, KWRParen(14<token>)
-    Arrow: 30, OpArrowRight(16<token>)
+    Bar                    '|'               OpBar               tok=   2  pos=   9
+    Pat:
+      Pat.Paren            '('               KWLParen            tok=   4  pos=  11
+        Pat.Typed:
+          Pat.NamedSimple  'x'               Identifier          tok=   5  pos=  12
+          Colon            ':'               OpColon             tok=   7  pos=  14
+          TupleType:
+            NamedType:
+              LongIdent:
+                           'int'             Identifier          tok=   9  pos=  16
+            NamedType:
+              LongIdent:
+                           'string'          Identifier          tok=  13  pos=  22
+                           ')'               KWRParen            tok=  14  pos=  28
+    Arrow                  '->'              OpArrowRight        tok=  16  pos=  30
     Expr:
-      Const: 33, NumInt32(18<token>) '0'
+      Const                '0'               NumInt32            tok=  18  pos=  33
   Rule:
-    Bar: 35, OpBar(20<token>)
-    Pat: Pat.Wildcard: 37, Wildcard(22<token>)
-    Arrow: 39, OpArrowRight(24<token>)
+    Bar                    '|'               OpBar               tok=  20  pos=  35
+    Pat:
+      Pat.Wildcard         '_'               Wildcard            tok=  22  pos=  37
+    Arrow                  '->'              OpArrowRight        tok=  24  pos=  39
     Expr:
-      Const: 42, NumInt32(26<token>) '1'
+      Const                '1'               NumInt32            tok=  26  pos=  42

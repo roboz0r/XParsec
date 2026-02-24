@@ -1,1 +1,1 @@
-Const: 0, KWNull(0<token>) 'null'
+Const  'null'            KWNull              tok=   0  pos=   0

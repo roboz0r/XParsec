@@ -1,23 +1,26 @@
 Match:
-  MatchToken: 0, KWMatch(0<token>)
+  MatchToken               'match'           KWMatch             tok=   0  pos=   0
   MatchExpr:
-    Ident: 6, Identifier(2<token>) 'x'
-  WithToken: 8, KWWith(4<token>)
+    Ident                  'x'               Identifier          tok=   2  pos=   6
+  WithToken                'with'            KWWith              tok=   4  pos=   8
   Rule:
-    Bar: 13, OpBar(6<token>)
-    Pat: Pat.Paren: 15, KWLParen(8<token>)
-      Pat.Typed:
-        Pat.NamedSimple: 16, Identifier(9<token>) 'y'
-        Colon: 18, OpColon(11<token>)
-        NamedType: LongIdent:
-          20, Identifier(13<token>) 'int'
-    23, KWRParen(14<token>)
-    Arrow: 25, OpArrowRight(16<token>)
+    Bar                    '|'               OpBar               tok=   6  pos=  13
+    Pat:
+      Pat.Paren            '('               KWLParen            tok=   8  pos=  15
+        Pat.Typed:
+          Pat.NamedSimple  'y'               Identifier          tok=   9  pos=  16
+          Colon            ':'               OpColon             tok=  11  pos=  18
+          NamedType:
+            LongIdent:
+                           'int'             Identifier          tok=  13  pos=  20
+                           ')'               KWRParen            tok=  14  pos=  23
+    Arrow                  '->'              OpArrowRight        tok=  16  pos=  25
     Expr:
-      Ident: 28, Identifier(18<token>) 'y'
+      Ident                'y'               Identifier          tok=  18  pos=  28
   Rule:
-    Bar: 30, OpBar(20<token>)
-    Pat: Pat.Wildcard: 32, Wildcard(22<token>)
-    Arrow: 34, OpArrowRight(24<token>)
+    Bar                    '|'               OpBar               tok=  20  pos=  30
+    Pat:
+      Pat.Wildcard         '_'               Wildcard            tok=  22  pos=  32
+    Arrow                  '->'              OpArrowRight        tok=  24  pos=  34
     Expr:
-      Const: 37, NumInt32(26<token>) '0'
+      Const                '0'               NumInt32            tok=  26  pos=  37
