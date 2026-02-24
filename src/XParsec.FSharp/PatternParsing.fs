@@ -335,11 +335,36 @@ module PatternGuard =
 module Rule =
     let parse: Parser<Rule<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
-            let! pat = Pat.parse
+            let! pat =
+                Pat.parse
+                |> recoverWith
+                    StoppingTokens.afterPattern
+                    DiagnosticSeverity.Error
+                    (fun _ -> DiagnosticCode.MissingPattern)
+                    (fun toks ->
+                        if toks.IsEmpty then
+                            Pat.Missing
+                        else
+                            Pat.SkipsTokens(toks, Pat.Missing)
+                    )
+
             let! guard = opt PatternGuard.parse
             let! arrow = pArrowRight
-            let! expr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
-            return Rule(pat, guard, arrow, expr)
+
+            let! expr =
+                withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+                |> recoverWith
+                    StoppingTokens.afterRule
+                    DiagnosticSeverity.Error
+                    (fun _ -> DiagnosticCode.MissingExpression)
+                    (fun toks ->
+                        if toks.IsEmpty then
+                            Expr.Missing
+                        else
+                            Expr.SkipsTokens(toks, Expr.Missing)
+                    )
+
+            return Rule.Rule(pat, guard, arrow, expr)
         }
 
 [<RequireQualifiedAccess>]

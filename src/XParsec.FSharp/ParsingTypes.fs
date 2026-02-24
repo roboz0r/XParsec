@@ -93,14 +93,30 @@ type Offside =
     }
 
 [<RequireQualifiedAccess>]
+type DiagnosticSeverity =
+    | Error
+    | Warning
+    | Info
+    | Hint
+
+[<RequireQualifiedAccess>]
 type DiagnosticCode =
     // TODO: Use F# error codes
     | Other of string
     | TyparInConstant of Typar<SyntaxToken>
+    // Recovery-specific:
+    | MissingExpression
+    | MissingPattern
+    | MissingType
+    | MissingRule
+    | MissingTypeDefn
+    | UnexpectedTokenSkipped of token: SyntaxToken
+    | UnclosedDelimiter of opened: SyntaxToken * expected: Token
 
 type Diagnostic =
     {
         Code: DiagnosticCode
+        Severity: DiagnosticSeverity
         Token: PositionedToken
         TokenEnd: PositionedToken option
     }
@@ -178,10 +194,11 @@ module ParseState =
         | [] -> invalidOp "Attempted to pop empty context"
         | head :: tail -> { state with Context = tail }
 
-    let addDiagnostic code startToken endToken (state: ParseState) =
+    let addDiagnostic code severity startToken endToken (state: ParseState) =
         let diag =
             {
                 Code = code
+                Severity = severity
                 Token = startToken
                 TokenEnd = endToken
             }

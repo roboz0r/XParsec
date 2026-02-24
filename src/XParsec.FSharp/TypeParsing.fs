@@ -356,6 +356,17 @@ module ReturnType =
     let parse: Parser<ReturnType<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
             let! colon = pColon
-            let! typ = Type.parse
+
+            let! typ =
+                Type.parse
+                |> recoverWith
+                    StoppingTokens.afterType
+                    DiagnosticSeverity.Error
+                    (fun _ -> DiagnosticCode.MissingType)
+                    (fun toks ->
+                        let m: Type<SyntaxToken> = Type<_>.Missing
+                        if toks.IsEmpty then m else Type<_>.SkipsTokens(toks, m)
+                    )
+
             return ReturnType(colon, typ)
         }
