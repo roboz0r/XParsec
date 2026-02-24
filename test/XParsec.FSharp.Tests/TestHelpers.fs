@@ -359,6 +359,7 @@ let testParseFileWith (definedSymbols: Set<string>) (filePath: string) =
                 use sw = new StringWriter()
                 use tw = new System.CodeDom.Compiler.IndentedTextWriter(sw, "  ")
                 XParsec.FSharp.Debug.printExpr tw input lexed expr
+                XParsec.FSharp.Debug.printDiagnostics tw reader.State.Diagnostics
                 sw.ToString()
 
     if updateSnapshots || not (File.Exists expectedPath) then

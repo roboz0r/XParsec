@@ -40,7 +40,9 @@ module FunctionDefn =
             let! typarDefns = opt TyparDefns.parse
 
             // Parse one or more argument patterns
-            let! argumentPats = Pat.parseMany1
+            // Note: Must be atomic patterns to avoid consuming tokens that belong to the parent.
+            // e.g. `let f x : int = 1` should parse `x` as an argument pattern, not `x : int` which would consume the return type annotation.
+            let! argumentPats = Pat.parseAtomicMany1
 
             let! returnType = opt ReturnType.parse
             let! equals = pEquals
@@ -67,7 +69,7 @@ module ValueDefn =
         parser {
             let! mut = opt pMutable
             let! access = opt pAccessModifier
-            let! pat = Pat.parse
+            let! pat = Pat.parseAtomic
             let! typarDefns = opt TyparDefns.parse
             let! returnType = opt ReturnType.parse
             let! equals = pEquals

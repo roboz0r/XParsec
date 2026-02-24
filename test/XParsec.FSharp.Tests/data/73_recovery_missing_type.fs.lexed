@@ -1,0 +1,15 @@
+0, KWLet
+3, Whitespace
+4, Identifier
+5, Whitespace
+6, OpColon
+7, Whitespace
+8, OpEquality
+9, Whitespace
+10, NumInt32
+11, Whitespace
+12, KWIn
+14, Whitespace
+15, Identifier
+16, Newline
+17, EOF
