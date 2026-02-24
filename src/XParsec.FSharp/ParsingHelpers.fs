@@ -117,7 +117,7 @@ module Parsing =
         | Error e ->
             // Invalid #if expression: record a diagnostic and treat the whole block as inactive
             let msg = $"Invalid #if expression: {e}"
-            reader.State <- addDiagnostic (DiagnosticCode.Other msg) ifToken None reader.State
+            reader.State <- addDiagnostic (DiagnosticCode.Other msg) DiagnosticSeverity.Error ifToken None reader.State
             skipInactiveBranch reader |> ignore
             nextNonTriviaToken reader
 
@@ -289,6 +289,130 @@ module Parsing =
                 (first, rest)
                 ||> Seq.fold (fun acc (sep, elem) -> Expr.Sequential(acc, sep, elem))
         }
+
+    /// Like nextNonTriviaTokenVirtualIfNot but emits a UnclosedDelimiter diagnostic
+    /// when the token must be synthesised.
+    let nextNonTriviaTokenVirtualWithDiagnostic (openTok: SyntaxToken voption) t reader =
+        match peekNextNonTriviaToken reader with
+        | Error e -> Error e
+        | Ok token ->
+            if token.Token = t then
+                consumePeeked token reader
+            else
+                let code =
+                    match openTok with
+                    | ValueSome o -> DiagnosticCode.UnclosedDelimiter(o, t)
+                    | ValueNone -> DiagnosticCode.Other $"Expected '{t}'"
+
+                reader.State <-
+                    ParseState.addDiagnostic code DiagnosticSeverity.Error token.PositionedToken None reader.State
+
+                let pt =
+                    PositionedToken.Create(
+                        Token.ofUInt16 (uint16 t ||| TokenRepresentation.IsVirtual),
+                        token.StartIndex
+                    )
+
+                preturn
+                    {
+                        PositionedToken = pt
+                        Index = TokenIndex.Virtual
+                    }
+                    reader
+
+    module StoppingTokens =
+        let afterType (tok: SyntaxToken) =
+            match tok.Token with
+            | Token.OpComma
+            | Token.KWRParen
+            | Token.KWRBracket
+            | Token.KWRBrace
+            | Token.OpEquality
+            | Token.KWWith
+            | Token.KWIn
+            | Token.OpArrowRight
+            | Token.OpBar
+            | Token.OpSemicolon
+            | Token.EOF -> true
+            | _ -> false
+
+        let afterPattern (tok: SyntaxToken) =
+            match tok.Token with
+            | Token.OpArrowRight
+            | Token.KWWhen
+            | Token.OpBar
+            | Token.OpEquality
+            | Token.KWIn
+            | Token.EOF -> true
+            | _ -> false
+
+        let afterExpr (tok: SyntaxToken) =
+            match tok.Token with
+            | Token.OpSemicolon
+            | Token.KWIn
+            | Token.OpBar
+            | Token.KWWith
+            | Token.KWRParen
+            | Token.KWRBracket
+            | Token.KWRBrace
+            | Token.KWThen
+            | Token.KWElse
+            | Token.KWDo
+            | Token.EOF -> true
+            | _ -> false
+
+        let afterRule (tok: SyntaxToken) =
+            match tok.Token with
+            | Token.OpBar
+            | Token.KWWith
+            | Token.KWEnd
+            | Token.EOF -> true
+            | _ -> false
+
+        let afterTypeDefn (tok: SyntaxToken) =
+            match tok.Token with
+            | Token.KWAnd
+            | Token.KWType
+            | Token.KWEnd
+            | Token.EOF -> true
+            | _ -> false
+
+    /// On failure: calls makeCode with the ParseError to produce a DiagnosticCode,
+    /// emits the diagnostic, skips tokens until `stopping` returns true,
+    /// then succeeds with `placeholder skippedTokens`.
+    let recoverWith
+        (stopping: SyntaxToken -> bool)
+        (severity: DiagnosticSeverity)
+        (makeCode: ParseError<PositionedToken, ParseState> -> DiagnosticCode)
+        (placeholder: SyntaxToken list -> 'Parsed)
+        (p: Parser<'Parsed, PositionedToken, ParseState, _, _>)
+        : Parser<'Parsed, PositionedToken, ParseState, _, _> =
+        fun reader ->
+            match peekNextNonTriviaToken reader with
+            | Error e -> Error e
+            | Ok startTok ->
+                match p reader with
+                | Ok result -> Ok result
+                | Error err ->
+                    let skipped = ResizeArray<SyntaxToken>()
+                    let mutable keepGoing = true
+
+                    while keepGoing do
+                        match peekNextNonTriviaToken reader with
+                        | Error _ -> keepGoing <- false
+                        | Ok tok ->
+                            if stopping tok then
+                                keepGoing <- false
+                            else
+                                match nextNonTriviaToken reader with
+                                | Ok t -> skipped.Add(t)
+                                | Error _ -> keepGoing <- false
+
+                    let code = makeCode err
+
+                    reader.State <- ParseState.addDiagnostic code severity startTok.PositionedToken None reader.State
+
+                    Ok(placeholder (List.ofSeq skipped))
 
     /// Wraps a parser with an offside context. Peeks the first token the inner parser will see
     /// to establish the offside column, pushes an Offside entry onto ParseState.Context, runs

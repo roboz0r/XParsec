@@ -38,18 +38,50 @@ let printRules (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (rules: R
                 | ValueSome b -> printLabelledToken "Bar" tw input lexed b
                 | ValueNone -> ()
 
-                let (Rule(pat, guard, arrow, ruleExpr)) = ruleList[i]
-                tw.Write("Pat: ")
-                printPat tw input lexed pat
+                match ruleList[i] with
+                | Rule.Rule(pat, guard, arrow, ruleExpr) ->
+                    tw.Write("Pat: ")
+                    printPat tw input lexed pat
 
-                match guard with
-                | ValueSome(PatternGuard(whenToken, guardExpr)) ->
-                    printLabelledToken "When" tw input lexed whenToken
-                    printSection tw "Guard" (fun () -> printExpr tw input lexed guardExpr)
-                | ValueNone -> ()
+                    match guard with
+                    | ValueSome(PatternGuard(whenToken, guardExpr)) ->
+                        printLabelledToken "When" tw input lexed whenToken
+                        printSection tw "Guard" (fun () -> printExpr tw input lexed guardExpr)
+                    | ValueNone -> ()
 
-                printLabelledToken "Arrow" tw input lexed arrow
-                printSection tw "Expr" (fun () -> printExpr tw input lexed ruleExpr)
+                    printLabelledToken "Arrow" tw input lexed arrow
+                    printSection tw "Expr" (fun () -> printExpr tw input lexed ruleExpr)
+                | Rule.Missing -> tw.WriteLine("Missing")
+                | Rule.SkipsTokens(skippedTokens, innerRule) ->
+                    printSection
+                        tw
+                        "SkipsTokens"
+                        (fun () ->
+                            for t in skippedTokens do
+                                printTokenMin tw input lexed t
+                                tw.WriteLine()
+
+                            printSection
+                                tw
+                                "Rule"
+                                (fun () ->
+                                    match innerRule with
+                                    | Rule.Rule(pat, guard, arrow, ruleExpr) ->
+                                        tw.Write("Pat: ")
+                                        printPat tw input lexed pat
+
+                                        match guard with
+                                        | ValueSome(PatternGuard(whenToken, guardExpr)) ->
+                                            printLabelledToken "When" tw input lexed whenToken
+                                            printSection tw "Guard" (fun () -> printExpr tw input lexed guardExpr)
+                                        | ValueNone -> ()
+
+                                        printLabelledToken "Arrow" tw input lexed arrow
+                                        printSection tw "Expr" (fun () -> printExpr tw input lexed ruleExpr)
+                                    | Rule.Missing -> tw.WriteLine("Missing")
+                                    | Rule.SkipsTokens _ -> tw.WriteLine("SkipsTokens (nested)")
+                                )
+                        )
             )
 
 let printTokenMin (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (token: SyntaxToken) =
@@ -433,6 +465,18 @@ let printPat (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (pat: Pat<S
                 tw.WriteLine()
                 printPat tw input lexed innerPat
             )
+    | Pat.Missing -> tw.WriteLine("Missing")
+    | Pat.SkipsTokens(skippedTokens, innerPat) ->
+        printSection
+            tw
+            "SkipsTokens"
+            (fun () ->
+                for t in skippedTokens do
+                    printTokenMin tw input lexed t
+                    tw.WriteLine()
+
+                printPat tw input lexed innerPat
+            )
 
 let printTypar (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (typar: Typar<SyntaxToken>) =
     match typar with
@@ -720,6 +764,18 @@ let printType (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (ty: Type<
                 printTokenMin tw input lexed hash
                 tw.WriteLine()
                 printType tw input lexed typ
+            )
+    | Type.Missing -> tw.WriteLine("Missing")
+    | Type.SkipsTokens(skippedTokens, innerType) ->
+        printSection
+            tw
+            "SkipsTokens"
+            (fun () ->
+                for t in skippedTokens do
+                    printTokenMin tw input lexed t
+                    tw.WriteLine()
+
+                printType tw input lexed innerType
             )
 
 let printValueDefn (tw: IndentedTextWriter) (input: string) (lexed: Lexed) (valueDefn: ValueDefn<SyntaxToken>) =

@@ -57,6 +57,7 @@ type LongIdentOrOp<'T> =
     | QualifiedOp of longIdent: LongIdent<'T> * dot: 'T * op: IdentOrOp<'T>
 
 // Represents: type and related grammar constructs
+[<RequireQualifiedAccess>]
 type Type<'T> =
     | ParenType of lParen: 'T * typ: Type<'T> * rParen: 'T
     | FunctionType of fromType: Type<'T> * arrow: 'T * toType: Type<'T>
@@ -71,6 +72,8 @@ type Type<'T> =
     | ConstrainedType of typ: Type<'T> * constraints: TyparDefns<'T>
     | SubtypeConstraint of typar: Typar<'T> * colonGreaterThan: 'T * typ: Type<'T>
     | AnonymousSubtype of hash: 'T * typ: Type<'T>
+    | Missing
+    | SkipsTokens of skippedTokens: 'T list * typ: Type<'T>
 
 and [<RequireQualifiedAccess>] TypeArg<'T> =
     | Type of Type<'T>
@@ -412,12 +415,17 @@ and [<RequireQualifiedAccess>] Pat<'T> =
     | Null of nullToken: 'T
     | Attributed of attributes: Attributes<'T> * pat: Pat<'T>
     | Struct of structToken: 'T * Pat<'T> // For error recovery
+    | Missing
+    | SkipsTokens of skippedTokens: 'T list * pat: Pat<'T>
 
 // Represents: pattern-guard := when expr
 and PatternGuard<'T> = | PatternGuard of whenToken: 'T * expr: Expr<'T>
 
 // Represents: rule := pat pattern-guard~opt -> expr
-and Rule<'T> = | Rule of pat: Pat<'T> * guard: PatternGuard<'T> voption * arrow: 'T * expr: Expr<'T>
+and [<RequireQualifiedAccess>] Rule<'T> =
+    | Rule of pat: Pat<'T> * guard: PatternGuard<'T> voption * arrow: 'T * expr: Expr<'T>
+    | Missing
+    | SkipsTokens of skippedTokens: 'T list * rule: Rule<'T>
 
 // Represents: rules := '|'~opt rule '|' ... '|' rule
 and Rules<'T> = | Rules of leadingBar: 'T voption * rules: Rule<'T> list * bars: 'T list
@@ -624,7 +632,7 @@ and [<RequireQualifiedAccess>] ExceptionDefn<'T> =
 and DelegateSig<'T> = | DelegateSig of delegateToken: 'T * ofToken: 'T * sign: UncurriedSig<'T>
 
 // Represents: type-defn, the top-level definition
-and TypeDefn<'T> =
+and [<RequireQualifiedAccess>] TypeDefn<'T> =
     | Abbrev of typeName: TypeName<'T> * equals: 'T * typ: Type<'T>
     | Record of
         typeName: TypeName<'T> *
@@ -666,6 +674,8 @@ and TypeDefn<'T> =
     | Enum of typeName: TypeName<'T> * equals: 'T * cases: EnumTypeCases<'T>
     | Delegate of typeName: TypeName<'T> * equals: 'T * sign: DelegateSig<'T>
     | TypeExtension of typeName: TypeName<'T> * elements: TypeExtensionElements<'T>
+    | Missing
+    | SkipsTokens of skippedTokens: 'T list * typeDefn: TypeDefn<'T>
 
 
 // 9 Units of Measure
