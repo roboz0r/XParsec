@@ -19,7 +19,9 @@ module ElifBranch =
             let! elifTok = pElif
             let! condition = refExpr.Parser
             let! thenTok = pThen
-            let! expr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+
+            let! expr = refExprSeqBlock.Parser
+
             return ElifBranch.ElifBranch(elifTok, condition, thenTok, expr)
         }
 
@@ -27,7 +29,9 @@ module ElseBranch =
     let parse: Parser<ElseBranch<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
             let! elseTok = pElse
-            let! expr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+
+            let! expr = refExprSeqBlock.Parser
+
             return ElseBranch.ElseBranch(elseTok, expr)
         }
 
@@ -73,7 +77,7 @@ module ValueDefn =
             let! typarDefns = opt TyparDefns.parse
             let! returnType = opt ReturnType.parse
             let! equals = pEquals
-            let! expr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+            let! expr = refExprSeqBlock.Parser
             return ValueDefn.ValueDefn(mut, access, pat, typarDefns, returnType, equals, expr)
         }
 
@@ -1007,17 +1011,17 @@ module Expr =
                 | ValueSome recTok ->
                     let! defns = FunctionOrValueDefn.parseSepByAnd1
                     let! inTok = pInVirt
-                    let! expr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+                    let! expr = refExprSeqBlock.Parser
                     return Expr.LetRec(letTok, recTok, defns, inTok, expr)
                 | ValueNone ->
                     match! FunctionOrValueDefn.parse with
                     | FunctionOrValueDefn.Function funcDefn ->
                         let! inTok = pInVirt
-                        let! expr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+                        let! expr = refExprSeqBlock.Parser
                         return Expr.LetFunction(letTok, funcDefn, inTok, expr)
                     | FunctionOrValueDefn.Value valueDefn ->
                         let! inTok = pInVirt
-                        let! expr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+                        let! expr = refExprSeqBlock.Parser
                         return Expr.LetValue(letTok, valueDefn, inTok, expr)
             })
 
@@ -1032,7 +1036,7 @@ module Expr =
     let pBeginEnd =
         parser {
             let! l = pBegin
-            let! e = pSeqBlock refExpr.Parser
+            let! e = refExprSeqBlock.Parser
             let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) Token.KWEnd
             return Expr.BeginEndBlock(l, e, r)
         }
@@ -1084,7 +1088,9 @@ module Expr =
                 let! ifTok = pIf
                 let! cond = refExpr.Parser
                 let! thenTok = pThen
-                let! thenExpr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+
+                let! thenExpr = refExprSeqBlock.Parser
+
                 let! elifs = many ElifBranch.parse
                 let! elseBranch = opt ElseBranch.parse
                 return Expr.IfThenElse(ifTok, cond, thenTok, thenExpr, List.ofSeq elifs, elseBranch)
@@ -1117,7 +1123,7 @@ module Expr =
                 let! funTok = pFun
                 let! pats = many1 Pat.parse
                 let! arrow = pArrowRight
-                let! expr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+                let! expr = refExprSeqBlock.Parser
                 return Expr.Fun(funTok, List.ofSeq pats, arrow, expr)
             })
 
@@ -1126,7 +1132,7 @@ module Expr =
             OffsideContext.Try
             (parser {
                 let! tryTok = pTry
-                let! tryExpr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+                let! tryExpr = refExprSeqBlock.Parser
 
                 return!
                     choiceL
@@ -1138,7 +1144,7 @@ module Expr =
                             }
                             parser {
                                 let! finTok = pFinally
-                                let! finExpr = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+                                let! finExpr = refExprSeqBlock.Parser
                                 return Expr.TryFinally(tryTok, tryExpr, finTok, finExpr)
                             }
                         ]
@@ -1152,7 +1158,9 @@ module Expr =
                 let! whileTok = pWhile
                 let! cond = refExpr.Parser
                 let! doTok = pDo
-                let! body = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+
+                let! body = refExprSeqBlock.Parser
+
                 let! doneTok = pDone
                 return Expr.While(whileTok, cond, doTok, body, doneTok)
             })
@@ -1176,7 +1184,9 @@ module Expr =
                                 let! toTok = pToOrDownTo
                                 let! endExpr = refExpr.Parser
                                 let! doTok = pDo
-                                let! body = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+
+                                let! body = refExprSeqBlock.Parser
+
                                 let! doneTok = pDone
                                 return Expr.ForTo(forTok, ident, eq, startExpr, toTok, endExpr, doTok, body, doneTok)
                             }
@@ -1187,7 +1197,9 @@ module Expr =
                                 let! inTok = pInVirt
                                 let! range = ExprOrRange.parse
                                 let! doTok = pDo
-                                let! body = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+
+                                let! body = refExprSeqBlock.Parser
+
                                 let! doneTok = pDone
                                 return Expr.ForIn(forTok, pat, inTok, range, doTok, body, doneTok)
                             }
@@ -1204,7 +1216,7 @@ module Expr =
                 let! eq = pEquals
                 let! expr = refExpr.Parser
                 let! inTok = pInVirt
-                let! body = withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+                let! body = refExprSeqBlock.Parser
                 return Expr.Use(useTok, ident, eq, expr, inTok, body)
             })
 
@@ -1243,28 +1255,42 @@ module Expr =
                     "Record or RecordClone"
         }
 
+    let private recoverExpr p =
+        recoverWith
+            StoppingTokens.afterExpr
+            DiagnosticSeverity.Error
+            DiagnosticCode.MissingExpression
+            (fun toks ->
+                if toks.IsEmpty then
+                    Expr.Missing
+                else
+                    Expr.SkipsTokens(toks, Expr.Missing)
+            )
+            p
+
+
     let atomExpr =
         dispatchNextNonTriviaTokenFallback
             [
                 Token.Identifier, pIdent
                 Token.Unit, pConst
-                Token.KWLet, pLetValue
-                Token.KWLParen, pParen
-                Token.OpNil, pList
-                Token.KWLBracket, pList
-                Token.KWLArrayBracket, pArray
-                Token.KWBegin, pBeginEnd
-                Token.KWIf, pIfExpr
-                Token.KWMatch, pMatchExpr
-                Token.KWFunction, pFunctionExpr
-                Token.KWFun, pFunExpr
-                Token.KWTry, pTryExpr
-                Token.KWWhile, pWhileExpr
-                Token.KWFor, pForExpr
-                Token.KWUse, pUseExpr
-                Token.KWStruct, pStructTuple
-                Token.KWNew, pNewExpr
-                Token.KWLBrace, pRecordOrObjectExpr
+                Token.KWLet, recoverExpr pLetValue
+                Token.KWLParen, recoverExpr pParen
+                Token.OpNil, recoverExpr pList
+                Token.KWLBracket, recoverExpr pList
+                Token.KWLArrayBracket, recoverExpr pArray
+                Token.KWBegin, recoverExpr pBeginEnd
+                Token.KWIf, recoverExpr pIfExpr
+                Token.KWMatch, recoverExpr pMatchExpr
+                Token.KWFunction, recoverExpr pFunctionExpr
+                Token.KWFun, recoverExpr pFunExpr
+                Token.KWTry, recoverExpr pTryExpr
+                Token.KWWhile, recoverExpr pWhileExpr
+                Token.KWFor, recoverExpr pForExpr
+                Token.KWUse, recoverExpr pUseExpr
+                Token.KWStruct, recoverExpr pStructTuple
+                Token.KWNew, recoverExpr pNewExpr
+                Token.KWLBrace, recoverExpr pRecordOrObjectExpr
             ]
             pConst
 
@@ -1272,8 +1298,22 @@ module Expr =
 
     let parse = Operator.parser atomExpr operators
 
+    let parseSeqBlock =
+        withContext OffsideContext.SeqBlock (pSeqBlock parse)
+        |> recoverWith
+            StoppingTokens.afterExpr
+            DiagnosticSeverity.Error
+            DiagnosticCode.MissingExpression
+            (fun toks ->
+                if toks.IsEmpty then
+                    Expr.Missing
+                else
+                    Expr.SkipsTokens(toks, Expr.Missing)
+            )
+
     do
         refExpr.Set parse
+        refExprSeqBlock.Set parseSeqBlock
 
         // Semicolon has special handling in F# lists, arrays, records, and object expressions
         // where it is used as a separator between elements rather than an operator, and it

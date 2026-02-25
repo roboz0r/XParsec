@@ -20,6 +20,7 @@ module internal ParserRefs =
     let refObjectConstruction = FSRefParser<ObjectConstruction<SyntaxToken>>()
     let refType = FSRefParser<Type<SyntaxToken>>()
     let refExpr = FSRefParser<Expr<SyntaxToken>>()
+    let refExprSeqBlock = FSRefParser<Expr<SyntaxToken>>()
 
     /// Expression parser bounded to stop before Arrow-level operators (->).
     /// Used in pattern guard context (when <expr> ->) so that '->' is not consumed

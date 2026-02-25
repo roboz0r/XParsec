@@ -357,6 +357,9 @@ module Parsing =
             | Token.KWRBrace
             | Token.KWThen
             | Token.KWElse
+            | Token.KWElif
+            | Token.KWEnd
+            | Token.KWDone
             | Token.KWDo
             | Token.EOF -> true
             | _ -> false

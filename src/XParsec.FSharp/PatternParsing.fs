@@ -328,7 +328,19 @@ module PatternGuard =
             let! w = pWhen
             // Use refExprGuard (bounded at Arrow precedence) so '->' is not consumed
             // as part of the guard expression and remains for Rule.parse's pArrowRight.
-            let! e = refExprGuard.Parser
+            let! e =
+                refExprGuard.Parser
+                |> recoverWith
+                    StoppingTokens.afterPattern
+                    DiagnosticSeverity.Error
+                    DiagnosticCode.MissingExpression
+                    (fun toks ->
+                        if toks.IsEmpty then
+                            Expr.Missing
+                        else
+                            Expr.SkipsTokens(toks, Expr.Missing)
+                    )
+
             return PatternGuard(w, e)
         }
 
@@ -341,7 +353,7 @@ module Rule =
                 |> recoverWith
                     StoppingTokens.afterPattern
                     DiagnosticSeverity.Error
-                    (fun _ -> DiagnosticCode.MissingPattern)
+                    DiagnosticCode.MissingPattern
                     (fun toks ->
                         if toks.IsEmpty then
                             Pat.Missing
@@ -357,7 +369,7 @@ module Rule =
                 |> recoverWith
                     StoppingTokens.afterRule
                     DiagnosticSeverity.Error
-                    (fun _ -> DiagnosticCode.MissingExpression)
+                    DiagnosticCode.MissingExpression
                     (fun toks ->
                         if toks.IsEmpty then
                             Expr.Missing

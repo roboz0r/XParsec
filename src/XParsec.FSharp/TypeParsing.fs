@@ -362,7 +362,7 @@ module ReturnType =
                 |> recoverWith
                     StoppingTokens.afterType
                     DiagnosticSeverity.Error
-                    (fun _ -> DiagnosticCode.MissingType)
+                    DiagnosticCode.MissingType
                     (fun toks ->
                         let m: Type<SyntaxToken> = Type<_>.Missing
                         if toks.IsEmpty then m else Type<_>.SkipsTokens(toks, m)
