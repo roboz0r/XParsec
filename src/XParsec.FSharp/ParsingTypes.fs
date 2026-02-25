@@ -105,15 +105,15 @@ type DiagnosticCode =
     | Other of string
     | TyparInConstant of Typar<SyntaxToken>
     // Recovery-specific:
-    | MissingExpression
-    | MissingPattern
-    | MissingType
-    | MissingRule
-    | MissingTypeDefn
+    | MissingExpression of ParseError<PositionedToken, ParseState>
+    | MissingPattern of ParseError<PositionedToken, ParseState>
+    | MissingType of ParseError<PositionedToken, ParseState>
+    | MissingRule of ParseError<PositionedToken, ParseState>
+    | MissingTypeDefn of ParseError<PositionedToken, ParseState>
     | UnexpectedTokenSkipped of token: SyntaxToken
     | UnclosedDelimiter of opened: SyntaxToken * expected: Token
 
-type Diagnostic =
+and Diagnostic =
     {
         Code: DiagnosticCode
         Severity: DiagnosticSeverity
@@ -121,12 +121,11 @@ type Diagnostic =
         TokenEnd: PositionedToken option
     }
 
-[<RequireQualifiedAccess>]
-type Syntax =
+and [<RequireQualifiedAccess>] Syntax =
     | Light
     | Verbose
 
-type ParseState =
+and ParseState =
     {
         Input: string
         Lexed: Lexed
