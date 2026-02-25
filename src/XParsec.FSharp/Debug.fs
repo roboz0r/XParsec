@@ -1236,11 +1236,11 @@ let printExpr (ctx: PrintContext) (input: string) (lexed: Lexed) (expr: Expr<Syn
 /// Formats a DiagnosticCode as a short, stable string suitable for golden-file output.
 let sprintDiagnosticCode (code: DiagnosticCode) : string =
     match code with
-    | DiagnosticCode.MissingExpression -> "MissingExpression"
-    | DiagnosticCode.MissingPattern -> "MissingPattern"
-    | DiagnosticCode.MissingType -> "MissingType"
-    | DiagnosticCode.MissingRule -> "MissingRule"
-    | DiagnosticCode.MissingTypeDefn -> "MissingTypeDefn"
+    | DiagnosticCode.MissingExpression _ -> "MissingExpression"
+    | DiagnosticCode.MissingPattern _ -> "MissingPattern"
+    | DiagnosticCode.MissingType _ -> "MissingType"
+    | DiagnosticCode.MissingRule _ -> "MissingRule"
+    | DiagnosticCode.MissingTypeDefn _ -> "MissingTypeDefn"
     | DiagnosticCode.Other msg -> $"Other({msg})"
     | DiagnosticCode.TyparInConstant _ -> "TyparInConstant"
     | DiagnosticCode.UnexpectedTokenSkipped tok ->

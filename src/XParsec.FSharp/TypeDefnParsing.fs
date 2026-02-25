@@ -778,7 +778,17 @@ module TypeDefn =
                     return TypeDefn.Anon(typeName, primaryConstr, ValueNone, equals, beginTok, body, endTok)
                 | ValueNone ->
                     // Abbreviation
-                    let! t = Type.parse
+                    let! t =
+                        Type.parse
+                        |> recoverWith
+                            StoppingTokens.afterTypeDefn
+                            DiagnosticSeverity.Error
+                            DiagnosticCode.MissingType
+                            (fun toks ->
+                                let m: Type<SyntaxToken> = Type<_>.Missing
+                                if toks.IsEmpty then m else Type<_>.SkipsTokens(toks, m)
+                            )
+
                     return TypeDefn.Abbrev(typeName, equals, t)
         }
 
