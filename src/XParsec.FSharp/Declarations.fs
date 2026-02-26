@@ -30,7 +30,7 @@ type ModuleFunctionOrValueDefn<'T> =
 // Represents: module-elem
 type ModuleElem<'T> =
     | FunctionOrValue of ModuleFunctionOrValueDefn<'T>
-    | Type of TypeDefn<'T>
+    | Type of TypeDefn<'T> list
     | Exception of ExceptionDefn<'T>
     | Module of ModuleDefn<'T>
     | ModuleAbbrev of ModuleAbbrev<'T>

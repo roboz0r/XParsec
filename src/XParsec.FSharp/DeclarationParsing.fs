@@ -129,8 +129,12 @@ module ModuleElem =
             // (Module, Type, Exception, Let, Do, bare expressions)
             (choiceL
                 [
-                    // Type Definitions
-                    TypeDefn.parse |>> ModuleElem.Type
+                    // Type Definitions (with mutual recursion via 'and')
+                    parser {
+                        let! first = TypeDefn.parse
+                        let! rest = many TypeDefn.parseAndContinuation
+                        return ModuleElem.Type(first :: List.ofSeq rest)
+                    }
 
                     // Exception Definitions
                     ExceptionDefn.parse |>> ModuleElem.Exception
