@@ -1,3 +1,4 @@
+AnonymousModule:
 New             'new'             KWNew               tok=   0  pos=   0
   NamedType:
     LongIdent:

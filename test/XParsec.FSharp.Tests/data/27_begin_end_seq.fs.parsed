@@ -1,3 +1,4 @@
+AnonymousModule:
 BeginEndBlock  'begin'           KWBegin             tok=   0  pos=   0
   Sequential   <virt>            1024                tok=virt  pos=  11
     Const      '1'               NumInt32            tok=   3  pos=  10

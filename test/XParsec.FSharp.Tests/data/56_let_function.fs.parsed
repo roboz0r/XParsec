@@ -1,3 +1,4 @@
+ScriptFragment:
 LetFunction          'let'             KWLet               tok=   0  pos=   0
   IdentOrOp:
     Ident            'f'               Identifier          tok=   2  pos=   4

@@ -1,3 +1,4 @@
+AnonymousModule:
 LongIdentOrOp:
   LongIdent:
       'System'          Identifier          tok=   0  pos=   0

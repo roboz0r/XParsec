@@ -1,3 +1,4 @@
+AnonymousModule:
 RecordClone  '{'               KWLBrace            tok=   0  pos=   0
   Base:
     Ident    'r'               Identifier          tok=   2  pos=   2
