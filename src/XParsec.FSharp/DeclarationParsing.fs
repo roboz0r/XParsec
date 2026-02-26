@@ -120,60 +120,34 @@ module ModuleElem =
     let parseElems = many refModuleElem.Parser |>> List.ofSeq
 
     let parse =
-        // 1. Try parsers that start with unique keywords and usually no attributes
-        //    (Import, Directive)
-        dispatch (fun (lookahead: PositionedToken voption) ->
-            match lookahead with
-            | ValueNone -> fail EndOfInput
-            | ValueSome lookahead ->
-                match lookahead.Token with
-                | Token.KWOpen ->
-                    parser {
-                        let! x = ImportDecl.parse
-                        return ModuleElem.Import x
-                    }
-                | Token.KWHash ->
-                    parser {
-                        let! x = CompilerDirectiveDecl.parse
-                        return ModuleElem.CompilerDirective x
-                    }
-                | _ ->
-                    // 2. Parsers that might be preceeded by Attributes
-                    //    (Module, Type, Exception, Let, Do)
+        dispatchNextNonTriviaTokenFallback
+            [
+                Token.KWOpen, ImportDecl.parse |>> ModuleElem.Import
+                Token.KWHash, CompilerDirectiveDecl.parse |>> ModuleElem.CompilerDirective
+            ]
+            // Fallback: parsers that might be preceded by Attributes
+            // (Module, Type, Exception, Let, Do, bare expressions)
+            (choiceL
+                [
+                    // Type Definitions
+                    TypeDefn.parse |>> ModuleElem.Type
 
-                    // We don't consume attributes here because the specific parsers
-                    // (like ModuleFunctionOrValueDefn and TypeDefn) store them in their nodes.
-                    // We look ahead past attributes to decide which parser to invoke.
+                    // Exception Definitions
+                    ExceptionDefn.parse |>> ModuleElem.Exception
 
-                    // Note: We need a utility to skip attributes and see what's next
-                    // to distinguish 'module' vs 'type' vs 'let' etc.
+                    // Module Definition (Recursive)
+                    (ModuleDefn.parse parseElems) |>> ModuleElem.Module
 
-                    // For simplicity in this combinator style, we use choice with backtracking.
-                    choiceL
-                        [
-                            // Type Definitions
-                            TypeDefn.parse |>> ModuleElem.Type
+                    // Module Abbreviation
+                    ModuleAbbrev.parse |>> ModuleElem.ModuleAbbrev
 
-                            // Exception Definitions
-                            ExceptionDefn.parse |>> ModuleElem.Exception
+                    // Let / Do bindings
+                    ModuleFunctionOrValueDefn.parse |>> ModuleElem.FunctionOrValue
 
-                            // Module Definition (Recursive)
-                            // Logic: starts with [attributes] module ident = begin ...
-                            (ModuleDefn.parse parseElems) |>> ModuleElem.Module
-
-                            // Module Abbreviation
-                            // Logic: starts with module ident = LongIdent
-                            // Note: If ModuleDefn fails (e.g. no 'begin'), this picks up.
-                            ModuleAbbrev.parse |>> ModuleElem.ModuleAbbrev
-
-                            // Let / Do bindings
-                            ModuleFunctionOrValueDefn.parse |>> ModuleElem.FunctionOrValue
-
-                            // Bare expressions (scripts, interactive)
-                            Expr.parse |>> ModuleElem.Expression
-                        ]
-                        "ModuleElem"
-        )
+                    // Bare expressions (scripts, interactive)
+                    Expr.parse |>> ModuleElem.Expression
+                ]
+                "ModuleElem")
 
     do refModuleElem.Set parse
 
