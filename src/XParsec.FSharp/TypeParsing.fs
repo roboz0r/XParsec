@@ -44,6 +44,8 @@ module Typar =
             [
                 Token.Wildcard, pAnon
                 Token.KWSingleQuote, pNamed
+                // 'T lexed as a single TypeParameter token (not split into ' + T)
+                Token.TypeParameter, (nextNonTriviaToken |>> fun tok -> Typar.Named(tok, tok))
                 Token.OpConcatenate, pStatic
             ]
             "Typar"
@@ -348,6 +350,10 @@ module Type =
 
     // Entry point for simple types
     let parse = pFunctionType
+
+    /// Parses a single type without consuming `*` as a tuple separator.
+    /// Use in contexts where `*` is an explicit separator (e.g. union case fields).
+    let parseField = pPostfixType
 
     // Initialize the recursive ref parser
     do refType.Set parse

@@ -499,7 +499,9 @@ let printTypar (ctx: PrintContext) (input: string) (lexed: Lexed) (typar: Typar<
             "Typar.Named"
             (fun () ->
                 printTokenRow "" ctx input lexed quote
-                printTokenRow "" ctx input lexed ident
+                // When quote and ident are the same token (TypeParameter like 'T), only print once
+                if quote.Index <> ident.Index then
+                    printTokenRow "" ctx input lexed ident
             )
     | Typar.Static(caret, ident) ->
         printSection
@@ -1292,12 +1294,378 @@ let printCompilerDirective
     for s in strings do
         printTokenRow "" ctx input lexed s
 
+let printMethodOrPropDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (defn: MethodOrPropDefn<SyntaxToken>) =
+    match defn with
+    | MethodOrPropDefn.Property(identPrefix, ValueDefn(_, _, pat, _, _, eq, expr)) ->
+        match identPrefix with
+        | ValueSome ip -> printTokenRow "self" ctx input lexed ip
+        | ValueNone -> ()
+
+        printLabelledToken "=" ctx input lexed eq
+        printExpr ctx input lexed expr
+    | MethodOrPropDefn.Method(identPrefix, FunctionDefn(_, _, name, _, args, retType, eq, expr)) ->
+        match identPrefix with
+        | ValueSome ip -> printTokenRow "self" ctx input lexed ip
+        | ValueNone -> ()
+
+        printLabelledToken "=" ctx input lexed eq
+        printExpr ctx input lexed expr
+    | MethodOrPropDefn.PropertyWithGetSet(_, ident, withTok, _) ->
+        printTokenRow "ident" ctx input lexed ident
+        printLabelledToken "with" ctx input lexed withTok
+        ctx.WriteLine("<get/set>")
+    | MethodOrPropDefn.AutoProperty(_, ident, eq, expr, _) ->
+        printTokenRow "ident" ctx input lexed ident
+        printLabelledToken "=" ctx input lexed eq
+        printExpr ctx input lexed expr
+
+let printMemberDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (memberDefn: MemberDefn<SyntaxToken>) =
+    match memberDefn with
+    | MemberDefn.Value(_, staticTok, valTok, mutableTok, _, ident, colon, typ) ->
+        printSection
+            ctx
+            "Val"
+            (fun () ->
+                match staticTok with
+                | ValueSome s -> printLabelledToken "static" ctx input lexed s
+                | ValueNone -> ()
+
+                printLabelledToken "val" ctx input lexed valTok
+
+                match mutableTok with
+                | ValueSome m -> printLabelledToken "mutable" ctx input lexed m
+                | ValueNone -> ()
+
+                printTokenRow "ident" ctx input lexed ident
+                printLabelledToken ":" ctx input lexed colon
+                printType ctx input lexed typ
+            )
+    | MemberDefn.Abstract(_, abstractTok, memberTok, _, _sign) ->
+        printLabelledToken "abstract" ctx input lexed abstractTok
+
+        match memberTok with
+        | ValueSome m -> printLabelledToken "member" ctx input lexed m
+        | ValueNone -> ()
+
+        ctx.WriteLine("<member sig>")
+    | MemberDefn.Concrete(_, staticTok, memberTok, _, defn) ->
+        match staticTok with
+        | ValueSome s -> printLabelledToken "static" ctx input lexed s
+        | ValueNone -> ()
+
+        printLabelledToken "member" ctx input lexed memberTok
+        printMethodOrPropDefn ctx input lexed defn
+    | MemberDefn.Override(_, overrideTok, _, defn) ->
+        printLabelledToken "override" ctx input lexed overrideTok
+        printMethodOrPropDefn ctx input lexed defn
+    | MemberDefn.Default(_, defaultTok, _, defn) ->
+        printLabelledToken "default" ctx input lexed defaultTok
+        printMethodOrPropDefn ctx input lexed defn
+    | MemberDefn.AdditionalConstructor _ -> ctx.WriteLine("<additional constructor>")
+
+let printTypeDefnElement (ctx: PrintContext) (input: string) (lexed: Lexed) (elem: TypeDefnElement<SyntaxToken>) =
+    match elem with
+    | TypeDefnElement.Member m -> printMemberDefn ctx input lexed m
+    | TypeDefnElement.InterfaceImpl _ -> ctx.WriteLine("<interface impl>")
+    | TypeDefnElement.InterfaceSpec _ -> ctx.WriteLine("<interface spec>")
+
+let printArgSpec (ctx: PrintContext) (input: string) (lexed: Lexed) (argSpec: ArgSpec<SyntaxToken>) =
+    let (ArgSpec(_, name, typ)) = argSpec
+
+    match name with
+    | ValueSome(ArgNameSpec(_, ident, colon)) ->
+        printTokenRow "arg" ctx input lexed ident
+        printLabelledToken ":" ctx input lexed colon
+    | ValueNone -> ()
+
+    printType ctx input lexed typ
+
+let printUncurriedSig (ctx: PrintContext) (input: string) (lexed: Lexed) (sign: UncurriedSig<SyntaxToken>) =
+    let (UncurriedSig(args, arrow, retType)) = sign
+
+    for arg in args do
+        printArgSpec ctx input lexed arg
+
+    printLabelledToken "->" ctx input lexed arrow
+    printType ctx input lexed retType
+
+let printTypeName (ctx: PrintContext) (input: string) (lexed: Lexed) (typeName: TypeName<SyntaxToken>) =
+    let (TypeName(attrs, access, ident, typars)) = typeName
+    printLabelledToken "TypeName" ctx input lexed ident
+
+    match typars with
+    | ValueSome tp -> printTyparDefns ctx input lexed tp
+    | ValueNone -> ()
+
+let printUnionCaseData (ctx: PrintContext) (input: string) (lexed: Lexed) (data: UnionTypeCaseData<SyntaxToken>) =
+    match data with
+    | UnionTypeCaseData.Nullary ident -> printTokenRow "ident" ctx input lexed ident
+    | UnionTypeCaseData.Nary(ident, ofTok, fields) ->
+        printTokenRow "ident" ctx input lexed ident
+        printLabelledToken "of" ctx input lexed ofTok
+
+        for field in fields do
+            match field with
+            | UnionTypeField.Unnamed typ -> printType ctx input lexed typ
+            | UnionTypeField.Named(id, colon, typ) ->
+                printTokenRow "ident" ctx input lexed id
+                printLabelledToken ":" ctx input lexed colon
+                printType ctx input lexed typ
+    | UnionTypeCaseData.NaryUncurried(ident, colon, sign) ->
+        printTokenRow "ident" ctx input lexed ident
+        printLabelledToken ":" ctx input lexed colon
+        printUncurriedSig ctx input lexed sign
+
+let printExceptionDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (exnDefn: ExceptionDefn<SyntaxToken>) =
+    match exnDefn with
+    | ExceptionDefn.Full(_, exTok, caseData) ->
+        printSection
+            ctx
+            "ExceptionDefn.Full"
+            (fun () ->
+                printLabelledToken "exception" ctx input lexed exTok
+                printUnionCaseData ctx input lexed caseData
+            )
+    | ExceptionDefn.Abbreviation(_, exTok, ident, eq, longIdent) ->
+        printSection
+            ctx
+            "ExceptionDefn.Abbrev"
+            (fun () ->
+                printLabelledToken "exception" ctx input lexed exTok
+                printTokenRow "ident" ctx input lexed ident
+                printLabelledToken "=" ctx input lexed eq
+
+                for id in longIdent do
+                    printTokenRow "" ctx input lexed id
+            )
+
+let printTypeDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (typeDefn: TypeDefn<SyntaxToken>) =
+    match typeDefn with
+    | TypeDefn.Abbrev(typeName, equals, typ) ->
+        printSection
+            ctx
+            "TypeDefn.Abbrev"
+            (fun () ->
+                printTypeName ctx input lexed typeName
+                printLabelledToken "=" ctx input lexed equals
+                indent ctx (fun () -> printType ctx input lexed typ)
+            )
+
+    | TypeDefn.Union(typeName, equals, cases, _ext) ->
+        printSection
+            ctx
+            "TypeDefn.Union"
+            (fun () ->
+                printTypeName ctx input lexed typeName
+                printLabelledToken "=" ctx input lexed equals
+
+                indent
+                    ctx
+                    (fun () ->
+                        for (UnionTypeCase(_, data)) in cases do
+                            printSection
+                                ctx
+                                "Case"
+                                (fun () ->
+                                    match data with
+                                    | UnionTypeCaseData.Nullary ident -> printTokenRow "ident" ctx input lexed ident
+                                    | UnionTypeCaseData.Nary(ident, ofTok, fields) ->
+                                        printTokenRow "ident" ctx input lexed ident
+                                        printLabelledToken "of" ctx input lexed ofTok
+
+                                        for field in fields do
+                                            match field with
+                                            | UnionTypeField.Unnamed typ -> printType ctx input lexed typ
+                                            | UnionTypeField.Named(id, colon, typ) ->
+                                                printTokenRow "ident" ctx input lexed id
+                                                printLabelledToken ":" ctx input lexed colon
+                                                printType ctx input lexed typ
+                                    | UnionTypeCaseData.NaryUncurried(ident, colon, _sign) ->
+                                        printTokenRow "ident" ctx input lexed ident
+                                        printLabelledToken ":" ctx input lexed colon
+                                        ctx.WriteLine("<uncurried sig>")
+                                )
+                    )
+            )
+
+    | TypeDefn.Record(typeName, equals, lBrace, fields, rBrace, ext) ->
+        printSection
+            ctx
+            "TypeDefn.Record"
+            (fun () ->
+                printTypeName ctx input lexed typeName
+                printLabelledToken "=" ctx input lexed equals
+                printTokenRow "{" ctx input lexed lBrace
+
+                indent
+                    ctx
+                    (fun () ->
+                        for (RecordField(_, mutableTok, _, id, colon, typ)) in fields do
+                            printSection
+                                ctx
+                                "Field"
+                                (fun () ->
+                                    match mutableTok with
+                                    | ValueSome m -> printLabelledToken "mutable" ctx input lexed m
+                                    | ValueNone -> ()
+
+                                    printTokenRow "ident" ctx input lexed id
+                                    printLabelledToken ":" ctx input lexed colon
+                                    printType ctx input lexed typ
+                                )
+                    )
+
+                printTokenRow "}" ctx input lexed rBrace
+
+                match ext with
+                | ValueSome(TypeExtensionElements(withTok, elems, endTok)) ->
+                    printLabelledToken "with" ctx input lexed withTok
+
+                    indent
+                        ctx
+                        (fun () ->
+                            for e in elems do
+                                printTypeDefnElement ctx input lexed e
+                        )
+
+                    printLabelledToken "end" ctx input lexed endTok
+                | ValueNone -> ()
+            )
+
+    | TypeDefn.Enum(typeName, equals, cases) ->
+        printSection
+            ctx
+            "TypeDefn.Enum"
+            (fun () ->
+                printTypeName ctx input lexed typeName
+                printLabelledToken "=" ctx input lexed equals
+
+                indent
+                    ctx
+                    (fun () ->
+                        for (EnumTypeCase(id, eq, value)) in cases do
+                            printSection
+                                ctx
+                                "Case"
+                                (fun () ->
+                                    printTokenRow "ident" ctx input lexed id
+                                    printLabelledToken "=" ctx input lexed eq
+                                    printTokenRow "value" ctx input lexed value
+                                )
+                    )
+            )
+
+    | TypeDefn.Delegate(typeName, equals, DelegateSig(delTok, ofTok, sign)) ->
+        printSection
+            ctx
+            "TypeDefn.Delegate"
+            (fun () ->
+                printTypeName ctx input lexed typeName
+                printLabelledToken "=" ctx input lexed equals
+                printLabelledToken "delegate" ctx input lexed delTok
+                printLabelledToken "of" ctx input lexed ofTok
+                indent ctx (fun () -> printUncurriedSig ctx input lexed sign)
+            )
+
+    | TypeDefn.Class(typeName, _primaryConstr, _, equals, classTok, ClassTypeBody(_, _, elems), endTok) ->
+        printSection
+            ctx
+            "TypeDefn.Class"
+            (fun () ->
+                printTypeName ctx input lexed typeName
+                printLabelledToken "=" ctx input lexed equals
+                printLabelledToken "class" ctx input lexed classTok
+
+                indent
+                    ctx
+                    (fun () ->
+                        match elems with
+                        | ValueSome es ->
+                            for e in es do
+                                printTypeDefnElement ctx input lexed e
+                        | ValueNone -> ()
+                    )
+
+                printLabelledToken "end" ctx input lexed endTok
+            )
+
+    | TypeDefn.Struct(typeName, _primaryConstr, _, equals, structTok, StructTypeBody(elems), endTok) ->
+        printSection
+            ctx
+            "TypeDefn.Struct"
+            (fun () ->
+                printTypeName ctx input lexed typeName
+                printLabelledToken "=" ctx input lexed equals
+                printLabelledToken "struct" ctx input lexed structTok
+
+                indent
+                    ctx
+                    (fun () ->
+                        for e in elems do
+                            printTypeDefnElement ctx input lexed e
+                    )
+
+                printLabelledToken "end" ctx input lexed endTok
+            )
+
+    | TypeDefn.Interface(typeName, equals, intfTok, InterfaceTypeBody(elems), endTok) ->
+        printSection
+            ctx
+            "TypeDefn.Interface"
+            (fun () ->
+                printTypeName ctx input lexed typeName
+                printLabelledToken "=" ctx input lexed equals
+                printLabelledToken "interface" ctx input lexed intfTok
+
+                indent
+                    ctx
+                    (fun () ->
+                        for e in elems do
+                            printTypeDefnElement ctx input lexed e
+                    )
+
+                printLabelledToken "end" ctx input lexed endTok
+            )
+
+    | TypeDefn.TypeExtension(typeName, TypeExtensionElements(withTok, elems, endTok)) ->
+        printSection
+            ctx
+            "TypeDefn.TypeExtension"
+            (fun () ->
+                printTypeName ctx input lexed typeName
+                printLabelledToken "with" ctx input lexed withTok
+
+                indent
+                    ctx
+                    (fun () ->
+                        for e in elems do
+                            printTypeDefnElement ctx input lexed e
+                    )
+
+                printLabelledToken "end" ctx input lexed endTok
+            )
+
+    | TypeDefn.Missing -> ctx.WriteLine("TypeDefn.Missing")
+
+    | TypeDefn.SkipsTokens(skippedTokens, inner) ->
+        printSection
+            ctx
+            "TypeDefn.SkipsTokens"
+            (fun () ->
+                for t in skippedTokens do
+                    printTokenRow "(skipped)" ctx input lexed t
+
+                printTypeDefn ctx input lexed inner
+            )
+
+    | _ -> ctx.WriteLine("TypeDefn: <not yet implemented>")
+
 let rec printModuleElem (ctx: PrintContext) (input: string) (lexed: Lexed) (elem: ModuleElem<SyntaxToken>) =
     match elem with
     | ModuleElem.FunctionOrValue defn ->
         printSection ctx "FunctionOrValue" (fun () -> printModuleFunctionOrValueDefn ctx input lexed defn)
-    | ModuleElem.Type typeDefn -> ctx.WriteLine("Type: <not yet implemented>")
-    | ModuleElem.Exception exnDefn -> ctx.WriteLine("Exception: <not yet implemented>")
+    | ModuleElem.Type typeDefn -> printTypeDefn ctx input lexed typeDefn
+    | ModuleElem.Exception exnDefn -> printExceptionDefn ctx input lexed exnDefn
     | ModuleElem.Module moduleDefn -> printSection ctx "Module" (fun () -> printModuleDefn ctx input lexed moduleDefn)
     | ModuleElem.ModuleAbbrev abbrev ->
         printSection ctx "ModuleAbbrev" (fun () -> printModuleAbbrev ctx input lexed abbrev)

@@ -1,0 +1,13 @@
+module        'module'          KWModule            tok=   0  pos=   0
+              'MyModule'        Identifier          tok=   2  pos=   7
+TypeDefn.Interface:
+  TypeName    'IAnimal'         Identifier          tok=   7  pos=  22
+  =           '='               OpEquality          tok=   9  pos=  30
+  interface   'interface'       KWInterface         tok=  12  pos=  36
+    abstract  'abstract'        KWAbstract          tok=  15  pos=  54
+    member    'member'          KWMember            tok=  17  pos=  63
+    <member sig>
+    abstract  'abstract'        KWAbstract          tok=  29  pos= 100
+    member    'member'          KWMember            tok=  31  pos= 109
+    <member sig>
+  end         'end'             KWEnd               tok=  39  pos= 133

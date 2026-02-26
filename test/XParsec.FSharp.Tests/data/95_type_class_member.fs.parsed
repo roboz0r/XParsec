@@ -1,0 +1,36 @@
+module          'module'          KWModule            tok=   0  pos=   0
+                'MyModule'        Identifier          tok=   2  pos=   7
+TypeDefn.Class:
+  TypeName      'Counter'         Identifier          tok=   7  pos=  22
+  =             '='               OpEquality          tok=   9  pos=  30
+  class         'class'           KWClass             tok=  12  pos=  36
+    Val:
+      val       'val'             KWVal               tok=  15  pos=  50
+      mutable   'mutable'         KWMutable           tok=  17  pos=  54
+      ident     'count'           Identifier          tok=  19  pos=  62
+      :         ':'               OpColon             tok=  20  pos=  67
+      NamedType:
+        LongIdent:
+                'int'             Identifier          tok=  22  pos=  69
+    member      'member'          KWMember            tok=  25  pos=  81
+    self        'this'            Identifier          tok=  27  pos=  88
+    =           '='               OpEquality          tok=  32  pos= 105
+    Assignment  '<-'              OpArrowLeft         tok=  38  pos= 118
+      LongIdentOrOp:
+        LongIdent:
+                'this'            Identifier          tok=  34  pos= 107
+                'count'           Identifier          tok=  36  pos= 112
+      InfixApp  '+'               OpSubtractionAssignment  tok=  44  pos= 132
+        LongIdentOrOp:
+          LongIdent:
+                'this'            Identifier          tok=  40  pos= 121
+                'count'           Identifier          tok=  42  pos= 126
+        Const   '1'               NumInt32            tok=  46  pos= 134
+    member      'member'          KWMember            tok=  49  pos= 144
+    self        'this'            Identifier          tok=  51  pos= 151
+    =           '='               OpEquality          tok=  55  pos= 162
+    LongIdentOrOp:
+      LongIdent:
+                'this'            Identifier          tok=  57  pos= 164
+                'count'           Identifier          tok=  59  pos= 169
+  end           'end'             KWEnd               tok=  62  pos= 179

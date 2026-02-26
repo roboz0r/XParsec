@@ -1,0 +1,11 @@
+module       'module'          KWModule            tok=   0  pos=   0
+             'MyModule'        Identifier          tok=   2  pos=   7
+TypeDefn.Union:
+  TypeName   'Color'           Identifier          tok=   7  pos=  22
+  =          '='               OpEquality          tok=   9  pos=  28
+    Case:
+      ident  'Red'             Identifier          tok=  14  pos=  36
+    Case:
+      ident  'Green'           Identifier          tok=  19  pos=  46
+    Case:
+      ident  'Blue'            Identifier          tok=  24  pos=  58

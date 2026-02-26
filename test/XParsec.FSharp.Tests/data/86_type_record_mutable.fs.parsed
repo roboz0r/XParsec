@@ -1,0 +1,21 @@
+module         'module'          KWModule            tok=   0  pos=   0
+               'MyModule'        Identifier          tok=   2  pos=   7
+TypeDefn.Record:
+  TypeName     'Vector'          Identifier          tok=   7  pos=  22
+  =            '='               OpEquality          tok=   9  pos=  29
+  {            '{'               KWLBrace            tok=  11  pos=  31
+    Field:
+      mutable  'mutable'         KWMutable           tok=  13  pos=  33
+      ident    'X'               Identifier          tok=  15  pos=  41
+      :        ':'               OpColon             tok=  16  pos=  42
+      NamedType:
+        LongIdent:
+               'float'           Identifier          tok=  18  pos=  44
+    Field:
+      mutable  'mutable'         KWMutable           tok=  21  pos=  51
+      ident    'Y'               Identifier          tok=  23  pos=  59
+      :        ':'               OpColon             tok=  24  pos=  60
+      NamedType:
+        LongIdent:
+               'float'           Identifier          tok=  26  pos=  62
+  }            '}'               KWRBrace            tok=  28  pos=  68

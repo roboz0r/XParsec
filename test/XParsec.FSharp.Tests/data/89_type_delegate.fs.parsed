@@ -1,0 +1,30 @@
+module      'module'          KWModule            tok=   0  pos=   0
+            'MyModule'        Identifier          tok=   2  pos=   7
+TypeDefn.Delegate:
+  TypeName  'Handler'         Identifier          tok=   7  pos=  22
+  =         '='               OpEquality          tok=   9  pos=  30
+  delegate  'delegate'        KWDelegate          tok=  11  pos=  32
+  of        'of'              KWOf                tok=  13  pos=  41
+    NamedType:
+      LongIdent:
+            'obj'             Identifier          tok=  15  pos=  44
+    NamedType:
+      LongIdent:
+            'System'          Identifier          tok=  19  pos=  50
+            'EventArgs'       Identifier          tok=  21  pos=  57
+    ->      '->'              OpArrowRight        tok=  23  pos=  67
+    NamedType:
+      LongIdent:
+            'unit'            Identifier          tok=  25  pos=  70
+TypeDefn.Delegate:
+  TypeName  'Transform'       Identifier          tok=  29  pos=  80
+  =         '='               OpEquality          tok=  31  pos=  90
+  delegate  'delegate'        KWDelegate          tok=  33  pos=  92
+  of        'of'              KWOf                tok=  35  pos= 101
+    NamedType:
+      LongIdent:
+            'int'             Identifier          tok=  37  pos= 104
+    ->      '->'              OpArrowRight        tok=  39  pos= 108
+    NamedType:
+      LongIdent:
+            'int'             Identifier          tok=  41  pos= 111
