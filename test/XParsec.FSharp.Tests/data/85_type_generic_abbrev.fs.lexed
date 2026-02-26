@@ -1,0 +1,38 @@
+0, KWModule
+6, Whitespace
+7, Identifier
+15, Newline
+16, Newline
+17, KWType
+21, Whitespace
+22, Identifier
+27, Operator 0b1000000000001111 LogicalAndBitwise
+28, TypeParameter
+30, Operator 0b1000000000001111 LogicalAndBitwise
+31, Whitespace
+32, OpEquality
+33, Whitespace
+34, TypeParameter
+36, Whitespace
+37, Identifier
+41, Newline
+42, Newline
+43, KWType
+47, Whitespace
+48, Identifier
+52, Operator 0b1000000000001111 LogicalAndBitwise
+53, TypeParameter
+55, OpComma
+56, Whitespace
+57, TypeParameter
+59, Operator 0b1000000000001111 LogicalAndBitwise
+60, Whitespace
+61, OpEquality
+62, Whitespace
+63, TypeParameter
+65, Whitespace
+66, OpMultiply
+67, Whitespace
+68, TypeParameter
+70, Newline
+71, EOF

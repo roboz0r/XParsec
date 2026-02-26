@@ -1,0 +1,9 @@
+module        'module'          KWModule            tok=   0  pos=   0
+              'MyModule'        Identifier          tok=   2  pos=   7
+TypeDefn.TypeExtension:
+  TypeName    'MyList'          Identifier          tok=   7  pos=  22
+  with        'with'            KWWith              tok=   9  pos=  29
+    abstract  'abstract'        KWAbstract          tok=  12  pos=  38
+    member    'member'          KWMember            tok=  14  pos=  47
+    <member sig>
+  end         'end'             KWEnd               tok=  21  pos=  65
