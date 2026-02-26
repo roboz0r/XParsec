@@ -25,6 +25,7 @@
     <Compile Include="ExpressionParsing.fs" />
     <Compile Include="TypeDefnParsing.fs" />
     <Compile Include="DeclarationParsing.fs" />
+    <Compile Include="ProgramStructureParsing.fs" />
     <Compile Include="Debug.fs" />
   </ItemGroup>
   <ItemGroup>

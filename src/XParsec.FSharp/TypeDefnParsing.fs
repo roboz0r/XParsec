@@ -64,7 +64,8 @@ module ArgSpec =
             let! attrs = opt Attributes.parse
             // Try parse "name :" first
             let! nameSpec = opt ArgNameSpec.parse
-            let! typ = Type.parse
+            // Use parseField (pPostfixType) not Type.parse: * separates args, -> separates arg groups
+            let! typ = Type.parseField
             return ArgSpec.ArgSpec(attrs, nameSpec, typ)
         }
 
@@ -81,9 +82,12 @@ module CurriedSig =
 
     let parse: Parser<CurriedSig<SyntaxToken>, _, _, _, _> =
         parser {
-            let! (args, ret) = many1Till pArgsSpec Type.parse
-            let args = List.ofSeq args
-            return CurriedSig(args, ret)
+            // Use `many` (not `many1Till`) so properties with zero `->` are handled.
+            // For each arg group, greedily try pArgsSpec (args -> ), stop when it fails.
+            // The remaining is the return type.
+            let! args = many pArgsSpec
+            let! ret = Type.parse
+            return CurriedSig(List.ofSeq args, ret)
         }
 
 [<RequireQualifiedAccess>]
@@ -229,10 +233,10 @@ module MethodOrPropDefn =
             // If next is `=`, it's a Property (or Method with unit arg omitted? F# rules apply).
             // If next is `with`, it's PropertyWithGetSet.
 
-            let! nextTok = pid
+            let! nextTok = peekNextNonTriviaToken
 
-            match nextTok with
-            | t when t.Token = Token.KWWith ->
+            match nextTok.Token with
+            | Token.KWWith ->
                 // Property with get/set
                 let! withTok = nextNonTriviaTokenIsL Token.KWWith "with"
                 // Parse get/set definitions (FunctionOrValueDefn list)
@@ -240,7 +244,7 @@ module MethodOrPropDefn =
                 // Stubbing list for brevity:
                 return MethodOrPropDefn.PropertyWithGetSet(identPrefix, ident, withTok, [])
 
-            | t when t.Token = Token.OpEquality ->
+            | Token.OpEquality ->
                 // Property (Get-only usually)
                 // AST: Property of ident voption * ValueDefn
                 // Note: ValueDefn parser usually starts with `let`/`mutable`.
@@ -479,44 +483,31 @@ module ClassFunctionOrValueDefn =
 
 [<RequireQualifiedAccess>]
 module ClassTypeBody =
-    let parse terminator : Parser<ClassTypeBody<SyntaxToken>, _, _, _, _> =
+    // Returns the body AND the consumed end token (from manyTill's terminator)
+    let parse terminator : Parser<ClassTypeBody<SyntaxToken> * SyntaxToken, _, _, _, _> =
         parser {
-            // Implicit class body:
-            // inherit?
-            // let/do bindings*
-            // member/interface elements*
-
             let! inh = opt ClassInheritsDecl.parse
-
-            // Allow interleaving of let/do and members in implicit constructors?
-            // Strictly F# puts let/do before members usually, but implicit classes allow mix slightly.
-            // Simplified: Parse Let/Dos, then Elements.
-
             let! lets = many ClassFunctionOrValueDefn.parse
-
-            let! elems =
-                opt (TypeDefnElements.parseTill terminator)
-                |>> function
-                    | ValueSome(es, _) -> ValueSome(List.ofSeq es)
-                    | ValueNone -> ValueNone
-
-            return ClassTypeBody.ClassTypeBody(inh, List.ofSeq lets, elems)
+            let! elems, endTok = TypeDefnElements.parseTill terminator
+            return (ClassTypeBody.ClassTypeBody(inh, List.ofSeq lets, ValueSome(List.ofSeq elems)), endTok)
         }
 
 [<RequireQualifiedAccess>]
 module StructTypeBody =
-    let parse terminator =
+    // Returns the body AND the consumed end token (from manyTill's terminator)
+    let parse terminator : Parser<StructTypeBody<SyntaxToken> * SyntaxToken, _, _, _, _> =
         parser {
-            let! elems, _ = TypeDefnElements.parseTill terminator
-            return StructTypeBody.StructTypeBody(List.ofSeq elems)
+            let! elems, endTok = TypeDefnElements.parseTill terminator
+            return (StructTypeBody.StructTypeBody(List.ofSeq elems), endTok)
         }
 
 [<RequireQualifiedAccess>]
 module InterfaceTypeBody =
-    let parse terminator =
+    // Returns the body AND the consumed end token (from manyTill's terminator)
+    let parse terminator : Parser<InterfaceTypeBody<SyntaxToken> * SyntaxToken, _, _, _, _> =
         parser {
-            let! elems, _ = TypeDefnElements.parseTill terminator
-            return InterfaceTypeBody.InterfaceTypeBody(List.ofSeq elems)
+            let! elems, endTok = TypeDefnElements.parseTill terminator
+            return (InterfaceTypeBody.InterfaceTypeBody(List.ofSeq elems), endTok)
         }
 
 // --- Union ---
@@ -524,25 +515,22 @@ module InterfaceTypeBody =
 [<RequireQualifiedAccess>]
 module UnionTypeField =
     let parse: Parser<UnionTypeField<SyntaxToken>, _, _, _, _> =
-        parser {
-            // Try Named first: ident : Type
-            let! namedField =
-                opt (
-                    parser {
-                        let! ident = pIdent
-                        let! colon = pColon
-                        let! t = Type.parse
-                        return UnionTypeField.Named(ident, colon, t)
-                    }
-                )
-
-            match namedField with
-            | ValueSome nf -> return nf
-            | ValueNone ->
-                // Unnamed field: just Type
-                let! t = Type.parse
-                return UnionTypeField.Unnamed t
-        }
+        // In union case field lists, `*` is a FIELD SEPARATOR, not a tuple operator.
+        // So each individual field type must be parsed without tuple handling.
+        choiceL
+            [
+                parser {
+                    let! ident = pIdent
+                    let! colon = pColon
+                    let! t = Type.parseField
+                    return UnionTypeField.Named(ident, colon, t)
+                }
+                parser {
+                    let! t = Type.parseField
+                    return UnionTypeField.Unnamed t
+                }
+            ]
+            "Union field"
 
 [<RequireQualifiedAccess>]
 module UnionTypeCaseData =
@@ -556,10 +544,10 @@ module UnionTypeCaseData =
             let! ofTok = nextNonTriviaTokenIsL Token.KWOf "of"
 
             // Check for uncurried signature (colon Type) or field list
-            let! next = pid
+            let! next = peekNextNonTriviaToken
 
-            match next with
-            | t when t.Token = Token.OpColon ->
+            match next.Token with
+            | Token.OpColon ->
                 // UncurriedSig
                 let! colon = pColon
                 let! sign = UncurriedSig.parse
@@ -571,17 +559,16 @@ module UnionTypeCaseData =
         }
 
     let parse: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _, _> =
-        parser {
-            // Try Nary first
-            let! nary = opt (lookAhead (nextNonTriviaTokenIsL Token.KWOf "of"))
-
-            match nary with
-            | ValueSome _ -> return! parseNary
-            | ValueNone ->
-                // Nullary
-                let! ident = nextNonTriviaTokenIsL Token.Identifier "Union Case Name"
-                return UnionTypeCaseData.Nullary ident
-        }
+        // Try Nary first (requires ident followed by 'of'); backtrack on failure
+        choiceL
+            [
+                parseNary
+                parser {
+                    let! ident = nextNonTriviaTokenIsL Token.Identifier "Union Case Name"
+                    return UnionTypeCaseData.Nullary ident
+                }
+            ]
+            "Union Case"
 
 [<RequireQualifiedAccess>]
 module UnionTypeCase =
@@ -644,8 +631,8 @@ module TypeExtensionElements =
     let parse: Parser<TypeExtensionElements<SyntaxToken>, _, _, _, _> =
         parser {
             let! withTok = pWith
-            let! elems, _ = TypeDefnElements.parseTill pEnd
-            let! endTok = pEnd
+            // parseTill consumes the terminator (pEnd); capture it from manyTill result
+            let! elems, endTok = TypeDefnElements.parseTill pEnd
             return TypeExtensionElements.TypeExtensionElements(withTok, List.ofSeq elems, endTok)
         }
 
@@ -654,11 +641,9 @@ module DelegateSig =
     let parse: Parser<DelegateSig<SyntaxToken>, _, _, _, _> =
         parser {
             let! del = nextNonTriviaTokenIsL Token.KWDelegate "delegate"
-            let! ofTok = nextNonTriviaTokenIsL Token.KWOf "of" // not a keyword we add: KWOf is rare
-            let! t = Type.parse // Simplified mapping to UncurriedSig
-            // Construct fake UncurriedSig for AST compliance
-            let sigData = UncurriedSig.UncurriedSig([], Unchecked.defaultof<_>, t)
-            return DelegateSig.DelegateSig(del, ofTok, sigData)
+            let! ofTok = nextNonTriviaTokenIsL Token.KWOf "of"
+            let! sign = UncurriedSig.parse
+            return DelegateSig.DelegateSig(del, ofTok, sign)
         }
 
 
@@ -682,114 +667,124 @@ module TypeDefn =
             // 1. Check for Primary Constructor (Class/Struct)
             let! primaryConstr = opt PrimaryConstrArgs.parse
 
-            // 2. Check for '='
-            let! equals = pEquals
+            // 2. Check for TypeExtension ('with' without '=') vs regular definition ('=')
+            let! next2 = peekNextNonTriviaToken
 
-            // 3. Branch based on what follows
+            if next2.Token = Token.KWWith && primaryConstr.IsNone then
+                let! elements = TypeExtensionElements.parse
+                return TypeDefn.TypeExtension(typeName, elements)
+            else
 
-            let! next = pid
+                // 3. Check for '='
+                let! equals = pEquals
 
-            match next with
-            | t when t.Token = Token.KWStruct ->
-                // Explicit Struct
-                let! str = pStruct
-                let! body = StructTypeBody.parse pEnd
-                let! endTok = pEnd
-                return TypeDefn.Struct(typeName, primaryConstr, ValueNone, equals, str, body, endTok)
+                // 4. Branch based on what follows
 
-            | t when t.Token = Token.KWInterface ->
-                // Interface
-                let! intf = pInterface
-                let! body = InterfaceTypeBody.parse pEnd
-                let! endTok = pEnd
-                return TypeDefn.Interface(typeName, equals, intf, body, endTok)
+                let! next = peekNextNonTriviaToken
 
-            | t when t.Token = Token.KWClass ->
-                // Explicit Class
-                let! cls = pClass
-                let! body = ClassTypeBody.parse pEnd
-                let! endTok = pEnd
-                return TypeDefn.Class(typeName, primaryConstr, ValueNone, equals, cls, body, endTok)
+                match next.Token with
+                | Token.KWStruct ->
+                    // Explicit Struct
+                    let! str = pStruct
+                    let! body, endTok = StructTypeBody.parse pEnd
+                    return TypeDefn.Struct(typeName, primaryConstr, ValueNone, equals, str, body, endTok)
 
-            | t when t.Token = Token.KWDelegate ->
-                let! delSig = DelegateSig.parse
-                return TypeDefn.Delegate(typeName, equals, delSig)
+                | Token.KWInterface ->
+                    // Interface
+                    let! intf = pInterface
+                    let! body, endTok = InterfaceTypeBody.parse pEnd
+                    return TypeDefn.Interface(typeName, equals, intf, body, endTok)
 
-            | t when t.Token = Token.KWLBrace ->
-                // Record
-                let! lBrace = pLBrace
-                let! fields, _ = sepBy1 RecordField.parse pSemi
-                let! rBrace = pRBrace
-                let! ext = opt TypeExtensionElements.parse
-                return TypeDefn.Record(typeName, equals, lBrace, List.ofSeq fields, rBrace, ext)
+                | Token.KWClass ->
+                    // Explicit Class
+                    let! cls = pClass
+                    let! body, endTok = ClassTypeBody.parse pEnd
+                    return TypeDefn.Class(typeName, primaryConstr, ValueNone, equals, cls, body, endTok)
 
-            | t when t.Token = Token.OpBar ->
-                // Union or Enum
-                // Look ahead deeper to distinguish?
-                // Heuristic: Parse first case. If it has '=', it's Enum.
-                // Reusing UnionTypeCases but catching Enum pattern is complex without backtracking.
-                // Assuming Union for now as it's more common with '|' start.
-                let! cases = UnionTypeCases.parse
-                let! ext = opt TypeExtensionElements.parse
-                return TypeDefn.Union(typeName, equals, cases, ext)
+                | Token.KWDelegate ->
+                    let! delSig = DelegateSig.parse
+                    return TypeDefn.Delegate(typeName, equals, delSig)
 
-            | _ ->
-                // Abbreviation or Implicit Class?
-                // If it starts with Type, it's Abbrev.
-                // If it starts with 'member', 'val', 'new', 'inherit' -> Implicit Class.
+                | Token.KWLBrace ->
+                    // Record
+                    let! lBrace = pLBrace
+                    let! fields, _ = sepBy1 RecordField.parse pSemi
+                    let! rBrace = pRBrace
+                    let! ext = opt TypeExtensionElements.parse
+                    return TypeDefn.Record(typeName, equals, lBrace, List.ofSeq fields, rBrace, ext)
 
-                // We attempt to parse Type. If successful and consumed everything? Abbrev.
-                // But 'new' is not a type start. 'member' is not.
-
-                // Let's lookahead at tokens that start a Class Body
-                let! isImplicitClass =
-                    lookAhead (
+                | Token.OpBar ->
+                    // Try Enum first (each case has '= <value>'), then Union
+                    return!
                         choiceL
                             [
-                                pMember
-                                pVal
-                                pNew
-                                pInherit
-                                pAbstract
-                                pDefault
-                                pOverride
-                                // If primary constructor was present, it's definitely a class/struct
-                                (if primaryConstr.IsSome then
-                                     preturn (Unchecked.defaultof<_>)
-                                 else
-                                     fail (Message "Not implicit"))
+                                parser {
+                                    let! cases = EnumTypeCases.parse
+                                    return TypeDefn.Enum(typeName, equals, cases)
+                                }
+                                parser {
+                                    let! cases = UnionTypeCases.parse
+                                    let! ext = opt TypeExtensionElements.parse
+                                    return TypeDefn.Union(typeName, equals, cases, ext)
+                                }
                             ]
-                            "Implicit check"
-                    )
-                    |> opt
+                            "Union or Enum"
 
-                match isImplicitClass with
-                | ValueSome _ ->
-                    // Implicit Class
-                    // AST `Anon` is often used for Implicit Class definitions (begin/end inferred or explicit)
-                    // Or `Class` with implicit tokens.
-                    // The AST `Anon` expects `begin`/`end`. F# implicit classes don't always have them.
-                    // We'll synthesize tokens or expect `begin`/`end` if the grammar strictly requires AST matching.
-                    // Assuming AST requires `begin` `end`:
-                    let! beginTok = nextNonTriviaTokenVirtualIfNot Token.KWBegin
-                    let endTokParser = nextNonTriviaTokenVirtualIfNot Token.KWEnd
-                    let! body = ClassTypeBody.parse endTokParser
-                    let! endTok = endTokParser // consume the virtual/real end
-                    return TypeDefn.Anon(typeName, primaryConstr, ValueNone, equals, beginTok, body, endTok)
-                | ValueNone ->
-                    // Abbreviation
-                    let! t =
-                        Type.parse
-                        |> recoverWith
-                            StoppingTokens.afterTypeDefn
-                            DiagnosticSeverity.Error
-                            DiagnosticCode.MissingType
-                            (fun toks ->
-                                let m: Type<SyntaxToken> = Type<_>.Missing
-                                if toks.IsEmpty then m else Type<_>.SkipsTokens(toks, m)
-                            )
+                | _ ->
+                    // Abbreviation or Implicit Class?
+                    // If it starts with Type, it's Abbrev.
+                    // If it starts with 'member', 'val', 'new', 'inherit' -> Implicit Class.
 
-                    return TypeDefn.Abbrev(typeName, equals, t)
+                    // We attempt to parse Type. If successful and consumed everything? Abbrev.
+                    // But 'new' is not a type start. 'member' is not.
+
+                    // Let's lookahead at tokens that start a Class Body
+                    let! isImplicitClass =
+                        lookAhead (
+                            choiceL
+                                [
+                                    pMember
+                                    pVal
+                                    pNew
+                                    pInherit
+                                    pAbstract
+                                    pDefault
+                                    pOverride
+                                    // If primary constructor was present, it's definitely a class/struct
+                                    (if primaryConstr.IsSome then
+                                         preturn (Unchecked.defaultof<_>)
+                                     else
+                                         fail (Message "Not implicit"))
+                                ]
+                                "Implicit check"
+                        )
+                        |> opt
+
+                    match isImplicitClass with
+                    | ValueSome _ ->
+                        // Implicit Class
+                        // AST `Anon` is often used for Implicit Class definitions (begin/end inferred or explicit)
+                        // Or `Class` with implicit tokens.
+                        // The AST `Anon` expects `begin`/`end`. F# implicit classes don't always have them.
+                        // We'll synthesize tokens or expect `begin`/`end` if the grammar strictly requires AST matching.
+                        // Assuming AST requires `begin` `end`:
+                        let! beginTok = nextNonTriviaTokenVirtualIfNot Token.KWBegin
+                        let! body, endTok = ClassTypeBody.parse (nextNonTriviaTokenVirtualIfNot Token.KWEnd)
+                        return TypeDefn.Anon(typeName, primaryConstr, ValueNone, equals, beginTok, body, endTok)
+                    | ValueNone ->
+                        // Abbreviation
+                        let! t =
+                            Type.parse
+                            |> recoverWith
+                                StoppingTokens.afterTypeDefn
+                                DiagnosticSeverity.Error
+                                DiagnosticCode.MissingType
+                                (fun toks ->
+                                    let m: Type<SyntaxToken> = Type<_>.Missing
+                                    if toks.IsEmpty then m else Type<_>.SkipsTokens(toks, m)
+                                )
+
+                        return TypeDefn.Abbrev(typeName, equals, t)
         }
 
 [<RequireQualifiedAccess>]
@@ -799,16 +794,26 @@ module ExceptionDefn =
             let! attrs = opt Attributes.parse
             let! exTok = nextNonTriviaTokenIsL Token.KWException "exception"
 
-            // Try Full first
-            let! isFull = opt (lookAhead (nextNonTriviaTokenIsL Token.KWOf "of"))
-
-            match isFull with
-            | ValueSome _ ->
-                let! caseData = UnionTypeCaseData.parse
-                return ExceptionDefn.Full(attrs, exTok, caseData)
-            | ValueNone ->
-                let! ident = nextNonTriviaTokenIsL Token.Identifier "Exception Name"
-                let! eq = nextNonTriviaTokenIsL Token.OpEquality "="
-                let! lid = LongIdent.parse
-                return ExceptionDefn.Abbreviation(attrs, exTok, ident, eq, lid)
+            return!
+                choiceL
+                    [
+                        // Full: exception Foo of int  (case data requires ident + 'of')
+                        parser {
+                            let! caseData = UnionTypeCaseData.parseNary
+                            return ExceptionDefn.Full(attrs, exTok, caseData)
+                        }
+                        // Abbreviation: exception Foo = Other.Exception
+                        parser {
+                            let! ident = pIdent
+                            let! eq = pEquals
+                            let! lid = LongIdent.parse
+                            return ExceptionDefn.Abbreviation(attrs, exTok, ident, eq, lid)
+                        }
+                        // Nullary: exception Foo
+                        parser {
+                            let! ident = pIdent
+                            return ExceptionDefn.Full(attrs, exTok, UnionTypeCaseData.Nullary ident)
+                        }
+                    ]
+                    "Exception definition"
         }
