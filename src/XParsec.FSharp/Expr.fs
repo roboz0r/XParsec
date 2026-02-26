@@ -516,7 +516,11 @@ and [<RequireQualifiedAccess>] AdditionalConstrExpr<'T> =
     | Init of initExpr: AdditionalConstrInitExpr<'T>
 
 and AdditionalConstrInitExpr<'T> =
-    | Explicit of lBrace: 'T * inherits: ClassInheritsDecl<'T> * initializers: FieldInitializer<'T> list * rBrace: 'T
+    | Explicit of
+        lBrace: 'T *
+        inherits: ClassInheritsDecl<'T> voption *
+        initializers: FieldInitializer<'T> list *
+        rBrace: 'T
     | Delegated of newToken: 'T * typ: Type<'T> * expr: Expr<'T>
 
 and AsDefn<'T> = | AsDefn of asToken: 'T * ident: 'T
