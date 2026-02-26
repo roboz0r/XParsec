@@ -1,3 +1,4 @@
+AnonymousModule:
 BeginEndBlock  'begin'           KWBegin             tok=   0  pos=   0
   Const        '123'             NumInt32            tok=   2  pos=   6
                'end'             KWEnd               tok=   4  pos=  10

@@ -1,3 +1,4 @@
+AnonymousModule:
 StaticUpcast:
   Expr:
     Ident  'x'               Identifier          tok=   0  pos=   0

@@ -168,6 +168,9 @@ module ModuleElem =
 
                             // Let / Do bindings
                             ModuleFunctionOrValueDefn.parse |>> ModuleElem.FunctionOrValue
+
+                            // Bare expressions (scripts, interactive)
+                            Expr.parse |>> ModuleElem.Expression
                         ]
                         "ModuleElem"
         )

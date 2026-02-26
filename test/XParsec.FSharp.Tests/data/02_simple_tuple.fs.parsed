@@ -1,3 +1,4 @@
+AnonymousModule:
 Tuple:
   Const  '1'               NumInt32            tok=   0  pos=   0
   Const  '2'               NumInt32            tok=   3  pos=   3

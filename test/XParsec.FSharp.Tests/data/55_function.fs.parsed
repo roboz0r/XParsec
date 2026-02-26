@@ -1,3 +1,4 @@
+AnonymousModule:
 Function                   'function'        KWFunction          tok=   0  pos=   0
   Rule:
     Bar                    '|'               OpBar               tok=   2  pos=   9

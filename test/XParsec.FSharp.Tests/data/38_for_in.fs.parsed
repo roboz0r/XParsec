@@ -1,3 +1,4 @@
+AnonymousModule:
 ForIn              'for'             KWFor               tok=   0  pos=   0
 Pat:
   Pat.NamedSimple  'x'               Identifier          tok=   2  pos=   4

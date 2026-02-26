@@ -1,3 +1,4 @@
+AnonymousModule:
 IndexedLookup:
   Expr:
     Ident  'xs'              Identifier          tok=   0  pos=   0

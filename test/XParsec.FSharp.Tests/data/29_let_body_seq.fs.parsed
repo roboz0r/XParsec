@@ -1,9 +1,9 @@
-LetValue           'let'             KWLet               tok=   0  pos=   0
-  Pat.NamedSimple  'x'               Identifier          tok=   2  pos=   4
-  =                '='               OpEquality          tok=   4  pos=   6
-    Sequential     <virt>            1024                tok=virt  pos=  13
-      Const        '1'               NumInt32            tok=   7  pos=  12
-      Const        '2'               NumInt32            tok=  10  pos=  18
-  in               <virt>            KWIn                tok=virt  pos=  20
-  Body:
-    Ident          'x'               Identifier          tok=  12  pos=  20
+AnonymousModule:
+FunctionOrValue:
+  let                'let'             KWLet               tok=   0  pos=   0
+    Pat.NamedSimple  'x'               Identifier          tok=   2  pos=   4
+    =                '='               OpEquality          tok=   4  pos=   6
+      Sequential     <virt>            1024                tok=virt  pos=  13
+        Const        '1'               NumInt32            tok=   7  pos=  12
+        Const        '2'               NumInt32            tok=  10  pos=  18
+Ident                'x'               Identifier          tok=  12  pos=  20

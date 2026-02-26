@@ -1,3 +1,4 @@
+AnonymousModule:
 Fun                'fun'             KWFun               tok=   0  pos=   0
 Pats:
   Pat.NamedSimple  'x'               Identifier          tok=   2  pos=   4

@@ -1,3 +1,4 @@
+AnonymousModule:
 HighPrecedenceApp:
   Func:
     Ident    'f'               Identifier          tok=   0  pos=   0

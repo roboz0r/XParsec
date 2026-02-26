@@ -353,11 +353,11 @@ let testParseFileWith (definedSymbols: Set<string>) (filePath: string) =
         | Ok lexed ->
             let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed input definedSymbols
 
-            match XParsec.FSharp.Parser.Expr.parse reader with
+            match XParsec.FSharp.Parser.FSharpAst.parse reader with
             | Error e -> failwithf "Parsing failed: %A" e
-            | Ok expr ->
+            | Ok ast ->
                 let ctx = XParsec.FSharp.Debug.PrintContext(2)
-                XParsec.FSharp.Debug.printExpr ctx input lexed expr
+                XParsec.FSharp.Debug.printFSharpAst ctx input lexed ast
                 XParsec.FSharp.Debug.printDiagnostics ctx reader.State.Diagnostics
                 ctx.FlushToString()
 

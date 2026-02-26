@@ -1,3 +1,4 @@
+AnonymousModule:
 TryWith                'try'             KWTry               tok=   0  pos=   0
 TryExpr:
   LetValue             'let'             KWLet               tok=   3  pos=   8

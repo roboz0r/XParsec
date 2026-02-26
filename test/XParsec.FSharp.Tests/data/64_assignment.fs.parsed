@@ -1,3 +1,4 @@
+AnonymousModule:
 Assignment  '<-'              OpArrowLeft         tok=   2  pos=   2
   Ident     'x'               Identifier          tok=   0  pos=   0
   Const     '1'               NumInt32            tok=   4  pos=   5

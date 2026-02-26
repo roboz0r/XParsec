@@ -1233,6 +1233,147 @@ let printExpr (ctx: PrintContext) (input: string) (lexed: Lexed) (expr: Expr<Syn
     | Expr.Pat innerPat -> printSection ctx "Pat" (fun () -> printPat ctx input lexed innerPat)
     | _ -> failwithf "Not implemented %A" expr
 
+let printModuleFunctionOrValueDefn
+    (ctx: PrintContext)
+    (input: string)
+    (lexed: Lexed)
+    (defn: ModuleFunctionOrValueDefn<SyntaxToken>)
+    =
+    match defn with
+    | ModuleFunctionOrValueDefn.LetFunction(attrs, letToken, functionDefn) ->
+        printLabelledToken "let" ctx input lexed letToken
+        indent ctx (fun () -> printFunctionDefn ctx input lexed functionDefn)
+    | ModuleFunctionOrValueDefn.LetValue(attrs, letToken, valueDefn) ->
+        printLabelledToken "let" ctx input lexed letToken
+        indent ctx (fun () -> printValueDefn ctx input lexed valueDefn)
+    | ModuleFunctionOrValueDefn.LetRec(attrs, letToken, recToken, defns) ->
+        printLabelledToken "let" ctx input lexed letToken
+
+        match recToken with
+        | ValueSome t -> printLabelledToken "rec" ctx input lexed t
+        | ValueNone -> ()
+
+        indent
+            ctx
+            (fun () ->
+                for defn in defns do
+                    printFunctionOrValueDefn ctx input lexed defn
+            )
+    | ModuleFunctionOrValueDefn.Do(attrs, doToken, expr) ->
+        printLabelledToken "do" ctx input lexed doToken
+        indent ctx (fun () -> printExpr ctx input lexed expr)
+
+let printImportDecl (ctx: PrintContext) (input: string) (lexed: Lexed) (decl: ImportDecl<SyntaxToken>) =
+    let (ImportDecl.ImportDecl(openToken, longIdent)) = decl
+    printLabelledToken "open" ctx input lexed openToken
+
+    for ident in longIdent do
+        printTokenRow "" ctx input lexed ident
+
+let printModuleAbbrev (ctx: PrintContext) (input: string) (lexed: Lexed) (abbrev: ModuleAbbrev<SyntaxToken>) =
+    let (ModuleAbbrev.ModuleAbbrev(moduleToken, ident, equals, longIdent)) = abbrev
+    printLabelledToken "module" ctx input lexed moduleToken
+    printTokenRow "ident" ctx input lexed ident
+    printLabelledToken "=" ctx input lexed equals
+
+    for id in longIdent do
+        printTokenRow "" ctx input lexed id
+
+let printCompilerDirective
+    (ctx: PrintContext)
+    (input: string)
+    (lexed: Lexed)
+    (decl: CompilerDirectiveDecl<SyntaxToken>)
+    =
+    let (CompilerDirectiveDecl.CompilerDirectiveDecl(hash, ident, strings)) = decl
+    printLabelledToken "#" ctx input lexed hash
+    printTokenRow "directive" ctx input lexed ident
+
+    for s in strings do
+        printTokenRow "" ctx input lexed s
+
+let rec printModuleElem (ctx: PrintContext) (input: string) (lexed: Lexed) (elem: ModuleElem<SyntaxToken>) =
+    match elem with
+    | ModuleElem.FunctionOrValue defn ->
+        printSection ctx "FunctionOrValue" (fun () -> printModuleFunctionOrValueDefn ctx input lexed defn)
+    | ModuleElem.Type typeDefn -> ctx.WriteLine("Type: <not yet implemented>")
+    | ModuleElem.Exception exnDefn -> ctx.WriteLine("Exception: <not yet implemented>")
+    | ModuleElem.Module moduleDefn -> printSection ctx "Module" (fun () -> printModuleDefn ctx input lexed moduleDefn)
+    | ModuleElem.ModuleAbbrev abbrev ->
+        printSection ctx "ModuleAbbrev" (fun () -> printModuleAbbrev ctx input lexed abbrev)
+    | ModuleElem.Import importDecl -> printSection ctx "Import" (fun () -> printImportDecl ctx input lexed importDecl)
+    | ModuleElem.CompilerDirective directive ->
+        printSection ctx "CompilerDirective" (fun () -> printCompilerDirective ctx input lexed directive)
+    | ModuleElem.Expression expr -> printExpr ctx input lexed expr
+
+and printModuleDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (defn: ModuleDefn<SyntaxToken>) =
+    let (ModuleDefn.ModuleDefn(attrs, moduleToken, access, ident, equals, body)) = defn
+    printLabelledToken "module" ctx input lexed moduleToken
+
+    match access with
+    | ValueSome a -> ctx.WriteLine("access: <not yet implemented>")
+    | ValueNone -> ()
+
+    printTokenRow "ident" ctx input lexed ident
+    printLabelledToken "=" ctx input lexed equals
+    let (ModuleDefnBody(beginToken, elems, endToken)) = body
+    printLabelledToken "begin" ctx input lexed beginToken
+
+    match elems with
+    | ValueSome elems -> indent ctx (fun () -> printModuleElems ctx input lexed elems)
+    | ValueNone -> ()
+
+    printLabelledToken "end" ctx input lexed endToken
+
+and printModuleElems (ctx: PrintContext) (input: string) (lexed: Lexed) (elems: ModuleElems<SyntaxToken>) =
+    for elem in elems do
+        printModuleElem ctx input lexed elem
+
+let printNamespaceDeclGroup
+    (ctx: PrintContext)
+    (input: string)
+    (lexed: Lexed)
+    (group: NamespaceDeclGroup<SyntaxToken>)
+    =
+    match group with
+    | NamespaceDeclGroup.Named(nsTok, longIdent, elems) ->
+        printLabelledToken "namespace" ctx input lexed nsTok
+
+        for id in longIdent do
+            printTokenRow "" ctx input lexed id
+
+        indent ctx (fun () -> printModuleElems ctx input lexed elems)
+    | NamespaceDeclGroup.Global(nsTok, globalTok, elems) ->
+        printLabelledToken "namespace" ctx input lexed nsTok
+        printLabelledToken "global" ctx input lexed globalTok
+        indent ctx (fun () -> printModuleElems ctx input lexed elems)
+
+let printImplementationFile (ctx: PrintContext) (input: string) (lexed: Lexed) (file: ImplementationFile<SyntaxToken>) =
+    match file with
+    | ImplementationFile.AnonymousModule elems ->
+        ctx.WriteLine("AnonymousModule:")
+        printModuleElems ctx input lexed elems
+    | ImplementationFile.NamedModule namedModule ->
+        let (NamedModule.NamedModule(modTok, longIdent, elems)) = namedModule
+        printLabelledToken "module" ctx input lexed modTok
+
+        for id in longIdent do
+            printTokenRow "" ctx input lexed id
+
+        printModuleElems ctx input lexed elems
+    | ImplementationFile.Namespaces groups ->
+        for group in groups do
+            printNamespaceDeclGroup ctx input lexed group
+
+let printFSharpAst (ctx: PrintContext) (input: string) (lexed: Lexed) (ast: FSharpAst<SyntaxToken>) =
+    match ast with
+    | FSharpAst.ImplementationFile file -> printImplementationFile ctx input lexed file
+    | FSharpAst.SignatureFile _ -> ctx.WriteLine("SignatureFile: <not yet implemented>")
+    | FSharpAst.ScriptFile _ -> ctx.WriteLine("ScriptFile: <not yet implemented>")
+    | FSharpAst.ScriptFragment(ScriptFragment.ScriptFragment elems) ->
+        ctx.WriteLine("ScriptFragment:")
+        printModuleElems ctx input lexed elems
+
 /// Formats a DiagnosticCode as a short, stable string suitable for golden-file output.
 let sprintDiagnosticCode (code: DiagnosticCode) : string =
     match code with
