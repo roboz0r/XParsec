@@ -454,8 +454,8 @@ type PrimaryConstrArgs<'T> =
 type TypeName<'T> =
     | TypeName of
         attributes: Attributes<'T> voption *
-        access: 'T voption *  // Placeholder for access modifier
-        ident: 'T *
+        access: 'T voption *
+        ident: LongIdent<'T> *
         typarDefns: TyparDefns<'T> voption
 
 // Represents: type-defn-element and related constructs

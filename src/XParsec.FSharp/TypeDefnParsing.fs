@@ -29,7 +29,7 @@ module TypeName =
         parser {
             let! attrs = opt Attributes.parse
             let! access = opt pAccessModifier
-            let! ident = pIdent
+            let! ident = LongIdent.parse
             let! typars = opt TyparDefns.parse
             return TypeName(attrs, access, ident, typars)
         }

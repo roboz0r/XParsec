@@ -1,0 +1,13 @@
+module         'module'          KWModule            tok=   0  pos=   0
+               'MyModule'        Identifier          tok=   2  pos=   7
+TypeDefn.TypeExtension:
+  TypeName     'System'          Identifier          tok=   7  pos=  22
+  TypeName     'String'          Identifier          tok=   9  pos=  29
+  with         'with'            KWWith              tok=  11  pos=  36
+    member     'member'          KWMember            tok=  14  pos=  45
+    self       'this'            Identifier          tok=  16  pos=  52
+    Ident      'Hello'           Identifier          tok=  18  pos=  57
+    Pat.Const  '()'              Unit                tok=  19  pos=  62
+    =          '='               OpEquality          tok=  21  pos=  65
+    Const      '"hello"'         StringLiteral       tok=  23  pos=  67
+  end          'end'             KWEnd               tok=  25  pos=  75
