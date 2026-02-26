@@ -36,6 +36,7 @@ type ModuleElem<'T> =
     | ModuleAbbrev of ModuleAbbrev<'T>
     | Import of ImportDecl<'T>
     | CompilerDirective of CompilerDirectiveDecl<'T>
+    | Expression of Expr<'T>
 
 // Represents: module-elems := module-elem ... module-elem
 and ModuleElems<'T> = ModuleElem<'T> list

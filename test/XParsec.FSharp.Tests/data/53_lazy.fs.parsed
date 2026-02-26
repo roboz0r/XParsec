@@ -1,3 +1,4 @@
+AnonymousModule:
 Lazy          'lazy'            KWLazy              tok=   0  pos=   0
   ParenBlock  '('               KWLParen            tok=   2  pos=   5
     InfixApp  '+'               OpSubtractionAssignment  tok=   5  pos=   8

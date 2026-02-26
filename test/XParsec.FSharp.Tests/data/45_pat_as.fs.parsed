@@ -1,3 +1,4 @@
+AnonymousModule:
 Match:
   MatchToken              'match'           KWMatch             tok=   0  pos=   0
   MatchExpr:

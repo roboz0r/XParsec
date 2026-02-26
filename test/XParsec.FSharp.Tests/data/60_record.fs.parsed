@@ -1,3 +1,4 @@
+AnonymousModule:
 Record       '{'               KWLBrace            tok=   0  pos=   0
   Field:
     LongIdent:
