@@ -1502,7 +1502,9 @@ let printMemberSig (ctx: PrintContext) (input: string) (lexed: Lexed) (sign: Mem
 
 let printTypeName (ctx: PrintContext) (input: string) (lexed: Lexed) (typeName: TypeName<SyntaxToken>) =
     let (TypeName(attrs, access, ident, typars)) = typeName
-    printLabelledToken "TypeName" ctx input lexed ident
+
+    for tok in ident do
+        printLabelledToken "TypeName" ctx input lexed tok
 
     match typars with
     | ValueSome tp -> printTyparDefns ctx input lexed tp
