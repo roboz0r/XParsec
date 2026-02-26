@@ -1,0 +1,14 @@
+AnonymousModule:
+Import:
+  open               'open'            KWOpen              tok=   0  pos=   0
+                     'System'          Identifier          tok=   2  pos=   5
+Import:
+  open               'open'            KWOpen              tok=   4  pos=  12
+                     'System'          Identifier          tok=   6  pos=  17
+                     'Collection...'   Identifier          tok=   8  pos=  24
+                     'Generic'         Identifier          tok=  10  pos=  36
+FunctionOrValue:
+  let                'let'             KWLet               tok=  13  pos=  45
+    Pat.NamedSimple  'x'               Identifier          tok=  15  pos=  49
+    =                '='               OpEquality          tok=  17  pos=  51
+      Const          '1'               NumInt32            tok=  19  pos=  53

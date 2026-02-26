@@ -1,0 +1,13 @@
+namespace                  'namespace'       KWNamespace         tok=   0  pos=   0
+                           'MyNamespac...'   Identifier          tok=   2  pos=  10
+  Module:
+    module                 'module'          KWModule            tok=   5  pos=  23
+    ident                  'Inner'           Identifier          tok=   7  pos=  30
+    =                      '='               OpEquality          tok=   9  pos=  36
+    begin                  'begin'           KWBegin             tok=  12  pos=  42
+      FunctionOrValue:
+        let                'let'             KWLet               tok=  15  pos=  52
+          Pat.NamedSimple  'x'               Identifier          tok=  17  pos=  56
+          =                '='               OpEquality          tok=  19  pos=  58
+            Const          '1'               NumInt32            tok=  21  pos=  60
+    end                    'end'             KWEnd               tok=  24  pos=  66
