@@ -329,16 +329,18 @@ module AdditionalConstrExpr =
             [
                 parser {
                     let! lBrace = pLBrace
-                    // Helper for inherits: inherit Type(expr)
+                    // Helper for inherits: inherit Type(expr) — now optional
                     let! inherits =
-                        parser {
-                            let! inh = pInherit
-                            let! t = Type.parse
-                            let! e = opt Expr.parse
-                            return ClassInheritsDecl.ClassInheritsDecl(inh, t, e)
-                        }
+                        opt (
+                            parser {
+                                let! inh = pInherit
+                                let! t = Type.parse
+                                let! e = opt Expr.parse
+                                return ClassInheritsDecl.ClassInheritsDecl(inh, t, e)
+                            }
+                        )
 
-                    let! inits = many FieldInitializer.parse // Simplified loop
+                    let! inits = many FieldInitializer.parse
                     let! rBrace = pRBrace
                     return AdditionalConstrInitExpr.Explicit(lBrace, inherits, List.ofSeq inits, rBrace)
                 }
@@ -418,8 +420,41 @@ module MemberDefn =
                     return MemberDefn.Default(attrs, keyword, access, defn)
 
                 | _ -> // Token.KWMember
-                    let! defn = MethodOrPropDefn.parse
-                    return MemberDefn.Concrete(attrs, staticTok, keyword, access, defn)
+                    // Check for AutoProperty: member val Ident = Expr [with get[, set]]
+                    let! nextTok = peekNextNonTriviaToken
+
+                    match nextTok.Token with
+                    | Token.KWVal ->
+                        let! valTok = consumePeeked nextTok
+                        let! ident = pIdent
+                        let! eq = pEquals
+                        let! expr = Expr.parse
+
+                        let! withClause =
+                            opt (
+                                parser {
+                                    let! withTok = nextNonTriviaTokenIsL Token.KWWith "with"
+                                    let! acc1 = pIdent
+
+                                    let! acc2 =
+                                        opt (
+                                            parser {
+                                                let! _ = pComma
+                                                let! id = pIdent
+                                                return id
+                                            }
+                                        )
+
+                                    return (withTok, acc1, acc2)
+                                }
+                            )
+
+                        let autoProp = MethodOrPropDefn.AutoProperty(valTok, ident, eq, expr, withClause)
+
+                        return MemberDefn.Concrete(attrs, staticTok, keyword, access, autoProp)
+                    | _ ->
+                        let! defn = MethodOrPropDefn.parse
+                        return MemberDefn.Concrete(attrs, staticTok, keyword, access, defn)
         }
 
     // Set the forward reference in your existing framework
@@ -441,13 +476,28 @@ module TypeDefnElement =
                     let! withTok = opt pWith
 
                     match withTok with
-                    | ValueSome _ ->
-                        // InterfaceImpl requires members, usually `member ...`
-                        // Reusing ObjectMembers parser logic roughly
-                        // For precise AST `InterfaceImpl` expects `InterfaceImpl` type which has `opt ObjectMembers`
-                        // Here we map roughly:
-                        let! members = opt ObjectMembers.parse
-                        return TypeDefnElement.InterfaceImpl(InterfaceImpl.InterfaceImpl(intf, t, members))
+                    | ValueSome wTok ->
+                        // `with` already consumed — parse members until end/dedent
+                        // Use lookAhead on end so we don't consume it (it belongs to the class body)
+                        let pTerminator = lookAhead (nextNonTriviaTokenIsL Token.KWEnd "end")
+                        let! members, _ = manyTill refMemberDefn.Parser pTerminator
+
+                        // Synthesize a virtual end token for the ObjectMembers without consuming the real end
+                        let! nextTok = peekNextNonTriviaToken
+
+                        let virtualEnd =
+                            {
+                                PositionedToken =
+                                    PositionedToken.Create(
+                                        Token.ofUInt16 (uint16 Token.KWEnd ||| TokenRepresentation.IsVirtual),
+                                        nextTok.StartIndex
+                                    )
+                                Index = TokenIndex.Virtual
+                            }
+
+                        let objMembers = ObjectMembers.ObjectMembers(wTok, List.ofSeq members, virtualEnd)
+
+                        return TypeDefnElement.InterfaceImpl(InterfaceImpl.InterfaceImpl(intf, t, ValueSome objMembers))
                     | ValueNone -> return TypeDefnElement.InterfaceSpec(InterfaceSpec.InterfaceSpec(intf, t))
                 }
                 MemberDefn.parse |>> TypeDefnElement.Member
@@ -492,11 +542,8 @@ module ClassFunctionOrValueDefn =
                     let! stat = opt pStatic
                     let! l = pLet
                     let! r = opt (nextNonTriviaTokenIsL Token.KWRec "rec")
-                    // Parsing multiple let bindings is complex in top level,
-                    // assuming one for now or loop needed.
-                    // FunctionOrValueDefn.parse handles one.
-                    let! defn = FunctionOrValueDefn.parse
-                    return ClassFunctionOrValueDefn.LetRecDefns(attrs, stat, l, r, [ defn ])
+                    let! defns = FunctionOrValueDefn.parseSepByAnd1
+                    return ClassFunctionOrValueDefn.LetRecDefns(attrs, stat, l, r, defns)
                 }
             ]
             "Class Let/Do"
@@ -676,11 +723,9 @@ module TypeDefn =
 
     // Helper to detect specific type bodies based on lookahead or specific tokens
 
-    let parse: Parser<TypeDefn<SyntaxToken>, _, _, _, _> =
+    /// Parses the body of a type definition after the leading keyword (type or and) has been consumed.
+    let private parseBody: Parser<TypeDefn<SyntaxToken>, _, _, _, _> =
         parser {
-            let! typeKw = nextNonTriviaTokenIsL Token.KWType "type" // Consumed but typically part of TypeName?
-            // Note: AST TypeName doesn't include 'type' keyword, but TypeDefn implies it's wrapped or parsed before.
-            // Assuming we are at the name:
 
             let! typeName = TypeName.parse
 
@@ -805,6 +850,19 @@ module TypeDefn =
                                 )
 
                         return TypeDefn.Abbrev(typeName, equals, t)
+        }
+
+    let parse: Parser<TypeDefn<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! _ = nextNonTriviaTokenIsL Token.KWType "type"
+            return! parseBody
+        }
+
+    /// Parses a type definition continuation starting with 'and' (for mutual recursion groups).
+    let parseAndContinuation: Parser<TypeDefn<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! _ = nextNonTriviaTokenIsL Token.KWAnd "and"
+            return! parseBody
         }
 
 [<RequireQualifiedAccess>]

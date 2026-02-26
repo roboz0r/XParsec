@@ -1301,11 +1301,23 @@ let printMethodOrPropDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (de
         | ValueSome ip -> printTokenRow "self" ctx input lexed ip
         | ValueNone -> ()
 
+        printPat ctx input lexed pat
         printLabelledToken "=" ctx input lexed eq
         printExpr ctx input lexed expr
     | MethodOrPropDefn.Method(identPrefix, FunctionDefn(_, _, name, _, args, retType, eq, expr)) ->
         match identPrefix with
         | ValueSome ip -> printTokenRow "self" ctx input lexed ip
+        | ValueNone -> ()
+
+        printIdentOrOp ctx input lexed name
+
+        for pat in args do
+            printPat ctx input lexed pat
+
+        match retType with
+        | ValueSome(ReturnType(colon, typ)) ->
+            printLabelledToken ":" ctx input lexed colon
+            printType ctx input lexed typ
         | ValueNone -> ()
 
         printLabelledToken "=" ctx input lexed eq
@@ -1316,10 +1328,20 @@ let printMethodOrPropDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (de
 
         for defn in defns do
             printFunctionOrValueDefn ctx input lexed defn
-    | MethodOrPropDefn.AutoProperty(_, ident, eq, expr, _) ->
+    | MethodOrPropDefn.AutoProperty(_, ident, eq, expr, withClause) ->
         printTokenRow "ident" ctx input lexed ident
         printLabelledToken "=" ctx input lexed eq
         printExpr ctx input lexed expr
+
+        match withClause with
+        | ValueSome(withTok, acc1, acc2) ->
+            printLabelledToken "with" ctx input lexed withTok
+            printTokenRow "accessor" ctx input lexed acc1
+
+            match acc2 with
+            | ValueSome acc2Tok -> printTokenRow "accessor" ctx input lexed acc2Tok
+            | ValueNone -> ()
+        | ValueNone -> ()
 
 let printMemberDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (memberDefn: MemberDefn<SyntaxToken>) =
     match memberDefn with
@@ -1363,12 +1385,71 @@ let printMemberDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (memberDe
     | MemberDefn.Default(_, defaultTok, _, defn) ->
         printLabelledToken "default" ctx input lexed defaultTok
         printMethodOrPropDefn ctx input lexed defn
-    | MemberDefn.AdditionalConstructor _ -> ctx.WriteLine("<additional constructor>")
+    | MemberDefn.AdditionalConstructor(AdditionalConstrDefn(_, _, newTok, pat, _, eq, body)) ->
+        printSection
+            ctx
+            "AdditionalConstructor"
+            (fun () ->
+                printLabelledToken "new" ctx input lexed newTok
+                printPat ctx input lexed pat
+                printLabelledToken "=" ctx input lexed eq
+
+                match body with
+                | AdditionalConstrExpr.Init initExpr ->
+                    match initExpr with
+                    | AdditionalConstrInitExpr.Explicit(lBrace, inherits, inits, rBrace) ->
+                        printLabelledToken "{" ctx input lexed lBrace
+
+                        match inherits with
+                        | ValueSome(ClassInheritsDecl(inhTok, typ, expr)) ->
+                            printLabelledToken "inherit" ctx input lexed inhTok
+                            printType ctx input lexed typ
+
+                            match expr with
+                            | ValueSome e -> printExpr ctx input lexed e
+                            | ValueNone -> ()
+                        | ValueNone -> ()
+
+                        for FieldInitializer(longIdent, eq, expr) in inits do
+                            printLongIdentOrOp ctx input lexed (LongIdentOrOp.LongIdent longIdent)
+                            printLabelledToken "=" ctx input lexed eq
+                            printExpr ctx input lexed expr
+
+                        printLabelledToken "}" ctx input lexed rBrace
+                    | AdditionalConstrInitExpr.Delegated(newTok2, typ, expr) ->
+                        printLabelledToken "new" ctx input lexed newTok2
+                        printType ctx input lexed typ
+                        printExpr ctx input lexed expr
+                | _ -> ctx.WriteLine("<complex constructor body>")
+            )
 
 let printTypeDefnElement (ctx: PrintContext) (input: string) (lexed: Lexed) (elem: TypeDefnElement<SyntaxToken>) =
     match elem with
     | TypeDefnElement.Member m -> printMemberDefn ctx input lexed m
-    | TypeDefnElement.InterfaceImpl _ -> ctx.WriteLine("<interface impl>")
+    | TypeDefnElement.InterfaceImpl impl ->
+        let (InterfaceImpl.InterfaceImpl(interfaceTok, typ, objMembers)) = impl
+
+        printSection
+            ctx
+            "InterfaceImpl"
+            (fun () ->
+                printLabelledToken "interface" ctx input lexed interfaceTok
+                printType ctx input lexed typ
+
+                match objMembers with
+                | ValueSome(ObjectMembers(withTok, members, endTok)) ->
+                    printLabelledToken "with" ctx input lexed withTok
+
+                    indent
+                        ctx
+                        (fun () ->
+                            for m in members do
+                                printMemberDefn ctx input lexed m
+                        )
+
+                    printLabelledToken "end" ctx input lexed endTok
+                | ValueNone -> ()
+            )
     | TypeDefnElement.InterfaceSpec _ -> ctx.WriteLine("<interface spec>")
 
 let printArgSpec (ctx: PrintContext) (input: string) (lexed: Lexed) (argSpec: ArgSpec<SyntaxToken>) =
@@ -1597,7 +1678,7 @@ let printTypeDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (typeDefn: 
                 indent ctx (fun () -> printUncurriedSig ctx input lexed sign)
             )
 
-    | TypeDefn.Class(typeName, _primaryConstr, _, equals, classTok, ClassTypeBody(_, _, elems), endTok) ->
+    | TypeDefn.Class(typeName, _primaryConstr, _, equals, classTok, ClassTypeBody(inherits, lets, elems), endTok) ->
         printSection
             ctx
             "TypeDefn.Class"
@@ -1609,6 +1690,39 @@ let printTypeDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (typeDefn: 
                 indent
                     ctx
                     (fun () ->
+                        match inherits with
+                        | ValueSome(ClassInheritsDecl(inhTok, typ, expr)) ->
+                            printLabelledToken "inherit" ctx input lexed inhTok
+                            printType ctx input lexed typ
+
+                            match expr with
+                            | ValueSome e -> printExpr ctx input lexed e
+                            | ValueNone -> ()
+                        | ValueNone -> ()
+
+                        for letDefn in lets do
+                            match letDefn with
+                            | ClassFunctionOrValueDefn.LetRecDefns(_, staticTok, letTok, recTok, defns) ->
+                                match staticTok with
+                                | ValueSome s -> printLabelledToken "static" ctx input lexed s
+                                | ValueNone -> ()
+
+                                printLabelledToken "let" ctx input lexed letTok
+
+                                match recTok with
+                                | ValueSome r -> printLabelledToken "rec" ctx input lexed r
+                                | ValueNone -> ()
+
+                                for defn in defns do
+                                    printFunctionOrValueDefn ctx input lexed defn
+                            | ClassFunctionOrValueDefn.Do(_, staticTok, doTok, expr) ->
+                                match staticTok with
+                                | ValueSome s -> printLabelledToken "static" ctx input lexed s
+                                | ValueNone -> ()
+
+                                printLabelledToken "do" ctx input lexed doTok
+                                printExpr ctx input lexed expr
+
                         match elems with
                         | ValueSome es ->
                             for e in es do
@@ -1675,7 +1789,7 @@ let printTypeDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (typeDefn: 
                 printLabelledToken "end" ctx input lexed endTok
             )
 
-    | TypeDefn.Anon(typeName, _primaryConstr, _, equals, beginTok, ClassTypeBody(_, lets, elems), endTok) ->
+    | TypeDefn.Anon(typeName, _primaryConstr, _, equals, beginTok, ClassTypeBody(inherits, lets, elems), endTok) ->
         printSection
             ctx
             "TypeDefn.Anon"
@@ -1687,6 +1801,39 @@ let printTypeDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (typeDefn: 
                 indent
                     ctx
                     (fun () ->
+                        match inherits with
+                        | ValueSome(ClassInheritsDecl(inhTok, typ, expr)) ->
+                            printLabelledToken "inherit" ctx input lexed inhTok
+                            printType ctx input lexed typ
+
+                            match expr with
+                            | ValueSome e -> printExpr ctx input lexed e
+                            | ValueNone -> ()
+                        | ValueNone -> ()
+
+                        for letDefn in lets do
+                            match letDefn with
+                            | ClassFunctionOrValueDefn.LetRecDefns(_, staticTok, letTok, recTok, defns) ->
+                                match staticTok with
+                                | ValueSome s -> printLabelledToken "static" ctx input lexed s
+                                | ValueNone -> ()
+
+                                printLabelledToken "let" ctx input lexed letTok
+
+                                match recTok with
+                                | ValueSome r -> printLabelledToken "rec" ctx input lexed r
+                                | ValueNone -> ()
+
+                                for defn in defns do
+                                    printFunctionOrValueDefn ctx input lexed defn
+                            | ClassFunctionOrValueDefn.Do(_, staticTok, doTok, expr) ->
+                                match staticTok with
+                                | ValueSome s -> printLabelledToken "static" ctx input lexed s
+                                | ValueNone -> ()
+
+                                printLabelledToken "do" ctx input lexed doTok
+                                printExpr ctx input lexed expr
+
                         match elems with
                         | ValueSome es ->
                             for e in es do
@@ -1714,7 +1861,9 @@ let rec printModuleElem (ctx: PrintContext) (input: string) (lexed: Lexed) (elem
     match elem with
     | ModuleElem.FunctionOrValue defn ->
         printSection ctx "FunctionOrValue" (fun () -> printModuleFunctionOrValueDefn ctx input lexed defn)
-    | ModuleElem.Type typeDefn -> printTypeDefn ctx input lexed typeDefn
+    | ModuleElem.Type typeDefns ->
+        for typeDefn in typeDefns do
+            printTypeDefn ctx input lexed typeDefn
     | ModuleElem.Exception exnDefn -> printExceptionDefn ctx input lexed exnDefn
     | ModuleElem.Module moduleDefn -> printSection ctx "Module" (fun () -> printModuleDefn ctx input lexed moduleDefn)
     | ModuleElem.ModuleAbbrev abbrev ->

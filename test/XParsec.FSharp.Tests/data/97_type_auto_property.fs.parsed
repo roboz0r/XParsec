@@ -1,0 +1,24 @@
+module        'module'          KWModule            tok=   0  pos=   0
+              'MyModule'        Identifier          tok=   2  pos=   7
+TypeDefn.Class:
+  TypeName    'MyClass'         Identifier          tok=   7  pos=  22
+  =           '='               OpEquality          tok=   9  pos=  30
+  class       'class'           KWClass             tok=  12  pos=  36
+    member    'member'          KWMember            tok=  15  pos=  50
+    ident     'Name'            Identifier          tok=  19  pos=  61
+    =         '='               OpEquality          tok=  21  pos=  66
+    Const     '"default"'       StringLiteral       tok=  23  pos=  68
+    member    'member'          KWMember            tok=  26  pos=  86
+    ident     'Count'           Identifier          tok=  30  pos=  97
+    =         '='               OpEquality          tok=  32  pos= 103
+    Const     '0'               NumInt32            tok=  34  pos= 105
+    with      'with'            KWWith              tok=  36  pos= 107
+    accessor  'get'             Identifier          tok=  38  pos= 112
+    accessor  'set'             Identifier          tok=  41  pos= 117
+    member    'member'          KWMember            tok=  44  pos= 129
+    ident     'ReadOnly'        Identifier          tok=  48  pos= 140
+    =         '='               OpEquality          tok=  50  pos= 149
+    Const     '42'              NumInt32            tok=  52  pos= 151
+    with      'with'            KWWith              tok=  54  pos= 154
+    accessor  'get'             Identifier          tok=  56  pos= 159
+  end         'end'             KWEnd               tok=  59  pos= 167
