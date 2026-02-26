@@ -5,5 +5,9 @@ TypeDefn.TypeExtension:
   with        'with'            KWWith              tok=   9  pos=  29
     abstract  'abstract'        KWAbstract          tok=  12  pos=  38
     member    'member'          KWMember            tok=  14  pos=  47
-    <member sig>
+    ident     'Count'           Identifier          tok=  16  pos=  54
+    :         ':'               OpColon             tok=  17  pos=  59
+    NamedType:
+      LongIdent:
+              'int'             Identifier          tok=  19  pos=  61
   end         'end'             KWEnd               tok=  21  pos=  65

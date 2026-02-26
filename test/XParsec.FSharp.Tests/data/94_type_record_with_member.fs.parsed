@@ -20,5 +20,9 @@ TypeDefn.Record:
   with        'with'            KWWith              tok=  28  pos=  61
     abstract  'abstract'        KWAbstract          tok=  31  pos=  74
     member    'member'          KWMember            tok=  33  pos=  83
-    <member sig>
+    ident     'Length'          Identifier          tok=  35  pos=  90
+    :         ':'               OpColon             tok=  36  pos=  96
+    NamedType:
+      LongIdent:
+              'float'           Identifier          tok=  38  pos=  98
   end         'end'             KWEnd               tok=  41  pos= 108

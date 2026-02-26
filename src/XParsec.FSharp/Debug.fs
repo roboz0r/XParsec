@@ -1310,10 +1310,12 @@ let printMethodOrPropDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (de
 
         printLabelledToken "=" ctx input lexed eq
         printExpr ctx input lexed expr
-    | MethodOrPropDefn.PropertyWithGetSet(_, ident, withTok, _) ->
+    | MethodOrPropDefn.PropertyWithGetSet(_, ident, withTok, defns) ->
         printTokenRow "ident" ctx input lexed ident
         printLabelledToken "with" ctx input lexed withTok
-        ctx.WriteLine("<get/set>")
+
+        for defn in defns do
+            printFunctionOrValueDefn ctx input lexed defn
     | MethodOrPropDefn.AutoProperty(_, ident, eq, expr, _) ->
         printTokenRow "ident" ctx input lexed ident
         printLabelledToken "=" ctx input lexed eq
@@ -1340,14 +1342,14 @@ let printMemberDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (memberDe
                 printLabelledToken ":" ctx input lexed colon
                 printType ctx input lexed typ
             )
-    | MemberDefn.Abstract(_, abstractTok, memberTok, _, _sign) ->
+    | MemberDefn.Abstract(_, abstractTok, memberTok, _, sign) ->
         printLabelledToken "abstract" ctx input lexed abstractTok
 
         match memberTok with
         | ValueSome m -> printLabelledToken "member" ctx input lexed m
         | ValueNone -> ()
 
-        ctx.WriteLine("<member sig>")
+        printMemberSig ctx input lexed sign
     | MemberDefn.Concrete(_, staticTok, memberTok, _, defn) ->
         match staticTok with
         | ValueSome s -> printLabelledToken "static" ctx input lexed s
@@ -1388,6 +1390,34 @@ let printUncurriedSig (ctx: PrintContext) (input: string) (lexed: Lexed) (sign: 
 
     printLabelledToken "->" ctx input lexed arrow
     printType ctx input lexed retType
+
+let printCurriedSig (ctx: PrintContext) (input: string) (lexed: Lexed) (sign: CurriedSig<SyntaxToken>) =
+    let (CurriedSig(argGroups, ret)) = sign
+
+    for struct (argsSpec, arrowTok) in argGroups do
+        for arg in argsSpec do
+            printArgSpec ctx input lexed arg
+
+        printLabelledToken "->" ctx input lexed arrowTok
+
+    printType ctx input lexed ret
+
+let printMemberSig (ctx: PrintContext) (input: string) (lexed: Lexed) (sign: MemberSig<SyntaxToken>) =
+    match sign with
+    | MemberSig.MethodOrPropSig(ident, _, colon, sigType) ->
+        printTokenRow "ident" ctx input lexed ident
+        printLabelledToken ":" ctx input lexed colon
+        printCurriedSig ctx input lexed sigType
+    | MemberSig.PropSig(ident, _, colon, sigType, withTok, (first, second)) ->
+        printTokenRow "ident" ctx input lexed ident
+        printLabelledToken ":" ctx input lexed colon
+        printCurriedSig ctx input lexed sigType
+        printLabelledToken "with" ctx input lexed withTok
+        printTokenRow "get/set" ctx input lexed first
+
+        match second with
+        | ValueSome s -> printTokenRow "set/get" ctx input lexed s
+        | ValueNone -> ()
 
 let printTypeName (ctx: PrintContext) (input: string) (lexed: Lexed) (typeName: TypeName<SyntaxToken>) =
     let (TypeName(attrs, access, ident, typars)) = typeName
@@ -1645,6 +1675,28 @@ let printTypeDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (typeDefn: 
                 printLabelledToken "end" ctx input lexed endTok
             )
 
+    | TypeDefn.Anon(typeName, _primaryConstr, _, equals, beginTok, ClassTypeBody(_, lets, elems), endTok) ->
+        printSection
+            ctx
+            "TypeDefn.Anon"
+            (fun () ->
+                printTypeName ctx input lexed typeName
+                printLabelledToken "=" ctx input lexed equals
+                printLabelledToken "begin" ctx input lexed beginTok
+
+                indent
+                    ctx
+                    (fun () ->
+                        match elems with
+                        | ValueSome es ->
+                            for e in es do
+                                printTypeDefnElement ctx input lexed e
+                        | ValueNone -> ()
+                    )
+
+                printLabelledToken "end" ctx input lexed endTok
+            )
+
     | TypeDefn.Missing -> ctx.WriteLine("TypeDefn.Missing")
 
     | TypeDefn.SkipsTokens(skippedTokens, inner) ->
@@ -1657,8 +1709,6 @@ let printTypeDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (typeDefn: 
 
                 printTypeDefn ctx input lexed inner
             )
-
-    | _ -> ctx.WriteLine("TypeDefn: <not yet implemented>")
 
 let rec printModuleElem (ctx: PrintContext) (input: string) (lexed: Lexed) (elem: ModuleElem<SyntaxToken>) =
     match elem with

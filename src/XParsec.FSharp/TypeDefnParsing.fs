@@ -205,6 +205,28 @@ module MethodOrPropDefn =
     // member x.M args = ... (Method)
     // member x.P with get ... (PropWithGetSet)
 
+    let private parseAccessorDefn: Parser<FunctionOrValueDefn<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! name = pIdent
+            let! args = many Pat.parse
+            let! eq = pEquals
+            let! body = Expr.parse
+
+            return
+                FunctionOrValueDefn.Function(
+                    FunctionDefn.FunctionDefn(
+                        ValueNone,
+                        ValueNone,
+                        IdentOrOp.Ident name,
+                        ValueNone,
+                        List.ofSeq args,
+                        ValueNone,
+                        eq,
+                        body
+                    )
+                )
+        }
+
     let parse: Parser<MethodOrPropDefn<SyntaxToken>, _, _, _, _> =
         parser {
             // NOTE: The caller (MemberDefn) has consumed 'member', 'override', etc.
@@ -237,12 +259,10 @@ module MethodOrPropDefn =
 
             match nextTok.Token with
             | Token.KWWith ->
-                // Property with get/set
+                // Property with get/set (e.g. "with get() = ... and set(v) = ...")
                 let! withTok = nextNonTriviaTokenIsL Token.KWWith "with"
-                // Parse get/set definitions (FunctionOrValueDefn list)
-                // This usually requires a loop parsing `member val` or just `get() = ...`
-                // Stubbing list for brevity:
-                return MethodOrPropDefn.PropertyWithGetSet(identPrefix, ident, withTok, [])
+                let! defns, _ = sepBy1 parseAccessorDefn pAnd
+                return MethodOrPropDefn.PropertyWithGetSet(identPrefix, ident, withTok, List.ofSeq defns)
 
             | Token.OpEquality ->
                 // Property (Get-only usually)
