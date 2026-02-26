@@ -451,3 +451,22 @@ module Parsing =
             | Error _ as e ->
                 reader.State <- savedState
                 e
+
+    /// Fails if the next non-trivia token is 't'. Saves and restores reader position fully.
+    let notFollowedByNonTriviaToken t (reader: Reader<PositionedToken, ParseState, _, _>) =
+        let pos = reader.Position
+
+        match peekNextNonTriviaToken reader with
+        | Ok tok when tok.Token = t ->
+            reader.Position <- pos
+            fail (Message(sprintf "Named module cannot be followed by '%A'" t)) reader
+        | _ ->
+            reader.Position <- pos
+            preturn () reader
+
+    let inline choiceL p msg =
+#if DEBUG
+        choice p
+#else
+        choiceL p msg
+#endif

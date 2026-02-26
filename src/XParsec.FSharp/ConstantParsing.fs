@@ -32,8 +32,8 @@ module Constant =
         parser {
             let! pos = getPosition
 
-            let! lAngle = // '<' must be immediately after literal
-                satisfyL (fun (t: PositionedToken) -> t.Token = Token.OpLessThan) "Expected '<' for measure"
+            // '<' must be immediately after literal
+            let! lAngle = satisfyL (fun (t: PositionedToken) -> t.Token = Token.OpLessThan) "Expected '<' for measure"
 
             let! m = Measure.parse
             let! rAngle = nextNonTriviaTokenIsL (Token.OpGreaterThan) "Expected '>' for measure"

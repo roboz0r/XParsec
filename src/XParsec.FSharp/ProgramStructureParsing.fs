@@ -3,42 +3,40 @@ namespace XParsec.FSharp.Parser
 open XParsec
 open XParsec.Parsers
 open XParsec.FSharp.Lexer
-open XParsec.FSharp.Parser.ParseState
+open XParsec.FSharp.Parser
 
 [<RequireQualifiedAccess>]
 module ImplementationFile =
     /// Parses: module LongIdent <module-elems>
     /// Distinguished from module abbreviation (module X = Y.Z) by the absence of '=' after the LongIdent.
     let private pNamedModule =
+        let notFollowedByEquals = notFollowedByNonTriviaToken Token.OpEquality
+
         parser {
             let! modTok = pModule
             let! longIdent = LongIdent.parse
+            // Distinguish named module (module Foo.Bar <elems>) from module abbreviation (module X = Y.Z)
+            do! notFollowedByEquals
             let! elems = ModuleElem.parseElems
             return NamedModule.NamedModule(modTok, longIdent, elems)
         }
 
     let parse =
-        dispatch (fun (lookahead: PositionedToken voption) ->
-            match lookahead with
-            | ValueNone ->
-                // Empty file → anonymous module with no elements
-                preturn (ImplementationFile.AnonymousModule [])
-            | ValueSome tok ->
-                match tok.Token with
-                | Token.KWNamespace -> many1 NamespaceDeclGroup.parse |>> (List.ofSeq >> ImplementationFile.Namespaces)
-                | Token.KWModule ->
-                    // Try named module first (module LongIdent <elems>),
-                    // fall back to anonymous module (e.g. module abbreviation as first elem)
-                    choiceL
-                        [
-                            pNamedModule |>> ImplementationFile.NamedModule
-                            ModuleElem.parseElems |>> ImplementationFile.AnonymousModule
-                        ]
-                        "ImplementationFile"
-                | _ ->
-                    // No namespace/module keyword → anonymous module
-                    ModuleElem.parseElems |>> ImplementationFile.AnonymousModule
-        )
+        dispatchNextNonTriviaTokenFallback
+            [
+                Token.KWNamespace, many1 NamespaceDeclGroup.parse |>> (List.ofSeq >> ImplementationFile.Namespaces)
+                Token.KWModule,
+                // Try named module first (module LongIdent <elems>),
+                // fall back to anonymous module (e.g. module abbreviation as first elem)
+                choiceL
+                    [
+                        pNamedModule |>> ImplementationFile.NamedModule
+                        ModuleElem.parseElems |>> ImplementationFile.AnonymousModule
+                    ]
+                    "ImplementationFile"
+            ]
+            // No namespace/module keyword → anonymous module
+            (ModuleElem.parseElems |>> ImplementationFile.AnonymousModule)
 
 [<RequireQualifiedAccess>]
 module FSharpAst =
