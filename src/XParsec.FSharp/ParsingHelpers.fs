@@ -175,6 +175,7 @@ module Parsing =
         match token.Index with
         | TokenIndex.Virtual -> invalidOp "Cannot consume a virtual token"
         | TokenIndex.Regular tokenIdx ->
+            assert (reader.Index = tokenIdx * 1< / token>) // Ensure the reader is still at the expected position
             reader.Index <- (tokenIdx + 1<token>) * 1< / token>
             preturn token reader
 
