@@ -12,8 +12,6 @@ open XParsec.FSharp.Parser.ParseState
 
 
 module ElifBranch =
-    let private pElif = nextNonTriviaTokenIsL Token.KWElif "Expected 'elif' keyword"
-
     let parse: Parser<ElifBranch<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
             let! elifTok = pElif
@@ -1056,7 +1054,7 @@ module Expr =
             [
                 // Empty list `[]` is lexed as a single OpNil token
                 parser {
-                    let! t = nextNonTriviaTokenIsL Token.OpNil "[]"
+                    let! t = pNil
                     return Expr.List(t, [], t)
                 }
                 pCollection Token.KWLBracket Token.KWRBracket (fun l elems r -> Expr.List(l, List.ofSeq elems, r))

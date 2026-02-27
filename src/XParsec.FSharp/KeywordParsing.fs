@@ -129,3 +129,22 @@ module internal Keywords =
     let pAbstract: KWParser = nextNonTriviaTokenIsL Token.KWAbstract "abstract"
     let pDefault: KWParser = nextNonTriviaTokenIsL Token.KWDefault "default"
     let pVal: KWParser = nextNonTriviaTokenIsL Token.KWVal "val"
+    let pType: KWParser = nextNonTriviaTokenIsL Token.KWType "type"
+    let pException: KWParser = nextNonTriviaTokenIsL Token.KWException "exception"
+    let pDelegate: KWParser = nextNonTriviaTokenIsL Token.KWDelegate "delegate"
+    let pOf: KWParser = nextNonTriviaTokenIsL Token.KWOf "of"
+    let pNull: KWParser = nextNonTriviaTokenIsL Token.KWNull "null"
+    let pElif: KWParser = nextNonTriviaTokenIsL Token.KWElif "elif"
+    let pQuestionMark: KWParser = nextNonTriviaTokenIsL Token.OpDynamic "?"
+    let pSingleQuote: KWParser = nextNonTriviaTokenIsL Token.KWSingleQuote "'"
+
+    let pQuotedExprLeft: KWParser =
+        nextNonTriviaTokenIsL Token.OpQuotationTypedLeft "<@"
+
+    let pQuotedExprRight: KWParser =
+        nextNonTriviaTokenIsL Token.OpQuotationTypedRight "@>"
+
+    let pNil: KWParser = nextNonTriviaTokenIsL Token.OpNil "[]"
+    let pLArrayBracket: KWParser = nextNonTriviaTokenIsL Token.KWLArrayBracket "[|"
+    let pRArrayBracket: KWParser = nextNonTriviaTokenIsL Token.KWRArrayBracket "|]"
+    let pTypeTest: KWParser = nextNonTriviaTokenIsL Token.OpTypeTest ":?"
