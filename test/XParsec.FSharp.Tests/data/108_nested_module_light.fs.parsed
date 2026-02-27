@@ -1,0 +1,23 @@
+module                   'module'          KWModule            tok=   0  pos=   0
+                         'MyModule'        Identifier          tok=   2  pos=   7
+Module:
+  module                 'module'          KWModule            tok=   5  pos=  17
+  ident                  'Inner'           Identifier          tok=   7  pos=  24
+  =                      '='               OpEquality          tok=   9  pos=  30
+  begin                  <virt>            KWBegin             tok=virt  pos=  36
+    FunctionOrValue:
+      let                'let'             KWLet               tok=  12  pos=  36
+        Pat.NamedSimple  'x'               Identifier          tok=  14  pos=  40
+        =                '='               OpEquality          tok=  16  pos=  42
+          Const          '1'               NumInt32            tok=  18  pos=  44
+    FunctionOrValue:
+      let                'let'             KWLet               tok=  21  pos=  50
+        Pat.NamedSimple  'y'               Identifier          tok=  23  pos=  54
+        =                '='               OpEquality          tok=  25  pos=  56
+          Const          '2'               NumInt32            tok=  27  pos=  58
+  end                    <virt>            KWEnd               tok=virt  pos=  61
+FunctionOrValue:
+  let                    'let'             KWLet               tok=  30  pos=  61
+    Pat.NamedSimple      'z'               Identifier          tok=  32  pos=  65
+    =                    '='               OpEquality          tok=  34  pos=  67
+      Const              '3'               NumInt32            tok=  36  pos=  69

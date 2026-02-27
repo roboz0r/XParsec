@@ -125,6 +125,15 @@ let printTokenRow (label: string) (ctx: PrintContext) (input: string) (lexed: Le
 let printLabelledToken (label: string) (ctx: PrintContext) (input: string) (lexed: Lexed) (token: SyntaxToken) =
     printTokenRow label ctx input lexed token
 
+let printAccess (ctx: PrintContext) (input: string) (lexed: Lexed) (access: Access<SyntaxToken>) =
+    let token =
+        match access with
+        | Access.Private t -> t
+        | Access.Internal t -> t
+        | Access.Public t -> t
+
+    printTokenRow "access" ctx input lexed token
+
 // ---- Print functions ----
 
 let printRules (ctx: PrintContext) (input: string) (lexed: Lexed) (rules: Rules<SyntaxToken>) =
@@ -1880,7 +1889,7 @@ and printModuleDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (defn: Mo
     printLabelledToken "module" ctx input lexed moduleToken
 
     match access with
-    | ValueSome a -> ctx.WriteLine("access: <not yet implemented>")
+    | ValueSome a -> printAccess ctx input lexed a
     | ValueNone -> ()
 
     printTokenRow "ident" ctx input lexed ident
@@ -1923,8 +1932,17 @@ let printImplementationFile (ctx: PrintContext) (input: string) (lexed: Lexed) (
         ctx.WriteLine("AnonymousModule:")
         printModuleElems ctx input lexed elems
     | ImplementationFile.NamedModule namedModule ->
-        let (NamedModule.NamedModule(modTok, longIdent, elems)) = namedModule
+        let (NamedModule.NamedModule(attrs, modTok, access, longIdent, elems)) = namedModule
+
+        match attrs with
+        | ValueSome a -> ctx.WriteLine($"(Attributes: {a.Length} set(s))")
+        | ValueNone -> ()
+
         printLabelledToken "module" ctx input lexed modTok
+
+        match access with
+        | ValueSome a -> printAccess ctx input lexed a
+        | ValueNone -> ()
 
         for id in longIdent do
             printTokenRow "" ctx input lexed id
