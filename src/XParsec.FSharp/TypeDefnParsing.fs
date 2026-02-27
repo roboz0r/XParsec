@@ -25,13 +25,19 @@ module PrimaryConstrArgs =
 
 [<RequireQualifiedAccess>]
 module TypeName =
-    let parse: Parser<TypeName<SyntaxToken>, _, _, _, _> =
+    /// Parses a TypeName using pre-parsed attributes (from before the `type` keyword).
+    let parseWithAttrs (attrs: Attributes<SyntaxToken> voption) : Parser<TypeName<SyntaxToken>, _, _, _, _> =
         parser {
-            let! attrs = opt Attributes.parse
             let! access = opt pAccessModifier
             let! ident = LongIdent.parse
             let! typars = opt TyparDefns.parse
             return TypeName(attrs, access, ident, typars)
+        }
+
+    let parse: Parser<TypeName<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! attrs = opt Attributes.parse
+            return! parseWithAttrs attrs
         }
 
 [<RequireQualifiedAccess>]
@@ -716,6 +722,16 @@ module TypeExtensionElements =
             return TypeExtensionElements.TypeExtensionElements(withTok, List.ofSeq elems, endTok)
         }
 
+    /// Light-syntax variant: synthesizes a virtual 'with' when member tokens follow
+    /// without an explicit 'with' keyword (e.g. record/union augmentations in light mode).
+    let parseLight: Parser<TypeExtensionElements<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! withTok = nextNonTriviaTokenVirtualIfNot Token.KWWith
+            let! elems = withContext OffsideContext.WithAugment (many1 TypeDefnElement.parse)
+            let! endTok = nextNonTriviaTokenVirtualIfNot Token.KWEnd
+            return TypeExtensionElements.TypeExtensionElements(withTok, List.ofSeq elems, endTok)
+        }
+
 [<RequireQualifiedAccess>]
 module DelegateSig =
     let parse: Parser<DelegateSig<SyntaxToken>, _, _, _, _> =
@@ -737,10 +753,10 @@ module TypeDefn =
     // Helper to detect specific type bodies based on lookahead or specific tokens
 
     /// Parses the body of a type definition after the leading keyword (type or and) has been consumed.
-    let private parseBody: Parser<TypeDefn<SyntaxToken>, _, _, _, _> =
+    let private parseBody (attrs: Attributes<SyntaxToken> voption) : Parser<TypeDefn<SyntaxToken>, _, _, _, _> =
         parser {
 
-            let! typeName = TypeName.parse
+            let! typeName = TypeName.parseWithAttrs attrs
 
             // 1. Check for Primary Constructor (Class/Struct)
             let! primaryConstr = opt PrimaryConstrArgs.parse
@@ -805,7 +821,10 @@ module TypeDefn =
                         )
 
                     let! rBrace = pRBrace
-                    let! ext = opt TypeExtensionElements.parse
+
+                    let! ext =
+                        opt (choiceL [ TypeExtensionElements.parse; TypeExtensionElements.parseLight ] "Type Extension")
+
                     return TypeDefn.Record(typeName, equals, lBrace, List.ofSeq fields, rBrace, ext)
 
                 | Token.OpBar ->
@@ -819,7 +838,14 @@ module TypeDefn =
                                 }
                                 parser {
                                     let! cases = UnionTypeCases.parse
-                                    let! ext = opt TypeExtensionElements.parse
+
+                                    let! ext =
+                                        opt (
+                                            choiceL
+                                                [ TypeExtensionElements.parse; TypeExtensionElements.parseLight ]
+                                                "Type Extension"
+                                        )
+
                                     return TypeDefn.Union(typeName, equals, cases, ext)
                                 }
                             ]
@@ -880,15 +906,17 @@ module TypeDefn =
 
     let parse: Parser<TypeDefn<SyntaxToken>, _, _, _, _> =
         parser {
+            let! attrs = opt Attributes.parse
             let! _ = pType
-            return! parseBody
+            return! parseBody attrs
         }
 
     /// Parses a type definition continuation starting with 'and' (for mutual recursion groups).
     let parseAndContinuation: Parser<TypeDefn<SyntaxToken>, _, _, _, _> =
         parser {
+            let! attrs = opt Attributes.parse
             let! _ = pAnd
-            return! parseBody
+            return! parseBody attrs
         }
 
 [<RequireQualifiedAccess>]
