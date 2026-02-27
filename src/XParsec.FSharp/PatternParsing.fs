@@ -17,7 +17,7 @@ module PatParam =
     let private pAtom =
         choiceL
             [
-                nextNonTriviaTokenIsL Token.KWNull "null" |>> PatParam.Null
+                pNull |>> PatParam.Null
 
                 nextNonTriviaTokenSatisfiesL
                     (fun synTok ->
@@ -59,9 +59,9 @@ module PatParam =
 
                 // Quoted
                 parser {
-                    let! l = nextNonTriviaTokenIsL Token.OpQuotationTypedLeft "<@"
+                    let! l = pQuotedExprLeft
                     let! e = refExpr.Parser
-                    let! r = nextNonTriviaTokenIsL Token.OpQuotationTypedRight "@>"
+                    let! r = pQuotedExprRight
                     return PatParam.Quoted(l, e, r)
                 }
             ]
@@ -221,7 +221,7 @@ module Pat =
             [
                 // Empty list `[]` is lexed as a single OpNil token
                 parser {
-                    let! t = nextNonTriviaTokenIsL Token.OpNil "[]"
+                    let! t = pNil
                     return ListPat.ListPat(t, [], t)
                 }
                 // Non-empty list `[x; y]` with explicit brackets
@@ -236,9 +236,9 @@ module Pat =
 
     let pArrayPat: Parser<ArrayPat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
-            let! l = nextNonTriviaTokenIsL Token.KWLArrayBracket "[|"
+            let! l = pLArrayBracket
             let! pats, _ = sepEndBy refPat.Parser pSemi
-            let! r = nextNonTriviaTokenIsL Token.KWRArrayBracket "|]"
+            let! r = pRArrayBracket
             return ArrayPat.ArrayPat(l, List.ofSeq pats, r)
         }
 
@@ -273,9 +273,9 @@ module Pat =
                 return Pat.Named(lid, param, arg)
         }
 
-    let pTypeTest =
+    let pTypeTestPat =
         parser {
-            let! op = nextNonTriviaTokenIsL Token.OpTypeTest ":?"
+            let! op = pTypeTest
             let! t = Type.parseAtomic
             // Check optional 'as ident'
             let! asClause =
@@ -303,9 +303,9 @@ module Pat =
         choiceL
             [
                 pWildcard |>> Pat.Wildcard
-                nextNonTriviaTokenIsL Token.KWNull "null" |>> Pat.Null
+                pNull |>> Pat.Null
                 Constant.parse |>> Pat.Const
-                pTypeTest
+                pTypeTestPat
                 pNamed
                 pListPat |>> Pat.List
                 pArrayPat |>> Pat.Array
