@@ -1,0 +1,28 @@
+module                 'module'          KWModule            tok=   0  pos=   0
+                       'MyModule'        Identifier          tok=   2  pos=   7
+TypeDefn.Anon:
+  TypeName             'Counter'         Identifier          tok=   7  pos=  22
+  =                    '='               OpEquality          tok=  15  pos=  49
+  begin                <virt>            KWBegin             tok=virt  pos=  55
+    let                'let'             KWLet               tok=  18  pos=  55
+    Value:
+      mutable          'mutable'         KWMutable           tok=  20  pos=  59
+      Pat.NamedSimple  'count'           Identifier          tok=  22  pos=  67
+      =                '='               OpEquality          tok=  24  pos=  73
+        Ident          'initialCou...'   Identifier          tok=  26  pos=  75
+    member             'member'          KWMember            tok=  29  pos=  92
+    self               'this'            Identifier          tok=  31  pos=  99
+    Ident              'Increment'       Identifier          tok=  33  pos= 104
+    Pat.Const          '()'              Unit                tok=  34  pos= 113
+    =                  '='               OpEquality          tok=  36  pos= 116
+    Assignment         '<-'              OpArrowLeft         tok=  40  pos= 124
+      Ident            'count'           Identifier          tok=  38  pos= 118
+      InfixApp         '+'               OpSubtractionAssignment  tok=  44  pos= 133
+        Ident          'count'           Identifier          tok=  42  pos= 127
+        Const          '1'               NumInt32            tok=  46  pos= 135
+    member             'member'          KWMember            tok=  49  pos= 141
+    self               'this'            Identifier          tok=  51  pos= 148
+    Pat.NamedSimple    'Value'           Identifier          tok=  53  pos= 153
+    =                  '='               OpEquality          tok=  55  pos= 159
+    Ident              'count'           Identifier          tok=  57  pos= 161
+  end                  <virt>            KWEnd               tok=virt  pos= 167
