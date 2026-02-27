@@ -11,8 +11,6 @@ open XParsec.FSharp.Parser.ParseState
 
 [<RequireQualifiedAccess>]
 module Typar =
-    let private pQuote =
-        nextNonTriviaTokenIsL Token.KWSingleQuote "Expected quote for type parameter"
 
     let private pIdent =
         nextNonTriviaTokenIsL Token.Identifier "Expected identifier for type parameter"
@@ -21,7 +19,7 @@ module Typar =
 
     let pNamed =
         parser {
-            let! quote = pQuote
+            let! quote = pSingleQuote
             // This is an oddity of the parser. Technically F# allows bizarre things like
             // `' (* comment *)          T` as a type parameter name.
             let! ident = pIdent

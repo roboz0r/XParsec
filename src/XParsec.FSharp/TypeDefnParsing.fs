@@ -51,7 +51,7 @@ module AsDefn =
 module ArgNameSpec =
     let parse =
         parser {
-            let! optional = opt (nextNonTriviaTokenIsL Token.OpDynamic "?")
+            let! optional = opt pQuestionMark
             let! ident = pIdent
             let! colon = pColon
             return ArgNameSpec.ArgNameSpec(optional, ident, colon)
@@ -260,7 +260,7 @@ module MethodOrPropDefn =
             match nextTok.Token with
             | Token.KWWith ->
                 // Property with get/set (e.g. "with get() = ... and set(v) = ...")
-                let! withTok = nextNonTriviaTokenIsL Token.KWWith "with"
+                let! withTok = pWith
                 let! defns, _ = sepBy1 parseAccessorDefn pAnd
                 return MethodOrPropDefn.PropertyWithGetSet(identPrefix, ident, withTok, List.ofSeq defns)
 
@@ -433,7 +433,7 @@ module MemberDefn =
                         let! withClause =
                             opt (
                                 parser {
-                                    let! withTok = nextNonTriviaTokenIsL Token.KWWith "with"
+                                    let! withTok = pWith
                                     let! acc1 = pIdent
 
                                     let! acc2 =
@@ -479,7 +479,7 @@ module TypeDefnElement =
                     | ValueSome wTok ->
                         // `with` already consumed — parse members until end/dedent
                         // Use lookAhead on end so we don't consume it (it belongs to the class body)
-                        let pTerminator = lookAhead (nextNonTriviaTokenIsL Token.KWEnd "end")
+                        let pTerminator = lookAhead pEnd
                         let! members, _ = manyTill refMemberDefn.Parser pTerminator
 
                         // Synthesize a virtual end token for the ObjectMembers without consuming the real end
@@ -545,7 +545,7 @@ module ClassFunctionOrValueDefn =
                     let! attrs = opt Attributes.parse
                     let! stat = opt pStatic
                     let! l = pLet
-                    let! r = opt (nextNonTriviaTokenIsL Token.KWRec "rec")
+                    let! r = opt pRec
                     let! defns = FunctionOrValueDefn.parseSepByAnd1
                     return ClassFunctionOrValueDefn.LetRecDefns(attrs, stat, l, r, defns)
                 }
@@ -621,7 +621,7 @@ module UnionTypeCaseData =
     let parseNary: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _, _> =
         parser {
             let! ident = nextNonTriviaTokenIsL Token.Identifier "Union Case Name"
-            let! ofTok = nextNonTriviaTokenIsL Token.KWOf "of"
+            let! ofTok = pOf
 
             // Check for uncurried signature (colon Type) or field list
             let! next = peekNextNonTriviaToken
@@ -720,8 +720,8 @@ module TypeExtensionElements =
 module DelegateSig =
     let parse: Parser<DelegateSig<SyntaxToken>, _, _, _, _> =
         parser {
-            let! del = nextNonTriviaTokenIsL Token.KWDelegate "delegate"
-            let! ofTok = nextNonTriviaTokenIsL Token.KWOf "of"
+            let! del = pDelegate
+            let! ofTok = pOf
             let! sign = UncurriedSig.parse
             return DelegateSig.DelegateSig(del, ofTok, sign)
         }
@@ -880,14 +880,14 @@ module TypeDefn =
 
     let parse: Parser<TypeDefn<SyntaxToken>, _, _, _, _> =
         parser {
-            let! _ = nextNonTriviaTokenIsL Token.KWType "type"
+            let! _ = pType
             return! parseBody
         }
 
     /// Parses a type definition continuation starting with 'and' (for mutual recursion groups).
     let parseAndContinuation: Parser<TypeDefn<SyntaxToken>, _, _, _, _> =
         parser {
-            let! _ = nextNonTriviaTokenIsL Token.KWAnd "and"
+            let! _ = pAnd
             return! parseBody
         }
 
@@ -896,7 +896,7 @@ module ExceptionDefn =
     let parse: Parser<ExceptionDefn<SyntaxToken>, _, _, _, _> =
         parser {
             let! attrs = opt Attributes.parse
-            let! exTok = nextNonTriviaTokenIsL Token.KWException "exception"
+            let! exTok = pException
 
             return!
                 choiceL
