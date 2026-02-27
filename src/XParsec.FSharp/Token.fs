@@ -1804,6 +1804,7 @@ module internal TokenInfo =
             | Token.OpMultiply
             | Token.OpDivision
             | Token.OpConcatenate
+            | Token.OpEquality
             | Token.KWLazy
             | Token.KWAssert -> true
             | _ -> false
@@ -1848,6 +1849,7 @@ module internal TokenInfo =
             | Token.OpMultiply
             | Token.OpDivision -> PrecedenceLevel.InfixMultiply
             | Token.OpConcatenate -> PrecedenceLevel.Power
+            | Token.OpEquality -> PrecedenceLevel.LogicalAndBitwise // = (equality comparison)
             | Token.KWLParen
             | Token.KWRParen
             | Token.KWLBracket

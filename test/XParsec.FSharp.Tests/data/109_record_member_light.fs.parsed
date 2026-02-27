@@ -1,0 +1,23 @@
+module               'module'          KWModule            tok=   0  pos=   0
+                     'MyModule'        Identifier          tok=   2  pos=   7
+TypeDefn.Record:
+  TypeName           'SyntaxToke...'   Identifier          tok=   7  pos=  22
+  =                  '='               OpEquality          tok=   9  pos=  34
+  {                  '{'               KWLBrace            tok=  12  pos=  40
+    Field:
+      ident          'Index'           Identifier          tok=  15  pos=  50
+      :              ':'               OpColon             tok=  16  pos=  55
+      NamedType:
+        LongIdent:
+                     'int'             Identifier          tok=  18  pos=  57
+  }                  '}'               KWRBrace            tok=  21  pos=  65
+  with               <virt>            KWWith              tok=virt  pos=  72
+    member           'member'          KWMember            tok=  25  pos=  72
+    self             'this'            Identifier          tok=  27  pos=  79
+    Pat.NamedSimple  'StartIndex'      Identifier          tok=  29  pos=  84
+    =                '='               OpEquality          tok=  31  pos=  95
+    LongIdentOrOp:
+      LongIdent:
+                     'this'            Identifier          tok=  33  pos=  97
+                     'Index'           Identifier          tok=  35  pos= 102
+  end                <virt>            KWEnd               tok=virt  pos= 108
