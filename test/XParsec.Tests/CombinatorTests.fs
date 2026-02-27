@@ -1561,6 +1561,40 @@ let tests =
 #endif
             }
 
+            test "SkipManyTill with ambiguous pEnd" {
+                let input = "inputinputinputX"
+
+                let p1 = pstring "input"
+                let p = skipManyTill p1 p1
+                let reader = Reader.ofString input ()
+                let result = p reader
+
+                match result with
+                | Ok result ->
+                    "" |> Expect.equal result ()
+                    "" |> Expect.equal reader.Index 5
+                | Error e -> failwithf "%A" e
+            }
+
+            test "SkipManyTill with overlapping p and pEnd inside the loop" {
+                let input = "inputinputinputX"
+
+                let p = pstring "input"
+                let pEnd = pstring "inputX" // Note the X!
+
+                let skip = skipManyTill p pEnd
+                let reader = Reader.ofString input ()
+                let result = skip reader
+
+                match result with
+                | Ok() ->
+                    // "input" is consumed twice by `p` (10 chars)
+                    // "inputX" is consumed once by `pEnd` (6 chars)
+                    // Total = 16 chars
+                    "" |> Expect.equal reader.Index 16
+                | Error e -> failwithf "%A" e
+            }
+
             test "SkipMany1Till" {
                 let input = "inputinputinputX"
 

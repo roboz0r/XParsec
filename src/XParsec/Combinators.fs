@@ -1146,36 +1146,39 @@ module Combinators =
         : ParseResult<unit, 'T, 'State> =
         let pos = reader.Position
 
-        match p reader with
-        | Ok s1 ->
-            let mutable endTok = ValueNone
-            let mutable err = []
-
-            while endTok.IsNone && err = [] do
-                let pos = reader.Position
-
-                match pEnd reader with
-                | Ok s -> endTok <- ValueSome s
-                | Error eEnd ->
-                    reader.Position <- pos
-
-                    match p reader with
-                    | Ok s ->
-                        if reader.Position = pos then
-                            raise (InfiniteLoopException pos)
-                    | Error e ->
-                        reader.Position <- pos
-                        err <- [ eEnd; e ]
-
-            match err with
-            | [] -> preturn () reader
-            | err -> ParseError.createNested ParseError.bothFailed err pos
-        | Error _ ->
+        match pEnd reader with
+        | Ok s -> preturn () reader
+        | Error eEnd ->
+            let ePos = reader.Position
             reader.Position <- pos
 
-            match pEnd reader with
-            | Ok s -> preturn () reader
-            | Error eEnd -> Error eEnd
+            match p reader with
+            | Ok s1 ->
+                let mutable endTok = ValueNone
+                let mutable err = []
+
+                while endTok.IsNone && err = [] do
+                    let pos = reader.Position
+
+                    match pEnd reader with
+                    | Ok s -> endTok <- ValueSome s
+                    | Error eEnd ->
+                        reader.Position <- pos
+
+                        match p reader with
+                        | Ok s ->
+                            if reader.Position = pos then
+                                raise (InfiniteLoopException pos)
+                        | Error e ->
+                            reader.Position <- pos
+                            err <- [ eEnd; e ]
+
+                match err with
+                | [] -> preturn () reader
+                | err -> ParseError.createNested ParseError.bothFailed err pos
+            | Error e ->
+                reader.Position <- ePos
+                ParseError.createNested ParseError.bothFailed [ eEnd; e ] pos
 
     /// Applies the parser `p` one or more times, until `pEnd` succeeds. If it succeeds, returns unit.
     /// If `p` fails on the first attempt, this parser fails.
