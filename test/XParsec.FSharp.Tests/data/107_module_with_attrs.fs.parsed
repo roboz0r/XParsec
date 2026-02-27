@@ -1,0 +1,14 @@
+(Attributes: 1 set(s))
+module               'module'          KWModule            tok=   4  pos=  13
+access               'internal'        KWInternal          tok=   6  pos=  20
+                     'MyModule'        Identifier          tok=   8  pos=  29
+FunctionOrValue:
+  let                'let'             KWLet               tok=  11  pos=  39
+    Pat.NamedSimple  'x'               Identifier          tok=  13  pos=  43
+    =                '='               OpEquality          tok=  15  pos=  45
+      Const          '1'               NumInt32            tok=  17  pos=  47
+FunctionOrValue:
+  let                'let'             KWLet               tok=  20  pos=  50
+    Pat.NamedSimple  'y'               Identifier          tok=  22  pos=  54
+    =                '='               OpEquality          tok=  24  pos=  56
+      Const          '2'               NumInt32            tok=  26  pos=  58

@@ -7,18 +7,20 @@ open XParsec.FSharp.Parser
 
 [<RequireQualifiedAccess>]
 module ImplementationFile =
-    /// Parses: module LongIdent <module-elems>
+    /// Parses: [attributes] module [access] LongIdent <module-elems>
     /// Distinguished from module abbreviation (module X = Y.Z) by the absence of '=' after the LongIdent.
     let private pNamedModule =
         let notFollowedByEquals = notFollowedByNonTriviaToken Token.OpEquality
 
         parser {
+            let! attrs = opt Attributes.parse
             let! modTok = pModule
+            let! access = opt Access.parse
             let! longIdent = LongIdent.parse
             // Distinguish named module (module Foo.Bar <elems>) from module abbreviation (module X = Y.Z)
             do! notFollowedByEquals
             let! elems = ModuleElem.parseElems
-            return NamedModule.NamedModule(modTok, longIdent, elems)
+            return NamedModule.NamedModule(attrs, modTok, access, longIdent, elems)
         }
 
     let parse =
@@ -35,8 +37,13 @@ module ImplementationFile =
                     ]
                     "ImplementationFile"
             ]
-            // No namespace/module keyword → anonymous module
-            (ModuleElem.parseElems |>> ImplementationFile.AnonymousModule)
+            // No namespace/module keyword → try named module (with attrs) or anonymous module
+            (choiceL
+                [
+                    pNamedModule |>> ImplementationFile.NamedModule
+                    ModuleElem.parseElems |>> ImplementationFile.AnonymousModule
+                ]
+                "ImplementationFile")
 
 [<RequireQualifiedAccess>]
 module FSharpAst =

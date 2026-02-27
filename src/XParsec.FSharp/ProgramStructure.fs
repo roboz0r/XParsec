@@ -1,7 +1,13 @@
 namespace XParsec.FSharp.Parser
 
-// Represents: named-module := module long-ident module-elems
-type NamedModule<'T> = | NamedModule of moduleToken: 'T * longIdent: LongIdent<'T> * elements: ModuleElems<'T>
+// Represents: named-module := [attributes] module [access] long-ident module-elems
+type NamedModule<'T> =
+    | NamedModule of
+        attributes: Attributes<'T> voption *
+        moduleToken: 'T *
+        access: Access<'T> voption *
+        longIdent: LongIdent<'T> *
+        elements: ModuleElems<'T>
 
 // Represents: anonymous-module := module-elems
 // This is simply an alias for ModuleElems<'T> for clarity at the file level.

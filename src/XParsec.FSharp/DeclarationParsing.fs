@@ -95,9 +95,9 @@ module ModuleDefn =
 
     let parseBody (elementParser: Parser<ModuleElems<SyntaxToken>, _, _, _, _>) =
         parser {
-            let! beginTok = pBegin
-            let! elems = opt elementParser
-            let! endTok = pEnd
+            let! beginTok = nextNonTriviaTokenVirtualIfNot Token.KWBegin
+            let! elems = withContext OffsideContext.Module (opt elementParser)
+            let! endTok = nextNonTriviaTokenVirtualIfNot Token.KWEnd
             return ModuleDefnBody(beginTok, elems, endTok)
         }
 
@@ -139,11 +139,11 @@ module ModuleElem =
                     // Exception Definitions
                     ExceptionDefn.parse |>> ModuleElem.Exception
 
+                    // Module Abbreviation (must precede ModuleDefn so `module X = A.B.C` isn't consumed as a nested module)
+                    ModuleAbbrev.parse |>> ModuleElem.ModuleAbbrev
+
                     // Module Definition (Recursive)
                     (ModuleDefn.parse parseElems) |>> ModuleElem.Module
-
-                    // Module Abbreviation
-                    ModuleAbbrev.parse |>> ModuleElem.ModuleAbbrev
 
                     // Let / Do bindings
                     ModuleFunctionOrValueDefn.parse |>> ModuleElem.FunctionOrValue
