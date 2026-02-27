@@ -510,6 +510,10 @@ module TypeDefnElements =
     let parseTill terminator =
         manyTill TypeDefnElement.parse terminator
 
+    /// Parses elements using offside rule (many stops when indentation drops).
+    /// Use inside a withContext block.
+    let parseMany = many TypeDefnElement.parse
+
 // ----------------------------------------------------------------------------
 // Specific Type Bodies (Class, Union, Record, etc.)
 // ----------------------------------------------------------------------------
@@ -557,6 +561,15 @@ module ClassTypeBody =
             let! lets = many ClassFunctionOrValueDefn.parse
             let! elems, endTok = TypeDefnElements.parseTill terminator
             return (ClassTypeBody.ClassTypeBody(inh, List.ofSeq lets, ValueSome(List.ofSeq elems)), endTok)
+        }
+
+    /// Parses class body using offside rule. Use inside a withContext block.
+    let parseOffside: Parser<ClassTypeBody<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! inh = opt ClassInheritsDecl.parse
+            let! lets = many ClassFunctionOrValueDefn.parse
+            let! elems = TypeDefnElements.parseMany
+            return ClassTypeBody.ClassTypeBody(inh, List.ofSeq lets, ValueSome(List.ofSeq elems))
         }
 
 [<RequireQualifiedAccess>]
@@ -698,8 +711,8 @@ module TypeExtensionElements =
     let parse: Parser<TypeExtensionElements<SyntaxToken>, _, _, _, _> =
         parser {
             let! withTok = pWith
-            // parseTill consumes the terminator (pEnd); capture it from manyTill result
-            let! elems, endTok = TypeDefnElements.parseTill pEnd
+            let! elems = withContext OffsideContext.WithAugment TypeDefnElements.parseMany
+            let! endTok = nextNonTriviaTokenVirtualIfNot Token.KWEnd
             return TypeExtensionElements.TypeExtensionElements(withTok, List.ofSeq elems, endTok)
         }
 
@@ -771,9 +784,26 @@ module TypeDefn =
                     return TypeDefn.Delegate(typeName, equals, delSig)
 
                 | Token.KWLBrace ->
-                    // Record
+                    // Record — wrap each field's Type.parse in a SeqBlock context so that
+                    // the postfix type suffix loop doesn't consume the next field's identifier.
+                    // The SeqBlock indent is set to the type's start column (e.g., `float` at column 7),
+                    // so the next field name at column 4 is offside and stops the type parser.
                     let! lBrace = pLBrace
-                    let! fields, _ = sepBy1 RecordField.parse pSemi
+
+                    let! fields =
+                        many1 (
+                            parser {
+                                let! attrs = opt Attributes.parse
+                                let! mut = opt pMutable
+                                let! acc = opt pAccessModifier
+                                let! id = pIdent
+                                let! col = pColon
+                                let! t = withContext OffsideContext.SeqBlock Type.parse
+                                let! _ = opt pSemi
+                                return RecordField.RecordField(attrs, mut, acc, id, col, t)
+                            }
+                        )
+
                     let! rBrace = pRBrace
                     let! ext = opt TypeExtensionElements.parse
                     return TypeDefn.Record(typeName, equals, lBrace, List.ofSeq fields, rBrace, ext)
@@ -827,14 +857,10 @@ module TypeDefn =
 
                     match isImplicitClass with
                     | ValueSome _ ->
-                        // Implicit Class
-                        // AST `Anon` is often used for Implicit Class definitions (begin/end inferred or explicit)
-                        // Or `Class` with implicit tokens.
-                        // The AST `Anon` expects `begin`/`end`. F# implicit classes don't always have them.
-                        // We'll synthesize tokens or expect `begin`/`end` if the grammar strictly requires AST matching.
-                        // Assuming AST requires `begin` `end`:
+                        // Implicit Class — no explicit begin/end; use offside rule to determine body extent
                         let! beginTok = nextNonTriviaTokenVirtualIfNot Token.KWBegin
-                        let! body, endTok = ClassTypeBody.parse (nextNonTriviaTokenVirtualIfNot Token.KWEnd)
+                        let! body = withContext OffsideContext.Type ClassTypeBody.parseOffside
+                        let! endTok = nextNonTriviaTokenVirtualIfNot Token.KWEnd
                         return TypeDefn.Anon(typeName, primaryConstr, ValueNone, equals, beginTok, body, endTok)
                     | ValueNone ->
                         // Abbreviation
