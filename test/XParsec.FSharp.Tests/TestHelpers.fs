@@ -354,7 +354,9 @@ let testParseFileWith (definedSymbols: Set<string>) (filePath: string) =
             let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed input definedSymbols
 
             match XParsec.FSharp.Parser.FSharpAst.parse reader with
-            | Error e -> failwithf "Parsing failed: %A" e
+            | Error e ->
+                // failwithf "Parsing failed: %A" e
+                failwithf "Parsing failed:\n%s" (XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
             | Ok ast ->
                 let ctx = XParsec.FSharp.Debug.PrintContext(2)
                 XParsec.FSharp.Debug.printFSharpAst ctx input lexed ast
