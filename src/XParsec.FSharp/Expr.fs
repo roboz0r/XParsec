@@ -493,8 +493,10 @@ and [<RequireQualifiedAccess>] MethodOrPropDefn<'T> =
         withToken: 'T *
         defns: FunctionOrValueDefn<'T> list
     | AutoProperty of
-        // memberToken: 'T * seems to be a typo
+        valToken: 'T *
+        access: 'T voption *
         ident: 'T *
+        returnType: ReturnType<'T> voption *
         equals: 'T *
         expr: Expr<'T> *
         withClause: struct ('T * 'T * 'T voption) voption // with, get/set, optional comma and other get/set

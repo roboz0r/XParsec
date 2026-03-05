@@ -2,6 +2,8 @@ module                       'module'          KWModule            tok=   0  pos
                              'M'               Identifier          tok=   2  pos=   7
 TypeDefn.Anon:
   TypeName                   'Foo'             Identifier          tok=   7  pos=  15
+  (                          '('               KWLParen            tok=   8  pos=  18
+  )                          ')'               KWRParen            tok=   9  pos=  19
   =                          '='               OpEquality          tok=  11  pos=  21
   begin                      <virt>            KWBegin             tok=virt  pos=  27
     InterfaceImpl:

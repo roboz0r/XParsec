@@ -243,6 +243,36 @@ module MethodOrPropDefn =
 
     let parse: Parser<MethodOrPropDefn<SyntaxToken>, _, _, _, _> =
         parser {
+            match! peekNextNonTriviaToken with
+            | tWild when tWild.Token = Token.Wildcard ->
+                // `_` as self-identifier: must be followed by `.`
+                let! underscore = consumePeeked tWild
+
+                match! peekNextNonTriviaToken with
+                | tDot when tDot.Token = Token.OpDot ->
+                    let! dot = consumePeeked tDot
+
+                    return!
+                        choiceL
+                            [
+                                FunctionOrValueDefn.parse
+                                |>> (function
+                                | FunctionOrValueDefn.Function funcDefn ->
+                                    MethodOrPropDefn.Method(ValueSome struct (underscore, dot), funcDefn)
+                                | FunctionOrValueDefn.Value valueDefn ->
+                                    MethodOrPropDefn.Property(ValueSome struct (underscore, dot), valueDefn))
+
+                                pPropertyWithGetSet
+                                |>> fun propWithGetSetBuilder ->
+                                    propWithGetSetBuilder (ValueSome struct (underscore, dot))
+
+                            ]
+                            "MethodOrPropDefn after _."
+
+                | _ -> return! fail (Message "Expected '.' after '_' in member definition")
+
+            | _ ->
+
             match! opt pIdent with
             | ValueSome ident ->
                 match! peekNextNonTriviaToken with
@@ -266,13 +296,13 @@ module MethodOrPropDefn =
                             "MethodOrPropDefn after dot"
 
                 | t when t.Token = Token.OpEquality ->
-                    let! eq = pEquals
+                    let! eq = consumePeeked t
                     let! expr = Expr.parse
 
-                    match! opt MemberSig.pWithClause with
-                    | ValueSome struct (with', (get', set')) ->
-                        return MethodOrPropDefn.AutoProperty(ident, eq, expr, ValueSome struct (with', get', set'))
-                    | ValueNone -> return MethodOrPropDefn.AutoProperty(ident, eq, expr, ValueNone)
+                    return
+                        MethodOrPropDefn.Property(
+                            ValueNone,
+                            ValueDefn(ValueNone, ValueNone, Pat.NamedSimple ident, ValueNone, ValueNone, eq, expr))
 
                 | _ -> return! fail (Message "Expected '.' or '=' after identifier in member definition")
             | ValueNone ->
@@ -338,6 +368,32 @@ module AdditionalConstrExpr =
     do refAdditionalConstrExpr.Set parse
 
 [<RequireQualifiedAccess>]
+module AutoPropDefn =
+    let parse: Parser<MethodOrPropDefn<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! valTok = pVal
+            let! access = opt pAccessModifier
+            let! ident = pIdent
+            let! returnType =
+                opt (
+                    parser {
+                        let! colon = pColon
+                        let! t = Type.parse
+                        return ReturnType(colon, t)
+                    }
+                )
+            let! eq = pEquals
+            let! expr = Expr.parse
+            let! withClause = opt MemberSig.pWithClause
+
+            return
+                match withClause with
+                | ValueSome struct (withTok, (acc1, acc2)) ->
+                    MethodOrPropDefn.AutoProperty(valTok, access, ident, returnType, eq, expr, ValueSome struct (withTok, acc1, acc2))
+                | ValueNone -> MethodOrPropDefn.AutoProperty(valTok, access, ident, returnType, eq, expr, ValueNone)
+        }
+
+[<RequireQualifiedAccess>]
 module MemberDefn =
     // Ths spec has incorrect grammar for member definitions, so we need to
     // reverse-engineer it from examples and the F# spec text.
@@ -352,7 +408,9 @@ module MemberDefn =
                 let! mem = consumePeeked t
 
                 match! peekNextNonTriviaToken with
-                | t when t.Token = Token.KWVal -> ()
+                | t when t.Token = Token.KWVal ->
+                    let! defn = AutoPropDefn.parse
+                    return (fun attrs -> MemberDefn.Concrete(attrs, ValueSome staticTok, mem, ValueNone, defn))
                 | _ ->
                     let! access = opt pAccessModifier
                     let! defn = MethodOrPropDefn.parse
@@ -373,9 +431,15 @@ module MemberDefn =
     let private pMemberDefn =
         parser {
             let! memberTok = pMember
-            let! access = opt pAccessModifier
-            let! defn = MethodOrPropDefn.parse
-            return (fun attrs -> MemberDefn.Concrete(attrs, ValueNone, memberTok, access, defn))
+
+            match! peekNextNonTriviaToken with
+            | t when t.Token = Token.KWVal ->
+                let! defn = AutoPropDefn.parse
+                return (fun attrs -> MemberDefn.Concrete(attrs, ValueNone, memberTok, ValueNone, defn))
+            | _ ->
+                let! access = opt pAccessModifier
+                let! defn = MethodOrPropDefn.parse
+                return (fun attrs -> MemberDefn.Concrete(attrs, ValueNone, memberTok, access, defn))
         }
 
     let private pAbstractMemberDefn =
@@ -390,17 +454,29 @@ module MemberDefn =
     let private pOverrideMemberDefn =
         parser {
             let! overrideTok = pOverride
-            let! access = opt pAccessModifier
-            let! defn = MethodOrPropDefn.parse
-            return (fun attrs -> MemberDefn.Override(attrs, overrideTok, access, defn))
+
+            match! peekNextNonTriviaToken with
+            | t when t.Token = Token.KWVal ->
+                let! defn = AutoPropDefn.parse
+                return (fun attrs -> MemberDefn.Override(attrs, overrideTok, ValueNone, defn))
+            | _ ->
+                let! access = opt pAccessModifier
+                let! defn = MethodOrPropDefn.parse
+                return (fun attrs -> MemberDefn.Override(attrs, overrideTok, access, defn))
         }
 
     let private pDefaultMemberDefn =
         parser {
             let! defaultTok = pDefault
-            let! access = opt pAccessModifier
-            let! defn = MethodOrPropDefn.parse
-            return (fun attrs -> MemberDefn.Default(attrs, defaultTok, access, defn))
+
+            match! peekNextNonTriviaToken with
+            | t when t.Token = Token.KWVal ->
+                let! defn = AutoPropDefn.parse
+                return (fun attrs -> MemberDefn.Default(attrs, defaultTok, ValueNone, defn))
+            | _ ->
+                let! access = opt pAccessModifier
+                let! defn = MethodOrPropDefn.parse
+                return (fun attrs -> MemberDefn.Default(attrs, defaultTok, access, defn))
         }
 
     let private pValueMemberDefn =

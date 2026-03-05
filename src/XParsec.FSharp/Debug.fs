@@ -1606,13 +1606,26 @@ let printMethodOrPropDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (de
 
         for defn in defns do
             printFunctionOrValueDefn ctx input lexed defn
-    | MethodOrPropDefn.AutoProperty(ident, eq, expr, withClause) ->
+    | MethodOrPropDefn.AutoProperty(valTok, access, ident, returnType, eq, expr, withClause) ->
+        printTokenRow "val" ctx input lexed valTok
+
+        match access with
+        | ValueSome acc -> printTokenRow "access" ctx input lexed acc
+        | ValueNone -> ()
+
         printTokenRow "ident" ctx input lexed ident
+
+        match returnType with
+        | ValueSome(ReturnType(colon, typ)) ->
+            printTokenRow ":" ctx input lexed colon
+            printType ctx input lexed typ
+        | ValueNone -> ()
+
         printTokenRow "=" ctx input lexed eq
         printExpr ctx input lexed expr
 
         match withClause with
-        | ValueSome(withTok, acc1, acc2) ->
+        | ValueSome struct (withTok, acc1, acc2) ->
             printTokenRow "with" ctx input lexed withTok
             printTokenRow "accessor" ctx input lexed acc1
 
@@ -1787,6 +1800,23 @@ let printTypeName (ctx: PrintContext) (input: string) (lexed: Lexed) (typeName: 
     match typars with
     | ValueSome tp -> printTyparDefns ctx input lexed tp
     | ValueNone -> ()
+
+let rec printSimplePat (ctx: PrintContext) (input: string) (lexed: Lexed) (pat: SimplePat<SyntaxToken>) =
+    match pat with
+    | SimplePat.Ident ident -> printTokenRow "SimplePat.Ident" ctx input lexed ident
+    | SimplePat.Typed(inner, colon, typ) ->
+        printSimplePat ctx input lexed inner
+        printTokenRow ":" ctx input lexed colon
+        printType ctx input lexed typ
+
+let printPrimaryConstrArgs (ctx: PrintContext) (input: string) (lexed: Lexed) (args: PrimaryConstrArgs<SyntaxToken>) =
+    let (PrimaryConstrArgs(_, _, lParen, pats, rParen)) = args
+    printTokenRow "(" ctx input lexed lParen
+
+    for pat in pats do
+        printSimplePat ctx input lexed pat
+
+    printTokenRow ")" ctx input lexed rParen
 
 let printUnionCaseData (ctx: PrintContext) (input: string) (lexed: Lexed) (data: UnionTypeCaseData<SyntaxToken>) =
     match data with
@@ -2069,12 +2099,17 @@ let printTypeDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (typeDefn: 
                 printTokenRow "end" ctx input lexed endTok
             )
 
-    | TypeDefn.Anon(typeName, _primaryConstr, _, equals, beginTok, ClassTypeBody(inherits, lets, elems), endTok) ->
+    | TypeDefn.Anon(typeName, primaryConstr, _, equals, beginTok, ClassTypeBody(inherits, lets, elems), endTok) ->
         printSection
             ctx
             "TypeDefn.Anon"
             (fun () ->
                 printTypeName ctx input lexed typeName
+
+                match primaryConstr with
+                | ValueSome args -> printPrimaryConstrArgs ctx input lexed args
+                | ValueNone -> ()
+
                 printTokenRow "=" ctx input lexed equals
                 printTokenRow "begin" ctx input lexed beginTok
 
