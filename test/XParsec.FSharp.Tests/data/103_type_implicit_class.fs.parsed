@@ -2,6 +2,13 @@ module                 'module'          KWModule            tok=   0  pos=   0
                        'MyModule'        Identifier          tok=   2  pos=   7
 TypeDefn.Anon:
   TypeName             'Counter'         Identifier          tok=   7  pos=  22
+  (                    '('               KWLParen            tok=   8  pos=  29
+  SimplePat.Ident      'initialCou...'   Identifier          tok=   9  pos=  30
+  :                    ':'               OpColon             tok=  10  pos=  42
+  NamedType:
+    LongIdent:
+                       'int'             Identifier          tok=  12  pos=  44
+  )                    ')'               KWRParen            tok=  13  pos=  47
   =                    '='               OpEquality          tok=  15  pos=  49
   begin                <virt>            KWBegin             tok=virt  pos=  55
     let                'let'             KWLet               tok=  18  pos=  55
