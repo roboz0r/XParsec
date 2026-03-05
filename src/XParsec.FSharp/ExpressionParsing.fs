@@ -698,9 +698,16 @@ module Expr =
                         let! pos = getPosition
                         let! lParen = pHighPrecLParen
                         let lParen = syntaxToken lParen pos.Index
-                        let! argExpr = refExpr.Parser
-                        let! rParen = pRParen
-                        return ExprAux.HighPrecApp(lParen, argExpr, rParen)
+
+                        // Handle f() — empty argument list
+                        match! peekNextNonTriviaToken with
+                        | t when t.Token = Token.KWRParen ->
+                            let! rParen = consumePeeked t
+                            return ExprAux.HighPrecApp(lParen, Expr.Const(Constant.Unit(lParen, rParen)), rParen)
+                        | _ ->
+                            let! argExpr = refExpr.Parser
+                            let! rParen = pRParen
+                            return ExprAux.HighPrecApp(lParen, argExpr, rParen)
                     }
                     parser {
                         let! pos = getPosition
@@ -1012,30 +1019,29 @@ module Expr =
                 "RHS operator"
 
         let lhsParser =
-            nextNonTriviaToken
-            >>= fun token ->
+            parser {
+                let! token = peekNextNonTriviaToken
+
                 match OperatorInfo.TryCreate(token.PositionedToken) with
                 | ValueSome opInfo when opInfo.CanBePrefix ->
                     // printOpInfo opInfo
+                    let! tok = consumePeeked token
                     let power = BindingPower.fromLevel (int opInfo.Precedence)
-                    let p = preturn token
-                    let op = Prefix(token, p, power, completePrefix)
-                    preturn op
+                    return Prefix(tok, preturn tok, power, completePrefix)
                 // Note: Spec shows lazy and assert keywords as having same precedence as function application,
                 // so they are parsed as prefix operators with the same precedence level.
                 | ValueSome opInfo when opInfo.Token = Token.KWLazy ->
                     // printOpInfo opInfo
+                    let! tok = consumePeeked token
                     let power = BindingPower.fromLevel (int opInfo.Precedence)
-                    let p = preturn token
-                    let op = Prefix(token, p, power, completeLazy)
-                    preturn op
+                    return Prefix(tok, preturn tok, power, completeLazy)
                 | ValueSome opInfo when opInfo.Token = Token.KWAssert ->
                     // printOpInfo opInfo
+                    let! tok = consumePeeked token
                     let power = BindingPower.fromLevel (int opInfo.Precedence)
-                    let p = preturn token
-                    let op = Prefix(token, p, power, completeAssert)
-                    preturn op
-                | _ -> fail (Message "Not a prefix operator")
+                    return Prefix(tok, preturn tok, power, completeAssert)
+                | _ -> return! fail (Message "Not a prefix operator")
+            }
 
         interface Operators<
             SyntaxToken,
