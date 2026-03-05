@@ -5,7 +5,7 @@ type C() =
 
     // method: (ident '.')? ident pat1 ... patn = expr
     member _.Method1(x: int) = x + 1
-    member self.Method2(x: int, y: int) = x + y + 1
+    member self.Method2(x: int, y: int) = self.GetHashCode() + x + y
 
     // property: (ident '.')? ident = expr
     member _.Prop1 = _v

@@ -46,75 +46,86 @@ TypeDefn.Anon:
                              'int'             Identifier          tok=  65  pos= 188
                              ')'               KWRParen            tok=  66  pos= 191
     =                        '='               OpEquality          tok=  68  pos= 193
-    InfixApp                 '+'               op_Addition         tok=  76  pos= 201
-      InfixApp               '+'               op_Addition         tok=  72  pos= 197
-        Ident                'x'               Identifier          tok=  70  pos= 195
-        Ident                'y'               Identifier          tok=  74  pos= 199
-      Const                  '1'               NumInt32            tok=  78  pos= 203
-    member                   'member'          KWMember            tok=  85  pos= 253
-    self                     '_'               Wildcard            tok=  87  pos= 260
-    Pat.NamedSimple          'Prop1'           Identifier          tok=  89  pos= 262
-    =                        '='               OpEquality          tok=  91  pos= 268
-    Ident                    '_v'              Identifier          tok=  93  pos= 270
-    member                   'member'          KWMember            tok= 100  pos= 310
-    ident                    'Prop3'           Identifier          tok= 104  pos= 319
-    with                     'with'            KWWith              tok= 107  pos= 333
+    InfixApp                 '+'               op_Addition         tok=  80  pos= 218
+      InfixApp               '+'               op_Addition         tok=  76  pos= 214
+        HighPrecedenceApp:
+          Func:
+            LongIdentOrOp:
+              LongIdent:
+                             'self'            Identifier          tok=  70  pos= 195
+                             'GetHashCod...'   Identifier          tok=  72  pos= 200
+          (                  '('               KWLParen            tok=  73  pos= 211
+          Arg:
+            Const:
+              Unit           '('               KWLParen            tok=  73  pos= 211
+                             ')'               KWRParen            tok=  74  pos= 212
+                             ')'               KWRParen            tok=  74  pos= 212
+        Ident                'x'               Identifier          tok=  78  pos= 216
+      Ident                  'y'               Identifier          tok=  82  pos= 220
+    member                   'member'          KWMember            tok=  89  pos= 270
+    self                     '_'               Wildcard            tok=  91  pos= 277
+    Pat.NamedSimple          'Prop1'           Identifier          tok=  93  pos= 279
+    =                        '='               OpEquality          tok=  95  pos= 285
+    Ident                    '_v'              Identifier          tok=  97  pos= 287
+    member                   'member'          KWMember            tok= 104  pos= 327
+    ident                    'Prop3'           Identifier          tok= 108  pos= 336
+    with                     'with'            KWWith              tok= 111  pos= 350
     Function:
       IdentOrOp:
-        Ident                'set'             Identifier          tok= 109  pos= 338
+        Ident                'set'             Identifier          tok= 113  pos= 355
       Pats:
-        Pat.Paren            '('               KWLParen            tok= 111  pos= 342
+        Pat.Paren            '('               KWLParen            tok= 115  pos= 359
           Pat.Typed:
-            Pat.NamedSimple  'v'               Identifier          tok= 112  pos= 343
-            Colon            ':'               OpColon             tok= 113  pos= 344
+            Pat.NamedSimple  'v'               Identifier          tok= 116  pos= 360
+            Colon            ':'               OpColon             tok= 117  pos= 361
             NamedType:
               LongIdent:
-                             'int'             Identifier          tok= 115  pos= 346
-                             ')'               KWRParen            tok= 116  pos= 349
-      =                      '='               OpEquality          tok= 118  pos= 351
-        Assignment           '<-'              OpArrowLeft         tok= 122  pos= 356
-          Ident              '_v'              Identifier          tok= 120  pos= 353
-          Ident              'v'               Identifier          tok= 124  pos= 359
-    member                   'member'          KWMember            tok= 131  pos= 390
-    ident                    'Prop4'           Identifier          tok= 135  pos= 399
-    with                     'with'            KWWith              tok= 138  pos= 413
+                             'int'             Identifier          tok= 119  pos= 363
+                             ')'               KWRParen            tok= 120  pos= 366
+      =                      '='               OpEquality          tok= 122  pos= 368
+        Assignment           '<-'              OpArrowLeft         tok= 126  pos= 373
+          Ident              '_v'              Identifier          tok= 124  pos= 370
+          Ident              'v'               Identifier          tok= 128  pos= 376
+    member                   'member'          KWMember            tok= 135  pos= 407
+    ident                    'Prop4'           Identifier          tok= 139  pos= 416
+    with                     'with'            KWWith              tok= 142  pos= 430
     Function:
       IdentOrOp:
-        Ident                'get'             Identifier          tok= 140  pos= 418
+        Ident                'get'             Identifier          tok= 144  pos= 435
       Pats:
         Pat.Const:
-          Unit               '('               KWLParen            tok= 142  pos= 422
-                             ')'               KWRParen            tok= 143  pos= 423
-      =                      '='               OpEquality          tok= 145  pos= 425
-        Ident                '_v'              Identifier          tok= 147  pos= 427
+          Unit               '('               KWLParen            tok= 146  pos= 439
+                             ')'               KWRParen            tok= 147  pos= 440
+      =                      '='               OpEquality          tok= 149  pos= 442
+        Ident                '_v'              Identifier          tok= 151  pos= 444
     Function:
       IdentOrOp:
-        Ident                'set'             Identifier          tok= 152  pos= 442
+        Ident                'set'             Identifier          tok= 156  pos= 459
       Pats:
-        Pat.NamedSimple      'v'               Identifier          tok= 154  pos= 446
-      =                      '='               OpEquality          tok= 156  pos= 448
-        Assignment           '<-'              OpArrowLeft         tok= 160  pos= 453
-          Ident              '_v'              Identifier          tok= 158  pos= 450
-          Ident              'v'               Identifier          tok= 162  pos= 456
-    member                   'member'          KWMember            tok= 169  pos= 487
-    ident                    'Prop5'           Identifier          tok= 173  pos= 496
-    with                     'with'            KWWith              tok= 176  pos= 510
+        Pat.NamedSimple      'v'               Identifier          tok= 158  pos= 463
+      =                      '='               OpEquality          tok= 160  pos= 465
+        Assignment           '<-'              OpArrowLeft         tok= 164  pos= 470
+          Ident              '_v'              Identifier          tok= 162  pos= 467
+          Ident              'v'               Identifier          tok= 166  pos= 473
+    member                   'member'          KWMember            tok= 173  pos= 504
+    ident                    'Prop5'           Identifier          tok= 177  pos= 513
+    with                     'with'            KWWith              tok= 180  pos= 527
     Function:
       IdentOrOp:
-        Ident                'set'             Identifier          tok= 178  pos= 515
+        Ident                'set'             Identifier          tok= 182  pos= 532
       Pats:
-        Pat.NamedSimple      'v'               Identifier          tok= 180  pos= 519
-      =                      '='               OpEquality          tok= 182  pos= 521
-        Assignment           '<-'              OpArrowLeft         tok= 186  pos= 526
-          Ident              '_v'              Identifier          tok= 184  pos= 523
-          Ident              'v'               Identifier          tok= 188  pos= 529
+        Pat.NamedSimple      'v'               Identifier          tok= 184  pos= 536
+      =                      '='               OpEquality          tok= 186  pos= 538
+        Assignment           '<-'              OpArrowLeft         tok= 190  pos= 543
+          Ident              '_v'              Identifier          tok= 188  pos= 540
+          Ident              'v'               Identifier          tok= 192  pos= 546
     Function:
       IdentOrOp:
-        Ident                'get'             Identifier          tok= 193  pos= 543
+        Ident                'get'             Identifier          tok= 197  pos= 560
       Pats:
         Pat.Const:
-          Unit               '('               KWLParen            tok= 195  pos= 547
-                             ')'               KWRParen            tok= 196  pos= 548
-      =                      '='               OpEquality          tok= 198  pos= 550
-        Ident                '_v'              Identifier          tok= 200  pos= 552
-  end                        <virt>            KWEnd               tok=virt  pos= 555
+          Unit               '('               KWLParen            tok= 199  pos= 564
+                             ')'               KWRParen            tok= 200  pos= 565
+      =                      '='               OpEquality          tok= 202  pos= 567
+        Ident                '_v'              Identifier          tok= 204  pos= 569
+  end                        <virt>            KWEnd               tok=virt  pos= 572
