@@ -21,9 +21,9 @@ Match:
   Rule:
     Bar                   '|'               OpBar               tok=  24  pos=  41
     Pat:
-      Pat.List            '[]'              OpNil               tok=  26  pos=  43
-                          '[]'              OpNil               tok=  26  pos=  43
-    Arrow                 '->'              OpArrowRight        tok=  28  pos=  46
+      Pat.List            '['               KWLBracket          tok=  26  pos=  43
+                          ']'               KWRBracket          tok=  27  pos=  44
+    Arrow                 '->'              OpArrowRight        tok=  29  pos=  46
     Expr:
-      List                '[]'              OpNil               tok=  30  pos=  49
-                          '[]'              OpNil               tok=  30  pos=  49
+      List                '['               KWLBracket          tok=  31  pos=  49
+                          ']'               KWRBracket          tok=  32  pos=  50

@@ -9,7 +9,8 @@
 15, Whitespace
 16, Identifier
 23, Whitespace
-24, Unit
+24, KWLParen
+25, KWRParen
 26, Newline
 27, Indent
 31, Identifier

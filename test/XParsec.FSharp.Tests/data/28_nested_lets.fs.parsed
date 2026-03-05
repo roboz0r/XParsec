@@ -9,6 +9,6 @@ FunctionOrValue:
     Pat.NamedSimple  'y'               Identifier          tok=  10  pos=  14
     =                '='               OpEquality          tok=  12  pos=  16
       Const          '2'               NumInt32            tok=  14  pos=  18
-InfixApp             '+'               OpSubtractionAssignment  tok=  18  pos=  22
+InfixApp             '+'               op_Addition         tok=  18  pos=  22
   Ident              'x'               Identifier          tok=  16  pos=  20
   Ident              'y'               Identifier          tok=  20  pos=  24

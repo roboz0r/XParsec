@@ -109,7 +109,7 @@ let keywords =
         ";;", Token.OpDoubleSemicolon
         ";", Token.OpSemicolon
         "??", Token.OpQMarkQMark
-        "[]", Token.OpNil
+        //"[]", Token.OpNil
         "!", Token.OpDereference
         "<@", Token.OpQuotationTypedLeft
         "@>", Token.OpQuotationTypedRight
@@ -129,7 +129,7 @@ let keywords =
         "or", Token.KWOr
         "::", Token.OpCons
         "_", Token.Wildcard
-        "()", Token.Unit
+        // "()", Token.Unit
 
         // 3.4 Identifiers and Keywords
         // IsReservedKeyword

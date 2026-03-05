@@ -642,8 +642,8 @@ module TokenRepresentation =
         [<Literal>]
         let Underscore = 171us // _
 
-        [<Literal>]
-        let Unit = 172us // ()
+        //[<Literal>]
+        //let Unit = 172us // () // (Not used in F# lexer, lexed as KWLParen and KWRParen)
 
         [<Literal>]
         let OpRangeStep = 173us // .. ..
@@ -657,8 +657,8 @@ module TokenRepresentation =
         [<Literal>]
         let QMarkLeftArrow = 180us // ?<-
 
-        [<Literal>]
-        let Nil = 181us // []
+        //[<Literal>]
+        //let Nil = 181us // [] // (Not used in F# lexer, lexed as LBracket and RBracket)
 
         [<Literal>]
         let Dereference = 182us // !
@@ -1403,7 +1403,7 @@ type Token =
     | OpQuotationUntypedLeft = (KindKeyword ||| KW.LQuoteUntyped) // <@@
     | OpQuotationUntypedRight = (KindKeyword ||| KW.RQuoteUntyped) // @@>
     | Wildcard = (KindKeyword ||| KW.Underscore) // _
-    | Unit = (KindKeyword ||| KW.Unit) // ()
+    //| Unit = (KindKeyword ||| KW.Unit) // () // (Not used in F# lexer, lexed as KWLParen and KWRParen)
 
     // 3.6 token reserved-symbolic-sequence
     | KWReservedTwiddle = (KindKeyword ||| KW.ReservedTwiddle)
@@ -1414,7 +1414,7 @@ type Token =
 
     // 3.7 Symbolic Operators
     | OpDynamicAssignment = (KindKeyword ||| KW.QMarkLeftArrow) // ?<-
-    | OpNil = (KindKeyword ||| KW.Nil) // []
+    //| OpNil = (KindKeyword ||| KW.Nil) // []
     | OpDereference = (KindKeyword ||| KW.Dereference) // !
     | OpComma = (KindKeyword ||| KW.Comma) // , (Tuples, Arguments)
     | ReservedOperator = (KindKeyword ||| KW.ReservedOperator) // A reserved operator (i.e. containing a reserved symbol $ or :)
@@ -1452,9 +1452,10 @@ type Token =
     | VirtualDone = (IsVirtual ||| KindKeyword ||| KW.Done)
     | VirtualBegin = (IsVirtual ||| KindKeyword ||| KW.Begin)
     | VirtualEnd = (IsVirtual ||| KindKeyword ||| KW.End)
-    | VirtualSep = (IsVirtual ||| KindKeyword ||| 1024us)
+    | VirtualSep = (IsVirtual ||| KindKeyword ||| KW.Semi)
     | VirtualApp = (IsVirtual ||| KindKeyword ||| 1025us)
     | VirtualTyApp = (IsVirtual ||| KindKeyword ||| 1026us)
+    | VirtualHighApp = (IsVirtual ||| KindKeyword ||| 1027us)
     | VirtualLet = (IsVirtual ||| KindKeyword ||| KW.Let)
     | VirtualUse = (IsVirtual ||| KindKeyword ||| KW.Use)
     | VirtualLetBang = (IsVirtual ||| KindKeyword ||| KW.LetBang)
@@ -1806,7 +1807,10 @@ module internal TokenInfo =
             | Token.OpConcatenate
             | Token.OpEquality
             | Token.KWLazy
-            | Token.KWAssert -> true
+            | Token.KWAssert
+            | Token.VirtualApp
+            | Token.VirtualTyApp
+            | Token.VirtualSep -> true
             | _ -> false
         elif isSpecial token then
             match token with
@@ -1821,7 +1825,8 @@ module internal TokenInfo =
             match token with
             | Token.KWAs -> PrecedenceLevel.As
             | Token.KWWhen -> PrecedenceLevel.When
-            | Token.OpSemicolon -> PrecedenceLevel.Semicolon
+            | Token.OpSemicolon
+            | Token.VirtualSep -> PrecedenceLevel.Semicolon
             | Token.KWLet -> PrecedenceLevel.Let
             | Token.KWFunction
             | Token.KWFun
@@ -1860,11 +1865,13 @@ module internal TokenInfo =
             | Token.KWRArrayBracket
             | Token.KWLBrace
             | Token.KWRBrace -> PrecedenceLevel.Parens
+            | Token.VirtualApp -> PrecedenceLevel.Application
+            | Token.VirtualTyApp -> PrecedenceLevel.HighTypeApplication
             | t -> raise (new NotImplementedException($"{t}"))
-        elif isSpecial token then
-            match token with
-            | Token.Whitespace -> PrecedenceLevel.Application
-            | t -> raise (new NotImplementedException($"{t}"))
+        // elif isSpecial token then
+        //     match token with
+        //     | Token.Whitespace -> PrecedenceLevel.Application
+        //     | t -> raise (new NotImplementedException($"{t}"))
         else
             uint16 token &&& PrecedenceMask |> int |> enum
 
@@ -2025,6 +2032,109 @@ module internal OperatorInfo =
         | PrecedenceLevel.Parens -> Associativity.Non
         | _ -> invalidOp $"Unknown precedence level {p}."
 
+    let private names =
+        [|
+            "[]", "op_Nil"
+            "::", "op_ColonColon"
+            "+", "op_Addition"
+            "-", "op_Subtraction"
+            "*", "op_Multiply"
+            "/", "op_Division"
+            "**", "op_Exponentiation"
+            "@", "op_Append"
+            "^", "op_Concatenate"
+            "%", "op_Modulus"
+            "&&&", "op_BitwiseAnd"
+            "|||", "op_BitwiseOr"
+            "^^^", "op_ExclusiveOr"
+            "<<<", "op_LeftShift"
+            "~~~", "op_LogicalNot"
+            ">>>", "op_RightShift"
+            "~+", "op_UnaryPlus"
+            "~-", "op_UnaryNegation"
+            "=", "op_Equality"
+            "<>", "op_Inequality"
+            "<=", "op_LessThanOrEqual"
+            ">=", "op_GreaterThanOrEqual"
+            "<", "op_LessThan"
+            ">", "op_GreaterThan"
+            "?", "op_Dynamic"
+            "?<-", "op_DynamicAssignment"
+            "|>", "op_PipeRight"
+            "||>", "op_PipeRight2"
+            "|||>", "op_PipeRight3"
+            "<|", "op_PipeLeft"
+            "<||", "op_PipeLeft2"
+            "<|||", "op_PipeLeft3"
+            "!", "op_Dereference"
+            ">>", "op_ComposeRight"
+            "<<", "op_ComposeLeft"
+            "<@ @>", "op_Quotation"
+            "<@@ @@>", "op_QuotationUntyped"
+            "~%", "op_Splice"
+            "~%%", "op_SpliceUntyped"
+            "~&", "op_AddressOf"
+            "~&&", "op_IntegerAddressOf"
+            "||", "op_BooleanOr"
+            "&&", "op_BooleanAnd"
+            "+=", "op_AdditionAssignment"
+            "-=", "op_SubtractionAssignment"
+            "*=", "op_MultiplyAssignment"
+            "/=", "op_DivisionAssignment"
+            "..", "op_Range"
+            ".. ..", "op_RangeStep"
+        |]
+
+
+    let private opCharTranslateTable =
+        [|
+            ('>', "Greater")
+            ('<', "Less")
+            ('+', "Plus")
+            ('-', "Minus")
+            ('*', "Multiply")
+            ('=', "Equals")
+            ('~', "Twiddle")
+            ('%', "Percent")
+            ('.', "Dot")
+            ('$', "Dollar")
+            ('&', "Amp")
+            ('|', "Bar")
+            ('@', "At")
+            ('#', "Hash")
+            ('^', "Hat")
+            ('!', "Bang")
+            ('?', "Qmark")
+            ('/', "Divide")
+            (':', "Colon")
+            ('(', "LParen")
+            (',', "Comma")
+            (')', "RParen")
+            (' ', "Space")
+            ('[', "LBrack")
+            (']', "RBrack")
+        |]
+
+    let getOperatorName (s: string) =
+        if String.IsNullOrEmpty(s) then
+            invalidArg "s" "Operator cannot be null or empty."
+        elif String.IsNullOrWhiteSpace(s) then
+            // Special case for an operator that is just whitespace (function application)
+            // Typically whitespace is trivia.
+            "op_Space"
+        else
+            match Array.tryFind (fun (op, _) -> op = s) names with
+            | Some(_, name) -> name
+            | None ->
+                let sb = System.Text.StringBuilder("op_")
+
+                for c in s do
+                    match Array.tryFind (fun (ch, _) -> ch = c) opCharTranslateTable with
+                    | Some(ch, translation) -> sb.Append(translation) |> ignore
+                    | None -> invalidArg "s" (sprintf "Operator %s contains invalid character '%c'." s c)
+
+                sb.ToString()
+
 [<Struct>]
 type OperatorInfo =
     internal
@@ -2042,6 +2152,13 @@ type OperatorInfo =
 
     member this.Associativity = OperatorInfo.associativity this.Precedence
     member this.Precedence = this._precedence
+
+    member this.GetName(literal: string) =
+        if TokenInfo.isKeyword this.Token then
+            // For operator keywords, the name is just the token name (e.g., "op_ColonEquals" for ":=")
+            this.Token.ToString()
+        else
+            OperatorInfo.getOperatorName literal
 
     static member TryCreate(token: PositionedToken) =
         if TokenInfo.isOperator token.Token || TokenInfo.isOperatorKeyword token.Token then

@@ -8,13 +8,15 @@ FunctionOrValue:
       Pats:
         Pat.NamedSimple  'x'               Identifier          tok=   6  pos=  10
       =                  '='               OpEquality          tok=   8  pos=  12
-        InfixApp         '+'               OpSubtractionAssignment  tok=  12  pos=  16
+        InfixApp         '+'               op_Addition         tok=  12  pos=  16
           Ident          'g'               Identifier          tok=  10  pos=  14
           Ident          'x'               Identifier          tok=  14  pos=  18
     Value:
       Pat.NamedSimple    'g'               Identifier          tok=  18  pos=  24
       =                  '='               OpEquality          tok=  20  pos=  26
         Const            '1'               NumInt32            tok=  22  pos=  28
-InfixApp                 ' '               Whitespace          tok=  25  pos=  31
-  Ident                  'f'               Identifier          tok=  24  pos=  30
-  Const                  '2'               NumInt32            tok=  26  pos=  32
+App:
+  Func:
+    Ident                'f'               Identifier          tok=  24  pos=  30
+  Args:
+    Const                '2'               NumInt32            tok=  26  pos=  32

@@ -9,6 +9,6 @@ FunctionOrValue:
   let                'let'             KWLet               tok=  13  pos=  27
     Pat.NamedSimple  'y'               Identifier          tok=  15  pos=  31
     =                '='               OpEquality          tok=  17  pos=  33
-      InfixApp       '+'               OpSubtractionAssignment  tok=  21  pos=  37
+      InfixApp       '+'               op_Addition         tok=  21  pos=  37
         Ident        'x'               Identifier          tok=  19  pos=  35
         Const        '2'               NumInt32            tok=  23  pos=  39

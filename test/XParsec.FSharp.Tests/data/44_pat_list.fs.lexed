@@ -6,7 +6,8 @@
 13, Newline
 14, OpBar
 15, Whitespace
-16, OpNil
+16, KWLBracket
+17, KWRBracket
 18, Whitespace
 19, OpArrowRight
 21, Whitespace

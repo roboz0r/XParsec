@@ -1,6 +1,7 @@
 AnonymousModule:
-InfixApp    ' '               Whitespace          tok=   3  pos=   3
-  InfixApp  ' '               Whitespace          tok=   1  pos=   1
-    Ident   'f'               Identifier          tok=   0  pos=   0
-    Ident   'x'               Identifier          tok=   2  pos=   2
-  Ident     'y'               Identifier          tok=   4  pos=   4
+App:
+  Func:
+    Ident  'f'               Identifier          tok=   0  pos=   0
+  Args:
+    Ident  'x'               Identifier          tok=   2  pos=   2
+    Ident  'y'               Identifier          tok=   4  pos=   4

@@ -16,7 +16,7 @@ Match:
           Const          '1'               NumInt32            tok=  19  pos=  32
         in               <virt>            KWIn                tok=virt  pos=  38
         Body:
-          InfixApp       '+'               OpSubtractionAssignment  tok=  24  pos=  40
+          InfixApp       '+'               op_Addition         tok=  24  pos=  40
             Ident        'y'               Identifier          tok=  22  pos=  38
             Const        '2'               NumInt32            tok=  26  pos=  42
   Rule:

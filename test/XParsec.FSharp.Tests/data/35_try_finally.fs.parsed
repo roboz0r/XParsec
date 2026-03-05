@@ -1,11 +1,17 @@
 AnonymousModule:
 TryFinally    'try'             KWTry               tok=   0  pos=   0
 TryExpr:
-  InfixApp    ' '               Whitespace          tok=   4  pos=   9
-    Ident     'f'               Identifier          tok=   3  pos=   8
-    Ident     'x'               Identifier          tok=   5  pos=  10
+  App:
+    Func:
+      Ident   'f'               Identifier          tok=   3  pos=   8
+    Args:
+      Ident   'x'               Identifier          tok=   5  pos=  10
 FinallyToken  'finally'         KWFinally           tok=   7  pos=  12
 FinallyExpr:
-  InfixApp    ' '               Whitespace          tok=  11  pos=  31
-    Ident     'cleanup'         Identifier          tok=  10  pos=  24
-    Const     '()'              Unit                tok=  12  pos=  32
+  App:
+    Func:
+      Ident   'cleanup'         Identifier          tok=  10  pos=  24
+    Args:
+      Const:
+        Unit  '('               KWLParen            tok=  12  pos=  32
+              ')'               KWRParen            tok=  13  pos=  33

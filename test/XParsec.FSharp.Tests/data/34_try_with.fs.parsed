@@ -1,9 +1,11 @@
 AnonymousModule:
 TryWith           'try'             KWTry               tok=   0  pos=   0
 TryExpr:
-  InfixApp        ' '               Whitespace          tok=   4  pos=   9
-    Ident         'f'               Identifier          tok=   3  pos=   8
-    Ident         'x'               Identifier          tok=   5  pos=  10
+  App:
+    Func:
+      Ident       'f'               Identifier          tok=   3  pos=   8
+    Args:
+      Ident       'x'               Identifier          tok=   5  pos=  10
 WithToken         'with'            KWWith              tok=   7  pos=  12
 Rule:
   Bar             '|'               OpBar               tok=   9  pos=  17
