@@ -13,27 +13,31 @@ TypeDefn.Anon:
     member             'member'          KWMember            tok=  29  pos=  92
     self               'this'            Identifier          tok=  31  pos=  99
     Ident              'Increment'       Identifier          tok=  33  pos= 104
-    Pat.Const          '()'              Unit                tok=  34  pos= 113
-    =                  '='               OpEquality          tok=  36  pos= 116
-    Assignment         '<-'              OpArrowLeft         tok=  40  pos= 124
-      Ident            'count'           Identifier          tok=  38  pos= 118
-      InfixApp         '+'               OpSubtractionAssignment  tok=  44  pos= 133
-        Ident          'count'           Identifier          tok=  42  pos= 127
-        Const          '1'               NumInt32            tok=  46  pos= 135
-    member             'member'          KWMember            tok=  49  pos= 141
-    self               'this'            Identifier          tok=  51  pos= 148
-    Pat.NamedSimple    'Value'           Identifier          tok=  53  pos= 153
-    =                  '='               OpEquality          tok=  55  pos= 159
-    Ident              'count'           Identifier          tok=  57  pos= 161
+    Pat.Const:
+      Unit             '('               KWLParen            tok=  34  pos= 113
+                       ')'               KWRParen            tok=  35  pos= 114
+    =                  '='               OpEquality          tok=  37  pos= 116
+    Assignment         '<-'              OpArrowLeft         tok=  41  pos= 124
+      Ident            'count'           Identifier          tok=  39  pos= 118
+      InfixApp         '+'               op_Addition         tok=  45  pos= 133
+        Ident          'count'           Identifier          tok=  43  pos= 127
+        Const          '1'               NumInt32            tok=  47  pos= 135
+    member             'member'          KWMember            tok=  50  pos= 141
+    self               'this'            Identifier          tok=  52  pos= 148
+    Pat.NamedSimple    'Value'           Identifier          tok=  54  pos= 153
+    =                  '='               OpEquality          tok=  56  pos= 159
+    Ident              'count'           Identifier          tok=  58  pos= 161
   end                  <virt>            KWEnd               tok=virt  pos= 168
 TypeDefn.Anon:
-  TypeName             'Greeter'         Identifier          tok=  62  pos= 173
-  =                    '='               OpEquality          tok=  70  pos= 195
+  TypeName             'Greeter'         Identifier          tok=  63  pos= 173
+  =                    '='               OpEquality          tok=  71  pos= 195
   begin                <virt>            KWBegin             tok=virt  pos= 201
-    member             'member'          KWMember            tok=  73  pos= 201
-    self               'this'            Identifier          tok=  75  pos= 208
-    Ident              'Greet'           Identifier          tok=  77  pos= 213
-    Pat.Const          '()'              Unit                tok=  78  pos= 218
-    =                  '='               OpEquality          tok=  80  pos= 221
-    Ident              'name'            Identifier          tok=  82  pos= 223
+    member             'member'          KWMember            tok=  74  pos= 201
+    self               'this'            Identifier          tok=  76  pos= 208
+    Ident              'Greet'           Identifier          tok=  78  pos= 213
+    Pat.Const:
+      Unit             '('               KWLParen            tok=  79  pos= 218
+                       ')'               KWRParen            tok=  80  pos= 219
+    =                  '='               OpEquality          tok=  82  pos= 221
+    Ident              'name'            Identifier          tok=  84  pos= 223
   end                  <virt>            KWEnd               tok=virt  pos= 228

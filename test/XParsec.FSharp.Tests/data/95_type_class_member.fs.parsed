@@ -15,25 +15,27 @@ TypeDefn.Class:
     member           'member'          KWMember            tok=  25  pos=  81
     self             'this'            Identifier          tok=  27  pos=  88
     Ident            'Increment'       Identifier          tok=  29  pos=  93
-    Pat.Const        '()'              Unit                tok=  30  pos= 102
-    =                '='               OpEquality          tok=  32  pos= 105
-    Assignment       '<-'              OpArrowLeft         tok=  38  pos= 118
+    Pat.Const:
+      Unit           '('               KWLParen            tok=  30  pos= 102
+                     ')'               KWRParen            tok=  31  pos= 103
+    =                '='               OpEquality          tok=  33  pos= 105
+    Assignment       '<-'              OpArrowLeft         tok=  39  pos= 118
       LongIdentOrOp:
         LongIdent:
-                     'this'            Identifier          tok=  34  pos= 107
-                     'count'           Identifier          tok=  36  pos= 112
-      InfixApp       '+'               OpSubtractionAssignment  tok=  44  pos= 132
+                     'this'            Identifier          tok=  35  pos= 107
+                     'count'           Identifier          tok=  37  pos= 112
+      InfixApp       '+'               op_Addition         tok=  45  pos= 132
         LongIdentOrOp:
           LongIdent:
-                     'this'            Identifier          tok=  40  pos= 121
-                     'count'           Identifier          tok=  42  pos= 126
-        Const        '1'               NumInt32            tok=  46  pos= 134
-    member           'member'          KWMember            tok=  49  pos= 144
-    self             'this'            Identifier          tok=  51  pos= 151
-    Pat.NamedSimple  'Value'           Identifier          tok=  53  pos= 156
-    =                '='               OpEquality          tok=  55  pos= 162
+                     'this'            Identifier          tok=  41  pos= 121
+                     'count'           Identifier          tok=  43  pos= 126
+        Const        '1'               NumInt32            tok=  47  pos= 134
+    member           'member'          KWMember            tok=  50  pos= 144
+    self             'this'            Identifier          tok=  52  pos= 151
+    Pat.NamedSimple  'Value'           Identifier          tok=  54  pos= 156
+    =                '='               OpEquality          tok=  56  pos= 162
     LongIdentOrOp:
       LongIdent:
-                     'this'            Identifier          tok=  57  pos= 164
-                     'count'           Identifier          tok=  59  pos= 169
-  end                'end'             KWEnd               tok=  62  pos= 179
+                     'this'            Identifier          tok=  58  pos= 164
+                     'count'           Identifier          tok=  60  pos= 169
+  end                'end'             KWEnd               tok=  63  pos= 179

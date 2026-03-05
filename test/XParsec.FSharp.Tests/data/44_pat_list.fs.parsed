@@ -7,25 +7,25 @@ Match:
   Rule:
     Bar                  '|'               OpBar               tok=   6  pos=  14
     Pat:
-      Pat.List           '[]'              OpNil               tok=   8  pos=  16
-                         '[]'              OpNil               tok=   8  pos=  16
-    Arrow                '->'              OpArrowRight        tok=  10  pos=  19
+      Pat.List           '['               KWLBracket          tok=   8  pos=  16
+                         ']'               KWRBracket          tok=   9  pos=  17
+    Arrow                '->'              OpArrowRight        tok=  11  pos=  19
     Expr:
-      Const              '0'               NumInt32            tok=  12  pos=  22
+      Const              '0'               NumInt32            tok=  13  pos=  22
   Rule:
-    Bar                  '|'               OpBar               tok=  14  pos=  24
+    Bar                  '|'               OpBar               tok=  15  pos=  24
     Pat:
-      Pat.List           '['               KWLBracket          tok=  16  pos=  26
-        Pat.NamedSimple  'x'               Identifier          tok=  17  pos=  27
-                         ']'               KWRBracket          tok=  18  pos=  28
-    Arrow                '->'              OpArrowRight        tok=  20  pos=  30
+      Pat.List           '['               KWLBracket          tok=  17  pos=  26
+        Pat.NamedSimple  'x'               Identifier          tok=  18  pos=  27
+                         ']'               KWRBracket          tok=  19  pos=  28
+    Arrow                '->'              OpArrowRight        tok=  21  pos=  30
     Expr:
-      Ident              'x'               Identifier          tok=  22  pos=  33
+      Ident              'x'               Identifier          tok=  23  pos=  33
   Rule:
-    Bar                  '|'               OpBar               tok=  24  pos=  35
+    Bar                  '|'               OpBar               tok=  25  pos=  35
     Pat:
-      Pat.Wildcard       '_'               Wildcard            tok=  26  pos=  37
-    Arrow                '->'              OpArrowRight        tok=  28  pos=  39
+      Pat.Wildcard       '_'               Wildcard            tok=  27  pos=  37
+    Arrow                '->'              OpArrowRight        tok=  29  pos=  39
     Expr:
-      PrefixApp          '-'               OpSubtractionAssignment  tok=  30  pos=  42
-        Const            '1'               NumInt32            tok=  31  pos=  43
+      PrefixApp          '-'               op_Subtraction      tok=  31  pos=  42
+        Const            '1'               NumInt32            tok=  32  pos=  43

@@ -4,6 +4,6 @@ Pats:
   Pat.NamedSimple  'x'               Identifier          tok=   2  pos=   4
 Arrow              '->'              OpArrowRight        tok=   4  pos=   6
 Body:
-  InfixApp         '+'               OpSubtractionAssignment  tok=   8  pos=  11
+  InfixApp         '+'               op_Addition         tok=   8  pos=  11
     Ident          'x'               Identifier          tok=   6  pos=   9
     Const          '1'               NumInt32            tok=  10  pos=  13

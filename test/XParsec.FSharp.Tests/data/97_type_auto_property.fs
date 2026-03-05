@@ -1,8 +1,8 @@
 module MyModule
 
-type MyClass =
+type MyClass() =
     class
         member val Name = "default"
-        member val Count = 0 with get, set
-        member val ReadOnly = 42 with get
+        static member val Count = 0 with get, set
+        member val internal ReadOnly = 42 with get
     end

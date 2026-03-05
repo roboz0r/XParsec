@@ -102,7 +102,7 @@ module Constraint =
     let private pDefaultConstructor (typar: Typar<_>) colon lParen (tokenNew: SyntaxToken) =
         parser {
             let! colonUnit = pColon
-            let! unitTok = nextNonTriviaTokenIsL Token.Unit "Expected '()'" // Simplified
+            //let! unitTok = nextNonTriviaTokenIsL Token.Unit "Expected '()'" // Simplified
             let! arrow = pArrowRight
             let! quoteT = nextNonTriviaTokenIsL Token.Identifier "Expected 'T" // Simplified
             let! rParen = pRParen

@@ -1,7 +1,7 @@
 AnonymousModule:
 Lazy          'lazy'            KWLazy              tok=   0  pos=   0
   ParenBlock  '('               KWLParen            tok=   2  pos=   5
-    InfixApp  '+'               OpSubtractionAssignment  tok=   5  pos=   8
+    InfixApp  '+'               op_Addition         tok=   5  pos=   8
       Const   '1'               NumInt32            tok=   3  pos=   6
       Const   '1'               NumInt32            tok=   7  pos=  10
               ')'               KWRParen            tok=   8  pos=  11

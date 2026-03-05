@@ -127,7 +127,7 @@ module ObjectConstruction =
                     parser {
                         let! token = lookAhead nextNonTriviaToken
 
-                        if token.Token = Token.KWLParen || token.Token = Token.Unit then
+                        if token.Token = Token.KWLParen then
                             return! refExpr.Parser
                         else
                             return! fail (Message "No constructor arguments")
@@ -582,12 +582,13 @@ module CompOrRangeExpr =
 [<RequireQualifiedAccess>]
 type ExprAux =
     | Ident of SyntaxToken
-    | TypeApp of Type<SyntaxToken> list * SyntaxToken
+    | TypeApp of SyntaxToken * Type<SyntaxToken> list * SyntaxToken
     | DotIndex of SyntaxToken * Expr<SyntaxToken> * SyntaxToken // .[ expr ]
     | DotSlice of SyntaxToken * SliceRange<SyntaxToken> list * SyntaxToken // .[ 1.. ]
     | ComputationBlock of SyntaxToken * CompOrRangeExpr<SyntaxToken> * SyntaxToken // { ... }
     | PostfixDynamic of SyntaxToken * Type<SyntaxToken> // :? Type (DynamicTypeTest)
     | HighPrecApp of SyntaxToken * Expr<SyntaxToken> * SyntaxToken // ( expr ) for f(x, y)
+    | HighPrecIndex of SyntaxToken * Expr<SyntaxToken> * SyntaxToken // [ expr ] for arr[i] (F# 6+ dot-less indexing)
     | TypeCast of Type<SyntaxToken> // :> Type
 
 [<RequireQualifiedAccess>]
@@ -600,11 +601,18 @@ module Expr =
     type ExprOperatorParser() =
         let completeInfix (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) = Expr.InfixApp(l, op, r)
         let completeSemicolon (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) = Expr.Sequential(l, op, r)
+
+        let completeSequence (exprs: ResizeArray<Expr<_>>) ops =
+            Expr.Sequential2(List.ofSeq exprs, List.ofSeq ops)
+
         let completeAssignment (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) = Expr.Assignment(l, op, r)
         let completePrefix (op: SyntaxToken) (e: Expr<_>) = Expr.PrefixApp(op, e)
         let completeLazy (op: SyntaxToken) (e: Expr<_>) = Expr.Lazy(op, e)
         let completeAssert (op: SyntaxToken) (e: Expr<_>) = Expr.Assert(op, e)
         let completeTuple (elements: ResizeArray<Expr<_>>) ops = Expr.Tuple(List.ofSeq elements)
+
+        let completeApp (elements: ResizeArray<Expr<_>>) ops =
+            Expr.App(elements[0], elements |> Seq.skip 1 |> List.ofSeq)
 
         let printOpInfo (op: OperatorInfo) =
             printfn
@@ -648,48 +656,22 @@ module Expr =
                 Expr.IndexedLookup(expr, op, lBracket, indexExpr, rBracket)
             | _ -> failwith "Unexpected Aux type for dot completion"
 
+
         let pTypeAppRhs =
             parser {
+                let! lAngle = nextNonTriviaTokenIsL Token.OpLessThan "Expected '<' for type application"
                 let! types, _ = sepBy Type.parse pComma
 
                 let! state = getUserState
 
-                let! rAngle =
-                    nextNonTriviaTokenSatisfiesL
-                        (fun t ->
-                            match t.Token with
-                            | Token.OpGreaterThan -> tokenStringIs ">" t state
-                            | _ -> false
-                        )
-                        "Expected '>' for type application"
-                    <|> parser {
-                        let! (pos: Position<_>) = getPosition
-                        let! token = nextNonTriviaToken
-                        let! state = getUserState
+                let! rAngle = pCloseTypeParams
 
-                        if token.Token = Token.OpGreaterThan && tokenStringStartsWith ">" token state then
-                            // We have an operator like '>>' or '>>=' that needs to be reprocessed
-                            // after the type application that takes the first '>' as its left operand
-                            let pos =
-                                { pos with
-                                    State =
-                                        { pos.State with
-                                            ReprocessOpAfterTypeDeclaration = true
-                                        }
-                                }
-
-                            do! setPosition pos
-                            return token
-                        else
-                            return! fail (Message "Expected '>' for type application") // Could be a different operator
-                    }
-
-                return ExprAux.TypeApp(List.ofSeq types, rAngle)
+                return ExprAux.TypeApp(lAngle, List.ofSeq types, rAngle)
             }
 
         let completeTypeApp (expr: Expr<_>) (op: SyntaxToken) (aux: ExprAux) =
             match aux with
-            | ExprAux.TypeApp(types, rAngle) -> Expr.TypeApp(expr, op, types, rAngle)
+            | ExprAux.TypeApp(lAngle, types, rAngle) -> Expr.TypeApp(expr, lAngle, types, rAngle)
             | _ -> failwith "Unexpected Aux type for type application completion"
 
         let pHighPrecLParen =
@@ -697,26 +679,46 @@ module Expr =
             // it's immediately after the function expression with no trivia in between.
             satisfyL (fun (t: PositionedToken) -> t.Token = Token.KWLParen) "'(' high precedence application"
 
+        let pHighPrecLBracket =
+            // Use satisfy instead of nextNonTriviaToken to ensure we only match '[' if
+            // it's immediately after the expression with no trivia in between (F# 6+ dot-less indexing).
+            satisfyL (fun (t: PositionedToken) -> t.Token = Token.KWLBracket) "'[' high precedence indexing"
+
         let peekHighPrecApp =
-            lookAhead pHighPrecLParen
+            lookAhead (choiceL [ pHighPrecLParen; pHighPrecLBracket ] "( or [ for high-precedence")
             |>> fun (pt: PositionedToken) ->
                 virtualToken (PositionedToken.Create(Token.OpHighPrecedenceApp, pt.StartIndex))
 
         let parseHighPrecRhs: Parser<ExprAux, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, _> =
             // Parse ( expr ) for high-precedence application f(x, y) — no whitespace before '('
-            parser {
-                let! pos = getPosition
-                let! lParen = pHighPrecLParen
-                let lParen = syntaxToken lParen pos.Index
-                let! argExpr = refExpr.Parser
-                let! rParen = pRParen
-                return ExprAux.HighPrecApp(lParen, argExpr, rParen)
-            }
+            // or [ expr ] for F# 6+ dot-less indexing arr[i] — no whitespace before '['
+            choiceL
+                [
+                    parser {
+                        let! pos = getPosition
+                        let! lParen = pHighPrecLParen
+                        let lParen = syntaxToken lParen pos.Index
+                        let! argExpr = refExpr.Parser
+                        let! rParen = pRParen
+                        return ExprAux.HighPrecApp(lParen, argExpr, rParen)
+                    }
+                    parser {
+                        let! pos = getPosition
+                        let! lBracket = pHighPrecLBracket
+                        let lBracket = syntaxToken lBracket pos.Index
+                        let! argExpr = refExpr.Parser
+                        let! rBracket = pRBracket
+                        return ExprAux.HighPrecIndex(lBracket, argExpr, rBracket)
+                    }
+                ]
+                "HighPrecApp or HighPrecIndex"
 
         let completeHighPrec (funcExpr: Expr<_>) (_op: SyntaxToken) (aux: ExprAux) =
             match aux with
             | ExprAux.HighPrecApp(lParen, argExpr, rParen) -> Expr.HighPrecedenceApp(funcExpr, lParen, argExpr, rParen)
-            | _ -> failwith "Unexpected Aux type for high-precedence application completion"
+            | ExprAux.HighPrecIndex(lBracket, argExpr, rBracket) ->
+                Expr.DotlessIndexedLookup(funcExpr, lBracket, argExpr, rBracket)
+            | _ -> failwith "Unexpected Aux type for high-precedence application/index completion"
 
         let parseTypeCastRhs = Type.parse |>> ExprAux.TypeCast
 
@@ -754,7 +756,8 @@ module Expr =
                     // | PrecedenceLevel.When -> (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
                     | PrecedenceLevel.Pipe -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
                     | PrecedenceLevel.Semicolon ->
-                        (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeSemicolon))
+                        // (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeSemicolon))
+                        (fun op -> InfixNary(op, preturn op, power, completeSequence))
                     // Atom keywords
                     // | PrecedenceLevel.Let -> (fun op -> InfixNonAssociative(op, preturn op, power, completeInfix))
                     // | PrecedenceLevel.Function -> (fun op -> InfixNonAssociative(op, preturn op, power, completeInfix))
@@ -779,7 +782,9 @@ module Expr =
                     | PrecedenceLevel.InfixMultiply -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
                     | PrecedenceLevel.Power ->
                         (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
-                    | PrecedenceLevel.Application -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
+                    | PrecedenceLevel.Application ->
+                        // (fun op -> InfixLeft(op, preturn op, power, completeInfix))
+                        (fun op -> InfixNary(op, preturn op, power, completeApp))
                     // | PrecedenceLevel.PatternMatchBar -> Pattern only operator
                     // | PrecedenceLevel.Prefix -> LHS only
                     | PrecedenceLevel.Dot -> (fun op -> InfixMapped(op, preturn op, power, parseDotRhs, completeDot))
@@ -791,74 +796,125 @@ module Expr =
                     | _ -> Unchecked.defaultof<_>
                 )
 
-        let pApplication =
-            // Treat whitespace followed by an atom as application
-            // Technically also need to handle line breaks with proper indentation here and interstitial comments
-            // This parser also need to handle high-precedence application f(x) and f<x>
+        let pSepVirt =
+            let failSep =
+                fail (Message "Expected ';' or newline at the same indent for expression sequencing")
+
             parser {
-                let! i = getPosition
+                match! peekNextNonTriviaToken with
+                | t when t.Token = Token.EOF -> return! failSep
+                | t when t.Token = Token.OpSemicolon -> return! consumePeeked t
+                | t ->
+                    // Not a semicolon, but maybe we emit a virtual semicolon for newline-separated expressions
+                    let! indent = currentIndent
+                    let! state = getUserState
 
-                let! token =
-                    satisfyL (fun (t: PositionedToken) -> t.Token = Token.Whitespace) "Whitespace for application"
+                    let atContextIndent =
+                        match state.Context with
+                        | { Indent = ctxIndent } :: _ -> indent = ctxIndent
+                        | [] -> indent = 0
 
-                do!
-                    followedBy (fun reader ->
-                        match reader.Peek() with
-                        | ValueNone -> fail EndOfInput reader
-                        | ValueSome t ->
-                            if t.Token.IsIdentifier then
-                                preturn () reader
-                            elif t.Token.IsLiteral then
-                                preturn () reader
-                            else
-                                match t.Token with
-                                | Token.Unit
-                                | Token.KWLParen
-                                | Token.KWLBracket -> preturn () reader
-                                | _ -> fail (Message "Expected expression after application whitespace") reader
-                    )
+                    if atContextIndent then
+                        return virtualToken (PositionedToken.Create(Token.VirtualSep, t.StartIndex))
+                    else
+                        return! failSep
+            }
 
-                let t = syntaxToken token i.Index
-                return t
+        let pApplication =
+            let isAtomicExprToken (t: SyntaxToken) =
+                match t.Token with
+                | Token.Identifier
+                | Token.KWLParen
+                | Token.KWLBracket
+                | Token.KWLArrayBracket
+                | Token.KWBegin
+                | Token.KWStruct
+                | Token.KWLBrace
+                | Token.OpQuotationTypedLeft
+                | Token.OpQuotationUntypedLeft -> true
+                | _ ->
+                    if Constant.isLiteralToken t.Token then
+                        true
+                    else
+                        match OperatorInfo.TryCreate t.PositionedToken with
+                        | ValueSome opInfo -> false //TODO: opInfo.CanBePrefix
+                        | ValueNone -> false
+
+            let failApp = fail (Message "Expected expression after application")
+            // Application is *juxtaposition* of two expressions with trivia in between, e.g. `f x` or `f (g y)` or `f(*comment*)x`.
+            parser {
+                match! peekNextNonTriviaToken with
+                | t when t.Token = Token.EOF -> return! failApp
+                | t when isAtomicExprToken t ->
+                    let! indent = currentIndent
+                    let! state = getUserState
+                    // printfn "Application check: indent=%d, context=%A" indent state.Context
+                    let atAppIndent =
+                        match state.Context with
+                        | { Indent = ctxIndent } :: _ -> indent > ctxIndent
+                        | [] -> indent > 0
+
+                    if atAppIndent then
+                        // We have a valid argument token coming up, so this is an application
+                        return virtualToken (PositionedToken.Create(Token.VirtualApp, t.StartIndex))
+                    else
+                        return! failApp
+                | _ ->
+                    // Not a valid argument token, fail to avoid consuming tokens that should be parsed by outer parsers
+                    return! failApp
             }
 
         let pTypeApplication =
             // Treat '<' followed by a type and '>' as type application
             parser {
+
                 let! state = getUserState
+                let! pos = getPosition
 
                 let! lAngle =
-                    nextNonTriviaTokenSatisfiesL
-                        (fun synTok ->
-                            match synTok.Token with
-                            | Token.OpLessThan -> tokenStringIs "<" synTok state
+                    satisfyL
+                        (fun (t: PositionedToken) ->
+                            match t.Token with
+                            | Token.OpLessThan -> true
                             | _ -> false
                         )
                         "Expected '<' for type application"
+                    |> lookAhead
+                    >>= (fun t ->
+                        let st = syntaxToken t pos.Index
 
-                do!
-                    followedBy (fun reader ->
-                        match reader.Peek() with
-                        | ValueNone -> fail EndOfInput reader
-                        | ValueSome t ->
-                            if t.Token.IsIdentifier then
-                                preturn () reader
-                            elif t.Token.IsLiteral then
-                                preturn () reader
-                            else
-                                fail (Message "Expected type after '<' for type application") reader
+                        if tokenStringIs "<" st state then
+                            preturn st
+                        else
+                            fail (Message "Expected '<' for type application")
                     )
+                // We have a '<' token, but we need to check if it's actually a type application or just a less-than operator.
+                // We look ahead to see if the next non-trivia token is something that can start a type (e.g. an identifier or a literal).
+                // nextNonTriviaTokenSatisfiesL
+                //     (fun synTok ->
+                //         match synTok.Token with
+                //         | Token.OpLessThan -> tokenStringIs "<" synTok state
+                //         | _ -> false
+                //     )
+                //     "Expected '<' for type application"
+
+                // do!
+                //     followedBy (fun reader ->
+                //         match reader.Peek() with
+                //         | ValueNone -> fail EndOfInput reader
+                //         | ValueSome t ->
+                //             if t.Token.IsIdentifier then
+                //                 preturn () reader
+                //             elif t.Token.IsLiteral then
+                //                 preturn () reader
+                //             else
+                //                 fail (Message "Expected type after '<' for type application") reader
+                //     )
+                printfn "Type application detected at index %d" lAngle.StartIndex
 
                 let typeAngle =
                     { lAngle with
-                        PositionedToken =
-                            PositionedToken.Create(
-                                Token.ofUInt16 (
-                                    TokenRepresentation.KindOperator
-                                    ||| TokenRepresentation.Precedence.HighTypeApplication
-                                ),
-                                lAngle.PositionedToken.StartIndex
-                            )
+                        PositionedToken = PositionedToken.Create(Token.VirtualTyApp, lAngle.StartIndex)
                     }
 
                 return typeAngle
@@ -882,63 +938,63 @@ module Expr =
                 | ValueSome opInfo ->
                     match opInfo.Token with
                     | Token.OpBar -> fail (Message "Unexpected '|' operator in expression context")
-                    | _ ->
-                        parser {
-                            let! state = getUserState
+                    | _ -> preturn (getRhsOperatorHandler opInfo token)
+            // parser {
+            //     let! state = getUserState
 
-                            if state.ReprocessOpAfterTypeDeclaration then
-                                // We have an operator like '>>' or '>>=' that needs to be reprocessed
-                                // after the type application that takes the first '>' to close the type application
-                                do!
-                                    updateUserState (fun state ->
-                                        { state with
-                                            ReprocessOpAfterTypeDeclaration = false
-                                        }
-                                    )
+            //     if state.ReprocessOpAfterTypeDeclaration then
+            //         // We have an operator like '>>' or '>>=' that needs to be reprocessed
+            //         // after the type application that takes the first '>' to close the type application
+            //         do!
+            //             updateUserState (fun state ->
+            //                 { state with
+            //                     ReprocessOpAfterTypeDeclaration = false
+            //                 }
+            //             )
 
-                                let reprocessedToken =
-                                    let newStart = token.StartIndex + 1 // Adjust start index to account for consumed '>'
+            //         let reprocessedToken =
+            //             let newStart = token.StartIndex + 1 // Adjust start index to account for consumed '>'
 
-                                    let tokenString =
-                                        match token.Index with
-                                        | TokenIndex.Virtual -> failwith "Cannot re-lex virtual token"
-                                        | TokenIndex.Regular iT ->
-                                            let t1 = state.Lexed.Tokens[iT + 1<token>] // Next token after operator always exists as EOF is present
-                                            state.Input.[newStart .. (t1.StartIndex - 1)]
-                                    // printfn "Re-lexing operator after type declaration: '%s'" tokenString
-                                    let t =
-                                        match tokenString with
-                                        | "" ->
-                                            failwith
-                                                "Unexpected empty operator string in ReprocessOpAfterTypeDeclaration"
-                                        | "." ->
-                                            // Special case for dot operator as it is common after type declarations
-                                            Token.OpDot
-                                        | _ ->
-                                            // Need to re-lex to discover the correct operator token (mostly for precedence)
-                                            match Lexing.lexString tokenString with
-                                            | Error e ->
-                                                failwithf "Failed to re-lex operator after type declaration %A" e
-                                            | Ok lexed ->
-                                                if lexed.Tokens.Length <> 2 then
-                                                    // Expect exactly two tokens: the operator and EOF
-                                                    failwithf
-                                                        "Re-lexed operator did not produce exactly one token: %A"
-                                                        lexed.Tokens
-                                                else
-                                                    let relexedToken = lexed.Tokens[0<token>]
-                                                    relexedToken.Token
+            //             let tokenString =
+            //                 match token.Index with
+            //                 | TokenIndex.Virtual -> failwith "Cannot re-lex virtual token"
+            //                 | TokenIndex.Regular iT ->
+            //                     let t1 = state.Lexed.Tokens[iT + 1<token>] // Next token after operator always exists as EOF is present
+            //                     state.Input.[newStart .. (t1.StartIndex - 1)]
+            //             // printfn "Re-lexing operator after type declaration: '%s'" tokenString
+            //             let t =
+            //                 match tokenString with
+            //                 | "" ->
+            //                     failwith
+            //                         "Unexpected empty operator string in ReprocessOpAfterTypeDeclaration"
+            //                 | "." ->
+            //                     // Special case for dot operator as it is common after type declarations
+            //                     Token.OpDot
+            //                 | _ ->
+            //                     // Need to re-lex to discover the correct operator token (mostly for precedence)
+            //                     match Lexing.lexString tokenString with
+            //                     | Error e ->
+            //                         failwithf "Failed to re-lex operator after type declaration %A" e
+            //                     | Ok lexed ->
+            //                         if lexed.Tokens.Length <> 2 then
+            //                             // Expect exactly two tokens: the operator and EOF
+            //                             failwithf
+            //                                 "Re-lexed operator did not produce exactly one token: %A"
+            //                                 lexed.Tokens
+            //                         else
+            //                             let relexedToken = lexed.Tokens[0<token>]
+            //                             relexedToken.Token
 
-                                    { token with
-                                        PositionedToken = PositionedToken.Create(t, newStart)
-                                    }
+            //             { token with
+            //                 PositionedToken = PositionedToken.Create(t, newStart)
+            //             }
 
-                                match OperatorInfo.TryCreate reprocessedToken.PositionedToken with
-                                | ValueNone -> return! fail (Message "Not a valid RHS operator after type declaration")
-                                | ValueSome opInfo -> return getRhsOperatorHandler opInfo reprocessedToken
-                            else
-                                return getRhsOperatorHandler opInfo token
-                        }
+            //         match OperatorInfo.TryCreate reprocessedToken.PositionedToken with
+            //         | ValueNone -> return! fail (Message "Not a valid RHS operator after type declaration")
+            //         | ValueSome opInfo -> return getRhsOperatorHandler opInfo reprocessedToken
+            //     else
+            //         return getRhsOperatorHandler opInfo token
+            // }
 
             // First try type application, then whitespace application, then explicit operator.
             // Using choiceL ensures that if nextNonTriviaToken consumes a token
@@ -946,9 +1002,11 @@ module Expr =
             // XParsec backtracks the consumed token so outer parsers (e.g. Rule.parse) see it.
             choiceL
                 [
+                    reprocessedOperatorAfterTypeParams >>= handleToken
                     pTypeApplication >>= handleToken
                     peekHighPrecApp >>= handleToken
                     pApplication >>= handleToken
+                    pSepVirt >>= handleToken
                     nextNonTriviaToken >>= handleToken
                 ]
                 "RHS operator"
@@ -1026,17 +1084,48 @@ module Expr =
     let pParen =
         parser {
             let! l = pLParen
-            let! e = refExpr.Parser
-            let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) Token.KWRParen
-            return Expr.ParenBlock(l, e, r)
+
+            match! peekNextNonTriviaToken with
+            | t when t.Token = Token.KWRParen ->
+                let! r = consumePeeked t
+                return Expr.Const(Constant.Unit(l, r))
+            | _ ->
+                let! e = refExpr.Parser
+                let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) Token.KWRParen
+                return Expr.ParenBlock(l, e, r)
         }
 
     let pBeginEnd =
         parser {
             let! l = pBegin
-            let! e = refExprSeqBlock.Parser
-            let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) Token.KWEnd
-            return Expr.BeginEndBlock(l, e, r)
+
+            match! peekNextNonTriviaToken with
+            | t when t.Token = Token.KWEnd ->
+                let! r = consumePeeked t
+                return Expr.Const(Constant.Unit(l, r))
+            | _ ->
+                return!
+                    recoverWith
+                        StoppingTokens.afterParen
+                        DiagnosticSeverity.Error
+                        DiagnosticCode.ExpectedEnd
+                        (fun toks ->
+                            match toks with
+                            | [] ->
+                                let endTok = virtualToken (PositionedToken.Create(Token.KWEnd, l.StartIndex + 1)) // TODO: better position for virtual end token
+                                Expr.BeginEndBlock(l, Expr.Missing, endTok)
+                            | _ ->
+                                let endTok =
+                                    let t = toks |> List.last
+                                    virtualToken (PositionedToken.Create(Token.KWEnd, t.StartIndex)) // TODO: better position for virtual end token
+
+                                Expr.BeginEndBlock(l, Expr.SkipsTokens(toks, Expr.Missing), endTok)
+                        )
+                        (parser {
+                            let! e = refExprSeqBlock.Parser
+                            let! r = pEnd
+                            return Expr.BeginEndBlock(l, e, r)
+                        })
         }
 
     let pCollection openTok closeTok complete =
@@ -1050,16 +1139,7 @@ module Expr =
         }
 
     let pList =
-        choiceL
-            [
-                // Empty list `[]` is lexed as a single OpNil token
-                parser {
-                    let! t = pNil
-                    return Expr.List(t, [], t)
-                }
-                pCollection Token.KWLBracket Token.KWRBracket (fun l elems r -> Expr.List(l, List.ofSeq elems, r))
-            ]
-            "list expression"
+        pCollection Token.KWLBracket Token.KWRBracket (fun l elems r -> Expr.List(l, List.ofSeq elems, r))
 
     let pArray =
         pCollection Token.KWLArrayBracket Token.KWRArrayBracket (fun l elems r -> Expr.Array(l, List.ofSeq elems, r))
@@ -1212,7 +1292,7 @@ module Expr =
                 let! useTok = pUse
                 let! ident = pIdentTok
                 let! eq = pEquals
-                let! expr = refExpr.Parser
+                let! expr = refExprSeqBlock.Parser
                 let! inTok = pInVirt
                 let! body = refExprSeqBlock.Parser
                 return Expr.Use(useTok, ident, eq, expr, inTok, body)
@@ -1234,6 +1314,35 @@ module Expr =
             return!
                 choiceL
                     [
+                        // { CE keywords... } — computation expression body
+                        // Detected by first token being a CE-specific keyword (not a valid record field name)
+                        parser {
+                            let! peekTok = peekNextNonTriviaToken
+
+                            match peekTok.Token with
+                            | Token.KWLetBang
+                            | Token.KWUseBang
+                            | Token.KWDoBang
+                            | Token.KWYieldBang
+                            | Token.KWReturnBang
+                            | Token.KWMatchBang
+                            | Token.KWLet
+                            | Token.KWUse
+                            | Token.KWDo
+                            | Token.KWYield
+                            | Token.KWReturn
+                            | Token.KWMatch
+                            | Token.KWIf
+                            | Token.KWTry
+                            | Token.KWWhile
+                            | Token.KWFor ->
+                                let! ce = CompOrRangeExpr.parse
+
+                                let! rBrace = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome lBrace) Token.KWRBrace
+
+                                return Expr.Computation(Expr.Missing, lBrace, ce, rBrace)
+                            | _ -> return! fail (Message "Not a computation expression body")
+                        }
                         // TODO: '{' new base-call object-members interface-impls '}' -- object expression
                         // { expr with Field = val; ... } — record clone/update
                         parser {
@@ -1270,11 +1379,12 @@ module Expr =
     let atomExpr =
         dispatchNextNonTriviaTokenFallback
             [
+                // TODO: Performance, sort this by frequency and put most common cases first
                 Token.Identifier, pIdent
-                Token.Unit, pConst
+                //Token.Unit, pConst
                 Token.KWLet, recoverExpr pLetValue
                 Token.KWLParen, recoverExpr pParen
-                Token.OpNil, recoverExpr pList
+                //Token.OpNil, recoverExpr pList
                 Token.KWLBracket, recoverExpr pList
                 Token.KWLArrayBracket, recoverExpr pArray
                 Token.KWBegin, recoverExpr pBeginEnd
@@ -1297,7 +1407,7 @@ module Expr =
     let parse = Operator.parser atomExpr operators
 
     let parseSeqBlock =
-        withContext OffsideContext.SeqBlock (pSeqBlock parse)
+        withContext OffsideContext.SeqBlock parse
         |> recoverWith
             StoppingTokens.afterExpr
             DiagnosticSeverity.Error

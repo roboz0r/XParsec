@@ -5,11 +5,13 @@ LetFunction          'let'             KWLet               tok=   0  pos=   0
   Pats:
     Pat.NamedSimple  'x'               Identifier          tok=   4  pos=   6
   =                  '='               OpEquality          tok=   6  pos=   8
-    InfixApp         '+'               OpSubtractionAssignment  tok=  10  pos=  12
+    InfixApp         '+'               op_Addition         tok=  10  pos=  12
       Ident          'x'               Identifier          tok=   8  pos=  10
       Const          '1'               NumInt32            tok=  12  pos=  14
   in                 'in'              KWIn                tok=  14  pos=  16
   Body:
-    InfixApp         ' '               Whitespace          tok=  17  pos=  20
-      Ident          'f'               Identifier          tok=  16  pos=  19
-      Const          '2'               NumInt32            tok=  18  pos=  21
+    App:
+      Func:
+        Ident        'f'               Identifier          tok=  16  pos=  19
+      Args:
+        Const        '2'               NumInt32            tok=  18  pos=  21

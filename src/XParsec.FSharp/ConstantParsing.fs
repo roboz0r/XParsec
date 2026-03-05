@@ -11,13 +11,11 @@ open XParsec.FSharp.Parser.SyntaxToken
 
 [<RequireQualifiedAccess>]
 module Constant =
-    let isLiteralToken (synTok: SyntaxToken) =
-        let t = synTok.Token
+    let isLiteralToken (t: Token) =
 
         t.IsNumeric
         || t = Token.KWTrue
         || t = Token.KWFalse
-        || t = Token.Unit
         || t = Token.KWNull
         || t = Token.StringLiteral
         || t = Token.String3Literal
@@ -26,7 +24,9 @@ module Constant =
         || t = Token.VerbatimByteArrayLiteral
 
     let private pLiteral: Parser<_, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        nextNonTriviaTokenSatisfiesL isLiteralToken "Expected constant literal"
+        nextNonTriviaTokenSatisfiesL
+            (fun (synTok: SyntaxToken) -> isLiteralToken synTok.Token)
+            "Expected constant literal"
 
     let private pMeasure =
         parser {
@@ -97,8 +97,16 @@ module Constant =
 
         preturn () reader
 
-    let parse: Parser<Constant<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+    let pUnit: Parser<Constant<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
+            let! lParen = pLParen
+            let! rParen = pRParen
+            return Constant.Unit(lParen, rParen)
+        }
+
+    let private pOtherValues =
+        parser {
+
             let! literal = pLiteral
 
             if literal.Token.IsNumeric then
@@ -112,3 +120,6 @@ module Constant =
             else
                 return Constant.Literal literal
         }
+
+    let parse: Parser<Constant<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+        dispatchNextNonTriviaTokenFallback [ Token.KWLParen, pUnit ] pOtherValues

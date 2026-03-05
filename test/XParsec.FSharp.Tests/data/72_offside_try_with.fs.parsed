@@ -4,49 +4,53 @@ TryExpr:
   LetValue             'let'             KWLet               tok=   3  pos=   8
     Pat.NamedSimple    'x'               Identifier          tok=   5  pos=  12
     =                  '='               OpEquality          tok=   7  pos=  14
-      InfixApp         ' '               Whitespace          tok=  10  pos=  23
-        Ident          'riskyOp'         Identifier          tok=   9  pos=  16
-        Const          '()'              Unit                tok=  11  pos=  24
+      App:
+        Func:
+          Ident        'riskyOp'         Identifier          tok=   9  pos=  16
+        Args:
+          Const:
+            Unit       '('               KWLParen            tok=  11  pos=  24
+                       ')'               KWRParen            tok=  12  pos=  25
     in                 <virt>            KWIn                tok=virt  pos=  31
     Body:
-      InfixApp         '+'               OpSubtractionAssignment  tok=  16  pos=  33
-        Ident          'x'               Identifier          tok=  14  pos=  31
-        Const          '1'               NumInt32            tok=  18  pos=  35
-WithToken              'with'            KWWith              tok=  20  pos=  37
+      InfixApp         '+'               op_Addition         tok=  17  pos=  33
+        Ident          'x'               Identifier          tok=  15  pos=  31
+        Const          '1'               NumInt32            tok=  19  pos=  35
+WithToken              'with'            KWWith              tok=  21  pos=  37
 Rule:
-  Bar                  '|'               OpBar               tok=  22  pos=  42
+  Bar                  '|'               OpBar               tok=  23  pos=  42
   Pat:
     Pat.TypeTestAs:
-      ColonQuestion    ':?'              OpTypeTest          tok=  24  pos=  44
+      ColonQuestion    ':?'              OpTypeTest          tok=  25  pos=  44
       NamedType:
         LongIdent:
-                       'System'          Identifier          tok=  26  pos=  47
-                       'Exception'       Identifier          tok=  28  pos=  54
-      As               'as'              KWAs                tok=  30  pos=  64
-      Ident            'ex'              Identifier          tok=  32  pos=  67
-  Arrow                '->'              OpArrowRight        tok=  34  pos=  70
+                       'System'          Identifier          tok=  27  pos=  47
+                       'Exception'       Identifier          tok=  29  pos=  54
+      As               'as'              KWAs                tok=  31  pos=  64
+      Ident            'ex'              Identifier          tok=  33  pos=  67
+  Arrow                '->'              OpArrowRight        tok=  35  pos=  70
   Expr:
-    LetValue           'let'             KWLet               tok=  37  pos=  77
-      Pat.NamedSimple  'msg'             Identifier          tok=  39  pos=  81
-      =                '='               OpEquality          tok=  41  pos=  85
+    LetValue           'let'             KWLet               tok=  38  pos=  77
+      Pat.NamedSimple  'msg'             Identifier          tok=  40  pos=  81
+      =                '='               OpEquality          tok=  42  pos=  85
         LongIdentOrOp:
           LongIdent:
-                       'ex'              Identifier          tok=  43  pos=  87
-                       'Message'         Identifier          tok=  45  pos=  90
+                       'ex'              Identifier          tok=  44  pos=  87
+                       'Message'         Identifier          tok=  46  pos=  90
       in               <virt>            KWIn                tok=virt  pos= 102
       Body:
-        PrefixApp      '-'               OpSubtractionAssignment  tok=  48  pos= 102
-          Const        '1'               NumInt32            tok=  49  pos= 103
+        PrefixApp      '-'               op_Subtraction      tok=  49  pos= 102
+          Const        '1'               NumInt32            tok=  50  pos= 103
 Rule:
-  Bar                  '|'               OpBar               tok=  51  pos= 105
+  Bar                  '|'               OpBar               tok=  52  pos= 105
   Pat:
     Pat.TypeTest:
-      ColonQuestion    ':?'              OpTypeTest          tok=  53  pos= 107
+      ColonQuestion    ':?'              OpTypeTest          tok=  54  pos= 107
       NamedType:
         LongIdent:
-                       'System'          Identifier          tok=  55  pos= 110
-                       'InvalidOpe...'   Identifier          tok=  57  pos= 117
-  Arrow                '->'              OpArrowRight        tok=  59  pos= 143
+                       'System'          Identifier          tok=  56  pos= 110
+                       'InvalidOpe...'   Identifier          tok=  58  pos= 117
+  Arrow                '->'              OpArrowRight        tok=  60  pos= 143
   Expr:
-    PrefixApp          '-'               OpSubtractionAssignment  tok=  62  pos= 150
-      Const            '2'               NumInt32            tok=  63  pos= 151
+    PrefixApp          '-'               op_Subtraction      tok=  63  pos= 150
+      Const            '2'               NumInt32            tok=  64  pos= 151

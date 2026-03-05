@@ -4,7 +4,9 @@ open System
 open System.Collections.Generic
 open System.Collections.Immutable
 open XParsec
+open XParsec.Parsers
 open XParsec.FSharp.Lexer
+open XParsec.FSharp.Parser.ParseState
 
 [<AutoOpen>]
 module internal Keywords =
@@ -95,8 +97,21 @@ module internal Keywords =
     let pColon: KWParser = nextNonTriviaTokenIsL Token.OpColon ":"
     let pDot: KWParser = nextNonTriviaTokenIsL Token.OpDot "."
     let pBar: KWParser = nextNonTriviaTokenIsL Token.OpBar "|"
-    let pLessThan: KWParser = nextNonTriviaTokenIsL Token.OpLessThan "<"
-    let pGreaterThan: KWParser = nextNonTriviaTokenIsL Token.OpGreaterThan ">"
+
+    let pLessThan: KWParser =
+        parser {
+            let! state = getUserState
+            return! nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpLessThan && tokenStringIs "<" t state) "<"
+        }
+
+    let pGreaterThan: KWParser =
+        parser {
+            let! state = getUserState
+
+            return!
+                nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpGreaterThan && tokenStringIs ">" t state) ">"
+        }
+
     let pLBracket: KWParser = nextNonTriviaTokenIsL Token.KWLBracket "["
     let pRBracket: KWParser = nextNonTriviaTokenIsL Token.KWRBracket "]"
     let pLBrace: KWParser = nextNonTriviaTokenIsL Token.KWLBrace "{"
@@ -144,7 +159,7 @@ module internal Keywords =
     let pQuotedExprRight: KWParser =
         nextNonTriviaTokenIsL Token.OpQuotationTypedRight "@>"
 
-    let pNil: KWParser = nextNonTriviaTokenIsL Token.OpNil "[]"
+    //let pNil: KWParser = nextNonTriviaTokenIsL Token.OpNil "[]"
     let pLArrayBracket: KWParser = nextNonTriviaTokenIsL Token.KWLArrayBracket "[|"
     let pRArrayBracket: KWParser = nextNonTriviaTokenIsL Token.KWRArrayBracket "|]"
     let pTypeTest: KWParser = nextNonTriviaTokenIsL Token.OpTypeTest ":?"

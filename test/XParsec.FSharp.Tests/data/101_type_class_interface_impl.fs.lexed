@@ -27,11 +27,13 @@
 103, Identifier
 107, OpDot
 108, Identifier
-115, Unit
+115, KWLParen
+116, KWRParen
 117, Whitespace
 118, OpEquality
 119, Whitespace
-120, Unit
+120, KWLParen
+121, KWRParen
 122, Newline
 123, Indent
 127, KWEnd

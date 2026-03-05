@@ -10,6 +10,7 @@
 20, Indent
 24, Identifier
 31, Whitespace
-32, Unit
+32, KWLParen
+33, KWRParen
 34, Newline
 35, EOF
