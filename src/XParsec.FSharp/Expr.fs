@@ -260,12 +260,14 @@ and [<RequireQualifiedAccess>] Expr<'T> =
     // Lookups and Applications
     | LongIdentOrOp of longIdentOrOp: LongIdentOrOp<'T>
     | DotLookup of expr: Expr<'T> * dot: 'T * longIdentOrOp: LongIdentOrOp<'T>
-    | App of funcExpr: Expr<'T> * argExpr: Expr<'T>
+    // Note: This is an optimization for multiple arguments; individual applications interspersed with type applications will be represented as multiple App nodes or as HighPrecedenceApp nodes.
+    | App of funcExpr: Expr<'T> * argExprs: Expr<'T> list
     | HighPrecedenceApp of funcExpr: Expr<'T> * lParen: 'T * argExpr: Expr<'T> * rParen: 'T
     | TypeApp of expr: Expr<'T> * lAngle: 'T * types: Type<'T> list * rAngle: 'T
     | InfixApp of leftExpr: Expr<'T> * infixOp: 'T * rightExpr: Expr<'T>
     | PrefixApp of prefixOp: 'T * expr: Expr<'T>
     | IndexedLookup of expr: Expr<'T> * dot: 'T * lBracket: 'T * indexExpr: Expr<'T> * rBracket: 'T
+    | DotlessIndexedLookup of expr: Expr<'T> * lBracket: 'T * indexExpr: Expr<'T> * rBracket: 'T
     | Slice of expr: Expr<'T> * lDotBracket: 'T * sliceRanges: SliceRange<'T> list * rBracket: 'T
     // Data Structures
     | Assignment of leftExpr: Expr<'T> * arrow: 'T * rightExpr: Expr<'T>
@@ -312,6 +314,7 @@ and [<RequireQualifiedAccess>] Expr<'T> =
     | Fun of funToken: 'T * argumentPats: Pat<'T> list * arrow: 'T * expr: Expr<'T>
     | Function of functionToken: 'T * rules: Rules<'T>
     | Sequential of expr1: Expr<'T> * semicolon: 'T * expr2: Expr<'T>
+    | Sequential2 of exprs: Expr<'T> list * semicolons: 'T list
     | Match of matchToken: 'T * expr: Expr<'T> * withToken: 'T * rules: Rules<'T>
     | TryWith of tryToken: 'T * expr: Expr<'T> * withToken: 'T * rules: Rules<'T>
     | TryFinally of tryToken: 'T * tryExpr: Expr<'T> * finallyToken: 'T * finallyExpr: Expr<'T>
@@ -384,15 +387,6 @@ type PatParam<'T> =
 // Represents: field-pat := long-ident = pat
 and FieldPat<'T> = | FieldPat of longIdent: LongIdent<'T> * equals: 'T * pat: Pat<'T>
 
-// Represents: list-pat
-and ListPat<'T> = | ListPat of lBracket: 'T * patterns: Pat<'T> list * rBracket: 'T
-
-// Represents: array-pat
-and ArrayPat<'T> = | ArrayPat of lBarBracket: 'T * patterns: Pat<'T> list * rBarBracket: 'T
-
-// Represents: record-pat
-and RecordPat<'T> = | RecordPat of lBrace: 'T * fieldPats: FieldPat<'T> list * rBrace: 'T
-
 // Represents: pat and its variations
 and [<RequireQualifiedAccess>] Pat<'T> =
     | Const of value: Constant<'T>
@@ -407,9 +401,9 @@ and [<RequireQualifiedAccess>] Pat<'T> =
     | Tuple of patterns: Pat<'T> list * commas: 'T list
     | StructTuple of structToken: 'T * lParen: 'T * patterns: Pat<'T> list * commas: 'T list * rParen: 'T
     | Paren of lParen: 'T * pat: Pat<'T> * rParen: 'T
-    | List of listPat: ListPat<'T>
-    | Array of arrayPat: ArrayPat<'T>
-    | Record of recordPat: RecordPat<'T>
+    | List of lBracket: 'T * patterns: Pat<'T> list * rBracket: 'T
+    | Array of lBarBracket: 'T * patterns: Pat<'T> list * rBarBracket: 'T
+    | Record of lBrace: 'T * fieldPats: FieldPat<'T> list * rBrace: 'T
     | TypeTest of colonQuestion: 'T * typ: Type<'T>
     | TypeTestAs of colonQuestion: 'T * typ: Type<'T> * asToken: 'T * ident: 'T
     | Null of nullToken: 'T
@@ -490,16 +484,20 @@ and [<RequireQualifiedAccess>] MemberSig<'T> =
         getSet: ('T * 'T voption) // (get, option<set>) or (set, option<get>)
 
 // Represents: method-or-prop-defn
-and MethodOrPropDefn<'T> =
-    | Method of ident: 'T voption * defn: FunctionDefn<'T>
-    | Property of ident: 'T voption * defn: ValueDefn<'T>
-    | PropertyWithGetSet of identPrefix: 'T voption * ident: 'T * withToken: 'T * defns: FunctionOrValueDefn<'T> list
+and [<RequireQualifiedAccess>] MethodOrPropDefn<'T> =
+    | Method of ident: struct ('T * 'T) voption * defn: FunctionDefn<'T>
+    | Property of ident: struct ('T * 'T) voption * defn: ValueDefn<'T>
+    | PropertyWithGetSet of
+        identPrefix: struct ('T * 'T) voption *
+        ident: 'T *
+        withToken: 'T *
+        defns: FunctionOrValueDefn<'T> list
     | AutoProperty of
-        memberToken: 'T *
+        // memberToken: 'T * seems to be a typo
         ident: 'T *
         equals: 'T *
         expr: Expr<'T> *
-        withClause: ('T * 'T * 'T voption) voption // with, get/set, optional comma and other get/set
+        withClause: struct ('T * 'T * 'T voption) voption // with, get/set, optional comma and other get/set
 
 // Represents: additional-constr-defn and its expression body
 and [<RequireQualifiedAccess>] AdditionalConstrExpr<'T> =
@@ -525,18 +523,8 @@ and AdditionalConstrInitExpr<'T> =
 
 and AsDefn<'T> = | AsDefn of asToken: 'T * ident: 'T
 
-and AdditionalConstrDefn<'T> =
-    | AdditionalConstrDefn of
-        attributes: Attributes<'T> voption *
-        access: 'T voption *
-        newToken: 'T *
-        pat: Pat<'T> *
-        asDefn: AsDefn<'T> voption *
-        equals: 'T *
-        body: AdditionalConstrExpr<'T>
-
 // Represents: member-defn
-and MemberDefn<'T> =
+and [<RequireQualifiedAccess>] MemberDefn<'T> =
     | Concrete of
         attributes: Attributes<'T> voption *
         staticToken: 'T voption *
@@ -564,7 +552,14 @@ and MemberDefn<'T> =
         ident: 'T *
         colon: 'T *
         typ: Type<'T>
-    | AdditionalConstructor of constr: AdditionalConstrDefn<'T>
+    | AdditionalConstructor of
+        attributes: Attributes<'T> voption *
+        access: 'T voption *
+        newToken: 'T *
+        pat: Pat<'T> *
+        asDefn: AsDefn<'T> voption *
+        equals: 'T *
+        body: AdditionalConstrExpr<'T>
 
 // Represents: class, struct, and interface bodies
 and ClassInheritsDecl<'T> = | ClassInheritsDecl of inheritToken: 'T * typ: Type<'T> * expr: Expr<'T> voption
@@ -703,13 +698,13 @@ type Measure<'T> =
     | Reciprocal of div: 'T * Measure<'T> // e.g., / s
     | Paren of l: 'T * Measure<'T> * r: 'T // e.g., (m / s)
 
-
 // Represents: const, simplified to leverage the rich Token type
 [<RequireQualifiedAccess>]
 type Constant<'T> =
     /// A simple literal token, such as `123`, `4.5f`, `"hello"`, or `true`.
     /// The specific kind of literal is encoded in the 'T token itself.
     | Literal of value: 'T
+    | Unit of lParen: 'T * rParen: 'T // ()
 
     /// A numeric literal followed by a unit of measure annotation.
     /// e.g., `10<kg>` or `9.8<m/s^2>`

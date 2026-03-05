@@ -1,7 +1,7 @@
 AnonymousModule:
 Assert        'assert'          KWAssert            tok=   0  pos=   0
   ParenBlock  '('               KWLParen            tok=   2  pos=   7
-    InfixApp  '>'               OpPipeLeft2         tok=   5  pos=  10
+    InfixApp  '>'               op_GreaterThan      tok=   5  pos=  10
       Ident   'x'               Identifier          tok=   3  pos=   8
       Const   '0'               NumInt32            tok=   7  pos=  12
               ')'               KWRParen            tok=   8  pos=  13

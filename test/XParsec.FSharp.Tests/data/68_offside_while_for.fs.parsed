@@ -10,9 +10,10 @@ Body:
       Const          '1'               NumInt32            tok=  13  pos=  31
     in               <virt>            KWIn                tok=virt  pos=  37
     Body:
-      InfixApp       ' '               Whitespace          tok=  19  pos=  49
-        InfixApp     ' '               Whitespace          tok=  17  pos=  44
+      App:
+        Func:
           Ident      'printfn'         Identifier          tok=  16  pos=  37
+        Args:
           Const      '"%d"'            StringLiteral       tok=  18  pos=  45
-        Ident        'x'               Identifier          tok=  20  pos=  50
+          Ident      'x'               Identifier          tok=  20  pos=  50
 DoneToken            <virt>            KWDone              tok=virt  pos=  52

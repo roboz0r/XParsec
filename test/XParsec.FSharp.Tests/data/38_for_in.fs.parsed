@@ -7,7 +7,9 @@ Range:
   Ident            'xs'              Identifier          tok=   6  pos=   9
 DoToken            'do'              KWDo                tok=   8  pos=  12
 Body:
-  InfixApp         ' '               Whitespace          tok=  12  pos=  20
-    Ident          'f'               Identifier          tok=  11  pos=  19
-    Ident          'x'               Identifier          tok=  13  pos=  21
+  App:
+    Func:
+      Ident        'f'               Identifier          tok=  11  pos=  19
+    Args:
+      Ident        'x'               Identifier          tok=  13  pos=  21
 DoneToken          <virt>            KWDone              tok=virt  pos=  23

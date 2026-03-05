@@ -24,10 +24,12 @@
 40, Newline
 41, OpBar
 42, Whitespace
-43, OpNil
+43, KWLBracket
+44, KWRBracket
 45, Whitespace
 46, OpArrowRight
 48, Whitespace
-49, OpNil
+49, KWLBracket
+50, KWRBracket
 51, Newline
 52, EOF

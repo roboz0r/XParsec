@@ -145,6 +145,7 @@ module Parsing =
             // innermost context's offside line. Transparent to all callers — stops any parser
             // that tries to consume a token belonging to an outer block.
             let isOffside =
+                // TODO: Handle 15.1.10 Permitted Undentations
                 reader.State.IndentationMode = Syntax.Light
                 && (
                     match reader.State.Context with
@@ -365,6 +366,16 @@ module Parsing =
             | Token.EOF -> true
             | _ -> false
 
+        let afterParen (tok: SyntaxToken) =
+            match tok.Token with
+            | Token.KWWith
+            | Token.KWRParen
+            | Token.KWRBracket
+            | Token.KWRBrace
+            | Token.KWEnd
+            | Token.EOF -> true
+            | _ -> false
+
         let afterRule (tok: SyntaxToken) =
             match tok.Token with
             | Token.OpBar
@@ -471,3 +482,94 @@ module Parsing =
 #else
         choiceL p msg
 #endif
+
+    let pCloseTypeParams: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+        // 15.3 Lexical Analysis of Type Applications
+        parser {
+            let! state = getUserState
+
+            match! peekNextNonTriviaToken with
+            | t when t.Token = Token.OpGreaterThan ->
+                // We have a '>' that can close the type application, but we need to check if it's part of a larger operator like '>>' or '>>='.
+                // If it is, we need to reprocess it after consuming the type application.
+                let opString = tokenString t state
+
+                match opString, state.CharsConsumedAfterTypeParams with
+                | ">", 0 ->
+                    // It's a standalone '>', we can consume it as the closing token for the type application.
+                    let! rAngle = consumePeeked t
+                    return rAngle
+                | _ ->
+                    // It's part of a larger operator, we need to reprocess it
+                    if opString.[state.CharsConsumedAfterTypeParams] = '>' then
+                        // We can have a '>' for the type application, but we need to set the state to reprocess the remaining operator string.
+                        if opString.Length = state.CharsConsumedAfterTypeParams + 1 then
+                            // The operator is exactly '>' plus some consumed chars, so we can consume the '>' now.
+                            let! rAngle = consumePeeked t
+
+                            do!
+                                updateUserState (fun s ->
+                                    { s with
+                                        CharsConsumedAfterTypeParams = 0
+                                    }
+                                )
+
+                            return rAngle
+                        else
+                            // The operator has more chars after the '>', we consume the '>' and update the state to reprocess the rest.
+                            let rAngle =
+                                virtualToken (
+                                    PositionedToken.Create(
+                                        Token.OpGreaterThan,
+                                        t.StartIndex + state.CharsConsumedAfterTypeParams
+                                    )
+                                )
+
+                            do!
+                                updateUserState (fun s ->
+                                    { s with
+                                        CharsConsumedAfterTypeParams = s.CharsConsumedAfterTypeParams + 1
+                                    }
+                                )
+
+                            return rAngle
+                    else
+                        return! fail (Message "Expected '>' to close type application")
+            | _ -> return! fail (Message "Expected '>' to close type application")
+        }
+
+    let reprocessedOperatorAfterTypeParams
+        : Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+        parser {
+            let! state = getUserState
+            let charsConsumed = state.CharsConsumedAfterTypeParams
+
+            if charsConsumed > 0 then
+                match! peekNextNonTriviaToken with
+                | t when t.Token = Token.OpGreaterThan ->
+                    let! op = consumePeeked t
+
+                    do!
+                        updateUserState (fun s ->
+                            { s with
+                                CharsConsumedAfterTypeParams = 0
+                            }
+                        )
+
+                    let opString = tokenString t state
+                    let opStringRest = opString.Substring(state.CharsConsumedAfterTypeParams)
+
+                    match Lexing.lexString opStringRest with
+                    | Ok lexed ->
+                        let firstTok = lexed.Tokens[0<token>]
+
+                        return
+                            { op with
+                                PositionedToken = PositionedToken.Create(firstTok.Token, t.StartIndex + charsConsumed)
+                            }
+                    | Error _ -> invalidOp "Failed to re-lex operator after type parameters"
+                | _ -> return! fail (Message "Expected operator after type parameters")
+            else
+                return! fail (Message "No operator to reprocess after type parameters")
+
+        }

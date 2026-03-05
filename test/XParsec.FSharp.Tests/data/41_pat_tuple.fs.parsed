@@ -12,6 +12,6 @@ Match:
         Pat.NamedSimple  'b'               Identifier          tok=  11  pos=  18
     Arrow                '->'              OpArrowRight        tok=  13  pos=  20
     Expr:
-      InfixApp           '+'               OpSubtractionAssignment  tok=  17  pos=  25
+      InfixApp           '+'               op_Addition         tok=  17  pos=  25
         Ident            'a'               Identifier          tok=  15  pos=  23
         Ident            'b'               Identifier          tok=  19  pos=  27

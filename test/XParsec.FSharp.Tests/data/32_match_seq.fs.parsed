@@ -10,7 +10,7 @@ Match:
       Pat.Const     '1'               NumInt32            tok=   8  pos=  15
     Arrow           '->'              OpArrowRight        tok=  10  pos=  17
     Expr:
-      Sequential    <virt>            1024                tok=virt  pos=  25
+      Sequential:
         Ident       'f'               Identifier          tok=  13  pos=  24
         Ident       'g'               Identifier          tok=  16  pos=  30
   Rule:

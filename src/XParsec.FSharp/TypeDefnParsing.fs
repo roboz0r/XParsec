@@ -107,6 +107,7 @@ module UncurriedSig =
             return UncurriedSig.UncurriedSig(args, arrow, retType)
         }
 
+/// Signature for an abstract member (method or property)
 [<RequireQualifiedAccess>]
 module MemberSig =
 
@@ -175,6 +176,12 @@ member-sig :=
             ]
             ""
 
+    let pWithClause =
+        parser {
+            let! withTok = pWith
+            let! getSet = pGetSet
+            return struct (withTok, getSet)
+        }
 
     let parse: Parser<MemberSig<SyntaxToken>, _, _, _, _> =
         parser {
@@ -184,14 +191,7 @@ member-sig :=
             let! sigType = CurriedSig.parse
 
             // Check for optional 'with' get/set
-            let! withClause =
-                opt (
-                    parser {
-                        let! withTok = pWith
-                        let! getSet = pGetSet
-                        return struct (withTok, getSet)
-                    }
-                )
+            let! withClause = opt pWithClause
 
             match withClause with
             | ValueSome(withTok, getSet) -> return MemberSig.PropSig(ident, typars, colon, sigType, withTok, getSet)
@@ -233,92 +233,61 @@ module MethodOrPropDefn =
                 )
         }
 
+    let pPropertyWithGetSet =
+        parser {
+            let! ident = pIdent
+            let! w = pWith
+            let! defns = FunctionOrValueDefn.parseSepByAnd1
+            return fun thisIdent -> MethodOrPropDefn.PropertyWithGetSet(thisIdent, ident, w, defns)
+        }
+
     let parse: Parser<MethodOrPropDefn<SyntaxToken>, _, _, _, _> =
         parser {
-            // NOTE: The caller (MemberDefn) has consumed 'member', 'override', etc.
-            // and likely the access modifier.
-            // This parser focuses on the Identifier/Pattern and Body.
+            match! opt pIdent with
+            | ValueSome ident ->
+                match! peekNextNonTriviaToken with
+                | t when t.Token = Token.OpDot ->
+                    let! dot = consumePeeked t
 
-            // 1. Parse Identifier part (e.g. "x.Method" or "Method")
-            // There might be a 'this' binding prefix: "x."
-            // AST `identPrefix` captures the instance identifier.
+                    return!
+                        choiceL
+                            [
+                                FunctionOrValueDefn.parse
+                                |>> (function
+                                | FunctionOrValueDefn.Function funcDefn ->
+                                    MethodOrPropDefn.Method(ValueSome struct (ident, dot), funcDefn)
+                                | FunctionOrValueDefn.Value valueDefn ->
+                                    MethodOrPropDefn.Property(ValueSome struct (ident, dot), valueDefn))
 
-            let! part1 = pIdent
-            let! dot = opt pDot
+                                pPropertyWithGetSet
+                                |>> fun propWithGetSetBuilder -> propWithGetSetBuilder (ValueSome struct (ident, dot))
 
-            let! identPrefix, ident =
-                match dot with
-                | ValueSome _ ->
-                    parser {
-                        let! part2 = nextNonTriviaTokenIsL Token.Identifier "Member Name"
-                        return (ValueSome part1, part2)
-                    }
-                | ValueNone -> preturn (ValueNone, part1)
+                            ]
+                            "MethodOrPropDefn after dot"
 
-            // 2. Check for Arguments (Method) vs Immediate `=` or `with` (Property)
+                | t when t.Token = Token.OpEquality ->
+                    let! eq = pEquals
+                    let! expr = Expr.parse
 
-            // If next is arguments, it's a method. Arguments are Patterns.
-            // If next is `=`, it's a Property (or Method with unit arg omitted? F# rules apply).
-            // If next is `with`, it's PropertyWithGetSet.
+                    match! opt MemberSig.pWithClause with
+                    | ValueSome struct (with', (get', set')) ->
+                        return MethodOrPropDefn.AutoProperty(ident, eq, expr, ValueSome struct (with', get', set'))
+                    | ValueNone -> return MethodOrPropDefn.AutoProperty(ident, eq, expr, ValueNone)
 
-            let! nextTok = peekNextNonTriviaToken
+                | _ -> return! fail (Message "Expected '.' or '=' after identifier in member definition")
+            | ValueNone ->
+                return!
+                    choiceL
+                        [
+                            FunctionOrValueDefn.parse
+                            |>> (function
+                            | FunctionOrValueDefn.Function funcDefn -> MethodOrPropDefn.Method(ValueNone, funcDefn)
+                            | FunctionOrValueDefn.Value valueDefn -> MethodOrPropDefn.Property(ValueNone, valueDefn))
+                            pPropertyWithGetSet
+                            |>> fun propWithGetSetBuilder -> propWithGetSetBuilder ValueNone
 
-            match nextTok.Token with
-            | Token.KWWith ->
-                // Property with get/set (e.g. "with get() = ... and set(v) = ...")
-                let! withTok = pWith
-                let! defns, _ = sepBy1 parseAccessorDefn pAnd
-                return MethodOrPropDefn.PropertyWithGetSet(identPrefix, ident, withTok, List.ofSeq defns)
-
-            | Token.OpEquality ->
-                // Property (Get-only usually)
-                // AST: Property of ident voption * ValueDefn
-                // Note: ValueDefn parser usually starts with `let`/`mutable`.
-                // Here we construct a ValueDefn-like structure from `ident = expr`.
-                let! eq = pEquals
-                let! expr = Expr.parse
-
-                // Construct a synthetic ValueDefn for the AST
-                let valDefn =
-                    ValueDefn.ValueDefn(
-                        ValueNone,
-                        ValueNone,
-                        Pat.NamedSimple(ident), // Simplified pattern
-                        ValueNone,
-                        ValueNone,
-                        eq,
-                        expr
-                    )
-
-                return MethodOrPropDefn.Property(identPrefix, valDefn)
-
-            | _ ->
-                // Method
-                // We parse parameters until `=`
-                // Reuse FunctionDefn, but we've already consumed the name.
-                // We need to feed the name back or use a specialized parser.
-
-                // Let's assume FunctionDefn.parse can handle the rest if we hadn't consumed ident.
-                // Since we did, we reconstruct:
-
-                let! args = many1 Pat.parse
-                let! retType = opt ReturnType.parse
-                let! eq = pEquals
-                let! expr = Expr.parse
-
-                let funcDefn =
-                    FunctionDefn.FunctionDefn(
-                        ValueNone,
-                        ValueNone,
-                        IdentOrOp.Ident ident,
-                        ValueNone,
-                        List.ofSeq args,
-                        retType,
-                        eq,
-                        expr
-                    )
-
-                return MethodOrPropDefn.Method(identPrefix, funcDefn)
+                        ]
+                        "MethodOrPropDefn no ident"
         }
 
 [<AutoOpen>]
@@ -369,10 +338,85 @@ module AdditionalConstrExpr =
     do refAdditionalConstrExpr.Set parse
 
 [<RequireQualifiedAccess>]
-module AdditionalConstrDefn =
-    let parse: Parser<AdditionalConstrDefn<SyntaxToken>, _, _, _, _> =
+module MemberDefn =
+    // Ths spec has incorrect grammar for member definitions, so we need to
+    // reverse-engineer it from examples and the F# spec text.
+    // It seems like the grammar listing in the individual subsections are closed to correct than the
+    // overall grammar in https://fsharp.github.io/fslang-spec/type-definitions/ introduction.
+    let private pStaticMemberDefn =
         parser {
-            let! attrs = opt Attributes.parse
+            let! staticTok = pStatic
+
+            match! peekNextNonTriviaToken with
+            | t when t.Token = Token.KWMember ->
+                let! mem = consumePeeked t
+
+                match! peekNextNonTriviaToken with
+                | t when t.Token = Token.KWVal -> ()
+                | _ ->
+                    let! access = opt pAccessModifier
+                    let! defn = MethodOrPropDefn.parse
+                    return (fun attrs -> MemberDefn.Concrete(attrs, ValueSome staticTok, mem, access, defn))
+            | t when t.Token = Token.KWVal ->
+                let! valTok = consumePeeked t
+                let! mut = opt pMutable
+                let! access = opt pAccessModifier
+                let! ident = pIdent
+                let! colon = pColon
+                let! typ = Type.parse
+
+                return
+                    (fun attrs -> MemberDefn.Value(attrs, ValueSome staticTok, valTok, mut, access, ident, colon, typ))
+            | _ -> return! fail (Message "Expected 'member' or 'val' after 'static'")
+        }
+
+    let private pMemberDefn =
+        parser {
+            let! memberTok = pMember
+            let! access = opt pAccessModifier
+            let! defn = MethodOrPropDefn.parse
+            return (fun attrs -> MemberDefn.Concrete(attrs, ValueNone, memberTok, access, defn))
+        }
+
+    let private pAbstractMemberDefn =
+        parser {
+            let! abstractTok = pAbstract
+            let! memTok = opt pMember
+            let! access = opt pAccessModifier
+            let! sigDef = MemberSig.parse
+            return (fun attrs -> MemberDefn.Abstract(attrs, abstractTok, memTok, access, sigDef))
+        }
+
+    let private pOverrideMemberDefn =
+        parser {
+            let! overrideTok = pOverride
+            let! access = opt pAccessModifier
+            let! defn = MethodOrPropDefn.parse
+            return (fun attrs -> MemberDefn.Override(attrs, overrideTok, access, defn))
+        }
+
+    let private pDefaultMemberDefn =
+        parser {
+            let! defaultTok = pDefault
+            let! access = opt pAccessModifier
+            let! defn = MethodOrPropDefn.parse
+            return (fun attrs -> MemberDefn.Default(attrs, defaultTok, access, defn))
+        }
+
+    let private pValueMemberDefn =
+        parser {
+            let! valTok = pVal
+            let! mut = opt pMutable
+            let! access = opt pAccessModifier
+            let! ident = pIdent
+            let! colon = pColon
+            let! typ = Type.parse
+            return (fun attrs -> MemberDefn.Value(attrs, ValueNone, valTok, mut, access, ident, colon, typ))
+        }
+
+
+    let private pAdditionalConstrDefn =
+        parser {
             let! access = opt pAccessModifier
             let! newTok = pNew
             let! pat = Pat.parse
@@ -380,87 +424,99 @@ module AdditionalConstrDefn =
             let! equals = pEquals
             let! body = refAdditionalConstrExpr.Parser
 
-            return AdditionalConstrDefn(attrs, access, newTok, pat, asDefn, equals, body)
+            return (fun attrs -> MemberDefn.AdditionalConstructor(attrs, access, newTok, pat, asDefn, equals, body))
         }
 
-[<RequireQualifiedAccess>]
-module MemberDefn =
+    let private memberDefnDispatcher =
+        dispatchNextNonTriviaTokenFallback
+            [
+                Token.KWStatic, pStaticMemberDefn
+                Token.KWMember, pMemberDefn
+                Token.KWAbstract, pAbstractMemberDefn
+                Token.KWOverride, pOverrideMemberDefn
+                Token.KWDefault, pDefaultMemberDefn
+                Token.KWVal, pValueMemberDefn
+            ]
+            pAdditionalConstrDefn
+
     // Implementation of the forward reference stub
     let parse: Parser<MemberDefn<SyntaxToken>, _, _, _, _> =
         parser {
             let! attrs = opt Attributes.parse
 
-            // Check for 'new' (Additional Constructor)
-            let! isNew = opt (lookAhead pNew)
+            return! memberDefnDispatcher |>> fun memberDefnBuilder -> memberDefnBuilder attrs
 
-            match isNew with
-            | ValueSome _ ->
-                let! ctor = AdditionalConstrDefn.parse
-                return MemberDefn.AdditionalConstructor ctor
-            | ValueNone ->
+        // // Check for 'new' (Additional Constructor)
+        // let! isNew = opt (lookAhead pNew)
 
-                let! staticTok = opt pStatic
-                let! access = opt pAccessModifier
+        // match isNew with
+        // | ValueSome _ ->
+        //     let! ctor = AdditionalConstrDefn.parse
+        //     return MemberDefn.AdditionalConstructor ctor
+        // | ValueNone ->
 
-                let! keyword = choiceL [ pMember; pOverride; pAbstract; pDefault; pVal ] "Member Keyword"
+        //     let! staticTok = opt pStatic
+        //     let! access = opt pAccessModifier
 
-                match keyword.Token with
-                | Token.KWAbstract ->
-                    let! memTok = opt pMember
-                    let! sigDef = MemberSig.parse
-                    return MemberDefn.Abstract(attrs, keyword, memTok, access, sigDef)
+        //     let! keyword = choiceL [ pMember; pOverride; pAbstract; pDefault; pVal ] "Member Keyword"
 
-                | Token.KWVal ->
-                    let! mut = opt pMutable
-                    let! ident = pIdent
-                    let! colon = pColon
-                    let! t = Type.parse
-                    return MemberDefn.Value(attrs, staticTok, keyword, mut, access, ident, colon, t)
+        //     match keyword.Token with
+        //     | Token.KWAbstract ->
+        //         let! memTok = opt pMember
+        //         let! sigDef = MemberSig.parse
+        //         return MemberDefn.Abstract(attrs, keyword, memTok, access, sigDef)
 
-                | Token.KWOverride ->
-                    let! defn = MethodOrPropDefn.parse
-                    return MemberDefn.Override(attrs, keyword, access, defn)
+        //     | Token.KWVal ->
+        //         let! mut = opt pMutable
+        //         let! ident = pIdent
+        //         let! colon = pColon
+        //         let! t = Type.parse
+        //         return MemberDefn.Value(attrs, staticTok, keyword, mut, access, ident, colon, t)
 
-                | Token.KWDefault ->
-                    let! defn = MethodOrPropDefn.parse
-                    return MemberDefn.Default(attrs, keyword, access, defn)
+        //     | Token.KWOverride ->
+        //         let! defn = MethodOrPropDefn.parse
+        //         return MemberDefn.Override(attrs, keyword, access, defn)
 
-                | _ -> // Token.KWMember
-                    // Check for AutoProperty: member val Ident = Expr [with get[, set]]
-                    let! nextTok = peekNextNonTriviaToken
+        //     | Token.KWDefault ->
+        //         let! defn = MethodOrPropDefn.parse
+        //         return MemberDefn.Default(attrs, keyword, access, defn)
 
-                    match nextTok.Token with
-                    | Token.KWVal ->
-                        let! valTok = consumePeeked nextTok
-                        let! ident = pIdent
-                        let! eq = pEquals
-                        let! expr = Expr.parse
+        //     | _ -> // Token.KWMember
+        //         // Check for AutoProperty: member val Ident = Expr [with get[, set]]
+        //         let! nextTok = peekNextNonTriviaToken
 
-                        let! withClause =
-                            opt (
-                                parser {
-                                    let! withTok = pWith
-                                    let! acc1 = pIdent
+        //         match nextTok.Token with
+        //         | Token.KWVal ->
+        //             let! valTok = consumePeeked nextTok
+        //             let! ident = pIdent
+        //             let! eq = pEquals
+        //             let! expr = Expr.parse
 
-                                    let! acc2 =
-                                        opt (
-                                            parser {
-                                                let! _ = pComma
-                                                let! id = pIdent
-                                                return id
-                                            }
-                                        )
+        //             let! withClause =
+        //                 opt (
+        //                     parser {
+        //                         let! withTok = pWith
+        //                         let! acc1 = pIdent
 
-                                    return (withTok, acc1, acc2)
-                                }
-                            )
+        //                         let! acc2 =
+        //                             opt (
+        //                                 parser {
+        //                                     let! _ = pComma
+        //                                     let! id = pIdent
+        //                                     return id
+        //                                 }
+        //                             )
 
-                        let autoProp = MethodOrPropDefn.AutoProperty(valTok, ident, eq, expr, withClause)
+        //                         return (withTok, acc1, acc2)
+        //                     }
+        //                 )
 
-                        return MemberDefn.Concrete(attrs, staticTok, keyword, access, autoProp)
-                    | _ ->
-                        let! defn = MethodOrPropDefn.parse
-                        return MemberDefn.Concrete(attrs, staticTok, keyword, access, defn)
+        //             let autoProp = MethodOrPropDefn.AutoProperty(valTok, ident, eq, expr, withClause)
+
+        //             return MemberDefn.Concrete(attrs, staticTok, keyword, access, autoProp)
+        //         | _ ->
+        //             let! defn = MethodOrPropDefn.parse
+        //             return MemberDefn.Concrete(attrs, staticTok, keyword, access, defn)
         }
 
     // Set the forward reference in your existing framework
@@ -483,20 +539,27 @@ module TypeDefnElement =
 
                     match withTok with
                     | ValueSome wTok ->
-                        // `with` already consumed — parse members until end/dedent
-                        // Use lookAhead on end so we don't consume it (it belongs to the class body)
-                        let pTerminator = lookAhead pEnd
-                        let! members, _ = manyTill refMemberDefn.Parser pTerminator
+                        // Parse members using offside rule (light syntax) or until member parsing fails (verbose syntax).
+                        // In verbose syntax, the `end` that terminates the outer class/struct body
+                        // is NOT part of the interface block — it belongs to the outer parser.
+                        let! members = withContext OffsideContext.WithAugment (many refMemberDefn.Parser)
 
-                        // Synthesize a virtual end token for the ObjectMembers without consuming the real end
-                        let! nextTok = peekNextNonTriviaToken
+                        // Always synthesize a virtual `end` for ObjectMembers.
+                        // In verbose syntax, the outer block's real `end` stays unconsumed for the outer parser.
+                        // In light syntax, there is no real `end` to consume.
+                        // Use `opt` so we never fail here: at EOF or when the next token is offside,
+                        // `peekNextNonTriviaToken` would fail, which (via choiceL) would discard all
+                        // the work done above. Falling back to position 0 is fine for a virtual token.
+                        let! nextTokOpt = opt peekNextNonTriviaToken
 
                         let virtualEnd =
                             {
                                 PositionedToken =
                                     PositionedToken.Create(
                                         Token.ofUInt16 (uint16 Token.KWEnd ||| TokenRepresentation.IsVirtual),
-                                        nextTok.StartIndex
+                                        match nextTokOpt with
+                                        | ValueSome tok -> tok.StartIndex
+                                        | ValueNone -> 0
                                     )
                                 Index = TokenIndex.Virtual
                             }
@@ -783,8 +846,9 @@ module TypeDefn =
                     let! body, endTok = StructTypeBody.parse pEnd
                     return TypeDefn.Struct(typeName, primaryConstr, ValueNone, equals, str, body, endTok)
 
-                | Token.KWInterface ->
-                    // Interface
+                | Token.KWInterface when primaryConstr.IsNone ->
+                    // Explicit Interface type: type IFoo = interface ... end
+                    // (Not an implicit class whose body starts with `interface X with`)
                     let! intf = pInterface
                     let! body, endTok = InterfaceTypeBody.parse pEnd
                     return TypeDefn.Interface(typeName, equals, intf, body, endTok)

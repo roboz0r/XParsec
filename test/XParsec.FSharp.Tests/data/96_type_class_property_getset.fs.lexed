@@ -33,7 +33,8 @@
 111, KWWith
 115, Whitespace
 116, Identifier
-119, Unit
+119, KWLParen
+120, KWRParen
 121, Whitespace
 122, OpEquality
 123, Whitespace

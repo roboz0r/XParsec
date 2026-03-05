@@ -110,6 +110,7 @@ type DiagnosticCode =
     | MissingType of ParseError<PositionedToken, ParseState>
     | MissingRule of ParseError<PositionedToken, ParseState>
     | MissingTypeDefn of ParseError<PositionedToken, ParseState>
+    | ExpectedEnd of ParseError<PositionedToken, ParseState>
     | UnexpectedTokenSkipped of token: SyntaxToken
     | UnclosedDelimiter of opened: SyntaxToken * expected: Token
 
@@ -134,7 +135,10 @@ and ParseState =
         DefinedSymbols: Set<string>
         IndentationMode: Syntax
         mutable LastLine: int<line> // ok to be mutable since it's only used as a guess
-        ReprocessOpAfterTypeDeclaration: bool
+        // ReprocessOpAfterTypeDeclaration: bool
+        /// Number of characters consumed since the last type parameter, used to
+        /// allow procesing of `>.` or `>>=` as single characters to close type parameters without prematurely treating `>` as an operator.
+        CharsConsumedAfterTypeParams: int
         ConditionalCompilationStack: PositionedToken list
     }
 
@@ -169,7 +173,8 @@ module ParseState =
             DefinedSymbols = definedSymbols
             IndentationMode = Syntax.Light
             LastLine = 0<line>
-            ReprocessOpAfterTypeDeclaration = false
+            // ReprocessOpAfterTypeDeclaration = false
+            CharsConsumedAfterTypeParams = 0
             ConditionalCompilationStack = []
         }
 
@@ -307,41 +312,21 @@ module ParseState =
     let tokenString (token: SyntaxToken) (state: ParseState) =
         match token.Index with
         | TokenIndex.Virtual -> ""
-        | TokenIndex.Regular iT ->
-            let tokens = state.Lexed.Tokens
-
-            match tokens[iT].Token with
-            | Token.EOF -> ""
-            | _ ->
-                let t1 = tokens[iT + 1<_>] // Next token is guaranteed to exist (EOF)
-                state.Input.[int token.StartIndex .. (t1.StartIndex - 1)]
+        | TokenIndex.Regular iT -> state.Lexed.GetTokenString(iT, state.Input)
 
     let tokenStringIs (s: string) (token: SyntaxToken) (state: ParseState) =
         match token.Index with
         | TokenIndex.Virtual -> false
         | TokenIndex.Regular iT ->
-            let tokens = state.Lexed.Tokens
-
-            match tokens[iT].Token with
-            | Token.EOF -> false
-            | _ ->
-                let t1 = tokens[iT + 1<_>] // Next token is guaranteed to exist (EOF)
-                let tokenStr = state.Input.[int token.StartIndex .. (t1.StartIndex - 1)]
-                // printfn "Comparing token string '%s' to '%s'" tokenStr s
-                tokenStr = s
+            let span = state.Lexed.GetTokenSpan(iT, state.Input)
+            span.SequenceEqual(s.AsSpan())
 
     let tokenStringStartsWith (s: string) (token: SyntaxToken) (state: ParseState) =
         match token.Index with
         | TokenIndex.Virtual -> false
         | TokenIndex.Regular iT ->
-            let tokens = state.Lexed.Tokens
-
-            match tokens[iT].Token with
-            | Token.EOF -> false
-            | _ ->
-                let t1 = tokens[iT + 1<_>] // Next token is guaranteed to exist (EOF)
-                let tokenStr = state.Input.[token.StartIndex .. (t1.StartIndex - 1)]
-                tokenStr.StartsWith(s)
+            let span = state.Lexed.GetTokenSpan(iT, state.Input)
+            span.StartsWith(s.AsSpan())
 
     let isDefined (state: ParseState) (symbolToken: SyntaxToken) =
         let symbol = tokenString symbolToken state

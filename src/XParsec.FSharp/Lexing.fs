@@ -1,4 +1,4 @@
-﻿namespace XParsec.FSharp.Lexer
+namespace XParsec.FSharp.Lexer
 
 open System
 open System.Globalization
@@ -87,6 +87,34 @@ type Lexed =
                 this.Tokens.LengthM - 1<_>
 
         startTokenIndex, endTokenIndex
+
+    member this.GetTokenString(i: int<token>, input: string) =
+        let tokens = this.Tokens
+
+        if i < 0<_> || int i >= tokens.Length then
+            invalidArg (nameof i) "Index out of range"
+
+        let token = tokens[i]
+
+        match token.Token with
+        | Token.EOF -> ""
+        | _ ->
+            let t1 = tokens[i + 1<_>] // Next token is guaranteed to exist (EOF)
+            input.[int token.StartIndex .. (t1.StartIndex - 1)]
+
+    member this.GetTokenSpan(i: int<token>, input: string) =
+        let tokens = this.Tokens
+
+        if i < 0<_> || int i >= tokens.Length then
+            invalidArg (nameof i) "Index out of range"
+
+        let token = tokens[i]
+
+        match token.Token with
+        | Token.EOF -> ReadOnlySpan<char>()
+        | _ ->
+            let t1 = tokens[i + 1<_>] // Next token is guaranteed to exist (EOF)
+            input.AsSpan().Slice(token.StartIndex, (t1.StartIndex - token.StartIndex))
 
 // Format specifications for printf formats are strings with % markers
 // that indicate format. Format placeholders consist of %[flags][width][.precision][type]
@@ -2132,7 +2160,7 @@ module Lexing =
                 pToken (pstring "(*F#") Token.StartFSharpBlockComment
                 // 3.2 Comments
                 pToken (pstring "(*") Token.BlockCommentStart
-                pToken (pstring "()") Token.Unit
+                //pToken (pstring "()") Token.Unit
                 pOpenParenExpressionContext
             ]
             "Left parenthesis or unit"
@@ -2142,7 +2170,7 @@ module Lexing =
             [
                 pToken pLAttrBrack Token.KWLAttrBracket
                 pToken pLArrayBrack Token.KWLArrayBracket
-                pToken (pstring "[]") Token.OpNil
+                //pToken (pstring "[]") Token.OpNil
                 pOpenBracketExpressionContext
             ]
             "Left bracket or empty array"

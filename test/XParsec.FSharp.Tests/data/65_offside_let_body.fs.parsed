@@ -9,7 +9,7 @@ FunctionOrValue:
       LetValue           'let'             KWLet               tok=   9  pos=  14
         Pat.NamedSimple  'y'               Identifier          tok=  11  pos=  18
         =                '='               OpEquality          tok=  13  pos=  20
-          InfixApp       '+'               OpSubtractionAssignment  tok=  17  pos=  24
+          InfixApp       '+'               op_Addition         tok=  17  pos=  24
             Ident        'x'               Identifier          tok=  15  pos=  22
             Const        '1'               NumInt32            tok=  19  pos=  26
         in               <virt>            KWIn                tok=virt  pos=  32
@@ -17,6 +17,8 @@ FunctionOrValue:
           InfixApp       '*'               OpMultiply          tok=  24  pos=  34
             Ident        'y'               Identifier          tok=  22  pos=  32
             Const        '2'               NumInt32            tok=  26  pos=  36
-InfixApp                 ' '               Whitespace          tok=  29  pos=  39
-  Ident                  'f'               Identifier          tok=  28  pos=  38
-  Const                  '3'               NumInt32            tok=  30  pos=  40
+App:
+  Func:
+    Ident                'f'               Identifier          tok=  28  pos=  38
+  Args:
+    Const                '3'               NumInt32            tok=  30  pos=  40

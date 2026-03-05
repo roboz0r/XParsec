@@ -216,30 +216,35 @@ module Pat =
 
     let private refPat = FSRefParser<Pat<SyntaxToken>>()
 
-    let pListPat: Parser<ListPat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        choiceL
-            [
-                // Empty list `[]` is lexed as a single OpNil token
-                parser {
-                    let! t = pNil
-                    return ListPat.ListPat(t, [], t)
-                }
-                // Non-empty list `[x; y]` with explicit brackets
-                parser {
-                    let! l = pLBracket
-                    let! pats, _ = sepEndBy refPat.Parser pSemi
-                    let! r = pRBracket
-                    return ListPat.ListPat(l, List.ofSeq pats, r)
-                }
-            ]
-            "ListPat"
+    let pParenPat =
+        parser {
+            let! l = pLParen
 
-    let pArrayPat: Parser<ArrayPat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+            match! peekNextNonTriviaToken with
+            | t when t.Token = Token.KWRParen ->
+                // Empty tuple pattern '()'
+                let! r = consumePeeked t
+                return Pat.Const(Constant.Unit(l, r))
+            | _ ->
+                let! pat = refPat.Parser
+                let! r = pRParen
+                return Pat.Paren(l, pat, r)
+        }
+
+    let pListPat: Parser<Pat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+        parser {
+            let! l = pLBracket
+            let! pats, _ = sepEndBy refPat.Parser pSemi
+            let! r = pRBracket
+            return Pat.List(l, List.ofSeq pats, r)
+        }
+
+    let pArrayPat: Parser<Pat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
             let! l = pLArrayBracket
             let! pats, _ = sepEndBy refPat.Parser pSemi
             let! r = pRArrayBracket
-            return ArrayPat.ArrayPat(l, List.ofSeq pats, r)
+            return Pat.Array(l, List.ofSeq pats, r)
         }
 
     let pFieldPat =
@@ -247,15 +252,15 @@ module Pat =
             let! lid = LongIdent.parse
             let! eq = pEquals
             let! p = refPat.Parser
-            return FieldPat.FieldPat(lid, eq, p)
+            return FieldPat(lid, eq, p)
         }
 
-    let pRecordPat: Parser<RecordPat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+    let pRecordPat: Parser<Pat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
             let! l = pLBrace
             let! fields, _ = sepEndBy1 pFieldPat pSemi
             let! r = pRBrace
-            return RecordPat.RecordPat(l, List.ofSeq fields, r)
+            return Pat.Record(l, List.ofSeq fields, r)
         }
 
     let pNamed =
@@ -299,20 +304,29 @@ module Pat =
             return Pat.Attributed(attrs, pat)
         }
 
+    let pConstPat =
+        parser {
+            let! c = Constant.parse
+            return Pat.Const c
+        }
+
+    let pWildcardPat = pWildcard |>> Pat.Wildcard
+    let pNullPat = pNull |>> Pat.Null
+
     let parseAtomic =
-        choiceL
+        dispatchNextNonTriviaTokenFallback
             [
-                pWildcard |>> Pat.Wildcard
-                pNull |>> Pat.Null
-                Constant.parse |>> Pat.Const
-                pTypeTestPat
-                pNamed
-                pListPat |>> Pat.List
-                pArrayPat |>> Pat.Array
-                pRecordPat |>> Pat.Record
-                pAttributesPat
+                Token.Wildcard, pWildcardPat
+                Token.KWNull, pNullPat
+                Token.OpTypeTest, pTypeTestPat
+                Token.Identifier, pNamed
+                Token.KWLParen, pParenPat
+                Token.KWLBracket, pListPat
+                Token.KWLArrayBracket, pArrayPat
+                Token.KWLBrace, pRecordPat
+                Token.KWLAttrBracket, pAttributesPat
             ]
-            "Pattern Atom"
+            pConstPat
 
     let parse = Operator.parser parseAtomic (PatOperatorParser())
     let parseMany1 = many1 parse

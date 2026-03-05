@@ -7,7 +7,7 @@ Body:
   LetValue           'let'             KWLet               tok=   7  pos=  13
     Pat.NamedSimple  'y'               Identifier          tok=   9  pos=  17
     =                '='               OpEquality          tok=  11  pos=  19
-      InfixApp       '+'               OpSubtractionAssignment  tok=  15  pos=  23
+      InfixApp       '+'               op_Addition         tok=  15  pos=  23
         Ident        'x'               Identifier          tok=  13  pos=  21
         Const        '1'               NumInt32            tok=  17  pos=  25
     in               <virt>            KWIn                tok=virt  pos=  31

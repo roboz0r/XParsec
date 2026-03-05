@@ -32,7 +32,8 @@
 99, Identifier
 103, OpDot
 104, Identifier
-113, Unit
+113, KWLParen
+114, KWRParen
 115, Whitespace
 116, OpEquality
 117, Whitespace
@@ -76,7 +77,8 @@
 208, Identifier
 212, OpDot
 213, Identifier
-218, Unit
+218, KWLParen
+219, KWRParen
 220, Whitespace
 221, OpEquality
 222, Whitespace

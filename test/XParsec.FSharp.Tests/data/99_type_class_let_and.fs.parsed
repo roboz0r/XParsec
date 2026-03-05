@@ -12,12 +12,14 @@ TypeDefn.Class:
       Pats:
         Pat.NamedSimple  'x'               Identifier          tok=  21  pos=  60
       =                  '='               OpEquality          tok=  23  pos=  62
-        InfixApp         ' '               Whitespace          tok=  26  pos=  65
-          Ident          'g'               Identifier          tok=  25  pos=  64
-          ParenBlock     '('               KWLParen            tok=  27  pos=  66
-            InfixApp     '-'               OpSubtractionAssignment  tok=  30  pos=  69
-              Ident      'x'               Identifier          tok=  28  pos=  67
-              Const      '1'               NumInt32            tok=  32  pos=  71
+        App:
+          Func:
+            Ident        'g'               Identifier          tok=  25  pos=  64
+          Args:
+            ParenBlock   '('               KWLParen            tok=  27  pos=  66
+              InfixApp   '-'               op_Subtraction      tok=  30  pos=  69
+                Ident    'x'               Identifier          tok=  28  pos=  67
+                Const    '1'               NumInt32            tok=  32  pos=  71
                          ')'               KWRParen            tok=  33  pos=  72
     Function:
       IdentOrOp:
@@ -25,11 +27,13 @@ TypeDefn.Class:
       Pats:
         Pat.NamedSimple  'x'               Identifier          tok=  40  pos=  88
       =                  '='               OpEquality          tok=  42  pos=  90
-        InfixApp         ' '               Whitespace          tok=  45  pos=  93
-          Ident          'f'               Identifier          tok=  44  pos=  92
-          ParenBlock     '('               KWLParen            tok=  46  pos=  94
-            InfixApp     '+'               OpSubtractionAssignment  tok=  49  pos=  97
-              Ident      'x'               Identifier          tok=  47  pos=  95
-              Const      '1'               NumInt32            tok=  51  pos=  99
+        App:
+          Func:
+            Ident        'f'               Identifier          tok=  44  pos=  92
+          Args:
+            ParenBlock   '('               KWLParen            tok=  46  pos=  94
+              InfixApp   '+'               op_Addition         tok=  49  pos=  97
+                Ident    'x'               Identifier          tok=  47  pos=  95
+                Const    '1'               NumInt32            tok=  51  pos=  99
                          ')'               KWRParen            tok=  52  pos= 100
   end                    'end'             KWEnd               tok=  55  pos= 106

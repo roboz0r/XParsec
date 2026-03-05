@@ -11,7 +11,7 @@ IfThenElse:
         Const          '1'               NumInt32            tok=  13  pos=  22
       in               <virt>            KWIn                tok=virt  pos=  28
       Body:
-        InfixApp       '+'               OpSubtractionAssignment  tok=  18  pos=  30
+        InfixApp       '+'               op_Addition         tok=  18  pos=  30
           Ident        'x'               Identifier          tok=  16  pos=  28
           Const        '2'               NumInt32            tok=  20  pos=  32
   ElifBranch:
