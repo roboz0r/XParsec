@@ -14,6 +14,13 @@
             ],
             "program": "${workspaceFolder}/test/XParsec.Tests/js/Main.js",
             "preLaunchTask": "Fable Build: XParsec.Tests",
+        },
+        {
+            "name": "XParsec.FSharp.Tests",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "Build: XParsec.FSharp.Tests.fsproj",
+            "program": "${workspaceFolder}/test/XParsec.FSharp.Tests/bin/Debug/net10.0/XParsec.FSharp.Tests.dll"
         }
     ]
 }
