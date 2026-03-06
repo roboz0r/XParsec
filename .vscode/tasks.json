@@ -7,6 +7,19 @@
             "label": "Fable Build: XParsec.Tests",
             "type": "shell",
             "command": "dotnet fable ./test/XParsec.Tests/XParsec.Tests.fsproj -o ./test/XParsec.Tests/js -s"
-        }
+        },
+        {
+            "label": "Build: XParsec.FSharp.Tests.fsproj",
+            "command": "dotnet",
+            "args": [
+                "build",
+                "./test/XParsec.FSharp.Tests/XParsec.FSharp.Tests.fsproj"
+            ],
+            "type": "process",
+            "problemMatcher": "$msCompile",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        },
     ]
 }
