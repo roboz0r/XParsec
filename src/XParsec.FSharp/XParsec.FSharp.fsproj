@@ -12,6 +12,7 @@
     <Compile Include="Declarations.fs" />
     <Compile Include="Signatures.fs" />
     <Compile Include="ProgramStructure.fs" />
+    <Compile Include="AstTraversal.fs" />
     <Compile Include="ParsingTypes.fs" />
     <Compile Include="Preprocessing.fs" />
     <Compile Include="ParsingHelpers.fs" />
