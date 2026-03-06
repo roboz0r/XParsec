@@ -402,21 +402,15 @@ module CompExpr =
             let! ifTok = pIf
             let! cond = refExpr.Parser
             let! thenTok = pThen
-            // Check for else
-            // Per AST: IfThenElse takes Expr for 'then' branch, CompExpr for 'else' branch
-            // IfThen takes CompExpr for 'then' branch
-
-            // We attempt to parse an else block to decide
-            // This logic assumes we can look ahead or backtrack
 
             return!
                 choiceL
                     [
                         parser {
-                            let! thenExpr = refExpr.Parser
+                            let! thenComp = refCompExpr.Parser
                             let! elseTok = pElse
                             let! elseComp = refCompExpr.Parser
-                            return CompExpr.IfThenElse(ifTok, cond, thenTok, thenExpr, elseTok, elseComp)
+                            return CompExpr.IfThenElse(ifTok, cond, thenTok, thenComp, elseTok, elseComp)
                         }
                         parser {
                             let! thenComp = refCompExpr.Parser

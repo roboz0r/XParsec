@@ -208,7 +208,7 @@ type CompExpr<'T> =
         ifToken: 'T *
         cond: Expr<'T> *
         thenToken: 'T *
-        thenExpr: Expr<'T> *
+        thenComp: CompExpr<'T> *
         elseToken: 'T *
         elseComp: CompExpr<'T>
     | MatchBang of matchBang: 'T * expr: Expr<'T> * withToken: 'T * rules: Rules<'T>
