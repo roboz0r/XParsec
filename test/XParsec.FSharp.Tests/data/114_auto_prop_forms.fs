@@ -27,7 +27,5 @@ type Base() =
 
 // Form 7: override val (auto-implemented override)
 type Derived() =
-    class
-        inherit Base()
-        override val P = "derived" with get, set
-    end
+    inherit Base()
+    override val P = "derived" with get, set
