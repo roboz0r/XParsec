@@ -973,7 +973,7 @@ let rec printCompExpr (ctx: PrintContext) (input: string) (lexed: Lexed) (comp: 
                 printTokenRow "then" ctx input lexed thenToken
                 printCompExpr ctx input lexed comp
             )
-    | CompExpr.IfThenElse(ifToken, cond, thenToken, thenExpr, elseToken, elseComp) ->
+    | CompExpr.IfThenElse(ifToken, cond, thenToken, thenComp, elseToken, elseComp) ->
         printTokenRow "if" ctx input lexed ifToken
 
         indent
@@ -981,7 +981,7 @@ let rec printCompExpr (ctx: PrintContext) (input: string) (lexed: Lexed) (comp: 
             (fun () ->
                 printSection ctx "Cond" (fun () -> printExpr ctx input lexed cond)
                 printTokenRow "then" ctx input lexed thenToken
-                printSection ctx "ThenExpr" (fun () -> printExpr ctx input lexed thenExpr)
+                printSection ctx "ThenExpr" (fun () -> printCompExpr ctx input lexed thenComp)
                 printTokenRow "else" ctx input lexed elseToken
                 printCompExpr ctx input lexed elseComp
             )
