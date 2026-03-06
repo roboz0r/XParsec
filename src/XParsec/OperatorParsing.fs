@@ -223,6 +223,15 @@ type LHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
         parseDelimiter: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
         complete: ('Op -> 'Expr -> 'Op -> 'Expr -> 'Expr)
 
+    /// A prefix operator whose right-hand side is fully handled by a custom parser rather than
+    /// by the standard Pratt parsing mechanism. Used where the body parser controls its own
+    /// structure and context.
+    | PrefixMapped of
+        op: 'Op *
+        parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
+        parseRight: Parser<'Aux, 'T, 'State, 'Input, 'InputSlice> *
+        complete: ('Op -> 'Aux -> 'Expr)
+
 
 type Operator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
     when 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
@@ -516,6 +525,11 @@ module internal Pratt =
                             ParseError.createNested failure [ expectedMsg; e ] e.Position
                     | Error e -> Error e
 
+                | PrefixMapped(op, _parseOp, parseRight, complete) ->
+                    match parseRight reader with
+                    | Ok result -> parseRhs (complete op result) reader
+                    | Error e -> Error e
+
             | Error e -> ParseError.createNested failure [ e; e0 ] pos
 
 /// Provides functions to create and parse expressions using operators.
@@ -583,19 +597,22 @@ module Operator =
         function
         | Prefix(op, _, _, _)
         | LHSTernary(op, _, _, _, _, _)
-        | Enclosed(op, _, _, _, _, _) -> op
+        | Enclosed(op, _, _, _, _, _)
+        | PrefixMapped(op, _, _, _) -> op
 
     let private lhsParseOp =
         function
         | Prefix(_, parseOp, _, _)
         | LHSTernary(_, parseOp, _, _, _, _)
-        | Enclosed(_, parseOp, _, _, _, _) -> parseOp
+        | Enclosed(_, parseOp, _, _, _, _)
+        | PrefixMapped(_, parseOp, _, _) -> parseOp
 
     let private lhsRightPower =
         function
         | Prefix(_, _, rightPower, _)
         | LHSTernary(_, _, rightPower, _, _, _)
         | Enclosed(_, _, rightPower, _, _, _) -> rightPower
+        | PrefixMapped(_, _, _, _) -> Precedence.MinP
 
     let private leftPower =
         function
@@ -709,6 +726,12 @@ module Operator =
     let infixMapped op precedence parseOp parseRight complete =
         let power = Precedence.bindingPower precedence
         RHS(InfixMapped(op, parseOp, power, parseRight, complete))
+
+    /// Creates a prefix operator whose right-hand side is fully parsed by a custom parser.
+    /// Unlike `prefix`, there is no recursive Pratt descent for the right-hand side.
+    /// Used where the body parser controls its own structure and context.
+    let prefixMapped op parseOp parseRight complete =
+        LHS(PrefixMapped(op, parseOp, parseRight, complete))
 
     /// Parses an expression using the provided expression parser and operator definitions.
     let parser

@@ -42,13 +42,19 @@ Operator.infixLeftAssoc '+' P1 (pchar '+') (fun lhs op rhs -> Add(lhs, rhs))
 
 These appear before or after a single operand.
 
-* `Operator.prefix`: For operators like unary `-`.
+* `Operator.prefix`: For operators like unary `-`. The right-hand side is parsed by recursive Pratt descent with the specified binding power.
 * `Operator.postfix`: For operators like factorial `!`.
+* `Operator.prefixMapped`: Like `prefix`, but the right-hand side is parsed entirely by a custom `parseRight` parser rather than by recursive Pratt descent. Used for keyword-prefix forms like F#'s `if … then … else …`, `match … with …`, `fun … -> …`, or `let … in …` where the body has its own complex internal structure that cannot be described as a simple Pratt sub-expression.
 
 ```fsharp
 // Defines a prefix '-' operator for negation.
 Operator.prefix '-' P5 (pchar '-') (fun op expr -> Negate expr)
+
+// Defines a keyword-prefix form where the body is parsed by a custom parser.
+Operator.prefixMapped kwIf parseIfBody (fun op body -> completeIf body)
 ```
+
+> **`prefixMapped` vs `prefix`:** `prefix` uses recursive Pratt descent for its right-hand side and requires a binding power to control precedence. `prefixMapped` has no binding power; its `parseRight` parser takes full responsibility for parsing the right-hand side.
 
 #### Enclosing and Other Operators
 
