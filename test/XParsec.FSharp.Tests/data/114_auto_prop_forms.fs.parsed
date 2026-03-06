@@ -100,23 +100,25 @@ TypeDefn.Anon:
     accessor  'get'             Identifier          tok= 183  pos= 671
     accessor  'set'             Identifier          tok= 186  pos= 676
   end         <virt>            KWEnd               tok=virt  pos= 733
-TypeDefn.Class:
+TypeDefn.Anon:
   TypeName    'Derived'         Identifier          tok= 193  pos= 738
+  (           '('               KWLParen            tok= 194  pos= 745
+  )           ')'               KWRParen            tok= 195  pos= 746
   =           '='               OpEquality          tok= 197  pos= 748
-  class       'class'           KWClass             tok= 200  pos= 754
-    inherit   'inherit'         KWInherit           tok= 203  pos= 768
+  begin       <virt>            KWBegin             tok=virt  pos= 754
+    inherit   'inherit'         KWInherit           tok= 200  pos= 754
     NamedType:
       LongIdent:
-              'Base'            Identifier          tok= 205  pos= 776
+              'Base'            Identifier          tok= 202  pos= 762
     Const:
-      Unit    '('               KWLParen            tok= 206  pos= 780
-              ')'               KWRParen            tok= 207  pos= 781
-    override  'override'        KWOverride          tok= 210  pos= 791
-    val       'val'             KWVal               tok= 212  pos= 800
-    ident     'P'               Identifier          tok= 214  pos= 804
-    =         '='               OpEquality          tok= 216  pos= 806
-    Const     '"derived"'       StringLiteral       tok= 218  pos= 808
-    with      'with'            KWWith              tok= 220  pos= 818
-    accessor  'get'             Identifier          tok= 222  pos= 823
-    accessor  'set'             Identifier          tok= 225  pos= 828
-  end         'end'             KWEnd               tok= 228  pos= 836
+      Unit    '('               KWLParen            tok= 203  pos= 766
+              ')'               KWRParen            tok= 204  pos= 767
+    override  'override'        KWOverride          tok= 207  pos= 773
+    val       'val'             KWVal               tok= 209  pos= 782
+    ident     'P'               Identifier          tok= 211  pos= 786
+    =         '='               OpEquality          tok= 213  pos= 788
+    Const     '"derived"'       StringLiteral       tok= 215  pos= 790
+    with      'with'            KWWith              tok= 217  pos= 800
+    accessor  'get'             Identifier          tok= 219  pos= 805
+    accessor  'set'             Identifier          tok= 222  pos= 810
+  end         <virt>            KWEnd               tok=virt  pos= 814

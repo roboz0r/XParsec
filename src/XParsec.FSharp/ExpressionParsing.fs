@@ -579,6 +579,7 @@ module CompOrRangeExpr =
             ]
             "CompOrRangeExpr"
 
+/// Used by ExprOperatorParser to carry auxiliary information from operator-specific parsers back to the main expression parser for completion.
 [<RequireQualifiedAccess>]
 type ExprAux =
     | Ident of SyntaxToken
@@ -590,6 +591,8 @@ type ExprAux =
     | HighPrecApp of SyntaxToken * Expr<SyntaxToken> * SyntaxToken // ( expr ) for f(x, y)
     | HighPrecIndex of SyntaxToken * Expr<SyntaxToken> * SyntaxToken // [ expr ] for arr[i] (F# 6+ dot-less indexing)
     | TypeCast of Type<SyntaxToken> // :> Type
+    /// Wraps a fully-parsed Expr for use as 'Aux in PrefixMapped keyword operators (if, match, let, etc.)
+    | FullExpr of Expr<SyntaxToken>
 
 [<RequireQualifiedAccess>]
 module Expr =
@@ -812,19 +815,26 @@ module Expr =
                 | t when t.Token = Token.EOF -> return! failSep
                 | t when t.Token = Token.OpSemicolon -> return! consumePeeked t
                 | t ->
-                    // Not a semicolon, but maybe we emit a virtual semicolon for newline-separated expressions
-                    let! indent = currentIndent
-                    let! state = getUserState
+                    // Not a semicolon, but maybe we emit a virtual semicolon for newline-separated expressions.
+                    // Closing delimiters (}, ], |]) cannot start an expression, so never emit VirtualSep for them —
+                    // they belong to an enclosing parser (e.g. the paren/brace block that called us).
+                    match t.Token with
+                    | Token.KWRBrace
+                    | Token.KWRBracket
+                    | Token.KWRArrayBracket -> return! failSep
+                    | _ ->
+                        let! indent = currentIndent
+                        let! state = getUserState
 
-                    let atContextIndent =
-                        match state.Context with
-                        | { Indent = ctxIndent } :: _ -> indent = ctxIndent
-                        | [] -> indent = 0
+                        let atContextIndent =
+                            match state.Context with
+                            | { Indent = ctxIndent } :: _ -> indent = ctxIndent
+                            | [] -> indent = 0
 
-                    if atContextIndent then
-                        return virtualToken (PositionedToken.Create(Token.VirtualSep, t.StartIndex))
-                    else
-                        return! failSep
+                        if atContextIndent then
+                            return virtualToken (PositionedToken.Create(Token.VirtualSep, t.StartIndex))
+                        else
+                            return! failSep
             }
 
         let pApplication =
@@ -1018,29 +1028,224 @@ module Expr =
                 ]
                 "RHS operator"
 
+        // Used for for-to and use identifiers (not the dot-access pIdent above)
+        let pIdentTok = nextNonTriviaTokenIsL Token.Identifier "identifier"
+
+        // Shared complete function for all PrefixMapped keyword forms.
+        // The peeked 'op' token is unused since the body parser already consumed the keyword.
+        let completeKeyword (_op: SyntaxToken) (aux: ExprAux) =
+            match aux with
+            | ExprAux.FullExpr e -> e
+            | _ -> failwith "Unexpected Aux type for keyword expression"
+
+        // Body parsers for PrefixMapped keyword forms.
+        // Each parser consumes the keyword itself (inside withContext for correct offside behaviour).
+        // They are called AFTER lhsParser has peeked (but NOT consumed) the keyword token.
+
+        let pIfBody =
+            withContext
+                OffsideContext.If
+                (parser {
+                    let! ifTok = pIf
+                    let! cond = refExpr.Parser
+                    let! thenTok = pThen
+                    let! thenExpr = refExprSeqBlock.Parser
+                    let! elifs = many ElifBranch.parse
+                    let! elseBranch = opt ElseBranch.parse
+
+                    return
+                        ExprAux.FullExpr(Expr.IfThenElse(ifTok, cond, thenTok, thenExpr, List.ofSeq elifs, elseBranch))
+                })
+
+        let pMatchBody =
+            withContext
+                OffsideContext.Match
+                (parser {
+                    let! m = pMatch
+                    let! e = refExpr.Parser
+                    let! w = pWith
+                    let! rules = withContext OffsideContext.MatchClauses Rules.parse
+                    return ExprAux.FullExpr(Expr.Match(m, e, w, rules))
+                })
+
+        let pFunctionBody =
+            withContext
+                OffsideContext.Function
+                (parser {
+                    let! funTok = pFunction
+                    let! rules = withContext OffsideContext.MatchClauses Rules.parse
+                    return ExprAux.FullExpr(Expr.Function(funTok, rules))
+                })
+
+        let pFunBody =
+            withContext
+                OffsideContext.Fun
+                (parser {
+                    let! funTok = pFun
+                    let! pats = many1 Pat.parse
+                    let! arrow = pArrowRight
+                    let! expr = refExprSeqBlock.Parser
+                    return ExprAux.FullExpr(Expr.Fun(funTok, List.ofSeq pats, arrow, expr))
+                })
+
+        let pTryBody =
+            withContext
+                OffsideContext.Try
+                (parser {
+                    let! tryTok = pTry
+                    let! tryExpr = refExprSeqBlock.Parser
+
+                    return!
+                        choiceL
+                            [
+                                parser {
+                                    let! withTok = pWith
+                                    let! rules = withContext OffsideContext.MatchClauses Rules.parse
+                                    return ExprAux.FullExpr(Expr.TryWith(tryTok, tryExpr, withTok, rules))
+                                }
+                                parser {
+                                    let! finTok = pFinally
+                                    let! finExpr = refExprSeqBlock.Parser
+                                    return ExprAux.FullExpr(Expr.TryFinally(tryTok, tryExpr, finTok, finExpr))
+                                }
+                            ]
+                            "Expected 'with' or 'finally'"
+                })
+
+        let pWhileBody =
+            withContext
+                OffsideContext.While
+                (parser {
+                    let! whileTok = pWhile
+                    let! cond = refExpr.Parser
+                    let! doTok = pDo
+                    let! body = refExprSeqBlock.Parser
+                    let! doneTok = pDone
+                    return ExprAux.FullExpr(Expr.While(whileTok, cond, doTok, body, doneTok))
+                })
+
+        let pForBody =
+            withContext
+                OffsideContext.For
+                (parser {
+                    let! forTok = pFor
+
+                    return!
+                        choiceL
+                            [
+                                parser {
+                                    let! ident = pIdentTok
+                                    let! eq = pEquals
+                                    let! startExpr = refExpr.Parser
+                                    let! toTok = pToOrDownTo
+                                    let! endExpr = refExpr.Parser
+                                    let! doTok = pDo
+                                    let! body = refExprSeqBlock.Parser
+                                    let! doneTok = pDone
+
+                                    return
+                                        ExprAux.FullExpr(
+                                            Expr.ForTo(
+                                                forTok,
+                                                ident,
+                                                eq,
+                                                startExpr,
+                                                toTok,
+                                                endExpr,
+                                                doTok,
+                                                body,
+                                                doneTok
+                                            )
+                                        )
+                                }
+                                parser {
+                                    let! pat = Pat.parse
+                                    let! inTok = pInVirt
+                                    let! range = ExprOrRange.parse
+                                    let! doTok = pDo
+                                    let! body = refExprSeqBlock.Parser
+                                    let! doneTok = pDone
+                                    return ExprAux.FullExpr(Expr.ForIn(forTok, pat, inTok, range, doTok, body, doneTok))
+                                }
+                            ]
+                            "Expected for-to or for-in"
+                })
+
+        let pLetBody =
+            withContext
+                OffsideContext.Let
+                (parser {
+                    let! letTok = pLet
+                    let! recTok = opt pRec
+
+                    match recTok with
+                    | ValueSome recTok ->
+                        let! defns = FunctionOrValueDefn.parseSepByAnd1
+                        let! inTok = pInVirt
+                        let! expr = refExprSeqBlock.Parser
+                        return ExprAux.FullExpr(Expr.LetRec(letTok, recTok, defns, inTok, expr))
+                    | ValueNone ->
+                        match! FunctionOrValueDefn.parse with
+                        | FunctionOrValueDefn.Function funcDefn ->
+                            let! inTok = pInVirt
+                            let! expr = refExprSeqBlock.Parser
+                            return ExprAux.FullExpr(Expr.LetFunction(letTok, funcDefn, inTok, expr))
+                        | FunctionOrValueDefn.Value valueDefn ->
+                            let! inTok = pInVirt
+                            let! expr = refExprSeqBlock.Parser
+                            return ExprAux.FullExpr(Expr.LetValue(letTok, valueDefn, inTok, expr))
+                })
+
+        let pUseBody =
+            withContext
+                OffsideContext.Let
+                (parser {
+                    let! useTok = pUse
+                    let! ident = pIdentTok
+                    let! eq = pEquals
+                    let! expr = refExprSeqBlock.Parser
+                    let! inTok = pInVirt
+                    let! body = refExprSeqBlock.Parser
+                    return ExprAux.FullExpr(Expr.Use(useTok, ident, eq, expr, inTok, body))
+                })
+
         let lhsParser =
             parser {
                 let! token = peekNextNonTriviaToken
 
-                match OperatorInfo.TryCreate(token.PositionedToken) with
-                | ValueSome opInfo when opInfo.CanBePrefix ->
-                    // printOpInfo opInfo
-                    let! tok = consumePeeked token
-                    let power = BindingPower.fromLevel (int opInfo.Precedence)
-                    return Prefix(tok, preturn tok, power, completePrefix)
-                // Note: Spec shows lazy and assert keywords as having same precedence as function application,
-                // so they are parsed as prefix operators with the same precedence level.
-                | ValueSome opInfo when opInfo.Token = Token.KWLazy ->
-                    // printOpInfo opInfo
-                    let! tok = consumePeeked token
-                    let power = BindingPower.fromLevel (int opInfo.Precedence)
-                    return Prefix(tok, preturn tok, power, completeLazy)
-                | ValueSome opInfo when opInfo.Token = Token.KWAssert ->
-                    // printOpInfo opInfo
-                    let! tok = consumePeeked token
-                    let power = BindingPower.fromLevel (int opInfo.Precedence)
-                    return Prefix(tok, preturn tok, power, completeAssert)
-                | _ -> return! fail (Message "Not a prefix operator")
+                // Keyword-prefix forms: these tokens are not in isOperatorKeyword, so OperatorInfo.TryCreate
+                // returns ValueNone for them. Match directly on the token type instead.
+                // We peek but do NOT consume — the body parser handles consumption inside withContext.
+                match token.Token with
+                | Token.KWIf -> return PrefixMapped(token, preturn token, pIfBody, completeKeyword)
+                | Token.KWMatch -> return PrefixMapped(token, preturn token, pMatchBody, completeKeyword)
+                | Token.KWFunction -> return PrefixMapped(token, preturn token, pFunctionBody, completeKeyword)
+                | Token.KWFun -> return PrefixMapped(token, preturn token, pFunBody, completeKeyword)
+                | Token.KWTry -> return PrefixMapped(token, preturn token, pTryBody, completeKeyword)
+                | Token.KWWhile -> return PrefixMapped(token, preturn token, pWhileBody, completeKeyword)
+                | Token.KWFor -> return PrefixMapped(token, preturn token, pForBody, completeKeyword)
+                | Token.KWLet -> return PrefixMapped(token, preturn token, pLetBody, completeKeyword)
+                | Token.KWUse -> return PrefixMapped(token, preturn token, pUseBody, completeKeyword)
+                | _ ->
+                    match OperatorInfo.TryCreate(token.PositionedToken) with
+                    | ValueSome opInfo when opInfo.CanBePrefix ->
+                        // printOpInfo opInfo
+                        let! tok = consumePeeked token
+                        let power = BindingPower.fromLevel (int opInfo.Precedence)
+                        return Prefix(tok, preturn tok, power, completePrefix)
+                    // Note: Spec shows lazy and assert keywords as having same precedence as function application,
+                    // so they are parsed as prefix operators with the same precedence level.
+                    | ValueSome opInfo when opInfo.Token = Token.KWLazy ->
+                        // printOpInfo opInfo
+                        let! tok = consumePeeked token
+                        let power = BindingPower.fromLevel (int opInfo.Precedence)
+                        return Prefix(tok, preturn tok, power, completeLazy)
+                    | ValueSome opInfo when opInfo.Token = Token.KWAssert ->
+                        // printOpInfo opInfo
+                        let! tok = consumePeeked token
+                        let power = BindingPower.fromLevel (int opInfo.Precedence)
+                        return Prefix(tok, preturn tok, power, completeAssert)
+                    | _ -> return! fail (Message "Not a prefix operator")
             }
 
         interface Operators<
@@ -1061,31 +1266,6 @@ module Expr =
     let pIdent =
         nextNonTriviaTokenSatisfiesL (fun synTok -> synTok.Token = Token.Identifier) "Expected identifier"
         |>> Expr.Ident
-
-    let pLetValue =
-        withContext
-            OffsideContext.Let
-            (parser {
-                let! letTok = pLet
-                let! recTok = opt pRec
-
-                match recTok with
-                | ValueSome recTok ->
-                    let! defns = FunctionOrValueDefn.parseSepByAnd1
-                    let! inTok = pInVirt
-                    let! expr = refExprSeqBlock.Parser
-                    return Expr.LetRec(letTok, recTok, defns, inTok, expr)
-                | ValueNone ->
-                    match! FunctionOrValueDefn.parse with
-                    | FunctionOrValueDefn.Function funcDefn ->
-                        let! inTok = pInVirt
-                        let! expr = refExprSeqBlock.Parser
-                        return Expr.LetFunction(letTok, funcDefn, inTok, expr)
-                    | FunctionOrValueDefn.Value valueDefn ->
-                        let! inTok = pInVirt
-                        let! expr = refExprSeqBlock.Parser
-                        return Expr.LetValue(letTok, valueDefn, inTok, expr)
-            })
 
     let pParen =
         parser {
@@ -1165,145 +1345,6 @@ module Expr =
             return Expr.StructTuple(kw, l, e, r)
         }
 
-    let pIfExpr =
-        withContext
-            OffsideContext.If
-            (parser {
-                let! ifTok = pIf
-                let! cond = refExpr.Parser
-                let! thenTok = pThen
-
-                let! thenExpr = refExprSeqBlock.Parser
-
-                let! elifs = many ElifBranch.parse
-                let! elseBranch = opt ElseBranch.parse
-                return Expr.IfThenElse(ifTok, cond, thenTok, thenExpr, List.ofSeq elifs, elseBranch)
-            })
-
-    let pMatchExpr =
-        withContext
-            OffsideContext.Match
-            (parser {
-                let! m = pMatch
-                let! e = refExpr.Parser
-                let! w = pWith
-                let! rules = withContext OffsideContext.MatchClauses Rules.parse
-                return Expr.Match(m, e, w, rules)
-            })
-
-    let pFunctionExpr =
-        withContext
-            OffsideContext.Function
-            (parser {
-                let! funTok = pFunction
-                let! rules = withContext OffsideContext.MatchClauses Rules.parse
-                return Expr.Function(funTok, rules)
-            })
-
-    let pFunExpr =
-        withContext
-            OffsideContext.Fun
-            (parser {
-                let! funTok = pFun
-                let! pats = many1 Pat.parse
-                let! arrow = pArrowRight
-                let! expr = refExprSeqBlock.Parser
-                return Expr.Fun(funTok, List.ofSeq pats, arrow, expr)
-            })
-
-    let pTryExpr =
-        withContext
-            OffsideContext.Try
-            (parser {
-                let! tryTok = pTry
-                let! tryExpr = refExprSeqBlock.Parser
-
-                return!
-                    choiceL
-                        [
-                            parser {
-                                let! withTok = pWith
-                                let! rules = withContext OffsideContext.MatchClauses Rules.parse
-                                return Expr.TryWith(tryTok, tryExpr, withTok, rules)
-                            }
-                            parser {
-                                let! finTok = pFinally
-                                let! finExpr = refExprSeqBlock.Parser
-                                return Expr.TryFinally(tryTok, tryExpr, finTok, finExpr)
-                            }
-                        ]
-                        "Expected 'with' or 'finally'"
-            })
-
-    let pWhileExpr =
-        withContext
-            OffsideContext.While
-            (parser {
-                let! whileTok = pWhile
-                let! cond = refExpr.Parser
-                let! doTok = pDo
-
-                let! body = refExprSeqBlock.Parser
-
-                let! doneTok = pDone
-                return Expr.While(whileTok, cond, doTok, body, doneTok)
-            })
-
-    let private pIdentTok = nextNonTriviaTokenIsL Token.Identifier "identifier"
-
-    let pForExpr =
-        withContext
-            OffsideContext.For
-            (parser {
-                let! forTok = pFor
-
-                return!
-                    choiceL
-                        [
-                            // ForTo: for ident = start to/downto end do body done
-                            parser {
-                                let! ident = pIdentTok
-                                let! eq = pEquals
-                                let! startExpr = refExpr.Parser
-                                let! toTok = pToOrDownTo
-                                let! endExpr = refExpr.Parser
-                                let! doTok = pDo
-
-                                let! body = refExprSeqBlock.Parser
-
-                                let! doneTok = pDone
-                                return Expr.ForTo(forTok, ident, eq, startExpr, toTok, endExpr, doTok, body, doneTok)
-                            }
-
-                            // ForIn: for pat in expr do body done
-                            parser {
-                                let! pat = Pat.parse
-                                let! inTok = pInVirt
-                                let! range = ExprOrRange.parse
-                                let! doTok = pDo
-
-                                let! body = refExprSeqBlock.Parser
-
-                                let! doneTok = pDone
-                                return Expr.ForIn(forTok, pat, inTok, range, doTok, body, doneTok)
-                            }
-                        ]
-                        "Expected for-to or for-in"
-            })
-
-    let pUseExpr =
-        withContext
-            OffsideContext.Let
-            (parser {
-                let! useTok = pUse
-                let! ident = pIdentTok
-                let! eq = pEquals
-                let! expr = refExprSeqBlock.Parser
-                let! inTok = pInVirt
-                let! body = refExprSeqBlock.Parser
-                return Expr.Use(useTok, ident, eq, expr, inTok, body)
-            })
-
     let pNewExpr =
         parser {
             let! newTok = pNew
@@ -1382,26 +1423,19 @@ module Expr =
             p
 
 
-    let atomExpr =
+    let parseAtomic =
         dispatchNextNonTriviaTokenFallback
             [
                 // TODO: Performance, sort this by frequency and put most common cases first
                 Token.Identifier, pIdent
                 //Token.Unit, pConst
-                Token.KWLet, recoverExpr pLetValue
+                // Note: KWLet, KWIf, KWMatch, KWFunction, KWFun, KWTry, KWWhile, KWFor, KWUse
+                // are handled as PrefixMapped operators in ExprOperatorParser.lhsParser.
                 Token.KWLParen, recoverExpr pParen
                 //Token.OpNil, recoverExpr pList
                 Token.KWLBracket, recoverExpr pList
                 Token.KWLArrayBracket, recoverExpr pArray
                 Token.KWBegin, recoverExpr pBeginEnd
-                Token.KWIf, recoverExpr pIfExpr
-                Token.KWMatch, recoverExpr pMatchExpr
-                Token.KWFunction, recoverExpr pFunctionExpr
-                Token.KWFun, recoverExpr pFunExpr
-                Token.KWTry, recoverExpr pTryExpr
-                Token.KWWhile, recoverExpr pWhileExpr
-                Token.KWFor, recoverExpr pForExpr
-                Token.KWUse, recoverExpr pUseExpr
                 Token.KWStruct, recoverExpr pStructTuple
                 Token.KWNew, recoverExpr pNewExpr
                 Token.KWLBrace, recoverExpr pRecordOrObjectExpr
@@ -1410,7 +1444,7 @@ module Expr =
 
     let operators = ExprOperatorParser()
 
-    let parse = Operator.parser atomExpr operators
+    let parse = Operator.parser parseAtomic operators
 
     let parseSeqBlock =
         withContext OffsideContext.SeqBlock parse
@@ -1435,11 +1469,13 @@ module Expr =
         // So, we create a separate parser for expressions in lists
         // and set the starting precedence one level higher so it will be parsed in `pList`
         refExprInCollectionOrRecords.Set(
-            Operator.parserAt (int PrecedenceLevel.Semicolon + 1 |> BindingPower.fromLevel) atomExpr operators
+            Operator.parserAt (int PrecedenceLevel.Semicolon + 1 |> BindingPower.fromLevel) parseAtomic operators
         )
 
         // Pattern guards (when <expr>) must stop before '->' (Arrow) so the arrow
         // remains available for Rule.parse to consume with pArrowRight.
         // Arrow is right-associative so its LBP = base+1; using Arrow+1 as the level
         // makes minBp = base+3, which is just above Arrow's LBP, excluding it.
-        refExprGuard.Set(Operator.parserAt (int PrecedenceLevel.Arrow + 1 |> BindingPower.fromLevel) atomExpr operators)
+        refExprGuard.Set(
+            Operator.parserAt (int PrecedenceLevel.Arrow + 1 |> BindingPower.fromLevel) parseAtomic operators
+        )

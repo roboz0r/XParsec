@@ -273,51 +273,53 @@ module MethodOrPropDefn =
 
             | _ ->
 
-            match! opt pIdent with
-            | ValueSome ident ->
-                match! peekNextNonTriviaToken with
-                | t when t.Token = Token.OpDot ->
-                    let! dot = consumePeeked t
+                match! opt pIdent with
+                | ValueSome ident ->
+                    match! peekNextNonTriviaToken with
+                    | t when t.Token = Token.OpDot ->
+                        let! dot = consumePeeked t
 
+                        return!
+                            choiceL
+                                [
+                                    FunctionOrValueDefn.parse
+                                    |>> (function
+                                    | FunctionOrValueDefn.Function funcDefn ->
+                                        MethodOrPropDefn.Method(ValueSome struct (ident, dot), funcDefn)
+                                    | FunctionOrValueDefn.Value valueDefn ->
+                                        MethodOrPropDefn.Property(ValueSome struct (ident, dot), valueDefn))
+
+                                    pPropertyWithGetSet
+                                    |>> fun propWithGetSetBuilder ->
+                                        propWithGetSetBuilder (ValueSome struct (ident, dot))
+
+                                ]
+                                "MethodOrPropDefn after dot"
+
+                    | t when t.Token = Token.OpEquality ->
+                        let! eq = consumePeeked t
+                        let! expr = Expr.parse
+
+                        return
+                            MethodOrPropDefn.Property(
+                                ValueNone,
+                                ValueDefn(ValueNone, ValueNone, Pat.NamedSimple ident, ValueNone, ValueNone, eq, expr)
+                            )
+
+                    | _ -> return! fail (Message "Expected '.' or '=' after identifier in member definition")
+                | ValueNone ->
                     return!
                         choiceL
                             [
                                 FunctionOrValueDefn.parse
                                 |>> (function
-                                | FunctionOrValueDefn.Function funcDefn ->
-                                    MethodOrPropDefn.Method(ValueSome struct (ident, dot), funcDefn)
-                                | FunctionOrValueDefn.Value valueDefn ->
-                                    MethodOrPropDefn.Property(ValueSome struct (ident, dot), valueDefn))
-
+                                | FunctionOrValueDefn.Function funcDefn -> MethodOrPropDefn.Method(ValueNone, funcDefn)
+                                | FunctionOrValueDefn.Value valueDefn -> MethodOrPropDefn.Property(ValueNone, valueDefn))
                                 pPropertyWithGetSet
-                                |>> fun propWithGetSetBuilder -> propWithGetSetBuilder (ValueSome struct (ident, dot))
+                                |>> fun propWithGetSetBuilder -> propWithGetSetBuilder ValueNone
 
                             ]
-                            "MethodOrPropDefn after dot"
-
-                | t when t.Token = Token.OpEquality ->
-                    let! eq = consumePeeked t
-                    let! expr = Expr.parse
-
-                    return
-                        MethodOrPropDefn.Property(
-                            ValueNone,
-                            ValueDefn(ValueNone, ValueNone, Pat.NamedSimple ident, ValueNone, ValueNone, eq, expr))
-
-                | _ -> return! fail (Message "Expected '.' or '=' after identifier in member definition")
-            | ValueNone ->
-                return!
-                    choiceL
-                        [
-                            FunctionOrValueDefn.parse
-                            |>> (function
-                            | FunctionOrValueDefn.Function funcDefn -> MethodOrPropDefn.Method(ValueNone, funcDefn)
-                            | FunctionOrValueDefn.Value valueDefn -> MethodOrPropDefn.Property(ValueNone, valueDefn))
-                            pPropertyWithGetSet
-                            |>> fun propWithGetSetBuilder -> propWithGetSetBuilder ValueNone
-
-                        ]
-                        "MethodOrPropDefn no ident"
+                            "MethodOrPropDefn no ident"
         }
 
 [<AutoOpen>]
@@ -340,7 +342,7 @@ module AdditionalConstrExpr =
                             parser {
                                 let! inh = pInherit
                                 let! t = Type.parse
-                                let! e = opt Expr.parse
+                                let! e = opt Expr.parseAtomic
                                 return ClassInheritsDecl.ClassInheritsDecl(inh, t, e)
                             }
                         )
@@ -374,6 +376,7 @@ module AutoPropDefn =
             let! valTok = pVal
             let! access = opt pAccessModifier
             let! ident = pIdent
+
             let! returnType =
                 opt (
                     parser {
@@ -382,6 +385,7 @@ module AutoPropDefn =
                         return ReturnType(colon, t)
                     }
                 )
+
             let! eq = pEquals
             let! expr = Expr.parse
             let! withClause = opt MemberSig.pWithClause
@@ -389,7 +393,15 @@ module AutoPropDefn =
             return
                 match withClause with
                 | ValueSome struct (withTok, (acc1, acc2)) ->
-                    MethodOrPropDefn.AutoProperty(valTok, access, ident, returnType, eq, expr, ValueSome struct (withTok, acc1, acc2))
+                    MethodOrPropDefn.AutoProperty(
+                        valTok,
+                        access,
+                        ident,
+                        returnType,
+                        eq,
+                        expr,
+                        ValueSome struct (withTok, acc1, acc2)
+                    )
                 | ValueNone -> MethodOrPropDefn.AutoProperty(valTok, access, ident, returnType, eq, expr, ValueNone)
         }
 
@@ -669,8 +681,8 @@ module ClassInheritsDecl =
         parser {
             let! inh = pInherit
             let! t = Type.parse
-            // Optional constructor args
-            let! e = opt Expr.parse
+            // Optional constructor args — atomic only (no infix operators, semicolons, or type annotations at top level)
+            let! e = opt Expr.parseAtomic
             return ClassInheritsDecl.ClassInheritsDecl(inh, t, e)
         }
 

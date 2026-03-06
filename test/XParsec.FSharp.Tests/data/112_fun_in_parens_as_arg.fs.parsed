@@ -7,7 +7,7 @@ FunctionOrValue:
       App:
         Func:
           Ident                          'parser'          Identifier          tok=  12  pos=  30
-        Arg:
+        Args:
           Computation:
             {                            '{'               KWLBrace            tok=  14  pos=  37
             let!                         'let!'            KWLetBang           tok=  17  pos=  47
@@ -20,7 +20,7 @@ FunctionOrValue:
                 App:
                   Func:
                     Ident                'nextFn'          Identifier          tok=  28  pos=  89
-                  Arg:
+                  Args:
                     ParenBlock           '('               KWLParen            tok=  30  pos=  96
                       Fun                'fun'             KWFun               tok=  31  pos=  97
                       Pats:
@@ -40,7 +40,7 @@ FunctionOrValue:
                           App:
                             Func:
                               Ident      'check'           Identifier          tok=  49  pos= 136
-                            Arg:
+                            Args:
                               Const      '"<"'             StringLiteral       tok=  51  pos= 142
                               Ident      't'               Identifier          tok=  53  pos= 146
                               Ident      'state'           Identifier          tok=  55  pos= 148
