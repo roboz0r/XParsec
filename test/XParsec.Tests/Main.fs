@@ -33,6 +33,7 @@ let main argv =
                 OperatorParsingTests.tests4
                 OperatorParsingTests.testsDocs
                 OperatorParsingTests.sortingBugTests
+                OperatorParsingTests.testsPrefixMapped
                 ErrorFormattingTests.tests
             ]
 

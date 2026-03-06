@@ -28,6 +28,7 @@ type Expr<'Token> =
     | Nary of op: 'Token * exprs: Expr<'Token> list
     | IfThen of cond: Expr<'Token> * body: Expr<'Token>
     | Dot of lhs: Expr<'Token> * rhs: 'Token
+    | Block of body: Expr<'Token>
 
 module Expr =
     let infix lhs op rhs = Infix(op, lhs, rhs)
@@ -241,6 +242,7 @@ type Tokens2 =
     | Dot // For InfixMapped
     | IfKey
     | ThenKey // For LHSTernary (represented by 'i' and 't' in string)
+    | BlockKey // For PrefixMapped (represented by 'b' in string)
 
 module Tokens2 =
     let ofString (s: string) =
@@ -273,6 +275,7 @@ module Tokens2 =
             | '.' -> Dot
             | 'i' -> IfKey // 'i' stands for "if"
             | 't' -> ThenKey // 't' stands for "then"
+            | 'b' -> BlockKey // 'b' stands for "block" (keyword-prefix form)
             | _ -> failwith $"Invalid token '{c}' in '{s}'"
         )
 
@@ -946,5 +949,69 @@ let sortingBugTests =
                         (Infix(Op '^', Token(Number 1), Token(Number 2)))
                         "Should parse '**' correctly as Power operator"
                 | Error e -> failwith $"Parsing failed. This indicates 'Mul' was tried before 'Pow'.\nError: %A{e}"
+            }
+        ]
+
+#if !FABLE_COMPILER
+[<Tests>]
+#endif
+let testsPrefixMapped =
+    // 'b' is the BlockKey token, simulating a keyword-prefix form (like `fun` or `if`).
+    // parseBlockBody parses exactly one number token as the block body.
+    // This body parser runs independently of Pratt descent — unlike `prefix`, it is
+    // not given a binding power and does not recurse into the Pratt loop.
+    let parseBlockBody = satisfy Tokens2.isNumber |>> Token
+
+    let ops =
+        [
+            Operator.prefixMapped BlockKey (pitem BlockKey) parseBlockBody (fun _op body -> Block body)
+            Operator.infixLeftAssoc Add P3 (pitem Add) Expr.infix
+            Operator.infixLeftAssoc Mul P4 (pitem Mul) Expr.infix
+        ]
+        |> Operator.create
+
+    let pAtom = satisfy Tokens2.isNumber |>> Token
+
+    let testParser (tokens, expected) =
+        let p = Operator.parser pAtom ops
+        let tokens2 = Tokens2.ofString tokens
+        let reader = Reader.ofArray tokens2 ()
+
+        match p reader with
+        | Ok success ->
+            $"{tokens} wasn't parsed" |> Expect.equal success expected
+            "Parser did not consume all input" |> Expect.isTrue reader.AtEnd
+        | Error err -> failwith $"parsing '{tokens}' failed\n%A{err}"
+
+    testList
+        "PrefixMapped"
+        [
+            test "Basic" {
+                // b1 => Block(Token(N1))
+                testParser ("b1", Block(Token N1))
+            }
+
+            test "PrefixMapped followed by infix" {
+                // b1+2 => Infix(Add, Block(Token(N1)), Token(N2))
+                // parseRight only consumes '1'; the '+2' is handled by the outer Pratt loop.
+                // This is the key distinction from `prefix`: no Pratt descent means the block
+                // does not "absorb" the following infix operators.
+                testParser ("b1+2", Infix(Add, Block(Token N1), Token N2))
+            }
+
+            test "PrefixMapped as infix RHS" {
+                // 1+b2 => Infix(Add, Token(N1), Block(Token(N2)))
+                testParser ("1+b2", Infix(Add, Token N1, Block(Token N2)))
+            }
+
+            test "PrefixMapped with high-precedence infix following body" {
+                // b1*2+3 => Infix(Add, Infix(Mul, Block(Token(N1)), Token(N2)), Token(N3))
+                // parseRight consumed only '1'; the outer Pratt loop handles the rest.
+                testParser ("b1*2+3", Infix(Add, Infix(Mul, Block(Token N1), Token N2), Token N3))
+            }
+
+            test "Chained PrefixMapped via infix" {
+                // b1+b2 => Infix(Add, Block(Token(N1)), Block(Token(N2)))
+                testParser ("b1+b2", Infix(Add, Block(Token N1), Block(Token N2)))
             }
         ]
