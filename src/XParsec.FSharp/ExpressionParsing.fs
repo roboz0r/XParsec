@@ -71,7 +71,7 @@ module ValueDefn =
         parser {
             let! mut = opt pMutable
             let! access = opt pAccessModifier
-            let! pat = Pat.parseAtomic
+            let! pat = Pat.parseAtomicOrTuple
             let! typarDefns = opt TyparDefns.parse
             let! returnType = opt ReturnType.parse
             let! equals = pEquals
@@ -810,12 +810,17 @@ module Expr =
                 | t when t.Token = Token.OpSemicolon -> return! consumePeeked t
                 | t ->
                     // Not a semicolon, but maybe we emit a virtual semicolon for newline-separated expressions.
-                    // Closing delimiters (}, ], |]) cannot start an expression, so never emit VirtualSep for them —
+                    // Closing delimiters (}, ], |], ), end) cannot start an expression, so never emit VirtualSep for them —
                     // they belong to an enclosing parser (e.g. the paren/brace block that called us).
+                    // Pure infix operators (e.g. ||, &&, |>, >>) cannot start an expression either —
+                    // they must be continuations of the previous expression (F# spec permits infix continuation).
                     match t.Token with
                     | Token.KWRBrace
                     | Token.KWRBracket
-                    | Token.KWRArrayBracket -> return! failSep
+                    | Token.KWRArrayBracket
+                    | Token.KWRParen
+                    | Token.KWEnd -> return! failSep
+                    | _ when TokenInfo.isOperator t.Token && not (TokenInfo.canBePrefix t.Token) -> return! failSep
                     | _ ->
                         let! indent = currentIndent
                         let! state = getUserState

@@ -1,0 +1,25 @@
+module                     'module'          KWModule            tok=   0  pos=   0
+                           'M'               Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                      'let'             KWLet               tok=   5  pos=  10
+    IdentOrOp:
+      Ident                'isLiteralT...'   Identifier          tok=   7  pos=  14
+    Pats:
+      Pat.Paren            '('               KWLParen            tok=   9  pos=  29
+        Pat.Typed:
+          Pat.NamedSimple  't'               Identifier          tok=  10  pos=  30
+          Colon            ':'               OpColon             tok=  11  pos=  31
+          NamedType:
+            LongIdent:
+                           'Token'           Identifier          tok=  13  pos=  33
+                           ')'               KWRParen            tok=  14  pos=  38
+    =                      '='               OpEquality          tok=  16  pos=  40
+      InfixApp             '||'              op_BooleanOr        tok=  24  pos=  62
+        LongIdentOrOp:
+          LongIdent:
+                           't'               Identifier          tok=  19  pos=  46
+                           'IsNumeric'       Identifier          tok=  21  pos=  48
+        LongIdentOrOp:
+          LongIdent:
+                           't'               Identifier          tok=  26  pos=  65
+                           'IsOther'         Identifier          tok=  28  pos=  67

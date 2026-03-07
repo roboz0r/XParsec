@@ -332,6 +332,33 @@ module Pat =
     let parseMany1 = many1 parse
     let parseAtomicMany1 = many1 parseAtomic
 
+    let parseAtomicOrTuple =
+        parser {
+            let! firstPat = parseAtomic
+
+            // Support unparenthesized tuple patterns: let a, b = expr
+            let! extraPats =
+                many (
+                    parser {
+                        let! comma = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpComma) "Expected ','"
+
+                        let! pat = parseAtomic
+                        return (comma, pat)
+                    }
+                )
+
+            let pat =
+                if extraPats.IsEmpty then
+                    firstPat
+                else
+                    Pat.Tuple(
+                        firstPat :: (extraPats |> Seq.map snd |> List.ofSeq),
+                        extraPats |> Seq.map fst |> List.ofSeq
+                    )
+
+            return pat
+        }
+
     do refPat.Set parse
 
 

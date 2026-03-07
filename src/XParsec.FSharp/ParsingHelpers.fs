@@ -145,12 +145,30 @@ module Parsing =
             // innermost context's offside line. Transparent to all callers — stops any parser
             // that tries to consume a token belonging to an outer block.
             let isOffside =
-                // TODO: Handle 15.1.10 Permitted Undentations
+                // TODO: Handle all 15.1.10 Permitted Undentations
                 reader.State.IndentationMode = Syntax.Light
                 && (
                     match reader.State.Context with
-                    | { Indent = contextIndent } :: _ ->
-                        ParseState.getIndent reader.State (reader.Index * 1<token>) < contextIndent
+                    | { Indent = contextIndent } :: rest ->
+                        let tokenCol = ParseState.getIndent reader.State (reader.Index * 1<token>)
+
+                        if tokenCol < contextIndent then
+                            // F# spec 15.1.10.2: else/elif tokens may undent to the column of
+                            // any enclosing if context without being considered offside.
+                            let isElseOrElif = token.Token = Token.KWElse || token.Token = Token.KWElif
+
+                            if isElseOrElif then
+                                // Not offside if an enclosing If context's indent allows this column
+                                not (
+                                    rest
+                                    |> List.exists (fun ctx ->
+                                        ctx.Context = OffsideContext.If && ctx.Indent <= tokenCol
+                                    )
+                                )
+                            else
+                                true // offside
+                        else
+                            false // not offside
                     | [] -> false
                 )
 
@@ -477,6 +495,9 @@ module Parsing =
             preturn () reader
 
     let inline choiceL p msg =
+        // Shadow choiceL to give the full error message in debug builds,
+        // but avoid the overhead of constructing the full error message
+        // in release builds where it shouldn't be needed.
 #if DEBUG
         choice p
 #else
