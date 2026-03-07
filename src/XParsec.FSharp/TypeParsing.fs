@@ -239,7 +239,7 @@ module Type =
                             parser {
                                 let! l = pLessThan
                                 let! args, _ = sepBy pTypeArg pComma
-                                let! r = pGreaterThan
+                                let! r = pCloseTypeParams
                                 return (l, List.ofSeq args, r)
                             }
                         )
