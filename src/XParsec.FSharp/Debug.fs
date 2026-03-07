@@ -145,7 +145,9 @@ let makeDebugVisitor (ctx: PrintContext) (input: string) (lexed: Lexed) : AstVis
         VisitToken = fun label tok -> printTokenRow label ctx input lexed tok
         EnterSection =
             fun name ->
-                if name <> "" then ctx.WriteLine($"{name}:")
+                if name <> "" then
+                    ctx.WriteLine($"{name}:")
+
                 ctx.Indent <- ctx.Indent + 1
         ExitSection = fun _ -> ctx.Indent <- ctx.Indent - 1
         WriteLine = fun text -> ctx.WriteLine text
@@ -177,12 +179,7 @@ let printActivePatternOpName
     =
     walkActivePatternOpName (makeDebugVisitor ctx input lexed) activePatternOpName
 
-let printLongIdentOrOp
-    (ctx: PrintContext)
-    (input: string)
-    (lexed: Lexed)
-    (longIdentOrOp: LongIdentOrOp<SyntaxToken>)
-    =
+let printLongIdentOrOp (ctx: PrintContext) (input: string) (lexed: Lexed) (longIdentOrOp: LongIdentOrOp<SyntaxToken>) =
     walkLongIdentOrOp (makeDebugVisitor ctx input lexed) longIdentOrOp
 
 let printPatParam (ctx: PrintContext) (input: string) (lexed: Lexed) (param: PatParam<SyntaxToken>) =
@@ -326,12 +323,7 @@ let printNamespaceDeclGroup
     =
     walkNamespaceDeclGroup (makeDebugVisitor ctx input lexed) group
 
-let printImplementationFile
-    (ctx: PrintContext)
-    (input: string)
-    (lexed: Lexed)
-    (file: ImplementationFile<SyntaxToken>)
-    =
+let printImplementationFile (ctx: PrintContext) (input: string) (lexed: Lexed) (file: ImplementationFile<SyntaxToken>) =
     walkImplementationFile (makeDebugVisitor ctx input lexed) file
 
 let printFSharpAst (ctx: PrintContext) (input: string) (lexed: Lexed) (ast: FSharpAst<SyntaxToken>) =
