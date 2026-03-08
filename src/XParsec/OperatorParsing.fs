@@ -164,6 +164,7 @@ type RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
         op: 'Op *
         parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
         leftPower: byte<bp> *
+        allowTrailingOp: bool *
         completeNary: (ResizeArray<'Expr> -> ResizeArray<'Op> -> 'Expr)
 
     /// A generalized infix operator where the Right-Hand Side is NOT necessarily an expression.
@@ -347,7 +348,7 @@ module internal Pratt =
                     | Ok rhs -> parseRhs (completeInfix lhs op rhs) reader
                     | Error e -> Error e
 
-            | InfixNary(op, parseOp, leftPower, completeNary) ->
+            | InfixNary(op, parseOp, leftPower, allowTrailingOp, completeNary) ->
                 if leftPower < minBinding then
                     reader.Position <- pos
                     preturn lhs reader
@@ -363,6 +364,14 @@ module internal Pratt =
                         let rightPower = leftPower + 1uy<bp>
 
                         match parseLhs rightPower reader with
+                        | Error _ when allowTrailingOp ->
+                            // parseLhs failed immediately: the separator consumed before this call was
+                            // trailing (nothing follows). Remove it from parsedOps and return what we have.
+                            // parseLhs restores the reader position on failure, so no reset needed.
+                            if parsedOps.Count > 0 then
+                                parsedOps.RemoveAt(parsedOps.Count - 1)
+
+                            preturn items reader
                         | Error e -> Error e
                         | Ok next ->
                             items.Add next
@@ -374,9 +383,9 @@ module internal Pratt =
                             match ops.RhsParser reader with
                             | Ok nextOp ->
                                 match nextOp with
-                                | InfixNary(nextSym, _, _, _) when ops.OpComparer.Equals(nextSym, op) ->
+                                | InfixNary(nextSym, _, _, _, _) when ops.OpComparer.Equals(nextSym, op) ->
                                     parsedOps.Add nextSym
-                                    loopNary items parsedOps
+                                    loopNary items parsedOps // TAIL CALL: preserved for all associativity cases
                                 | _ ->
                                     // Found a different operator (e.g. ')' or '+').
                                     // Backtrack so the outer recursive call or caller can handle it.
@@ -554,7 +563,7 @@ module Operator =
         | InfixLeft(op, _, _, _)
         | InfixRight(op, _, _, _)
         | InfixNonAssociative(op, _, _, _)
-        | InfixNary(op, _, _, _)
+        | InfixNary(op, _, _, _, _)
         | InfixMapped(op, _, _, _, _)
         | Postfix(op, _, _, _)
         | Indexer(op, _, _, _, _, _, _)
@@ -565,7 +574,7 @@ module Operator =
         | InfixLeft(_, parseOp, _, _)
         | InfixRight(_, parseOp, _, _)
         | InfixNonAssociative(_, parseOp, _, _)
-        | InfixNary(_, parseOp, _, _)
+        | InfixNary(_, parseOp, _, _, _)
         | InfixMapped(_, parseOp, _, _, _)
         | Postfix(_, parseOp, _, _)
         | Indexer(_, parseOp, _, _, _, _, _)
@@ -576,7 +585,7 @@ module Operator =
         | InfixLeft(_, _, leftPower, _)
         | InfixRight(_, _, leftPower, _)
         | InfixNonAssociative(_, _, leftPower, _)
-        | InfixNary(_, _, leftPower, _)
+        | InfixNary(_, _, leftPower, _, _)
         | InfixMapped(_, _, leftPower, _, _)
         | Postfix(_, _, leftPower, _)
         | Indexer(_, _, leftPower, _, _, _, _)
@@ -587,7 +596,7 @@ module Operator =
         | InfixLeft(_, _, leftPower, _) -> BindingPower.leftAssocRhs leftPower
         | InfixRight(_, _, leftPower, _) -> BindingPower.rightAssocRhs leftPower
         | InfixNonAssociative(_, _, leftPower, _) -> leftPower
-        | InfixNary(_, _, leftPower, _) -> leftPower
+        | InfixNary(_, _, leftPower, _, _) -> leftPower
         | InfixMapped(_, _, leftPower, _, _) -> BindingPower.leftAssocRhs leftPower
         | Ternary(_, _, leftPower, _, _) -> BindingPower.rightAssocRhs leftPower
         | Postfix(_, _, _, _)
@@ -683,9 +692,10 @@ module Operator =
 
     /// Creates an n-ary infix operator with the specified properties.
     /// N-ary operators are similar to left-associative operators but allow chaining without ambiguity.
-    let infixNary op precedence parseOp complete =
+    /// Set `allowTrailingOp` to true to silently accept a trailing separator (e.g. semicolons in lists).
+    let infixNary op precedence parseOp allowTrailingOp complete =
         let power = Precedence.bindingPower precedence
-        RHS(InfixNary(op, parseOp, power, complete))
+        RHS(InfixNary(op, parseOp, power, allowTrailingOp, complete))
 
     /// Creates a prefix operator with the specified properties.
     let prefix op precedence parseOp complete =
