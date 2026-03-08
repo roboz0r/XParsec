@@ -198,7 +198,7 @@ let tests =
                 let reader = Reader.ofArray tokens ()
 
                 let ops =
-                    [ Operator.infixNary (Op ',') P1 (pitem (Op ',')) Expr.tupleReducer ]
+                    [ Operator.infixNary (Op ',') P1 (pitem (Op ',')) false Expr.tupleReducer ]
                     |> Operator.create
 
                 let p = Operator.parser (pid |>> Expr.Token) ops
@@ -306,7 +306,7 @@ let tests2 =
             // Note: We use a low precedence (P1) so it wraps loosely
             Operator.lhsTernary IfKey P1 (pitem IfKey) ThenKey (pitem ThenKey) Expr.lhsTernary
 
-            Operator.infixNary Tuple P2 (pitem Tuple) Expr.tupleReducer
+            Operator.infixNary Tuple P2 (pitem Tuple) false Expr.tupleReducer
 
             Operator.infixLeftAssoc Add P3 (pitem Add) Expr.infix
             Operator.infixLeftAssoc Sub P3 (pitem Sub) Expr.infix
@@ -674,7 +674,7 @@ let tests4 =
     let ops =
         [
             Operator.ternary If P1 (pitem '?' >>% If) (pitem ':' >>% Else) Expr.ternary
-            Operator.infixNary Tuple P2 (pitem ',' >>% Tuple) Expr.tupleReducer
+            Operator.infixNary Tuple P2 (pitem ',' >>% Tuple) false Expr.tupleReducer
 
             Operator.infixLeftAssoc Add P3 (pitem '+' >>% Add) Expr.infix
             Operator.infixLeftAssoc Sub P3 (pitem '-' >>% Sub) Expr.infix
