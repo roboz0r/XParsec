@@ -1806,6 +1806,7 @@ module internal TokenInfo =
             | Token.OpDivision
             | Token.OpConcatenate
             | Token.OpEquality
+            | Token.OpDereference
             | Token.KWLazy
             | Token.KWAssert
             | Token.VirtualApp
@@ -1855,6 +1856,7 @@ module internal TokenInfo =
             | Token.OpDivision -> PrecedenceLevel.InfixMultiply
             | Token.OpConcatenate -> PrecedenceLevel.Power
             | Token.OpEquality -> PrecedenceLevel.LogicalAndBitwise // = (equality comparison)
+            | Token.OpDereference -> PrecedenceLevel.Prefix
             | Token.KWLParen
             | Token.KWRParen
             | Token.KWLBracket
@@ -2148,7 +2150,9 @@ type OperatorInfo =
     member this.StartIndex: int64 = this._token.StartIndex
 
     member this.CanBePrefix: bool =
-        TokenInfo.isOperator this.Token && TokenInfo.canBePrefix this.Token
+        match this.Token with
+        | Token.OpDereference -> true
+        | t -> TokenInfo.isOperator t && TokenInfo.canBePrefix t
 
     member this.Associativity = OperatorInfo.associativity this.Precedence
     member this.Precedence = this._precedence

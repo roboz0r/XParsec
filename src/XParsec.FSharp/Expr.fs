@@ -125,7 +125,13 @@ and [<RequireQualifiedAccess>] StaticTypars<'T> =
     | OrList of lParen: 'T * typars: (Typar<'T> * 'T (* or *) ) list * rParen: 'T
 
 // Represents: elif-branch and else-branch
-type ElifBranch<'T> = | ElifBranch of elifToken: 'T * condition: Expr<'T> * thenToken: 'T * expr: Expr<'T>
+// Note: The spec doesn't mention 'else if' branches, but they are present
+// in the language in that 'else if' can be interleaved with 'elif' at the same indentation level.
+[<RequireQualifiedAccess>]
+type ElifBranch<'T> =
+    | Elif of elifToken: 'T * condition: Expr<'T> * thenToken: 'T * expr: Expr<'T>
+    | ElseIf of elseToken: 'T * ifToken: 'T * condition: Expr<'T> * thenToken: 'T * expr: Expr<'T>
+
 type ElseBranch<'T> = | ElseBranch of elseToken: 'T * expr: Expr<'T>
 
 // Represents: function-or-value-defn and related grammar

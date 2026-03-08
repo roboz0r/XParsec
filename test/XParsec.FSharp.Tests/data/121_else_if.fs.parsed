@@ -1,28 +1,41 @@
-module                 'module'          KWModule            tok=   0  pos=   0
-                       'M'               Identifier          tok=   2  pos=   7
+module                'module'          KWModule            tok=   0  pos=   0
+                      'M'               Identifier          tok=   2  pos=   7
 FunctionOrValue:
-  let                  'let'             KWLet               tok=   5  pos=  10
+  let                 'let'             KWLet               tok=   5  pos=  10
     IdentOrOp:
-      Ident            'f'               Identifier          tok=   7  pos=  14
+      Ident           'f'               Identifier          tok=   7  pos=  14
     Pats:
-      Pat.NamedSimple  'x'               Identifier          tok=   9  pos=  16
-    =                  '='               OpEquality          tok=  11  pos=  18
+      Pat.Named:
+        Ident         'x'               Identifier          tok=   9  pos=  16
+        Param:
+          PatParam.LongIdent:
+            LongIdent:
+                      'y'               Identifier          tok=  11  pos=  18
+    =                 '='               OpEquality          tok=  13  pos=  20
       IfThenElse:
-        IfToken        'if'              KWIf                tok=  14  pos=  24
+        IfToken       'if'              KWIf                tok=  16  pos=  26
         Condition:
-          Ident        'x'               Identifier          tok=  16  pos=  27
-        ThenToken      'then'            KWThen              tok=  18  pos=  29
+          Ident       'x'               Identifier          tok=  18  pos=  29
+        ThenToken     'then'            KWThen              tok=  20  pos=  31
         ThenExpr:
-          Const        '1'               NumInt32            tok=  20  pos=  34
-        ElseToken      'else'            KWElse              tok=  23  pos=  40
+          Const       '1'               NumInt32            tok=  22  pos=  36
+        ElifBranch:
+          ElseToken   'else'            KWElse              tok=  25  pos=  42
+          IfToken     'if'              KWIf                tok=  28  pos=  51
+          ElifCondition:
+            Ident     'y'               Identifier          tok=  30  pos=  54
+          ThenToken   'then'            KWThen              tok=  32  pos=  56
+          ElifExpr:
+            Const     '2'               NumInt32            tok=  34  pos=  61
+        ElifBranch:
+          ElifToken   'elif'            KWElif              tok=  37  pos=  67
+          ElifCondition:
+            InfixApp  '&&'              op_BooleanAnd       tok=  41  pos=  74
+              Ident   'x'               Identifier          tok=  39  pos=  72
+              Ident   'y'               Identifier          tok=  43  pos=  77
+          ThenToken   'then'            KWThen              tok=  45  pos=  79
+          ElifExpr:
+            Const     '3'               NumInt32            tok=  47  pos=  84
+        ElseToken     'else'            KWElse              tok=  50  pos=  90
         ElseExpr:
-          IfThenElse:
-            IfToken    'if'              KWIf                tok=  25  pos=  45
-            Condition:
-              Ident    'x'               Identifier          tok=  27  pos=  48
-            ThenToken  'then'            KWThen              tok=  29  pos=  50
-            ThenExpr:
-              Const    '2'               NumInt32            tok=  31  pos=  55
-            ElseToken  'else'            KWElse              tok=  34  pos=  61
-            ElseExpr:
-              Const    '3'               NumInt32            tok=  36  pos=  66
+          Const       '4'               NumInt32            tok=  52  pos=  95

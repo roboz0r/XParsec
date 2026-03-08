@@ -42,6 +42,7 @@ module internal Keywords =
 
     let pEquals: KWParser = nextNonTriviaTokenIsL Token.OpEquality "Expected '=' symbol"
 
+    let pIn: KWParser = nextNonTriviaTokenIsL Token.KWIn "Expected 'in' keyword"
     let pInVirt: KWParser = nextNonTriviaTokenVirtualIfNot Token.KWIn
 
     let pLet: KWParser =
@@ -79,7 +80,7 @@ module internal Keywords =
     let pFun: KWParser = nextNonTriviaTokenIsL Token.KWFun "fun"
     let pFunction: KWParser = nextNonTriviaTokenIsL Token.KWFunction "function"
 
-    let pDone: KWParser = nextNonTriviaTokenVirtualIfNot Token.KWDone
+    let pDoneVirt: KWParser = nextNonTriviaTokenVirtualIfNot Token.KWDone
 
     let pIdent: KWParser = nextNonTriviaTokenIsL Token.Identifier "identifier"
 
@@ -153,11 +154,17 @@ module internal Keywords =
     let pQuestionMark: KWParser = nextNonTriviaTokenIsL Token.OpDynamic "?"
     let pSingleQuote: KWParser = nextNonTriviaTokenIsL Token.KWSingleQuote "'"
 
-    let pQuotedExprLeft: KWParser =
+    let pQuotationTypedLeft: KWParser =
         nextNonTriviaTokenIsL Token.OpQuotationTypedLeft "<@"
 
-    let pQuotedExprRight: KWParser =
+    let pQuotationTypedRight: KWParser =
         nextNonTriviaTokenIsL Token.OpQuotationTypedRight "@>"
+
+    let pQuotationUntypedLeft: KWParser =
+        nextNonTriviaTokenIsL Token.OpQuotationUntypedLeft "<@@"
+
+    let pQuotationUntypedRight: KWParser =
+        nextNonTriviaTokenIsL Token.OpQuotationUntypedRight "@@>"
 
     //let pNil: KWParser = nextNonTriviaTokenIsL Token.OpNil "[]"
     let pLArrayBracket: KWParser = nextNonTriviaTokenIsL Token.KWLArrayBracket "[|"
