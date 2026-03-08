@@ -447,6 +447,13 @@ and [<RequireQualifiedAccess>] MethodOrPropDefn<'T> =
         equals: 'T *
         expr: Expr<'T> *
         withClause: struct ('T * 'T * 'T voption) voption // with, get/set, optional comma and other get/set
+    | AbstractSignature of sign: MemberSig<'T>
+
+and [<RequireQualifiedAccess>] MemberKeyword<'T> =
+    | Member of 'T
+    | Override of 'T
+    | Default of 'T
+    | Abstract of abstractToken: 'T * memberToken: 'T voption
 
 // Represents: additional-constr-defn and its expression body
 and [<RequireQualifiedAccess>] AdditionalConstrExpr<'T> =
@@ -474,24 +481,12 @@ and AsDefn<'T> = | AsDefn of asToken: 'T * ident: 'T
 
 // Represents: member-defn
 and [<RequireQualifiedAccess>] MemberDefn<'T> =
-    | Concrete of
+    | Member of
         attributes: Attributes<'T> voption *
         staticToken: 'T voption *
-        memberToken: 'T *
+        keyword: MemberKeyword<'T> *
         access: 'T voption *
         defn: MethodOrPropDefn<'T>
-    | Abstract of
-        attributes: Attributes<'T> voption *
-        abstractToken: 'T *
-        memberToken: 'T voption *
-        access: 'T voption *
-        sign: MemberSig<'T>
-    | Override of
-        attributes: Attributes<'T> voption *
-        overrideToken: 'T *
-        access: 'T voption *
-        defn: MethodOrPropDefn<'T>
-    | Default of attributes: Attributes<'T> voption * defaultToken: 'T * access: 'T voption * defn: MethodOrPropDefn<'T>
     | Value of
         attributes: Attributes<'T> voption *
         staticToken: 'T voption *
@@ -522,15 +517,14 @@ and ClassFunctionOrValueDefn<'T> =
         bindings: Binding<'T> list
     | Do of attributes: Attributes<'T> voption * staticToken: 'T voption * doToken: 'T * expr: Expr<'T>
 
-and ClassTypeBody<'T> =
-    | ClassTypeBody of
-        inherits: ClassInheritsDecl<'T> voption *
-        defns: ClassFunctionOrValueDefn<'T> list *
-        elements: TypeDefnElements<'T> voption
-
-and StructTypeBody<'T> = | StructTypeBody of elements: TypeDefnElements<'T>
-
-and InterfaceTypeBody<'T> = | InterfaceTypeBody of elements: TypeDefnElements<'T>
+// Unified body type for class, struct, and interface definitions.
+// For structs and interfaces: inherits=ValueNone, classPreamble=[]
+and ObjectModelBody<'T> =
+    {
+        inherits: ClassInheritsDecl<'T> voption
+        classPreamble: ClassFunctionOrValueDefn<'T> list
+        elements: TypeDefnElement<'T> list
+    }
 
 // Represents: union-type-defn and its cases
 and [<RequireQualifiedAccess>] UnionTypeField<'T> =
@@ -600,7 +594,7 @@ and [<RequireQualifiedAccess>] TypeDefn<'T> =
         objectVal: 'T voption *  // Placeholder
         equals: 'T *
         beginToken: 'T *
-        body: ClassTypeBody<'T> *
+        body: ObjectModelBody<'T> *
         endToken: 'T
     | Class of
         typeName: TypeName<'T> *
@@ -608,7 +602,7 @@ and [<RequireQualifiedAccess>] TypeDefn<'T> =
         objectVal: 'T voption *  // Placeholder
         equals: 'T *
         classToken: 'T *
-        body: ClassTypeBody<'T> *
+        body: ObjectModelBody<'T> *
         endToken: 'T
     | Struct of
         typeName: TypeName<'T> *
@@ -616,9 +610,9 @@ and [<RequireQualifiedAccess>] TypeDefn<'T> =
         asDefn: AsDefn<'T> voption *
         equals: 'T *
         structToken: 'T *
-        body: StructTypeBody<'T> *
+        body: ObjectModelBody<'T> *
         endToken: 'T
-    | Interface of typeName: TypeName<'T> * equals: 'T * interfaceToken: 'T * body: InterfaceTypeBody<'T> * endToken: 'T
+    | Interface of typeName: TypeName<'T> * equals: 'T * interfaceToken: 'T * body: ObjectModelBody<'T> * endToken: 'T
     | Enum of typeName: TypeName<'T> * equals: 'T * cases: EnumTypeCases<'T>
     | Delegate of typeName: TypeName<'T> * equals: 'T * sign: DelegateSig<'T>
     | TypeExtension of typeName: TypeName<'T> * elements: TypeExtensionElements<'T>
