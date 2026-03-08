@@ -146,7 +146,7 @@ FunctionOrValue:
         Args:
           ComputationBlock:
             {                       '{'               KWLBrace            tok= 186  pos= 552
-            Sequential              <virt>            KWIn                tok=virt  pos= 588
+            Sequential:
               do!                   'do!'             KWDoBang            tok= 189  pos= 562
               DoBang:
                 App:
@@ -176,7 +176,7 @@ FunctionOrValue:
         Args:
           ComputationBlock:
             {                       '{'               KWLBrace            tok= 219  pos= 662
-            Sequential              <virt>            KWIn                tok=virt  pos= 693
+            Sequential:
               do!                   'do!'             KWDoBang            tok= 222  pos= 672
               DoBang:
                 App:
@@ -186,20 +186,19 @@ FunctionOrValue:
                     Const:
                       Unit          '('               KWLParen            tok= 226  pos= 682
                                     ')'               KWRParen            tok= 227  pos= 683
-              Sequential            <virt>            KWIn                tok=virt  pos= 714
-                do!                 'do!'             KWDoBang            tok= 230  pos= 693
-                DoBang:
-                  App:
-                    Func:
-                      Ident         'step2'           Identifier          tok= 232  pos= 697
-                    Args:
-                      Const:
-                        Unit        '('               KWLParen            tok= 234  pos= 703
+              do!                   'do!'             KWDoBang            tok= 230  pos= 693
+              DoBang:
+                App:
+                  Func:
+                    Ident           'step2'           Identifier          tok= 232  pos= 697
+                  Args:
+                    Const:
+                      Unit          '('               KWLParen            tok= 234  pos= 703
                                     ')'               KWRParen            tok= 235  pos= 704
-                return              'return'          KWReturn            tok= 238  pos= 714
-                Return:
-                  Const:
-                    Unit            '('               KWLParen            tok= 240  pos= 721
+              return                'return'          KWReturn            tok= 238  pos= 714
+              Return:
+                Const:
+                  Unit              '('               KWLParen            tok= 240  pos= 721
                                     ')'               KWRParen            tok= 241  pos= 722
             }                       '}'               KWRBrace            tok= 244  pos= 728
 FunctionOrValue:
@@ -212,7 +211,7 @@ FunctionOrValue:
         Args:
           ComputationBlock:
             {                       '{'               KWLBrace            tok= 258  pos= 778
-            Sequential              <virt>            KWIn                tok=virt  pos= 818
+            Sequential:
               do                    'do'              KWDo                tok= 261  pos= 788
               Do:
                 App:

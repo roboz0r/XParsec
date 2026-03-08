@@ -43,7 +43,6 @@ module internal Keywords =
     let pEquals: KWParser = nextNonTriviaTokenIsL Token.OpEquality "Expected '=' symbol"
 
     let pIn: KWParser = nextNonTriviaTokenIsL Token.KWIn "Expected 'in' keyword"
-    let pInVirt: KWParser = nextNonTriviaTokenVirtualIfNot Token.KWIn
 
     let pLet: KWParser =
         // TODO: Where does VirtualLet get inserted?
@@ -80,7 +79,7 @@ module internal Keywords =
     let pFun: KWParser = nextNonTriviaTokenIsL Token.KWFun "fun"
     let pFunction: KWParser = nextNonTriviaTokenIsL Token.KWFunction "function"
 
-    let pDoneVirt: KWParser = nextNonTriviaTokenVirtualIfNot Token.KWDone
+    let pDone: KWParser = nextNonTriviaTokenIsL Token.KWDone "done"
 
     let pIdent: KWParser = nextNonTriviaTokenIsL Token.Identifier "identifier"
 
