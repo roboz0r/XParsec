@@ -17,12 +17,10 @@ TypeDefn.Anon:
         self                   'this'            Identifier          tok=  25  pos=  76
         Pat.NamedSimple        'Dispose'         Identifier          tok=  27  pos=  81
         Pats:
-          Pat.Const:
-            Unit               '('               KWLParen            tok=  28  pos=  88
+          ParenBlock           '('               KWLParen            tok=  28  pos=  88
                                ')'               KWRParen            tok=  29  pos=  89
         =                      '='               OpEquality          tok=  31  pos=  91
-          Const:
-            Unit               '('               KWLParen            tok=  33  pos=  93
+          ParenBlock           '('               KWLParen            tok=  33  pos=  93
                                ')'               KWRParen            tok=  34  pos=  94
       end                      <virt>            KWEnd               tok=virt  pos= 100
     InterfaceImpl:
@@ -42,7 +40,7 @@ TypeDefn.Anon:
         self                   'this'            Identifier          tok=  51  pos= 153
         Pat.NamedSimple        'Equals'          Identifier          tok=  53  pos= 158
         Pats:
-          Pat.Paren            '('               KWLParen            tok=  54  pos= 164
+          ParenBlock           '('               KWLParen            tok=  54  pos= 164
             Pat.Typed:
               Pat.NamedSimple  'other'           Identifier          tok=  55  pos= 165
               Colon            ':'               OpColon             tok=  56  pos= 170

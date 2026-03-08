@@ -7,7 +7,7 @@ Match:
   Rule:
     Bar                    '|'               OpBar               tok=   6  pos=  13
     Pat:
-      Pat.Paren            '('               KWLParen            tok=   8  pos=  15
+      ParenBlock           '('               KWLParen            tok=   8  pos=  15
         Pat.Typed:
           Pat.NamedSimple  'y'               Identifier          tok=   9  pos=  16
           Colon            ':'               OpColon             tok=  11  pos=  18
