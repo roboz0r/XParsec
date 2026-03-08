@@ -9,79 +9,6 @@ open XParsec.OperatorParsing
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser.SyntaxToken
 
-[<RequireQualifiedAccess>]
-module PatParam =
-    // PatParam is a restricted subset of patterns used for active pattern arguments
-    let private refPatParam = FSRefParser<PatParam<SyntaxToken>>()
-
-    let private pAtom =
-        choiceL
-            [
-                pNull |>> PatParam.Null
-
-                nextNonTriviaTokenSatisfiesL
-                    (fun synTok ->
-                        let t = synTok.Token
-                        t.IsLiteral || t = Token.KWTrue || t = Token.KWFalse
-                    )
-                    "Literal"
-                |>> PatParam.Const
-
-                // Identifiers / App
-                parser {
-                    let! lid = LongIdent.parse
-                    // Check if it's an Application (App)
-                    // This is recursive, e.g. Case(x) or Case x
-                    // Simplified: Just consume one param if present?
-                    // For PatParam, App usually implies `Ident(Param)`.
-                    let! param = opt refPatParam.Parser
-
-                    match param with
-                    | ValueSome p -> return PatParam.App(lid, p)
-                    | ValueNone -> return PatParam.LongIdent(lid)
-                }
-
-                // List [ ... ]
-                parser {
-                    let! l = pLBracket
-                    let! parms, _ = sepBy refPatParam.Parser pSemi
-                    let! r = pRBracket
-                    return PatParam.List(l, List.ofSeq parms, r)
-                }
-
-                // Tuple ( ... )
-                parser {
-                    let! l = pLParen
-                    let! parms, _ = sepBy refPatParam.Parser pComma
-                    let! r = pRParen
-                    return PatParam.Tuple(l, List.ofSeq parms, r)
-                }
-
-                // Quoted
-                parser {
-                    let! l = pQuotationTypedLeft
-                    let! e = refExpr.Parser
-                    let! r = pQuotationTypedRight
-                    return PatParam.Quoted(l, e, r)
-                }
-            ]
-            "PatParam Atom"
-
-    let parse =
-        parser {
-            let! atom = pAtom
-            // Check for Typed: atom : Type
-            let! typed = opt pColon
-
-            match typed with
-            | ValueSome colon ->
-                let! t = Type.parse
-                return PatParam.Typed(atom, colon, t)
-            | ValueNone -> return atom
-        }
-
-    do refPatParam.Set parse
-
 module Pat =
 
     [<RequireQualifiedAccess>]
@@ -215,6 +142,7 @@ module Pat =
             member _.OpComparer = opComparer
 
     let private refPat = FSRefParser<Pat<SyntaxToken>>()
+    let private refPatAtomic = FSRefParser<Pat<SyntaxToken>>()
 
     let pParenPat =
         parser {
@@ -266,7 +194,7 @@ module Pat =
     let pNamed =
         parser {
             let! lid = LongIdent.parse
-            let! param = opt PatParam.parse
+            let! param = opt refPatAtomic.Parser
             let! arg = opt refPat.Parser
 
             match lid, param, arg with
@@ -327,6 +255,8 @@ module Pat =
                 Token.KWLAttrBracket, pAttributesPat
             ]
             pConstPat
+
+    do refPatAtomic.Set parseAtomic
 
     let parse = Operator.parser parseAtomic (PatOperatorParser())
     let parseMany1 = many1 parse

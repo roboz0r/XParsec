@@ -157,46 +157,6 @@ and walkLongIdentOrOp (visitor: AstVisitor<'T>) (longIdentOrOp: LongIdentOrOp<'T
     | LongIdentOrOp.Op _ -> visitor.WriteLine "Op: "
     | LongIdentOrOp.QualifiedOp _ -> visitor.WriteLine "QualifiedOp: "
 
-and walkPatParam (visitor: AstVisitor<'T>) (param: PatParam<'T>) : unit =
-    match param with
-    | PatParam.Const value -> visitor.VisitToken "PatParam.Const" value
-    | PatParam.LongIdent ident ->
-        visitor.EnterSection "PatParam.LongIdent"
-        walkLongIdentOrOp visitor (LongIdentOrOp.LongIdent ident)
-        visitor.ExitSection "PatParam.LongIdent"
-    | PatParam.App(ident, innerParam) ->
-        visitor.EnterSection "PatParam.App"
-        walkLongIdentOrOp visitor (LongIdentOrOp.LongIdent ident)
-        walkPatParam visitor innerParam
-        visitor.ExitSection "PatParam.App"
-    | PatParam.List(lBracket, parameters, rBracket) ->
-        visitor.VisitToken "PatParam.List" lBracket
-        visitor.EnterSection ""
-
-        for p in parameters do
-            walkPatParam visitor p
-
-        visitor.ExitSection ""
-        visitor.VisitToken "" rBracket
-    | PatParam.Tuple(lParen, parameters, rParen) ->
-        visitor.VisitToken "PatParam.Tuple" lParen
-        visitor.EnterSection ""
-
-        for p in parameters do
-            walkPatParam visitor p
-
-        visitor.ExitSection ""
-        visitor.VisitToken "" rParen
-    | PatParam.Typed(innerParam, colon, typ) ->
-        visitor.EnterSection "PatParam.Typed"
-        walkPatParam visitor innerParam
-        visitor.VisitToken "Colon" colon
-        walkType visitor typ
-        visitor.ExitSection "PatParam.Typed"
-    | PatParam.Null nullToken -> visitor.VisitToken "PatParam.Null" nullToken
-    | PatParam.Quoted _ -> failwith "walkPatParam: Quoted not implemented"
-    | PatParam.DoubleQuoted _ -> failwith "walkPatParam: DoubleQuoted not implemented"
-
 and walkPat (visitor: AstVisitor<'T>) (pat: Pat<'T>) : unit =
     match pat with
     | Pat.Const value -> walkConstant visitor "Pat.Const" value
@@ -211,7 +171,7 @@ and walkPat (visitor: AstVisitor<'T>) (pat: Pat<'T>) : unit =
         match param with
         | ValueSome p ->
             visitor.EnterSection "Param"
-            walkPatParam visitor p
+            walkPat visitor p
             visitor.ExitSection "Param"
         | ValueNone -> ()
 

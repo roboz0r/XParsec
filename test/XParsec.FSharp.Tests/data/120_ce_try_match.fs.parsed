@@ -147,9 +147,7 @@ FunctionOrValue:
                   Pat.Named:
                     Ident                'Some'            Identifier          tok= 187  pos= 699
                     Param:
-                      PatParam.LongIdent:
-                        LongIdent:
-                                         'v'               Identifier          tok= 189  pos= 704
+                      Pat.NamedSimple    'v'               Identifier          tok= 189  pos= 704
                 Arrow                    '->'              OpArrowRight        tok= 191  pos= 706
                 Expr:
                   SkipsTokens:
@@ -191,9 +189,7 @@ FunctionOrValue:
                   Pat.Named:
                     Ident                'Ok'              Identifier          tok= 236  pos= 879
                     Param:
-                      PatParam.LongIdent:
-                        LongIdent:
-                                         'v'               Identifier          tok= 238  pos= 882
+                      Pat.NamedSimple    'v'               Identifier          tok= 238  pos= 882
                 Arrow                    '->'              OpArrowRight        tok= 240  pos= 884
                 Expr:
                   Ident                  'v'               Identifier          tok= 242  pos= 887
@@ -203,9 +199,7 @@ FunctionOrValue:
                   Pat.Named:
                     Ident                'Error'           Identifier          tok= 247  pos= 899
                     Param:
-                      PatParam.LongIdent:
-                        LongIdent:
-                                         'msg'             Identifier          tok= 249  pos= 905
+                      Pat.NamedSimple    'msg'             Identifier          tok= 249  pos= 905
                 Arrow                    '->'              OpArrowRight        tok= 251  pos= 909
                 Expr:
                   App:
