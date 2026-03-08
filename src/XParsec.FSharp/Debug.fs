@@ -182,9 +182,6 @@ let printActivePatternOpName
 let printLongIdentOrOp (ctx: PrintContext) (input: string) (lexed: Lexed) (longIdentOrOp: LongIdentOrOp<SyntaxToken>) =
     walkLongIdentOrOp (makeDebugVisitor ctx input lexed) longIdentOrOp
 
-let printPatParam (ctx: PrintContext) (input: string) (lexed: Lexed) (param: PatParam<SyntaxToken>) =
-    walkPatParam (makeDebugVisitor ctx input lexed) param
-
 let printPat (ctx: PrintContext) (input: string) (lexed: Lexed) (pat: Pat<SyntaxToken>) =
     walkPat (makeDebugVisitor ctx input lexed) pat
 
