@@ -1022,6 +1022,24 @@ module Expr =
                     match opInfo.Token with
                     | Token.OpBar -> fail (Message "Unexpected '|' operator in expression context")
                     | Token.OpDereference -> fail (Message "Unexpected dereference operator '!' in infix context")
+                    | Token.KWLet
+                    | Token.KWLetBang
+                    | Token.KWUse
+                    | Token.KWUseBang
+                    | Token.KWMatch
+                    | Token.KWMatchBang
+                    | Token.KWDo
+                    | Token.KWDoBang
+                    | Token.KWReturn
+                    | Token.KWReturnBang
+                    | Token.KWYield
+                    | Token.KWYieldBang
+                    | Token.KWIf
+                    | Token.KWFor
+                    | Token.KWWhile
+                    | Token.KWTry
+                    | Token.KWFun
+                    | Token.KWFunction -> fail (Message "Unexpected prefix keyword in RHS expression context")
                     | _ -> preturn (getRhsOperatorHandler opInfo token)
 
             // First try type application, then whitespace application, then explicit operator.
