@@ -59,9 +59,9 @@ module PatParam =
 
                 // Quoted
                 parser {
-                    let! l = pQuotedExprLeft
+                    let! l = pQuotationTypedLeft
                     let! e = refExpr.Parser
-                    let! r = pQuotedExprRight
+                    let! r = pQuotationTypedRight
                     return PatParam.Quoted(l, e, r)
                 }
             ]

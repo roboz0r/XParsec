@@ -1,0 +1,206 @@
+module                          'module'          KWModule            tok=   0  pos=   0
+                                'M'               Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                           'let'             KWLet               tok=   5  pos=  10
+    IdentOrOp:
+      Ident                     'f'               Identifier          tok=   7  pos=  14
+    Pats:
+      Pat.NamedSimple           'x'               Identifier          tok=   9  pos=  16
+    =                           '='               OpEquality          tok=  11  pos=  18
+      App:
+        Func:
+          Ident                 'x'               Identifier          tok=  13  pos=  20
+        Args:
+          ParenBlock            '('               KWLParen            tok=  15  pos=  22
+            TryWith             'try'             KWTry               tok=  16  pos=  23
+            TryExpr:
+              Const             '1'               NumInt32            tok=  18  pos=  27
+            WithToken           'with'            KWWith              tok=  20  pos=  29
+            Rule:
+              Pat:
+                Pat.Wildcard    '_'               Wildcard            tok=  22  pos=  34
+              Arrow             '->'              OpArrowRight        tok=  24  pos=  36
+              Expr:
+                Const           '2'               NumInt32            tok=  26  pos=  39
+                                ')'               KWRParen            tok=  27  pos=  40
+FunctionOrValue:
+  let                           'let'             KWLet               tok=  29  pos=  42
+    IdentOrOp:
+      Ident                     'g'               Identifier          tok=  31  pos=  46
+    Pats:
+      Pat.NamedSimple           'x'               Identifier          tok=  33  pos=  48
+    =                           '='               OpEquality          tok=  35  pos=  50
+      App:
+        Func:
+          Ident                 'x'               Identifier          tok=  37  pos=  52
+        Args:
+          ParenBlock            '('               KWLParen            tok=  39  pos=  54
+            IfThenElse:
+              IfToken           'if'              KWIf                tok=  40  pos=  55
+              Condition:
+                Const           'true'            KWTrue              tok=  42  pos=  58
+              ThenToken         'then'            KWThen              tok=  44  pos=  63
+              ThenExpr:
+                Const           '1'               NumInt32            tok=  46  pos=  68
+              ElseToken         'else'            KWElse              tok=  48  pos=  70
+              ElseExpr:
+                Const           '2'               NumInt32            tok=  50  pos=  75
+                                ')'               KWRParen            tok=  51  pos=  76
+FunctionOrValue:
+  let                           'let'             KWLet               tok=  53  pos=  78
+    IdentOrOp:
+      Ident                     'h'               Identifier          tok=  55  pos=  82
+    Pats:
+      Pat.NamedSimple           'x'               Identifier          tok=  57  pos=  84
+    =                           '='               OpEquality          tok=  59  pos=  86
+      App:
+        Func:
+          Ident                 'x'               Identifier          tok=  61  pos=  88
+        Args:
+          ParenBlock            '('               KWLParen            tok=  63  pos=  90
+            Match:
+              MatchToken        'match'           KWMatch             tok=  64  pos=  91
+              MatchExpr:
+                Const           '1'               NumInt32            tok=  66  pos=  97
+              WithToken         'with'            KWWith              tok=  68  pos=  99
+              Rule:
+                Pat:
+                  Pat.Const     '1'               NumInt32            tok=  70  pos= 104
+                Arrow           '->'              OpArrowRight        tok=  72  pos= 106
+                Expr:
+                  Const         '1'               NumInt32            tok=  74  pos= 109
+              Rule:
+                Bar             '|'               OpBar               tok=  76  pos= 111
+                Pat:
+                  Pat.Wildcard  '_'               Wildcard            tok=  78  pos= 113
+                Arrow           '->'              OpArrowRight        tok=  80  pos= 115
+                Expr:
+                  Const         '2'               NumInt32            tok=  82  pos= 118
+                                ')'               KWRParen            tok=  83  pos= 119
+FunctionOrValue:
+  let                           'let'             KWLet               tok=  85  pos= 121
+    Pat.NamedSimple             'y'               Identifier          tok=  87  pos= 125
+    =                           '='               OpEquality          tok=  89  pos= 127
+      App:
+        Func:
+          Ident                 'ref'             Identifier          tok=  91  pos= 129
+        Args:
+          Const                 '1'               NumInt32            tok=  93  pos= 133
+FunctionOrValue:
+  let                           'let'             KWLet               tok=  95  pos= 135
+    IdentOrOp:
+      Ident                     'i'               Identifier          tok=  97  pos= 139
+    Pats:
+      Pat.NamedSimple           'x'               Identifier          tok=  99  pos= 141
+    =                           '='               OpEquality          tok= 101  pos= 143
+      App:
+        Func:
+          Ident                 'x'               Identifier          tok= 103  pos= 145
+        Args:
+          PrefixApp             '!'               OpDereference       tok= 105  pos= 147
+            Ident               'y'               Identifier          tok= 106  pos= 148
+FunctionOrValue:
+  let                           'let'             KWLet               tok= 108  pos= 150
+    IdentOrOp:
+      Ident                     'j'               Identifier          tok= 110  pos= 154
+    Pats:
+      Pat.NamedSimple           'x'               Identifier          tok= 112  pos= 156
+    =                           '='               OpEquality          tok= 114  pos= 158
+      App:
+        Func:
+          Ident                 'x'               Identifier          tok= 116  pos= 160
+        Args:
+          BeginEndBlock         'begin'           KWBegin             tok= 118  pos= 162
+            Const:
+              Unit              '('               KWLParen            tok= 120  pos= 168
+                                ')'               KWRParen            tok= 121  pos= 169
+                                'end'             KWEnd               tok= 123  pos= 171
+FunctionOrValue:
+  let                           'let'             KWLet               tok= 125  pos= 175
+    IdentOrOp:
+      Ident                     'k'               Identifier          tok= 127  pos= 179
+    Pats:
+      Pat.NamedSimple           'x'               Identifier          tok= 129  pos= 181
+    =                           '='               OpEquality          tok= 131  pos= 183
+      App:
+        Func:
+          Ident                 'x'               Identifier          tok= 133  pos= 185
+        Args:
+          StructTuple:
+            Const               '1'               NumInt32            tok= 138  pos= 195
+            Const               '2'               NumInt32            tok= 141  pos= 198
+FunctionOrValue:
+  let                           'let'             KWLet               tok= 144  pos= 201
+    IdentOrOp:
+      Ident                     'l'               Identifier          tok= 146  pos= 205
+    Pats:
+      Pat.NamedSimple           'x'               Identifier          tok= 148  pos= 207
+    =                           '='               OpEquality          tok= 150  pos= 209
+      App:
+        Func:
+          Ident                 'x'               Identifier          tok= 152  pos= 211
+        Args:
+          ParenBlock            '('               KWLParen            tok= 154  pos= 213
+            New                 'new'             KWNew               tok= 155  pos= 214
+              NamedType:
+                LongIdent:
+                                'System'          Identifier          tok= 157  pos= 218
+                                'Object'          Identifier          tok= 159  pos= 225
+              Arg:
+                Const:
+                  Unit          '('               KWLParen            tok= 160  pos= 231
+                                ')'               KWRParen            tok= 161  pos= 232
+                                ')'               KWRParen            tok= 162  pos= 233
+FunctionOrValue:
+  let                           'let'             KWLet               tok= 164  pos= 235
+    IdentOrOp:
+      Ident                     'm'               Identifier          tok= 166  pos= 239
+    Pats:
+      Pat.NamedSimple           'x'               Identifier          tok= 168  pos= 241
+    =                           '='               OpEquality          tok= 170  pos= 243
+      App:
+        Func:
+          Ident                 'x'               Identifier          tok= 172  pos= 245
+        Args:
+          <@                    '<@'              OpQuotationTypedLeft  tok= 174  pos= 247
+            Const               '1'               NumInt32            tok= 176  pos= 250
+          @>                    '@>'              OpQuotationTypedRight  tok= 178  pos= 252
+FunctionOrValue:
+  let                           'let'             KWLet               tok= 180  pos= 255
+    IdentOrOp:
+      Ident                     'n'               Identifier          tok= 182  pos= 259
+    Pats:
+      Pat.NamedSimple           'x'               Identifier          tok= 184  pos= 261
+    =                           '='               OpEquality          tok= 186  pos= 263
+      App:
+        Func:
+          Ident                 'x'               Identifier          tok= 188  pos= 265
+        Args:
+          <@@                   '<@@'             OpQuotationUntypedLeft  tok= 190  pos= 267
+            Const               '1'               NumInt32            tok= 192  pos= 271
+          @@>                   '@@>'             OpQuotationUntypedRight  tok= 194  pos= 273
+FunctionOrValue:
+  let                           'let'             KWLet               tok= 196  pos= 277
+    IdentOrOp:
+      Ident                     'o'               Identifier          tok= 198  pos= 281
+    Pats:
+      Pat.NamedSimple           'x'               Identifier          tok= 200  pos= 283
+    =                           '='               OpEquality          tok= 202  pos= 285
+      App:
+        Func:
+          Ident                 'x'               Identifier          tok= 204  pos= 287
+        Args:
+          Const:
+            Unit                'begin'           KWBegin             tok= 206  pos= 289
+                                'end'             KWEnd               tok= 208  pos= 295
+FunctionOrValue:
+  let                           'let'             KWLet               tok= 210  pos= 299
+    Pat.NamedSimple             'p'               Identifier          tok= 212  pos= 303
+    =                           '='               OpEquality          tok= 214  pos= 305
+      InfixApp                  '='               OpEquality          tok= 220  pos= 317
+        Const:
+          Unit                  'begin'           KWBegin             tok= 216  pos= 307
+                                'end'             KWEnd               tok= 218  pos= 313
+        Const:
+          Unit                  '('               KWLParen            tok= 222  pos= 319
+                                ')'               KWRParen            tok= 223  pos= 320

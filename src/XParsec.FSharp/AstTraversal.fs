@@ -992,18 +992,29 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         for elif' in elifBranches do
             visitor.EnterSection "ElifBranch"
 
-            let (ElifBranch.ElifBranch(elifToken, elifCondition, elifThenToken, elifExpr)) =
-                elif'
+            match elif' with
+            | ElifBranch.Elif(elifToken, elifCondition, elifThenToken, elifExpr) ->
+                visitor.VisitToken "ElifToken" elifToken
+                visitor.EnterSection "ElifCondition"
+                walkExpr visitor elifCondition
+                visitor.ExitSection "ElifCondition"
+                visitor.VisitToken "ThenToken" elifThenToken
+                visitor.EnterSection "ElifExpr"
+                walkExpr visitor elifExpr
+                visitor.ExitSection "ElifExpr"
+                visitor.ExitSection "ElifBranch"
 
-            visitor.VisitToken "ElifToken" elifToken
-            visitor.EnterSection "ElifCondition"
-            walkExpr visitor elifCondition
-            visitor.ExitSection "ElifCondition"
-            visitor.VisitToken "ThenToken" elifThenToken
-            visitor.EnterSection "ElifExpr"
-            walkExpr visitor elifExpr
-            visitor.ExitSection "ElifExpr"
-            visitor.ExitSection "ElifBranch"
+            | ElifBranch.ElseIf(elseTok, ifToken, elifCondition, elifThenToken, elifExpr) ->
+                visitor.VisitToken "ElseToken" elseTok
+                visitor.VisitToken "IfToken" ifToken
+                visitor.EnterSection "ElifCondition"
+                walkExpr visitor elifCondition
+                visitor.ExitSection "ElifCondition"
+                visitor.VisitToken "ThenToken" elifThenToken
+                visitor.EnterSection "ElifExpr"
+                walkExpr visitor elifExpr
+                visitor.ExitSection "ElifExpr"
+                visitor.ExitSection "ElifBranch"
 
         match elseBranch with
         | ValueSome(ElseBranch.ElseBranch(elseToken, elseExpr)) ->
