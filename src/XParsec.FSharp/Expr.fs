@@ -247,13 +247,6 @@ and [<RequireQualifiedAccess>] Expr<'T> =
         rBrace: 'T
     // Computation Expressions
     | ComputationBlock of lBrace: 'T * body: Expr<'T> * rBrace: 'T
-    | ForInShort of
-        forToken: 'T *
-        pat: Pat<'T> *
-        inToken: 'T *
-        exprOrRange: ExprOrRange<'T> *
-        arrow: 'T *
-        expr: Expr<'T>
     | ControlFlow of keyword: ControlFlowKeyword<'T> * expr: Expr<'T>
     | Lazy of lazyToken: 'T * expr: Expr<'T>
     | Null of nullToken: 'T
@@ -276,7 +269,6 @@ and [<RequireQualifiedAccess>] Expr<'T> =
     | Function of functionToken: 'T * rules: Rules<'T>
     | Sequential of exprs: Expr<'T> list * semicolons: 'T list
     | Match of matchToken: 'T * matchExpr: Expr<'T> * withToken: 'T * rules: Rules<'T>
-    | MatchBang of matchBangToken: 'T * matchExpr: Expr<'T> * withToken: 'T * rules: Rules<'T>
     | TryWith of tryToken: 'T * expr: Expr<'T> * withToken: 'T * rules: Rules<'T>
     | TryFinally of tryToken: 'T * tryExpr: Expr<'T> * finallyToken: 'T * finallyExpr: Expr<'T>
     // Control Flow

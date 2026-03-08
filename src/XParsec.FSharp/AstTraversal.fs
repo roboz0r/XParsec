@@ -784,15 +784,6 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         visitor.VisitToken "WithToken" withToken
         walkRules visitor rules
         visitor.ExitSection "Match"
-    | Expr.MatchBang(matchBangToken, matchExpr, withToken, rules) ->
-        visitor.EnterSection "MatchBang"
-        visitor.VisitToken "match!" matchBangToken
-        visitor.EnterSection "MatchExpr"
-        walkExpr visitor matchExpr
-        visitor.ExitSection "MatchExpr"
-        visitor.VisitToken "with" withToken
-        walkRules visitor rules
-        visitor.ExitSection "MatchBang"
     | Expr.Fun(funToken, pats, arrow, expr) ->
         visitor.VisitToken "Fun" funToken
         visitor.EnterSection "Pats"
@@ -1019,16 +1010,6 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         walkExpr visitor body
         visitor.VisitToken "}" rBrace
         visitor.ExitSection "ComputationBlock"
-    | Expr.ForInShort(forToken, pat, inToken, _exprOrRange, arrow, expr) ->
-        visitor.EnterSection "ForInShort"
-        visitor.VisitToken "for" forToken
-        walkPat visitor pat
-        visitor.VisitToken "in" inToken
-        visitor.VisitToken "->" arrow
-        visitor.EnterSection "Expr"
-        walkExpr visitor expr
-        visitor.ExitSection "Expr"
-        visitor.ExitSection "ForInShort"
     | Expr.ControlFlow(keyword, expr) ->
         let kwLabel =
             match keyword with
