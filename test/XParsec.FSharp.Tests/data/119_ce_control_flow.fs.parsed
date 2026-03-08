@@ -8,17 +8,22 @@ FunctionOrValue:
         Func:
           Ident                          'seq'             Identifier          tok=  14  pos=  43
         Args:
-          Computation:
+          ComputationBlock:
             {                            '{'               KWLBrace            tok=  16  pos=  47
-            for                          'for'             KWFor               tok=  19  pos=  57
+            ForIn                        'for'             KWFor               tok=  19  pos=  57
+            Pat:
               Pat.NamedSimple            'x'               Identifier          tok=  21  pos=  61
-              in                         'in'              KWIn                tok=  23  pos=  63
-              do                         'do'              KWDo                tok=  27  pos=  69
+            InToken                      'in'              KWIn                tok=  23  pos=  63
+            Range:
+              Ident                      'xs'              Identifier          tok=  25  pos=  66
+            DoToken                      'do'              KWDo                tok=  27  pos=  69
+            Body:
               yield                      'yield'           KWYield             tok=  30  pos=  84
+              Yield:
                 InfixApp                 '*'               OpMultiply          tok=  34  pos=  92
                   Ident                  'x'               Identifier          tok=  32  pos=  90
                   Ident                  'x'               Identifier          tok=  36  pos=  94
-              done                       <virt>            KWDone              tok=virt  pos= 100
+            DoneToken                    <virt>            KWDone              tok=virt  pos= 100
             }                            '}'               KWRBrace            tok=  39  pos= 100
 FunctionOrValue:
   let                                    'let'             KWLet               tok=  44  pos= 125
@@ -28,19 +33,24 @@ FunctionOrValue:
         Func:
           Ident                          'seq'             Identifier          tok=  51  pos= 137
         Args:
-          Computation:
+          ComputationBlock:
             {                            '{'               KWLBrace            tok=  53  pos= 141
-            for                          'for'             KWFor               tok=  56  pos= 151
+            ForIn                        'for'             KWFor               tok=  56  pos= 151
+            Pat:
               Pat.NamedSimple            'x'               Identifier          tok=  58  pos= 155
-              in                         'in'              KWIn                tok=  60  pos= 157
-              do                         'do'              KWDo                tok=  64  pos= 163
+            InToken                      'in'              KWIn                tok=  60  pos= 157
+            Range:
+              Ident                      'xs'              Identifier          tok=  62  pos= 160
+            DoToken                      'do'              KWDo                tok=  64  pos= 163
+            Body:
               yield!                     'yield!'          KWYieldBang         tok=  67  pos= 178
+              YieldBang:
                 App:
                   Func:
                     Ident                'expand'          Identifier          tok=  69  pos= 185
                   Args:
                     Ident                'x'               Identifier          tok=  71  pos= 192
-              done                       <virt>            KWDone              tok=virt  pos= 198
+            DoneToken                    <virt>            KWDone              tok=virt  pos= 198
             }                            '}'               KWRBrace            tok=  74  pos= 198
 FunctionOrValue:
   let                                    'let'             KWLet               tok=  79  pos= 222
@@ -50,20 +60,22 @@ FunctionOrValue:
         Func:
           Ident                          'seq'             Identifier          tok=  86  pos= 234
         Args:
-          Computation:
+          ComputationBlock:
             {                            '{'               KWLBrace            tok=  88  pos= 238
-            for                          'for'             KWFor               tok=  91  pos= 248
-              Ident                      'i'               Identifier          tok=  93  pos= 252
-              =                          '='               OpEquality          tok=  95  pos= 254
-              Start:
-                Const                    '0'               NumInt32            tok=  97  pos= 256
-              to                         'to'              KWTo                tok=  99  pos= 258
-              End:
-                Const                    '9'               NumInt32            tok= 101  pos= 261
-              do                         'do'              KWDo                tok= 103  pos= 263
+            ForTo                        'for'             KWFor               tok=  91  pos= 248
+            Ident                        'i'               Identifier          tok=  93  pos= 252
+            Equals                       '='               OpEquality          tok=  95  pos= 254
+            Start:
+              Const                      '0'               NumInt32            tok=  97  pos= 256
+            ToToken                      'to'              KWTo                tok=  99  pos= 258
+            End:
+              Const                      '9'               NumInt32            tok= 101  pos= 261
+            DoToken                      'do'              KWDo                tok= 103  pos= 263
+            Body:
               yield                      'yield'           KWYield             tok= 106  pos= 278
+              Yield:
                 Ident                    'i'               Identifier          tok= 108  pos= 284
-              done                       <virt>            KWDone              tok=virt  pos= 290
+            DoneToken                    <virt>            KWDone              tok=virt  pos= 290
             }                            '}'               KWRBrace            tok= 111  pos= 290
 FunctionOrValue:
   let                                    'let'             KWLet               tok= 116  pos= 324
@@ -73,25 +85,30 @@ FunctionOrValue:
         Func:
           Ident                          'async'           Identifier          tok= 123  pos= 336
         Args:
-          Computation:
+          ComputationBlock:
             {                            '{'               KWLBrace            tok= 125  pos= 342
-            for                          'for'             KWFor               tok= 128  pos= 352
+            ForIn                        'for'             KWFor               tok= 128  pos= 352
+            Pat:
               Pat.NamedSimple            'item'            Identifier          tok= 130  pos= 356
-              in                         'in'              KWIn                tok= 132  pos= 361
-              do                         'do'              KWDo                tok= 136  pos= 370
-              do!                        'do!'             KWDoBang            tok= 139  pos= 385
-                Expr:
+            InToken                      'in'              KWIn                tok= 132  pos= 361
+            Range:
+              Ident                      'items'           Identifier          tok= 134  pos= 364
+            DoToken                      'do'              KWDo                tok= 136  pos= 370
+            Body:
+              Sequential                 <virt>            KWIn                tok=virt  pos= 414
+                do!                      'do!'             KWDoBang            tok= 139  pos= 385
+                DoBang:
                   App:
                     Func:
                       Ident              'processIte...'   Identifier          tok= 141  pos= 389
                     Args:
                       Ident              'item'            Identifier          tok= 143  pos= 401
-                in                       <virt>            KWIn                tok=virt  pos= 414
                 return                   'return'          KWReturn            tok= 146  pos= 414
+                Return:
                   Const:
                     Unit                 '('               KWLParen            tok= 148  pos= 421
                                          ')'               KWRParen            tok= 149  pos= 422
-              done                       <virt>            KWDone              tok=virt  pos= 428
+            DoneToken                    <virt>            KWDone              tok=virt  pos= 428
             }                            '}'               KWRBrace            tok= 152  pos= 428
 FunctionOrValue:
   let                                    'let'             KWLet               tok= 157  pos= 453
@@ -101,14 +118,16 @@ FunctionOrValue:
         Func:
           Ident                          'async'           Identifier          tok= 164  pos= 465
         Args:
-          Computation:
+          ComputationBlock:
             {                            '{'               KWLBrace            tok= 166  pos= 471
-            if                           'if'              KWIf                tok= 169  pos= 481
-              Cond:
+            IfThenElse:
+              IfToken                    'if'              KWIf                tok= 169  pos= 481
+              Condition:
                 Ident                    'condition'       Identifier          tok= 171  pos= 484
-              then                       'then'            KWThen              tok= 173  pos= 494
+              ThenToken                  'then'            KWThen              tok= 173  pos= 494
               ThenExpr:
                 return!                  'return!'         KWReturnBang        tok= 176  pos= 511
+                ReturnBang:
                   App:
                     Func:
                       Ident              'trueCase'        Identifier          tok= 178  pos= 519
@@ -116,14 +135,16 @@ FunctionOrValue:
                       Const:
                         Unit             '('               KWLParen            tok= 180  pos= 528
                                          ')'               KWRParen            tok= 181  pos= 529
-              else                       'else'            KWElse              tok= 184  pos= 539
-              return!                    'return!'         KWReturnBang        tok= 187  pos= 556
-                App:
-                  Func:
-                    Ident                'falseCase'       Identifier          tok= 189  pos= 564
-                  Args:
-                    Const:
-                      Unit               '('               KWLParen            tok= 191  pos= 574
+              ElseToken                  'else'            KWElse              tok= 184  pos= 539
+              ElseExpr:
+                return!                  'return!'         KWReturnBang        tok= 187  pos= 556
+                ReturnBang:
+                  App:
+                    Func:
+                      Ident              'falseCase'       Identifier          tok= 189  pos= 564
+                    Args:
+                      Const:
+                        Unit             '('               KWLParen            tok= 191  pos= 574
                                          ')'               KWRParen            tok= 192  pos= 575
             }                            '}'               KWRBrace            tok= 195  pos= 581
 FunctionOrValue:
@@ -134,25 +155,28 @@ FunctionOrValue:
         Func:
           Ident                          'async'           Identifier          tok= 207  pos= 634
         Args:
-          Computation:
+          ComputationBlock:
             {                            '{'               KWLBrace            tok= 209  pos= 640
-            if                           'if'              KWIf                tok= 212  pos= 650
-              Cond:
+            IfThenElse:
+              IfToken                    'if'              KWIf                tok= 212  pos= 650
+              Condition:
                 Ident                    'shouldLog'       Identifier          tok= 214  pos= 653
-              then                       'then'            KWThen              tok= 216  pos= 663
-              do!                        'do!'             KWDoBang            tok= 219  pos= 680
-                Expr:
-                  App:
-                    Func:
-                      Ident              'logAction'       Identifier          tok= 221  pos= 684
-                    Args:
-                      Const:
-                        Unit             '('               KWLParen            tok= 223  pos= 694
+              ThenToken                  'then'            KWThen              tok= 216  pos= 663
+              ThenExpr:
+                Sequential               <virt>            KWIn                tok=virt  pos= 705
+                  do!                    'do!'             KWDoBang            tok= 219  pos= 680
+                  DoBang:
+                    App:
+                      Func:
+                        Ident            'logAction'       Identifier          tok= 221  pos= 684
+                      Args:
+                        Const:
+                          Unit           '('               KWLParen            tok= 223  pos= 694
                                          ')'               KWRParen            tok= 224  pos= 695
-                in                       <virt>            KWIn                tok=virt  pos= 705
-                return                   'return'          KWReturn            tok= 227  pos= 705
-                  Const:
-                    Unit                 '('               KWLParen            tok= 229  pos= 712
+                  return                 'return'          KWReturn            tok= 227  pos= 705
+                  Return:
+                    Const:
+                      Unit               '('               KWLParen            tok= 229  pos= 712
                                          ')'               KWRParen            tok= 230  pos= 713
             }                            '}'               KWRBrace            tok= 233  pos= 719
 FunctionOrValue:
@@ -163,10 +187,11 @@ FunctionOrValue:
         Func:
           Ident                          'async'           Identifier          tok= 245  pos= 782
         Args:
-          Computation:
+          ComputationBlock:
             {                            '{'               KWLBrace            tok= 247  pos= 788
-            if                           'if'              KWIf                tok= 250  pos= 798
-              Cond:
+            IfThenElse:
+              IfToken                    'if'              KWIf                tok= 250  pos= 798
+              Condition:
                 App:
                   Func:
                     Ident                'check'           Identifier          tok= 252  pos= 801
@@ -183,17 +208,20 @@ FunctionOrValue:
                                          'IsValid'         Identifier          tok= 263  pos= 819
                                          ')'               KWRParen            tok= 264  pos= 826
                     Ident                'token'           Identifier          tok= 266  pos= 828
-              then                       'then'            KWThen              tok= 268  pos= 834
+              ThenToken                  'then'            KWThen              tok= 268  pos= 834
               ThenExpr:
                 return!                  'return!'         KWReturnBang        tok= 271  pos= 851
+                ReturnBang:
                   App:
                     Func:
                       Ident              'processTok...'   Identifier          tok= 273  pos= 859
                     Args:
                       Ident              'token'           Identifier          tok= 275  pos= 872
-              else                       'else'            KWElse              tok= 278  pos= 886
-              return                     'return'          KWReturn            tok= 281  pos= 903
-                Ident                    'defaultVal...'   Identifier          tok= 283  pos= 910
+              ElseToken                  'else'            KWElse              tok= 278  pos= 886
+              ElseExpr:
+                return                   'return'          KWReturn            tok= 281  pos= 903
+                Return:
+                  Ident                  'defaultVal...'   Identifier          tok= 283  pos= 910
             }                            '}'               KWRBrace            tok= 286  pos= 927
 FunctionOrValue:
   let                                    'let'             KWLet               tok= 291  pos= 976
@@ -203,17 +231,17 @@ FunctionOrValue:
         Func:
           Ident                          'async'           Identifier          tok= 298  pos= 988
         Args:
-          Computation:
+          ComputationBlock:
             {                            '{'               KWLBrace            tok= 300  pos= 994
-            if                           'if'              KWIf                tok= 303  pos=1004
-              Cond:
+            IfThenElse:
+              IfToken                    'if'              KWIf                tok= 303  pos=1004
+              Condition:
                 Ident                    'flag'            Identifier          tok= 305  pos=1007
-              then                       'then'            KWThen              tok= 307  pos=1012
+              ThenToken                  'then'            KWThen              tok= 307  pos=1012
               ThenExpr:
-                let!                     'let!'            KWLetBang           tok= 310  pos=1029
+                LetBang                  'let!'            KWLetBang           tok= 310  pos=1029
                   Pat.NamedSimple        'x'               Identifier          tok= 312  pos=1034
                   =                      '='               OpEquality          tok= 314  pos=1036
-                  Expr:
                     App:
                       Func:
                         Ident            'computeA'        Identifier          tok= 316  pos=1038
@@ -221,24 +249,28 @@ FunctionOrValue:
                         Const:
                           Unit           '('               KWLParen            tok= 318  pos=1047
                                          ')'               KWRParen            tok= 319  pos=1048
-                  in                     <virt>            KWIn                tok=virt  pos=1062
+                in                       <virt>            KWIn                tok=virt  pos=1062
+                Body:
                   return                 'return'          KWReturn            tok= 322  pos=1062
+                  Return:
                     Ident                'x'               Identifier          tok= 324  pos=1069
-              else                       'else'            KWElse              tok= 327  pos=1079
-              let!                       'let!'            KWLetBang           tok= 330  pos=1096
-                Pat.NamedSimple          'y'               Identifier          tok= 332  pos=1101
-                =                        '='               OpEquality          tok= 334  pos=1103
-                Expr:
-                  App:
-                    Func:
-                      Ident              'computeB'        Identifier          tok= 336  pos=1105
-                    Args:
-                      Const:
-                        Unit             '('               KWLParen            tok= 338  pos=1114
+              ElseToken                  'else'            KWElse              tok= 327  pos=1079
+              ElseExpr:
+                LetBang                  'let!'            KWLetBang           tok= 330  pos=1096
+                  Pat.NamedSimple        'y'               Identifier          tok= 332  pos=1101
+                  =                      '='               OpEquality          tok= 334  pos=1103
+                    App:
+                      Func:
+                        Ident            'computeB'        Identifier          tok= 336  pos=1105
+                      Args:
+                        Const:
+                          Unit           '('               KWLParen            tok= 338  pos=1114
                                          ')'               KWRParen            tok= 339  pos=1115
                 in                       <virt>            KWIn                tok=virt  pos=1129
-                return                   'return'          KWReturn            tok= 342  pos=1129
-                  Ident                  'y'               Identifier          tok= 344  pos=1136
+                Body:
+                  return                 'return'          KWReturn            tok= 342  pos=1129
+                  Return:
+                    Ident                'y'               Identifier          tok= 344  pos=1136
             }                            '}'               KWRBrace            tok= 347  pos=1142
 FunctionOrValue:
   let                                    'let'             KWLet               tok= 352  pos=1182
@@ -248,21 +280,28 @@ FunctionOrValue:
         Func:
           Ident                          'seq'             Identifier          tok= 359  pos=1194
         Args:
-          Computation:
+          ComputationBlock:
             {                            '{'               KWLBrace            tok= 361  pos=1198
-            for                          'for'             KWFor               tok= 364  pos=1208
+            ForIn                        'for'             KWFor               tok= 364  pos=1208
+            Pat:
               Pat.NamedSimple            'x'               Identifier          tok= 366  pos=1212
-              in                         'in'              KWIn                tok= 368  pos=1214
-              do                         'do'              KWDo                tok= 372  pos=1220
-              if                         'if'              KWIf                tok= 375  pos=1235
-                Cond:
+            InToken                      'in'              KWIn                tok= 368  pos=1214
+            Range:
+              Ident                      'xs'              Identifier          tok= 370  pos=1217
+            DoToken                      'do'              KWDo                tok= 372  pos=1220
+            Body:
+              IfThenElse:
+                IfToken                  'if'              KWIf                tok= 375  pos=1235
+                Condition:
                   InfixApp               '>'               op_GreaterThan      tok= 379  pos=1240
                     Ident                'x'               Identifier          tok= 377  pos=1238
                     Const                '0'               NumInt32            tok= 381  pos=1242
-                then                     'then'            KWThen              tok= 383  pos=1244
-                yield                    'yield'           KWYield             tok= 386  pos=1265
-                  Ident                  'x'               Identifier          tok= 388  pos=1271
-              done                       <virt>            KWDone              tok=virt  pos=1277
+                ThenToken                'then'            KWThen              tok= 383  pos=1244
+                ThenExpr:
+                  yield                  'yield'           KWYield             tok= 386  pos=1265
+                  Yield:
+                    Ident                'x'               Identifier          tok= 388  pos=1271
+            DoneToken                    <virt>            KWDone              tok=virt  pos=1277
             }                            '}'               KWRBrace            tok= 391  pos=1277
 FunctionOrValue:
   let                                    'let'             KWLet               tok= 396  pos=1308
@@ -272,33 +311,38 @@ FunctionOrValue:
         Func:
           Ident                          'async'           Identifier          tok= 403  pos=1320
         Args:
-          Computation:
+          ComputationBlock:
             {                            '{'               KWLBrace            tok= 405  pos=1326
-            for                          'for'             KWFor               tok= 408  pos=1336
+            ForIn                        'for'             KWFor               tok= 408  pos=1336
+            Pat:
               Pat.NamedSimple            'item'            Identifier          tok= 410  pos=1340
-              in                         'in'              KWIn                tok= 412  pos=1345
-              do                         'do'              KWDo                tok= 416  pos=1354
-              let                        'let'             KWLet               tok= 419  pos=1369
+            InToken                      'in'              KWIn                tok= 412  pos=1345
+            Range:
+              Ident                      'items'           Identifier          tok= 414  pos=1348
+            DoToken                      'do'              KWDo                tok= 416  pos=1354
+            Body:
+              Let                        'let'             KWLet               tok= 419  pos=1369
                 Pat.NamedSimple          'result'          Identifier          tok= 421  pos=1373
                 =                        '='               OpEquality          tok= 423  pos=1380
-                Expr:
                   App:
                     Func:
                       Ident              'transform'       Identifier          tok= 425  pos=1382
                     Args:
                       Ident              'item'            Identifier          tok= 427  pos=1392
-                in                       <virt>            KWIn                tok=virt  pos=1409
-                do!                      'do!'             KWDoBang            tok= 430  pos=1409
-                  Expr:
+              in                         <virt>            KWIn                tok=virt  pos=1409
+              Body:
+                Sequential               <virt>            KWIn                tok=virt  pos=1433
+                  do!                    'do!'             KWDoBang            tok= 430  pos=1409
+                  DoBang:
                     App:
                       Func:
                         Ident            'save'            Identifier          tok= 432  pos=1413
                       Args:
                         Ident            'result'          Identifier          tok= 434  pos=1418
-                  in                     <virt>            KWIn                tok=virt  pos=1433
                   return                 'return'          KWReturn            tok= 437  pos=1433
+                  Return:
                     Const:
                       Unit               '('               KWLParen            tok= 439  pos=1440
                                          ')'               KWRParen            tok= 440  pos=1441
-              done                       <virt>            KWDone              tok=virt  pos=1447
+            DoneToken                    <virt>            KWDone              tok=virt  pos=1447
             }                            '}'               KWRBrace            tok= 443  pos=1447

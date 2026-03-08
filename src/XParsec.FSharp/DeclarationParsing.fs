@@ -42,36 +42,17 @@ module CompilerDirectiveDecl =
 [<RequireQualifiedAccess>]
 module ModuleFunctionOrValueDefn =
 
-    // Helper to distinguish LetValue vs LetFunction based on lookahead or backtracking
-    // Assuming FunctionDefn/ValueDefn handle the body after 'let'
     let private pLetBinding attrs letTok =
         parser {
             let! isRec = opt pRec
 
             match isRec with
             | ValueSome recTok ->
-                // let rec ...
-                // Parses a list of 'and' connected definitions
-                let! defns, _ = sepBy1 FunctionOrValueDefn.parse pAnd
-                return ModuleFunctionOrValueDefn.LetRec(attrs, letTok, ValueSome recTok, List.ofSeq defns)
-
+                let! bindings = Binding.parseSepByAnd1 attrs
+                return ModuleFunctionOrValueDefn.Let(attrs, letTok, ValueSome recTok, bindings)
             | ValueNone ->
-                // let ...
-                // Try parsing as a function (params present), if that fails/backtracks, try value.
-                // Note: In a real parser, we might peek for parameters to decide.
-                return!
-                    choiceL
-                        [
-                            parser {
-                                let! fn = FunctionDefn.parse
-                                return ModuleFunctionOrValueDefn.LetFunction(attrs, letTok, fn)
-                            }
-                            parser {
-                                let! valDef = ValueDefn.parse
-                                return ModuleFunctionOrValueDefn.LetValue(attrs, letTok, valDef)
-                            }
-                        ]
-                        ""
+                let! binding = Binding.parse attrs
+                return ModuleFunctionOrValueDefn.Let(attrs, letTok, ValueNone, [ binding ])
         }
 
     let parse =

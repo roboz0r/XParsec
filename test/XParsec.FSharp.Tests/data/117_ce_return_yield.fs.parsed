@@ -8,9 +8,10 @@ FunctionOrValue:
         Func:
           Ident                        'async'           Identifier          tok=  14  pos=  50
         Args:
-          Computation:
+          ComputationBlock:
             {                          '{'               KWLBrace            tok=  16  pos=  56
             return                     'return'          KWReturn            tok=  19  pos=  66
+            Return:
               Const                    '42'              NumInt32            tok=  21  pos=  73
             }                          '}'               KWRBrace            tok=  24  pos=  80
 FunctionOrValue:
@@ -21,9 +22,10 @@ FunctionOrValue:
         Func:
           Ident                        'async'           Identifier          tok=  36  pos= 127
         Args:
-          Computation:
+          ComputationBlock:
             {                          '{'               KWLBrace            tok=  38  pos= 133
             return                     'return'          KWReturn            tok=  41  pos= 143
+            Return:
               InfixApp                 '+'               op_Addition         tok=  45  pos= 152
                 Ident                  'x'               Identifier          tok=  43  pos= 150
                 Const                  '1'               NumInt32            tok=  47  pos= 154
@@ -36,9 +38,10 @@ FunctionOrValue:
         Func:
           Ident                        'async'           Identifier          tok=  62  pos= 210
         Args:
-          Computation:
+          ComputationBlock:
             {                          '{'               KWLBrace            tok=  64  pos= 216
             return!                    'return!'         KWReturnBang        tok=  67  pos= 226
+            ReturnBang:
               App:
                 Func:
                   Ident                'fetchData'       Identifier          tok=  69  pos= 234
@@ -53,9 +56,10 @@ FunctionOrValue:
         Func:
           Ident                        'async'           Identifier          tok=  86  pos= 340
         Args:
-          Computation:
+          ComputationBlock:
             {                          '{'               KWLBrace            tok=  88  pos= 346
             return!                    'return!'         KWReturnBang        tok=  91  pos= 356
+            ReturnBang:
               App:
                 Func:
                   Ident                'find'            Identifier          tok=  93  pos= 364
@@ -80,9 +84,10 @@ FunctionOrValue:
         Func:
           Ident                        'async'           Identifier          tok= 124  pos= 460
         Args:
-          Computation:
+          ComputationBlock:
             {                          '{'               KWLBrace            tok= 126  pos= 466
             return!                    'return!'         KWReturnBang        tok= 129  pos= 476
+            ReturnBang:
               App:
                 Func:
                   Ident                'nextFn'          Identifier          tok= 131  pos= 484
@@ -113,9 +118,10 @@ FunctionOrValue:
         Func:
           Ident                        'seq'             Identifier          tok= 166  pos= 574
         Args:
-          Computation:
+          ComputationBlock:
             {                          '{'               KWLBrace            tok= 168  pos= 578
             yield                      'yield'           KWYield             tok= 171  pos= 588
+            Yield:
               Const                    '1'               NumInt32            tok= 173  pos= 594
             }                          '}'               KWRBrace            tok= 176  pos= 600
 FunctionOrValue:
@@ -126,9 +132,10 @@ FunctionOrValue:
         Func:
           Ident                        'seq'             Identifier          tok= 188  pos= 640
         Args:
-          Computation:
+          ComputationBlock:
             {                          '{'               KWLBrace            tok= 190  pos= 644
             yield                      'yield'           KWYield             tok= 193  pos= 654
+            Yield:
               InfixApp                 '*'               OpMultiply          tok= 197  pos= 662
                 Ident                  'x'               Identifier          tok= 195  pos= 660
                 Const                  '2'               NumInt32            tok= 199  pos= 664
@@ -141,9 +148,10 @@ FunctionOrValue:
         Func:
           Ident                        'seq'             Identifier          tok= 214  pos= 712
         Args:
-          Computation:
+          ComputationBlock:
             {                          '{'               KWLBrace            tok= 216  pos= 716
             yield!                     'yield!'          KWYieldBang         tok= 219  pos= 726
+            YieldBang:
               App:
                 Func:
                   Ident                'getItems'        Identifier          tok= 221  pos= 733
@@ -160,9 +168,10 @@ FunctionOrValue:
         Func:
           Ident                        'seq'             Identifier          tok= 239  pos= 792
         Args:
-          Computation:
+          ComputationBlock:
             {                          '{'               KWLBrace            tok= 241  pos= 796
             yield!                     'yield!'          KWYieldBang         tok= 244  pos= 806
+            YieldBang:
               App:
                 Func:
                   Ident                'filter'          Identifier          tok= 246  pos= 813

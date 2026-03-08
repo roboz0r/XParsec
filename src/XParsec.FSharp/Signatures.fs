@@ -84,7 +84,7 @@ type TypeSignatures<'T> = (TypeSignature<'T> * 'T (* 'and' token *) ) list
 // Represents: module-signature-element
 type ModuleSignatureElement<'T> =
     | Val of valSig: ValSig<'T>
-    | ValLiteral of valToken: 'T * valueDefn: ValueDefn<'T>
+    | ValLiteral of valToken: 'T * binding: Binding<'T>
     | Type of typeToken: 'T * typeSigs: TypeSignatures<'T>
     | Exception of exceptionToken: 'T * sigData: UnionTypeCaseData<'T>
     | Module of moduleSig: ModuleSignature<'T>
