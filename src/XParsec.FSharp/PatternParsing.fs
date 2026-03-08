@@ -336,7 +336,7 @@ module Rule =
             let! arrow = pArrowRight
 
             let! expr =
-                withContext OffsideContext.SeqBlock (pSeqBlock refExpr.Parser)
+                refExprSeqBlock.Parser
                 |> recoverWith
                     StoppingTokens.afterRule
                     DiagnosticSeverity.Error

@@ -274,8 +274,7 @@ and [<RequireQualifiedAccess>] Expr<'T> =
     // Functions and Matching
     | Fun of funToken: 'T * argumentPats: Pat<'T> list * arrow: 'T * expr: Expr<'T>
     | Function of functionToken: 'T * rules: Rules<'T>
-    | Sequential of expr1: Expr<'T> * semicolon: 'T * expr2: Expr<'T>
-    | Sequential2 of exprs: Expr<'T> list * semicolons: 'T list
+    | Sequential of exprs: Expr<'T> list * semicolons: 'T list
     | Match of matchToken: 'T * matchExpr: Expr<'T> * withToken: 'T * rules: Rules<'T>
     | MatchBang of matchBangToken: 'T * matchExpr: Expr<'T> * withToken: 'T * rules: Rules<'T>
     | TryWith of tryToken: 'T * expr: Expr<'T> * withToken: 'T * rules: Rules<'T>
