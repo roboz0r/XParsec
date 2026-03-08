@@ -1083,7 +1083,7 @@ module Expr =
             | _ ->
                 let! e = refExpr.Parser
                 let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) Token.KWRParen
-                return Expr.ParenBlock(l, e, r)
+                return Expr.EnclosedBlock(ParenKind.Paren l, e, r)
         }
 
     let pBeginEnd =
@@ -1104,18 +1104,18 @@ module Expr =
                             match toks with
                             | [] ->
                                 let endTok = virtualToken (PositionedToken.Create(Token.KWEnd, l.StartIndex + 1)) // TODO: better position for virtual end token
-                                Expr.BeginEndBlock(l, Expr.Missing, endTok)
+                                Expr.EnclosedBlock(ParenKind.BeginEnd l, Expr.Missing, endTok)
                             | _ ->
                                 let endTok =
                                     let t = toks |> List.last
                                     virtualToken (PositionedToken.Create(Token.KWEnd, t.StartIndex)) // TODO: better position for virtual end token
 
-                                Expr.BeginEndBlock(l, Expr.SkipsTokens(toks, Expr.Missing), endTok)
+                                Expr.EnclosedBlock(ParenKind.BeginEnd l, Expr.SkipsTokens(toks, Expr.Missing), endTok)
                         )
                         (parser {
                             let! e = refExprSeqBlock.Parser
                             let! r = pEnd
-                            return Expr.BeginEndBlock(l, e, r)
+                            return Expr.EnclosedBlock(ParenKind.BeginEnd l, e, r)
                         })
         }
 
@@ -1142,7 +1142,7 @@ module Expr =
             let! expr = refExprSeqBlock.Parser
 
             let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) Token.OpQuotationTypedRight
-            return Expr.Quoted(l, expr, r)
+            return Expr.EnclosedBlock(ParenKind.Quoted l, expr, r)
         }
 
     let pQuoteUntyped =
@@ -1152,7 +1152,7 @@ module Expr =
             let! expr = refExprSeqBlock.Parser
 
             let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) Token.OpQuotationUntypedRight
-            return Expr.DoubleQuoted(l, expr, r)
+            return Expr.EnclosedBlock(ParenKind.DoubleQuoted l, expr, r)
         }
 
     let pStructTuple =
@@ -1210,7 +1210,7 @@ module Expr =
                             | Token.KWFor ->
                                 let! body = refExprSeqBlock.Parser
                                 let! rBrace = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome lBrace) Token.KWRBrace
-                                return Expr.ComputationBlock(lBrace, body, rBrace)
+                                return Expr.EnclosedBlock(ParenKind.Brace lBrace, body, rBrace)
                             | _ -> return! fail (Message "Not a computation expression body")
                         }
                         // TODO: '{' new base-call object-members interface-impls '}' -- object expression

@@ -8,12 +8,11 @@ FunctionOrValue:
         Func:
           Ident                        'async'           Identifier          tok=  14  pos=  50
         Args:
-          ComputationBlock:
-            {                          '{'               KWLBrace            tok=  16  pos=  56
+          ComputationBlock             '{'               KWLBrace            tok=  16  pos=  56
             return                     'return'          KWReturn            tok=  19  pos=  66
             Return:
               Const                    '42'              NumInt32            tok=  21  pos=  73
-            }                          '}'               KWRBrace            tok=  24  pos=  80
+                                       '}'               KWRBrace            tok=  24  pos=  80
 FunctionOrValue:
   let                                  'let'             KWLet               tok=  29  pos= 115
     Pat.NamedSimple                    'b'               Identifier          tok=  31  pos= 119
@@ -22,14 +21,13 @@ FunctionOrValue:
         Func:
           Ident                        'async'           Identifier          tok=  36  pos= 127
         Args:
-          ComputationBlock:
-            {                          '{'               KWLBrace            tok=  38  pos= 133
+          ComputationBlock             '{'               KWLBrace            tok=  38  pos= 133
             return                     'return'          KWReturn            tok=  41  pos= 143
             Return:
               InfixApp                 '+'               op_Addition         tok=  45  pos= 152
                 Ident                  'x'               Identifier          tok=  43  pos= 150
                 Const                  '1'               NumInt32            tok=  47  pos= 154
-            }                          '}'               KWRBrace            tok=  50  pos= 160
+                                       '}'               KWRBrace            tok=  50  pos= 160
 FunctionOrValue:
   let                                  'let'             KWLet               tok=  55  pos= 198
     Pat.NamedSimple                    'c'               Identifier          tok=  57  pos= 202
@@ -38,8 +36,7 @@ FunctionOrValue:
         Func:
           Ident                        'async'           Identifier          tok=  62  pos= 210
         Args:
-          ComputationBlock:
-            {                          '{'               KWLBrace            tok=  64  pos= 216
+          ComputationBlock             '{'               KWLBrace            tok=  64  pos= 216
             return!                    'return!'         KWReturnBang        tok=  67  pos= 226
             ReturnBang:
               App:
@@ -47,7 +44,7 @@ FunctionOrValue:
                   Ident                'fetchData'       Identifier          tok=  69  pos= 234
                 Args:
                   Ident                'url'             Identifier          tok=  71  pos= 244
-            }                          '}'               KWRBrace            tok=  74  pos= 252
+                                       '}'               KWRBrace            tok=  74  pos= 252
 FunctionOrValue:
   let                                  'let'             KWLet               tok=  79  pos= 328
     Pat.NamedSimple                    'd'               Identifier          tok=  81  pos= 332
@@ -56,8 +53,7 @@ FunctionOrValue:
         Func:
           Ident                        'async'           Identifier          tok=  86  pos= 340
         Args:
-          ComputationBlock:
-            {                          '{'               KWLBrace            tok=  88  pos= 346
+          ComputationBlock             '{'               KWLBrace            tok=  88  pos= 346
             return!                    'return!'         KWReturnBang        tok=  91  pos= 356
             ReturnBang:
               App:
@@ -75,7 +71,7 @@ FunctionOrValue:
                         Const          '0'               NumInt32            tok= 106  pos= 383
                                        ')'               KWRParen            tok= 107  pos= 384
                   Ident                'xs'              Identifier          tok= 109  pos= 386
-            }                          '}'               KWRBrace            tok= 112  pos= 393
+                                       '}'               KWRBrace            tok= 112  pos= 393
 FunctionOrValue:
   let                                  'let'             KWLet               tok= 117  pos= 448
     Pat.NamedSimple                    'e'               Identifier          tok= 119  pos= 452
@@ -84,8 +80,7 @@ FunctionOrValue:
         Func:
           Ident                        'async'           Identifier          tok= 124  pos= 460
         Args:
-          ComputationBlock:
-            {                          '{'               KWLBrace            tok= 126  pos= 466
+          ComputationBlock             '{'               KWLBrace            tok= 126  pos= 466
             return!                    'return!'         KWReturnBang        tok= 129  pos= 476
             ReturnBang:
               App:
@@ -109,7 +104,7 @@ FunctionOrValue:
                                        'EOF'             Identifier          tok= 148  pos= 517
                                        ')'               KWRParen            tok= 149  pos= 520
                   Const                '"eof"'           StringLiteral       tok= 151  pos= 522
-            }                          '}'               KWRBrace            tok= 154  pos= 532
+                                       '}'               KWRBrace            tok= 154  pos= 532
 FunctionOrValue:
   let                                  'let'             KWLet               tok= 159  pos= 562
     Pat.NamedSimple                    'f'               Identifier          tok= 161  pos= 566
@@ -118,12 +113,11 @@ FunctionOrValue:
         Func:
           Ident                        'seq'             Identifier          tok= 166  pos= 574
         Args:
-          ComputationBlock:
-            {                          '{'               KWLBrace            tok= 168  pos= 578
+          ComputationBlock             '{'               KWLBrace            tok= 168  pos= 578
             yield                      'yield'           KWYield             tok= 171  pos= 588
             Yield:
               Const                    '1'               NumInt32            tok= 173  pos= 594
-            }                          '}'               KWRBrace            tok= 176  pos= 600
+                                       '}'               KWRBrace            tok= 176  pos= 600
 FunctionOrValue:
   let                                  'let'             KWLet               tok= 181  pos= 628
     Pat.NamedSimple                    'g'               Identifier          tok= 183  pos= 632
@@ -132,14 +126,13 @@ FunctionOrValue:
         Func:
           Ident                        'seq'             Identifier          tok= 188  pos= 640
         Args:
-          ComputationBlock:
-            {                          '{'               KWLBrace            tok= 190  pos= 644
+          ComputationBlock             '{'               KWLBrace            tok= 190  pos= 644
             yield                      'yield'           KWYield             tok= 193  pos= 654
             Yield:
               InfixApp                 '*'               OpMultiply          tok= 197  pos= 662
                 Ident                  'x'               Identifier          tok= 195  pos= 660
                 Const                  '2'               NumInt32            tok= 199  pos= 664
-            }                          '}'               KWRBrace            tok= 202  pos= 670
+                                       '}'               KWRBrace            tok= 202  pos= 670
 FunctionOrValue:
   let                                  'let'             KWLet               tok= 207  pos= 700
     Pat.NamedSimple                    'h'               Identifier          tok= 209  pos= 704
@@ -148,8 +141,7 @@ FunctionOrValue:
         Func:
           Ident                        'seq'             Identifier          tok= 214  pos= 712
         Args:
-          ComputationBlock:
-            {                          '{'               KWLBrace            tok= 216  pos= 716
+          ComputationBlock             '{'               KWLBrace            tok= 216  pos= 716
             yield!                     'yield!'          KWYieldBang         tok= 219  pos= 726
             YieldBang:
               App:
@@ -159,7 +151,7 @@ FunctionOrValue:
                   Const:
                     Unit               '('               KWLParen            tok= 223  pos= 742
                                        ')'               KWRParen            tok= 224  pos= 743
-            }                          '}'               KWRBrace            tok= 227  pos= 749
+                                       '}'               KWRBrace            tok= 227  pos= 749
 FunctionOrValue:
   let                                  'let'             KWLet               tok= 232  pos= 780
     Pat.NamedSimple                    'i'               Identifier          tok= 234  pos= 784
@@ -168,8 +160,7 @@ FunctionOrValue:
         Func:
           Ident                        'seq'             Identifier          tok= 239  pos= 792
         Args:
-          ComputationBlock:
-            {                          '{'               KWLBrace            tok= 241  pos= 796
+          ComputationBlock             '{'               KWLBrace            tok= 241  pos= 796
             yield!                     'yield!'          KWYieldBang         tok= 244  pos= 806
             YieldBang:
               App:
@@ -187,4 +178,4 @@ FunctionOrValue:
                         Const          '0'               NumInt32            tok= 259  pos= 834
                                        ')'               KWRParen            tok= 260  pos= 835
                   Ident                'xs'              Identifier          tok= 262  pos= 837
-            }                          '}'               KWRBrace            tok= 265  pos= 844
+                                       '}'               KWRBrace            tok= 265  pos= 844
