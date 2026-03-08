@@ -7,7 +7,7 @@ Match:
   Rule:
     Bar                  '|'               OpBar               tok=   6  pos=  14
     Pat:
-      Pat.List           '['               KWLBracket          tok=   8  pos=  16
+      List               '['               KWLBracket          tok=   8  pos=  16
                          ']'               KWRBracket          tok=   9  pos=  17
     Arrow                '->'              OpArrowRight        tok=  11  pos=  19
     Expr:
@@ -15,7 +15,7 @@ Match:
   Rule:
     Bar                  '|'               OpBar               tok=  15  pos=  24
     Pat:
-      Pat.List           '['               KWLBracket          tok=  17  pos=  26
+      List               '['               KWLBracket          tok=  17  pos=  26
         Pat.NamedSimple  'x'               Identifier          tok=  18  pos=  27
                          ']'               KWRBracket          tok=  19  pos=  28
     Arrow                '->'              OpArrowRight        tok=  21  pos=  30

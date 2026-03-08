@@ -15,12 +15,10 @@ TypeDefn.Class:
         self             'this'            Identifier          tok=  26  pos= 103
         Pat.NamedSimple  'Dispose'         Identifier          tok=  28  pos= 108
         Pats:
-          Pat.Const:
-            Unit         '('               KWLParen            tok=  29  pos= 115
+          ParenBlock     '('               KWLParen            tok=  29  pos= 115
                          ')'               KWRParen            tok=  30  pos= 116
         =                '='               OpEquality          tok=  32  pos= 118
-          Const:
-            Unit         '('               KWLParen            tok=  34  pos= 120
+          ParenBlock     '('               KWLParen            tok=  34  pos= 120
                          ')'               KWRParen            tok=  35  pos= 121
       end                <virt>            KWEnd               tok=virt  pos= 127
   end                    'end'             KWEnd               tok=  38  pos= 127

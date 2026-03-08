@@ -8,8 +8,7 @@ TypeDefn.TypeExtension:
     self             'this'            Identifier          tok=  16  pos=  52
     Pat.NamedSimple  'Hello'           Identifier          tok=  18  pos=  57
     Pats:
-      Pat.Const:
-        Unit         '('               KWLParen            tok=  19  pos=  62
+      ParenBlock     '('               KWLParen            tok=  19  pos=  62
                      ')'               KWRParen            tok=  20  pos=  63
     =                '='               OpEquality          tok=  22  pos=  65
       Const          '"hello"'         StringLiteral       tok=  24  pos=  67

@@ -20,6 +20,7 @@ module Pat =
         // --- Precedence Definitions ---
         static let tuplePrecedence = BindingPower.fromLevel (int PrecedenceLevel.Comma)
         static let asPrecedence = BindingPower.fromLevel (int PrecedenceLevel.As)
+        static let semiPrecedence = BindingPower.fromLevel (int PrecedenceLevel.Semicolon)
         static let pipePrecedence = BindingPower.fromLevel (int PrecedenceLevel.Pipe)
         static let andPrecedence = BindingPower.fromLevel (int PrecedenceLevel.LogicalAnd)
         static let colonPrecedence = BindingPower.fromLevel (int PrecedenceLevel.TypeTest)
@@ -49,15 +50,20 @@ module Pat =
             | PatAux.AsIdent ident -> Pat.As(l, op, ident)
             | _ -> failwith "Expected Ident aux for As pattern"
 
-        static let completeParen (l: SyntaxToken) (p: Pat<SyntaxToken>) (r: SyntaxToken) = Pat.Paren(l, p, r)
+        static let completeParen (l: SyntaxToken) (p: Pat<SyntaxToken>) (r: SyntaxToken) =
+            Pat.EnclosedBlock(ParenKind.Paren l, p, r)
 
         static let completeStruct (op: SyntaxToken) (r: Pat<SyntaxToken>) =
             match r with
-            | Pat.Paren(l, Pat.Tuple(elements, ops), r) -> Pat.StructTuple(op, l, elements, ops, r)
+            | Pat.EnclosedBlock(ParenKind.Paren l, Pat.Tuple(elements, ops), r) ->
+                Pat.StructTuple(op, l, elements, ops, r)
             | _ ->
-                // TODO: Error - struct must be followed by tuple
+                // TODO: Error - struct must be followed by tuple in parens
                 Pat.Struct(op, r)
 
+
+        static let completeElems (exprs: ResizeArray<Pat<_>>) ops =
+            Pat.Elems(List.ofSeq exprs, List.ofSeq ops)
 
         // --- Aux Parsers ---
 
@@ -123,7 +129,11 @@ module Pat =
 
                 // Infix N-ary: , (Tuple)
                 | Token.OpComma ->
-                    let op = InfixNary(token, preturn token, tuplePrecedence, completeTuple)
+                    let op = InfixNary(token, preturn token, tuplePrecedence, false, completeTuple)
+                    preturn op
+
+                | Token.OpSemicolon ->
+                    let op = InfixNary(token, preturn token, semiPrecedence, false, completeElems)
                     preturn op
 
                 | _ -> fail (Message "Not a valid RHS pattern operator")
@@ -142,6 +152,7 @@ module Pat =
             member _.OpComparer = opComparer
 
     let private refPat = FSRefParser<Pat<SyntaxToken>>()
+    let private refFieldPat = FSRefParser<Pat<SyntaxToken>>()
     let private refPatAtomic = FSRefParser<Pat<SyntaxToken>>()
 
     let pParenPat =
@@ -152,34 +163,46 @@ module Pat =
             | t when t.Token = Token.KWRParen ->
                 // Empty tuple pattern '()'
                 let! r = consumePeeked t
-                return Pat.Const(Constant.Unit(l, r))
+                return Pat.EmptyBlock(ParenKind.Paren l, r)
             | _ ->
                 let! pat = refPat.Parser
                 let! r = pRParen
-                return Pat.Paren(l, pat, r)
+                return Pat.EnclosedBlock(ParenKind.Paren l, pat, r)
         }
 
     let pListPat: Parser<Pat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
             let! l = pLBracket
-            let! pats, _ = sepEndBy refPat.Parser pSemi
-            let! r = pRBracket
-            return Pat.List(l, List.ofSeq pats, r)
+            match! peekNextNonTriviaToken with
+            | t when t.Token = Token.KWRBracket ->
+                // Empty list pattern '[]'
+                let! r = consumePeeked t
+                return Pat.EmptyBlock(ParenKind.List l, r)
+            | _ ->
+                let! pat = refPat.Parser
+                let! r = pRBracket
+                return Pat.EnclosedBlock(ParenKind.List l, pat, r)
         }
 
     let pArrayPat: Parser<Pat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
             let! l = pLArrayBracket
-            let! pats, _ = sepEndBy refPat.Parser pSemi
-            let! r = pRArrayBracket
-            return Pat.Array(l, List.ofSeq pats, r)
+            match! peekNextNonTriviaToken with
+            | t when t.Token = Token.KWRArrayBracket ->
+                // Empty array pattern '[||]'
+                let! r = consumePeeked t
+                return Pat.EmptyBlock(ParenKind.Array l, r)
+            | _ ->
+                let! pat = refPat.Parser
+                let! r = pRArrayBracket
+                return Pat.EnclosedBlock(ParenKind.Array l, pat, r)
         }
 
     let pFieldPat =
         parser {
             let! lid = LongIdent.parse
             let! eq = pEquals
-            let! p = refPat.Parser
+            let! p = refFieldPat.Parser
             return FieldPat(lid, eq, p)
         }
 
@@ -259,6 +282,10 @@ module Pat =
     do refPatAtomic.Set parseAtomic
 
     let parse = Operator.parser parseAtomic (PatOperatorParser())
+    // For field patterns, we want to allow the same operators as the top-level, but not semicolon since that separates fields.
+    let private parseFieldPat =
+        Operator.parserAt (BindingPower.fromLevel (int PrecedenceLevel.Semicolon + 1)) parseAtomic (PatOperatorParser())
+
     let parseMany1 = many1 parse
     let parseAtomicMany1 = many1 parseAtomic
 
@@ -290,6 +317,7 @@ module Pat =
         }
 
     do refPat.Set parse
+    do refFieldPat.Set parseFieldPat
 
 
 [<RequireQualifiedAccess>]

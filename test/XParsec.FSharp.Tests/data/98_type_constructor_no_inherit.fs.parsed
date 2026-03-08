@@ -14,7 +14,7 @@ TypeDefn.Class:
                            'int'             Identifier          tok=  22  pos=  65
     AdditionalConstructor:
       new                  'new'             KWNew               tok=  25  pos=  77
-      Pat.Paren            '('               KWLParen            tok=  26  pos=  80
+      ParenBlock           '('               KWLParen            tok=  26  pos=  80
         Pat.Typed:
           Pat.NamedSimple  'n'               Identifier          tok=  27  pos=  81
           Colon            ':'               OpColon             tok=  28  pos=  82

@@ -1,6 +1,7 @@
 AnonymousModule:
-Array    '[|'              KWLArrayBracket     tok=   0  pos=   0
-  Ident  'abc'             Identifier          tok=   2  pos=   3
-  Ident  'def'             Identifier          tok=   5  pos=   8
-  Ident  'ghi'             Identifier          tok=   8  pos=  13
-         '|]'              KWRArrayBracket     tok=  11  pos=  18
+Array      '[|'              KWLArrayBracket     tok=   0  pos=   0
+  Sequential:
+    Ident  'abc'             Identifier          tok=   2  pos=   3
+    Ident  'def'             Identifier          tok=   5  pos=   8
+    Ident  'ghi'             Identifier          tok=   8  pos=  13
+           '|]'              KWRArrayBracket     tok=  11  pos=  18

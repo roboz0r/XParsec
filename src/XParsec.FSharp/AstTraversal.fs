@@ -30,6 +30,16 @@ let walkAccess (visitor: AstVisitor<'T>) (access: Access<'T>) : unit =
     | Access.Internal t
     | Access.Public t -> visitor.VisitToken "access" t
 
+let parenKind lParen =
+    match lParen with
+    | ParenKind.Paren t -> "ParenBlock", t
+    | ParenKind.BeginEnd t -> "BeginEndBlock", t
+    | ParenKind.List t -> "List", t
+    | ParenKind.Array t -> "Array", t
+    | ParenKind.Brace t -> "ComputationBlock", t
+    | ParenKind.Quoted t -> "<@", t
+    | ParenKind.DoubleQuoted t -> "<@@", t
+
 // ---------------------------------------------------------------------------
 // Main walk functions — one big let rec / and block
 // ---------------------------------------------------------------------------
@@ -37,11 +47,6 @@ let walkAccess (visitor: AstVisitor<'T>) (access: Access<'T>) : unit =
 let rec walkConstant (visitor: AstVisitor<'T>) (label: string) (x: Constant<'T>) : unit =
     match x with
     | Constant.Literal value -> visitor.VisitToken label value
-    | Constant.Unit(lParen, rParen) ->
-        visitor.EnterSection label
-        visitor.VisitToken "Unit" lParen
-        visitor.VisitToken "" rParen
-        visitor.ExitSection label
     | Constant.MeasuredLiteral(value, lAngle, measure, rAngle) ->
         visitor.EnterSection label
         visitor.VisitToken "Literal" value
@@ -228,30 +233,26 @@ and walkPat (visitor: AstVisitor<'T>) (pat: Pat<'T>) : unit =
             walkPat visitor p
 
         visitor.ExitSection "Pat.StructTuple"
-    | Pat.Paren(lParen, innerPat, rParen) ->
-        visitor.VisitToken "Pat.Paren" lParen
+
+    | Pat.EnclosedBlock(lParen, innerPat, r) ->
+        let label, lTok = parenKind lParen
+        visitor.VisitToken label lTok
         visitor.EnterSection ""
         walkPat visitor innerPat
         visitor.ExitSection ""
-        visitor.VisitToken "" rParen
-    | Pat.List(lBracket, patterns, rBracket) ->
-        visitor.VisitToken "Pat.List" lBracket
-        visitor.EnterSection ""
+        visitor.VisitToken "" r
+    | Pat.EmptyBlock(lParen, r) ->
+        let label, lTok = parenKind lParen
+
+        visitor.VisitToken label lTok
+        visitor.VisitToken "" r
+    | Pat.Elems(patterns, _seps) ->
+        visitor.EnterSection "Pat.Elems"
 
         for p in patterns do
             walkPat visitor p
 
-        visitor.ExitSection ""
-        visitor.VisitToken "" rBracket
-    | Pat.Array(lBarBracket, patterns, rBarBracket) ->
-        visitor.VisitToken "Pat.Array" lBarBracket
-        visitor.EnterSection ""
-
-        for p in patterns do
-            walkPat visitor p
-
-        visitor.ExitSection ""
-        visitor.VisitToken "" rBarBracket
+        visitor.ExitSection "Pat.Elems"
     | Pat.Record(lBrace, fieldPats, rBrace) ->
         visitor.VisitToken "Pat.Record" lBrace
         visitor.EnterSection ""
@@ -672,39 +673,17 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
             walkExpr visitor elem
 
         visitor.ExitSection "StructTuple"
-    | Expr.List(lBracket, elements, rBracket) ->
-        visitor.VisitToken "List" lBracket
-        visitor.EnterSection ""
-
-        for elem in elements do
-            walkExpr visitor elem
-
-        visitor.ExitSection ""
-        visitor.VisitToken "" rBracket
-    | Expr.Array(lBracket, elements, rBracket) ->
-        visitor.VisitToken "Array" lBracket
-        visitor.EnterSection ""
-
-        for elem in elements do
-            walkExpr visitor elem
-
-        visitor.ExitSection ""
-        visitor.VisitToken "" rBracket
     | Expr.EnclosedBlock(lParen, expr, r) ->
-        let label, lTok =
-            match lParen with
-            | ParenKind.Paren t -> "ParenBlock", t
-            | ParenKind.BeginEnd t -> "BeginEndBlock", t
-            | ParenKind.List t -> "List", t
-            | ParenKind.Array t -> "Array", t
-            | ParenKind.Brace t -> "ComputationBlock", t
-            | ParenKind.Quoted t -> "<@", t
-            | ParenKind.DoubleQuoted t -> "<@@", t
-
+        let label, lTok = parenKind lParen
         visitor.VisitToken label lTok
         visitor.EnterSection ""
         walkExpr visitor expr
         visitor.ExitSection ""
+        visitor.VisitToken "" r
+    | Expr.EmptyBlock(lParen, r) ->
+        let label, lTok = parenKind lParen
+
+        visitor.VisitToken label lTok
         visitor.VisitToken "" r
     | Expr.LongIdentOrOp longIdentOrOp ->
         visitor.EnterSection "LongIdentOrOp"
