@@ -203,19 +203,8 @@ let printMeasure (ctx: PrintContext) (input: string) (lexed: Lexed) (measure: Me
 let printType (ctx: PrintContext) (input: string) (lexed: Lexed) (ty: Type<SyntaxToken>) =
     walkType (makeDebugVisitor ctx input lexed) ty
 
-let printValueDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (valueDefn: ValueDefn<SyntaxToken>) =
-    walkValueDefn (makeDebugVisitor ctx input lexed) valueDefn
-
-let printFunctionDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (functionDefn: FunctionDefn<SyntaxToken>) =
-    walkFunctionDefn (makeDebugVisitor ctx input lexed) functionDefn
-
-let printFunctionOrValueDefn
-    (ctx: PrintContext)
-    (input: string)
-    (lexed: Lexed)
-    (defn: FunctionOrValueDefn<SyntaxToken>)
-    =
-    walkFunctionOrValueDefn (makeDebugVisitor ctx input lexed) defn
+let printBinding (ctx: PrintContext) (input: string) (lexed: Lexed) (binding: Binding<SyntaxToken>) =
+    walkBinding (makeDebugVisitor ctx input lexed) binding
 
 let printFieldInitializer
     (ctx: PrintContext)
@@ -227,17 +216,6 @@ let printFieldInitializer
 
 let printRules (ctx: PrintContext) (input: string) (lexed: Lexed) (rules: Rules<SyntaxToken>) =
     walkRules (makeDebugVisitor ctx input lexed) rules
-
-let printCompExpr (ctx: PrintContext) (input: string) (lexed: Lexed) (comp: CompExpr<SyntaxToken>) =
-    walkCompExpr (makeDebugVisitor ctx input lexed) comp
-
-let printCompOrRangeExpr
-    (ctx: PrintContext)
-    (input: string)
-    (lexed: Lexed)
-    (compOrRange: CompOrRangeExpr<SyntaxToken>)
-    =
-    walkCompOrRangeExpr (makeDebugVisitor ctx input lexed) compOrRange
 
 let printExpr (ctx: PrintContext) (input: string) (lexed: Lexed) (expr: Expr<SyntaxToken>) =
     walkExpr (makeDebugVisitor ctx input lexed) expr

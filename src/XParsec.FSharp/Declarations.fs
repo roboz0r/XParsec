@@ -18,13 +18,7 @@ type CompilerDirectiveDecl<'T> = | CompilerDirectiveDecl of hash: 'T * ident: 'T
 
 // Represents: module-function-or-value-defn
 type ModuleFunctionOrValueDefn<'T> =
-    | LetFunction of attributes: Attributes<'T> voption * letToken: 'T * functionDefn: FunctionDefn<'T>
-    | LetValue of attributes: Attributes<'T> voption * letToken: 'T * valueDefn: ValueDefn<'T>
-    | LetRec of
-        attributes: Attributes<'T> voption *
-        letToken: 'T *
-        recToken: 'T voption *
-        defns: FunctionOrValueDefn<'T> list
+    | Let of attributes: Attributes<'T> voption * letToken: 'T * isRec: 'T voption * bindings: Binding<'T> list
     | Do of attributes: Attributes<'T> voption * doToken: 'T * expr: Expr<'T>
 
 // Represents: module-elem

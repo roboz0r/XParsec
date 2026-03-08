@@ -9,18 +9,18 @@ End:
   Const              '10'              NumInt32            tok=  10  pos=  13
 DoToken              'do'              KWDo                tok=  12  pos=  16
 Body:
-  LetValue           'let'             KWLet               tok=  15  pos=  23
+  Let                'let'             KWLet               tok=  15  pos=  23
     Pat.NamedSimple  'y'               Identifier          tok=  17  pos=  27
     =                '='               OpEquality          tok=  19  pos=  29
       InfixApp       '*'               OpMultiply          tok=  23  pos=  33
         Ident        'i'               Identifier          tok=  21  pos=  31
         Const        '2'               NumInt32            tok=  25  pos=  35
-    in               <virt>            KWIn                tok=virt  pos=  41
-    Body:
-      App:
-        Func:
-          Ident      'printfn'         Identifier          tok=  28  pos=  41
-        Args:
-          Const      '"%d"'            StringLiteral       tok=  30  pos=  49
-          Ident      'y'               Identifier          tok=  32  pos=  54
+  in                 <virt>            KWIn                tok=virt  pos=  41
+  Body:
+    App:
+      Func:
+        Ident        'printfn'         Identifier          tok=  28  pos=  41
+      Args:
+        Const        '"%d"'            StringLiteral       tok=  30  pos=  49
+        Ident        'y'               Identifier          tok=  32  pos=  54
 DoneToken            <virt>            KWDone              tok=virt  pos=  56

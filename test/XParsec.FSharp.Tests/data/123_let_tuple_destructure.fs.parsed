@@ -2,14 +2,13 @@ module                       'module'          KWModule            tok=   0  pos
                              'M'               Identifier          tok=   2  pos=   7
 FunctionOrValue:
   let                        'let'             KWLet               tok=   5  pos=  10
-    IdentOrOp:
-      Ident                  'f'               Identifier          tok=   7  pos=  14
+    Pat.NamedSimple          'f'               Identifier          tok=   7  pos=  14
     Pats:
       Pat.Const:
         Unit                 '('               KWLParen            tok=   9  pos=  16
                              ')'               KWRParen            tok=  10  pos=  17
     =                        '='               OpEquality          tok=  12  pos=  19
-      LetValue               'let'             KWLet               tok=  15  pos=  25
+      Let                    'let'             KWLet               tok=  15  pos=  25
         Pat.Paren            '('               KWLParen            tok=  17  pos=  29
           Pat.Tuple:
             Pat.NamedSimple  'a'               Identifier          tok=  18  pos=  30
@@ -19,21 +18,20 @@ FunctionOrValue:
           Tuple:
             Const            '1'               NumInt32            tok=  26  pos=  38
             Const            '2'               NumInt32            tok=  29  pos=  41
-        in                   <virt>            KWIn                tok=virt  pos=  47
-        Body:
-          InfixApp           '+'               op_Addition         tok=  34  pos=  49
-            Ident            'a'               Identifier          tok=  32  pos=  47
-            Ident            'b'               Identifier          tok=  36  pos=  51
+      in                     <virt>            KWIn                tok=virt  pos=  47
+      Body:
+        InfixApp             '+'               op_Addition         tok=  34  pos=  49
+          Ident              'a'               Identifier          tok=  32  pos=  47
+          Ident              'b'               Identifier          tok=  36  pos=  51
 FunctionOrValue:
   let                        'let'             KWLet               tok=  39  pos=  54
-    IdentOrOp:
-      Ident                  'g'               Identifier          tok=  41  pos=  58
+    Pat.NamedSimple          'g'               Identifier          tok=  41  pos=  58
     Pats:
       Pat.Const:
         Unit                 '('               KWLParen            tok=  43  pos=  60
                              ')'               KWRParen            tok=  44  pos=  61
     =                        '='               OpEquality          tok=  46  pos=  63
-      LetValue               'let'             KWLet               tok=  49  pos=  69
+      Let                    'let'             KWLet               tok=  49  pos=  69
         Pat.Tuple:
           Pat.NamedSimple    'c'               Identifier          tok=  51  pos=  73
           Pat.NamedSimple    'd'               Identifier          tok=  54  pos=  76
@@ -41,8 +39,8 @@ FunctionOrValue:
           Tuple:
             Const            '3'               NumInt32            tok=  58  pos=  80
             Const            '4'               NumInt32            tok=  61  pos=  83
-        in                   <virt>            KWIn                tok=virt  pos=  89
-        Body:
-          InfixApp           '-'               op_Subtraction      tok=  66  pos=  91
-            Ident            'c'               Identifier          tok=  64  pos=  89
-            Ident            'd'               Identifier          tok=  68  pos=  93
+      in                     <virt>            KWIn                tok=virt  pos=  89
+      Body:
+        InfixApp             '-'               op_Subtraction      tok=  66  pos=  91
+          Ident              'c'               Identifier          tok=  64  pos=  89
+          Ident              'd'               Identifier          tok=  68  pos=  93

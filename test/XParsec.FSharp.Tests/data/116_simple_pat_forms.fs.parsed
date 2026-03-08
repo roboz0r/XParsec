@@ -11,7 +11,7 @@ TypeDefn.Anon:
     self             '_'               Wildcard            tok=  19  pos=  69
     Pat.NamedSimple  'X'               Identifier          tok=  21  pos=  71
     =                '='               OpEquality          tok=  23  pos=  73
-    Ident            'x'               Identifier          tok=  25  pos=  75
+      Ident          'x'               Identifier          tok=  25  pos=  75
   end                <virt>            KWEnd               tok=virt  pos= 123
 TypeDefn.Anon:
   TypeName           'A2'              Identifier          tok=  32  pos= 128
@@ -28,7 +28,7 @@ TypeDefn.Anon:
     self             '_'               Wildcard            tok=  45  pos= 152
     Pat.NamedSimple  'X'               Identifier          tok=  47  pos= 154
     =                '='               OpEquality          tok=  49  pos= 156
-    Ident            'x'               Identifier          tok=  51  pos= 158
+      Ident          'x'               Identifier          tok=  51  pos= 158
   end                <virt>            KWEnd               tok=virt  pos= 188
 TypeDefn.Anon:
   TypeName           'A3'              Identifier          tok=  58  pos= 193
@@ -51,15 +51,15 @@ TypeDefn.Anon:
     self             '_'               Wildcard            tok=  80  pos= 230
     Pat.NamedSimple  'X'               Identifier          tok=  82  pos= 232
     =                '='               OpEquality          tok=  84  pos= 234
-    Ident            'x'               Identifier          tok=  86  pos= 236
+      Ident          'x'               Identifier          tok=  86  pos= 236
     member           'member'          KWMember            tok=  89  pos= 242
     self             '_'               Wildcard            tok=  91  pos= 249
     Pat.NamedSimple  'Y'               Identifier          tok=  93  pos= 251
     =                '='               OpEquality          tok=  95  pos= 253
-    Ident            'y'               Identifier          tok=  97  pos= 255
+      Ident          'y'               Identifier          tok=  97  pos= 255
     member           'member'          KWMember            tok= 100  pos= 261
     self             '_'               Wildcard            tok= 102  pos= 268
     Pat.NamedSimple  'Z'               Identifier          tok= 104  pos= 270
     =                '='               OpEquality          tok= 106  pos= 272
-    Ident            'z'               Identifier          tok= 108  pos= 274
+      Ident          'z'               Identifier          tok= 108  pos= 274
   end                <virt>            KWEnd               tok=virt  pos= 276

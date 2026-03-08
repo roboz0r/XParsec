@@ -1,13 +1,5 @@
 namespace rec XParsec.FSharp.Parser
 
-[<Struct; RequireQualifiedAccess>]
-type LetOrUse<'T> =
-    | Let of 'T
-    | Use of 'T
-    | LetBang of 'T
-    | UseBang of 'T
-
-
 // 13. Custom Attributes and Reflection
 // Represents: attribute-target
 [<RequireQualifiedAccess>]
@@ -145,31 +137,31 @@ type ElseBranch<'T> = | ElseBranch of elseToken: 'T * expr: Expr<'T>
 // Represents: function-or-value-defn and related grammar
 type ReturnType<'T> = | ReturnType of colon: 'T * typ: Type<'T>
 
-type FunctionDefn<'T> =
-    | FunctionDefn of
-        inlineToken: 'T voption *
-        access: 'T voption *
-        identOrOp: IdentOrOp<'T> *
-        typarDefns: TyparDefns<'T> voption *
-        argumentPats: Pat<'T> list *
-        returnType: ReturnType<'T> voption *
-        equals: 'T *
+type Binding<'T> =
+    {
+        attributes: Attributes<'T> voption
+        inlineToken: 'T voption
+        mutableToken: 'T voption
+        fixedToken: 'T voption
+        access: 'T voption
+        /// For values: the binding pattern (Pat.NamedSimple, Pat.Tuple, etc.)
+        /// For functions with a plain name: Pat.NamedSimple
+        /// For functions with an operator name: Pat.Op
+        headPat: Pat<'T>
+        typarDefns: TyparDefns<'T> voption
+        /// Non-empty for function-style bindings; empty for value bindings
+        argumentPats: Pat<'T> list
+        returnType: ReturnType<'T> voption
+        equals: 'T
         expr: Expr<'T>
-
-type ValueDefn<'T> =
-    | ValueDefn of
-        mutableToken: 'T voption *
-        access: 'T voption *
-        pat: Pat<'T> *
-        typarDefns: TyparDefns<'T> voption *
-        returnType: ReturnType<'T> voption *
-        equals: 'T *
-        expr: Expr<'T>
+    }
 
 [<RequireQualifiedAccess>]
-type FunctionOrValueDefn<'T> =
-    | Function of FunctionDefn<'T>
-    | Value of ValueDefn<'T>
+type LetOrUseKeyword<'T> =
+    | Let of 'T
+    | LetBang of 'T
+    | Use of 'T
+    | UseBang of 'T
 
 // Represents: record, object, and interface implementation grammar
 type FieldInitializer<'T> = | FieldInitializer of longIdent: LongIdent<'T> * equals: 'T * expr: Expr<'T>
@@ -204,66 +196,15 @@ type ExprOrRange<'T> =
     | Expr of Expr<'T>
     | Range of RangeExpr<'T>
 
-// Represents: computation expression grammar
+// Keywords used in control-flow CE forms: yield, return, do, and their bang variants
 [<RequireQualifiedAccess>]
-type CompExpr<'T> =
-    | LetBang of letBang: 'T * pat: Pat<'T> * equals: 'T * expr: Expr<'T> * inToken: 'T * comp: CompExpr<'T>
-    | Let of letToken: 'T * pat: Pat<'T> * equals: 'T * expr: Expr<'T> * inToken: 'T * comp: CompExpr<'T>
-    | DoBang of doBang: 'T * expr: Expr<'T> * inToken: 'T * comp: CompExpr<'T>
-    | Do of doToken: 'T * expr: Expr<'T> * inToken: 'T * comp: CompExpr<'T>
-    | UseBang of useBang: 'T * pat: Pat<'T> * equals: 'T * expr: Expr<'T> * inToken: 'T * comp: CompExpr<'T>
-    | Use of useToken: 'T * pat: Pat<'T> * equals: 'T * expr: Expr<'T> * inToken: 'T * comp: CompExpr<'T>
-    | YieldBang of yieldBang: 'T * expr: Expr<'T>
-    | Yield of yieldToken: 'T * expr: Expr<'T>
-    | ReturnBang of returnBang: 'T * expr: Expr<'T>
-    | Return of returnToken: 'T * expr: Expr<'T>
-    | IfThen of ifToken: 'T * cond: Expr<'T> * thenToken: 'T * comp: CompExpr<'T>
-    | IfThenElse of
-        ifToken: 'T *
-        cond: Expr<'T> *
-        thenToken: 'T *
-        thenComp: CompExpr<'T> *
-        elseToken: 'T *
-        elseComp: CompExpr<'T>
-    | MatchBang of matchBang: 'T * expr: Expr<'T> * withToken: 'T * rules: Rules<'T>
-    | Match of matchToken: 'T * expr: Expr<'T> * withToken: 'T * rules: Rules<'T>
-    | TryWith of tryToken: 'T * comp: CompExpr<'T> * withToken: 'T * rules: Rules<'T>
-    | TryFinally of tryToken: 'T * tryComp: CompExpr<'T> * finallyToken: 'T * finallyExpr: Expr<'T>
-    | While of whileToken: 'T * cond: Expr<'T> * doToken: 'T * comp: CompExpr<'T> * doneToken: 'T
-    | ForTo of
-        forToken: 'T *
-        ident: 'T *
-        equals: 'T *
-        start: Expr<'T> *
-        toToken: 'T *
-        endExpr: Expr<'T> *
-        doToken: 'T *
-        comp: CompExpr<'T> *
-        doneToken: 'T
-    | ForIn of
-        forToken: 'T *
-        pat: Pat<'T> *
-        inToken: 'T *
-        exprOrRange: ExprOrRange<'T> *
-        doToken: 'T *
-        comp: CompExpr<'T> *
-        doneToken: 'T
-    | Sequential of comp1: CompExpr<'T> * semicolon: 'T * comp2: CompExpr<'T>
-    | BaseExpr of expr: Expr<'T>
-
-type ShortCompExpr<'T> =
-    | ShortCompExpr of
-        forToken: 'T *
-        pat: Pat<'T> *
-        inToken: 'T *
-        exprOrRange: ExprOrRange<'T> *
-        arrow: 'T *
-        expr: Expr<'T>
-
-type CompOrRangeExpr<'T> =
-    | Comp of CompExpr<'T>
-    | ShortComp of ShortCompExpr<'T>
-    | Range of RangeExpr<'T>
+type ControlFlowKeyword<'T> =
+    | Yield of 'T
+    | YieldBang of 'T
+    | Return of 'T
+    | ReturnBang of 'T
+    | Do of 'T
+    | DoBang of 'T
 
 // The complete expression type
 and [<RequireQualifiedAccess>] Expr<'T> =
@@ -306,9 +247,15 @@ and [<RequireQualifiedAccess>] Expr<'T> =
         fieldInitializers: FieldInitializer<'T> list *
         rBrace: 'T
     // Computation Expressions
-    | Computation of expr: Expr<'T> * lBrace: 'T * compOrRange: CompOrRangeExpr<'T> * rBrace: 'T
-    | ComputedList of lBracket: 'T * compOrRange: CompOrRangeExpr<'T> * rBracket: 'T
-    | ComputedArray of lBar: 'T * compOrRange: CompOrRangeExpr<'T> * rBar: 'T
+    | ComputationBlock of lBrace: 'T * body: Expr<'T> * rBrace: 'T
+    | ForInShort of
+        forToken: 'T *
+        pat: Pat<'T> *
+        inToken: 'T *
+        exprOrRange: ExprOrRange<'T> *
+        arrow: 'T *
+        expr: Expr<'T>
+    | ControlFlow of keyword: ControlFlowKeyword<'T> * expr: Expr<'T>
     | Lazy of lazyToken: 'T * expr: Expr<'T>
     | Null of nullToken: 'T
     // Type-related Expressions
@@ -319,17 +266,19 @@ and [<RequireQualifiedAccess>] Expr<'T> =
     | Upcast of upcastToken: 'T * expr: Expr<'T>
     | Downcast of downcastToken: 'T * expr: Expr<'T>
     // Let and Use Bindings
-    | LetFunction of letToken: 'T * functionDefn: FunctionDefn<'T> * inToken: 'T * expr: Expr<'T>
-    | LetValue of letToken: 'T * valueDefn: ValueDefn<'T> * inToken: 'T * expr: Expr<'T>
-    | LetRec of letToken: 'T * recToken: 'T * defns: FunctionOrValueDefn<'T> list * inToken: 'T * expr: Expr<'T>
-    | Use of useToken: 'T * ident: 'T * equals: 'T * expr: Expr<'T> * inToken: 'T * bodyExpr: Expr<'T>
-    | UseFixed of useToken: 'T * ident: 'T * equals: 'T * fixedToken: 'T * expr: Expr<'T>
+    | LetOrUse of
+        keyword: LetOrUseKeyword<'T> *
+        isRec: 'T voption *
+        bindings: Binding<'T> list *
+        inToken: 'T voption *  // ValueNone for UseFixed (no body follows)
+        body: Expr<'T> voption
     // Functions and Matching
     | Fun of funToken: 'T * argumentPats: Pat<'T> list * arrow: 'T * expr: Expr<'T>
     | Function of functionToken: 'T * rules: Rules<'T>
     | Sequential of expr1: Expr<'T> * semicolon: 'T * expr2: Expr<'T>
     | Sequential2 of exprs: Expr<'T> list * semicolons: 'T list
-    | Match of matchToken: 'T * expr: Expr<'T> * withToken: 'T * rules: Rules<'T>
+    | Match of matchToken: 'T * matchExpr: Expr<'T> * withToken: 'T * rules: Rules<'T>
+    | MatchBang of matchBangToken: 'T * matchExpr: Expr<'T> * withToken: 'T * rules: Rules<'T>
     | TryWith of tryToken: 'T * expr: Expr<'T> * withToken: 'T * rules: Rules<'T>
     | TryFinally of tryToken: 'T * tryExpr: Expr<'T> * finallyToken: 'T * finallyExpr: Expr<'T>
     // Control Flow
@@ -410,6 +359,7 @@ and [<RequireQualifiedAccess>] Pat<'T> =
     | Null of nullToken: 'T
     | Attributed of attributes: Attributes<'T> * pat: Pat<'T>
     | Struct of structToken: 'T * Pat<'T> // For error recovery
+    | Op of IdentOrOp<'T> // For operator/active-pattern names in function binding heads
     | Missing
     | SkipsTokens of skippedTokens: 'T list * pat: Pat<'T>
 
@@ -486,13 +436,9 @@ and [<RequireQualifiedAccess>] MemberSig<'T> =
 
 // Represents: method-or-prop-defn
 and [<RequireQualifiedAccess>] MethodOrPropDefn<'T> =
-    | Method of ident: struct ('T * 'T) voption * defn: FunctionDefn<'T>
-    | Property of ident: struct ('T * 'T) voption * defn: ValueDefn<'T>
-    | PropertyWithGetSet of
-        identPrefix: struct ('T * 'T) voption *
-        ident: 'T *
-        withToken: 'T *
-        defns: FunctionOrValueDefn<'T> list
+    | Method of ident: struct ('T * 'T) voption * defn: Binding<'T>
+    | Property of ident: struct ('T * 'T) voption * defn: Binding<'T>
+    | PropertyWithGetSet of identPrefix: struct ('T * 'T) voption * ident: 'T * withToken: 'T * defns: Binding<'T> list
     | AutoProperty of
         valToken: 'T *
         access: 'T voption *
@@ -513,7 +459,7 @@ and [<RequireQualifiedAccess>] AdditionalConstrExpr<'T> =
         thenBranch: AdditionalConstrExpr<'T> *
         elseToken: 'T *
         elseBranch: AdditionalConstrExpr<'T>
-    | LetIn of letToken: 'T * defn: FunctionOrValueDefn<'T> * inToken: 'T * body: AdditionalConstrExpr<'T>
+    | LetIn of letToken: 'T * binding: Binding<'T> * inToken: 'T * body: AdditionalConstrExpr<'T>
     | Init of initExpr: AdditionalConstrInitExpr<'T>
 
 and AdditionalConstrInitExpr<'T> =
@@ -568,12 +514,12 @@ and [<RequireQualifiedAccess>] MemberDefn<'T> =
 and ClassInheritsDecl<'T> = | ClassInheritsDecl of inheritToken: 'T * typ: Type<'T> * expr: Expr<'T> voption
 
 and ClassFunctionOrValueDefn<'T> =
-    | LetRecDefns of
+    | LetBindings of
         attributes: Attributes<'T> voption *
         staticToken: 'T voption *
         letToken: 'T *
-        recToken: 'T voption *
-        defns: FunctionOrValueDefn<'T> list
+        isRec: 'T voption *
+        bindings: Binding<'T> list
     | Do of attributes: Attributes<'T> voption * staticToken: 'T voption * doToken: 'T * expr: Expr<'T>
 
 and ClassTypeBody<'T> =

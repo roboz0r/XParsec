@@ -211,37 +211,21 @@ module MethodOrPropDefn =
     // member x.M args = ... (Method)
     // member x.P with get ... (PropWithGetSet)
 
-    let private parseAccessorDefn: Parser<FunctionOrValueDefn<SyntaxToken>, _, _, _, _> =
-        parser {
-            let! name = pIdent
-            let! args = many Pat.parse
-            let! eq = pEquals
-            let! body = Expr.parse
-
-            return
-                FunctionOrValueDefn.Function(
-                    FunctionDefn.FunctionDefn(
-                        ValueNone,
-                        ValueNone,
-                        IdentOrOp.Ident name,
-                        ValueNone,
-                        List.ofSeq args,
-                        ValueNone,
-                        eq,
-                        body
-                    )
-                )
-        }
-
     let pPropertyWithGetSet =
         parser {
             let! ident = pIdent
             let! w = pWith
-            let! defns = FunctionOrValueDefn.parseSepByAnd1
-            return fun thisIdent -> MethodOrPropDefn.PropertyWithGetSet(thisIdent, ident, w, defns)
+            let! bindings = Binding.parseSepByAnd1 ValueNone
+            return fun thisIdent -> MethodOrPropDefn.PropertyWithGetSet(thisIdent, ident, w, bindings)
         }
 
     let parse: Parser<MethodOrPropDefn<SyntaxToken>, _, _, _, _> =
+        let buildMethodOrProp thisIdent (binding: Binding<SyntaxToken>) =
+            if binding.argumentPats.IsEmpty then
+                MethodOrPropDefn.Property(thisIdent, binding)
+            else
+                MethodOrPropDefn.Method(thisIdent, binding)
+
         parser {
             match! peekNextNonTriviaToken with
             | tWild when tWild.Token = Token.Wildcard ->
@@ -251,21 +235,13 @@ module MethodOrPropDefn =
                 match! peekNextNonTriviaToken with
                 | tDot when tDot.Token = Token.OpDot ->
                     let! dot = consumePeeked tDot
+                    let thisIdent = ValueSome struct (underscore, dot)
 
                     return!
                         choiceL
                             [
-                                FunctionOrValueDefn.parse
-                                |>> (function
-                                | FunctionOrValueDefn.Function funcDefn ->
-                                    MethodOrPropDefn.Method(ValueSome struct (underscore, dot), funcDefn)
-                                | FunctionOrValueDefn.Value valueDefn ->
-                                    MethodOrPropDefn.Property(ValueSome struct (underscore, dot), valueDefn))
-
-                                pPropertyWithGetSet
-                                |>> fun propWithGetSetBuilder ->
-                                    propWithGetSetBuilder (ValueSome struct (underscore, dot))
-
+                                Binding.parse ValueNone |>> buildMethodOrProp thisIdent
+                                pPropertyWithGetSet |>> fun f -> f thisIdent
                             ]
                             "MethodOrPropDefn after _."
 
@@ -278,21 +254,13 @@ module MethodOrPropDefn =
                     match! peekNextNonTriviaToken with
                     | t when t.Token = Token.OpDot ->
                         let! dot = consumePeeked t
+                        let thisIdent = ValueSome struct (ident, dot)
 
                         return!
                             choiceL
                                 [
-                                    FunctionOrValueDefn.parse
-                                    |>> (function
-                                    | FunctionOrValueDefn.Function funcDefn ->
-                                        MethodOrPropDefn.Method(ValueSome struct (ident, dot), funcDefn)
-                                    | FunctionOrValueDefn.Value valueDefn ->
-                                        MethodOrPropDefn.Property(ValueSome struct (ident, dot), valueDefn))
-
-                                    pPropertyWithGetSet
-                                    |>> fun propWithGetSetBuilder ->
-                                        propWithGetSetBuilder (ValueSome struct (ident, dot))
-
+                                    Binding.parse ValueNone |>> buildMethodOrProp thisIdent
+                                    pPropertyWithGetSet |>> fun f -> f thisIdent
                                 ]
                                 "MethodOrPropDefn after dot"
 
@@ -300,24 +268,30 @@ module MethodOrPropDefn =
                         let! eq = consumePeeked t
                         let! expr = Expr.parse
 
-                        return
-                            MethodOrPropDefn.Property(
-                                ValueNone,
-                                ValueDefn(ValueNone, ValueNone, Pat.NamedSimple ident, ValueNone, ValueNone, eq, expr)
-                            )
+                        let binding =
+                            {
+                                attributes = ValueNone
+                                inlineToken = ValueNone
+                                mutableToken = ValueNone
+                                fixedToken = ValueNone
+                                access = ValueNone
+                                headPat = Pat.NamedSimple ident
+                                typarDefns = ValueNone
+                                argumentPats = []
+                                returnType = ValueNone
+                                equals = eq
+                                expr = expr
+                            }
+
+                        return MethodOrPropDefn.Property(ValueNone, binding)
 
                     | _ -> return! fail (Message "Expected '.' or '=' after identifier in member definition")
                 | ValueNone ->
                     return!
                         choiceL
                             [
-                                FunctionOrValueDefn.parse
-                                |>> (function
-                                | FunctionOrValueDefn.Function funcDefn -> MethodOrPropDefn.Method(ValueNone, funcDefn)
-                                | FunctionOrValueDefn.Value valueDefn -> MethodOrPropDefn.Property(ValueNone, valueDefn))
-                                pPropertyWithGetSet
-                                |>> fun propWithGetSetBuilder -> propWithGetSetBuilder ValueNone
-
+                                Binding.parse ValueNone |>> buildMethodOrProp ValueNone
+                                pPropertyWithGetSet |>> fun f -> f ValueNone
                             ]
                             "MethodOrPropDefn no ident"
         }
@@ -703,8 +677,8 @@ module ClassFunctionOrValueDefn =
                     let! stat = opt pStatic
                     let! l = pLet
                     let! r = opt pRec
-                    let! defns = FunctionOrValueDefn.parseSepByAnd1
-                    return ClassFunctionOrValueDefn.LetRecDefns(attrs, stat, l, r, defns)
+                    let! bindings = Binding.parseSepByAnd1 attrs
+                    return ClassFunctionOrValueDefn.LetBindings(attrs, stat, l, r, bindings)
                 }
             ]
             "Class Let/Do"

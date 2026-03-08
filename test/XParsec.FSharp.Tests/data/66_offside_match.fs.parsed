@@ -10,15 +10,15 @@ Match:
       Pat.NamedSimple    'A'               Identifier          tok=   8  pos=  15
     Arrow                '->'              OpArrowRight        tok=  10  pos=  17
     Expr:
-      LetValue           'let'             KWLet               tok=  13  pos=  24
+      Let                'let'             KWLet               tok=  13  pos=  24
         Pat.NamedSimple  'y'               Identifier          tok=  15  pos=  28
         =                '='               OpEquality          tok=  17  pos=  30
           Const          '1'               NumInt32            tok=  19  pos=  32
-        in               <virt>            KWIn                tok=virt  pos=  38
-        Body:
-          InfixApp       '+'               op_Addition         tok=  24  pos=  40
-            Ident        'y'               Identifier          tok=  22  pos=  38
-            Const        '2'               NumInt32            tok=  26  pos=  42
+      in                 <virt>            KWIn                tok=virt  pos=  38
+      Body:
+        InfixApp         '+'               op_Addition         tok=  24  pos=  40
+          Ident          'y'               Identifier          tok=  22  pos=  38
+          Const          '2'               NumInt32            tok=  26  pos=  42
   Rule:
     Bar                  '|'               OpBar               tok=  28  pos=  44
     Pat:

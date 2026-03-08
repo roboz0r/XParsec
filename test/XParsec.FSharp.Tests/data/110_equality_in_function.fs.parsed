@@ -2,8 +2,7 @@ module                 'module'          KWModule            tok=   0  pos=   0
                        'MyModule'        Identifier          tok=   2  pos=   7
 FunctionOrValue:
   let                  'let'             KWLet               tok=   5  pos=  17
-    IdentOrOp:
-      Ident            'f'               Identifier          tok=   7  pos=  21
+    Pat.NamedSimple    'f'               Identifier          tok=   7  pos=  21
     Pats:
       Pat.NamedSimple  'x'               Identifier          tok=   9  pos=  23
     =                  '='               OpEquality          tok=  11  pos=  25
