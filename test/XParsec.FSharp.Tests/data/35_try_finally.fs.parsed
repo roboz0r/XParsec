@@ -1,17 +1,16 @@
 AnonymousModule:
-TryFinally    'try'             KWTry               tok=   0  pos=   0
+TryFinally        'try'             KWTry               tok=   0  pos=   0
 TryExpr:
   App:
     Func:
-      Ident   'f'               Identifier          tok=   3  pos=   8
+      Ident       'f'               Identifier          tok=   3  pos=   8
     Args:
-      Ident   'x'               Identifier          tok=   5  pos=  10
-FinallyToken  'finally'         KWFinally           tok=   7  pos=  12
+      Ident       'x'               Identifier          tok=   5  pos=  10
+FinallyToken      'finally'         KWFinally           tok=   7  pos=  12
 FinallyExpr:
   App:
     Func:
-      Ident   'cleanup'         Identifier          tok=  10  pos=  24
+      Ident       'cleanup'         Identifier          tok=  10  pos=  24
     Args:
-      Const:
-        Unit  '('               KWLParen            tok=  12  pos=  32
-              ')'               KWRParen            tok=  13  pos=  33
+      ParenBlock  '('               KWLParen            tok=  12  pos=  32
+                  ')'               KWRParen            tok=  13  pos=  33

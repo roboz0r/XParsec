@@ -102,8 +102,7 @@ FunctionOrValue:
               DoneToken                  <virt>            KWDone              tok=virt  pos= 414
               return                     'return'          KWReturn            tok= 146  pos= 414
               Return:
-                Const:
-                  Unit                   '('               KWLParen            tok= 148  pos= 421
+                ParenBlock               '('               KWLParen            tok= 148  pos= 421
                                          ')'               KWRParen            tok= 149  pos= 422
                                          '}'               KWRBrace            tok= 152  pos= 428
 FunctionOrValue:
@@ -127,8 +126,7 @@ FunctionOrValue:
                     Func:
                       Ident              'trueCase'        Identifier          tok= 178  pos= 519
                     Args:
-                      Const:
-                        Unit             '('               KWLParen            tok= 180  pos= 528
+                      ParenBlock         '('               KWLParen            tok= 180  pos= 528
                                          ')'               KWRParen            tok= 181  pos= 529
               ElseToken                  'else'            KWElse              tok= 184  pos= 539
               ElseExpr:
@@ -138,8 +136,7 @@ FunctionOrValue:
                     Func:
                       Ident              'falseCase'       Identifier          tok= 189  pos= 564
                     Args:
-                      Const:
-                        Unit             '('               KWLParen            tok= 191  pos= 574
+                      ParenBlock         '('               KWLParen            tok= 191  pos= 574
                                          ')'               KWRParen            tok= 192  pos= 575
                                          '}'               KWRBrace            tok= 195  pos= 581
 FunctionOrValue:
@@ -164,13 +161,11 @@ FunctionOrValue:
                       Func:
                         Ident            'logAction'       Identifier          tok= 221  pos= 684
                       Args:
-                        Const:
-                          Unit           '('               KWLParen            tok= 223  pos= 694
+                        ParenBlock       '('               KWLParen            tok= 223  pos= 694
                                          ')'               KWRParen            tok= 224  pos= 695
               return                     'return'          KWReturn            tok= 227  pos= 705
               Return:
-                Const:
-                  Unit                   '('               KWLParen            tok= 229  pos= 712
+                ParenBlock               '('               KWLParen            tok= 229  pos= 712
                                          ')'               KWRParen            tok= 230  pos= 713
                                          '}'               KWRBrace            tok= 233  pos= 719
 FunctionOrValue:
@@ -238,8 +233,7 @@ FunctionOrValue:
                       Func:
                         Ident            'computeA'        Identifier          tok= 316  pos=1038
                       Args:
-                        Const:
-                          Unit           '('               KWLParen            tok= 318  pos=1047
+                        ParenBlock       '('               KWLParen            tok= 318  pos=1047
                                          ')'               KWRParen            tok= 319  pos=1048
                 in                       <virt>            KWIn                tok=virt  pos=1062
                 Body:
@@ -255,8 +249,7 @@ FunctionOrValue:
                       Func:
                         Ident            'computeB'        Identifier          tok= 336  pos=1105
                       Args:
-                        Const:
-                          Unit           '('               KWLParen            tok= 338  pos=1114
+                        ParenBlock       '('               KWLParen            tok= 338  pos=1114
                                          ')'               KWRParen            tok= 339  pos=1115
                 in                       <virt>            KWIn                tok=virt  pos=1129
                 Body:
@@ -332,7 +325,6 @@ FunctionOrValue:
               DoneToken                  <virt>            KWDone              tok=virt  pos=1433
               return                     'return'          KWReturn            tok= 437  pos=1433
               Return:
-                Const:
-                  Unit                   '('               KWLParen            tok= 439  pos=1440
+                ParenBlock               '('               KWLParen            tok= 439  pos=1440
                                          ')'               KWRParen            tok= 440  pos=1441
                                          '}'               KWRBrace            tok= 443  pos=1447

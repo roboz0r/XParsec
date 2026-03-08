@@ -17,8 +17,7 @@ TypeDefn.Class:
     with                 'with'            KWWith              tok=  32  pos= 111
     Pat.NamedSimple      'get'             Identifier          tok=  34  pos= 116
     Pats:
-      Pat.Const:
-        Unit             '('               KWLParen            tok=  35  pos= 119
+      ParenBlock         '('               KWLParen            tok=  35  pos= 119
                          ')'               KWRParen            tok=  36  pos= 120
     =                    '='               OpEquality          tok=  38  pos= 122
       LongIdentOrOp:
@@ -27,7 +26,7 @@ TypeDefn.Class:
                          'count'           Identifier          tok=  42  pos= 129
     Pat.NamedSimple      'set'             Identifier          tok=  47  pos= 151
     Pats:
-      Pat.Paren          '('               KWLParen            tok=  48  pos= 154
+      ParenBlock         '('               KWLParen            tok=  48  pos= 154
         Pat.NamedSimple  'v'               Identifier          tok=  49  pos= 155
                          ')'               KWRParen            tok=  50  pos= 156
     =                    '='               OpEquality          tok=  52  pos= 158

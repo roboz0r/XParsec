@@ -1,124 +1,123 @@
-module        'module'          KWModule            tok=   0  pos=   0
-              'AutoPropFo...'   Identifier          tok=   2  pos=   7
+module          'module'          KWModule            tok=   0  pos=   0
+                'AutoPropFo...'   Identifier          tok=   2  pos=   7
 TypeDefn.Anon:
-  TypeName    'D1'              Identifier          tok=   9  pos=  90
-  (           '('               KWLParen            tok=  10  pos=  92
-  )           ')'               KWRParen            tok=  11  pos=  93
-  =           '='               OpEquality          tok=  13  pos=  95
-  begin       <virt>            KWBegin             tok=virt  pos= 101
-    member    'member'          KWMember            tok=  16  pos= 101
-    val       'val'             KWVal               tok=  18  pos= 108
-    ident     'P1'              Identifier          tok=  20  pos= 112
-    =         '='               OpEquality          tok=  22  pos= 115
-    Const     '0'               NumInt32            tok=  24  pos= 117
-  end         <virt>            KWEnd               tok=virt  pos= 193
+  TypeName      'D1'              Identifier          tok=   9  pos=  90
+  (             '('               KWLParen            tok=  10  pos=  92
+  )             ')'               KWRParen            tok=  11  pos=  93
+  =             '='               OpEquality          tok=  13  pos=  95
+  begin         <virt>            KWBegin             tok=virt  pos= 101
+    member      'member'          KWMember            tok=  16  pos= 101
+    val         'val'             KWVal               tok=  18  pos= 108
+    ident       'P1'              Identifier          tok=  20  pos= 112
+    =           '='               OpEquality          tok=  22  pos= 115
+    Const       '0'               NumInt32            tok=  24  pos= 117
+  end           <virt>            KWEnd               tok=virt  pos= 193
 TypeDefn.Anon:
-  TypeName    'D2'              Identifier          tok=  31  pos= 198
-  (           '('               KWLParen            tok=  32  pos= 200
-  )           ')'               KWRParen            tok=  33  pos= 201
-  =           '='               OpEquality          tok=  35  pos= 203
-  begin       <virt>            KWBegin             tok=virt  pos= 209
-    member    'member'          KWMember            tok=  38  pos= 209
-    val       'val'             KWVal               tok=  40  pos= 216
-    ident     'P2'              Identifier          tok=  42  pos= 220
-    :         ':'               OpColon             tok=  43  pos= 222
+  TypeName      'D2'              Identifier          tok=  31  pos= 198
+  (             '('               KWLParen            tok=  32  pos= 200
+  )             ')'               KWRParen            tok=  33  pos= 201
+  =             '='               OpEquality          tok=  35  pos= 203
+  begin         <virt>            KWBegin             tok=virt  pos= 209
+    member      'member'          KWMember            tok=  38  pos= 209
+    val         'val'             KWVal               tok=  40  pos= 216
+    ident       'P2'              Identifier          tok=  42  pos= 220
+    :           ':'               OpColon             tok=  43  pos= 222
     NamedType:
       LongIdent:
-              'int'             Identifier          tok=  45  pos= 224
-    =         '='               OpEquality          tok=  47  pos= 228
-    Const     '42'              NumInt32            tok=  49  pos= 230
-    with      'with'            KWWith              tok=  51  pos= 233
-    accessor  'get'             Identifier          tok=  53  pos= 238
-  end         <virt>            KWEnd               tok=virt  pos= 306
+                'int'             Identifier          tok=  45  pos= 224
+    =           '='               OpEquality          tok=  47  pos= 228
+    Const       '42'              NumInt32            tok=  49  pos= 230
+    with        'with'            KWWith              tok=  51  pos= 233
+    accessor    'get'             Identifier          tok=  53  pos= 238
+  end           <virt>            KWEnd               tok=virt  pos= 306
 TypeDefn.Anon:
-  TypeName    'D3'              Identifier          tok=  60  pos= 311
-  (           '('               KWLParen            tok=  61  pos= 313
-  )           ')'               KWRParen            tok=  62  pos= 314
-  =           '='               OpEquality          tok=  64  pos= 316
-  begin       <virt>            KWBegin             tok=virt  pos= 322
-    member    'member'          KWMember            tok=  67  pos= 322
-    val       'val'             KWVal               tok=  69  pos= 329
-    ident     'P3'              Identifier          tok=  71  pos= 333
-    =         '='               OpEquality          tok=  73  pos= 336
-    Const     '0'               NumInt32            tok=  75  pos= 338
-    with      'with'            KWWith              tok=  77  pos= 340
-    accessor  'get'             Identifier          tok=  79  pos= 345
-    accessor  'set'             Identifier          tok=  82  pos= 350
-  end         <virt>            KWEnd               tok=virt  pos= 404
+  TypeName      'D3'              Identifier          tok=  60  pos= 311
+  (             '('               KWLParen            tok=  61  pos= 313
+  )             ')'               KWRParen            tok=  62  pos= 314
+  =             '='               OpEquality          tok=  64  pos= 316
+  begin         <virt>            KWBegin             tok=virt  pos= 322
+    member      'member'          KWMember            tok=  67  pos= 322
+    val         'val'             KWVal               tok=  69  pos= 329
+    ident       'P3'              Identifier          tok=  71  pos= 333
+    =           '='               OpEquality          tok=  73  pos= 336
+    Const       '0'               NumInt32            tok=  75  pos= 338
+    with        'with'            KWWith              tok=  77  pos= 340
+    accessor    'get'             Identifier          tok=  79  pos= 345
+    accessor    'set'             Identifier          tok=  82  pos= 350
+  end           <virt>            KWEnd               tok=virt  pos= 404
 TypeDefn.Anon:
-  TypeName    'D4'              Identifier          tok=  89  pos= 409
-  (           '('               KWLParen            tok=  90  pos= 411
-  )           ')'               KWRParen            tok=  91  pos= 412
-  =           '='               OpEquality          tok=  93  pos= 414
-  begin       <virt>            KWBegin             tok=virt  pos= 420
-    member    'member'          KWMember            tok=  96  pos= 420
-    val       'val'             KWVal               tok=  98  pos= 427
-    ident     'P4'              Identifier          tok= 100  pos= 431
-    =         '='               OpEquality          tok= 102  pos= 434
-    Const     '0'               NumInt32            tok= 104  pos= 436
-    with      'with'            KWWith              tok= 106  pos= 438
-    accessor  'set'             Identifier          tok= 108  pos= 443
-    accessor  'get'             Identifier          tok= 111  pos= 448
-  end         <virt>            KWEnd               tok=virt  pos= 482
+  TypeName      'D4'              Identifier          tok=  89  pos= 409
+  (             '('               KWLParen            tok=  90  pos= 411
+  )             ')'               KWRParen            tok=  91  pos= 412
+  =             '='               OpEquality          tok=  93  pos= 414
+  begin         <virt>            KWBegin             tok=virt  pos= 420
+    member      'member'          KWMember            tok=  96  pos= 420
+    val         'val'             KWVal               tok=  98  pos= 427
+    ident       'P4'              Identifier          tok= 100  pos= 431
+    =           '='               OpEquality          tok= 102  pos= 434
+    Const       '0'               NumInt32            tok= 104  pos= 436
+    with        'with'            KWWith              tok= 106  pos= 438
+    accessor    'set'             Identifier          tok= 108  pos= 443
+    accessor    'get'             Identifier          tok= 111  pos= 448
+  end           <virt>            KWEnd               tok=virt  pos= 482
 TypeDefn.Anon:
-  TypeName    'D5'              Identifier          tok= 118  pos= 487
-  (           '('               KWLParen            tok= 119  pos= 489
-  )           ')'               KWRParen            tok= 120  pos= 490
-  =           '='               OpEquality          tok= 122  pos= 492
-  begin       <virt>            KWBegin             tok=virt  pos= 498
-    static    'static'          KWStatic            tok= 125  pos= 498
-    member    'member'          KWMember            tok= 127  pos= 505
-    val       'val'             KWVal               tok= 129  pos= 512
-    ident     'P5'              Identifier          tok= 131  pos= 516
-    =         '='               OpEquality          tok= 133  pos= 519
-    Const     '0'               NumInt32            tok= 135  pos= 521
-    with      'with'            KWWith              tok= 137  pos= 523
-    accessor  'get'             Identifier          tok= 139  pos= 528
-    accessor  'set'             Identifier          tok= 142  pos= 533
-  end         <virt>            KWEnd               tok=virt  pos= 588
+  TypeName      'D5'              Identifier          tok= 118  pos= 487
+  (             '('               KWLParen            tok= 119  pos= 489
+  )             ')'               KWRParen            tok= 120  pos= 490
+  =             '='               OpEquality          tok= 122  pos= 492
+  begin         <virt>            KWBegin             tok=virt  pos= 498
+    static      'static'          KWStatic            tok= 125  pos= 498
+    member      'member'          KWMember            tok= 127  pos= 505
+    val         'val'             KWVal               tok= 129  pos= 512
+    ident       'P5'              Identifier          tok= 131  pos= 516
+    =           '='               OpEquality          tok= 133  pos= 519
+    Const       '0'               NumInt32            tok= 135  pos= 521
+    with        'with'            KWWith              tok= 137  pos= 523
+    accessor    'get'             Identifier          tok= 139  pos= 528
+    accessor    'set'             Identifier          tok= 142  pos= 533
+  end           <virt>            KWEnd               tok=virt  pos= 588
 TypeDefn.Anon:
-  TypeName    'Base'            Identifier          tok= 149  pos= 593
-  (           '('               KWLParen            tok= 150  pos= 597
-  )           ')'               KWRParen            tok= 151  pos= 598
-  =           '='               OpEquality          tok= 153  pos= 600
-  begin       <virt>            KWBegin             tok=virt  pos= 606
-    abstract  'abstract'        KWAbstract          tok= 156  pos= 606
-    ident     'P'               Identifier          tok= 158  pos= 615
-    :         ':'               OpColon             tok= 159  pos= 616
+  TypeName      'Base'            Identifier          tok= 149  pos= 593
+  (             '('               KWLParen            tok= 150  pos= 597
+  )             ')'               KWRParen            tok= 151  pos= 598
+  =             '='               OpEquality          tok= 153  pos= 600
+  begin         <virt>            KWBegin             tok=virt  pos= 606
+    abstract    'abstract'        KWAbstract          tok= 156  pos= 606
+    ident       'P'               Identifier          tok= 158  pos= 615
+    :           ':'               OpColon             tok= 159  pos= 616
     NamedType:
       LongIdent:
-              'string'          Identifier          tok= 161  pos= 618
-    with      'with'            KWWith              tok= 163  pos= 625
-    get/set   'get'             Identifier          tok= 165  pos= 630
-    set/get   'set'             Identifier          tok= 168  pos= 635
-    default   'default'         KWDefault           tok= 171  pos= 643
-    val       'val'             KWVal               tok= 173  pos= 651
-    ident     'P'               Identifier          tok= 175  pos= 655
-    =         '='               OpEquality          tok= 177  pos= 657
-    Const     '"base"'          StringLiteral       tok= 179  pos= 659
-    with      'with'            KWWith              tok= 181  pos= 666
-    accessor  'get'             Identifier          tok= 183  pos= 671
-    accessor  'set'             Identifier          tok= 186  pos= 676
-  end         <virt>            KWEnd               tok=virt  pos= 733
+                'string'          Identifier          tok= 161  pos= 618
+    with        'with'            KWWith              tok= 163  pos= 625
+    get/set     'get'             Identifier          tok= 165  pos= 630
+    set/get     'set'             Identifier          tok= 168  pos= 635
+    default     'default'         KWDefault           tok= 171  pos= 643
+    val         'val'             KWVal               tok= 173  pos= 651
+    ident       'P'               Identifier          tok= 175  pos= 655
+    =           '='               OpEquality          tok= 177  pos= 657
+    Const       '"base"'          StringLiteral       tok= 179  pos= 659
+    with        'with'            KWWith              tok= 181  pos= 666
+    accessor    'get'             Identifier          tok= 183  pos= 671
+    accessor    'set'             Identifier          tok= 186  pos= 676
+  end           <virt>            KWEnd               tok=virt  pos= 733
 TypeDefn.Anon:
-  TypeName    'Derived'         Identifier          tok= 193  pos= 738
-  (           '('               KWLParen            tok= 194  pos= 745
-  )           ')'               KWRParen            tok= 195  pos= 746
-  =           '='               OpEquality          tok= 197  pos= 748
-  begin       <virt>            KWBegin             tok=virt  pos= 754
-    inherit   'inherit'         KWInherit           tok= 200  pos= 754
+  TypeName      'Derived'         Identifier          tok= 193  pos= 738
+  (             '('               KWLParen            tok= 194  pos= 745
+  )             ')'               KWRParen            tok= 195  pos= 746
+  =             '='               OpEquality          tok= 197  pos= 748
+  begin         <virt>            KWBegin             tok=virt  pos= 754
+    inherit     'inherit'         KWInherit           tok= 200  pos= 754
     NamedType:
       LongIdent:
-              'Base'            Identifier          tok= 202  pos= 762
-    Const:
-      Unit    '('               KWLParen            tok= 203  pos= 766
-              ')'               KWRParen            tok= 204  pos= 767
-    override  'override'        KWOverride          tok= 207  pos= 773
-    val       'val'             KWVal               tok= 209  pos= 782
-    ident     'P'               Identifier          tok= 211  pos= 786
-    =         '='               OpEquality          tok= 213  pos= 788
-    Const     '"derived"'       StringLiteral       tok= 215  pos= 790
-    with      'with'            KWWith              tok= 217  pos= 800
-    accessor  'get'             Identifier          tok= 219  pos= 805
-    accessor  'set'             Identifier          tok= 222  pos= 810
-  end         <virt>            KWEnd               tok=virt  pos= 814
+                'Base'            Identifier          tok= 202  pos= 762
+    ParenBlock  '('               KWLParen            tok= 203  pos= 766
+                ')'               KWRParen            tok= 204  pos= 767
+    override    'override'        KWOverride          tok= 207  pos= 773
+    val         'val'             KWVal               tok= 209  pos= 782
+    ident       'P'               Identifier          tok= 211  pos= 786
+    =           '='               OpEquality          tok= 213  pos= 788
+    Const       '"derived"'       StringLiteral       tok= 215  pos= 790
+    with        'with'            KWWith              tok= 217  pos= 800
+    accessor    'get'             Identifier          tok= 219  pos= 805
+    accessor    'set'             Identifier          tok= 222  pos= 810
+  end           <virt>            KWEnd               tok=virt  pos= 814

@@ -8,7 +8,7 @@ Match:
     Bar                   '|'               OpBar               tok=   6  pos=  14
     Pat:
       Pat.As:
-        Pat.Paren         '('               KWLParen            tok=   8  pos=  16
+        ParenBlock        '('               KWLParen            tok=   8  pos=  16
           Pat.Cons        '::'              KWColonColon        tok=  11  pos=  19
             Pat.Wildcard  '_'               Wildcard            tok=   9  pos=  17
             Pat.Wildcard  '_'               Wildcard            tok=  13  pos=  22
@@ -21,7 +21,7 @@ Match:
   Rule:
     Bar                   '|'               OpBar               tok=  24  pos=  41
     Pat:
-      Pat.List            '['               KWLBracket          tok=  26  pos=  43
+      List                '['               KWLBracket          tok=  26  pos=  43
                           ']'               KWRBracket          tok=  27  pos=  44
     Arrow                 '->'              OpArrowRight        tok=  29  pos=  46
     Expr:

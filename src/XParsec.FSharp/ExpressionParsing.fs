@@ -465,7 +465,7 @@ module Expr =
                         match! peekNextNonTriviaToken with
                         | t when t.Token = Token.KWRParen ->
                             let! rParen = consumePeeked t
-                            return ExprAux.HighPrecApp(lParen, Expr.Const(Constant.Unit(lParen, rParen)), rParen)
+                            return ExprAux.HighPrecApp(lParen, Expr.EmptyBlock(ParenKind.Paren lParen, rParen), rParen)
                         | _ ->
                             let! argExpr = refExpr.Parser
                             let! rParen = pRParen
@@ -526,7 +526,7 @@ module Expr =
                     | PrecedenceLevel.Pipe -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
                     | PrecedenceLevel.Semicolon ->
                         // (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeSemicolon))
-                        (fun op -> InfixNary(op, preturn op, power, completeSequence))
+                        (fun op -> InfixNary(op, preturn op, power, true, completeSequence))
                     // LHS keywords
                     // | PrecedenceLevel.Let -> (fun op -> InfixNonAssociative(op, preturn op, power, completeInfix))
                     // | PrecedenceLevel.Function -> (fun op -> InfixNonAssociative(op, preturn op, power, completeInfix))
@@ -535,7 +535,7 @@ module Expr =
                         (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
                     | PrecedenceLevel.Assignment ->
                         (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeAssignment))
-                    | PrecedenceLevel.Comma -> (fun op -> InfixNary(op, preturn op, power, completeTuple))
+                    | PrecedenceLevel.Comma -> (fun op -> InfixNary(op, preturn op, power, false, completeTuple))
                     | PrecedenceLevel.LogicalOr -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
                     | PrecedenceLevel.LogicalAnd -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
                     | PrecedenceLevel.Cast ->
@@ -553,7 +553,7 @@ module Expr =
                         (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
                     | PrecedenceLevel.Application ->
                         // (fun op -> InfixLeft(op, preturn op, power, completeInfix))
-                        (fun op -> InfixNary(op, preturn op, power, completeApp))
+                        (fun op -> InfixNary(op, preturn op, power, false, completeApp))
                     // | PrecedenceLevel.PatternMatchBar -> Pattern only operator
                     // | PrecedenceLevel.Prefix -> LHS only
                     | PrecedenceLevel.Dot -> (fun op -> InfixMapped(op, preturn op, power, parseDotRhs, completeDot))
@@ -1079,7 +1079,7 @@ module Expr =
             match! peekNextNonTriviaToken with
             | t when t.Token = Token.KWRParen ->
                 let! r = consumePeeked t
-                return Expr.Const(Constant.Unit(l, r))
+                return Expr.EmptyBlock(ParenKind.Paren l, r)
             | _ ->
                 let! e = refExpr.Parser
                 let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) Token.KWRParen
@@ -1093,7 +1093,7 @@ module Expr =
             match! peekNextNonTriviaToken with
             | t when t.Token = Token.KWEnd ->
                 let! r = consumePeeked t
-                return Expr.Const(Constant.Unit(l, r))
+                return Expr.EmptyBlock(ParenKind.BeginEnd l, r)
             | _ ->
                 return!
                     recoverWith
@@ -1119,21 +1119,33 @@ module Expr =
                         })
         }
 
-    let pCollection openTok closeTok complete =
+    let pList =
         parser {
-            let! l = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = openTok) $"Expected '{openTok}'"
+            let! l = pLBracket
 
-            let! elems, seps = sepEndBy refExprInCollectionOrRecords.Parser pSemi
-
-            let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) closeTok
-            return complete l elems r
+            match! peekNextNonTriviaToken with
+            | t when t.Token = Token.KWRBracket ->
+                let! r = consumePeeked t
+                return Expr.EmptyBlock(ParenKind.List l, r)
+            | _ ->
+                let! expr = refExprSeqBlock.Parser
+                let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) Token.KWRBracket
+                return Expr.EnclosedBlock(ParenKind.List l, expr, r)
         }
 
-    let pList =
-        pCollection Token.KWLBracket Token.KWRBracket (fun l elems r -> Expr.List(l, List.ofSeq elems, r))
-
     let pArray =
-        pCollection Token.KWLArrayBracket Token.KWRArrayBracket (fun l elems r -> Expr.Array(l, List.ofSeq elems, r))
+        parser {
+            let! l = pLArrayBracket
+
+            match! peekNextNonTriviaToken with
+            | t when t.Token = Token.KWRArrayBracket ->
+                let! r = consumePeeked t
+                return Expr.EmptyBlock(ParenKind.Array l, r)
+            | _ ->
+                let! expr = refExprSeqBlock.Parser
+                let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) Token.KWRArrayBracket
+                return Expr.EnclosedBlock(ParenKind.Array l, expr, r)
+        }
 
     let pQuoteTyped =
         parser {

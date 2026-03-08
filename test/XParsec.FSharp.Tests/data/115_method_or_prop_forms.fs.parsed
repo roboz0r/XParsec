@@ -15,7 +15,7 @@ TypeDefn.Anon:
     self                     '_'               Wildcard            tok=  31  pos= 127
     Pat.NamedSimple          'Method1'         Identifier          tok=  33  pos= 129
     Pats:
-      Pat.Paren              '('               KWLParen            tok=  34  pos= 136
+      ParenBlock             '('               KWLParen            tok=  34  pos= 136
         Pat.Typed:
           Pat.NamedSimple    'x'               Identifier          tok=  35  pos= 137
           Colon              ':'               OpColon             tok=  36  pos= 138
@@ -31,7 +31,7 @@ TypeDefn.Anon:
     self                     'self'            Identifier          tok=  52  pos= 164
     Pat.NamedSimple          'Method2'         Identifier          tok=  54  pos= 169
     Pats:
-      Pat.Paren              '('               KWLParen            tok=  55  pos= 176
+      ParenBlock             '('               KWLParen            tok=  55  pos= 176
         Pat.Tuple:
           Pat.Typed:
             Pat.NamedSimple  'x'               Identifier          tok=  56  pos= 177
@@ -57,8 +57,7 @@ TypeDefn.Anon:
                              'GetHashCod...'   Identifier          tok=  72  pos= 200
             (                '('               KWLParen            tok=  73  pos= 211
             Arg:
-              Const:
-                Unit         '('               KWLParen            tok=  73  pos= 211
+              ParenBlock     '('               KWLParen            tok=  73  pos= 211
                              ')'               KWRParen            tok=  74  pos= 212
                              ')'               KWRParen            tok=  74  pos= 212
           Ident              'x'               Identifier          tok=  78  pos= 216
@@ -73,7 +72,7 @@ TypeDefn.Anon:
     with                     'with'            KWWith              tok= 111  pos= 350
     Pat.NamedSimple          'set'             Identifier          tok= 113  pos= 355
     Pats:
-      Pat.Paren              '('               KWLParen            tok= 115  pos= 359
+      ParenBlock             '('               KWLParen            tok= 115  pos= 359
         Pat.Typed:
           Pat.NamedSimple    'v'               Identifier          tok= 116  pos= 360
           Colon              ':'               OpColon             tok= 117  pos= 361
@@ -90,8 +89,7 @@ TypeDefn.Anon:
     with                     'with'            KWWith              tok= 142  pos= 430
     Pat.NamedSimple          'get'             Identifier          tok= 144  pos= 435
     Pats:
-      Pat.Const:
-        Unit                 '('               KWLParen            tok= 146  pos= 439
+      ParenBlock             '('               KWLParen            tok= 146  pos= 439
                              ')'               KWRParen            tok= 147  pos= 440
     =                        '='               OpEquality          tok= 149  pos= 442
       Ident                  '_v'              Identifier          tok= 151  pos= 444
@@ -114,8 +112,7 @@ TypeDefn.Anon:
         Ident                'v'               Identifier          tok= 192  pos= 546
     Pat.NamedSimple          'get'             Identifier          tok= 197  pos= 560
     Pats:
-      Pat.Const:
-        Unit                 '('               KWLParen            tok= 199  pos= 564
+      ParenBlock             '('               KWLParen            tok= 199  pos= 564
                              ')'               KWRParen            tok= 200  pos= 565
     =                        '='               OpEquality          tok= 202  pos= 567
       Ident                  '_v'              Identifier          tok= 204  pos= 569

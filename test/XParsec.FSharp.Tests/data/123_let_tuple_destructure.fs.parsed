@@ -4,12 +4,11 @@ FunctionOrValue:
   let                        'let'             KWLet               tok=   5  pos=  10
     Pat.NamedSimple          'f'               Identifier          tok=   7  pos=  14
     Pats:
-      Pat.Const:
-        Unit                 '('               KWLParen            tok=   9  pos=  16
+      ParenBlock             '('               KWLParen            tok=   9  pos=  16
                              ')'               KWRParen            tok=  10  pos=  17
     =                        '='               OpEquality          tok=  12  pos=  19
       Let                    'let'             KWLet               tok=  15  pos=  25
-        Pat.Paren            '('               KWLParen            tok=  17  pos=  29
+        ParenBlock           '('               KWLParen            tok=  17  pos=  29
           Pat.Tuple:
             Pat.NamedSimple  'a'               Identifier          tok=  18  pos=  30
             Pat.NamedSimple  'b'               Identifier          tok=  21  pos=  33
@@ -27,8 +26,7 @@ FunctionOrValue:
   let                        'let'             KWLet               tok=  39  pos=  54
     Pat.NamedSimple          'g'               Identifier          tok=  41  pos=  58
     Pats:
-      Pat.Const:
-        Unit                 '('               KWLParen            tok=  43  pos=  60
+      ParenBlock             '('               KWLParen            tok=  43  pos=  60
                              ')'               KWRParen            tok=  44  pos=  61
     =                        '='               OpEquality          tok=  46  pos=  63
       Let                    'let'             KWLet               tok=  49  pos=  69

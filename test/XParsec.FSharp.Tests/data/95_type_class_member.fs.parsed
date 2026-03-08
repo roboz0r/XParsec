@@ -16,8 +16,7 @@ TypeDefn.Class:
     self             'this'            Identifier          tok=  27  pos=  88
     Pat.NamedSimple  'Increment'       Identifier          tok=  29  pos=  93
     Pats:
-      Pat.Const:
-        Unit         '('               KWLParen            tok=  30  pos= 102
+      ParenBlock     '('               KWLParen            tok=  30  pos= 102
                      ')'               KWRParen            tok=  31  pos= 103
     =                '='               OpEquality          tok=  33  pos= 105
       Assignment     '<-'              OpArrowLeft         tok=  39  pos= 118

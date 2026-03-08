@@ -106,8 +106,7 @@ FunctionOrValue:
           Ident                 'x'               Identifier          tok= 116  pos= 160
         Args:
           BeginEndBlock         'begin'           KWBegin             tok= 118  pos= 162
-            Const:
-              Unit              '('               KWLParen            tok= 120  pos= 168
+            ParenBlock          '('               KWLParen            tok= 120  pos= 168
                                 ')'               KWRParen            tok= 121  pos= 169
                                 'end'             KWEnd               tok= 123  pos= 171
 FunctionOrValue:
@@ -140,8 +139,7 @@ FunctionOrValue:
                                 'System'          Identifier          tok= 157  pos= 218
                                 'Object'          Identifier          tok= 159  pos= 225
               Arg:
-                Const:
-                  Unit          '('               KWLParen            tok= 160  pos= 231
+                ParenBlock      '('               KWLParen            tok= 160  pos= 231
                                 ')'               KWRParen            tok= 161  pos= 232
                                 ')'               KWRParen            tok= 162  pos= 233
 FunctionOrValue:
@@ -180,17 +178,14 @@ FunctionOrValue:
         Func:
           Ident                 'x'               Identifier          tok= 204  pos= 287
         Args:
-          Const:
-            Unit                'begin'           KWBegin             tok= 206  pos= 289
+          BeginEndBlock         'begin'           KWBegin             tok= 206  pos= 289
                                 'end'             KWEnd               tok= 208  pos= 295
 FunctionOrValue:
   let                           'let'             KWLet               tok= 210  pos= 299
     Pat.NamedSimple             'p'               Identifier          tok= 212  pos= 303
     =                           '='               OpEquality          tok= 214  pos= 305
       InfixApp                  '='               OpEquality          tok= 220  pos= 317
-        Const:
-          Unit                  'begin'           KWBegin             tok= 216  pos= 307
+        BeginEndBlock           'begin'           KWBegin             tok= 216  pos= 307
                                 'end'             KWEnd               tok= 218  pos= 313
-        Const:
-          Unit                  '('               KWLParen            tok= 222  pos= 319
+        ParenBlock              '('               KWLParen            tok= 222  pos= 319
                                 ')'               KWRParen            tok= 223  pos= 320

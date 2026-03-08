@@ -8,8 +8,7 @@ TryExpr:
         Func:
           Ident        'riskyOp'         Identifier          tok=   9  pos=  16
         Args:
-          Const:
-            Unit       '('               KWLParen            tok=  11  pos=  24
+          ParenBlock   '('               KWLParen            tok=  11  pos=  24
                        ')'               KWRParen            tok=  12  pos=  25
   in                   <virt>            KWIn                tok=virt  pos=  31
   Body:

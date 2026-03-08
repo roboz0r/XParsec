@@ -4,7 +4,7 @@ FunctionOrValue:
   let                      'let'             KWLet               tok=   5  pos=  10
     Pat.NamedSimple        'isLiteralT...'   Identifier          tok=   7  pos=  14
     Pats:
-      Pat.Paren            '('               KWLParen            tok=   9  pos=  29
+      ParenBlock           '('               KWLParen            tok=   9  pos=  29
         Pat.Typed:
           Pat.NamedSimple  't'               Identifier          tok=  10  pos=  30
           Colon            ':'               OpColon             tok=  11  pos=  31

@@ -97,14 +97,7 @@ module Constant =
 
         preturn () reader
 
-    let pUnit: Parser<Constant<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        parser {
-            let! lParen = pLParen
-            let! rParen = pRParen
-            return Constant.Unit(lParen, rParen)
-        }
-
-    let private pOtherValues =
+    let parse: Parser<Constant<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
 
             let! literal = pLiteral
@@ -120,6 +113,3 @@ module Constant =
             else
                 return Constant.Literal literal
         }
-
-    let parse: Parser<Constant<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        dispatchNextNonTriviaTokenFallback [ Token.KWLParen, pUnit ] pOtherValues

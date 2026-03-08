@@ -148,8 +148,7 @@ FunctionOrValue:
                 Func:
                   Ident                'getItems'        Identifier          tok= 221  pos= 733
                 Args:
-                  Const:
-                    Unit               '('               KWLParen            tok= 223  pos= 742
+                  ParenBlock           '('               KWLParen            tok= 223  pos= 742
                                        ')'               KWRParen            tok= 224  pos= 743
                                        '}'               KWRBrace            tok= 227  pos= 749
 FunctionOrValue:

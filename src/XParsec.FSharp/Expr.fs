@@ -229,6 +229,7 @@ type Expr<'T> =
     // Constants and Blocks
     | Const of value: Constant<'T>
     | EnclosedBlock of lParen: ParenKind<'T> * expr: Expr<'T> * rParen: 'T
+    | EmptyBlock of lParen: ParenKind<'T> * rParen: 'T
     // Lookups and Applications
     | LongIdentOrOp of longIdentOrOp: LongIdentOrOp<'T>
     | DotLookup of expr: Expr<'T> * dot: 'T * longIdentOrOp: LongIdentOrOp<'T>
@@ -244,8 +245,6 @@ type Expr<'T> =
     | Assignment of leftExpr: Expr<'T> * arrow: 'T * rightExpr: Expr<'T>
     | Tuple of exprs: Expr<'T> list
     | StructTuple of structToken: 'T * lParen: 'T * exprs: Expr<'T> list * rParen: 'T
-    | List of lBracket: 'T * exprs: Expr<'T> list * rBracket: 'T
-    | Array of lBar: 'T * exprs: Expr<'T> list * rBar: 'T
     // Objects and Records
     | New of newToken: 'T * typ: Type<'T> * expr: Expr<'T>
     | Object of
@@ -344,6 +343,10 @@ and FieldPat<'T> = | FieldPat of longIdent: LongIdent<'T> * equals: 'T * pat: Pa
 // Represents: pat and its variations
 and [<RequireQualifiedAccess>] Pat<'T> =
     | Const of value: Constant<'T>
+    | EnclosedBlock of lParen: ParenKind<'T> * pat: Pat<'T> * rParen: 'T
+    | EmptyBlock of lParen: ParenKind<'T> * rParen: 'T
+    /// Only valid in List and Array patterns; a compiler error will be raised if this appears in a different context
+    | Elems of pats: Pat<'T> list * separators: 'T list
     | NamedSimple of ident: 'T
     | Named of longIdent: LongIdent<'T> * param: Pat<'T> voption * pat: Pat<'T> voption
     | Wildcard of underscore: 'T
@@ -354,15 +357,12 @@ and [<RequireQualifiedAccess>] Pat<'T> =
     | Typed of pat: Pat<'T> * colon: 'T * typ: Type<'T>
     | Tuple of patterns: Pat<'T> list * commas: 'T list
     | StructTuple of structToken: 'T * lParen: 'T * patterns: Pat<'T> list * commas: 'T list * rParen: 'T
-    | Paren of lParen: 'T * pat: Pat<'T> * rParen: 'T
-    | List of lBracket: 'T * patterns: Pat<'T> list * rBracket: 'T
-    | Array of lBarBracket: 'T * patterns: Pat<'T> list * rBarBracket: 'T
     | Record of lBrace: 'T * fieldPats: FieldPat<'T> list * rBrace: 'T
     | TypeTest of colonQuestion: 'T * typ: Type<'T>
     | TypeTestAs of colonQuestion: 'T * typ: Type<'T> * asToken: 'T * ident: 'T
     | Null of nullToken: 'T
     | Attributed of attributes: Attributes<'T> * pat: Pat<'T>
-    | Struct of structToken: 'T * Pat<'T> // For error recovery
+    | Struct of structToken: 'T * pat: Pat<'T> // For error recovery
     | Op of IdentOrOp<'T> // For operator/active-pattern names in function binding heads
     | Missing
     | SkipsTokens of skippedTokens: 'T list * pat: Pat<'T>
@@ -651,7 +651,6 @@ type Constant<'T> =
     /// A simple literal token, such as `123`, `4.5f`, `"hello"`, or `true`.
     /// The specific kind of literal is encoded in the 'T token itself.
     | Literal of value: 'T
-    | Unit of lParen: 'T * rParen: 'T // ()
 
     /// A numeric literal followed by a unit of measure annotation.
     /// e.g., `10<kg>` or `9.8<m/s^2>`
