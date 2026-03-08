@@ -363,10 +363,9 @@ module Expr =
 
     type ExprOperatorParser() =
         let completeInfix (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) = Expr.InfixApp(l, op, r)
-        let completeSemicolon (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) = Expr.Sequential(l, op, r)
 
         let completeSequence (exprs: ResizeArray<Expr<_>>) ops =
-            Expr.Sequential2(List.ofSeq exprs, List.ofSeq ops)
+            Expr.Sequential(List.ofSeq exprs, List.ofSeq ops)
 
         let completeAssignment (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) = Expr.Assignment(l, op, r)
         let completePrefix (op: SyntaxToken) (e: Expr<_>) = Expr.PrefixApp(op, e)

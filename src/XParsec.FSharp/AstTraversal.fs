@@ -651,13 +651,7 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         visitor.EnterSection ""
         walkExpr visitor expr
         visitor.ExitSection ""
-    | Expr.Sequential(left, sep, right) ->
-        visitor.VisitToken "Sequential" sep
-        visitor.EnterSection ""
-        walkExpr visitor left
-        walkExpr visitor right
-        visitor.ExitSection ""
-    | Expr.Sequential2(exprs, _ops) ->
+    | Expr.Sequential(exprs, _ops) ->
         visitor.EnterSection "Sequential"
 
         for e in exprs do
