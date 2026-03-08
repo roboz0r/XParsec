@@ -416,7 +416,7 @@ module Expr =
                     Expr.LongIdentOrOp(LongIdentOrOp.LongIdent newLongIdent)
                 | _ -> Expr.DotLookup(expr, op, LongIdentOrOp.LongIdent [ ident ])
             | ExprAux.DotIndex(lBracket, indexExpr, rBracket) ->
-                Expr.IndexedLookup(expr, op, lBracket, indexExpr, rBracket)
+                Expr.IndexedLookup(expr, ValueSome op, lBracket, indexExpr, rBracket)
             | _ -> failwith "Unexpected Aux type for dot completion"
 
 
@@ -487,7 +487,7 @@ module Expr =
             match aux with
             | ExprAux.HighPrecApp(lParen, argExpr, rParen) -> Expr.HighPrecedenceApp(funcExpr, lParen, argExpr, rParen)
             | ExprAux.HighPrecIndex(lBracket, argExpr, rBracket) ->
-                Expr.DotlessIndexedLookup(funcExpr, lBracket, argExpr, rBracket)
+                Expr.IndexedLookup(funcExpr, ValueNone, lBracket, argExpr, rBracket)
             | _ -> failwith "Unexpected Aux type for high-precedence application/index completion"
 
         let parseTypeCastRhs = Type.parse |>> ExprAux.TypeCast
