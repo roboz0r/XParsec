@@ -197,7 +197,7 @@ type ExprOrRange<'T> =
     | Range of RangeExpr<'T>
 
 // Keywords used in control-flow CE forms: yield, return, do, and their bang variants
-[<RequireQualifiedAccess>]
+[<Struct; RequireQualifiedAccess>]
 type ControlFlowKeyword<'T> =
     | Yield of 'T
     | YieldBang of 'T
@@ -206,12 +206,29 @@ type ControlFlowKeyword<'T> =
     | Do of 'T
     | DoBang of 'T
 
+[<Struct; RequireQualifiedAccess>]
+type ParenKind<'T> =
+    /// ( ... )
+    | Paren of 'T
+    /// begin ... end
+    | BeginEnd of 'T
+    /// [ ... ]
+    | List of 'T
+    /// [| ... |]
+    | Array of 'T
+    /// { ... }  (Used for Computation Expressions)
+    | Brace of 'T
+    /// &lt;@ ... @&gt; (Used for Quotations)
+    | Quoted of 'T
+    /// &lt;@@ ... @@&gt; (Used for Untyped Quotations)
+    | DoubleQuoted of 'T
+
 // The complete expression type
-and [<RequireQualifiedAccess>] Expr<'T> =
+[<RequireQualifiedAccess>]
+type Expr<'T> =
     // Constants and Blocks
     | Const of value: Constant<'T>
-    | ParenBlock of lParen: 'T * expr: Expr<'T> * rParen: 'T
-    | BeginEndBlock of beginToken: 'T * expr: Expr<'T> * endToken: 'T
+    | EnclosedBlock of lParen: ParenKind<'T> * expr: Expr<'T> * rParen: 'T
     // Lookups and Applications
     | LongIdentOrOp of longIdentOrOp: LongIdentOrOp<'T>
     | DotLookup of expr: Expr<'T> * dot: 'T * longIdentOrOp: LongIdentOrOp<'T>
@@ -246,7 +263,6 @@ and [<RequireQualifiedAccess>] Expr<'T> =
         fieldInitializers: FieldInitializer<'T> list *
         rBrace: 'T
     // Computation Expressions
-    | ComputationBlock of lBrace: 'T * body: Expr<'T> * rBrace: 'T
     | ControlFlow of keyword: ControlFlowKeyword<'T> * expr: Expr<'T>
     | Lazy of lazyToken: 'T * expr: Expr<'T>
     | Null of nullToken: 'T
@@ -300,8 +316,6 @@ and [<RequireQualifiedAccess>] Expr<'T> =
         doneToken: 'T
     // Other
     | Assert of assertToken: 'T * expr: Expr<'T>
-    | Quoted of lAngleAt: 'T * expr: Expr<'T> * rAtAngle: 'T
-    | DoubleQuoted of lAngleAtAt: 'T * expr: Expr<'T> * rAtAtAngle: 'T
     | ExpressionSplice of percent: 'T * expr: Expr<'T>
     | WeaklyTypedExpressionSplice of percentPercent: 'T * expr: Expr<'T>
     | StaticMemberInvocation of

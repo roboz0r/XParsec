@@ -690,14 +690,18 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
 
         visitor.ExitSection ""
         visitor.VisitToken "" rBracket
-    | Expr.ParenBlock(l, expr, r) ->
-        visitor.VisitToken "ParenBlock" l
-        visitor.EnterSection ""
-        walkExpr visitor expr
-        visitor.ExitSection ""
-        visitor.VisitToken "" r
-    | Expr.BeginEndBlock(l, expr, r) ->
-        visitor.VisitToken "BeginEndBlock" l
+    | Expr.EnclosedBlock(lParen, expr, r) ->
+        let label, lTok =
+            match lParen with
+            | ParenKind.Paren t -> "ParenBlock", t
+            | ParenKind.BeginEnd t -> "BeginEndBlock", t
+            | ParenKind.List t -> "List", t
+            | ParenKind.Array t -> "Array", t
+            | ParenKind.Brace t -> "ComputationBlock", t
+            | ParenKind.Quoted t -> "<@", t
+            | ParenKind.DoubleQuoted t -> "<@@", t
+
+        visitor.VisitToken label lTok
         visitor.EnterSection ""
         walkExpr visitor expr
         visitor.ExitSection ""
@@ -1004,12 +1008,6 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         visitor.EnterSection "Pat"
         walkPat visitor innerPat
         visitor.ExitSection "Pat"
-    | Expr.ComputationBlock(lBrace, body, rBrace) ->
-        visitor.EnterSection "ComputationBlock"
-        visitor.VisitToken "{" lBrace
-        walkExpr visitor body
-        visitor.VisitToken "}" rBrace
-        visitor.ExitSection "ComputationBlock"
     | Expr.ControlFlow(keyword, expr) ->
         let kwLabel =
             match keyword with
@@ -1068,18 +1066,6 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
 
         visitor.VisitToken "]" rBracket
         visitor.ExitSection "Slice"
-    | Expr.Quoted(lAngleAt, expr, rAtAngle) ->
-        visitor.VisitToken "<@" lAngleAt
-        visitor.EnterSection ""
-        walkExpr visitor expr
-        visitor.ExitSection ""
-        visitor.VisitToken "@>" rAtAngle
-    | Expr.DoubleQuoted(lAngleAtAt, expr, rAtAtAngle) ->
-        visitor.VisitToken "<@@" lAngleAtAt
-        visitor.EnterSection ""
-        walkExpr visitor expr
-        visitor.ExitSection ""
-        visitor.VisitToken "@@>" rAtAtAngle
     | Expr.ExpressionSplice(percent, expr) ->
         visitor.VisitToken "%" percent
         visitor.EnterSection ""
