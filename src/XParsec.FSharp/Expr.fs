@@ -1,5 +1,13 @@
 namespace rec XParsec.FSharp.Parser
 
+[<Struct; RequireQualifiedAccess>]
+type LetOrUse<'T> =
+    | Let of 'T
+    | Use of 'T
+    | LetBang of 'T
+    | UseBang of 'T
+
+
 // 13. Custom Attributes and Reflection
 // Represents: attribute-target
 [<RequireQualifiedAccess>]
@@ -377,19 +385,6 @@ and [<RequireQualifiedAccess>] Expr<'T> =
 // Patterns
 
 
-// Represents: pat-param
-[<RequireQualifiedAccess>]
-type PatParam<'T> =
-    | Const of value: 'T
-    | LongIdent of ident: LongIdent<'T>
-    | List of lBracket: 'T * parameters: PatParam<'T> list * rBracket: 'T
-    | Tuple of lParen: 'T * parameters: PatParam<'T> list * rParen: 'T
-    | App of ident: LongIdent<'T> * param: PatParam<'T>
-    | Typed of param: PatParam<'T> * colon: 'T * typ: Type<'T>
-    | Quoted of lAngleAt: 'T * expr: Expr<'T> * rAtAngle: 'T
-    | DoubleQuoted of lAngleAtAt: 'T * expr: Expr<'T> * rAtAtAngle: 'T
-    | Null of nullToken: 'T
-
 // Represents: field-pat := long-ident = pat
 and FieldPat<'T> = | FieldPat of longIdent: LongIdent<'T> * equals: 'T * pat: Pat<'T>
 
@@ -397,7 +392,7 @@ and FieldPat<'T> = | FieldPat of longIdent: LongIdent<'T> * equals: 'T * pat: Pa
 and [<RequireQualifiedAccess>] Pat<'T> =
     | Const of value: Constant<'T>
     | NamedSimple of ident: 'T
-    | Named of longIdent: LongIdent<'T> * param: PatParam<'T> voption * pat: Pat<'T> voption
+    | Named of longIdent: LongIdent<'T> * param: Pat<'T> voption * pat: Pat<'T> voption
     | Wildcard of underscore: 'T
     | As of pat: Pat<'T> * asToken: 'T * ident: 'T
     | Or of left: Pat<'T> * bar: 'T * right: Pat<'T>
