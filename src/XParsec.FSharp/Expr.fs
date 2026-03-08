@@ -221,8 +221,7 @@ and [<RequireQualifiedAccess>] Expr<'T> =
     | TypeApp of expr: Expr<'T> * lAngle: 'T * types: Type<'T> list * rAngle: 'T
     | InfixApp of leftExpr: Expr<'T> * infixOp: 'T * rightExpr: Expr<'T>
     | PrefixApp of prefixOp: 'T * expr: Expr<'T>
-    | IndexedLookup of expr: Expr<'T> * dot: 'T * lBracket: 'T * indexExpr: Expr<'T> * rBracket: 'T
-    | DotlessIndexedLookup of expr: Expr<'T> * lBracket: 'T * indexExpr: Expr<'T> * rBracket: 'T
+    | IndexedLookup of expr: Expr<'T> * dot: 'T voption * lBracket: 'T * indexExpr: Expr<'T> * rBracket: 'T
     | Slice of expr: Expr<'T> * lDotBracket: 'T * sliceRanges: SliceRange<'T> list * rBracket: 'T
     // Data Structures
     | Assignment of leftExpr: Expr<'T> * arrow: 'T * rightExpr: Expr<'T>

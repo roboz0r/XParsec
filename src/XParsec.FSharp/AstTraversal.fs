@@ -959,24 +959,17 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         visitor.EnterSection "Expr"
         walkExpr visitor indexedExpr
         visitor.ExitSection "Expr"
-        visitor.VisitToken "." dot
+
+        match dot with
+        | ValueSome dot -> visitor.VisitToken "." dot
+        | ValueNone -> ()
+
         visitor.VisitToken "[" lBracket
         visitor.EnterSection "Index"
         walkExpr visitor indexArgExpr
         visitor.ExitSection "Index"
         visitor.VisitToken "" rBracket
         visitor.ExitSection "IndexedLookup"
-    | Expr.DotlessIndexedLookup(indexedExpr, lBracket, indexArgExpr, rBracket) ->
-        visitor.EnterSection "DotlessIndexedLookup"
-        visitor.EnterSection "Expr"
-        walkExpr visitor indexedExpr
-        visitor.ExitSection "Expr"
-        visitor.VisitToken "[" lBracket
-        visitor.EnterSection "Index"
-        walkExpr visitor indexArgExpr
-        visitor.ExitSection "Index"
-        visitor.VisitToken "" rBracket
-        visitor.ExitSection "DotlessIndexedLookup"
     | Expr.StaticUpcast(castExpr, colonGT, typ) ->
         visitor.EnterSection "StaticUpcast"
         visitor.EnterSection "Expr"
