@@ -1811,7 +1811,26 @@ module internal TokenInfo =
             | Token.KWAssert
             | Token.VirtualApp
             | Token.VirtualTyApp
-            | Token.VirtualSep -> true
+            | Token.VirtualSep
+            // Keyword prefix-expression operators (handled as PrefixMapped in lhsParser)
+            | Token.KWLet
+            | Token.KWLetBang
+            | Token.KWUse
+            | Token.KWUseBang
+            | Token.KWMatch
+            | Token.KWMatchBang
+            | Token.KWDo
+            | Token.KWDoBang
+            | Token.KWReturn
+            | Token.KWReturnBang
+            | Token.KWYield
+            | Token.KWYieldBang
+            | Token.KWIf
+            | Token.KWFor
+            | Token.KWWhile
+            | Token.KWTry
+            | Token.KWFun
+            | Token.KWFunction -> true
             | _ -> false
         elif isSpecial token then
             match token with
@@ -1828,10 +1847,22 @@ module internal TokenInfo =
             | Token.KWWhen -> PrecedenceLevel.When
             | Token.OpSemicolon
             | Token.VirtualSep -> PrecedenceLevel.Semicolon
-            | Token.KWLet -> PrecedenceLevel.Let
+            | Token.KWLet
+            | Token.KWLetBang
+            | Token.KWUse
+            | Token.KWUseBang -> PrecedenceLevel.Let
             | Token.KWFunction
             | Token.KWFun
             | Token.KWMatch
+            | Token.KWMatchBang
+            | Token.KWDo
+            | Token.KWDoBang
+            | Token.KWReturn
+            | Token.KWReturnBang
+            | Token.KWYield
+            | Token.KWYieldBang
+            | Token.KWFor
+            | Token.KWWhile
             | Token.KWTry -> PrecedenceLevel.Function
             | Token.KWIf -> PrecedenceLevel.If
             | Token.OpArrowRight -> PrecedenceLevel.Arrow
@@ -2151,6 +2182,24 @@ type OperatorInfo =
 
     member this.CanBePrefix: bool =
         match this.Token with
+        | Token.KWLet
+        | Token.KWLetBang
+        | Token.KWUse
+        | Token.KWUseBang
+        | Token.KWMatch
+        | Token.KWMatchBang
+        | Token.KWDo
+        | Token.KWDoBang
+        | Token.KWReturn
+        | Token.KWReturnBang
+        | Token.KWYield
+        | Token.KWYieldBang
+        | Token.KWIf
+        | Token.KWFor
+        | Token.KWWhile
+        | Token.KWTry
+        | Token.KWFun
+        | Token.KWFunction
         | Token.OpDereference -> true
         | t -> TokenInfo.isOperator t && TokenInfo.canBePrefix t
 
