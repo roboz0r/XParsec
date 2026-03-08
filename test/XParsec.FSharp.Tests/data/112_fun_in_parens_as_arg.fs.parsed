@@ -8,8 +8,7 @@ FunctionOrValue:
         Func:
           Ident                          'parser'          Identifier          tok=  12  pos=  30
         Args:
-          ComputationBlock:
-            {                            '{'               KWLBrace            tok=  14  pos=  37
+          ComputationBlock               '{'               KWLBrace            tok=  14  pos=  37
             LetBang                      'let!'            KWLetBang           tok=  17  pos=  47
               Pat.NamedSimple            'state'           Identifier          tok=  19  pos=  52
               =                          '='               OpEquality          tok=  21  pos=  58
@@ -47,4 +46,4 @@ FunctionOrValue:
                               Ident      'state'           Identifier          tok=  55  pos= 148
                                          ')'               KWRParen            tok=  56  pos= 153
                     Const                '"<"'             StringLiteral       tok=  58  pos= 155
-            }                            '}'               KWRBrace            tok=  61  pos= 163
+                                         '}'               KWRBrace            tok=  61  pos= 163

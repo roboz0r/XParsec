@@ -8,8 +8,7 @@ FunctionOrValue:
         Func:
           Ident                        'async'           Identifier          tok=  14  pos=  76
         Args:
-          ComputationBlock:
-            {                          '{'               KWLBrace            tok=  16  pos=  82
+          ComputationBlock             '{'               KWLBrace            tok=  16  pos=  82
             TryWith                    'try'             KWTry               tok=  19  pos=  92
             TryExpr:
               LetBang                  'let!'            KWLetBang           tok=  22  pos= 108
@@ -42,7 +41,7 @@ FunctionOrValue:
               Arrow                    '->'              OpArrowRight        tok=  54  pos= 212
               Expr:
                 Ident                  'defaultVal...'   Identifier          tok=  56  pos= 215
-            }                          '}'               KWRBrace            tok=  59  pos= 232
+                                       '}'               KWRBrace            tok=  59  pos= 232
 FunctionOrValue:
   let                                  'let'             KWLet               tok=  64  pos= 256
     Pat.NamedSimple                    'b'               Identifier          tok=  66  pos= 260
@@ -51,8 +50,7 @@ FunctionOrValue:
         Func:
           Ident                        'async'           Identifier          tok=  71  pos= 268
         Args:
-          ComputationBlock:
-            {                          '{'               KWLBrace            tok=  73  pos= 274
+          ComputationBlock             '{'               KWLBrace            tok=  73  pos= 274
             TryFinally                 'try'             KWTry               tok=  76  pos= 284
             TryExpr:
               return!                  'return!'         KWReturnBang        tok=  79  pos= 300
@@ -73,7 +71,7 @@ FunctionOrValue:
                   Const:
                     Unit               '('               KWLParen            tok=  92  pos= 354
                                        ')'               KWRParen            tok=  93  pos= 355
-            }                          '}'               KWRBrace            tok=  96  pos= 361
+                                       '}'               KWRBrace            tok=  96  pos= 361
 FunctionOrValue:
   let                                  'let'             KWLet               tok= 101  pos= 397
     Pat.NamedSimple                    'c'               Identifier          tok= 103  pos= 401
@@ -82,8 +80,7 @@ FunctionOrValue:
         Func:
           Ident                        'async'           Identifier          tok= 108  pos= 409
         Args:
-          ComputationBlock:
-            {                          '{'               KWLBrace            tok= 110  pos= 415
+          ComputationBlock             '{'               KWLBrace            tok= 110  pos= 415
             TryWith                    'try'             KWTry               tok= 113  pos= 425
             TryExpr:
               LetBang                  'let!'            KWLetBang           tok= 116  pos= 441
@@ -126,7 +123,7 @@ FunctionOrValue:
                     Ident              'handleEx'        Identifier          tok= 153  pos= 537
                   Args:
                     Ident              'ex'              Identifier          tok= 155  pos= 546
-            }                          '}'               KWRBrace            tok= 158  pos= 553
+                                       '}'               KWRBrace            tok= 158  pos= 553
 FunctionOrValue:
   let                                  'let'             KWLet               tok= 163  pos= 638
     Pat.NamedSimple                    'd'               Identifier          tok= 165  pos= 642
@@ -135,8 +132,7 @@ FunctionOrValue:
         Func:
           Ident                        'async'           Identifier          tok= 170  pos= 650
         Args:
-          ComputationBlock:
-            {                          '{'               KWLBrace            tok= 172  pos= 656
+          ComputationBlock             '{'               KWLBrace            tok= 172  pos= 656
             Match:
               MatchToken               'match'           KWMatch             tok= 175  pos= 666
               MatchExpr:
@@ -169,7 +165,7 @@ FunctionOrValue:
                 Arrow                  '->'              OpArrowRight        tok= 202  pos= 735
                 Expr:
                   Ident                'defaultVal...'   Identifier          tok= 204  pos= 738
-            }                          '}'               KWRBrace            tok= 207  pos= 755
+                                       '}'               KWRBrace            tok= 207  pos= 755
 FunctionOrValue:
   let                                  'let'             KWLet               tok= 212  pos= 816
     Pat.NamedSimple                    'e'               Identifier          tok= 214  pos= 820
@@ -178,8 +174,7 @@ FunctionOrValue:
         Func:
           Ident                        'async'           Identifier          tok= 219  pos= 828
         Args:
-          ComputationBlock:
-            {                          '{'               KWLBrace            tok= 221  pos= 834
+          ComputationBlock             '{'               KWLBrace            tok= 221  pos= 834
             Match:
               MatchToken               'match!'          KWMatchBang         tok= 224  pos= 844
               MatchExpr:
@@ -215,4 +210,4 @@ FunctionOrValue:
                       Ident            'recover'         Identifier          tok= 253  pos= 913
                     Args:
                       Ident            'msg'             Identifier          tok= 255  pos= 921
-            }                          '}'               KWRBrace            tok= 258  pos= 929
+                                       '}'               KWRBrace            tok= 258  pos= 929

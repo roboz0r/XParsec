@@ -156,7 +156,7 @@ FunctionOrValue:
         Args:
           <@                    '<@'              OpQuotationTypedLeft  tok= 174  pos= 247
             Const               '1'               NumInt32            tok= 176  pos= 250
-          @>                    '@>'              OpQuotationTypedRight  tok= 178  pos= 252
+                                '@>'              OpQuotationTypedRight  tok= 178  pos= 252
 FunctionOrValue:
   let                           'let'             KWLet               tok= 180  pos= 255
     Pat.NamedSimple             'n'               Identifier          tok= 182  pos= 259
@@ -169,7 +169,7 @@ FunctionOrValue:
         Args:
           <@@                   '<@@'             OpQuotationUntypedLeft  tok= 190  pos= 267
             Const               '1'               NumInt32            tok= 192  pos= 271
-          @@>                   '@@>'             OpQuotationUntypedRight  tok= 194  pos= 273
+                                '@@>'             OpQuotationUntypedRight  tok= 194  pos= 273
 FunctionOrValue:
   let                           'let'             KWLet               tok= 196  pos= 277
     Pat.NamedSimple             'o'               Identifier          tok= 198  pos= 281
