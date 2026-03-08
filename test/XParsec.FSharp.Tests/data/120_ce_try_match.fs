@@ -33,7 +33,7 @@ let c =
 let d =
     async {
         match getValue () with
-        | Some v -> process v
+        | Some v -> processV v
         | None -> defaultValue
     }
 
@@ -44,21 +44,3 @@ let e =
         | Ok v -> v
         | Error msg -> recover msg
     }
-
-// Nested CEs
-let f =
-    seq {
-        for x in outer do
-            yield! async {
-                let! y = transform x
-                return y
-            }
-    }
-
-// CE as argument to a function
-let g =
-    let run comp = Async.RunSynchronously comp
-    run (async {
-        let! x = getX ()
-        return x + 1
-    })
