@@ -1231,6 +1231,7 @@ and walkMethodOrPropDefn (visitor: AstVisitor<'T>) (defn: MethodOrPropDefn<'T>) 
             | ValueSome acc2Tok -> visitor.VisitToken "accessor" acc2Tok
             | ValueNone -> ()
         | ValueNone -> ()
+    | MethodOrPropDefn.AbstractSignature sign -> walkMemberSig visitor sign
 
 and walkMemberDefn (visitor: AstVisitor<'T>) (memberDefn: MemberDefn<'T>) : unit =
     match memberDefn with
@@ -1251,26 +1252,22 @@ and walkMemberDefn (visitor: AstVisitor<'T>) (memberDefn: MemberDefn<'T>) : unit
         visitor.VisitToken ":" colon
         walkType visitor typ
         visitor.ExitSection "Val"
-    | MemberDefn.Abstract(_, abstractTok, memberTok, _, sign) ->
-        visitor.VisitToken "abstract" abstractTok
-
-        match memberTok with
-        | ValueSome m -> visitor.VisitToken "member" m
-        | ValueNone -> ()
-
-        walkMemberSig visitor sign
-    | MemberDefn.Concrete(_, staticTok, memberTok, _, defn) ->
+    | MemberDefn.Member(_, staticTok, keyword, _, defn) ->
         match staticTok with
         | ValueSome s -> visitor.VisitToken "static" s
         | ValueNone -> ()
 
-        visitor.VisitToken "member" memberTok
-        walkMethodOrPropDefn visitor defn
-    | MemberDefn.Override(_, overrideTok, _, defn) ->
-        visitor.VisitToken "override" overrideTok
-        walkMethodOrPropDefn visitor defn
-    | MemberDefn.Default(_, defaultTok, _, defn) ->
-        visitor.VisitToken "default" defaultTok
+        match keyword with
+        | MemberKeyword.Member tok -> visitor.VisitToken "member" tok
+        | MemberKeyword.Override tok -> visitor.VisitToken "override" tok
+        | MemberKeyword.Default tok -> visitor.VisitToken "default" tok
+        | MemberKeyword.Abstract(abstractTok, memberTok) ->
+            visitor.VisitToken "abstract" abstractTok
+
+            match memberTok with
+            | ValueSome m -> visitor.VisitToken "member" m
+            | ValueNone -> ()
+
         walkMethodOrPropDefn visitor defn
     | MemberDefn.AdditionalConstructor(_, _, newTok, pat, _, eq, body) ->
         visitor.EnterSection "AdditionalConstructor"
@@ -1395,10 +1392,8 @@ and walkExceptionDefn (visitor: AstVisitor<'T>) (exnDefn: ExceptionDefn<'T>) : u
 
         visitor.ExitSection "ExceptionDefn.Abbrev"
 
-and walkClassTypeBody (visitor: AstVisitor<'T>) (body: ClassTypeBody<'T>) : unit =
-    let (ClassTypeBody(inherits, lets, elems)) = body
-
-    match inherits with
+and walkObjectModelBody (visitor: AstVisitor<'T>) (body: ObjectModelBody<'T>) : unit =
+    match body.inherits with
     | ValueSome(ClassInheritsDecl(inhTok, typ, expr)) ->
         visitor.VisitToken "inherit" inhTok
         walkType visitor typ
@@ -1408,8 +1403,8 @@ and walkClassTypeBody (visitor: AstVisitor<'T>) (body: ClassTypeBody<'T>) : unit
         | ValueNone -> ()
     | ValueNone -> ()
 
-    for letDefn in lets do
-        match letDefn with
+    for preamble in body.classPreamble do
+        match preamble with
         | ClassFunctionOrValueDefn.LetBindings(_, staticTok, letTok, isRec, bindings) ->
             match staticTok with
             | ValueSome s -> visitor.VisitToken "static" s
@@ -1431,11 +1426,8 @@ and walkClassTypeBody (visitor: AstVisitor<'T>) (body: ClassTypeBody<'T>) : unit
             visitor.VisitToken "do" doTok
             walkExpr visitor expr
 
-    match elems with
-    | ValueSome es ->
-        for e in es do
-            walkTypeDefnElement visitor e
-    | ValueNone -> ()
+    for e in body.elements do
+        walkTypeDefnElement visitor e
 
 and walkTypeDefn (visitor: AstVisitor<'T>) (typeDefn: TypeDefn<'T>) : unit =
     match typeDefn with
@@ -1544,33 +1536,27 @@ and walkTypeDefn (visitor: AstVisitor<'T>) (typeDefn: TypeDefn<'T>) : unit =
         visitor.VisitToken "=" equals
         visitor.VisitToken "class" classTok
         visitor.EnterSection ""
-        walkClassTypeBody visitor body
+        walkObjectModelBody visitor body
         visitor.ExitSection ""
         visitor.VisitToken "end" endTok
         visitor.ExitSection "TypeDefn.Class"
-    | TypeDefn.Struct(typeName, _primaryConstr, _, equals, structTok, StructTypeBody(elems), endTok) ->
+    | TypeDefn.Struct(typeName, _primaryConstr, _, equals, structTok, body, endTok) ->
         visitor.EnterSection "TypeDefn.Struct"
         walkTypeName visitor typeName
         visitor.VisitToken "=" equals
         visitor.VisitToken "struct" structTok
         visitor.EnterSection ""
-
-        for e in elems do
-            walkTypeDefnElement visitor e
-
+        walkObjectModelBody visitor body
         visitor.ExitSection ""
         visitor.VisitToken "end" endTok
         visitor.ExitSection "TypeDefn.Struct"
-    | TypeDefn.Interface(typeName, equals, intfTok, InterfaceTypeBody(elems), endTok) ->
+    | TypeDefn.Interface(typeName, equals, intfTok, body, endTok) ->
         visitor.EnterSection "TypeDefn.Interface"
         walkTypeName visitor typeName
         visitor.VisitToken "=" equals
         visitor.VisitToken "interface" intfTok
         visitor.EnterSection ""
-
-        for e in elems do
-            walkTypeDefnElement visitor e
-
+        walkObjectModelBody visitor body
         visitor.ExitSection ""
         visitor.VisitToken "end" endTok
         visitor.ExitSection "TypeDefn.Interface"
@@ -1597,7 +1583,7 @@ and walkTypeDefn (visitor: AstVisitor<'T>) (typeDefn: TypeDefn<'T>) : unit =
         visitor.VisitToken "=" equals
         visitor.VisitToken "begin" beginTok
         visitor.EnterSection ""
-        walkClassTypeBody visitor body
+        walkObjectModelBody visitor body
         visitor.ExitSection ""
         visitor.VisitToken "end" endTok
         visitor.ExitSection "TypeDefn.Anon"
