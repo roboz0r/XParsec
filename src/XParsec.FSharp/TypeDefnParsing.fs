@@ -396,11 +396,19 @@ module MemberDefn =
                 match! peekNextNonTriviaToken with
                 | t when t.Token = Token.KWVal ->
                     let! defn = AutoPropDefn.parse
-                    return (fun attrs -> MemberDefn.Concrete(attrs, ValueSome staticTok, mem, ValueNone, defn))
+
+                    return
+                        (fun attrs ->
+                            MemberDefn.Member(attrs, ValueSome staticTok, MemberKeyword.Member mem, ValueNone, defn)
+                        )
                 | _ ->
                     let! access = opt pAccessModifier
                     let! defn = MethodOrPropDefn.parse
-                    return (fun attrs -> MemberDefn.Concrete(attrs, ValueSome staticTok, mem, access, defn))
+
+                    return
+                        (fun attrs ->
+                            MemberDefn.Member(attrs, ValueSome staticTok, MemberKeyword.Member mem, access, defn)
+                        )
             | t when t.Token = Token.KWVal ->
                 let! valTok = consumePeeked t
                 let! mut = opt pMutable
@@ -421,11 +429,14 @@ module MemberDefn =
             match! peekNextNonTriviaToken with
             | t when t.Token = Token.KWVal ->
                 let! defn = AutoPropDefn.parse
-                return (fun attrs -> MemberDefn.Concrete(attrs, ValueNone, memberTok, ValueNone, defn))
+
+                return
+                    (fun attrs -> MemberDefn.Member(attrs, ValueNone, MemberKeyword.Member memberTok, ValueNone, defn))
             | _ ->
                 let! access = opt pAccessModifier
                 let! defn = MethodOrPropDefn.parse
-                return (fun attrs -> MemberDefn.Concrete(attrs, ValueNone, memberTok, access, defn))
+
+                return (fun attrs -> MemberDefn.Member(attrs, ValueNone, MemberKeyword.Member memberTok, access, defn))
         }
 
     let private pAbstractMemberDefn =
@@ -434,7 +445,17 @@ module MemberDefn =
             let! memTok = opt pMember
             let! access = opt pAccessModifier
             let! sigDef = MemberSig.parse
-            return (fun attrs -> MemberDefn.Abstract(attrs, abstractTok, memTok, access, sigDef))
+
+            return
+                (fun attrs ->
+                    MemberDefn.Member(
+                        attrs,
+                        ValueNone,
+                        MemberKeyword.Abstract(abstractTok, memTok),
+                        access,
+                        MethodOrPropDefn.AbstractSignature sigDef
+                    )
+                )
         }
 
     let private pOverrideMemberDefn =
@@ -444,11 +465,17 @@ module MemberDefn =
             match! peekNextNonTriviaToken with
             | t when t.Token = Token.KWVal ->
                 let! defn = AutoPropDefn.parse
-                return (fun attrs -> MemberDefn.Override(attrs, overrideTok, ValueNone, defn))
+
+                return
+                    (fun attrs ->
+                        MemberDefn.Member(attrs, ValueNone, MemberKeyword.Override overrideTok, ValueNone, defn)
+                    )
             | _ ->
                 let! access = opt pAccessModifier
                 let! defn = MethodOrPropDefn.parse
-                return (fun attrs -> MemberDefn.Override(attrs, overrideTok, access, defn))
+
+                return
+                    (fun attrs -> MemberDefn.Member(attrs, ValueNone, MemberKeyword.Override overrideTok, access, defn))
         }
 
     let private pDefaultMemberDefn =
@@ -458,11 +485,17 @@ module MemberDefn =
             match! peekNextNonTriviaToken with
             | t when t.Token = Token.KWVal ->
                 let! defn = AutoPropDefn.parse
-                return (fun attrs -> MemberDefn.Default(attrs, defaultTok, ValueNone, defn))
+
+                return
+                    (fun attrs ->
+                        MemberDefn.Member(attrs, ValueNone, MemberKeyword.Default defaultTok, ValueNone, defn)
+                    )
             | _ ->
                 let! access = opt pAccessModifier
                 let! defn = MethodOrPropDefn.parse
-                return (fun attrs -> MemberDefn.Default(attrs, defaultTok, access, defn))
+
+                return
+                    (fun attrs -> MemberDefn.Member(attrs, ValueNone, MemberKeyword.Default defaultTok, access, defn))
         }
 
     let private pValueMemberDefn =
@@ -683,42 +716,75 @@ module ClassFunctionOrValueDefn =
             ]
             "Class Let/Do"
 
+/// Parses the body of a class or anonymous type definition.
 [<RequireQualifiedAccess>]
 module ClassTypeBody =
     // Returns the body AND the consumed end token (from manyTill's terminator)
-    let parse terminator : Parser<ClassTypeBody<SyntaxToken> * SyntaxToken, _, _, _, _> =
+    let parse terminator : Parser<ObjectModelBody<SyntaxToken> * SyntaxToken, _, _, _, _> =
         parser {
             let! inh = opt ClassInheritsDecl.parse
-            let! lets = many ClassFunctionOrValueDefn.parse
+            let! preamble = many ClassFunctionOrValueDefn.parse
             let! elems, endTok = TypeDefnElements.parseTill terminator
-            return (ClassTypeBody.ClassTypeBody(inh, List.ofSeq lets, ValueSome(List.ofSeq elems)), endTok)
+
+            let body =
+                {
+                    inherits = inh
+                    classPreamble = List.ofSeq preamble
+                    elements = List.ofSeq elems
+                }
+
+            return (body, endTok)
         }
 
     /// Parses class body using offside rule. Use inside a withContext block.
-    let parseOffside: Parser<ClassTypeBody<SyntaxToken>, _, _, _, _> =
+    let parseOffside: Parser<ObjectModelBody<SyntaxToken>, _, _, _, _> =
         parser {
             let! inh = opt ClassInheritsDecl.parse
-            let! lets = many ClassFunctionOrValueDefn.parse
+            let! preamble = many ClassFunctionOrValueDefn.parse
             let! elems = TypeDefnElements.parseMany
-            return ClassTypeBody.ClassTypeBody(inh, List.ofSeq lets, ValueSome(List.ofSeq elems))
+
+            return
+                {
+                    inherits = inh
+                    classPreamble = List.ofSeq preamble
+                    elements = List.ofSeq elems
+                }
         }
 
+/// Parses the body of a struct definition (no inherits or class preamble).
 [<RequireQualifiedAccess>]
 module StructTypeBody =
     // Returns the body AND the consumed end token (from manyTill's terminator)
-    let parse terminator : Parser<StructTypeBody<SyntaxToken> * SyntaxToken, _, _, _, _> =
+    let parse terminator : Parser<ObjectModelBody<SyntaxToken> * SyntaxToken, _, _, _, _> =
         parser {
             let! elems, endTok = TypeDefnElements.parseTill terminator
-            return (StructTypeBody.StructTypeBody(List.ofSeq elems), endTok)
+
+            let body =
+                {
+                    inherits = ValueNone
+                    classPreamble = []
+                    elements = List.ofSeq elems
+                }
+
+            return (body, endTok)
         }
 
+/// Parses the body of an interface definition (no inherits or class preamble).
 [<RequireQualifiedAccess>]
 module InterfaceTypeBody =
     // Returns the body AND the consumed end token (from manyTill's terminator)
-    let parse terminator : Parser<InterfaceTypeBody<SyntaxToken> * SyntaxToken, _, _, _, _> =
+    let parse terminator : Parser<ObjectModelBody<SyntaxToken> * SyntaxToken, _, _, _, _> =
         parser {
             let! elems, endTok = TypeDefnElements.parseTill terminator
-            return (InterfaceTypeBody.InterfaceTypeBody(List.ofSeq elems), endTok)
+
+            let body =
+                {
+                    inherits = ValueNone
+                    classPreamble = []
+                    elements = List.ofSeq elems
+                }
+
+            return (body, endTok)
         }
 
 // --- Union ---
