@@ -16,8 +16,8 @@ TypeDefn.Record:
     self             'this'            Identifier          tok=  27  pos=  79
     Pat.NamedSimple  'StartIndex'      Identifier          tok=  29  pos=  84
     =                '='               OpEquality          tok=  31  pos=  95
-    LongIdentOrOp:
-      LongIdent:
+      LongIdentOrOp:
+        LongIdent:
                      'this'            Identifier          tok=  33  pos=  97
                      'Index'           Identifier          tok=  35  pos= 102
   end                <virt>            KWEnd               tok=virt  pos= 108

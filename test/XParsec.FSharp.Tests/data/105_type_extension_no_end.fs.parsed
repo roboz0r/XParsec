@@ -7,10 +7,10 @@ TypeDefn.TypeExtension:
     self             'this'            Identifier          tok=  14  pos=  45
     Pat.NamedSimple  'Count'           Identifier          tok=  16  pos=  50
     =                '='               OpEquality          tok=  18  pos=  56
-    Const            '0'               NumInt32            tok=  20  pos=  58
+      Const          '0'               NumInt32            tok=  20  pos=  58
     member           'member'          KWMember            tok=  23  pos=  64
     self             'this'            Identifier          tok=  25  pos=  71
     Pat.NamedSimple  'IsEmpty'         Identifier          tok=  27  pos=  76
     =                '='               OpEquality          tok=  29  pos=  84
-    Const            'true'            KWTrue              tok=  31  pos=  86
+      Const          'true'            KWTrue              tok=  31  pos=  86
   end                <virt>            KWEnd               tok=virt  pos=  91

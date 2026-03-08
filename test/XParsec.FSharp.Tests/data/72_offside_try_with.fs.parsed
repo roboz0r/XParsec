@@ -1,7 +1,7 @@
 AnonymousModule:
 TryWith                'try'             KWTry               tok=   0  pos=   0
 TryExpr:
-  LetValue             'let'             KWLet               tok=   3  pos=   8
+  Let                  'let'             KWLet               tok=   3  pos=   8
     Pat.NamedSimple    'x'               Identifier          tok=   5  pos=  12
     =                  '='               OpEquality          tok=   7  pos=  14
       App:
@@ -11,11 +11,11 @@ TryExpr:
           Const:
             Unit       '('               KWLParen            tok=  11  pos=  24
                        ')'               KWRParen            tok=  12  pos=  25
-    in                 <virt>            KWIn                tok=virt  pos=  31
-    Body:
-      InfixApp         '+'               op_Addition         tok=  17  pos=  33
-        Ident          'x'               Identifier          tok=  15  pos=  31
-        Const          '1'               NumInt32            tok=  19  pos=  35
+  in                   <virt>            KWIn                tok=virt  pos=  31
+  Body:
+    InfixApp           '+'               op_Addition         tok=  17  pos=  33
+      Ident            'x'               Identifier          tok=  15  pos=  31
+      Const            '1'               NumInt32            tok=  19  pos=  35
 WithToken              'with'            KWWith              tok=  21  pos=  37
 Rule:
   Bar                  '|'               OpBar               tok=  23  pos=  42
@@ -30,17 +30,17 @@ Rule:
       Ident            'ex'              Identifier          tok=  33  pos=  67
   Arrow                '->'              OpArrowRight        tok=  35  pos=  70
   Expr:
-    LetValue           'let'             KWLet               tok=  38  pos=  77
+    Let                'let'             KWLet               tok=  38  pos=  77
       Pat.NamedSimple  'msg'             Identifier          tok=  40  pos=  81
       =                '='               OpEquality          tok=  42  pos=  85
         LongIdentOrOp:
           LongIdent:
                        'ex'              Identifier          tok=  44  pos=  87
                        'Message'         Identifier          tok=  46  pos=  90
-      in               <virt>            KWIn                tok=virt  pos= 102
-      Body:
-        PrefixApp      '-'               op_Subtraction      tok=  49  pos= 102
-          Const        '1'               NumInt32            tok=  50  pos= 103
+    in                 <virt>            KWIn                tok=virt  pos= 102
+    Body:
+      PrefixApp        '-'               op_Subtraction      tok=  49  pos= 102
+        Const          '1'               NumInt32            tok=  50  pos= 103
 Rule:
   Bar                  '|'               OpBar               tok=  52  pos= 105
   Pat:

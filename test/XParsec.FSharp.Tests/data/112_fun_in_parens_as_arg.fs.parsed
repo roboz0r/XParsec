@@ -8,15 +8,16 @@ FunctionOrValue:
         Func:
           Ident                          'parser'          Identifier          tok=  12  pos=  30
         Args:
-          Computation:
+          ComputationBlock:
             {                            '{'               KWLBrace            tok=  14  pos=  37
-            let!                         'let!'            KWLetBang           tok=  17  pos=  47
+            LetBang                      'let!'            KWLetBang           tok=  17  pos=  47
               Pat.NamedSimple            'state'           Identifier          tok=  19  pos=  52
               =                          '='               OpEquality          tok=  21  pos=  58
-              Expr:
                 Ident                    'getUserSta...'   Identifier          tok=  23  pos=  60
-              in                         <virt>            KWIn                tok=virt  pos=  81
+            in                           <virt>            KWIn                tok=virt  pos=  81
+            Body:
               return!                    'return!'         KWReturnBang        tok=  26  pos=  81
+              ReturnBang:
                 App:
                   Func:
                     Ident                'nextFn'          Identifier          tok=  28  pos=  89

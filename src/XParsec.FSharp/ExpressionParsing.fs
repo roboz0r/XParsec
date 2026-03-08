@@ -72,63 +72,83 @@ module ElifBranches =
     let parse: Parser<_, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         fun reader -> parseBranches (ResizeArray()) reader
 
-module FunctionDefn =
-    let parse: Parser<FunctionDefn<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+module Binding =
+    let private pInlineTok =
+        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWInline) "Expected 'inline'"
+
+    let private pMutableTok =
+        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWMutable) "Expected 'mutable'"
+
+    /// Build the Pat head from an IdentOrOp
+    let private headPatOfIdentOrOp (identOrOp: IdentOrOp<SyntaxToken>) : Pat<SyntaxToken> =
+        match identOrOp with
+        | IdentOrOp.Ident t -> Pat.NamedSimple t
+        | _ -> Pat.Op identOrOp
+
+    /// Parse a function-style binding: [inline] [access] identOrOp [typar-defns] pat+ [: returnType] = expr
+    let parseFunction attrs =
         parser {
-            let! inlineTok = opt (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWInline) "Expected 'inline'")
+            let! inlineTok = opt pInlineTok
             let! access = opt pAccessModifier
             let! identOrOp = IdentOrOp.parse
             let! typarDefns = opt TyparDefns.parse
-
             // Parse one or more argument patterns
             // Note: Must be atomic patterns to avoid consuming tokens that belong to the parent.
             // e.g. `let f x : int = 1` should parse `x` as an argument pattern, not `x : int` which would consume the return type annotation.
             let! argumentPats = Pat.parseAtomicMany1
-
             let! returnType = opt ReturnType.parse
             let! equals = pEquals
             let! expr = refExprSeqBlock.Parser
 
             return
-                FunctionDefn(
-                    inlineTok,
-                    access,
-                    identOrOp,
-                    typarDefns,
-                    List.ofSeq argumentPats,
-                    returnType,
-                    equals,
-                    expr
-                )
+                {
+                    attributes = attrs
+                    inlineToken = inlineTok
+                    mutableToken = ValueNone
+                    fixedToken = ValueNone
+                    access = access
+                    headPat = headPatOfIdentOrOp identOrOp
+                    typarDefns = typarDefns
+                    argumentPats = List.ofSeq argumentPats
+                    returnType = returnType
+                    equals = equals
+                    expr = expr
+                }
         }
 
-module ValueDefn =
-    let pMutable: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWMutable) "Expected 'mutable'"
-
-    let parse =
+    /// Parse a value-style binding: [mutable] [access] pat [typar-defns] [: returnType] = expr
+    let parseValue attrs =
         parser {
-            let! mut = opt pMutable
+            let! mut = opt pMutableTok
             let! access = opt pAccessModifier
             let! pat = Pat.parseAtomicOrTuple
             let! typarDefns = opt TyparDefns.parse
             let! returnType = opt ReturnType.parse
             let! equals = pEquals
             let! expr = refExprSeqBlock.Parser
-            return ValueDefn.ValueDefn(mut, access, pat, typarDefns, returnType, equals, expr)
+
+            return
+                {
+                    attributes = attrs
+                    inlineToken = ValueNone
+                    mutableToken = mut
+                    fixedToken = ValueNone
+                    access = access
+                    headPat = pat
+                    typarDefns = typarDefns
+                    argumentPats = []
+                    returnType = returnType
+                    equals = equals
+                    expr = expr
+                }
         }
 
-module FunctionOrValueDefn =
-    let parse: Parser<FunctionOrValueDefn<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        choiceL
-            [
-                FunctionDefn.parse |>> FunctionOrValueDefn.Function
-                ValueDefn.parse |>> FunctionOrValueDefn.Value
-            ]
-            "FunctionOrValueDefn"
+    /// Parse either a function or a value binding
+    let parse attrs : Parser<Binding<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+        choiceL [ parseFunction attrs; parseValue attrs ] "Binding"
 
-    let parseSepByAnd1 =
-        sepBy1 parse pAnd |>> fun struct (defns, ands) -> List.ofSeq defns
+    let parseSepByAnd1 attrs =
+        sepBy1 (parse attrs) pAnd |>> fun struct (bindings, _) -> List.ofSeq bindings
 
 [<AutoOpen>]
 module private MemberHelpers =
@@ -319,14 +339,28 @@ module ExprOrRange =
                     return ExprOrRange.Range(RangeExpr.SimpleRange(start, dotdot1, finish))
         }
 
+/// Parses computation expression bodies, returning plain Expr<SyntaxToken>.
+/// Handles all CE-specific keywords (let!/use!/do!/yield/return/match!/etc.)
+/// and falls back to regular expressions for base cases.
 [<RequireQualifiedAccess>]
-module CompExpr =
+module CompOrRangeExpr =
 
-    // Recursive reference for CompExpr
-    let private refCompExpr = FSRefParser<CompExpr<SyntaxToken>>()
+    let private refCEBody = FSRefParser<Expr<SyntaxToken>>()
 
-    // --- Specific Clause Parsers ---
-
+    let private mkCEBinding pat eq expr =
+        {
+            attributes = ValueNone
+            inlineToken = ValueNone
+            mutableToken = ValueNone
+            fixedToken = ValueNone
+            access = ValueNone
+            headPat = pat
+            typarDefns = ValueNone
+            argumentPats = []
+            returnType = ValueNone
+            equals = eq
+            expr = expr
+        }
 
     let private pLetBangCE =
         parser {
@@ -335,19 +369,35 @@ module CompExpr =
             let! eq = pEquals
             let! expr = refExpr.Parser
             let! inTok = pInVirt
-            let! comp = refCompExpr.Parser
-            return CompExpr.LetBang(letBang, pat, eq, expr, inTok, comp)
+            let! cont = refCEBody.Parser
+
+            return
+                Expr.LetOrUse(
+                    LetOrUseKeyword.LetBang letBang,
+                    ValueNone,
+                    [ mkCEBinding pat eq expr ],
+                    ValueSome inTok,
+                    ValueSome cont
+                )
         }
 
     let private pLetCE =
         parser {
-            let! letTok = pLet // defined in global keywords
+            let! letTok = pLet
             let! pat = Pat.parse
             let! eq = pEquals
             let! expr = refExpr.Parser
             let! inTok = pInVirt
-            let! comp = refCompExpr.Parser
-            return CompExpr.Let(letTok, pat, eq, expr, inTok, comp)
+            let! cont = refCEBody.Parser
+
+            return
+                Expr.LetOrUse(
+                    LetOrUseKeyword.Let letTok,
+                    ValueNone,
+                    [ mkCEBinding pat eq expr ],
+                    ValueSome inTok,
+                    ValueSome cont
+                )
         }
 
     let private pUseBangCE =
@@ -357,8 +407,16 @@ module CompExpr =
             let! eq = pEquals
             let! expr = refExpr.Parser
             let! inTok = pInVirt
-            let! comp = refCompExpr.Parser
-            return CompExpr.UseBang(useBang, pat, eq, expr, inTok, comp)
+            let! cont = refCEBody.Parser
+
+            return
+                Expr.LetOrUse(
+                    LetOrUseKeyword.UseBang useBang,
+                    ValueNone,
+                    [ mkCEBinding pat eq expr ],
+                    ValueSome inTok,
+                    ValueSome cont
+                )
         }
 
     let private pUseCE =
@@ -368,8 +426,16 @@ module CompExpr =
             let! eq = pEquals
             let! expr = refExpr.Parser
             let! inTok = pInVirt
-            let! comp = refCompExpr.Parser
-            return CompExpr.Use(useTok, pat, eq, expr, inTok, comp)
+            let! cont = refCEBody.Parser
+
+            return
+                Expr.LetOrUse(
+                    LetOrUseKeyword.Use useTok,
+                    ValueNone,
+                    [ mkCEBinding pat eq expr ],
+                    ValueSome inTok,
+                    ValueSome cont
+                )
         }
 
     let private pDoBangCE =
@@ -377,8 +443,8 @@ module CompExpr =
             let! doBang = pDoBang
             let! expr = refExpr.Parser
             let! inTok = pInVirt
-            let! comp = refCompExpr.Parser
-            return CompExpr.DoBang(doBang, expr, inTok, comp)
+            let! cont = refCEBody.Parser
+            return Expr.Sequential(Expr.ControlFlow(ControlFlowKeyword.DoBang doBang, expr), inTok, cont)
         }
 
     let private pDoCE =
@@ -386,36 +452,36 @@ module CompExpr =
             let! doTok = pDo
             let! expr = refExpr.Parser
             let! inTok = pInVirt
-            let! comp = refCompExpr.Parser
-            return CompExpr.Do(doTok, expr, inTok, comp)
+            let! cont = refCEBody.Parser
+            return Expr.Sequential(Expr.ControlFlow(ControlFlowKeyword.Do doTok, expr), inTok, cont)
         }
 
     let private pYieldBangCE =
         parser {
             let! t = pYieldBang
             let! e = refExpr.Parser
-            return CompExpr.YieldBang(t, e)
+            return Expr.ControlFlow(ControlFlowKeyword.YieldBang t, e)
         }
 
     let private pYieldCE =
         parser {
             let! t = pYield
             let! e = refExpr.Parser
-            return CompExpr.Yield(t, e)
+            return Expr.ControlFlow(ControlFlowKeyword.Yield t, e)
         }
 
     let private pReturnBangCE =
         parser {
             let! t = pReturnBang
             let! e = refExpr.Parser
-            return CompExpr.ReturnBang(t, e)
+            return Expr.ControlFlow(ControlFlowKeyword.ReturnBang t, e)
         }
 
     let private pReturnCE =
         parser {
             let! t = pReturn
             let! e = refExpr.Parser
-            return CompExpr.Return(t, e)
+            return Expr.ControlFlow(ControlFlowKeyword.Return t, e)
         }
 
     let private pMatchBangCE =
@@ -424,7 +490,7 @@ module CompExpr =
             let! e = refExpr.Parser
             let! w = pWith
             let! r = Rules.parse
-            return CompExpr.MatchBang(m, e, w, r)
+            return Expr.MatchBang(m, e, w, r)
         }
 
     let private pMatchCE =
@@ -433,7 +499,7 @@ module CompExpr =
             let! e = refExpr.Parser
             let! w = pWith
             let! r = Rules.parse
-            return CompExpr.Match(m, e, w, r)
+            return Expr.Match(m, e, w, r)
         }
 
     let private pIfCE =
@@ -446,14 +512,23 @@ module CompExpr =
                 choiceL
                     [
                         parser {
-                            let! thenComp = refCompExpr.Parser
+                            let! thenBody = refCEBody.Parser
                             let! elseTok = pElse
-                            let! elseComp = refCompExpr.Parser
-                            return CompExpr.IfThenElse(ifTok, cond, thenTok, thenComp, elseTok, elseComp)
+                            let! elseBody = refCEBody.Parser
+
+                            return
+                                Expr.IfThenElse(
+                                    ifTok,
+                                    cond,
+                                    thenTok,
+                                    thenBody,
+                                    [],
+                                    ValueSome(ElseBranch.ElseBranch(elseTok, elseBody))
+                                )
                         }
                         parser {
-                            let! thenComp = refCompExpr.Parser
-                            return CompExpr.IfThen(ifTok, cond, thenTok, thenComp)
+                            let! thenBody = refCEBody.Parser
+                            return Expr.IfThenElse(ifTok, cond, thenTok, thenBody, [], ValueNone)
                         }
                     ]
                     "pIfCE"
@@ -462,7 +537,7 @@ module CompExpr =
     let private pTryCE =
         parser {
             let! tryTok = pTry
-            let! comp = refCompExpr.Parser
+            let! body = refCEBody.Parser
 
             return!
                 choiceL
@@ -470,12 +545,12 @@ module CompExpr =
                         parser {
                             let! withTok = pWith
                             let! rules = Rules.parse
-                            return CompExpr.TryWith(tryTok, comp, withTok, rules)
+                            return Expr.TryWith(tryTok, body, withTok, rules)
                         }
                         parser {
                             let! finTok = pFinally
                             let! finExpr = refExpr.Parser
-                            return CompExpr.TryFinally(tryTok, comp, finTok, finExpr)
+                            return Expr.TryFinally(tryTok, body, finTok, finExpr)
                         }
                     ]
                     "pTryCE"
@@ -486,9 +561,9 @@ module CompExpr =
             let! w = pWhile
             let! cond = refExpr.Parser
             let! d = pDo
-            let! body = refCompExpr.Parser
+            let! body = refCEBody.Parser
             let! doneTok = pDoneVirt
-            return CompExpr.While(w, cond, d, body, doneTok)
+            return Expr.While(w, cond, d, body, doneTok)
         }
 
     // Distinguish ForTo vs ForIn
@@ -509,9 +584,9 @@ module CompExpr =
                             let! toTok = pToOrDownTo
                             let! endExpr = refExpr.Parser
                             let! doTok = Keywords.pDo
-                            let! comp = refCompExpr.Parser
+                            let! body = refCEBody.Parser
                             let! doneTok = pDoneVirt
-                            return CompExpr.ForTo(forTok, ident, eq, start, toTok, endExpr, doTok, comp, doneTok)
+                            return Expr.ForTo(forTok, ident, eq, start, toTok, endExpr, doTok, body, doneTok)
                         })
                         // ForIn: for x in xs do
                         parser {
@@ -519,15 +594,13 @@ module CompExpr =
                             let! inTok = pInVirt
                             let! exprOrRange = ExprOrRange.parse
                             let! doTok = Keywords.pDo
-                            let! comp = refCompExpr.Parser
+                            let! body = refCEBody.Parser
                             let! doneTok = pDoneVirt
-                            return CompExpr.ForIn(forTok, pat, inTok, exprOrRange, doTok, comp, doneTok)
+                            return Expr.ForIn(forTok, pat, inTok, exprOrRange, doTok, body, doneTok)
                         }
                     ]
                     "pForCE"
         }
-
-    let private pBaseExpr = refExpr.Parser |>> CompExpr.BaseExpr
 
     let private pAtomComp =
         choiceL
@@ -539,7 +612,6 @@ module CompExpr =
                 pReturnBangCE
                 pMatchBangCE
                 // Check specific keywords before checking BaseExpr
-                // Note: 'let', 'use', 'do' are in the keyword list but parsed specifically here for CE structure
                 pLetCE
                 pUseCE
                 pDoCE
@@ -550,65 +622,43 @@ module CompExpr =
                 pTryCE
                 pWhileCE
                 pForCE
-                // Fallback
-                pBaseExpr
+                // Fallback to regular expression
+                refExpr.Parser
             ]
             "Computation Expression Atom"
 
-    // Top Level: Handles Sequential composition
-    // comp := atom ; comp | atom
-    let parse =
+    // Sequential composition of CE atoms
+    let private ceBody =
         parser {
             let! head = pAtomComp
-
-            // Check for semicolon
             let! semi = opt pSemi
 
             match semi with
             | ValueSome s ->
-                let! tail = refCompExpr.Parser // Recursive
-                return CompExpr.Sequential(head, s, tail)
+                let! tail = refCEBody.Parser
+                return Expr.Sequential(head, s, tail)
             | ValueNone -> return head
         }
 
-    do refCompExpr.Set parse
+    do refCEBody.Set ceBody
 
-[<RequireQualifiedAccess>]
-module ShortCompExpr =
-    // for pat in expr -> expr
-    let parse =
-        parser {
-            let! forTok = pFor
-            let! pat = Pat.parse
-            let! inTok = pInVirt
-            let! range = ExprOrRange.parse
-            let! arrow = pArrowRight
-            let! expr = refExpr.Parser
-            return ShortCompExpr.ShortCompExpr(forTok, pat, inTok, range, arrow, expr)
-        }
-
-[<RequireQualifiedAccess>]
-module CompOrRangeExpr =
-    let parse: Parser<CompOrRangeExpr<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+    let parse: Parser<Expr<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         choiceL
             [
-                // ShortComp starts with 'for' ... '->'
-                // Standard Comp 'ForIn' starts with 'for' ... 'do'
-                // We use attempt on ShortComp because they share 'for pat in expr' prefix
-                (ShortCompExpr.parse |>> CompOrRangeExpr.ShortComp)
-
-                // Range: expr .. expr
-                // CompExpr: includes BaseExpr(expr)
-                // Ambiguity: [ 1 .. 10 ] (Range) vs [ 1 ] (Comp->BaseExpr)
-                // RangeExpr parser expects 'start ..', it doesn't parse just 'start'.
-                // However, CompExpr includes BaseExpr which parses 'start'.
-                // If we use RangeExpr.parse, it internally calls refExpr.Parser then looks for '..'.
-                // If '..' is not found, RangeExpr.parse fails (based on previous implementation).
-                // So we can try RangeExpr first.
-                (RangeExpr.parse |>> CompOrRangeExpr.Range)
-
-                // Fallback to full Computation Expression
-                (CompExpr.parse |>> CompOrRangeExpr.Comp)
+                // ShortComp: for pat in expr -> expr (generator form, e.g. seq { for x in xs -> f x })
+                // Must be tried before ceBody because both start with 'for pat in expr'
+                // but ShortComp uses '->' while ForIn uses 'do'
+                parser {
+                    let! forTok = pFor
+                    let! pat = Pat.parse
+                    let! inTok = pInVirt
+                    let! range = ExprOrRange.parse
+                    let! arrow = pArrowRight
+                    let! expr = refExpr.Parser
+                    return Expr.ForInShort(forTok, pat, inTok, range, arrow, expr)
+                }
+                // Full CE body (handles all other keywords and regular expressions)
+                ceBody
             ]
             "CompOrRangeExpr"
 
@@ -619,7 +669,6 @@ type ExprAux =
     | TypeApp of SyntaxToken * Type<SyntaxToken> list * SyntaxToken
     | DotIndex of SyntaxToken * Expr<SyntaxToken> * SyntaxToken // .[ expr ]
     | DotSlice of SyntaxToken * SliceRange<SyntaxToken> list * SyntaxToken // .[ 1.. ]
-    | ComputationBlock of SyntaxToken * CompOrRangeExpr<SyntaxToken> * SyntaxToken // { ... }
     | PostfixDynamic of SyntaxToken * Type<SyntaxToken> // :? Type (DynamicTypeTest)
     | HighPrecApp of SyntaxToken * Expr<SyntaxToken> * SyntaxToken // ( expr ) for f(x, y)
     | HighPrecIndex of SyntaxToken * Expr<SyntaxToken> * SyntaxToken // [ expr ] for arr[i] (F# 6+ dot-less indexing)
@@ -634,11 +683,6 @@ module Expr =
 
     let pl x : PrecedenceLevel = LanguagePrimitives.EnumOfValue x
 
-    [<RequireQualifiedAccess>]
-    type LetBody =
-        | LetRec of recTok: SyntaxToken * defns: list<FunctionOrValueDefn<SyntaxToken>>
-        | LetFunction of funcDefn: FunctionDefn<SyntaxToken>
-        | LetValue of valueDefn: ValueDefn<SyntaxToken>
 
     type ExprOperatorParser() =
         let completeInfix (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) = Expr.InfixApp(l, op, r)
@@ -1180,28 +1224,22 @@ module Expr =
 
                         match recTok with
                         | ValueSome recTok ->
-                            let! defns = FunctionOrValueDefn.parseSepByAnd1
-                            return LetBody.LetRec(recTok, defns)
+                            let! bindings = Binding.parseSepByAnd1 ValueNone
+                            return (ValueSome recTok, bindings)
                         | ValueNone ->
-                            match! FunctionOrValueDefn.parse with
-                            | FunctionOrValueDefn.Function funcDefn -> return LetBody.LetFunction(funcDefn)
-                            | FunctionOrValueDefn.Value valueDefn -> return LetBody.LetValue(valueDefn)
+                            let! binding = Binding.parse ValueNone
+                            return (ValueNone, [ binding ])
                     })
 
             parser {
-                match! pDefn with
-                | LetBody.LetRec(recTok, defns) ->
-                    let! inTok = pLetOrUseIn
-                    let! expr = refExprSeqBlock.Parser
-                    return ExprAux.FullExpr(fun letTok -> Expr.LetRec(letTok, recTok, defns, inTok, expr))
-                | LetBody.LetFunction funcDefn ->
-                    let! inTok = pLetOrUseIn
-                    let! expr = refExprSeqBlock.Parser
-                    return ExprAux.FullExpr(fun letTok -> Expr.LetFunction(letTok, funcDefn, inTok, expr))
-                | LetBody.LetValue valueDefn ->
-                    let! inTok = pLetOrUseIn
-                    let! expr = refExprSeqBlock.Parser
-                    return ExprAux.FullExpr(fun letTok -> Expr.LetValue(letTok, valueDefn, inTok, expr))
+                let! (recTok, bindings) = pDefn
+                let! inTok = pLetOrUseIn
+                let! expr = refExprSeqBlock.Parser
+
+                return
+                    ExprAux.FullExpr(fun letTok ->
+                        Expr.LetOrUse(LetOrUseKeyword.Let letTok, recTok, bindings, ValueSome inTok, ValueSome expr)
+                    )
             }
 
         let pUseBody =
@@ -1209,17 +1247,42 @@ module Expr =
                 withContext
                     OffsideContext.Let
                     (parser {
-                        let! ident = pIdentTok
+                        let! pat = Pat.parseAtomicOrTuple
                         let! eq = pEquals
                         let! expr = refExprSeqBlock.Parser
-                        return (ident, eq, expr)
+                        return (pat, eq, expr)
                     })
 
             parser {
-                let! (ident, eq, expr) = pDefn
+                let! (pat, eq, expr) = pDefn
                 let! inTok = pLetOrUseIn
                 let! body = refExprSeqBlock.Parser
-                return ExprAux.FullExpr(fun useTok -> Expr.Use(useTok, ident, eq, expr, inTok, body))
+
+                let binding =
+                    {
+                        attributes = ValueNone
+                        inlineToken = ValueNone
+                        mutableToken = ValueNone
+                        fixedToken = ValueNone
+                        access = ValueNone
+                        headPat = pat
+                        typarDefns = ValueNone
+                        argumentPats = []
+                        returnType = ValueNone
+                        equals = eq
+                        expr = expr
+                    }
+
+                return
+                    ExprAux.FullExpr(fun useTok ->
+                        Expr.LetOrUse(
+                            LetOrUseKeyword.Use useTok,
+                            ValueNone,
+                            [ binding ],
+                            ValueSome inTok,
+                            ValueSome body
+                        )
+                    )
             }
 
         let lhsParser =
@@ -1434,11 +1497,11 @@ module Expr =
                             | Token.KWTry
                             | Token.KWWhile
                             | Token.KWFor ->
-                                let! ce = CompOrRangeExpr.parse
+                                let! body = CompOrRangeExpr.parse
 
                                 let! rBrace = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome lBrace) Token.KWRBrace
 
-                                return Expr.Computation(Expr.Missing, lBrace, ce, rBrace)
+                                return Expr.ComputationBlock(lBrace, body, rBrace)
                             | _ -> return! fail (Message "Not a computation expression body")
                         }
                         // TODO: '{' new base-call object-members interface-impls '}' -- object expression
