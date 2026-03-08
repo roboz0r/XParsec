@@ -674,7 +674,7 @@ type ExprAux =
     | HighPrecIndex of SyntaxToken * Expr<SyntaxToken> * SyntaxToken // [ expr ] for arr[i] (F# 6+ dot-less indexing)
     | TypeCast of Type<SyntaxToken> // :> Type
     /// Wraps a fully-parsed Expr for use as 'Aux in PrefixMapped keyword operators (if, match, let, etc.)
-    | FullExpr of (SyntaxToken -> Expr<SyntaxToken>)
+    | KeywordExpr of (SyntaxToken -> Expr<SyntaxToken>)
 
 [<RequireQualifiedAccess>]
 module Expr =
@@ -1063,7 +1063,7 @@ module Expr =
         // Shared complete function for all PrefixMapped keyword forms.
         let completeKeyword (op: SyntaxToken) (aux: ExprAux) =
             match aux with
-            | ExprAux.FullExpr e -> e op
+            | ExprAux.KeywordExpr e -> e op
             | _ -> failwith "Unexpected Aux type for keyword expression"
 
         // Body parsers for PrefixMapped keyword forms.
@@ -1080,7 +1080,7 @@ module Expr =
                 let! elifs, elseBranch = ElifBranches.parse
 
                 return
-                    ExprAux.FullExpr(fun ifTok ->
+                    ExprAux.KeywordExpr(fun ifTok ->
                         Expr.IfThenElse(ifTok, cond, thenTok, thenExpr, List.ofSeq elifs, elseBranch)
                     )
             }
@@ -1092,7 +1092,7 @@ module Expr =
                 let! e = pMatchExpr
                 let! w = pWith
                 let! rules = withContext OffsideContext.MatchClauses Rules.parse
-                return ExprAux.FullExpr(fun m -> Expr.Match(m, e, w, rules))
+                return ExprAux.KeywordExpr(fun m -> Expr.Match(m, e, w, rules))
             }
 
         let pFunctionBody =
@@ -1100,7 +1100,7 @@ module Expr =
                 OffsideContext.Function
                 (parser {
                     let! rules = withContext OffsideContext.MatchClauses Rules.parse
-                    return ExprAux.FullExpr(fun funTok -> Expr.Function(funTok, rules))
+                    return ExprAux.KeywordExpr(fun funTok -> Expr.Function(funTok, rules))
                 })
 
         let pFunBody =
@@ -1111,7 +1111,7 @@ module Expr =
                     let! pats = many1 Pat.parse
                     let! arrow = pArrowRight
                     let! expr = refExprSeqBlock.Parser
-                    return ExprAux.FullExpr(fun funTok -> Expr.Fun(funTok, List.ofSeq pats, arrow, expr))
+                    return ExprAux.KeywordExpr(fun funTok -> Expr.Fun(funTok, List.ofSeq pats, arrow, expr))
                 })
 
         let pTryBody =
@@ -1121,7 +1121,9 @@ module Expr =
                 parser {
                     let! withTok = pWith
                     let! rules = withContext OffsideContext.MatchClauses Rules.parse
-                    return fun tryExpr -> ExprAux.FullExpr(fun tryTok -> Expr.TryWith(tryTok, tryExpr, withTok, rules))
+
+                    return
+                        fun tryExpr -> ExprAux.KeywordExpr(fun tryTok -> Expr.TryWith(tryTok, tryExpr, withTok, rules))
                 }
 
             let pFinally =
@@ -1130,7 +1132,8 @@ module Expr =
                     let! finExpr = refExprSeqBlock.Parser
 
                     return
-                        fun tryExpr -> ExprAux.FullExpr(fun tryTok -> Expr.TryFinally(tryTok, tryExpr, finTok, finExpr))
+                        fun tryExpr ->
+                            ExprAux.KeywordExpr(fun tryTok -> Expr.TryFinally(tryTok, tryExpr, finTok, finExpr))
                 }
 
             let pWithOrFinally =
@@ -1155,7 +1158,7 @@ module Expr =
                 let! doTok = pDo
                 let! body = refExprSeqBlock.Parser
                 let! doneTok = pDoneVirt
-                return ExprAux.FullExpr(fun whileTok -> Expr.While(whileTok, cond, doTok, body, doneTok))
+                return ExprAux.KeywordExpr(fun whileTok -> Expr.While(whileTok, cond, doTok, body, doneTok))
             }
 
         let pForBody =
@@ -1201,7 +1204,7 @@ module Expr =
                 // let! forTok = pFor
                 let! forBody = pForBody
                 let! doneTok = pDoneVirt
-                return ExprAux.FullExpr(forBody doneTok)
+                return ExprAux.KeywordExpr(forBody doneTok)
             }
 
         let pLetOrUseIn =
@@ -1229,77 +1232,41 @@ module Expr =
                         return! fail (Message "Expected 'in' at the same indent as 'let'")
             }
 
-        let pLetBody =
+        // Shared definition parser for let/use bindings:
+        // Parses [rec] binding [and binding ...] inside a Let offside context.
+        // 'use rec' and 'use ... and ...' are syntactically accepted here; semantic
+        // validation is responsible for rejecting those forms with diagnostics.
+        let pLetOrUseDefn =
+            withContext
+                OffsideContext.Let
+                (parser {
+                    let! recTok = opt pRec
+                    let! bindings = Binding.parseSepByAnd1 ValueNone
+                    return struct (recTok, bindings)
+                })
+
+        /// Single body parser used by both `let/let!` and `use/use!`.
+        let pLetOrUseBody =
             // The definition gets parsed in a Let context, with another SeqBlock after the `=` of the let binding
             // for correct offside behaviour of multiple definitions and sequential expressions in the body.
             // After the definition is parsed, we check for 'in' or if we can emit a virtual 'in' for offside rule,
             // then parse the final body expression after 'in'.
-            let pDefn =
-                withContext
-                    OffsideContext.Let
-                    (parser {
-                        let! recTok = opt pRec
-
-                        match recTok with
-                        | ValueSome recTok ->
-                            let! bindings = Binding.parseSepByAnd1 ValueNone
-                            return (ValueSome recTok, bindings)
-                        | ValueNone ->
-                            let! binding = Binding.parse ValueNone
-                            return (ValueNone, [ binding ])
-                    })
-
             parser {
-                let! (recTok, bindings) = pDefn
+                let! (recTok, bindings) = pLetOrUseDefn
                 let! inTok = pLetOrUseIn
                 let! expr = refExprSeqBlock.Parser
 
                 return
-                    ExprAux.FullExpr(fun letTok ->
-                        Expr.LetOrUse(LetOrUseKeyword.Let letTok, recTok, bindings, ValueSome inTok, ValueSome expr)
-                    )
-            }
+                    ExprAux.KeywordExpr(fun kwTok ->
+                        let kw =
+                            match kwTok.Token with
+                            | Token.KWLet -> LetOrUseKeyword.Let kwTok
+                            | Token.KWUse -> LetOrUseKeyword.Use kwTok
+                            | Token.KWLetBang -> LetOrUseKeyword.LetBang kwTok
+                            | Token.KWUseBang -> LetOrUseKeyword.UseBang kwTok
+                            | t -> failwith $"Unexpected keyword token for let/use body {t}"
 
-        let pUseBody =
-            let pDefn =
-                withContext
-                    OffsideContext.Let
-                    (parser {
-                        let! pat = Pat.parseAtomicOrTuple
-                        let! eq = pEquals
-                        let! expr = refExprSeqBlock.Parser
-                        return (pat, eq, expr)
-                    })
-
-            parser {
-                let! (pat, eq, expr) = pDefn
-                let! inTok = pLetOrUseIn
-                let! body = refExprSeqBlock.Parser
-
-                let binding =
-                    {
-                        attributes = ValueNone
-                        inlineToken = ValueNone
-                        mutableToken = ValueNone
-                        fixedToken = ValueNone
-                        access = ValueNone
-                        headPat = pat
-                        typarDefns = ValueNone
-                        argumentPats = []
-                        returnType = ValueNone
-                        equals = eq
-                        expr = expr
-                    }
-
-                return
-                    ExprAux.FullExpr(fun useTok ->
-                        Expr.LetOrUse(
-                            LetOrUseKeyword.Use useTok,
-                            ValueNone,
-                            [ binding ],
-                            ValueSome inTok,
-                            ValueSome body
-                        )
+                        Expr.LetOrUse(kw, recTok, bindings, ValueSome inTok, ValueSome expr)
                     )
             }
 
@@ -1332,12 +1299,10 @@ module Expr =
                 | Token.KWFor ->
                     let! token = consumePeeked token
                     return PrefixMapped(token, preturn token, pForBody, completeKeyword)
-                | Token.KWLet ->
-                    let! token = consumePeeked token
-                    return PrefixMapped(token, preturn token, pLetBody, completeKeyword)
+                | Token.KWLet
                 | Token.KWUse ->
                     let! token = consumePeeked token
-                    return PrefixMapped(token, preturn token, pUseBody, completeKeyword)
+                    return PrefixMapped(token, preturn token, pLetOrUseBody, completeKeyword)
                 | _ ->
                     match OperatorInfo.TryCreate(token.PositionedToken) with
                     // Note: Spec shows lazy and assert keywords as having same precedence as function application,
