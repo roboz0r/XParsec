@@ -283,33 +283,6 @@ module Parsing =
                 }
                 reader
 
-    /// Parses a sequence of expressions at the same base indentation as the first element,
-    /// combining them into right-associative Expr.Sequential chains with VirtualSep separators.
-    /// Used inside begin/end blocks and function bodies in light syntax.
-    let pSeqBlock pElem =
-        parser {
-            let! baseIndent = peekNonTriviaIndent
-            let! first = pElem
-
-            let! rest =
-                many (
-                    parser {
-                        let! nextIndent = peekNonTriviaIndent
-
-                        if nextIndent = baseIndent then
-                            let! sep = makeVirtualSep
-                            let! elem = pElem
-                            return (sep, elem)
-                        else
-                            return! fail (Message "Not at base indent")
-                    }
-                )
-
-            return
-                (first, rest)
-                ||> Seq.fold (fun acc (sep, elem) -> Expr.Sequential(acc, sep, elem))
-        }
-
     /// Like nextNonTriviaTokenVirtualIfNot but emits a UnclosedDelimiter diagnostic
     /// when the token must be synthesised.
     let nextNonTriviaTokenVirtualWithDiagnostic (openTok: SyntaxToken voption) t reader =
