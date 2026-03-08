@@ -1,6 +1,8 @@
 module M
 
-let f x =
+let f x y =
     if x then 1
-    else if x then 2
-    else 3
+    else
+    if y then 2
+    elif x && y then 3
+    else 4
