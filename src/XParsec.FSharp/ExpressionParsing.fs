@@ -162,7 +162,7 @@ module FieldInitializer =
         parser {
             let! id = LongIdent.parse
             let! equals = pEquals
-            let! expr = refExprInCollectionOrRecords.Parser
+            let! expr = refExprInRecords.Parser
             return FieldInitializer(id, equals, expr)
         }
 
@@ -1022,9 +1022,6 @@ module Expr =
                     return PrefixMapped(token, preturn token, pLetOrUseBody, completeKeyword)
                 | Token.KWDo
                 | Token.KWDoBang
-                // ->
-                //     let! token = consumePeeked token
-                //     return PrefixMapped(token, preturn token, pDoBody, completeKeyword)
                 | Token.KWReturn
                 | Token.KWReturnBang
                 | Token.KWYield
@@ -1072,100 +1069,44 @@ module Expr =
         nextNonTriviaTokenSatisfiesL (fun synTok -> synTok.Token = Token.Identifier) "Expected identifier"
         |>> Expr.Ident
 
-    let pParen =
-        parser {
-            let! l = pLParen
+    let private pEnclosed =
+        let completeEmpty l r = Expr.EmptyBlock(l, r)
+        let completeEnclosed l e r = Expr.EnclosedBlock(l, e, r)
+        let skipsTokens toks missing = Expr.SkipsTokens(toks, missing)
+        pEnclosed completeEmpty completeEnclosed Expr.Missing skipsTokens
 
-            match! peekNextNonTriviaToken with
-            | t when t.Token = Token.KWRParen ->
-                let! r = consumePeeked t
-                return Expr.EmptyBlock(ParenKind.Paren l, r)
-            | _ ->
-                let! e = refExpr.Parser
-                let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) Token.KWRParen
-                return Expr.EnclosedBlock(ParenKind.Paren l, e, r)
-        }
+    let pParen =
+        pEnclosed pLParen Token.KWRParen ParenKind.Paren DiagnosticCode.ExpectedRParen refExprSeqBlock.Parser
 
     let pBeginEnd =
-        parser {
-            let! l = pBegin
-
-            match! peekNextNonTriviaToken with
-            | t when t.Token = Token.KWEnd ->
-                let! r = consumePeeked t
-                return Expr.EmptyBlock(ParenKind.BeginEnd l, r)
-            | _ ->
-                return!
-                    recoverWith
-                        StoppingTokens.afterParen
-                        DiagnosticSeverity.Error
-                        DiagnosticCode.ExpectedEnd
-                        (fun toks ->
-                            match toks with
-                            | [] ->
-                                let endTok = virtualToken (PositionedToken.Create(Token.KWEnd, l.StartIndex + 1)) // TODO: better position for virtual end token
-                                Expr.EnclosedBlock(ParenKind.BeginEnd l, Expr.Missing, endTok)
-                            | _ ->
-                                let endTok =
-                                    let t = toks |> List.last
-                                    virtualToken (PositionedToken.Create(Token.KWEnd, t.StartIndex)) // TODO: better position for virtual end token
-
-                                Expr.EnclosedBlock(ParenKind.BeginEnd l, Expr.SkipsTokens(toks, Expr.Missing), endTok)
-                        )
-                        (parser {
-                            let! e = refExprSeqBlock.Parser
-                            let! r = pEnd
-                            return Expr.EnclosedBlock(ParenKind.BeginEnd l, e, r)
-                        })
-        }
+        pEnclosed pBegin Token.KWEnd ParenKind.BeginEnd DiagnosticCode.ExpectedEnd refExprSeqBlock.Parser
 
     let pList =
-        parser {
-            let! l = pLBracket
-
-            match! peekNextNonTriviaToken with
-            | t when t.Token = Token.KWRBracket ->
-                let! r = consumePeeked t
-                return Expr.EmptyBlock(ParenKind.List l, r)
-            | _ ->
-                let! expr = refExprSeqBlock.Parser
-                let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) Token.KWRBracket
-                return Expr.EnclosedBlock(ParenKind.List l, expr, r)
-        }
+        pEnclosed pLBracket Token.KWRBracket ParenKind.List DiagnosticCode.ExpectedRBracket refExprSeqBlock.Parser
 
     let pArray =
-        parser {
-            let! l = pLArrayBracket
-
-            match! peekNextNonTriviaToken with
-            | t when t.Token = Token.KWRArrayBracket ->
-                let! r = consumePeeked t
-                return Expr.EmptyBlock(ParenKind.Array l, r)
-            | _ ->
-                let! expr = refExprSeqBlock.Parser
-                let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) Token.KWRArrayBracket
-                return Expr.EnclosedBlock(ParenKind.Array l, expr, r)
-        }
+        pEnclosed
+            pLArrayBracket
+            Token.KWRArrayBracket
+            ParenKind.Array
+            DiagnosticCode.ExpectedRArrayBracket
+            refExprSeqBlock.Parser
 
     let pQuoteTyped =
-        parser {
-            let! l = pQuotationTypedLeft
-
-            let! expr = refExprSeqBlock.Parser
-
-            let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) Token.OpQuotationTypedRight
-            return Expr.EnclosedBlock(ParenKind.Quoted l, expr, r)
-        }
+        pEnclosed
+            pQuotationTypedLeft
+            Token.OpQuotationTypedRight
+            ParenKind.Quoted
+            DiagnosticCode.ExpectedQuotationTypedRight
+            refExprSeqBlock.Parser
 
     let pQuoteUntyped =
-        parser {
-            let! l = pQuotationUntypedLeft
-
-            let! expr = refExprSeqBlock.Parser
-
-            let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) Token.OpQuotationUntypedRight
-            return Expr.EnclosedBlock(ParenKind.DoubleQuoted l, expr, r)
-        }
+        pEnclosed
+            pQuotationUntypedLeft
+            Token.OpQuotationUntypedRight
+            ParenKind.DoubleQuoted
+            DiagnosticCode.ExpectedQuotationUntypedRight
+            refExprSeqBlock.Parser
 
     let pStructTuple =
         parser {
@@ -1228,7 +1169,7 @@ module Expr =
                         // TODO: '{' new base-call object-members interface-impls '}' -- object expression
                         // { expr with Field = val; ... } — record clone/update
                         parser {
-                            let! baseExpr = refExprInCollectionOrRecords.Parser
+                            let! baseExpr = refExprInRecords.Parser
                             let! withTok = pWith
                             let! fields, _ = sepBy1 FieldInitializer.parse pSemi
                             let! rBrace = pRBrace
@@ -1300,12 +1241,12 @@ module Expr =
         refExpr.Set parse
         refExprSeqBlock.Set parseSeqBlock
 
-        // Semicolon has special handling in F# lists, arrays, records, and object expressions
+        // Semicolon has special handling in F# records, and object expressions
         // where it is used as a separator between elements rather than an operator, and it
         // should not be treated as an operator in those contexts.
-        // So, we create a separate parser for expressions in lists
-        // and set the starting precedence one level higher so it will be parsed in `pList`
-        refExprInCollectionOrRecords.Set(
+        // So, we create a separate parser for expressions in records
+        // and set the starting precedence one level higher so it will be parsed in `pRecordOrObjectExpr`
+        refExprInRecords.Set(
             Operator.parserAt (int PrecedenceLevel.Semicolon + 1 |> BindingPower.fromLevel) parseAtomic operators
         )
 
