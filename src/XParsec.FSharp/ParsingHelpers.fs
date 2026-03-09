@@ -364,6 +364,9 @@ module Parsing =
             | Token.KWRBracket
             | Token.KWRBrace
             | Token.KWEnd
+            | Token.KWRArrayBracket
+            | Token.OpQuotationTypedRight
+            | Token.OpQuotationUntypedRight
             | Token.EOF -> true
             | _ -> false
 
@@ -566,4 +569,56 @@ module Parsing =
             else
                 return! fail (Message "No operator to reprocess after type parameters")
 
+        }
+
+
+    let pEnclosed
+        completeEmpty
+        completeEnclosed
+        missing
+        skipsTokens
+        (pLeft: Parser<_, _, _, _, _>)
+        (expectedRightTok: Token)
+        (parenKindConstructor: SyntaxToken -> ParenKind<SyntaxToken>)
+        (diagCode: _ -> DiagnosticCode)
+        (pInner: Parser<_, _, _, _, _>)
+        =
+
+        parser {
+            let! l = pLeft
+
+            match! peekNextNonTriviaToken with
+            | t when t.Token = expectedRightTok ->
+                // Fast path: Empty block
+                let! r = consumePeeked t
+                return completeEmpty (parenKindConstructor l) r
+            | _ ->
+                // Normal path with recovery
+                return!
+                    recoverWith
+                        StoppingTokens.afterParen
+                        DiagnosticSeverity.Error
+                        diagCode
+                        (fun toks ->
+                            // Recovery: The inner expression completely failed to parse.
+                            // We must synthesize the missing end token to keep the AST structurally sound.
+                            match toks with
+                            | [] ->
+                                let endTok =
+                                    virtualToken (PositionedToken.Create(expectedRightTok, l.StartIndex + 1))
+
+                                completeEnclosed (parenKindConstructor l) missing endTok
+                            | _ ->
+                                let endTok =
+                                    let t = toks |> List.last
+                                    virtualToken (PositionedToken.Create(expectedRightTok, t.StartIndex))
+
+                                completeEnclosed (parenKindConstructor l) (skipsTokens toks missing) endTok
+                        )
+                        (parser {
+                            // Happy path: Parse the inner block, then demand the closing token
+                            let! e = pInner
+                            let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) expectedRightTok
+                            return completeEnclosed (parenKindConstructor l) e r
+                        })
         }

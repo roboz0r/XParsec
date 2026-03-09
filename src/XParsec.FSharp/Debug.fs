@@ -322,6 +322,11 @@ let sprintDiagnosticCode (code: DiagnosticCode) : string =
         let openedBase = TokenInfo.withoutFlags opened.Token
         let expectedBase = TokenInfo.withoutFlags expected
         $"UnclosedDelimiter({openedBase}, {expectedBase})"
+    | DiagnosticCode.ExpectedRParen _ -> "ExpectedRParen"
+    | DiagnosticCode.ExpectedRBracket _ -> "ExpectedRBracket"
+    | DiagnosticCode.ExpectedRArrayBracket _ -> "ExpectedRArrayBracket"
+    | DiagnosticCode.ExpectedQuotationTypedRight _ -> "ExpectedQuotationTypedRight"
+    | DiagnosticCode.ExpectedQuotationUntypedRight _ -> "ExpectedQuotationUntypedRight"
 
 /// Appends a "---\nDiagnostics:" section to the buffer when there are diagnostics.
 /// Diagnostics are emitted in source order (reversed from the accumulation order).
