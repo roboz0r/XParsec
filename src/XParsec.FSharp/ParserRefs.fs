@@ -29,4 +29,4 @@ module internal ParserRefs =
 
     /// Expression parser for parsing expressions in collection and record initializers,
     /// which should stop before consuming a semicolon.
-    let refExprInCollectionOrRecords = FSRefParser<Expr<SyntaxToken>>()
+    let refExprInRecords = FSRefParser<Expr<SyntaxToken>>()

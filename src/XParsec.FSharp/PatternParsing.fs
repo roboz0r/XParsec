@@ -155,48 +155,25 @@ module Pat =
     let private refFieldPat = FSRefParser<Pat<SyntaxToken>>()
     let private refPatAtomic = FSRefParser<Pat<SyntaxToken>>()
 
+    let private pEnclosed =
+        let completeEmpty l r = Pat.EmptyBlock(l, r)
+        let completeEnclosed l e r = Pat.EnclosedBlock(l, e, r)
+        let skipsTokens toks missing = Pat.SkipsTokens(toks, missing)
+        pEnclosed completeEmpty completeEnclosed Pat.Missing skipsTokens
+
     let pParenPat =
-        parser {
-            let! l = pLParen
+        pEnclosed pLParen Token.KWRParen ParenKind.Paren DiagnosticCode.ExpectedRParen refPat.Parser
 
-            match! peekNextNonTriviaToken with
-            | t when t.Token = Token.KWRParen ->
-                // Empty tuple pattern '()'
-                let! r = consumePeeked t
-                return Pat.EmptyBlock(ParenKind.Paren l, r)
-            | _ ->
-                let! pat = refPat.Parser
-                let! r = pRParen
-                return Pat.EnclosedBlock(ParenKind.Paren l, pat, r)
-        }
+    let pListPat =
+        pEnclosed pLBracket Token.KWRBracket ParenKind.List DiagnosticCode.ExpectedRBracket refPat.Parser
 
-    let pListPat: Parser<Pat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        parser {
-            let! l = pLBracket
-            match! peekNextNonTriviaToken with
-            | t when t.Token = Token.KWRBracket ->
-                // Empty list pattern '[]'
-                let! r = consumePeeked t
-                return Pat.EmptyBlock(ParenKind.List l, r)
-            | _ ->
-                let! pat = refPat.Parser
-                let! r = pRBracket
-                return Pat.EnclosedBlock(ParenKind.List l, pat, r)
-        }
-
-    let pArrayPat: Parser<Pat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        parser {
-            let! l = pLArrayBracket
-            match! peekNextNonTriviaToken with
-            | t when t.Token = Token.KWRArrayBracket ->
-                // Empty array pattern '[||]'
-                let! r = consumePeeked t
-                return Pat.EmptyBlock(ParenKind.Array l, r)
-            | _ ->
-                let! pat = refPat.Parser
-                let! r = pRArrayBracket
-                return Pat.EnclosedBlock(ParenKind.Array l, pat, r)
-        }
+    let pArrayPat =
+        pEnclosed
+            pLArrayBracket
+            Token.KWRArrayBracket
+            ParenKind.Array
+            DiagnosticCode.ExpectedRArrayBracket
+            refPat.Parser
 
     let pFieldPat =
         parser {

@@ -111,6 +111,11 @@ type DiagnosticCode =
     | MissingRule of ParseError<PositionedToken, ParseState>
     | MissingTypeDefn of ParseError<PositionedToken, ParseState>
     | ExpectedEnd of ParseError<PositionedToken, ParseState>
+    | ExpectedRParen of ParseError<PositionedToken, ParseState>
+    | ExpectedRBracket of ParseError<PositionedToken, ParseState>
+    | ExpectedRArrayBracket of ParseError<PositionedToken, ParseState>
+    | ExpectedQuotationTypedRight of ParseError<PositionedToken, ParseState>
+    | ExpectedQuotationUntypedRight of ParseError<PositionedToken, ParseState>
     | UnexpectedTokenSkipped of token: SyntaxToken
     | UnclosedDelimiter of opened: SyntaxToken * expected: Token
 
