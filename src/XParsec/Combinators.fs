@@ -136,13 +136,19 @@ module Combinators =
                 [<InlineIfLambda>] guard: unit -> bool,
                 [<InlineIfLambda>] generator: Parser<unit, 'T, 'State, 'Input, 'InputSlice>
             ) =
-            fun reader ->
+            fun (reader: Reader<'T, 'State, 'Input, 'InputSlice>) ->
                 let mutable doContinue = true
                 let mutable result = Ok()
 
                 while doContinue && guard () do
+                    let pos = reader.Position
+
                     match generator reader with
-                    | Ok() -> ()
+                    | Ok() ->
+                        if reader.Position = pos then
+                            raise (InfiniteLoopException pos)
+                        else
+                            ()
                     | Error e ->
                         doContinue <- false
                         result <- Error e
