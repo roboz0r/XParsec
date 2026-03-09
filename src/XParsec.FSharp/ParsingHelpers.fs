@@ -121,6 +121,219 @@ module Parsing =
             skipInactiveBranch reader |> ignore
             nextNonTriviaToken reader
 
+    /// Returns the text length of the token at the given index in the lexed token array.
+    let private getTokenLength (state: ParseState) (index: int<token>) =
+        let tokens = state.Lexed.Tokens
+
+        if index + 1<token> < tokens.LengthM then
+            let t0 = tokens[index]
+            let t1 = tokens[index + 1<token>]
+            t1.StartIndex - t0.StartIndex
+        else
+            0
+
+    /// Returns true if the token can appear as an infix operator in expressions.
+    /// Used for the SeqBlock infix undentation exception (F# spec 15.1.9).
+    let private isInfixToken (token: Token) =
+        match token with
+        | Token.OpAddition
+        | Token.OpSubtraction
+        | Token.OpMultiply
+        | Token.OpDivision
+        | Token.OpModulus
+        | Token.OpExponentiation
+        | Token.OpPipeRight
+        | Token.OpPipeRight2
+        | Token.OpPipeRight3
+        | Token.OpPipeLeft
+        | Token.OpPipeLeft2
+        | Token.OpPipeLeft3
+        | Token.OpComposeLeft
+        | Token.OpComposeRight
+        | Token.OpBooleanAnd
+        | Token.OpBooleanOr
+        | Token.OpBitwiseAnd
+        | Token.OpBitwiseOr
+        | Token.OpExclusiveOr
+        | Token.OpLeftShift
+        | Token.OpRightShift
+        | Token.OpLessThan
+        | Token.OpGreaterThan
+        | Token.OpLessThanOrEqual
+        | Token.OpGreaterThanOrEqual
+        | Token.OpEquality
+        | Token.OpInequality
+        | Token.OpAppend
+        | Token.OpCons
+        | Token.OpArrowRight
+        | Token.OpColonEquals
+        | Token.OpBar
+        | Token.OpBarBar
+        | Token.OpAmp
+        | Token.OpAmpAmp
+        | Token.OpConcatenate
+        | Token.OpComma
+        | Token.OpSemicolon
+        | Token.OpDot -> true
+        | _ ->
+            // Custom operators are TokenKind.Operator but not in the keyword list above
+            TokenInfo.isOperator token && not (TokenInfo.canBePrefix token)
+
+    /// Checks whether a context in the stack permits the given token at the given column.
+    /// `ctx` is the context to check, `tokenCol` is the column of the token.
+    let private contextPermitsToken (token: Token) (tokenCol: int) (ctx: Offside) =
+        ctx.Indent <= tokenCol
+        && (
+            match ctx.Context, token with
+            // 15.1.9: then/elif/else may align with if
+            | OffsideContext.If, (Token.KWThen | Token.KWElif | Token.KWElse) -> true
+            // 15.1.9: with/finally may align with try
+            | OffsideContext.Try, (Token.KWWith | Token.KWFinally) -> true
+            // 15.1.9: done may align with for
+            | OffsideContext.For, Token.KWDone -> true
+            // 15.1.9: done may align with do
+            | OffsideContext.Do, Token.KWDone -> true
+            // 15.1.9: and may align with let
+            | OffsideContext.Let, Token.KWAnd -> true
+            // 15.1.9: }, end, and, | may align with type
+            | OffsideContext.Type, (Token.KWRBrace | Token.KWEnd | Token.KWAnd | Token.OpBar) -> true
+            // 15.1.9: end may align with interface (WithAugment)
+            | OffsideContext.WithAugment, Token.KWEnd -> true
+            | _ -> false
+        )
+
+    /// Returns true if the token is a closing delimiter that matches the given paren-like context.
+    /// Closing delimiters are never offside from their matching opening context (F# spec 15.1.8).
+    let private isMatchingClose (token: Token) (ctx: OffsideContext) =
+        match ctx, token with
+        | OffsideContext.Paren, Token.KWRParen -> true
+        | OffsideContext.Bracket, Token.KWRBracket -> true
+        | OffsideContext.BracketBar, Token.KWRArrayBracket -> true
+        | OffsideContext.Brace, Token.KWRBrace -> true
+        | OffsideContext.Begin, Token.KWEnd -> true
+        | OffsideContext.Quote, (Token.OpQuotationTypedRight | Token.OpQuotationUntypedRight) -> true
+        | _ -> false
+
+    /// Determines whether a token at column `tokenCol` is permitted despite being
+    /// strictly left of the innermost context's offside line.
+    /// Implements F# spec sections 15.1.8 (Balancing), 15.1.9 (Exceptions to Offside Rules)
+    /// and 15.1.10 (Permitted Undentations).
+    let rec private isPermittedUndentation
+        (token: Token)
+        (tokenCol: int)
+        (context: Offside list)
+        (state: ParseState)
+        (readerIndex: int64)
+        =
+        match context with
+        | [] -> false
+        | head :: rest ->
+
+            // Closing delimiters are never offside from their matching paren-like context (15.1.8)
+            if isMatchingClose token head.Context then
+                true
+            elif rest |> List.exists (fun (ctx: Offside) -> isMatchingClose token ctx.Context) then
+                true
+
+            // --- 15.1.9: Exceptions to Offside Rules ---
+
+            // SeqBlock infix: an infix token may be offside by (tokenSize + 1)
+            elif head.Context = OffsideContext.SeqBlock && isInfixToken token then
+                let tokenLength = getTokenLength state (int readerIndex * 1<token>)
+
+                if tokenCol >= head.Indent - (tokenLength + 1) then
+                    true
+                else
+                    // Still check deeper contexts
+                    rest |> List.exists (contextPermitsToken token tokenCol)
+
+            // Check if the token is permitted at the head context or any enclosing context
+            elif contextPermitsToken token tokenCol head then
+                true
+
+            elif rest |> List.exists (contextPermitsToken token tokenCol) then
+                true
+
+            // --- 15.1.10: Permitted Undentations ---
+
+            // 15.1.10.1: Fun/Function body undentation
+            // The body may undent from fun/function but not past other offside lines.
+            elif head.Context = OffsideContext.Fun || head.Context = OffsideContext.Function then
+                match rest with
+                | [] -> true // No other context to violate
+                | next :: _ -> tokenCol >= next.Indent
+
+            // 15.1.10.2: If/Then/Else + Paren/Begin undentation
+            // Inside ( ) or begin/end following then/else, content may undent but not past if.
+            elif head.Context = OffsideContext.Paren || head.Context = OffsideContext.Begin then
+                let rec checkThenElseUndent (stack: Offside list) =
+                    match stack with
+                    | [] -> false
+                    | ctx :: deeper ->
+                        match ctx.Context with
+                        | OffsideContext.Then
+                        | OffsideContext.Else ->
+                            // Find the enclosing If context and check we don't undent past it
+                            deeper
+                            |> List.tryFind (fun (c: Offside) -> c.Context = OffsideContext.If)
+                            |> Option.map (fun ifCtx -> tokenCol >= ifCtx.Indent)
+                            |> Option.defaultValue true
+                        | OffsideContext.SeqBlock ->
+                            // Skip SeqBlock contexts (they sit between paren and then/else)
+                            checkThenElseUndent deeper
+                        | _ -> false
+
+                if checkThenElseUndent rest then
+                    true
+                else if
+                    // 15.1.10.3: Module/class body undentation
+                    // Inside begin/end with enclosing Module or Type, content may undent to Module/Type indent.
+                    head.Context = OffsideContext.Begin
+                then
+                    rest
+                    |> List.tryFind (fun (c: Offside) ->
+                        c.Context = OffsideContext.Module || c.Context = OffsideContext.Type
+                    )
+                    |> Option.map (fun (ctx: Offside) -> tokenCol >= ctx.Indent)
+                    |> Option.defaultValue false
+                else
+                    // 15.1.10.4: Collection/CE undentation
+                    // Inside [ ], [| |], or { }, content may undent to the enclosing expression's
+                    // offside line, skipping SeqBlock/Paren pairs introduced by ( or =.
+                    checkCollectionUndent tokenCol rest
+
+            // 15.1.10.4: Collection/CE undentation for Bracket, BracketBar, Brace contexts
+            elif
+                head.Context = OffsideContext.Bracket
+                || head.Context = OffsideContext.BracketBar
+                || head.Context = OffsideContext.Brace
+            then
+                checkCollectionUndent tokenCol rest
+
+            else
+                false
+
+    /// Walk the context stack skipping SeqBlock+Paren pairs to find the enclosing
+    /// expression's offside line for collection/CE undentation (F# spec 15.1.10.4).
+    and private checkCollectionUndent (tokenCol: int) (stack: Offside list) : bool =
+        match stack with
+        | [] -> false
+        | ctx :: deeper ->
+            match (ctx: Offside).Context with
+            | OffsideContext.SeqBlock ->
+                // Skip this SeqBlock and check what's beneath it
+                checkCollectionUndent tokenCol deeper
+            | OffsideContext.Paren
+            | OffsideContext.Bracket
+            | OffsideContext.BracketBar
+            | OffsideContext.Brace
+            | OffsideContext.Begin ->
+                // Skip paren-like context (and its associated SeqBlock) and keep looking
+                checkCollectionUndent tokenCol deeper
+            | _ ->
+                // Found the enclosing non-paren context; check if token is within its indent
+                tokenCol >= ctx.Indent
+
     let rec private nextNonTriviaTokenImpl isPeek (reader: Reader<PositionedToken, ParseState, _, _>) =
         match reader.Peek() with
         | ValueNone -> fail EndOfInput reader
@@ -142,33 +355,16 @@ module Parsing =
             nextNonTriviaTokenImpl isPeek reader
         | ValueSome token ->
             // Offside check (Light syntax only): fail if the token is strictly left of the
-            // innermost context's offside line. Transparent to all callers — stops any parser
-            // that tries to consume a token belonging to an outer block.
+            // innermost context's offside line, unless a permitted undentation applies.
             let isOffside =
-                // TODO: Handle all 15.1.10 Permitted Undentations
                 reader.State.IndentationMode = Syntax.Light
                 && (
                     match reader.State.Context with
-                    | { Indent = contextIndent } :: rest ->
+                    | { Indent = contextIndent } :: _ as context ->
                         let tokenCol = ParseState.getIndent reader.State (reader.Index * 1<token>)
 
-                        if tokenCol < contextIndent then
-                            // F# spec 15.1.10.2: else/elif tokens may undent to the column of
-                            // any enclosing if context without being considered offside.
-                            let isElseOrElif = token.Token = Token.KWElse || token.Token = Token.KWElif
-
-                            if isElseOrElif then
-                                // Not offside if an enclosing If context's indent allows this column
-                                not (
-                                    rest
-                                    |> List.exists (fun ctx ->
-                                        ctx.Context = OffsideContext.If && ctx.Indent <= tokenCol
-                                    )
-                                )
-                            else
-                                true // offside
-                        else
-                            false // not offside
+                        tokenCol < contextIndent
+                        && not (isPermittedUndentation token.Token tokenCol context reader.State reader.Index)
                     | [] -> false
                 )
 
@@ -580,6 +776,7 @@ module Parsing =
         (pLeft: Parser<_, _, _, _, _>)
         (expectedRightTok: Token)
         (parenKindConstructor: SyntaxToken -> ParenKind<SyntaxToken>)
+        (offsideCtx: OffsideContext)
         (diagCode: _ -> DiagnosticCode)
         (pInner: Parser<_, _, _, _, _>)
         =
@@ -593,32 +790,34 @@ module Parsing =
                 let! r = consumePeeked t
                 return completeEmpty (parenKindConstructor l) r
             | _ ->
-                // Normal path with recovery
+                // Normal path with recovery, wrapped in an offside context
                 return!
-                    recoverWith
-                        StoppingTokens.afterParen
-                        DiagnosticSeverity.Error
-                        diagCode
-                        (fun toks ->
-                            // Recovery: The inner expression completely failed to parse.
-                            // We must synthesize the missing end token to keep the AST structurally sound.
-                            match toks with
-                            | [] ->
-                                let endTok =
-                                    virtualToken (PositionedToken.Create(expectedRightTok, l.StartIndex + 1))
+                    withContext
+                        offsideCtx
+                        (recoverWith
+                            StoppingTokens.afterParen
+                            DiagnosticSeverity.Error
+                            diagCode
+                            (fun toks ->
+                                // Recovery: The inner expression completely failed to parse.
+                                // We must synthesize the missing end token to keep the AST structurally sound.
+                                match toks with
+                                | [] ->
+                                    let endTok =
+                                        virtualToken (PositionedToken.Create(expectedRightTok, l.StartIndex + 1))
 
-                                completeEnclosed (parenKindConstructor l) missing endTok
-                            | _ ->
-                                let endTok =
-                                    let t = toks |> List.last
-                                    virtualToken (PositionedToken.Create(expectedRightTok, t.StartIndex))
+                                    completeEnclosed (parenKindConstructor l) missing endTok
+                                | _ ->
+                                    let endTok =
+                                        let t = toks |> List.last
+                                        virtualToken (PositionedToken.Create(expectedRightTok, t.StartIndex))
 
-                                completeEnclosed (parenKindConstructor l) (skipsTokens toks missing) endTok
-                        )
-                        (parser {
-                            // Happy path: Parse the inner block, then demand the closing token
-                            let! e = pInner
-                            let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) expectedRightTok
-                            return completeEnclosed (parenKindConstructor l) e r
-                        })
+                                    completeEnclosed (parenKindConstructor l) (skipsTokens toks missing) endTok
+                            )
+                            (parser {
+                                // Happy path: Parse the inner block, then demand the closing token
+                                let! e = pInner
+                                let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) expectedRightTok
+                                return completeEnclosed (parenKindConstructor l) e r
+                            }))
         }

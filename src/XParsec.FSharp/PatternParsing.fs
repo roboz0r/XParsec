@@ -162,16 +162,29 @@ module Pat =
         pEnclosed completeEmpty completeEnclosed Pat.Missing skipsTokens
 
     let pParenPat =
-        pEnclosed pLParen Token.KWRParen ParenKind.Paren DiagnosticCode.ExpectedRParen refPat.Parser
+        pEnclosed
+            pLParen
+            Token.KWRParen
+            ParenKind.Paren
+            OffsideContext.Paren
+            DiagnosticCode.ExpectedRParen
+            refPat.Parser
 
     let pListPat =
-        pEnclosed pLBracket Token.KWRBracket ParenKind.List DiagnosticCode.ExpectedRBracket refPat.Parser
+        pEnclosed
+            pLBracket
+            Token.KWRBracket
+            ParenKind.List
+            OffsideContext.Bracket
+            DiagnosticCode.ExpectedRBracket
+            refPat.Parser
 
     let pArrayPat =
         pEnclosed
             pLArrayBracket
             Token.KWRArrayBracket
             ParenKind.Array
+            OffsideContext.BracketBar
             DiagnosticCode.ExpectedRArrayBracket
             refPat.Parser
 

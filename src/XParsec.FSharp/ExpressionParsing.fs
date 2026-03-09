@@ -42,7 +42,7 @@ module ElifBranches =
         parser {
             let! condition = withContext OffsideContext.If refExpr.Parser
             let! thenTok = pThen
-            let! expr = refExprSeqBlock.Parser
+            let! expr = withContext OffsideContext.Then refExprSeqBlock.Parser
             return (condition, thenTok, expr)
         }
 
@@ -63,7 +63,7 @@ module ElifBranches =
             | Error e -> Error e
 
         | Ok(ElIfTok.Else elseTok) ->
-            match refExprSeqBlock.Parser reader with
+            match withContext OffsideContext.Else refExprSeqBlock.Parser reader with
             | Ok expr -> Ok struct (List.ofSeq acc, ValueSome(ElseBranch.ElseBranch(elseTok, expr)))
             | Error e -> Error e
 
@@ -752,7 +752,7 @@ module Expr =
             parser {
                 let! cond = pCond
                 let! thenTok = pThen
-                let! thenExpr = refExprSeqBlock.Parser
+                let! thenExpr = withContext OffsideContext.Then refExprSeqBlock.Parser
                 let! elifs, elseBranch = ElifBranches.parse
 
                 return
@@ -850,7 +850,7 @@ module Expr =
             parser {
                 let! cond = pCond
                 let! doTok = pDo
-                let! body = refExprSeqBlock.Parser
+                let! body = withContext OffsideContext.Do refExprSeqBlock.Parser
                 let! doneTok = pDoneVirt
                 return ExprAux.KeywordExpr(fun whileTok -> Expr.While(whileTok, cond, doTok, body, doneTok))
             }
@@ -890,7 +890,7 @@ module Expr =
                     (parser {
                         let! iterDefn = pIterDefn
                         let! doTok = pDo <|> pArrowRight
-                        let! body = refExprSeqBlock.Parser
+                        let! body = withContext OffsideContext.Do refExprSeqBlock.Parser
                         return iterDefn doTok body
                     })
 
@@ -1076,19 +1076,38 @@ module Expr =
         pEnclosed completeEmpty completeEnclosed Expr.Missing skipsTokens
 
     let pParen =
-        pEnclosed pLParen Token.KWRParen ParenKind.Paren DiagnosticCode.ExpectedRParen refExprSeqBlock.Parser
+        pEnclosed
+            pLParen
+            Token.KWRParen
+            ParenKind.Paren
+            OffsideContext.Paren
+            DiagnosticCode.ExpectedRParen
+            refExprSeqBlock.Parser
 
     let pBeginEnd =
-        pEnclosed pBegin Token.KWEnd ParenKind.BeginEnd DiagnosticCode.ExpectedEnd refExprSeqBlock.Parser
+        pEnclosed
+            pBegin
+            Token.KWEnd
+            ParenKind.BeginEnd
+            OffsideContext.Begin
+            DiagnosticCode.ExpectedEnd
+            refExprSeqBlock.Parser
 
     let pList =
-        pEnclosed pLBracket Token.KWRBracket ParenKind.List DiagnosticCode.ExpectedRBracket refExprSeqBlock.Parser
+        pEnclosed
+            pLBracket
+            Token.KWRBracket
+            ParenKind.List
+            OffsideContext.Bracket
+            DiagnosticCode.ExpectedRBracket
+            refExprSeqBlock.Parser
 
     let pArray =
         pEnclosed
             pLArrayBracket
             Token.KWRArrayBracket
             ParenKind.Array
+            OffsideContext.BracketBar
             DiagnosticCode.ExpectedRArrayBracket
             refExprSeqBlock.Parser
 
@@ -1097,6 +1116,7 @@ module Expr =
             pQuotationTypedLeft
             Token.OpQuotationTypedRight
             ParenKind.Quoted
+            OffsideContext.Quote
             DiagnosticCode.ExpectedQuotationTypedRight
             refExprSeqBlock.Parser
 
@@ -1105,6 +1125,7 @@ module Expr =
             pQuotationUntypedLeft
             Token.OpQuotationUntypedRight
             ParenKind.DoubleQuoted
+            OffsideContext.Quote
             DiagnosticCode.ExpectedQuotationUntypedRight
             refExprSeqBlock.Parser
 
