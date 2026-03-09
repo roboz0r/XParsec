@@ -1444,13 +1444,19 @@ module Lexing =
             let mutable count = braces.Length
             let mutable idx = int pos.Index
 
-            while count > 1 do
-                // }} is an escape sequence for '}'
-                // TODO: Investigate order of imperative operations in a while loop
-                idx <- idx + 2
-                count <- count - 2
-                do! updateUserState (LexBuilder.appendI Token.EscapeRBrace idx CtxOp.NoOp)
+            do!
+                updateUserState (fun state ->
+                    let mutable state = state
 
+                    while count > 1 do
+                        // }} is an escape sequence for '}'
+                        // TODO: Investigate order of imperative operations in a while loop
+                        idx <- idx + 2
+                        count <- count - 2
+                        state <- LexBuilder.appendI Token.EscapeRBrace idx CtxOp.NoOp state
+
+                    state
+                )
 
             match count with
             | 0 -> return ()
