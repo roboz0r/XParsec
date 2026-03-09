@@ -1,0 +1,31 @@
+AnonymousModule:
+FunctionOrValue:
+  let                              'let'             KWLet               tok=   0  pos=   0
+    Pat.NamedSimple                'HashSample'      Identifier          tok=   2  pos=   4
+    Pats:
+      Pat.NamedSimple              'tab'             Identifier          tok=   4  pos=  15
+    =                              '='               OpEquality          tok=   6  pos=  19
+      App:
+        Func:
+          LongIdentOrOp:
+            LongIdent:
+                                   'tab'             Identifier          tok=   9  pos=  25
+                                   'Iterate'         Identifier          tok=  11  pos=  29
+        Args:
+          ParenBlock               '('               KWLParen            tok=  13  pos=  37
+            Fun                    'fun'             KWFun               tok=  14  pos=  38
+            Pats:
+              Pat.Named:
+                Ident              'c'               Identifier          tok=  16  pos=  42
+                Param:
+                  Pat.NamedSimple  'v'               Identifier          tok=  18  pos=  44
+            Arrow                  '->'              OpArrowRight        tok=  20  pos=  46
+            Body:
+              App:
+                Func:
+                  Ident            'printfn'         Identifier          tok=  23  pos=  57
+                Args:
+                  Const            '"Entry (%O...'   StringLiteral       tok=  25  pos=  65
+                  Ident            'c'               Identifier          tok=  27  pos=  81
+                  Ident            'v'               Identifier          tok=  29  pos=  83
+                                   ')'               KWRParen            tok=  30  pos=  84

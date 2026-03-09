@@ -1153,58 +1153,82 @@ module Expr =
             return Expr.New(newTok, typ, argExpr)
         }
 
-    let pRecordOrObjectExpr =
-        parser {
-            let! lBrace = pLBrace
+    let pRecordOrObjectExpr: Parser<_, PositionedToken, ParseState, _, _> =
+        fun reader ->
+            match pLBrace reader with
+            | Error e -> Error e
+            | Ok lBrace ->
 
-            return!
-                choiceL
-                    [
-                        // { CE keywords... } — computation expression body
-                        // Detected by first token being a CE-specific keyword (not a valid record field name)
-                        parser {
-                            let! peekTok = peekNextNonTriviaToken
+                // Push Brace offside context so collection/CE undentation rules can find it
+                let savedState = reader.State
 
-                            match peekTok.Token with
-                            | Token.KWLet
-                            | Token.KWLetBang
-                            | Token.KWUse
-                            | Token.KWUseBang
-                            | Token.KWDo
-                            | Token.KWDoBang
-                            | Token.KWYield
-                            | Token.KWYieldBang
-                            | Token.KWReturn
-                            | Token.KWReturnBang
-                            | Token.KWMatch
-                            | Token.KWMatchBang
-                            | Token.KWIf
-                            | Token.KWTry
-                            | Token.KWWhile
-                            | Token.KWFor ->
-                                let! body = refExprSeqBlock.Parser
-                                let! rBrace = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome lBrace) Token.KWRBrace
-                                return Expr.EnclosedBlock(ParenKind.Brace lBrace, body, rBrace)
-                            | _ -> return! fail (Message "Not a computation expression body")
-                        }
-                        // TODO: '{' new base-call object-members interface-impls '}' -- object expression
-                        // { expr with Field = val; ... } — record clone/update
-                        parser {
-                            let! baseExpr = refExprInRecords.Parser
-                            let! withTok = pWith
-                            let! fields, _ = sepBy1 FieldInitializer.parse pSemi
-                            let! rBrace = pRBrace
-                            return Expr.RecordClone(lBrace, baseExpr, withTok, List.ofSeq fields, rBrace)
-                        }
-                        // { Field = val; ... } — record literal
-                        parser {
-                            let! fields, _ = sepBy1 FieldInitializer.parse pSemi
-                            let! rBrace = pRBrace
-                            return Expr.Record(lBrace, List.ofSeq fields, rBrace)
-                        }
-                    ]
-                    "Record or RecordClone"
-        }
+                let entry: Offside =
+                    {
+                        Context = OffsideContext.Brace
+                        Indent = 0
+                        Token = lBrace.PositionedToken
+                    }
+
+                reader.State <- ParseState.pushOffside entry reader.State
+
+                let innerParser =
+                    choiceL
+                        [
+                            // { CE keywords... } — computation expression body
+                            // Detected by first token being a CE-specific keyword (not a valid record field name)
+                            parser {
+                                let! peekTok = peekNextNonTriviaToken
+
+                                match peekTok.Token with
+                                | Token.KWLet
+                                | Token.KWLetBang
+                                | Token.KWUse
+                                | Token.KWUseBang
+                                | Token.KWDo
+                                | Token.KWDoBang
+                                | Token.KWYield
+                                | Token.KWYieldBang
+                                | Token.KWReturn
+                                | Token.KWReturnBang
+                                | Token.KWMatch
+                                | Token.KWMatchBang
+                                | Token.KWIf
+                                | Token.KWTry
+                                | Token.KWWhile
+                                | Token.KWFor ->
+                                    let! body = refExprSeqBlock.Parser
+
+                                    let! rBrace =
+                                        nextNonTriviaTokenVirtualWithDiagnostic (ValueSome lBrace) Token.KWRBrace
+
+                                    return Expr.EnclosedBlock(ParenKind.Brace lBrace, body, rBrace)
+                                | _ -> return! fail (Message "Not a computation expression body")
+                            }
+                            // TODO: '{' new base-call object-members interface-impls '}' -- object expression
+                            // { expr with Field = val; ... } — record clone/update
+                            parser {
+                                let! baseExpr = refExprInRecords.Parser
+                                let! withTok = pWith
+                                let! fields, _ = sepBy1 FieldInitializer.parse pSemi
+                                let! rBrace = pRBrace
+                                return Expr.RecordClone(lBrace, baseExpr, withTok, List.ofSeq fields, rBrace)
+                            }
+                            // { Field = val; ... } — record literal
+                            parser {
+                                let! fields, _ = sepBy1 FieldInitializer.parse pSemi
+                                let! rBrace = pRBrace
+                                return Expr.Record(lBrace, List.ofSeq fields, rBrace)
+                            }
+                        ]
+                        "Record or RecordClone"
+
+                match innerParser reader with
+                | Ok result ->
+                    reader.State <- ParseState.popOffside reader.State
+                    Ok result
+                | Error _ ->
+                    reader.State <- savedState
+                    fail (Message "Record or RecordClone") reader
 
     let private recoverExpr p =
         recoverWith

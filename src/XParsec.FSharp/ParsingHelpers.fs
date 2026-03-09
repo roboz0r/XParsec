@@ -258,10 +258,23 @@ module Parsing =
 
             // 15.1.10.1: Fun/Function body undentation
             // The body may undent from fun/function but not past other offside lines.
+            // "Constructs enclosed in brackets may be undented" — so we skip past
+            // SeqBlock+Paren pairs to find the true enclosing offside line.
             elif head.Context = OffsideContext.Fun || head.Context = OffsideContext.Function then
-                match rest with
-                | [] -> true // No other context to violate
-                | next :: _ -> tokenCol >= next.Indent
+                let rec findEnclosingIndent (stack: Offside list) =
+                    match stack with
+                    | [] -> true // No other context to violate
+                    | ctx :: deeper ->
+                        match ctx.Context with
+                        | OffsideContext.SeqBlock
+                        | OffsideContext.Paren
+                        | OffsideContext.Bracket
+                        | OffsideContext.BracketBar
+                        | OffsideContext.Brace
+                        | OffsideContext.Begin -> findEnclosingIndent deeper
+                        | _ -> tokenCol >= ctx.Indent
+
+                findEnclosingIndent rest
 
             // 15.1.10.2: If/Then/Else + Paren/Begin undentation
             // Inside ( ) or begin/end following then/else, content may undent but not past if.
@@ -779,28 +792,51 @@ module Parsing =
         (offsideCtx: OffsideContext)
         (diagCode: _ -> DiagnosticCode)
         (pInner: Parser<_, _, _, _, _>)
-        =
+        : Parser<_, PositionedToken, ParseState, _, _> =
 
-        parser {
-            let! l = pLeft
+        fun reader ->
+            match pLeft reader with
+            | Error e -> Error e
+            | Ok l ->
 
-            match! peekNextNonTriviaToken with
-            | t when t.Token = expectedRightTok ->
-                // Fast path: Empty block
-                let! r = consumePeeked t
-                return completeEmpty (parenKindConstructor l) r
-            | _ ->
-                // Normal path with recovery, wrapped in an offside context
-                return!
-                    withContext
-                        offsideCtx
-                        (recoverWith
+                // Push the paren-like offside context immediately after consuming the left
+                // delimiter. This must happen before any inner peek/parse so that the
+                // collection-undentation rule (15.1.10.4) can see the context on the stack
+                // when the inner content is at a lower indentation than the outer SeqBlock.
+                let savedState = reader.State
+
+                let entry: Offside =
+                    {
+                        Context = offsideCtx
+                        Indent = 0 // Paren-like contexts use indent 0; undentation rules inspect them as stack markers
+                        Token = l.PositionedToken
+                    }
+
+                reader.State <- ParseState.pushOffside entry reader.State
+
+                let inline popAndReturn result =
+                    reader.State <- ParseState.popOffside reader.State
+                    result
+
+                match peekNextNonTriviaToken reader with
+                | Error e ->
+                    reader.State <- savedState
+                    Error e
+                | Ok t when t.Token = expectedRightTok ->
+                    // Fast path: Empty block
+                    match consumePeeked t reader with
+                    | Ok r -> popAndReturn (Ok(completeEmpty (parenKindConstructor l) r))
+                    | Error e ->
+                        reader.State <- savedState
+                        Error e
+                | _ ->
+                    // Normal path with recovery
+                    let innerParser =
+                        recoverWith
                             StoppingTokens.afterParen
                             DiagnosticSeverity.Error
                             diagCode
                             (fun toks ->
-                                // Recovery: The inner expression completely failed to parse.
-                                // We must synthesize the missing end token to keep the AST structurally sound.
                                 match toks with
                                 | [] ->
                                     let endTok =
@@ -815,9 +851,13 @@ module Parsing =
                                     completeEnclosed (parenKindConstructor l) (skipsTokens toks missing) endTok
                             )
                             (parser {
-                                // Happy path: Parse the inner block, then demand the closing token
                                 let! e = pInner
                                 let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) expectedRightTok
                                 return completeEnclosed (parenKindConstructor l) e r
-                            }))
-        }
+                            })
+
+                    match innerParser reader with
+                    | Ok result -> popAndReturn (Ok result)
+                    | Error _ ->
+                        reader.State <- savedState
+                        fail (Message "pEnclosed inner parser failed") reader
