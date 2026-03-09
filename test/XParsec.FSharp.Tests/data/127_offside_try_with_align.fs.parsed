@@ -1,0 +1,22 @@
+AnonymousModule:
+TryWith             'try'             KWTry               tok=   0  pos=   0
+TryExpr:
+  App:
+    Func:
+      Ident         'callSomeFu...'   Identifier          tok=   3  pos=   8
+    Args:
+      ParenBlock    '('               KWLParen            tok=   5  pos=  25
+                    ')'               KWRParen            tok=   6  pos=  26
+WithToken           'with'            KWWith              tok=   8  pos=  28
+Rule:
+  Bar               '|'               OpBar               tok=  10  pos=  33
+  Pat:
+    Pat.Wildcard    '_'               Wildcard            tok=  12  pos=  35
+  Arrow             '->'              OpArrowRight        tok=  14  pos=  37
+  Expr:
+    App:
+      Func:
+        Ident       'doSomeClea...'   Identifier          tok=  17  pos=  44
+      Args:
+        ParenBlock  '('               KWLParen            tok=  19  pos=  58
+                    ')'               KWRParen            tok=  20  pos=  59

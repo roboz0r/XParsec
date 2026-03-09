@@ -1,0 +1,13 @@
+AnonymousModule:
+ForTo      'for'             KWFor               tok=   0  pos=   0
+Ident      'i'               Identifier          tok=   2  pos=   4
+Equals     '='               OpEquality          tok=   4  pos=   6
+Start:
+  Const    '1'               NumInt32            tok=   6  pos=   8
+ToToken    'to'              KWTo                tok=   8  pos=  10
+End:
+  Const    '3'               NumInt32            tok=  10  pos=  13
+DoToken    'do'              KWDo                tok=  12  pos=  15
+Body:
+  Ident    'expr'            Identifier          tok=  15  pos=  22
+DoneToken  'done'            KWDone              tok=  17  pos=  27

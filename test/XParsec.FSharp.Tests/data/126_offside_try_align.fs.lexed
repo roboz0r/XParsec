@@ -1,0 +1,17 @@
+0, KWTry
+3, Newline
+4, Indent
+8, Identifier
+24, Whitespace
+25, KWLParen
+26, KWRParen
+27, Newline
+28, KWFinally
+35, Newline
+36, Indent
+40, Identifier
+53, Whitespace
+54, KWLParen
+55, KWRParen
+56, Newline
+57, EOF

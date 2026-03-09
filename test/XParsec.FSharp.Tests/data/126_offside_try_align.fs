@@ -1,0 +1,4 @@
+try
+    callSomeFunction ()
+finally
+    doSomeCleanup ()

@@ -1,0 +1,33 @@
+AnonymousModule:
+IfThenElse:
+  IfToken             'if'              KWIf                tok=   0  pos=   0
+  Condition:
+    Ident             'big'             Identifier          tok=   2  pos=   3
+  ThenToken           'then'            KWThen              tok=   4  pos=   7
+  ThenExpr:
+    App:
+      Func:
+        Ident         'callSomeFu...'   Identifier          tok=   6  pos=  12
+      Args:
+        ParenBlock    '('               KWLParen            tok=   8  pos=  29
+                      ')'               KWRParen            tok=   9  pos=  30
+  ElifBranch:
+    ElifToken         'elif'            KWElif              tok=  11  pos=  32
+    ElifCondition:
+      Ident           'small'           Identifier          tok=  13  pos=  37
+    ThenToken         'then'            KWThen              tok=  15  pos=  43
+    ElifExpr:
+      App:
+        Func:
+          Ident       'callSomeOt...'   Identifier          tok=  17  pos=  48
+        Args:
+          ParenBlock  '('               KWLParen            tok=  19  pos=  70
+                      ')'               KWRParen            tok=  20  pos=  71
+  ElseToken           'else'            KWElse              tok=  22  pos=  73
+  ElseExpr:
+    App:
+      Func:
+        Ident         'doSomeClea...'   Identifier          tok=  24  pos=  78
+      Args:
+        ParenBlock    '('               KWLParen            tok=  26  pos=  92
+                      ')'               KWRParen            tok=  27  pos=  93
