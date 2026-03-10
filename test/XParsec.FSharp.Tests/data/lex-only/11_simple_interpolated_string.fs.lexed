@@ -100,4 +100,5 @@
 476, Identifier
 478, KWRBrace
 479, UnterminatedStringLiteral
+509, UnterminatedInterpolatedString
 509, EOF
