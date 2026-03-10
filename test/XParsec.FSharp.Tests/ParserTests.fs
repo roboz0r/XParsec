@@ -31,9 +31,45 @@ let tests =
                 test name { testParseFileWithSymbols symbols path }
 
             ptest "Debug Test" {
-                let fileName = "file.fs"
+                let fileName = "file.fs" // Change this to the specific file you want to debug
                 let path = Path.Combine(testDataDir.Value, fileName)
-                testParseFile path
+                let input = File.ReadAllText path
+                let input = input.Replace("\r\n", "\n")
+
+                match XParsec.FSharp.Lexer.Lexing.lexString input with
+                | Error e -> failtestf "Lexing failed: %A" e
+                | Ok lexed ->
+                    let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed input Set.empty
+
+                    let task =
+                        System.Threading.Tasks.Task.Run(fun () -> XParsec.FSharp.Parser.FSharpAst.parse reader)
+                    // Wait up to 5 seconds for the parser to complete. If it doesn't, dump debugging info to help identify where it's stuck.
+                    if not (task.Wait(5000)) then
+                        let stuckIdx = reader.Index
+                        let tok = lexed.Tokens.[stuckIdx * 1<_>]
+                        let pos = tok.StartIndex
+                        let lines = input.Substring(0, min pos input.Length).Split('\n')
+                        let line = lines.Length
+
+                        let context =
+                            if pos + 40 < input.Length then
+                                input.Substring(pos, 40)
+                            else
+                                input.Substring(pos)
+
+                        failtestf
+                            "Parsing stuck at reader index %d, token %A at line %d: '%s'"
+                            stuckIdx
+                            tok
+                            line
+                            (context.Replace("\n", "\\n"))
+                    else
+                        match task.Result with
+                        | Error e ->
+                            failtestf
+                                "Parsing failed:\n%s"
+                                (XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
+                        | Ok _ -> ()
             }
         ]
 
