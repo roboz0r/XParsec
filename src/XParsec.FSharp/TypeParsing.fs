@@ -137,7 +137,7 @@ module Constraint =
                     let! t1 = refType.Parser
                     let! comma = pComma
                     let! t2 = refType.Parser
-                    let! rAngle = pGreaterThan
+                    let! rAngle = pCloseTypeParams
                     return Constraint.Delegate(typar, colon, token, lAngle, t1, comma, t2, rAngle)
                 | _ when tokenStringIs "equality" token state -> return Constraint.Equality(typar, colon, token)
                 | _ when tokenStringIs "comparison" token state -> return Constraint.Comparison(typar, colon, token)
@@ -148,7 +148,7 @@ module Constraint =
                 | _ when tokenStringIs "enum" token state ->
                     let! lAngle = pLessThan
                     let! t = refType.Parser
-                    let! rAngle = pGreaterThan
+                    let! rAngle = pCloseTypeParams
                     return Constraint.Enum(typar, colon, token, lAngle, t, rAngle)
                 | Token.KWLParen ->
                     // Could be (new : unit -> 'T)
@@ -190,7 +190,7 @@ module TyparDefns =
                     }
                 )
 
-            let! rAngle = pGreaterThan
+            let! rAngle = pCloseTypeParams
 
             return TyparDefns.TyparDefns(lAngle, List.ofSeq defns, constraints, rAngle)
         }
