@@ -1,0 +1,55 @@
+AnonymousModule:
+TypeDefn.Anon:
+  TypeName           'Foo'             Identifier          tok=   2  pos=   5
+  TyparDefns:
+                     '<'               op_LessThan         tok=   3  pos=   8
+    Typar.Named:
+                     ''Input'          TypeParameter       tok=   4  pos=   9
+    Typar.Named:
+                     ''InputSlic...'   TypeParameter       tok=   7  pos=  17
+    when             'when'            KWWhen              tok=  10  pos=  33
+    Constraint.Coercion:
+      Typar.Named:
+                     ''Input'          TypeParameter       tok=  12  pos=  38
+      :>             ':>'              OpUpcast            tok=  14  pos=  45
+      GenericType:
+        LongIdent:
+                     'IReadable'       Identifier          tok=  16  pos=  48
+        <            '<'               op_LessThan         tok=  17  pos=  57
+        TypeArg.Type:
+          NamedType:
+            LongIdent:
+                     'int'             Identifier          tok=  18  pos=  58
+        TypeArg.Type:
+          VarType:
+            Typar.Named:
+                     ''InputSlic...'   TypeParameter       tok=  21  pos=  63
+        >            '>'               op_GreaterThan      tok=  22  pos=  74
+    Constraint.Coercion:
+      Typar.Named:
+                     ''InputSlic...'   TypeParameter       tok=  27  pos=  84
+      :>             ':>'              OpUpcast            tok=  29  pos=  96
+      GenericType:
+        LongIdent:
+                     'IReadable'       Identifier          tok=  31  pos=  99
+        <            '<'               op_LessThan         tok=  32  pos= 108
+        TypeArg.Type:
+          NamedType:
+            LongIdent:
+                     'int'             Identifier          tok=  33  pos= 109
+        TypeArg.Type:
+          VarType:
+            Typar.Named:
+                     ''InputSlic...'   TypeParameter       tok=  36  pos= 114
+        >            <virt>            OpPipeLeft3         tok=virt  pos= 125
+                     '>>'              op_ComposeRight     tok=  37  pos= 125
+  (                  '('               KWLParen            tok=  38  pos= 127
+  )                  ')'               KWRParen            tok=  39  pos= 128
+  =                  '='               OpEquality          tok=  41  pos= 130
+  begin              <virt>            KWBegin             tok=virt  pos= 136
+    static           'static'          KWStatic            tok=  44  pos= 136
+    let              'let'             KWLet               tok=  46  pos= 143
+    Pat.NamedSimple  'x'               Identifier          tok=  48  pos= 147
+    =                '='               OpEquality          tok=  50  pos= 149
+      Const          '1'               NumInt32            tok=  52  pos= 151
+  end                <virt>            KWEnd               tok=virt  pos= 153
