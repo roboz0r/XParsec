@@ -305,6 +305,21 @@ module LexBuilder =
             findBlocks (iLineNext + 1<_>) thisIndent
 
     let complete idx (state: LexBuilder) =
+        // Unwind any unclosed interpolated string contexts
+        let rec unwindContext (ctx: LexContext list) =
+            match ctx with
+            | [] -> ()
+            | LexContext.InterpolatedString :: rest
+            | LexContext.VerbatimInterpolatedString :: rest
+            | LexContext.Interpolated3String _ :: rest ->
+                state.Tokens.Add(PositionedToken.Create(Token.UnterminatedInterpolatedString, idx))
+                unwindContext rest
+            | _ :: rest ->
+                // InterpolatedExpression, BracedExpression, ParenthesExpression, etc.
+                // are expression contexts nested inside an interpolated string — skip past them
+                unwindContext rest
+
+        unwindContext state.Context
         state.Tokens.Add(PositionedToken.Create(Token.EOF, idx))
         let tokens = ImmutableArrayM(state.Tokens.ToImmutable())
 

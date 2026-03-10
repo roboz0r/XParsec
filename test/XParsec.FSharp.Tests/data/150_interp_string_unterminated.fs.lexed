@@ -1,0 +1,14 @@
+0, KWLet
+3, Whitespace
+4, Identifier
+5, Whitespace
+6, OpEquality
+7, Whitespace
+8, InterpolatedStringOpen
+10, InterpolatedStringFragment
+16, InterpolatedExpressionOpen
+17, Identifier
+21, InterpolatedExpressionClose
+22, InterpolatedStringFragment
+23, UnterminatedInterpolatedString
+23, EOF

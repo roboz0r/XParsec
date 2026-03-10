@@ -1110,7 +1110,8 @@ module Expr =
         match tok with
         | Token.InterpolatedStringClose
         | Token.VerbatimInterpolatedStringClose
-        | Token.Interpolated3StringClose -> true
+        | Token.Interpolated3StringClose
+        | Token.UnterminatedInterpolatedString -> true
         | _ -> false
 
     let pInterpolatedString =
