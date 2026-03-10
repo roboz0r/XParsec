@@ -1,0 +1,40 @@
+AnonymousModule:
+FunctionOrValue:
+  let                     'let'             KWLet               tok=   0  pos=   0
+    Pat.NamedSimple       'a'               Identifier          tok=   2  pos=   4
+    =                     '='               OpEquality          tok=   4  pos=   6
+      InterpolatedString  '$"'              InterpolatedStringOpen  tok=   6  pos=   8
+      Parts:
+        Text              'value is '       InterpolatedStringFragment  tok=   7  pos=  10
+        FormatSpec        '%d'              FormatPlaceholder   tok=   8  pos=  19
+        {                 '{'               InterpolatedExpressionOpen  tok=   9  pos=  21
+        Expr:
+          Ident           'x'               Identifier          tok=  10  pos=  22
+        }                 '}'               InterpolatedExpressionClose  tok=  11  pos=  23
+                          '"'               InterpolatedStringClose  tok=  12  pos=  24
+FunctionOrValue:
+  let                     'let'             KWLet               tok=  14  pos=  26
+    Pat.NamedSimple       'b'               Identifier          tok=  16  pos=  30
+    =                     '='               OpEquality          tok=  18  pos=  32
+      InterpolatedString  '$"'              InterpolatedStringOpen  tok=  20  pos=  34
+      Parts:
+        Text              'padded '         InterpolatedStringFragment  tok=  21  pos=  36
+        FormatSpec        '%4i'             FormatPlaceholder   tok=  22  pos=  43
+        {                 '{'               InterpolatedExpressionOpen  tok=  23  pos=  46
+        Expr:
+          Ident           'count'           Identifier          tok=  24  pos=  47
+        }                 '}'               InterpolatedExpressionClose  tok=  25  pos=  52
+                          '"'               InterpolatedStringClose  tok=  26  pos=  53
+FunctionOrValue:
+  let                     'let'             KWLet               tok=  28  pos=  55
+    Pat.NamedSimple       'c'               Identifier          tok=  30  pos=  59
+    =                     '='               OpEquality          tok=  32  pos=  61
+      InterpolatedString  '$"'              InterpolatedStringOpen  tok=  34  pos=  63
+      Parts:
+        Text              'float '          InterpolatedStringFragment  tok=  35  pos=  65
+        FormatSpec        '%0.2f'           FormatPlaceholder   tok=  36  pos=  71
+        {                 '{'               InterpolatedExpressionOpen  tok=  37  pos=  76
+        Expr:
+          Ident           'ratio'           Identifier          tok=  38  pos=  77
+        }                 '}'               InterpolatedExpressionClose  tok=  39  pos=  82
+                          '"'               InterpolatedStringClose  tok=  40  pos=  83

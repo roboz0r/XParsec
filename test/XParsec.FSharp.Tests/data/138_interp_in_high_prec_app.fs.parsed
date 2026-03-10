@@ -1,0 +1,19 @@
+module                        'module'          KWModule            tok=   0  pos=   0
+                              'Test'            Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                         'let'             KWLet               tok=   5  pos=  13
+    Pat.NamedSimple           'x'               Identifier          tok=   7  pos=  17
+    =                         '='               OpEquality          tok=   9  pos=  19
+      HighPrecedenceApp:
+        Func:
+          Ident               'foo'             Identifier          tok=  11  pos=  21
+        (                     '('               KWLParen            tok=  12  pos=  24
+        Arg:
+          InterpolatedString  '$"'              InterpolatedStringOpen  tok=  13  pos=  25
+          Parts:
+            {                 '{'               InterpolatedExpressionOpen  tok=  14  pos=  27
+            Expr:
+              Ident           'a'               Identifier          tok=  15  pos=  28
+            }                 '}'               InterpolatedExpressionClose  tok=  16  pos=  29
+                              '"'               InterpolatedStringClose  tok=  17  pos=  30
+                              ')'               KWRParen            tok=  18  pos=  31

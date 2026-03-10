@@ -930,9 +930,11 @@ module Expr =
         // Parses [rec] binding [and binding ...] inside a Let offside context.
         // 'use rec' and 'use ... and ...' are syntactically accepted here; semantic
         // validation is responsible for rejecting those forms with diagnostics.
-        let pLetOrUseDefn =
-            withContext
+        let pLetOrUseDefn indent token =
+            withContextAt
                 OffsideContext.Let
+                indent
+                token
                 (parser {
                     let! recTok = opt pRec
                     let! bindings = Binding.parseSepByAnd1 ValueNone
@@ -940,28 +942,46 @@ module Expr =
                 })
 
         /// Single body parser used by both `let/let!` and `use/use!`.
+        /// The keyword token has been peeked but NOT consumed by lhsParser.
         let pLetOrUseBody =
-            // The definition gets parsed in a Let context, with another SeqBlock after the `=` of the let binding
-            // for correct offside behaviour of multiple definitions and sequential expressions in the body.
-            // After the definition is parsed, we check for 'in' or if we can emit a virtual 'in' for offside rule,
-            // then parse the final body expression after 'in'.
+            // The keyword is still unconsumed. We peek it to get its column for the Let
+            // offside context (F# spec 15.1.7: "The start of a let ... token"), then consume.
+            // The definition gets parsed in a Let context, with another SeqBlock after the `=`
+            // for correct offside behaviour. After the definition, we check for 'in' or emit
+            // a virtual 'in' for the offside rule, then parse the body expression.
             parser {
-                let! (recTok, bindings) = pLetOrUseDefn
-                let! inTok = pLetOrUseIn
-                let! expr = refExprSeqBlock.Parser
+                let! kwTok = peekNextNonTriviaToken
 
-                return
-                    ExprAux.KeywordExpr(fun kwTok ->
-                        let kw =
-                            match kwTok.Token with
-                            | Token.KWLet -> LetOrUseKeyword.Let kwTok
-                            | Token.KWUse -> LetOrUseKeyword.Use kwTok
-                            | Token.KWLetBang -> LetOrUseKeyword.LetBang kwTok
-                            | Token.KWUseBang -> LetOrUseKeyword.UseBang kwTok
-                            | t -> failwith $"Unexpected keyword token for let/use body {t}"
+                match kwTok.Token with
+                | Token.KWLet
+                | Token.KWLetBang
+                | Token.KWUse
+                | Token.KWUseBang ->
+                    let! kwTok = consumePeeked kwTok
+                    let! state = getUserState
 
-                        Expr.LetOrUse(kw, recTok, bindings, ValueSome inTok, ValueSome expr)
-                    )
+                    let indent =
+                        match kwTok.Index with
+                        | TokenIndex.Regular iT -> ParseState.getIndent state iT
+                        | TokenIndex.Virtual -> 0
+
+                    let! (recTok, bindings) = pLetOrUseDefn indent kwTok.PositionedToken
+                    let! inTok = pLetOrUseIn
+                    let! expr = refExprSeqBlock.Parser
+
+                    return
+                        ExprAux.KeywordExpr(fun _opTok ->
+                            let kw =
+                                match kwTok.Token with
+                                | Token.KWLet -> LetOrUseKeyword.Let kwTok
+                                | Token.KWUse -> LetOrUseKeyword.Use kwTok
+                                | Token.KWLetBang -> LetOrUseKeyword.LetBang kwTok
+                                | Token.KWUseBang -> LetOrUseKeyword.UseBang kwTok
+                                | t -> failwith $"Unexpected keyword token for let/use body {t}"
+
+                            Expr.LetOrUse(kw, recTok, bindings, ValueSome inTok, ValueSome expr)
+                        )
+                | t -> return! fail (Message $"Expected let/use keyword but got {t}")
             }
 
         let pYieldReturnDoBody =
@@ -1018,7 +1038,8 @@ module Expr =
                 | Token.KWLetBang
                 | Token.KWUse
                 | Token.KWUseBang ->
-                    let! token = consumePeeked token
+                    // Do NOT consume here — pLetOrUseBody peeks the keyword to set the Let
+                    // context indent at the keyword's column (F# spec 15.1.7), then consumes.
                     return PrefixMapped(token, preturn token, pLetOrUseBody, completeKeyword)
                 | Token.KWDo
                 | Token.KWDoBang
@@ -1064,6 +1085,104 @@ module Expr =
             member _.OpComparer = opComparer
 
     let pConst = Constant.parse |>> Expr.Const
+
+    let private isInterpolatedFragment (tok: Token) =
+        match tok with
+        | Token.InterpolatedStringFragment
+        | Token.VerbatimInterpolatedStringFragment
+        | Token.Interpolated3StringFragment
+        | Token.EscapeLBrace
+        | Token.EscapeRBrace
+        | Token.EscapePercent
+        | Token.VerbatimEscapeQuote -> true
+        | _ -> false
+
+    let private isInterpolatedInvalidText (tok: Token) =
+        match tok with
+        | Token.UnmatchedInterpolatedRBrace
+        | Token.InvalidFormatPlaceholder
+        | Token.InvalidFormatPercents
+        | Token.TooManyLBracesInInterpolated3String
+        | Token.TooManyRBracesInInterpolated3String -> true
+        | _ -> false
+
+    let private isInterpolatedClose (tok: Token) =
+        match tok with
+        | Token.InterpolatedStringClose
+        | Token.VerbatimInterpolatedStringClose
+        | Token.Interpolated3StringClose -> true
+        | _ -> false
+
+    let pInterpolatedString =
+        let rec loop (parts: ResizeArray<InterpolatedStringPart<SyntaxToken>>) reader =
+            match peekNextNonTriviaToken reader with
+            | Error e -> Error e
+            | Ok t when isInterpolatedFragment t.Token ->
+                match consumePeeked t reader with
+                | Error e -> Error e
+                | Ok fragment ->
+                    parts.Add(InterpolatedStringPart.Text fragment)
+                    loop parts reader
+            | Ok t when t.Token = Token.FormatPlaceholder ->
+                match consumePeeked t reader with
+                | Error e -> Error e
+                | Ok formatSpec ->
+                    match peekNextNonTriviaToken reader with
+                    | Error e -> Error e
+                    | Ok next when next.Token = Token.InterpolatedExpressionOpen ->
+                        match consumePeeked next reader with
+                        | Error e -> Error e
+                        | Ok lBrace ->
+                            match refExpr.Parser reader with
+                            | Error e -> Error e
+                            | Ok expr ->
+                                match nextNonTriviaTokenIsL Token.InterpolatedExpressionClose "Expected }" reader with
+                                | Error e -> Error e
+                                | Ok rBrace ->
+                                    parts.Add(InterpolatedStringPart.Expr(ValueSome formatSpec, lBrace, expr, rBrace))
+                                    loop parts reader
+                    | _ ->
+                        parts.Add(InterpolatedStringPart.OrphanFormatSpecifier formatSpec)
+                        loop parts reader
+            | Ok t when t.Token = Token.InterpolatedExpressionOpen ->
+                match consumePeeked t reader with
+                | Error e -> Error e
+                | Ok lBrace ->
+                    match refExpr.Parser reader with
+                    | Error e -> Error e
+                    | Ok expr ->
+                        match nextNonTriviaTokenIsL Token.InterpolatedExpressionClose "Expected }" reader with
+                        | Error e -> Error e
+                        | Ok rBrace ->
+                            parts.Add(InterpolatedStringPart.Expr(ValueNone, lBrace, expr, rBrace))
+                            loop parts reader
+            | Ok t when isInterpolatedInvalidText t.Token ->
+                match consumePeeked t reader with
+                | Error e -> Error e
+                | Ok invalid ->
+                    parts.Add(InterpolatedStringPart.InvalidText invalid)
+                    loop parts reader
+            | Ok _ -> Ok parts
+
+        parser {
+            let! opening =
+                nextNonTriviaTokenSatisfiesL
+                    (fun t ->
+                        match t.Token with
+                        | Token.InterpolatedStringOpen
+                        | Token.VerbatimInterpolatedStringOpen
+                        | Token.Interpolated3StringOpen -> true
+                        | _ -> false
+                    )
+                    "Expected interpolated string open"
+
+            let! parts = loop (ResizeArray())
+
+            let! closing =
+                nextNonTriviaTokenSatisfiesL (fun t -> isInterpolatedClose t.Token) "Expected interpolated string close"
+
+            return Expr.InterpolatedString(opening, Seq.toList parts, closing)
+        }
 
     let pIdent =
         nextNonTriviaTokenSatisfiesL (fun synTok -> synTok.Token = Token.Identifier) "Expected identifier"
@@ -1262,6 +1381,9 @@ module Expr =
                 Token.KWLBrace, recoverExpr pRecordOrObjectExpr
                 Token.OpQuotationTypedLeft, recoverExpr pQuoteTyped
                 Token.OpQuotationUntypedLeft, recoverExpr pQuoteUntyped
+                Token.InterpolatedStringOpen, pInterpolatedString
+                Token.VerbatimInterpolatedStringOpen, pInterpolatedString
+                Token.Interpolated3StringOpen, pInterpolatedString
             ]
             pConst
 

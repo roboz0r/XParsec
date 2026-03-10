@@ -563,6 +563,7 @@ module Parsing =
             | Token.KWEnd
             | Token.KWDone
             | Token.KWDo
+            | Token.InterpolatedExpressionClose
             | Token.EOF -> true
             | _ -> false
 
@@ -666,6 +667,35 @@ module Parsing =
             | Error _ as e ->
                 reader.State <- savedState
                 e
+
+    /// Like `withContext`, but uses an explicit indent and token for the offside context
+    /// instead of peeking the next token. Used when the context's offside line should be
+    /// at an already-known position (e.g. the `let` keyword's column per F# spec 15.1.7).
+    let withContextAt
+        (ctx: OffsideContext)
+        (indent: int)
+        (token: PositionedToken)
+        innerParser
+        (reader: Reader<PositionedToken, ParseState, _, _>)
+        =
+        let savedState = reader.State
+
+        let entry =
+            {
+                Context = ctx
+                Indent = indent
+                Token = token
+            }
+
+        reader.State <- ParseState.pushOffside entry reader.State
+
+        match innerParser reader with
+        | Ok result ->
+            reader.State <- ParseState.popOffside reader.State
+            Ok result
+        | Error _ as e ->
+            reader.State <- savedState
+            e
 
     /// Fails if the next non-trivia token is 't'. Saves and restores reader position fully.
     let notFollowedByNonTriviaToken t (reader: Reader<PositionedToken, ParseState, _, _>) =

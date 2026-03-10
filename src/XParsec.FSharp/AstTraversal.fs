@@ -1065,6 +1065,28 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         walkExpr visitor expr
         visitor.VisitToken ")" rParen
         visitor.ExitSection "StaticMemberInvocation"
+    | Expr.InterpolatedString(opening, parts, closing) ->
+        visitor.VisitToken "InterpolatedString" opening
+        visitor.EnterSection "Parts"
+
+        for part in parts do
+            match part with
+            | InterpolatedStringPart.Text t -> visitor.VisitToken "Text" t
+            | InterpolatedStringPart.Expr(formatSpec, lBrace, expr, rBrace) ->
+                match formatSpec with
+                | ValueSome fs -> visitor.VisitToken "FormatSpec" fs
+                | ValueNone -> ()
+
+                visitor.VisitToken "{" lBrace
+                visitor.EnterSection "Expr"
+                walkExpr visitor expr
+                visitor.ExitSection "Expr"
+                visitor.VisitToken "}" rBrace
+            | InterpolatedStringPart.OrphanFormatSpecifier fs -> visitor.VisitToken "OrphanFormatSpec" fs
+            | InterpolatedStringPart.InvalidText t -> visitor.VisitToken "InvalidText" t
+
+        visitor.ExitSection "Parts"
+        visitor.VisitToken "" closing
     | Expr.Object(lBrace, newKeyword, baseCall, members, interfaceImpls, rBrace) ->
         failwith "Not implemented: Object expressions"
 
