@@ -326,6 +326,7 @@ type Expr<'T> =
         rParenMember: 'T *
         expr: Expr<'T> *
         rParen: 'T
+    | InterpolatedString of opening: 'T * parts: InterpolatedStringPart<'T> list * closing: 'T
     // Incomplete or Placeholder
     | Missing // Placeholder for missing expression
     | SkipsTokens of skippedTokens: 'T list * expr: Expr<'T> // Placeholder for skipped tokens
@@ -655,3 +656,14 @@ type Constant<'T> =
     /// A numeric literal followed by a unit of measure annotation.
     /// e.g., `10<kg>` or `9.8<m/s^2>`
     | MeasuredLiteral of value: 'T * lAngle: 'T * measure: Measure<'T> * rAngle: 'T
+
+/// A part of an interpolated string — either a text fragment or an expression hole.
+and [<RequireQualifiedAccess>] InterpolatedStringPart<'T> =
+    /// A literal text fragment, escaped brace, or format specifier between expression holes.
+    | Text of 'T
+    /// An expression hole: {expr}, optionally preceded by a format specifier like %4i.
+    | Expr of formatSpecifier: 'T voption * lBrace: 'T * expr: Expr<'T> * rBrace: 'T
+    /// A format specifier (e.g. %d) not immediately followed by an expression hole.
+    | OrphanFormatSpecifier of 'T
+    /// A lexer error token inside the string (e.g. UnmatchedInterpolatedRBrace, InvalidFormatPlaceholder).
+    | InvalidText of 'T
