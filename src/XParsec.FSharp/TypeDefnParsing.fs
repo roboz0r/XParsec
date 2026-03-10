@@ -266,7 +266,7 @@ module MethodOrPropDefn =
 
                     | t when t.Token = Token.OpEquality ->
                         let! eq = consumePeeked t
-                        let! expr = Expr.parse
+                        let! expr = refExprSeqBlock.Parser
 
                         let binding =
                             {

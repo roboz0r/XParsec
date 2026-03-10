@@ -1,0 +1,55 @@
+0, KWType
+4, Whitespace
+5, Identifier
+8, Operator 0b1000000000001111 LogicalAndBitwise
+9, TypeParameter
+15, OpComma
+16, Whitespace
+17, TypeParameter
+28, Newline
+29, Indent
+33, KWWhen
+37, Whitespace
+38, TypeParameter
+44, Whitespace
+45, OpUpcast
+47, Whitespace
+48, Identifier
+57, Operator 0b1000000000001111 LogicalAndBitwise
+58, Identifier
+61, OpComma
+62, Whitespace
+63, TypeParameter
+74, Operator 0b1000000000001111 LogicalAndBitwise
+75, Newline
+76, Indent
+80, KWAnd
+83, Whitespace
+84, TypeParameter
+95, Whitespace
+96, OpUpcast
+98, Whitespace
+99, Identifier
+108, Operator 0b1000000000001111 LogicalAndBitwise
+109, Identifier
+112, OpComma
+113, Whitespace
+114, TypeParameter
+125, Operator 0b1000000000001111 LogicalAndBitwise
+127, KWLParen
+128, KWRParen
+129, Whitespace
+130, OpEquality
+131, Newline
+132, Indent
+136, KWStatic
+142, Whitespace
+143, KWLet
+146, Whitespace
+147, Identifier
+148, Whitespace
+149, OpEquality
+150, Whitespace
+151, NumInt32
+152, Newline
+153, EOF
