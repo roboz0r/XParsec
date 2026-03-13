@@ -145,6 +145,10 @@ and ParseState =
         /// allow procesing of `>.` or `>>=` as single characters to close type parameters without prematurely treating `>` as an operator.
         CharsConsumedAfterTypeParams: int
         ConditionalCompilationStack: PositionedToken list
+        /// When true, the next `KWRAttrBracket` token encountered by `nextNonTriviaTokenImpl`
+        /// is rewritten to `KWRBracket`. Set by the measure parser when it splits `>]` into
+        /// a virtual `>` (for the measure close) and a real `]` (for the enclosing indexer).
+        SplitRAttrBracket: bool
     }
 
 module SyntaxToken =
@@ -181,6 +185,7 @@ module ParseState =
             // ReprocessOpAfterTypeDeclaration = false
             CharsConsumedAfterTypeParams = 0
             ConditionalCompilationStack = []
+            SplitRAttrBracket = false
         }
 
     let setIndentOn (state: ParseState) =

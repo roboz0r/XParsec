@@ -1,0 +1,67 @@
+module               'module'          KWModule            tok=   0  pos=   0
+                     'Test156'         Identifier          tok=   2  pos=   7
+TypeDefn.Anon:
+  TypeName           'MyClass'         Identifier          tok=   7  pos=  21
+  (                  '('               KWLParen            tok=   8  pos=  28
+  )                  ')'               KWRParen            tok=   9  pos=  29
+  =                  '='               OpEquality          tok=  11  pos=  31
+  begin              <virt>            KWBegin             tok=virt  pos=  37
+    Val:
+      [<             '[<'              KWLAttrBracket      tok=  14  pos=  37
+      NamedType:
+        LongIdent:
+                     'DefaultVal...'   Identifier          tok=  15  pos=  39
+      >]             '>]'              KWRAttrBracket      tok=  16  pos=  51
+      val            'val'             KWVal               tok=  19  pos=  58
+      mutable        'mutable'         KWMutable           tok=  21  pos=  62
+      ident          'Value'           Identifier          tok=  23  pos=  70
+      :              ':'               OpColon             tok=  25  pos=  76
+      NamedType:
+        LongIdent:
+                     'int'             Identifier          tok=  27  pos=  78
+    [<               '[<'              KWLAttrBracket      tok=  31  pos=  87
+    NamedType:
+      LongIdent:
+                     'System'          Identifier          tok=  32  pos=  89
+                     'Obsolete'        Identifier          tok=  34  pos=  96
+    ParenBlock       '('               KWLParen            tok=  35  pos= 104
+      Const          '"Use NewMe...'   StringLiteral       tok=  36  pos= 105
+                     ')'               KWRParen            tok=  37  pos= 128
+    >]               '>]'              KWRAttrBracket      tok=  38  pos= 129
+    member           'member'          KWMember            tok=  41  pos= 136
+    self             '_'               Wildcard            tok=  43  pos= 143
+    Pat.NamedSimple  'OldMethod'       Identifier          tok=  45  pos= 145
+    Pats:
+      ParenBlock     '('               KWLParen            tok=  46  pos= 154
+                     ')'               KWRParen            tok=  47  pos= 155
+    =                '='               OpEquality          tok=  49  pos= 157
+      Const          '42'              NumInt32            tok=  51  pos= 159
+    [<               '[<'              KWLAttrBracket      tok=  55  pos= 167
+    NamedType:
+      LongIdent:
+                     'System'          Identifier          tok=  56  pos= 169
+                     'Obsolete'        Identifier          tok=  58  pos= 176
+    >]               '>]'              KWRAttrBracket      tok=  59  pos= 184
+    member           'member'          KWMember            tok=  62  pos= 191
+    self             '_'               Wildcard            tok=  64  pos= 198
+    Pat.NamedSimple  'AnotherOld'      Identifier          tok=  66  pos= 200
+    Pats:
+      ParenBlock     '('               KWLParen            tok=  67  pos= 210
+                     ')'               KWRParen            tok=  68  pos= 211
+    =                '='               OpEquality          tok=  70  pos= 213
+      Const          '0'               NumInt32            tok=  72  pos= 215
+    [<               '[<'              KWLAttrBracket      tok=  76  pos= 222
+    NamedType:
+      LongIdent:
+                     'System'          Identifier          tok=  77  pos= 224
+                     'Obsolete'        Identifier          tok=  79  pos= 231
+    >]               '>]'              KWRAttrBracket      tok=  80  pos= 239
+    override         'override'        KWOverride          tok=  83  pos= 246
+    self             '_'               Wildcard            tok=  85  pos= 255
+    Pat.NamedSimple  'ToString'        Identifier          tok=  87  pos= 257
+    Pats:
+      ParenBlock     '('               KWLParen            tok=  88  pos= 265
+                     ')'               KWRParen            tok=  89  pos= 266
+    =                '='               OpEquality          tok=  91  pos= 268
+      Const          '"MyClass"'       StringLiteral       tok=  93  pos= 270
+  end                <virt>            KWEnd               tok=virt  pos= 280
