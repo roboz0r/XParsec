@@ -367,6 +367,14 @@ module Parsing =
             reader.Skip()
             nextNonTriviaTokenImpl isPeek reader
         | ValueSome token ->
+            // SplitRAttrBracket: when the measure parser consumed the `>` half of `>]`,
+            // it sets this flag so the remaining `]` half is presented as KWRBracket.
+            let token =
+                if reader.State.SplitRAttrBracket && token.Token = Token.KWRAttrBracket then
+                    PositionedToken.Create(Token.KWRBracket, token.StartIndex + 1)
+                else
+                    token
+
             // Offside check (Light syntax only): fail if the token is strictly left of the
             // innermost context's offside line, unless a permitted undentation applies.
             let isOffside =
@@ -389,6 +397,12 @@ module Parsing =
                 if isPeek then
                     preturn t reader
                 else
+                    if reader.State.SplitRAttrBracket then
+                        reader.State <-
+                            { reader.State with
+                                SplitRAttrBracket = false
+                            }
+
                     reader.Skip()
                     preturn t reader
 

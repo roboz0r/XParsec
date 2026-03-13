@@ -30,13 +30,39 @@ module Constant =
 
     let private pMeasure =
         parser {
+            let! state = getUserState
             let! pos = getPosition
 
-            // '<' must be immediately after literal
-            let! lAngle = satisfyL (fun (t: PositionedToken) -> t.Token = Token.OpLessThan) "Expected '<' for measure"
+            // '<' must be immediately after literal — check raw token (no trivia skip) and verify string is exactly "<"
+            let! lAngle =
+                satisfyL
+                    (fun (t: PositionedToken) ->
+                        t.Token = Token.OpLessThan
+                        && state.Lexed.GetTokenSpan(pos.Index * 1<token>, state.Input).SequenceEqual("<".AsSpan())
+                    )
+                    "Expected '<' for measure"
 
             let! m = Measure.parse
-            let! rAngle = nextNonTriviaTokenIsL (Token.OpGreaterThan) "Expected '>' for measure"
+
+            // Accept either standalone '>' or '>]' (KWRAttrBracket).
+            // When '>]' is encountered, we split it: return a virtual '>' for the measure close
+            // and set SplitRAttrBracket so the next token read yields ']' for the enclosing indexer.
+            let! rAngle =
+                parser {
+                    let! state = getUserState
+
+                    match! peekNextNonTriviaToken with
+                    | t when t.Token = Token.OpGreaterThan && ParseState.tokenStringIs ">" t state ->
+                        return! consumePeeked t
+                    | t when t.Token = Token.KWRAttrBracket ->
+                        // Don't consume the >] token. Set the flag so the next read
+                        // rewrites it from KWRAttrBracket to KWRBracket (yielding `]`).
+                        do! updateUserState (fun s -> { s with SplitRAttrBracket = true })
+
+                        return virtualToken (PositionedToken.Create(Token.OpGreaterThan, t.StartIndex))
+                    | _ -> return! fail (Message "Expected '>' for measure")
+                }
+
             return struct (syntaxToken lAngle pos.Index, m, rAngle)
         }
 

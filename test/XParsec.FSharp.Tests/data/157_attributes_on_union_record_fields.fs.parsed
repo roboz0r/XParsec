@@ -1,0 +1,82 @@
+module         'module'          KWModule            tok=   0  pos=   0
+               'Test157'         Identifier          tok=   2  pos=   7
+TypeDefn.Union:
+  TypeName     'Shape'           Identifier          tok=   7  pos=  21
+  =            '='               OpEquality          tok=   9  pos=  27
+    Case:
+      [<       '[<'              KWLAttrBracket      tok=  14  pos=  35
+      NamedType:
+        LongIdent:
+               'System'          Identifier          tok=  15  pos=  37
+               'Obsolete'        Identifier          tok=  17  pos=  44
+      >]       '>]'              KWRAttrBracket      tok=  18  pos=  52
+      ident    'Circle'          Identifier          tok=  20  pos=  55
+      of       'of'              KWOf                tok=  22  pos=  62
+      ident    'radius'          Identifier          tok=  24  pos=  65
+      :        ':'               OpColon             tok=  25  pos=  71
+      NamedType:
+        LongIdent:
+               'float'           Identifier          tok=  27  pos=  73
+    Case:
+      ident    'Rectangle'       Identifier          tok=  32  pos=  85
+      of       'of'              KWOf                tok=  34  pos=  95
+      ident    'width'           Identifier          tok=  36  pos=  98
+      :        ':'               OpColon             tok=  37  pos= 103
+      NamedType:
+        LongIdent:
+               'float'           Identifier          tok=  39  pos= 105
+      ident    'height'          Identifier          tok=  43  pos= 113
+      :        ':'               OpColon             tok=  44  pos= 119
+      NamedType:
+        LongIdent:
+               'float'           Identifier          tok=  46  pos= 121
+    Case:
+      [<       '[<'              KWLAttrBracket      tok=  51  pos= 133
+      NamedType:
+        LongIdent:
+               'System'          Identifier          tok=  52  pos= 135
+               'Obsolete'        Identifier          tok=  54  pos= 142
+      >]       '>]'              KWRAttrBracket      tok=  55  pos= 150
+      ident    'Point'           Identifier          tok=  57  pos= 153
+TypeDefn.Record:
+  TypeName     'Config'          Identifier          tok=  62  pos= 165
+  =            '='               OpEquality          tok=  64  pos= 172
+  {            '{'               KWLBrace            tok=  67  pos= 178
+    Field:
+      [<       '[<'              KWLAttrBracket      tok=  70  pos= 188
+      NamedType:
+        LongIdent:
+               'System'          Identifier          tok=  71  pos= 190
+               'Obsolete'        Identifier          tok=  73  pos= 197
+      >]       '>]'              KWRAttrBracket      tok=  74  pos= 205
+      ident    'Host'            Identifier          tok=  77  pos= 216
+      :        ':'               OpColon             tok=  78  pos= 220
+      NamedType:
+        LongIdent:
+               'string'          Identifier          tok=  80  pos= 222
+    Field:
+      [<       '[<'              KWLAttrBracket      tok=  83  pos= 237
+      NamedType:
+        LongIdent:
+               'System'          Identifier          tok=  84  pos= 239
+               'Obsolete'        Identifier          tok=  86  pos= 246
+      >]       '>]'              KWRAttrBracket      tok=  87  pos= 254
+      ident    'Port'            Identifier          tok=  90  pos= 265
+      :        ':'               OpColon             tok=  91  pos= 269
+      NamedType:
+        LongIdent:
+               'int'             Identifier          tok=  93  pos= 271
+    Field:
+      [<       '[<'              KWLAttrBracket      tok=  96  pos= 283
+      NamedType:
+        LongIdent:
+               'System'          Identifier          tok=  97  pos= 285
+               'Obsolete'        Identifier          tok=  99  pos= 292
+      >]       '>]'              KWRAttrBracket      tok= 100  pos= 300
+      mutable  'mutable'         KWMutable           tok= 103  pos= 311
+      ident    'Delay'           Identifier          tok= 105  pos= 319
+      :        ':'               OpColon             tok= 106  pos= 324
+      NamedType:
+        LongIdent:
+               'int'             Identifier          tok= 108  pos= 326
+  }            '}'               KWRBrace            tok= 111  pos= 334

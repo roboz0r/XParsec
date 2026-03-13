@@ -1,0 +1,85 @@
+module                      'module'          KWModule            tok=   0  pos=   0
+                            'Test161'         Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  [<                        '[<'              KWLAttrBracket      tok=   5  pos=  16
+  NamedType:
+    LongIdent:
+                            'Literal'         Identifier          tok=   6  pos=  18
+  >]                        '>]'              KWRAttrBracket      tok=   7  pos=  25
+  let                       'let'             KWLet               tok=   9  pos=  28
+    [<                      '[<'              KWLAttrBracket      tok=   5  pos=  16
+    NamedType:
+      LongIdent:
+                            'Literal'         Identifier          tok=   6  pos=  18
+    >]                      '>]'              KWRAttrBracket      tok=   7  pos=  25
+    Pat.NamedSimple         'MaxSize'         Identifier          tok=  11  pos=  32
+    =                       '='               OpEquality          tok=  13  pos=  40
+      Const                 '100'             NumInt32            tok=  15  pos=  42
+FunctionOrValue:
+  [<                        '[<'              KWLAttrBracket      tok=  18  pos=  47
+  NamedType:
+    LongIdent:
+                            'System'          Identifier          tok=  19  pos=  49
+                            'Obsolete'        Identifier          tok=  21  pos=  56
+  ParenBlock                '('               KWLParen            tok=  22  pos=  64
+    Const                   '"Use newFu...'   StringLiteral       tok=  23  pos=  65
+                            ')'               KWRParen            tok=  24  pos=  78
+  >]                        '>]'              KWRAttrBracket      tok=  25  pos=  79
+  let                       'let'             KWLet               tok=  27  pos=  82
+    [<                      '[<'              KWLAttrBracket      tok=  18  pos=  47
+    NamedType:
+      LongIdent:
+                            'System'          Identifier          tok=  19  pos=  49
+                            'Obsolete'        Identifier          tok=  21  pos=  56
+    ParenBlock              '('               KWLParen            tok=  22  pos=  64
+      Const                 '"Use newFu...'   StringLiteral       tok=  23  pos=  65
+                            ')'               KWRParen            tok=  24  pos=  78
+    >]                      '>]'              KWRAttrBracket      tok=  25  pos=  79
+    Pat.NamedSimple         'oldFunc'         Identifier          tok=  29  pos=  86
+    Pats:
+      Pat.NamedSimple       'x'               Identifier          tok=  31  pos=  94
+    =                       '='               OpEquality          tok=  33  pos=  96
+      InfixApp              '+'               op_Addition         tok=  37  pos= 100
+        Ident               'x'               Identifier          tok=  35  pos=  98
+        Const               '1'               NumInt32            tok=  39  pos= 102
+FunctionOrValue:
+  [<                        '[<'              KWLAttrBracket      tok=  42  pos= 105
+  NamedType:
+    LongIdent:
+                            'System'          Identifier          tok=  43  pos= 107
+                            'Obsolete'        Identifier          tok=  45  pos= 114
+  >]                        '>]'              KWRAttrBracket      tok=  46  pos= 122
+  let                       'let'             KWLet               tok=  48  pos= 125
+  rec                       'rec'             KWRec               tok=  50  pos= 129
+    [<                      '[<'              KWLAttrBracket      tok=  42  pos= 105
+    NamedType:
+      LongIdent:
+                            'System'          Identifier          tok=  43  pos= 107
+                            'Obsolete'        Identifier          tok=  45  pos= 114
+    >]                      '>]'              KWRAttrBracket      tok=  46  pos= 122
+    Pat.NamedSimple         'factorial'       Identifier          tok=  52  pos= 133
+    Pats:
+      Pat.NamedSimple       'n'               Identifier          tok=  54  pos= 143
+    =                       '='               OpEquality          tok=  56  pos= 145
+      IfThenElse:
+        IfToken             'if'              KWIf                tok=  59  pos= 151
+        Condition:
+          InfixApp          '<='              op_LessThanOrEqual  tok=  63  pos= 156
+            Ident           'n'               Identifier          tok=  61  pos= 154
+            Const           '1'               NumInt32            tok=  65  pos= 159
+        ThenToken           'then'            KWThen              tok=  67  pos= 161
+        ThenExpr:
+          Const             '1'               NumInt32            tok=  69  pos= 166
+        ElseToken           'else'            KWElse              tok=  72  pos= 172
+        ElseExpr:
+          InfixApp          '*'               OpMultiply          tok=  76  pos= 179
+            Ident           'n'               Identifier          tok=  74  pos= 177
+            App:
+              Func:
+                Ident       'factorial'       Identifier          tok=  78  pos= 181
+              Args:
+                ParenBlock  '('               KWLParen            tok=  80  pos= 191
+                  InfixApp  '-'               op_Subtraction      tok=  83  pos= 194
+                    Ident   'n'               Identifier          tok=  81  pos= 192
+                    Const   '1'               NumInt32            tok=  85  pos= 196
+                            ')'               KWRParen            tok=  86  pos= 197

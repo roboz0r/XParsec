@@ -1,0 +1,72 @@
+module           'module'          KWModule            tok=   0  pos=   0
+                 'Test159'         Identifier          tok=   2  pos=   7
+TypeDefn.Record:
+  [<             '[<'              KWLAttrBracket      tok=   5  pos=  16
+  NamedType:
+    LongIdent:
+                 'Struct'          Identifier          tok=   6  pos=  18
+  ;              ';'               OpSemicolon         tok=   7  pos=  24
+  NamedType:
+    LongIdent:
+                 'System'          Identifier          tok=   9  pos=  26
+                 'Serializab...'   Identifier          tok=  11  pos=  33
+  >]             '>]'              KWRAttrBracket      tok=  12  pos=  45
+  TypeName       'Pair'            Identifier          tok=  16  pos=  53
+  =              '='               OpEquality          tok=  18  pos=  58
+  {              '{'               KWLBrace            tok=  20  pos=  60
+    Field:
+      ident      'First'           Identifier          tok=  22  pos=  62
+      :          ':'               OpColon             tok=  23  pos=  67
+      NamedType:
+        LongIdent:
+                 'int'             Identifier          tok=  25  pos=  69
+    Field:
+      ident      'Second'          Identifier          tok=  28  pos=  74
+      :          ':'               OpColon             tok=  29  pos=  80
+      NamedType:
+        LongIdent:
+                 'int'             Identifier          tok=  31  pos=  82
+  }              '}'               KWRBrace            tok=  33  pos=  86
+TypeDefn.Union:
+  [<             '[<'              KWLAttrBracket      tok=  36  pos=  89
+  NamedType:
+    LongIdent:
+                 'RequireQua...'   Identifier          tok=  37  pos=  91
+  ;              ';'               OpSemicolon         tok=  38  pos= 113
+  NamedType:
+    LongIdent:
+                 'System'          Identifier          tok=  40  pos= 115
+                 'Obsolete'        Identifier          tok=  42  pos= 122
+  >]             '>]'              KWRAttrBracket      tok=  43  pos= 130
+  TypeName       'OldEnum'         Identifier          tok=  47  pos= 138
+  =              '='               OpEquality          tok=  49  pos= 146
+    Case:
+      ident      'A'               Identifier          tok=  54  pos= 154
+    Case:
+      ident      'B'               Identifier          tok=  59  pos= 162
+TypeDefn.Abbrev:
+  [<             '[<'              KWLAttrBracket      tok=  62  pos= 165
+  NamedType:
+    LongIdent:
+                 'AbstractCl...'   Identifier          tok=  63  pos= 167
+  >]             '>]'              KWRAttrBracket      tok=  64  pos= 180
+  [<             '[<'              KWLAttrBracket      tok=  66  pos= 183
+  NamedType:
+    LongIdent:
+                 'Sealed'          Identifier          tok=  67  pos= 185
+  >]             '>]'              KWRAttrBracket      tok=  68  pos= 191
+  TypeName       'StaticHelp...'   Identifier          tok=  72  pos= 199
+  =              '='               OpEquality          tok=  74  pos= 212
+    SkipsTokens:
+      (skipped)  'static'          KWStatic            tok=  77  pos= 218
+      (skipped)  'member'          KWMember            tok=  79  pos= 225
+      (skipped)  'DoWork'          Identifier          tok=  81  pos= 232
+      (skipped)  '('               KWLParen            tok=  82  pos= 238
+      (skipped)  ')'               KWRParen            tok=  83  pos= 239
+      (skipped)  '='               OpEquality          tok=  85  pos= 241
+      (skipped)  '('               KWLParen            tok=  87  pos= 243
+      (skipped)  ')'               KWRParen            tok=  88  pos= 244
+      Missing
+---
+Diagnostics:
+  [error] MissingType at 218

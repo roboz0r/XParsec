@@ -1,4 +1,8 @@
-(Attributes: 1 set(s))
+[<                   '[<'              KWLAttrBracket      tok=   0  pos=   0
+NamedType:
+  LongIdent:
+                     'AutoOpen'        Identifier          tok=   1  pos=   2
+>]                   '>]'              KWRAttrBracket      tok=   2  pos=  10
 module               'module'          KWModule            tok=   4  pos=  13
 access               'internal'        KWInternal          tok=   6  pos=  20
                      'MyModule'        Identifier          tok=   8  pos=  29

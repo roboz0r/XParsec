@@ -1,0 +1,20 @@
+AnonymousModule:
+FunctionOrValue:
+  let                              'let'             KWLet               tok=   6  pos= 193
+    Pat.NamedSimple                'x'               Identifier          tok=   8  pos= 197
+    =                              '='               OpEquality          tok=  10  pos= 199
+      IndexedLookup:
+        Expr:
+          Ident                    'arr'             Identifier          tok=  12  pos= 201
+        .                          '.'               OpDot               tok=  13  pos= 204
+        [                          '['               KWLBracket          tok=  14  pos= 205
+        Index:
+          InfixApp                 '+'               op_Addition         tok=  17  pos= 208
+            Ident                  'i'               Identifier          tok=  15  pos= 206
+            Const:
+              Literal              '1'               NumInt32            tok=  19  pos= 210
+              <                    '<'               op_LessThan         tok=  20  pos= 211
+              Measure:
+                Measure.Anonymous  '_'               Wildcard            tok=  21  pos= 212
+              >                    <virt>            OpPipeLeft3         tok=virt  pos= 213
+                                   ']'               KWRAttrBracket      tok=  22  pos= 214

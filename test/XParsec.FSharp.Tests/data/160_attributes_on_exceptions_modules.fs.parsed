@@ -1,0 +1,73 @@
+module                       'module'          KWModule            tok=   0  pos=   0
+                             'Test160'         Identifier          tok=   2  pos=   7
+Module:
+  module                     'module'          KWModule            tok=   5  pos=  16
+  ident                      'Outer'           Identifier          tok=   7  pos=  23
+  =                          '='               OpEquality          tok=   9  pos=  29
+  begin                      <virt>            KWBegin             tok=virt  pos=  35
+    ExceptionDefn.Full:
+      [<                     '[<'              KWLAttrBracket      tok=  12  pos=  35
+      NamedType:
+        LongIdent:
+                             'System'          Identifier          tok=  13  pos=  37
+                             'Serializab...'   Identifier          tok=  15  pos=  44
+      >]                     '>]'              KWRAttrBracket      tok=  16  pos=  56
+      exception              'exception'       KWException         tok=  19  pos=  63
+      ident                  'MyError'         Identifier          tok=  21  pos=  73
+      of                     'of'              KWOf                tok=  23  pos=  81
+      ident                  'message'         Identifier          tok=  25  pos=  84
+      :                      ':'               OpColon             tok=  26  pos=  91
+      NamedType:
+        LongIdent:
+                             'string'          Identifier          tok=  28  pos=  93
+      ident                  'code'            Identifier          tok=  32  pos= 102
+      :                      ':'               OpColon             tok=  33  pos= 106
+      NamedType:
+        LongIdent:
+                             'int'             Identifier          tok=  35  pos= 108
+    Module:
+      [<                     '[<'              KWLAttrBracket      tok=  39  pos= 117
+      NamedType:
+        LongIdent:
+                             'AutoOpen'        Identifier          tok=  40  pos= 119
+      >]                     '>]'              KWRAttrBracket      tok=  41  pos= 127
+      module                 'module'          KWModule            tok=  44  pos= 134
+      ident                  'Inner'           Identifier          tok=  46  pos= 141
+      =                      '='               OpEquality          tok=  48  pos= 147
+      begin                  <virt>            KWBegin             tok=virt  pos= 157
+        FunctionOrValue:
+          let                'let'             KWLet               tok=  51  pos= 157
+            Pat.NamedSimple  'x'               Identifier          tok=  53  pos= 161
+            =                '='               OpEquality          tok=  55  pos= 163
+              Const          '1'               NumInt32            tok=  57  pos= 165
+      end                    <virt>            KWEnd               tok=virt  pos= 172
+  end                        <virt>            KWEnd               tok=virt  pos= 172
+Module:
+  [<                         '[<'              KWLAttrBracket      tok=  61  pos= 172
+  NamedType:
+    LongIdent:
+                             'RequireQua...'   Identifier          tok=  62  pos= 174
+  >]                         '>]'              KWRAttrBracket      tok=  63  pos= 196
+  module                     'module'          KWModule            tok=  66  pos= 203
+  ident                      'Qualified'       Identifier          tok=  68  pos= 210
+  =                          '='               OpEquality          tok=  70  pos= 220
+  begin                      <virt>            KWBegin             tok=virt  pos= 230
+    FunctionOrValue:
+      let                    'let'             KWLet               tok=  73  pos= 230
+        Pat.NamedSimple      'y'               Identifier          tok=  75  pos= 234
+        =                    '='               OpEquality          tok=  77  pos= 236
+          Const              '2'               NumInt32            tok=  79  pos= 238
+  end                        <virt>            KWEnd               tok=virt  pos= 241
+ExceptionDefn.Full:
+  [<                         '[<'              KWLAttrBracket      tok=  82  pos= 241
+  NamedType:
+    LongIdent:
+                             'System'          Identifier          tok=  83  pos= 243
+                             'Serializab...'   Identifier          tok=  85  pos= 250
+  >]                         '>]'              KWRAttrBracket      tok=  86  pos= 262
+  exception                  'exception'       KWException         tok=  88  pos= 265
+  ident                      'SimpleErro...'   Identifier          tok=  90  pos= 275
+  of                         'of'              KWOf                tok=  92  pos= 287
+  NamedType:
+    LongIdent:
+                             'string'          Identifier          tok=  94  pos= 290
