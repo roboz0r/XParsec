@@ -171,8 +171,7 @@ FunctionOrValue:
             Pat:
               Pat.NamedSimple            'x'               Identifier          tok= 216  pos= 507
             InToken                      'in'              KWIn                tok= 218  pos= 509
-            Range:
-              Ident                      'outer'           Identifier          tok= 220  pos= 512
+            Ident                        'outer'           Identifier          tok= 220  pos= 512
             DoToken                      'do'              KWDo                tok= 222  pos= 518
             Body:
               yield!                     'yield!'          KWYieldBang         tok= 225  pos= 533

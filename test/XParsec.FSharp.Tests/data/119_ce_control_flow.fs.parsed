@@ -13,8 +13,7 @@ FunctionOrValue:
             Pat:
               Pat.NamedSimple            'x'               Identifier          tok=  21  pos=  61
             InToken                      'in'              KWIn                tok=  23  pos=  63
-            Range:
-              Ident                      'xs'              Identifier          tok=  25  pos=  66
+            Ident                        'xs'              Identifier          tok=  25  pos=  66
             DoToken                      'do'              KWDo                tok=  27  pos=  69
             Body:
               yield                      'yield'           KWYield             tok=  30  pos=  84
@@ -37,8 +36,7 @@ FunctionOrValue:
             Pat:
               Pat.NamedSimple            'x'               Identifier          tok=  58  pos= 155
             InToken                      'in'              KWIn                tok=  60  pos= 157
-            Range:
-              Ident                      'xs'              Identifier          tok=  62  pos= 160
+            Ident                        'xs'              Identifier          tok=  62  pos= 160
             DoToken                      'do'              KWDo                tok=  64  pos= 163
             Body:
               yield!                     'yield!'          KWYieldBang         tok=  67  pos= 178
@@ -88,8 +86,7 @@ FunctionOrValue:
               Pat:
                 Pat.NamedSimple          'item'            Identifier          tok= 130  pos= 356
               InToken                    'in'              KWIn                tok= 132  pos= 361
-              Range:
-                Ident                    'items'           Identifier          tok= 134  pos= 364
+              Ident                      'items'           Identifier          tok= 134  pos= 364
               DoToken                    'do'              KWDo                tok= 136  pos= 370
               Body:
                 do!                      'do!'             KWDoBang            tok= 139  pos= 385
@@ -270,8 +267,7 @@ FunctionOrValue:
             Pat:
               Pat.NamedSimple            'x'               Identifier          tok= 366  pos=1212
             InToken                      'in'              KWIn                tok= 368  pos=1214
-            Range:
-              Ident                      'xs'              Identifier          tok= 370  pos=1217
+            Ident                        'xs'              Identifier          tok= 370  pos=1217
             DoToken                      'do'              KWDo                tok= 372  pos=1220
             Body:
               IfThenElse:
@@ -301,8 +297,7 @@ FunctionOrValue:
               Pat:
                 Pat.NamedSimple          'item'            Identifier          tok= 410  pos=1340
               InToken                    'in'              KWIn                tok= 412  pos=1345
-              Range:
-                Ident                    'items'           Identifier          tok= 414  pos=1348
+              Ident                      'items'           Identifier          tok= 414  pos=1348
               DoToken                    'do'              KWDo                tok= 416  pos=1354
               Body:
                 Let                      'let'             KWLet               tok= 419  pos=1369

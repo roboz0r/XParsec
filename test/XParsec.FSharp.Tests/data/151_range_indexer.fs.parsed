@@ -1,0 +1,41 @@
+module                      'module'          KWModule            tok=   0  pos=   0
+                            'RangeIndex...'   Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                       'let'             KWLet               tok=   5  pos=  21
+    Pat.NamedSimple         'rawLit'          Identifier          tok=   7  pos=  25
+    =                       '='               OpEquality          tok=   9  pos=  32
+      IfThenElse:
+        IfToken             'if'              KWIf                tok=  12  pos=  38
+        Condition:
+          InfixApp          '>'               op_GreaterThan      tok=  16  pos=  45
+            Ident           'len'             Identifier          tok=  14  pos=  41
+            Const           '10'              NumInt32            tok=  18  pos=  47
+        ThenToken           'then'            KWThen              tok=  20  pos=  50
+        ThenExpr:
+          InfixApp          '+'               op_Addition         tok=  37  pos=  94
+            IndexedLookup:
+              Expr:
+                Ident       'input'           Identifier          tok=  23  pos=  63
+              .             '.'               OpDot               tok=  24  pos=  68
+              [             '['               KWLBracket          tok=  25  pos=  69
+              Index:
+                Range:
+                  Ident     'charPos'         Identifier          tok=  26  pos=  70
+                  ..        '..'              OpRange             tok=  28  pos=  78
+                  InfixApp  '+'               op_Addition         tok=  32  pos=  89
+                    Ident   'charPos'         Identifier          tok=  30  pos=  81
+                    Const   '9'               NumInt32            tok=  34  pos=  91
+                            ']'               KWRBracket          tok=  35  pos=  92
+            Const           '"..."'           StringLiteral       tok=  39  pos=  96
+        ElseToken           'else'            KWElse              tok=  42  pos= 106
+        ElseExpr:
+          IndexedLookup:
+            Expr:
+              Ident         'input'           Identifier          tok=  45  pos= 119
+            [               '['               KWLBracket          tok=  46  pos= 124
+            Index:
+              Range:
+                Ident       'charPos'         Identifier          tok=  47  pos= 125
+                ..          '..'              OpRange             tok=  48  pos= 132
+                Ident       'charEnd'         Identifier          tok=  49  pos= 134
+                            ']'               KWRBracket          tok=  50  pos= 141

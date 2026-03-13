@@ -10,7 +10,7 @@
 38, Identifier
 52, Newline
 53, Indent
-57, Operator 0b1000000000001111 LogicalAndBitwise
+57, Operator 0b1000000000001111 ComparisonAndBitwise
 59, Whitespace
 60, Identifier
 64, OpDot
