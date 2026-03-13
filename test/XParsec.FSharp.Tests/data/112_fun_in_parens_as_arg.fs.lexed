@@ -45,7 +45,7 @@
 121, OpDot
 122, Identifier
 132, Whitespace
-133, Operator 0b1000000001001111 LogicalAndBitwise (can be prefix)
+133, Operator 0b1000000001001111 ComparisonAndBitwise (can be prefix)
 135, Whitespace
 136, Identifier
 141, Whitespace

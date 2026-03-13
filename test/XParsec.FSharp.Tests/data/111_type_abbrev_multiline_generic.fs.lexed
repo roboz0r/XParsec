@@ -11,7 +11,7 @@
 24, Newline
 25, Indent
 29, Identifier
-37, Operator 0b1000000000001111 LogicalAndBitwise
+37, Operator 0b1000000000001111 ComparisonAndBitwise
 38, Newline
 39, Indent
 47, Identifier
@@ -21,7 +21,7 @@
 60, Identifier
 66, Newline
 67, Indent
-71, Operator 0b1000000000001111 LogicalAndBitwise
+71, Operator 0b1000000000001111 ComparisonAndBitwise
 72, Newline
 73, Newline
 74, KWType
@@ -32,22 +32,22 @@
 89, Newline
 90, Indent
 94, Identifier
-102, Operator 0b1000000000001111 LogicalAndBitwise
+102, Operator 0b1000000000001111 ComparisonAndBitwise
 103, Newline
 104, Indent
 112, Identifier
-115, Operator 0b1000000000001111 LogicalAndBitwise
+115, Operator 0b1000000000001111 ComparisonAndBitwise
 116, Identifier
-119, Operator 0b1000000000001111 LogicalAndBitwise
+119, Operator 0b1000000000001111 ComparisonAndBitwise
 120, OpComma
 121, Newline
 122, Indent
 130, Identifier
-133, Operator 0b1000000000001111 LogicalAndBitwise
+133, Operator 0b1000000000001111 ComparisonAndBitwise
 134, Identifier
-140, Operator 0b1000000000001111 LogicalAndBitwise
+140, Operator 0b1000000000001111 ComparisonAndBitwise
 141, Newline
 142, Indent
-146, Operator 0b1000000000001111 LogicalAndBitwise
+146, Operator 0b1000000000001111 ComparisonAndBitwise
 147, Newline
 148, EOF

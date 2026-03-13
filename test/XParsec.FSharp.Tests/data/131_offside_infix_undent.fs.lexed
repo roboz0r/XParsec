@@ -30,14 +30,14 @@
 64, Identifier
 68, Newline
 69, Indent
-74, Operator 0b1000000000001111 LogicalAndBitwise
+74, Operator 0b1000000000001111 ComparisonAndBitwise
 76, Whitespace
 77, Identifier
 78, Whitespace
 79, Identifier
 83, Newline
 84, Indent
-89, Operator 0b1000000000001111 LogicalAndBitwise
+89, Operator 0b1000000000001111 ComparisonAndBitwise
 91, Whitespace
 92, Identifier
 93, Whitespace
