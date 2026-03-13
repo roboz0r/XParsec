@@ -179,23 +179,6 @@ type ObjectMembers<'T> = | ObjectMembers of withToken: 'T * memberDefns: MemberD
 type InterfaceImpl<'T> =
     | InterfaceImpl of interfaceToken: 'T * typ: Type<'T> * objectMembers: ObjectMembers<'T> voption
 
-// Represents: range and slice grammar
-type SliceRange<'T> =
-    | Single of expr: Expr<'T>
-    | From of expr: Expr<'T> * dotdot: 'T
-    | To of dotdot: 'T * expr: Expr<'T>
-    | FromTo of startExpr: Expr<'T> * dotdot: 'T * endExpr: Expr<'T>
-    | All of star: 'T
-
-type RangeExpr<'T> =
-    | SimpleRange of fromExpr: Expr<'T> * dotdot: 'T * toExpr: Expr<'T>
-    | SteppedRange of fromExpr: Expr<'T> * dotdot1: 'T * stepExpr: Expr<'T> * dotdot2: 'T * toExpr: Expr<'T>
-
-[<RequireQualifiedAccess>]
-type ExprOrRange<'T> =
-    | Expr of Expr<'T>
-    | Range of RangeExpr<'T>
-
 // Keywords used in control-flow CE forms: yield, return, do, and their bang variants
 [<Struct; RequireQualifiedAccess>]
 type ControlFlowKeyword<'T> =
@@ -240,7 +223,6 @@ type Expr<'T> =
     | InfixApp of leftExpr: Expr<'T> * infixOp: 'T * rightExpr: Expr<'T>
     | PrefixApp of prefixOp: 'T * expr: Expr<'T>
     | IndexedLookup of expr: Expr<'T> * dot: 'T voption * lBracket: 'T * indexExpr: Expr<'T> * rBracket: 'T
-    | Slice of expr: Expr<'T> * lDotBracket: 'T * sliceRanges: SliceRange<'T> list * rBracket: 'T
     // Data Structures
     | Assignment of leftExpr: Expr<'T> * arrow: 'T * rightExpr: Expr<'T>
     | Tuple of exprs: Expr<'T> list
@@ -309,7 +291,7 @@ type Expr<'T> =
         forToken: 'T *
         pat: Pat<'T> *
         inToken: 'T *
-        enumerableExpr: ExprOrRange<'T> *
+        enumerableExpr: Expr<'T> *
         doToken: 'T *
         body: Expr<'T> *
         doneToken: 'T
@@ -333,6 +315,13 @@ type Expr<'T> =
     // Added to make things work
     | Ident of ident: 'T
     | Pat of pattern: Pat<'T>
+    // Ranges and Slices Note: Spec has these as separate grammar productions, but they are closely related and it's easier to represent them with a single set of types.
+    | Range of fromExpr: Expr<'T> * dotdot: 'T * toExpr: Expr<'T>
+    | SteppedRange of fromExpr: Expr<'T> * dotdot1: 'T * stepExpr: Expr<'T> * dotdot2: 'T * toExpr: Expr<'T>
+    | SliceFrom of expr: Expr<'T> * dotdot: 'T
+    | SliceTo of dotdot: 'T * expr: Expr<'T>
+    | SliceFromTo of startExpr: Expr<'T> * dotdot: 'T * endExpr: Expr<'T>
+    | SliceAll of star: 'T
 
 
 // Patterns

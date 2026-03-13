@@ -39,7 +39,7 @@
 71, Whitespace
 72, Identifier
 73, Whitespace
-74, Operator 0b1000000001001111 LogicalAndBitwise (can be prefix)
+74, Operator 0b1000000001001111 ComparisonAndBitwise (can be prefix)
 76, Whitespace
 77, Identifier
 78, Whitespace

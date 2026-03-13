@@ -246,112 +246,21 @@ module InterfaceImpl =
             return InterfaceImpl.InterfaceImpl(interfaceTok, typ, members)
         }
 
-
-[<RequireQualifiedAccess>]
-module SliceRange =
-
-    let private pAll = pOpMultiply |>> SliceRange.All
-
-    let private pTo =
-        parser {
-            let! dd = pRange
-            let! e = refExpr.Parser
-            return SliceRange.To(dd, e)
-        }
-
-    let private pFromOrSingleOrFromTo =
-        parser {
-            let! start = refExpr.Parser
-
-            // Check for '..'
-            let! dd = opt pRange
-
-            match dd with
-            | ValueNone -> return SliceRange.Single(start)
-            | ValueSome dotdot ->
-                // We have 'start ..', check if there is an end expression.
-                // In slice syntax like a[1..], the end is optional.
-                // We try to parse an expression. If it fails (e.g. hits ']'), it's a From.
-                // Note: We use 'opt refExpr.Parser'. This relies on refExpr.Parser failing gracefully
-                // if it encounters a closing delimiter immediately.
-                let! endExpr = opt refExpr.Parser
-
-                match endExpr with
-                | ValueSome finish -> return SliceRange.FromTo(start, dotdot, finish)
-                | ValueNone -> return SliceRange.From(start, dotdot)
-        }
-
-    let parse: Parser<SliceRange<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        choiceL [ pAll; pTo; pFromOrSingleOrFromTo ] "SliceRange"
-
-
-[<RequireQualifiedAccess>]
-module RangeExpr =
-    // Parses a full range expression: start .. end OR start .. step .. end
-    // Assumes the caller has NOT parsed the start expression yet.
-    let parse: Parser<RangeExpr<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        parser {
-            let! start = refExpr.Parser
-            let! dd1 = pRange
-            let! middle = refExpr.Parser
-
-            // Check for second '..'
-            let! dd2 = opt pRange
-
-            match dd2 with
-            | ValueSome dotdot2 ->
-                // start .. step .. end
-                let step = middle
-                let! finish = refExpr.Parser
-                return RangeExpr.SteppedRange(start, dd1, step, dotdot2, finish)
-            | ValueNone ->
-                // start .. end
-                let finish = middle
-                return RangeExpr.SimpleRange(start, dd1, finish)
-        }
-
-[<RequireQualifiedAccess>]
-module ExprOrRange =
-    // Parses either a RangeExpr or a standard Expr.
-    // This is commonly used in list/array constructors e.g. [ 1..10 ] or [ 1; 2; 3 ]
-    let parse: Parser<ExprOrRange<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        parser {
-            let! start = refExprGuard.Parser
-
-            // Check for '..' indicating the start of a range
-            let! dd1 = opt pRange
-
-            match dd1 with
-            | ValueNone -> return ExprOrRange.Expr(start)
-            | ValueSome dotdot1 ->
-                // It is a range
-                let! middle = refExprGuard.Parser
-
-                let! dd2 = opt pRange
-
-                match dd2 with
-                | ValueSome dotdot2 ->
-                    let step = middle
-                    let! finish = refExprGuard.Parser
-                    return ExprOrRange.Range(RangeExpr.SteppedRange(start, dotdot1, step, dotdot2, finish))
-                | ValueNone ->
-                    let finish = middle
-                    return ExprOrRange.Range(RangeExpr.SimpleRange(start, dotdot1, finish))
-        }
-
 /// Used by ExprOperatorParser to carry auxiliary information from operator-specific parsers back to the main expression parser for completion.
 [<RequireQualifiedAccess>]
 type ExprAux =
     | Ident of SyntaxToken
     | TypeApp of SyntaxToken * Type<SyntaxToken> list * SyntaxToken
     | DotIndex of SyntaxToken * Expr<SyntaxToken> * SyntaxToken // .[ expr ]
-    | DotSlice of SyntaxToken * SliceRange<SyntaxToken> list * SyntaxToken // .[ 1.. ]
     | PostfixDynamic of SyntaxToken * Type<SyntaxToken> // :? Type (DynamicTypeTest)
     | HighPrecApp of SyntaxToken * Expr<SyntaxToken> * SyntaxToken // ( expr ) for f(x, y)
     | HighPrecIndex of SyntaxToken * Expr<SyntaxToken> * SyntaxToken // [ expr ] for arr[i] (F# 6+ dot-less indexing)
     | TypeCast of Type<SyntaxToken> // :> Type
     /// Wraps a fully-parsed Expr for use as 'Aux in PrefixMapped keyword operators (if, match, let, etc.)
     | KeywordExpr of (SyntaxToken -> Expr<SyntaxToken>)
+    | SliceAll
+    | SliceFrom
+    | Range of Expr<SyntaxToken>
 
 [<RequireQualifiedAccess>]
 module Expr =
@@ -360,9 +269,18 @@ module Expr =
 
     let pl x : PrecedenceLevel = LanguagePrimitives.EnumOfValue x
 
+    let private refExprRange = FSRefParser<Expr<SyntaxToken>>()
 
     type ExprOperatorParser() =
         let completeInfix (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) = Expr.InfixApp(l, op, r)
+
+        let completeRange (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) =
+            match l with
+            | Expr.Range(l, dotdot1, step) ->
+                // We already have a range on the left, so this must be a stepped range
+                // with the new step in the middle and the new end on the right
+                Expr.SteppedRange(l, dotdot1, step, op, r)
+            | _ -> Expr.Range(l, op, r)
 
         let completeSequence (exprs: ResizeArray<Expr<_>>) ops =
             Expr.Sequential(List.ofSeq exprs, List.ofSeq ops)
@@ -371,10 +289,22 @@ module Expr =
         let completePrefix (op: SyntaxToken) (e: Expr<_>) = Expr.PrefixApp(op, e)
         let completeLazy (op: SyntaxToken) (e: Expr<_>) = Expr.Lazy(op, e)
         let completeAssert (op: SyntaxToken) (e: Expr<_>) = Expr.Assert(op, e)
+        let completeSliceTo (op: SyntaxToken) (e: Expr<_>) = Expr.SliceTo(op, e)
         let completeTuple (elements: ResizeArray<Expr<_>>) ops = Expr.Tuple(List.ofSeq elements)
 
         let completeApp (elements: ResizeArray<Expr<_>>) ops =
             Expr.App(elements[0], elements |> Seq.skip 1 |> List.ofSeq)
+
+        let completeSliceAll (op: SyntaxToken) (x: ExprAux) =
+            match x with
+            | ExprAux.SliceAll -> Expr.SliceAll(op)
+            | _ -> failwith "Unexpected Aux type for SliceAll completion"
+
+        let completeRangeOrSliceFrom (l: Expr<_>) (op: SyntaxToken) (aux: ExprAux) =
+            match aux with
+            | ExprAux.SliceFrom -> Expr.SliceFrom(l, op)
+            | ExprAux.Range r -> completeRange l op r
+            | _ -> failwith "Unexpected Aux type for RangeOrSliceFrom completion"
 
         let printOpInfo (op: OperatorInfo) =
             printfn
@@ -449,38 +379,40 @@ module Expr =
         let peekHighPrecApp =
             lookAhead (choiceL [ pHighPrecLParen; pHighPrecLBracket ] "( or [ for high-precedence")
             |>> fun (pt: PositionedToken) ->
-                virtualToken (PositionedToken.Create(Token.OpHighPrecedenceApp, pt.StartIndex))
+                match pt.Token with
+                | Token.KWLParen -> virtualToken (PositionedToken.Create(Token.OpHighPrecedenceApp, pt.StartIndex))
+                | Token.KWLBracket ->
+                    virtualToken (PositionedToken.Create(Token.OpHighPrecedenceIndexApp, pt.StartIndex))
+                | _ -> failwith "Unexpected token in peekHighPrecApp"
 
-        let parseHighPrecRhs: Parser<ExprAux, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, _> =
+        let parseHighPrecIndex: Parser<ExprAux, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, _> =
+            // Parse [ expr ] for F# 6+ dot-less indexing arr[i] — no whitespace before '['
+            parser {
+                let! pos = getPosition
+                let! lBracket = pHighPrecLBracket
+                let lBracket = syntaxToken lBracket pos.Index
+                let! argExpr = refExpr.Parser
+                let! rBracket = pRBracket
+                return ExprAux.HighPrecIndex(lBracket, argExpr, rBracket)
+            }
+
+        let parseHighPrecApp: Parser<ExprAux, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, _> =
             // Parse ( expr ) for high-precedence application f(x, y) — no whitespace before '('
-            // or [ expr ] for F# 6+ dot-less indexing arr[i] — no whitespace before '['
-            choiceL
-                [
-                    parser {
-                        let! pos = getPosition
-                        let! lParen = pHighPrecLParen
-                        let lParen = syntaxToken lParen pos.Index
+            parser {
+                let! pos = getPosition
+                let! lParen = pHighPrecLParen
+                let lParen = syntaxToken lParen pos.Index
 
-                        // Handle f() — empty argument list
-                        match! peekNextNonTriviaToken with
-                        | t when t.Token = Token.KWRParen ->
-                            let! rParen = consumePeeked t
-                            return ExprAux.HighPrecApp(lParen, Expr.EmptyBlock(ParenKind.Paren lParen, rParen), rParen)
-                        | _ ->
-                            let! argExpr = refExpr.Parser
-                            let! rParen = pRParen
-                            return ExprAux.HighPrecApp(lParen, argExpr, rParen)
-                    }
-                    parser {
-                        let! pos = getPosition
-                        let! lBracket = pHighPrecLBracket
-                        let lBracket = syntaxToken lBracket pos.Index
-                        let! argExpr = refExpr.Parser
-                        let! rBracket = pRBracket
-                        return ExprAux.HighPrecIndex(lBracket, argExpr, rBracket)
-                    }
-                ]
-                "HighPrecApp or HighPrecIndex"
+                // Handle f() — empty argument list
+                match! peekNextNonTriviaToken with
+                | t when t.Token = Token.KWRParen ->
+                    let! rParen = consumePeeked t
+                    return ExprAux.HighPrecApp(lParen, Expr.EmptyBlock(ParenKind.Paren lParen, rParen), rParen)
+                | _ ->
+                    let! argExpr = refExpr.Parser
+                    let! rParen = pRParen
+                    return ExprAux.HighPrecApp(lParen, argExpr, rParen)
+            }
 
         let completeHighPrec (funcExpr: Expr<_>) (_op: SyntaxToken) (aux: ExprAux) =
             match aux with
@@ -488,6 +420,23 @@ module Expr =
             | ExprAux.HighPrecIndex(lBracket, argExpr, rBracket) ->
                 Expr.IndexedLookup(funcExpr, ValueNone, lBracket, argExpr, rBracket)
             | _ -> failwith "Unexpected Aux type for high-precedence application/index completion"
+
+        let parseRangeRhs reader =
+            match peekNextNonTriviaToken reader with
+            | Ok t ->
+                match t.Token with
+                | Token.KWRBracket
+                | Token.OpComma
+                | Token.EOF ->
+                    // This is likely a slice like arr.[1..] or a range with an omitted end like [1..]
+                    // We return an Aux to indicate this and handle it in the completion function.
+                    Ok ExprAux.SliceFrom
+                | _ ->
+                    // Otherwise, we expect a full range expression on the right
+                    (refExprRange.Parser |>> ExprAux.Range) reader
+            | Error e ->
+                // If we fail to peek, treat it as an omitted end (e.g. [1..EOF)
+                Ok ExprAux.SliceFrom
 
         let parseTypeCastRhs = Type.parse |>> ExprAux.TypeCast
 
@@ -514,7 +463,7 @@ module Expr =
                       ReadableImmutableArraySlice<PositionedToken>
                    >) array =
             Array.init
-                29
+                30
                 (fun i ->
                     let pl = pl i
                     let power = BindingPower.fromLevel i
@@ -527,21 +476,28 @@ module Expr =
                     | PrecedenceLevel.Semicolon ->
                         // (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeSemicolon))
                         (fun op -> InfixNary(op, preturn op, power, true, completeSequence))
+                    | PrecedenceLevel.RArrow ->
+                        (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
                     // LHS keywords
                     // | PrecedenceLevel.Let -> (fun op -> InfixNonAssociative(op, preturn op, power, completeInfix))
                     // | PrecedenceLevel.Function -> (fun op -> InfixNonAssociative(op, preturn op, power, completeInfix))
                     // | PrecedenceLevel.If -> (fun op -> InfixNonAssociative(op, preturn op, power, completeInfix))
-                    | PrecedenceLevel.Arrow ->
-                        (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
                     | PrecedenceLevel.Assignment ->
                         (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeAssignment))
                     | PrecedenceLevel.Comma -> (fun op -> InfixNary(op, preturn op, power, false, completeTuple))
+                    | PrecedenceLevel.Range ->
+                        (fun op ->
+                            // The binary '..' operator. Non-associative. The ternary '.. ..' form or the postfix form are special grammar rules.
+                            // Parse as Left-associative and disambiguate if we see another '..' at the same precedence level on the right.
+                            InfixMapped(op, preturn op, power, parseRangeRhs, completeRangeOrSliceFrom)
+                        )
                     | PrecedenceLevel.LogicalOr -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
                     | PrecedenceLevel.LogicalAnd -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
                     | PrecedenceLevel.Cast ->
                         (fun op -> InfixMapped(op, preturn op, power, parseTypeCastRhs, completeTypeCast))
-                    | PrecedenceLevel.LogicalAndBitwise -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
-                    | PrecedenceLevel.Caret ->
+                    | PrecedenceLevel.ComparisonAndBitwise ->
+                        (fun op -> InfixLeft(op, preturn op, power, completeInfix))
+                    | PrecedenceLevel.Append ->
                         (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
                     | PrecedenceLevel.Cons ->
                         (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
@@ -557,12 +513,18 @@ module Expr =
                     // | PrecedenceLevel.PatternMatchBar -> Pattern only operator
                     // | PrecedenceLevel.Prefix -> LHS only
                     | PrecedenceLevel.Dot -> (fun op -> InfixMapped(op, preturn op, power, parseDotRhs, completeDot))
+                    | PrecedenceLevel.HighIndexApplication ->
+                        (fun op -> InfixMapped(op, preturn op, power, parseHighPrecIndex, completeHighPrec))
                     | PrecedenceLevel.HighApplication ->
-                        (fun op -> InfixMapped(op, preturn op, power, parseHighPrecRhs, completeHighPrec))
+                        (fun op -> InfixMapped(op, preturn op, power, parseHighPrecApp, completeHighPrec))
                     | PrecedenceLevel.HighTypeApplication ->
                         (fun op -> InfixMapped(op, preturn op, power, pTypeAppRhs, completeTypeApp))
                     // | PrecedenceLevel.Parens -> LHS only
-                    | _ -> Unchecked.defaultof<_>
+                    | pl ->
+                        (fun op ->
+                            invalidOp
+                                $"No operator handler for precedence level {pl}. Got op {op.Token} at position {op.StartIndex}"
+                        )
                 )
 
         let pSepVirt =
@@ -684,11 +646,7 @@ module Expr =
             // to RHS handler index for efficiency.
             let pl = opInfo.Precedence
             let handler = rhsOperators[LanguagePrimitives.EnumToValue pl]
-
-            if obj.ReferenceEquals(handler, null) then
-                invalidOp $"No handler for operator with precedence {pl} after type declaration"
-            else
-                handler token
+            handler token
 
         let rhsParser =
             let handleToken token =
@@ -875,7 +833,7 @@ module Expr =
                         parser {
                             let! pat = Pat.parse
                             let! inTok = pIn
-                            let! range = ExprOrRange.parse
+                            let! range = refExprGuard.Parser
 
                             return
                                 fun doTok body doneTok forTok ->
@@ -1004,6 +962,19 @@ module Expr =
                     )
             }
 
+        let peekIsSliceAll =
+            parser {
+                let! token = peekNextNonTriviaToken
+                // We are in the middle of parsing a slice like A[0..1,*], and we've just parsed the '*' token.
+                // Now we peek to see if the next token is a ',' or ']' which would indicate slice-all syntax.
+                // Otherwise '*' is just a regular operator for multiplication.
+                match token.Token with
+                | Token.KWRBracket
+                | Token.EOF
+                | Token.OpComma -> return ExprAux.SliceAll
+                | _ -> return! fail (Message "Expected ',' or ']' for slice all syntax")
+            }
+
         let lhsParser =
             parser {
                 let! token = peekNextNonTriviaToken
@@ -1063,6 +1034,18 @@ module Expr =
                         let! tok = consumePeeked token
                         let power = BindingPower.fromLevel (int opInfo.Precedence)
                         return Prefix(tok, preturn tok, power, completeAssert)
+                    | ValueSome opInfo when opInfo.Token = Token.OpRange ->
+                        // printOpInfo opInfo
+                        let! tok = consumePeeked token
+                        let power = BindingPower.fromLevel (int opInfo.Precedence)
+                        // A[..5]
+                        return Prefix(tok, preturn tok, power, completeSliceTo)
+                    | ValueSome opInfo when opInfo.Token = Token.OpMultiply ->
+                        // printOpInfo opInfo
+                        let! tok = consumePeeked token
+                        let power = BindingPower.fromLevel (int opInfo.Precedence)
+                        // A[0..1,*]
+                        return PrefixMapped(token, preturn tok, peekIsSliceAll, completeSliceAll)
                     | ValueSome opInfo when opInfo.CanBePrefix ->
                         // printOpInfo opInfo
                         let! tok = consumePeeked token
@@ -1423,5 +1406,11 @@ module Expr =
         // Arrow is right-associative so its LBP = base+1; using Arrow+1 as the level
         // makes minBp = base+3, which is just above Arrow's LBP, excluding it.
         refExprGuard.Set(
-            Operator.parserAt (int PrecedenceLevel.Arrow + 1 |> BindingPower.fromLevel) parseAtomic operators
+            Operator.parserAt (int PrecedenceLevel.RArrow + 1 |> BindingPower.fromLevel) parseAtomic operators
+        )
+
+        // Range operator '..' may be a postfix operator in slice syntax (e.g. A[1..]) or an infix operator in range expressions (e.g. 1..10).
+        // So, we treat it effectively an a left-infix operator that special cases to prefix with the right terminator.
+        refExprRange.Set(
+            Operator.parserAt (int PrecedenceLevel.Range + 1 |> BindingPower.fromLevel) parseAtomic operators
         )

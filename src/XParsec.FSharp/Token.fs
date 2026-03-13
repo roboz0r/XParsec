@@ -13,36 +13,63 @@ type TokenKind =
     | Spare = 7
 
 /// Represents the precedence levels of F# operators, from lowest to highest.
-/// The integer values match the official F# documentation.
+/// The integer values match the official F# documentation, revised to reflect the actual rules in the F# compiler.
 type PrecedenceLevel =
     | As = 1
     | When = 2
+    /// Sequential pipe/bar, NOT the |> operator
     | Pipe = 3
     | Semicolon = 4
-    | Let = 5
-    | Function = 6
-    | If = 7
-    | Not = 8
-    | Arrow = 9
-    | Assignment = 10
-    | Comma = 11
+    | RArrow = 5
+    | Let = 6
+    /// includes fun, match, try
+    | Function = 7
+    | If = 8
+    /// &lt;-, :=
+    | Assignment = 9
+    | Comma = 10
+    /// The binary '..' operator. Non-associative. The ternary '.. ..' form is a special grammar rule.
+    | Range = 11
+    /// or, ||
     | LogicalOr = 12
+    /// &, &&
     | LogicalAnd = 13
+    /// :>, :?>
     | Cast = 14
-    | LogicalAndBitwise = 15
-    | Caret = 16
+    /// =, &lt;, &gt;, !=, $, |OP, &OP
+    | ComparisonAndBitwise = 15
+    /// ^OP, @OP
+    | Append = 16
+    /// ::
     | Cons = 17
+    /// :?
     | TypeTest = 18
+    /// +, -
     | InfixAdd = 19
+    /// *, /, %
     | InfixMultiply = 20
+    /// **
     | Power = 21
-    | Application = 22
-    | PatternMatchBar = 23
-    | Prefix = 24
-    | Dot = 25
-    | HighApplication = 26
-    | HighTypeApplication = 27
-    | Parens = 28 // Parentheses have the highest precedence for grouping
+    /// ?? isn't actually a built-in operator, but it's
+    /// listed as a keyword and given a precedence level in the F# compiler.
+    | QMarkQMark = 22
+    /// f x, lazy x, assert x
+    | Application = 23
+    /// | rule ->
+    | PatternMatchBar = 24
+    /// !x, ~x
+    | Prefix = 25
+    /// ., ?
+    | Dot = 26
+    /// f[x]
+    | HighIndexApplication = 27
+    /// f(x)
+    | HighApplication = 28
+    /// f&lt;types&gt;
+    | HighTypeApplication = 29
+    /// Parentheses have the highest precedence
+    | Parens = 30
+
 
 [<Struct; RequireQualifiedAccess>]
 type Associativity =
@@ -1060,40 +1087,40 @@ module TokenRepresentation =
         let Semicolon = 4us
 
         [<Literal>]
-        let Let = 5us
+        let RArrow = 5us
 
         [<Literal>]
-        let Function = 6us
+        let Let = 6us
 
         [<Literal>]
-        let If = 7us
+        let Function = 7us
 
         [<Literal>]
-        let Not = 8us
+        let If = 8us
 
         [<Literal>]
-        let Arrow = 9us
+        let Assignment = 9us
 
         [<Literal>]
-        let Assignment = 10us
+        let Comma = 10us
 
         [<Literal>]
-        let Comma = 11us
+        let Range = 11us
 
         [<Literal>]
-        let BooleanOr = 12us
+        let LogicalOr = 12us
 
         [<Literal>]
-        let BooleanAnd = 13us
+        let LogicalAnd = 13us
 
         [<Literal>]
         let Cast = 14us
 
         [<Literal>]
-        let LogicalAndBitwise = 15us
+        let ComparisonAndBitwise = 15us
 
         [<Literal>]
-        let Concatenate = 16us
+        let Append = 16us
 
         [<Literal>]
         let Cons = 17us
@@ -1111,22 +1138,28 @@ module TokenRepresentation =
         let Exponentiation = 21us
 
         [<Literal>]
-        let Application = 22us
+        let QMarkQMark = 22us
 
         [<Literal>]
-        let PatternMatchBar = 23us
+        let Application = 23us
 
         [<Literal>]
-        let Prefix = 24us
+        let PatternMatchBar = 24us
 
         [<Literal>]
-        let Dot = 25us
+        let Prefix = 25us
 
         [<Literal>]
-        let HighApplication = 26us
+        let Dot = 26us
 
         [<Literal>]
-        let HighTypeApplication = 27us
+        let HighIndexApplication = 27us
+
+        [<Literal>]
+        let HighApplication = 28us
+
+        [<Literal>]
+        let HighTypeApplication = 29us
 
     module internal Invalid =
 
@@ -1484,45 +1517,46 @@ type Token =
     | OpAddition = (KindOperator ||| CanBePrefix ||| Precedence.InfixAdd) // +
     | OpSubtraction = (KindOperator ||| CanBePrefix ||| Precedence.InfixAdd) // -
     | OpExponentiation = (KindOperator ||| Precedence.Exponentiation) // **
-    | OpAppend = (KindOperator ||| Precedence.Concatenate) // @ precedence is not documented, assuming Concatenate level
+    | OpAppend = (KindOperator ||| Precedence.Append) // @ precedence is not documented, assuming Concatenate level
     | OpModulus = (KindOperator ||| CanBePrefix ||| Precedence.InfixMultiply) // %
-    | OpBitwiseAnd = (KindOperator ||| Precedence.LogicalAndBitwise) // &&&
-    | OpBitwiseOr = (KindOperator ||| Precedence.LogicalAndBitwise) // |||
-    | OpExclusiveOr = (KindOperator ||| Precedence.LogicalAndBitwise) // ^^^
-    | OpLeftShift = (KindOperator ||| Precedence.LogicalAndBitwise) // <<<
-    | OpLogicalNot = (KindOperator ||| CanBePrefix ||| Precedence.LogicalAndBitwise) // ~~~
-    | OpRightShift = (KindOperator ||| Precedence.LogicalAndBitwise) // >>>
+    | OpBitwiseAnd = (KindOperator ||| Precedence.ComparisonAndBitwise) // &&&
+    | OpBitwiseOr = (KindOperator ||| Precedence.ComparisonAndBitwise) // |||
+    | OpExclusiveOr = (KindOperator ||| Precedence.ComparisonAndBitwise) // ^^^
+    | OpLeftShift = (KindOperator ||| Precedence.ComparisonAndBitwise) // <<<
+    | OpLogicalNot = (KindOperator ||| CanBePrefix ||| Precedence.ComparisonAndBitwise) // ~~~
+    | OpRightShift = (KindOperator ||| Precedence.ComparisonAndBitwise) // >>>
     | OpUnaryPlus = (KindOperator ||| CanBePrefix ||| Precedence.Prefix) // ~+
     | OpUnaryNegation = (KindOperator ||| CanBePrefix ||| Precedence.Prefix) // ~-
-    | OpInequality = (KindOperator ||| Precedence.LogicalAndBitwise) // <>
-    | OpLessThanOrEqual = (KindOperator ||| Precedence.LogicalAndBitwise) // <=
-    | OpGreaterThanOrEqual = (KindOperator ||| Precedence.LogicalAndBitwise) // >=
-    | OpLessThan = (KindOperator ||| Precedence.LogicalAndBitwise) // <
-    | OpGreaterThan = (KindOperator ||| Precedence.LogicalAndBitwise) // >
+    | OpInequality = (KindOperator ||| Precedence.ComparisonAndBitwise) // <>
+    | OpLessThanOrEqual = (KindOperator ||| Precedence.ComparisonAndBitwise) // <=
+    | OpGreaterThanOrEqual = (KindOperator ||| Precedence.ComparisonAndBitwise) // >=
+    | OpLessThan = (KindOperator ||| Precedence.ComparisonAndBitwise) // <
+    | OpGreaterThan = (KindOperator ||| Precedence.ComparisonAndBitwise) // >
     | OpPipeRight = (KindOperator ||| Precedence.Pipe) // |>
     | OpPipeRight2 = (KindOperator ||| Precedence.Pipe) // ||>
     | OpPipeRight3 = (KindOperator ||| Precedence.Pipe) // |||>
-    | OpPipeLeft = (KindOperator ||| Precedence.LogicalAndBitwise) // <| didn't find official precedence, assuming LogicalAndBitwise level as first char is <
-    | OpPipeLeft2 = (KindOperator ||| Precedence.LogicalAndBitwise) // <||
-    | OpPipeLeft3 = (KindOperator ||| Precedence.LogicalAndBitwise) // <|||
-    | OpComposeRight = (KindOperator ||| Precedence.LogicalAndBitwise) // >>
-    | OpComposeLeft = (KindOperator ||| Precedence.LogicalAndBitwise) // <<
+    | OpPipeLeft = (KindOperator ||| Precedence.ComparisonAndBitwise) // <| didn't find official precedence, assuming LogicalAndBitwise level as first char is <
+    | OpPipeLeft2 = (KindOperator ||| Precedence.ComparisonAndBitwise) // <||
+    | OpPipeLeft3 = (KindOperator ||| Precedence.ComparisonAndBitwise) // <|||
+    | OpComposeRight = (KindOperator ||| Precedence.ComparisonAndBitwise) // >>
+    | OpComposeLeft = (KindOperator ||| Precedence.ComparisonAndBitwise) // <<
     | OpSplice = (KindOperator ||| CanBePrefix ||| Precedence.Dot) // ~% (used in F# quotations)
     | OpSpliceUntyped = (KindOperator ||| CanBePrefix ||| Precedence.Dot) // ~%%
     | OpAddressOf = (KindOperator ||| CanBePrefix ||| Precedence.Dot) // ~&
     | OpIntegerAddressOf = (KindOperator ||| CanBePrefix ||| Precedence.Dot) // ~&&
-    | OpBooleanOr = (KindOperator ||| Precedence.BooleanOr) // ||
-    | OpBooleanAnd = (KindOperator ||| Precedence.BooleanAnd) // &&
+    | OpBooleanOr = (KindOperator ||| Precedence.LogicalOr) // ||
+    | OpBooleanAnd = (KindOperator ||| Precedence.LogicalAnd) // &&
     | OpAdditionAssignment = (KindOperator ||| CanBePrefix ||| Precedence.InfixAdd) // +=
     | OpSubtractionAssignment = (KindOperator ||| CanBePrefix ||| Precedence.InfixAdd) // -=
     | OpMultiplyAssignment = (KindOperator ||| Precedence.InfixMultiply) // *=
     | OpDivisionAssignment = (KindOperator ||| Precedence.InfixMultiply) // /=
-    | OpNotEqual = (KindOperator ||| Precedence.LogicalAndBitwise) // != (F# uses <> but != is in the spec too)
+    | OpNotEqual = (KindOperator ||| Precedence.ComparisonAndBitwise) // != (F# uses <> but != is in the spec too)
 
 
     | OpCons = (KindKeyword ||| KW.ColonColon) // :: is Structural (KindKeyword), not Operator
     /// For handling high precedence function application `f(x)` in parsing
     | OpHighPrecedenceApp = (IsVirtual ||| KindOperator ||| Precedence.HighApplication)
+    | OpHighPrecedenceIndexApp = (IsVirtual ||| KindOperator ||| Precedence.HighIndexApplication)
 
     // ==============================================================================
     // 6. NUMERIC LITERALS (KindNumber 0x6000)
@@ -1693,21 +1727,21 @@ module internal Token =
             match trimIgnored[0] with
             | '!' ->
                 if trimIgnored.Length >= 2 && trimIgnored[1] = '=' then
-                    ofUInt16 (KindOperator ||| Precedence.LogicalAndBitwise) // !=
+                    ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise) // !=
                 else
                     ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.Prefix) // !
             | '%' -> ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.InfixMultiply)
-            | '&' -> ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.LogicalAndBitwise)
+            | '&' -> ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.ComparisonAndBitwise)
             | '*' -> ofUInt16 (KindOperator ||| Precedence.InfixMultiply)
             | '+' -> ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.InfixAdd)
             | '-' -> ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.InfixAdd)
             | '/' -> ofUInt16 (KindOperator ||| Precedence.InfixMultiply)
-            | '<' -> ofUInt16 (KindOperator ||| Precedence.LogicalAndBitwise)
-            | '=' -> ofUInt16 (KindOperator ||| Precedence.LogicalAndBitwise)
-            | '>' -> ofUInt16 (KindOperator ||| Precedence.LogicalAndBitwise)
-            | '@' -> ofUInt16 (KindOperator ||| Precedence.Concatenate) // TODO https://github.com/fsharp/fslang-spec/issues/70
-            | '^' -> ofUInt16 (KindOperator ||| Precedence.Concatenate)
-            | '|' -> ofUInt16 (KindOperator ||| Precedence.LogicalAndBitwise)
+            | '<' -> ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise)
+            | '=' -> ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise)
+            | '>' -> ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise)
+            | '@' -> ofUInt16 (KindOperator ||| Precedence.Append) // TODO https://github.com/fsharp/fslang-spec/issues/70
+            | '^' -> ofUInt16 (KindOperator ||| Precedence.Append)
+            | '|' -> ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise)
             | '~' ->
                 if
                     trimIgnored.Length = 1 // ~ alone is not a valid operator
@@ -1807,6 +1841,7 @@ module internal TokenInfo =
             | Token.OpConcatenate
             | Token.OpEquality
             | Token.OpDereference
+            | Token.OpRange
             | Token.KWLazy
             | Token.KWAssert
             | Token.VirtualApp
@@ -1841,7 +1876,6 @@ module internal TokenInfo =
 
     let operatorPrecedence (token: Token) : PrecedenceLevel =
         if isKeyword token then
-            // All keyword operators are left associative
             match token with
             | Token.KWAs -> PrecedenceLevel.As
             | Token.KWWhen -> PrecedenceLevel.When
@@ -1865,10 +1899,11 @@ module internal TokenInfo =
             | Token.KWWhile
             | Token.KWTry -> PrecedenceLevel.Function
             | Token.KWIf -> PrecedenceLevel.If
-            | Token.OpArrowRight -> PrecedenceLevel.Arrow
+            | Token.OpArrowRight -> PrecedenceLevel.RArrow
             | Token.OpArrowLeft // <- isn't in the spec but appears in pars.fsy adjacent to := operator, treating as same precedence
             | Token.OpColonEquals -> PrecedenceLevel.Assignment
             | Token.OpComma -> PrecedenceLevel.Comma
+            | Token.OpRange -> PrecedenceLevel.Range
             | Token.KWOr
             | Token.OpBarBar -> PrecedenceLevel.LogicalOr
             | Token.KWDowncast
@@ -1886,7 +1921,7 @@ module internal TokenInfo =
             | Token.OpMultiply
             | Token.OpDivision -> PrecedenceLevel.InfixMultiply
             | Token.OpConcatenate -> PrecedenceLevel.Power
-            | Token.OpEquality -> PrecedenceLevel.LogicalAndBitwise // = (equality comparison)
+            | Token.OpEquality -> PrecedenceLevel.ComparisonAndBitwise // = (equality comparison)
             | Token.OpDereference -> PrecedenceLevel.Prefix
             | Token.KWLParen
             | Token.KWRParen
@@ -2040,22 +2075,24 @@ module internal OperatorInfo =
         | PrecedenceLevel.When -> Associativity.Right
         | PrecedenceLevel.Pipe -> Associativity.Left
         | PrecedenceLevel.Semicolon -> Associativity.Right
+        | PrecedenceLevel.RArrow -> Associativity.Right
         | PrecedenceLevel.Let -> Associativity.Non
         | PrecedenceLevel.Function -> Associativity.Non
         | PrecedenceLevel.If -> Associativity.Non
-        | PrecedenceLevel.Arrow -> Associativity.Right
         | PrecedenceLevel.Assignment -> Associativity.Right
         | PrecedenceLevel.Comma -> Associativity.Non
+        | PrecedenceLevel.Range -> Associativity.Non
         | PrecedenceLevel.LogicalOr -> Associativity.Left
         | PrecedenceLevel.LogicalAnd -> Associativity.Left
-        | PrecedenceLevel.Cast -> Associativity.Right
-        | PrecedenceLevel.LogicalAndBitwise -> Associativity.Left
-        | PrecedenceLevel.Caret -> Associativity.Right
+        | PrecedenceLevel.Cast -> Associativity.Left
+        | PrecedenceLevel.ComparisonAndBitwise -> Associativity.Left
+        | PrecedenceLevel.Append -> Associativity.Right
         | PrecedenceLevel.Cons -> Associativity.Right
         | PrecedenceLevel.TypeTest -> Associativity.Non
         | PrecedenceLevel.InfixAdd -> Associativity.Left
         | PrecedenceLevel.InfixMultiply -> Associativity.Left
         | PrecedenceLevel.Power -> Associativity.Right
+        | PrecedenceLevel.QMarkQMark -> Associativity.Left
         | PrecedenceLevel.Application -> Associativity.Left
         | PrecedenceLevel.PatternMatchBar -> Associativity.Right
         | PrecedenceLevel.Prefix -> Associativity.Left

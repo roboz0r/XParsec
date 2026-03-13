@@ -827,13 +827,7 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         walkPat visitor pat
         visitor.ExitSection "Pat"
         visitor.VisitToken "InToken" inToken
-        visitor.EnterSection "Range"
-
-        match range with
-        | ExprOrRange.Expr e -> walkExpr visitor e
-        | ExprOrRange.Range _ -> visitor.WriteLine "(range)"
-
-        visitor.ExitSection "Range"
+        walkExpr visitor range
         visitor.VisitToken "DoToken" doToken
         visitor.EnterSection "Body"
         walkExpr visitor body
@@ -1012,39 +1006,6 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         visitor.EnterSection kwLabel
         walkExpr visitor expr
         visitor.ExitSection kwLabel
-    | Expr.Slice(expr, lDotBracket, sliceRanges, rBracket) ->
-        visitor.EnterSection "Slice"
-        visitor.EnterSection "Expr"
-        walkExpr visitor expr
-        visitor.ExitSection "Expr"
-        visitor.VisitToken "[" lDotBracket
-
-        for sliceRange in sliceRanges do
-            match sliceRange with
-            | SliceRange.Single e ->
-                visitor.EnterSection "Single"
-                walkExpr visitor e
-                visitor.ExitSection "Single"
-            | SliceRange.From(e, dotdot) ->
-                visitor.EnterSection "From"
-                walkExpr visitor e
-                visitor.VisitToken ".." dotdot
-                visitor.ExitSection "From"
-            | SliceRange.To(dotdot, e) ->
-                visitor.EnterSection "To"
-                visitor.VisitToken ".." dotdot
-                walkExpr visitor e
-                visitor.ExitSection "To"
-            | SliceRange.FromTo(s, dotdot, e) ->
-                visitor.EnterSection "FromTo"
-                walkExpr visitor s
-                visitor.VisitToken ".." dotdot
-                walkExpr visitor e
-                visitor.ExitSection "FromTo"
-            | SliceRange.All star -> visitor.VisitToken "*" star
-
-        visitor.VisitToken "]" rBracket
-        visitor.ExitSection "Slice"
     | Expr.ExpressionSplice(percent, expr) ->
         visitor.VisitToken "%" percent
         visitor.EnterSection ""
@@ -1089,6 +1050,40 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         visitor.VisitToken "" closing
     | Expr.Object(lBrace, newKeyword, baseCall, members, interfaceImpls, rBrace) ->
         failwith "Not implemented: Object expressions"
+    | Expr.Range(fromExpr, dotdot, toExpr) ->
+        visitor.EnterSection "Range"
+        walkExpr visitor fromExpr
+        visitor.VisitToken ".." dotdot
+        walkExpr visitor toExpr
+        visitor.ExitSection "Range"
+    | Expr.SteppedRange(fromExpr, dotdot1, stepExpr, dotdot2, toExpr) ->
+        visitor.EnterSection "SteppedRange"
+        walkExpr visitor fromExpr
+        visitor.VisitToken ".." dotdot1
+        walkExpr visitor stepExpr
+        visitor.VisitToken ".." dotdot2
+        walkExpr visitor toExpr
+        visitor.ExitSection "SteppedRange"
+    | Expr.SliceFrom(expr, dotdot) ->
+        visitor.EnterSection "SliceFrom"
+        walkExpr visitor expr
+        visitor.VisitToken ".." dotdot
+        visitor.ExitSection "SliceFrom"
+    | Expr.SliceTo(dotdot, expr) ->
+        visitor.EnterSection "SliceTo"
+        visitor.VisitToken ".." dotdot
+        walkExpr visitor expr
+        visitor.ExitSection "SliceTo"
+    | Expr.SliceFromTo(startExpr, dotdot, endExpr) ->
+        visitor.EnterSection "SliceFromTo"
+        walkExpr visitor startExpr
+        visitor.VisitToken ".." dotdot
+        walkExpr visitor endExpr
+        visitor.ExitSection "SliceFromTo"
+    | Expr.SliceAll(star) ->
+        visitor.EnterSection "SliceAll"
+        visitor.VisitToken "*" star
+        visitor.ExitSection "SliceAll"
 
 
 and walkArgSpec (visitor: AstVisitor<'T>) (argSpec: ArgSpec<'T>) : unit =

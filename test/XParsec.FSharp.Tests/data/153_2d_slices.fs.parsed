@@ -1,0 +1,112 @@
+module                   'module'          KWModule            tok=   0  pos=   0
+                         'Slices2D'        Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                    'let'             KWLet               tok=   5  pos=  17
+    Pat.NamedSimple      'A'               Identifier          tok=   7  pos=  21
+    =                    '='               OpEquality          tok=   9  pos=  23
+      App:
+        Func:
+          Ident          'array2D'         Identifier          tok=  11  pos=  25
+        Args:
+          List           '['               KWLBracket          tok=  13  pos=  33
+            Sequential:
+              List       '['               KWLBracket          tok=  14  pos=  34
+                Sequential:
+                  Const  '1'               NumInt32            tok=  15  pos=  35
+                  Const  '2'               NumInt32            tok=  17  pos=  37
+                  Const  '3'               NumInt32            tok=  19  pos=  39
+                         ']'               KWRBracket          tok=  20  pos=  40
+              List       '['               KWLBracket          tok=  22  pos=  42
+                Sequential:
+                  Const  '4'               NumInt32            tok=  23  pos=  43
+                  Const  '5'               NumInt32            tok=  25  pos=  45
+                  Const  '6'               NumInt32            tok=  27  pos=  47
+                         ']'               KWRBracket          tok=  28  pos=  48
+              List       '['               KWLBracket          tok=  30  pos=  50
+                Sequential:
+                  Const  '7'               NumInt32            tok=  31  pos=  51
+                  Const  '8'               NumInt32            tok=  33  pos=  53
+                  Const  '9'               NumInt32            tok=  35  pos=  55
+                         ']'               KWRBracket          tok=  36  pos=  56
+                         ']'               KWRBracket          tok=  37  pos=  57
+FunctionOrValue:
+  let                    'let'             KWLet               tok=  39  pos=  59
+    Pat.NamedSimple      'row0'            Identifier          tok=  41  pos=  63
+    =                    '='               OpEquality          tok=  43  pos=  68
+      IndexedLookup:
+        Expr:
+          Ident          'A'               Identifier          tok=  45  pos=  70
+        [                '['               KWLBracket          tok=  46  pos=  71
+        Index:
+          Tuple:
+            Const        '0'               NumInt32            tok=  47  pos=  72
+            SliceAll:
+              *          '*'               OpMultiply          tok=  49  pos=  74
+                         ']'               KWRBracket          tok=  50  pos=  75
+FunctionOrValue:
+  let                    'let'             KWLet               tok=  52  pos=  77
+    Pat.NamedSimple      'col0'            Identifier          tok=  54  pos=  81
+    =                    '='               OpEquality          tok=  56  pos=  86
+      IndexedLookup:
+        Expr:
+          Ident          'A'               Identifier          tok=  58  pos=  88
+        [                '['               KWLBracket          tok=  59  pos=  89
+        Index:
+          Tuple:
+            SliceAll:
+              *          '*'               OpMultiply          tok=  60  pos=  90
+            Const        '0'               NumInt32            tok=  62  pos=  92
+                         ']'               KWRBracket          tok=  63  pos=  93
+FunctionOrValue:
+  let                    'let'             KWLet               tok=  65  pos=  95
+    Pat.NamedSimple      'subA'            Identifier          tok=  67  pos=  99
+    =                    '='               OpEquality          tok=  69  pos= 104
+      IndexedLookup:
+        Expr:
+          Ident          'A'               Identifier          tok=  71  pos= 106
+        [                '['               KWLBracket          tok=  72  pos= 107
+        Index:
+          Tuple:
+            SliceAll:
+              *          '*'               OpMultiply          tok=  73  pos= 108
+            Range:
+              Const      '0'               NumInt32            tok=  75  pos= 110
+              ..         '..'              OpRange             tok=  76  pos= 111
+              Const      '1'               NumInt32            tok=  77  pos= 113
+                         ']'               KWRBracket          tok=  78  pos= 114
+FunctionOrValue:
+  let                    'let'             KWLet               tok=  80  pos= 116
+    Pat.NamedSimple      'subA''           Identifier          tok=  82  pos= 120
+    =                    '='               OpEquality          tok=  84  pos= 126
+      IndexedLookup:
+        Expr:
+          Ident          'A'               Identifier          tok=  86  pos= 128
+        [                '['               KWLBracket          tok=  87  pos= 129
+        Index:
+          Tuple:
+            Range:
+              Const      '0'               NumInt32            tok=  88  pos= 130
+              ..         '..'              OpRange             tok=  89  pos= 131
+              Const      '1'               NumInt32            tok=  90  pos= 133
+            SliceAll:
+              *          '*'               OpMultiply          tok=  92  pos= 135
+                         ']'               KWRBracket          tok=  93  pos= 136
+FunctionOrValue:
+  let                    'let'             KWLet               tok=  95  pos= 138
+    Pat.NamedSimple      'twoByTwo'        Identifier          tok=  97  pos= 142
+    =                    '='               OpEquality          tok=  99  pos= 151
+      IndexedLookup:
+        Expr:
+          Ident          'A'               Identifier          tok= 101  pos= 153
+        [                '['               KWLBracket          tok= 102  pos= 154
+        Index:
+          Tuple:
+            Range:
+              Const      '0'               NumInt32            tok= 103  pos= 155
+              ..         '..'              OpRange             tok= 104  pos= 156
+              Const      '1'               NumInt32            tok= 105  pos= 158
+            Range:
+              Const      '0'               NumInt32            tok= 107  pos= 160
+              ..         '..'              OpRange             tok= 108  pos= 161
+              Const      '1'               NumInt32            tok= 109  pos= 163
+                         ']'               KWRBracket          tok= 110  pos= 164
