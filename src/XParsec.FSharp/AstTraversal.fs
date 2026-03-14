@@ -1368,23 +1368,13 @@ and walkTypeName (visitor: AstVisitor<'T>) (typeName: TypeName<'T>) : unit =
     | ValueSome tp -> walkTyparDefns visitor tp
     | ValueNone -> ()
 
-and walkSimplePat (visitor: AstVisitor<'T>) (pat: SimplePat<'T>) : unit =
-    match pat with
-    | SimplePat.Ident ident -> visitor.VisitToken "SimplePat.Ident" ident
-    | SimplePat.Typed(inner, colon, typ) ->
-        walkSimplePat visitor inner
-        visitor.VisitToken ":" colon
-        walkType visitor typ
-    | SimplePat.Attributed(attrs, inner) ->
-        walkAttributes visitor attrs
-        walkSimplePat visitor inner
-
 and walkPrimaryConstrArgs (visitor: AstVisitor<'T>) (args: PrimaryConstrArgs<'T>) : unit =
-    let (PrimaryConstrArgs(_, _, lParen, pats, rParen)) = args
+    let (PrimaryConstrArgs(_, _, lParen, pat, rParen)) = args
     visitor.VisitToken "(" lParen
 
-    for pat in pats do
-        walkSimplePat visitor pat
+    match pat with
+    | ValueSome p -> walkPat visitor p
+    | ValueNone -> ()
 
     visitor.VisitToken ")" rParen
 

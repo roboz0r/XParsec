@@ -3,10 +3,11 @@ module               'module'          KWModule            tok=   0  pos=   0
 TypeDefn.Anon:
   TypeName           'Counter'         Identifier          tok=   7  pos=  22
   (                  '('               KWLParen            tok=   8  pos=  29
-  SimplePat.Ident    'initialCou...'   Identifier          tok=   9  pos=  30
-  :                  ':'               OpColon             tok=  10  pos=  42
-  NamedType:
-    LongIdent:
+  Pat.Typed:
+    Pat.NamedSimple  'initialCou...'   Identifier          tok=   9  pos=  30
+    Colon            ':'               OpColon             tok=  10  pos=  42
+    NamedType:
+      LongIdent:
                      'int'             Identifier          tok=  12  pos=  44
   )                  ')'               KWRParen            tok=  13  pos=  47
   =                  '='               OpEquality          tok=  15  pos=  49
@@ -37,10 +38,11 @@ TypeDefn.Anon:
 TypeDefn.Anon:
   TypeName           'Greeter'         Identifier          tok=  63  pos= 173
   (                  '('               KWLParen            tok=  64  pos= 180
-  SimplePat.Ident    'name'            Identifier          tok=  65  pos= 181
-  :                  ':'               OpColon             tok=  66  pos= 185
-  NamedType:
-    LongIdent:
+  Pat.Typed:
+    Pat.NamedSimple  'name'            Identifier          tok=  65  pos= 181
+    Colon            ':'               OpColon             tok=  66  pos= 185
+    NamedType:
+      LongIdent:
                      'string'          Identifier          tok=  68  pos= 187
   )                  ')'               KWRParen            tok=  69  pos= 193
   =                  '='               OpEquality          tok=  71  pos= 195

@@ -18,9 +18,9 @@ module PrimaryConstrArgs =
             let! attrs = opt Attributes.parse
             let! access = opt pAccessModifier
             let! lParen = pLParen
-            let! pats, _ = sepBy SimplePat.parse pComma
+            let! pat = opt Pat.parse
             let! rParen = pRParen
-            return PrimaryConstrArgs(attrs, access, lParen, List.ofSeq pats, rParen)
+            return PrimaryConstrArgs(attrs, access, lParen, pat, rParen)
         }
 
 [<RequireQualifiedAccess>]
