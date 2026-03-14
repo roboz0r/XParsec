@@ -379,6 +379,7 @@ and Rules<'T> = | Rules of leadingBar: 'T voption * rules: Rule<'T> list * bars:
 type SimplePat<'T> =
     | Ident of ident: 'T
     | Typed of pat: SimplePat<'T> * colon: 'T * typ: Type<'T>
+    | Attributed of attrs: Attributes<'T> * pat: SimplePat<'T>
 
 // Represents: primary-constr-args
 type PrimaryConstrArgs<'T> =
