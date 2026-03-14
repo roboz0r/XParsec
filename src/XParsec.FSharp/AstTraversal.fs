@@ -1375,6 +1375,9 @@ and walkSimplePat (visitor: AstVisitor<'T>) (pat: SimplePat<'T>) : unit =
         walkSimplePat visitor inner
         visitor.VisitToken ":" colon
         walkType visitor typ
+    | SimplePat.Attributed(attrs, inner) ->
+        walkAttributes visitor attrs
+        walkSimplePat visitor inner
 
 and walkPrimaryConstrArgs (visitor: AstVisitor<'T>) (args: PrimaryConstrArgs<'T>) : unit =
     let (PrimaryConstrArgs(_, _, lParen, pats, rParen)) = args
