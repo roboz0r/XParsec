@@ -1,0 +1,96 @@
+module                       'module'          KWModule            tok=   0  pos=   0
+                             'Test158'         Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                        'let'             KWLet               tok=   5  pos=  16
+    Pat.NamedSimple          'f'               Identifier          tok=   7  pos=  20
+    Pats:
+      ParenBlock             '('               KWLParen            tok=   9  pos=  22
+        Pat.Attributed:
+          [<                 '[<'              KWLAttrBracket      tok=  10  pos=  23
+          NamedType:
+            LongIdent:
+                             'System'          Identifier          tok=  11  pos=  25
+                             'ParamArray'      Identifier          tok=  13  pos=  32
+          >]                 '>]'              KWRAttrBracket      tok=  14  pos=  42
+          Pat.Typed:
+            Pat.NamedSimple  'args'            Identifier          tok=  16  pos=  45
+            Colon            ':'               OpColon             tok=  17  pos=  49
+            SuffixedType:
+              NamedType:
+                LongIdent:
+                             'int'             Identifier          tok=  19  pos=  51
+              LongIdent:
+                             'array'           Identifier          tok=  21  pos=  55
+                             ')'               KWRParen            tok=  22  pos=  60
+    =                        '='               OpEquality          tok=  24  pos=  62
+      LongIdentOrOp:
+        LongIdent:
+                             'args'            Identifier          tok=  26  pos=  64
+                             'Length'          Identifier          tok=  28  pos=  69
+FunctionOrValue:
+  let                        'let'             KWLet               tok=  31  pos=  77
+    Pat.NamedSimple          'g'               Identifier          tok=  33  pos=  81
+    Pats:
+      ParenBlock             '('               KWLParen            tok=  35  pos=  83
+        Pat.Attributed:
+          [<                 '[<'              KWLAttrBracket      tok=  36  pos=  84
+          NamedType:
+            LongIdent:
+                             'System'          Identifier          tok=  37  pos=  86
+                             'Obsolete'        Identifier          tok=  39  pos=  93
+          >]                 '>]'              KWRAttrBracket      tok=  40  pos= 101
+          Pat.Typed:
+            Pat.NamedSimple  'x'               Identifier          tok=  42  pos= 104
+            Colon            ':'               OpColon             tok=  43  pos= 105
+            NamedType:
+              LongIdent:
+                             'int'             Identifier          tok=  45  pos= 107
+                             ')'               KWRParen            tok=  46  pos= 110
+      ParenBlock             '('               KWLParen            tok=  48  pos= 112
+        Pat.Attributed:
+          [<                 '[<'              KWLAttrBracket      tok=  49  pos= 113
+          NamedType:
+            LongIdent:
+                             'System'          Identifier          tok=  50  pos= 115
+                             'Obsolete'        Identifier          tok=  52  pos= 122
+          >]                 '>]'              KWRAttrBracket      tok=  53  pos= 130
+          Pat.Typed:
+            Pat.NamedSimple  'y'               Identifier          tok=  55  pos= 133
+            Colon            ':'               OpColon             tok=  56  pos= 134
+            NamedType:
+              LongIdent:
+                             'int'             Identifier          tok=  58  pos= 136
+                             ')'               KWRParen            tok=  59  pos= 139
+    =                        '='               OpEquality          tok=  61  pos= 141
+      InfixApp               '+'               op_Addition         tok=  65  pos= 145
+        Ident                'x'               Identifier          tok=  63  pos= 143
+        Ident                'y'               Identifier          tok=  67  pos= 147
+TypeDefn.Anon:
+  TypeName                   'Container'       Identifier          tok=  72  pos= 155
+  (                          '('               KWLParen            tok=  73  pos= 164
+  [<                         '[<'              KWLAttrBracket      tok=  74  pos= 165
+  NamedType:
+    LongIdent:
+                             'System'          Identifier          tok=  75  pos= 167
+                             'ParamArray'      Identifier          tok=  77  pos= 174
+  >]                         '>]'              KWRAttrBracket      tok=  78  pos= 184
+  SimplePat.Ident            'items'           Identifier          tok=  80  pos= 187
+  :                          ':'               OpColon             tok=  81  pos= 192
+  SuffixedType:
+    NamedType:
+      LongIdent:
+                             'obj'             Identifier          tok=  83  pos= 194
+    LongIdent:
+                             'array'           Identifier          tok=  85  pos= 198
+  )                          ')'               KWRParen            tok=  86  pos= 203
+  =                          '='               OpEquality          tok=  88  pos= 205
+  begin                      <virt>            KWBegin             tok=virt  pos= 211
+    member                   'member'          KWMember            tok=  91  pos= 211
+    self                     '_'               Wildcard            tok=  93  pos= 218
+    Pat.NamedSimple          'Count'           Identifier          tok=  95  pos= 220
+    =                        '='               OpEquality          tok=  97  pos= 226
+      LongIdentOrOp:
+        LongIdent:
+                             'items'           Identifier          tok=  99  pos= 228
+                             'Length'          Identifier          tok= 101  pos= 234
+  end                        <virt>            KWEnd               tok=virt  pos= 241
