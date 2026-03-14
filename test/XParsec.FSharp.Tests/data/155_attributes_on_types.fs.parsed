@@ -63,10 +63,11 @@ TypeDefn.Anon:
   >]                 '>]'              KWRAttrBracket      tok=  83  pos= 213
   TypeName           'Circle'          Identifier          tok=  87  pos= 221
   (                  '('               KWLParen            tok=  88  pos= 227
-  SimplePat.Ident    'radius'          Identifier          tok=  89  pos= 228
-  :                  ':'               OpColon             tok=  90  pos= 234
-  NamedType:
-    LongIdent:
+  Pat.Typed:
+    Pat.NamedSimple  'radius'          Identifier          tok=  89  pos= 228
+    Colon            ':'               OpColon             tok=  90  pos= 234
+    NamedType:
+      LongIdent:
                      'float'           Identifier          tok=  92  pos= 236
   )                  ')'               KWRParen            tok=  93  pos= 241
   =                  '='               OpEquality          tok=  95  pos= 243

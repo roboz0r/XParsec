@@ -377,25 +377,3 @@ module Rules =
             let! rules, bars = sepBy1 Rule.parse pBar
             return Rules(firstBar, List.ofSeq rules, List.ofSeq bars)
         }
-
-[<RequireQualifiedAccess>]
-module SimplePat =
-    let parse: Parser<SimplePat<SyntaxToken>, _, _, _, _> =
-        parser {
-            let! attrs = opt Attributes.parse
-            let! ident = pIdent
-            let! typeAnnotation = opt pColon
-
-            let! pat =
-                match typeAnnotation with
-                | ValueSome colon ->
-                    parser {
-                        let! t = Type.parse
-                        return SimplePat.Typed(SimplePat.Ident ident, colon, t)
-                    }
-                | ValueNone -> preturn (SimplePat.Ident ident)
-
-            match attrs with
-            | ValueSome a -> return SimplePat.Attributed(a, pat)
-            | ValueNone -> return pat
-        }
