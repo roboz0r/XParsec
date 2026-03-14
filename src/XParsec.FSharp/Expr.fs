@@ -374,20 +374,14 @@ and Rules<'T> = | Rules of leadingBar: 'T voption * rules: Rule<'T> list * bars:
 
 // Below are the F# types that model the provided grammar for type definitions.
 
-// Represents: simple-pat
-[<RequireQualifiedAccess>]
-type SimplePat<'T> =
-    | Ident of ident: 'T
-    | Typed of pat: SimplePat<'T> * colon: 'T * typ: Type<'T>
-    | Attributed of attrs: Attributes<'T> * pat: SimplePat<'T>
-
 // Represents: primary-constr-args
 type PrimaryConstrArgs<'T> =
     | PrimaryConstrArgs of
         attributes: Attributes<'T> voption *
-        access: 'T voption *  // Placeholder for access modifier
+        access: 'T voption *
         lParen: 'T *
-        pats: SimplePat<'T> list *
+        // Should be simple-pat, but we allow full patterns here for better error recovery and to simplify the parser; the compiler will report an error if the pattern is not simple.
+        pat: Pat<'T> voption *
         rParen: 'T
 
 // Represents: type-name

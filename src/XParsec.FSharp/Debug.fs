@@ -244,9 +244,6 @@ let printTypeDefnElement (ctx: PrintContext) (input: string) (lexed: Lexed) (ele
 let printTypeName (ctx: PrintContext) (input: string) (lexed: Lexed) (typeName: TypeName<SyntaxToken>) =
     walkTypeName (makeDebugVisitor ctx input lexed) typeName
 
-let printSimplePat (ctx: PrintContext) (input: string) (lexed: Lexed) (pat: SimplePat<SyntaxToken>) =
-    walkSimplePat (makeDebugVisitor ctx input lexed) pat
-
 let printPrimaryConstrArgs (ctx: PrintContext) (input: string) (lexed: Lexed) (args: PrimaryConstrArgs<SyntaxToken>) =
     walkPrimaryConstrArgs (makeDebugVisitor ctx input lexed) args
 

@@ -68,19 +68,21 @@ FunctionOrValue:
 TypeDefn.Anon:
   TypeName                   'Container'       Identifier          tok=  72  pos= 155
   (                          '('               KWLParen            tok=  73  pos= 164
-  [<                         '[<'              KWLAttrBracket      tok=  74  pos= 165
-  NamedType:
-    LongIdent:
-                             'System'          Identifier          tok=  75  pos= 167
-                             'ParamArray'      Identifier          tok=  77  pos= 174
-  >]                         '>]'              KWRAttrBracket      tok=  78  pos= 184
-  SimplePat.Ident            'items'           Identifier          tok=  80  pos= 187
-  :                          ':'               OpColon             tok=  81  pos= 192
-  SuffixedType:
+  Pat.Attributed:
+    [<                       '[<'              KWLAttrBracket      tok=  74  pos= 165
     NamedType:
       LongIdent:
+                             'System'          Identifier          tok=  75  pos= 167
+                             'ParamArray'      Identifier          tok=  77  pos= 174
+    >]                       '>]'              KWRAttrBracket      tok=  78  pos= 184
+    Pat.Typed:
+      Pat.NamedSimple        'items'           Identifier          tok=  80  pos= 187
+      Colon                  ':'               OpColon             tok=  81  pos= 192
+      SuffixedType:
+        NamedType:
+          LongIdent:
                              'obj'             Identifier          tok=  83  pos= 194
-    LongIdent:
+        LongIdent:
                              'array'           Identifier          tok=  85  pos= 198
   )                          ')'               KWRParen            tok=  86  pos= 203
   =                          '='               OpEquality          tok=  88  pos= 205
