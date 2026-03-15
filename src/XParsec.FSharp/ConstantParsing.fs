@@ -58,7 +58,11 @@ module Constant =
                     | t when t.Token = Token.KWRAttrBracket ->
                         // Don't consume the >] token. Set the flag so the next read
                         // rewrites it from KWRAttrBracket to KWRBracket (yielding `]`).
-                        do! updateUserState (fun s -> { s with SplitRAttrBracket = true })
+                        do!
+                            updateUserState (fun s ->
+                                s.Trace.Invoke(TraceEvent.SplitRAttrBracketSet(t.StartIndex))
+                                { s with SplitRAttrBracket = true }
+                            )
 
                         return virtualToken (PositionedToken.Create(Token.OpGreaterThan, t.StartIndex))
                     | _ -> return! fail (Message "Expected '>' for measure")

@@ -226,14 +226,14 @@ module Parsing =
         (readerIndex: int64)
         =
         match context with
-        | [] -> false
+        | [] -> ValueNone
         | head :: rest ->
 
             // Closing delimiters are never offside from their matching paren-like context (15.1.8)
             if isMatchingClose token head.Context then
-                true
+                ValueSome "15.1.8 MatchingClose"
             elif rest |> List.exists (fun (ctx: Offside) -> isMatchingClose token ctx.Context) then
-                true
+                ValueSome "15.1.8 MatchingClose"
 
             // --- 15.1.9: Exceptions to Offside Rules ---
 
@@ -242,17 +242,21 @@ module Parsing =
                 let tokenLength = getTokenLength state (int readerIndex * 1<token>)
 
                 if tokenCol >= head.Indent - (tokenLength + 1) then
-                    true
-                else
+                    ValueSome "15.1.9 InfixUndent"
+                else if
                     // Still check deeper contexts
                     rest |> List.exists (contextPermitsToken token tokenCol)
+                then
+                    ValueSome "15.1.9 ContextPermits"
+                else
+                    ValueNone
 
             // Check if the token is permitted at the head context or any enclosing context
             elif contextPermitsToken token tokenCol head then
-                true
+                ValueSome "15.1.9 ContextPermits"
 
             elif rest |> List.exists (contextPermitsToken token tokenCol) then
-                true
+                ValueSome "15.1.9 ContextPermits"
 
             // --- 15.1.10: Permitted Undentations ---
 
@@ -274,7 +278,10 @@ module Parsing =
                         | OffsideContext.Begin -> findEnclosingIndent deeper
                         | _ -> tokenCol >= ctx.Indent
 
-                findEnclosingIndent rest
+                if findEnclosingIndent rest then
+                    ValueSome "15.1.10.1 FunBody"
+                else
+                    ValueNone
 
             // 15.1.10.2: If/Then/Else + Paren/Begin undentation
             // Inside ( ) or begin/end following then/else, content may undent but not past if.
@@ -297,23 +304,33 @@ module Parsing =
                         | _ -> false
 
                 if checkThenElseUndent rest then
-                    true
+                    ValueSome "15.1.10.2 ThenElse"
                 else if
                     // 15.1.10.3: Module/class body undentation
                     // Inside begin/end with enclosing Module or Type, content may undent to Module/Type indent.
                     head.Context = OffsideContext.Begin
                 then
-                    rest
-                    |> List.tryFind (fun (c: Offside) ->
-                        c.Context = OffsideContext.Module || c.Context = OffsideContext.Type
-                    )
-                    |> Option.map (fun (ctx: Offside) -> tokenCol >= ctx.Indent)
-                    |> Option.defaultValue false
-                else
+                    let result =
+                        rest
+                        |> List.tryFind (fun (c: Offside) ->
+                            c.Context = OffsideContext.Module || c.Context = OffsideContext.Type
+                        )
+                        |> Option.map (fun (ctx: Offside) -> tokenCol >= ctx.Indent)
+                        |> Option.defaultValue false
+
+                    if result then
+                        ValueSome "15.1.10.3 BeginModule"
+                    else
+                        ValueNone
+                else if
                     // 15.1.10.4: Collection/CE undentation
                     // Inside [ ], [| |], or { }, content may undent to the enclosing expression's
                     // offside line, skipping SeqBlock/Paren pairs introduced by ( or =.
                     checkCollectionUndent tokenCol rest
+                then
+                    ValueSome "15.1.10.4 Collection"
+                else
+                    ValueNone
 
             // 15.1.10.4: Collection/CE undentation for Bracket, BracketBar, Brace contexts
             elif
@@ -321,10 +338,13 @@ module Parsing =
                 || head.Context = OffsideContext.BracketBar
                 || head.Context = OffsideContext.Brace
             then
-                checkCollectionUndent tokenCol rest
+                if checkCollectionUndent tokenCol rest then
+                    ValueSome "15.1.10.4 Collection"
+                else
+                    ValueNone
 
             else
-                false
+                ValueNone
 
     /// Walk the context stack skipping SeqBlock+Paren pairs to find the enclosing
     /// expression's offside line for collection/CE undentation (F# spec 15.1.10.4).
@@ -371,6 +391,7 @@ module Parsing =
             // it sets this flag so the remaining `]` half is presented as KWRBracket.
             let token =
                 if reader.State.SplitRAttrBracket && token.Token = Token.KWRAttrBracket then
+                    reader.State.Trace.Invoke(TraceEvent.SplitRAttrBracketConsumed(token.StartIndex))
                     PositionedToken.Create(Token.KWRBracket, token.StartIndex + 1)
                 else
                     token
@@ -381,11 +402,26 @@ module Parsing =
                 reader.State.IndentationMode = Syntax.Light
                 && (
                     match reader.State.Context with
-                    | { Indent = contextIndent } :: _ as context ->
+                    | {
+                          Indent = contextIndent
+                          Context = ctx
+                      } :: _ as context ->
                         let tokenCol = ParseState.getIndent reader.State (reader.Index * 1<token>)
 
-                        tokenCol < contextIndent
-                        && not (isPermittedUndentation token.Token tokenCol context reader.State reader.Index)
+                        if tokenCol < contextIndent then
+                            match isPermittedUndentation token.Token tokenCol context reader.State reader.Index with
+                            | ValueSome rule ->
+                                reader.State.Trace.Invoke(
+                                    TraceEvent.PermittedUndentation(token, tokenCol, contextIndent, rule)
+                                )
+
+                                false
+                            | ValueNone ->
+                                reader.State.Trace.Invoke(TraceEvent.OffsideFail(token, tokenCol, contextIndent, ctx))
+                                true
+                        else
+                            reader.State.Trace.Invoke(TraceEvent.OffsideOk(token, tokenCol, contextIndent, ctx))
+                            false
                     | [] -> false
                 )
 
@@ -395,8 +431,13 @@ module Parsing =
                 let t = syntaxToken token reader.Index
 
                 if isPeek then
+                    let col = ParseState.getIndent reader.State (reader.Index * 1<token>)
+                    reader.State.Trace.Invoke(TraceEvent.TokenPeeked(token, int reader.Index, col))
                     preturn t reader
                 else
+                    let col = ParseState.getIndent reader.State (reader.Index * 1<token>)
+                    reader.State.Trace.Invoke(TraceEvent.TokenConsumed(token, int reader.Index, col))
+
                     if reader.State.SplitRAttrBracket then
                         reader.State <-
                             { reader.State with
@@ -436,6 +477,8 @@ module Parsing =
                         Token.ofUInt16 (uint16 t ||| TokenRepresentation.IsVirtual),
                         token.StartIndex
                     )
+
+                reader.State.Trace.Invoke(TraceEvent.VirtualToken(pt.Token, pt.StartIndex))
 
                 preturn
                     {
@@ -499,6 +542,8 @@ module Parsing =
         match reader.Peek() with
         | ValueNone -> fail EndOfInput reader
         | ValueSome token ->
+            reader.State.Trace.Invoke(TraceEvent.VirtualToken(Token.VirtualSep, token.StartIndex))
+
             preturn
                 {
                     PositionedToken = PositionedToken.Create(Token.VirtualSep, token.StartIndex)
@@ -528,6 +573,8 @@ module Parsing =
                         Token.ofUInt16 (uint16 t ||| TokenRepresentation.IsVirtual),
                         token.StartIndex
                     )
+
+                reader.State.Trace.Invoke(TraceEvent.VirtualToken(pt.Token, pt.StartIndex))
 
                 preturn
                     {
@@ -673,9 +720,13 @@ module Parsing =
                 }
 
             reader.State <- ParseState.pushOffside entry reader.State
+            let stackDepth = reader.State.Context.Length
+
+            reader.State.Trace.Invoke(TraceEvent.ContextPush(ctx, indent, peekTok.PositionedToken, stackDepth))
 
             match innerParser reader with
             | Ok result ->
+                reader.State.Trace.Invoke(TraceEvent.ContextPop(ctx, stackDepth - 1))
                 reader.State <- ParseState.popOffside reader.State
                 Ok result
             | Error _ as e ->
@@ -702,9 +753,12 @@ module Parsing =
             }
 
         reader.State <- ParseState.pushOffside entry reader.State
+        let stackDepth = reader.State.Context.Length
+        reader.State.Trace.Invoke(TraceEvent.ContextPush(ctx, indent, token, stackDepth))
 
         match innerParser reader with
         | Ok result ->
+            reader.State.Trace.Invoke(TraceEvent.ContextPop(ctx, stackDepth - 1))
             reader.State <- ParseState.popOffside reader.State
             Ok result
         | Error _ as e ->
@@ -857,8 +911,12 @@ module Parsing =
                     }
 
                 reader.State <- ParseState.pushOffside entry reader.State
+                let stackDepth = reader.State.Context.Length
+
+                reader.State.Trace.Invoke(TraceEvent.ContextPush(offsideCtx, 0, l.PositionedToken, stackDepth))
 
                 let inline popAndReturn result =
+                    reader.State.Trace.Invoke(TraceEvent.ContextPop(offsideCtx, stackDepth - 1))
                     reader.State <- ParseState.popOffside reader.State
                     result
 
