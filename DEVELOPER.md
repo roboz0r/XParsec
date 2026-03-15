@@ -9,6 +9,8 @@
 Source ──> [Lexing] ──> [Preprocessing (#if)] ──> [Parsing (AST)] ──> [Debug Output]
 ```
 
+The **xparsec-dev** skill is provided to ease everyday development.
+
 ## Architecture & Compilation Order
 
 The parser forms a strict **Directed Acyclic Graph (DAG)**. There are no recursive namespaces (`namespace rec`). Files in `XParsec.FSharp.fsproj` MUST remain in exact compilation order to satisfy F#'s strict top-to-bottom type resolution. The architectural layers are strictly:
@@ -64,18 +66,3 @@ Used for expressions, patterns, measures, and types. `PrecedenceLevel` converts 
 
 - **Framework**: [Expecto](https://github.com/haf/expecto) (`test/XParsec.FSharp.Tests/`)
 - **Golden File Testing**: Test data lives in `data/` and `data/blocks/`. Source `.fs` files are lexed/parsed and asserted against `.fs.lexed` and `.fs.parsed` golden output files.
-
-## Build & Run
-
-You are running on Windows. **DO NOT** use raw `dotnet` commands or Bash tools. Use the PowerShell wrapper.
-
-```powershell
-# Build entire solution
-pwsh -File "./claude_tools.ps1" -Action Build
-
-# Build F# parser only
-pwsh -File "./claude_tools.ps1" -Action Build -SourceProject "XParsec.FSharp"
-
-# Run tests (Truncates output to 30 lines. Full logs in claude_tools_output.log)
-pwsh -File "./claude_tools.ps1" -Action Test -TestProject "XParsec.FSharp.Tests"
-```
