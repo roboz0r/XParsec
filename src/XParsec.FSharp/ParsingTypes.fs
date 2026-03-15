@@ -131,6 +131,26 @@ and [<RequireQualifiedAccess>] Syntax =
     | Light
     | Verbose
 
+and [<RequireQualifiedAccess>] TraceEvent =
+    | ContextPush of context: OffsideContext * indent: int * token: PositionedToken * stackDepth: int
+    | ContextPop of context: OffsideContext * stackDepth: int
+    | TokenConsumed of token: PositionedToken * index: int * col: int
+    | TokenPeeked of token: PositionedToken * index: int * col: int
+    | VirtualToken of token: Token * atStartIndex: int
+    | OffsideOk of token: PositionedToken * tokenCol: int * contextIndent: int * context: OffsideContext
+    | OffsideFail of token: PositionedToken * tokenCol: int * contextIndent: int * context: OffsideContext
+    | PermittedUndentation of token: PositionedToken * tokenCol: int * contextIndent: int * rule: string
+    | DiagnosticEmitted of code: DiagnosticCode * severity: DiagnosticSeverity * token: PositionedToken
+    | SplitRAttrBracketSet of atStartIndex: int
+    | SplitRAttrBracketConsumed of atStartIndex: int
+
+/// Holds the trace callback. A reference type so it doesn't affect ParseState equality
+/// and is shared across immutable record copies.
+and TraceCallback(callback: TraceEvent -> unit) =
+    static let empty = TraceCallback(ignore)
+    static member Empty = empty
+    member _.Invoke(event) = callback event
+
 and ParseState =
     {
         Input: string
@@ -149,6 +169,9 @@ and ParseState =
         /// is rewritten to `KWRBracket`. Set by the measure parser when it splits `>]` into
         /// a virtual `>` (for the measure close) and a real `]` (for the enclosing indexer).
         SplitRAttrBracket: bool
+        /// Callback for structured parse tracing. Default is no-op.
+        /// Shared across immutable record copies.
+        Trace: TraceCallback
     }
 
 module SyntaxToken =
@@ -186,6 +209,7 @@ module ParseState =
             CharsConsumedAfterTypeParams = 0
             ConditionalCompilationStack = []
             SplitRAttrBracket = false
+            Trace = TraceCallback.Empty
         }
 
     let setIndentOn (state: ParseState) =
@@ -209,6 +233,8 @@ module ParseState =
         | head :: tail -> { state with Context = tail }
 
     let addDiagnostic code severity startToken endToken (state: ParseState) =
+        state.Trace.Invoke(TraceEvent.DiagnosticEmitted(code, severity, startToken))
+
         let diag =
             {
                 Code = code
@@ -341,6 +367,26 @@ module ParseState =
     let isDefined (state: ParseState) (symbolToken: SyntaxToken) =
         let symbol = tokenString symbolToken state
         state.DefinedSymbols.Contains(symbol)
+
+module TraceEvent =
+    let format (event: TraceEvent) =
+        match event with
+        | TraceEvent.ContextPush(ctx, indent, token, depth) ->
+            $"PUSH {ctx} indent={indent} token={token.Token} @{token.StartIndex} depth={depth}"
+        | TraceEvent.ContextPop(ctx, depth) -> $"POP {ctx} depth={depth}"
+        | TraceEvent.TokenConsumed(token, index, col) ->
+            $"CONSUME {token.Token} @{token.StartIndex} index={index} col={col}"
+        | TraceEvent.TokenPeeked(token, index, col) -> $"PEEK {token.Token} @{token.StartIndex} index={index} col={col}"
+        | TraceEvent.VirtualToken(token, startIndex) -> $"VIRTUAL {token} @{startIndex}"
+        | TraceEvent.OffsideOk(token, tokenCol, contextIndent, ctx) ->
+            $"OFFSIDE_OK {token.Token} col={tokenCol} >= indent={contextIndent} ctx={ctx}"
+        | TraceEvent.OffsideFail(token, tokenCol, contextIndent, ctx) ->
+            $"OFFSIDE_FAIL {token.Token} col={tokenCol} < indent={contextIndent} ctx={ctx}"
+        | TraceEvent.PermittedUndentation(token, tokenCol, contextIndent, rule) ->
+            $"UNDENT_OK {token.Token} col={tokenCol} < indent={contextIndent} rule={rule}"
+        | TraceEvent.DiagnosticEmitted(code, severity, token) -> $"DIAGNOSTIC {severity} {code} @{token.StartIndex}"
+        | TraceEvent.SplitRAttrBracketSet(startIndex) -> $"SPLIT_RATTR_SET @{startIndex}"
+        | TraceEvent.SplitRAttrBracketConsumed(startIndex) -> $"SPLIT_RATTR_CONSUMED @{startIndex}"
 
 [<RequireQualifiedAccess>]
 module Reader =
