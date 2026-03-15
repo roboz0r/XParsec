@@ -575,7 +575,10 @@ module Expr =
                 | Token.KWLBrace
                 | Token.OpQuotationTypedLeft
                 | Token.OpQuotationUntypedLeft
-                | Token.OpDereference -> true
+                | Token.OpDereference
+                | Token.InterpolatedStringOpen
+                | Token.VerbatimInterpolatedStringOpen
+                | Token.Interpolated3StringOpen -> true
                 | _ ->
                     if Constant.isLiteralToken t.Token then
                         true
@@ -719,13 +722,42 @@ module Expr =
                     )
             }
 
+        let pMatchRules =
+            withContext OffsideContext.MatchClauses Rules.parse
+            |> recoverWith
+                StoppingTokens.afterRule
+                DiagnosticSeverity.Error
+                DiagnosticCode.MissingRule
+                (fun toks ->
+                    let missing =
+                        Rule.Rule(
+                            Pat.Missing,
+                            ValueNone,
+                            virtualToken (PositionedToken.Create(Token.OpArrowRight, 0)),
+                            Expr.Missing
+                        )
+
+                    if toks.IsEmpty then
+                        Rules(ValueNone, [ missing ], [])
+                    else
+                        let missingWithSkips =
+                            Rule.Rule(
+                                Pat.SkipsTokens(toks, Pat.Missing),
+                                ValueNone,
+                                virtualToken (PositionedToken.Create(Token.OpArrowRight, 0)),
+                                Expr.Missing
+                            )
+
+                        Rules(ValueNone, [ missingWithSkips ], [])
+                )
+
         let pMatchBody =
             let pMatchExpr = withContext OffsideContext.Match refExpr.Parser
 
             parser {
                 let! e = pMatchExpr
                 let! w = pWith
-                let! rules = withContext OffsideContext.MatchClauses Rules.parse
+                let! rules = pMatchRules
                 return ExprAux.KeywordExpr(fun m -> Expr.Match(m, e, w, rules))
             }
 
@@ -733,7 +765,7 @@ module Expr =
             withContext
                 OffsideContext.Function
                 (parser {
-                    let! rules = withContext OffsideContext.MatchClauses Rules.parse
+                    let! rules = pMatchRules
                     return ExprAux.KeywordExpr(fun funTok -> Expr.Function(funTok, rules))
                 })
 
@@ -754,7 +786,7 @@ module Expr =
             let pWith =
                 parser {
                     let! withTok = pWith
-                    let! rules = withContext OffsideContext.MatchClauses Rules.parse
+                    let! rules = pMatchRules
 
                     return
                         fun tryExpr -> ExprAux.KeywordExpr(fun tryTok -> Expr.TryWith(tryTok, tryExpr, withTok, rules))

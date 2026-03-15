@@ -1,0 +1,128 @@
+module                              'module'          KWModule            tok=   0  pos=   0
+                                    'Test'            Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                               'let'             KWLet               tok=   5  pos=  13
+    Pat.NamedSimple                 'a'               Identifier          tok=   7  pos=  17
+    =                               '='               OpEquality          tok=   9  pos=  19
+      App:
+        Func:
+          Ident                     'printfn'         Identifier          tok=  11  pos=  21
+        Args:
+          InterpolatedString        '$"'              InterpolatedStringOpen  tok=  13  pos=  29
+          Parts:
+            Text                    'hello '          InterpolatedStringFragment  tok=  14  pos=  31
+            {                       '{'               InterpolatedExpressionOpen  tok=  15  pos=  37
+            Expr:
+              Ident                 'name'            Identifier          tok=  16  pos=  38
+            }                       '}'               InterpolatedExpressionClose  tok=  17  pos=  42
+                                    '"'               InterpolatedStringClose  tok=  18  pos=  43
+FunctionOrValue:
+  let                               'let'             KWLet               tok=  20  pos=  45
+    Pat.NamedSimple                 'b'               Identifier          tok=  22  pos=  49
+    =                               '='               OpEquality          tok=  24  pos=  51
+      App:
+        Func:
+          Ident                     'printfn'         Identifier          tok=  26  pos=  53
+        Args:
+          InterpolatedString        '$"'              InterpolatedStringOpen  tok=  28  pos=  61
+          Parts:
+            Text                    'value: '         InterpolatedStringFragment  tok=  29  pos=  63
+            {                       '{'               InterpolatedExpressionOpen  tok=  30  pos=  70
+            Expr:
+              InfixApp              '+'               op_Addition         tok=  33  pos=  73
+                Ident               'x'               Identifier          tok=  31  pos=  71
+                Const               '1'               NumInt32            tok=  35  pos=  75
+            }                       '}'               InterpolatedExpressionClose  tok=  36  pos=  76
+                                    '"'               InterpolatedStringClose  tok=  37  pos=  77
+FunctionOrValue:
+  let                               'let'             KWLet               tok=  39  pos=  79
+    Pat.NamedSimple                 'c'               Identifier          tok=  41  pos=  83
+    =                               '='               OpEquality          tok=  43  pos=  85
+      App:
+        Func:
+          Ident                     'printfn'         Identifier          tok=  45  pos=  87
+        Args:
+          InterpolatedString        '$@"'             VerbatimInterpolatedStringOpen  tok=  47  pos=  95
+          Parts:
+            Text                    'verbatim '       VerbatimInterpolatedStringFragment  tok=  48  pos=  98
+            {                       '{'               InterpolatedExpressionOpen  tok=  49  pos= 107
+            Expr:
+              Ident                 'path'            Identifier          tok=  50  pos= 108
+            }                       '}'               InterpolatedExpressionClose  tok=  51  pos= 112
+                                    '"'               VerbatimInterpolatedStringClose  tok=  52  pos= 113
+FunctionOrValue:
+  let                               'let'             KWLet               tok=  54  pos= 115
+    Pat.NamedSimple                 'd'               Identifier          tok=  56  pos= 119
+    =                               '='               OpEquality          tok=  58  pos= 121
+      App:
+        Func:
+          Ident                     'printfn'         Identifier          tok=  60  pos= 123
+        Args:
+          InterpolatedString        '$"""'            Interpolated3StringOpen  tok=  62  pos= 131
+          Parts:
+            Text                    'triple '         Interpolated3StringFragment  tok=  63  pos= 135
+            {                       '{'               InterpolatedExpressionOpen  tok=  64  pos= 142
+            Expr:
+              Ident                 'value'           Identifier          tok=  65  pos= 143
+            }                       '}'               InterpolatedExpressionClose  tok=  66  pos= 148
+                                    '"""'             Interpolated3StringClose  tok=  67  pos= 149
+FunctionOrValue:
+  let                               'let'             KWLet               tok=  69  pos= 153
+    Pat.NamedSimple                 'e'               Identifier          tok=  71  pos= 157
+    =                               '='               OpEquality          tok=  73  pos= 159
+      App:
+        Func:
+          Ident                     'f'               Identifier          tok=  75  pos= 161
+        Args:
+          InterpolatedString        '$"'              InterpolatedStringOpen  tok=  77  pos= 163
+          Parts:
+            Text                    'no holes'        InterpolatedStringFragment  tok=  78  pos= 165
+                                    '"'               InterpolatedStringClose  tok=  79  pos= 173
+FunctionOrValue:
+  let                               'let'             KWLet               tok=  81  pos= 175
+    Pat.NamedSimple                 'g'               Identifier          tok=  83  pos= 179
+    =                               '='               OpEquality          tok=  85  pos= 181
+      Match:
+        MatchToken                  'match'           KWMatch             tok=  88  pos= 187
+        MatchExpr:
+          Ident                     'x'               Identifier          tok=  90  pos= 193
+        WithToken                   'with'            KWWith              tok=  92  pos= 195
+        Rule:
+          Bar                       '|'               OpBar               tok=  95  pos= 204
+          Pat:
+            Pat.Named:
+              Ident                 'Some'            Identifier          tok=  97  pos= 206
+              Param:
+                Pat.NamedSimple     'v'               Identifier          tok=  99  pos= 211
+          Arrow                     '->'              OpArrowRight        tok= 101  pos= 213
+          Expr:
+            App:
+              Func:
+                Ident               'sprintf'         Identifier          tok= 103  pos= 216
+              Args:
+                InterpolatedString  '$"'              InterpolatedStringOpen  tok= 105  pos= 224
+                Parts:
+                  Text              'got '            InterpolatedStringFragment  tok= 106  pos= 226
+                  {                 '{'               InterpolatedExpressionOpen  tok= 107  pos= 230
+                  Expr:
+                    Ident           'v'               Identifier          tok= 108  pos= 231
+                  }                 '}'               InterpolatedExpressionClose  tok= 109  pos= 232
+                                    '"'               InterpolatedStringClose  tok= 110  pos= 233
+        Rule:
+          Bar                       '|'               OpBar               tok= 113  pos= 239
+          Pat:
+            Pat.NamedSimple         'None'            Identifier          tok= 115  pos= 241
+          Arrow                     '->'              OpArrowRight        tok= 117  pos= 246
+          Expr:
+            App:
+              Func:
+                Ident               'failwith'        Identifier          tok= 119  pos= 249
+              Args:
+                InterpolatedString  '$"'              InterpolatedStringOpen  tok= 121  pos= 258
+                Parts:
+                  Text              'missing '        InterpolatedStringFragment  tok= 122  pos= 260
+                  {                 '{'               InterpolatedExpressionOpen  tok= 123  pos= 268
+                  Expr:
+                    Ident           'key'             Identifier          tok= 124  pos= 269
+                  }                 '}'               InterpolatedExpressionClose  tok= 125  pos= 272
+                                    '"'               InterpolatedStringClose  tok= 126  pos= 273
