@@ -152,6 +152,7 @@ and TraceCallback(callback: TraceEvent -> unit) =
     member _.Invoke(event) = callback event
 
 and ParseState =
+    // TODO: Refactor to separate the unchanged input/state from the mutable aspects like diagnostics and LastLine and frequently updated Context, to minimize the amount of data being copied on each state update.
     {
         Input: string
         Lexed: Lexed

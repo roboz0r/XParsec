@@ -192,17 +192,47 @@ module Pat =
         parser {
             let! lid = LongIdent.parse
             let! eq = pEquals
-            let! p = refFieldPat.Parser
+            let! p = withContext OffsideContext.SeqBlock refFieldPat.Parser
             return FieldPat(lid, eq, p)
         }
 
     let pRecordPat: Parser<Pat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        parser {
-            let! l = pLBrace
-            let! fields, _ = sepEndBy1 pFieldPat pSemi
-            let! r = pRBrace
-            return Pat.Record(l, List.ofSeq fields, r)
-        }
+        fun reader ->
+            match pLBrace reader with
+            | Error e -> Error e
+            | Ok l ->
+                let savedState = reader.State
+
+                // Push Brace context (indent 0) so closing } is not blocked by offside check
+                let braceEntry: Offside =
+                    {
+                        Context = OffsideContext.Brace
+                        Indent = 0
+                        Token = l.PositionedToken
+                    }
+
+                reader.State <- ParseState.pushOffside braceEntry reader.State
+                let stackDepth = reader.State.Context.Length
+
+                reader.State.Trace.Invoke(
+                    TraceEvent.ContextPush(OffsideContext.Brace, 0, l.PositionedToken, stackDepth)
+                )
+
+                let innerParser =
+                    parser {
+                        let! fields, _ = withContext OffsideContext.SeqBlock (sepEndBy1 pFieldPat pRecordFieldSep)
+                        let! r = pRBrace
+                        return Pat.Record(l, List.ofSeq fields, r)
+                    }
+
+                match innerParser reader with
+                | Ok result ->
+                    reader.State.Trace.Invoke(TraceEvent.ContextPop(OffsideContext.Brace, stackDepth - 1))
+                    reader.State <- ParseState.popOffside reader.State
+                    Ok result
+                | Error _ ->
+                    reader.State <- savedState
+                    fail (Message "Record pattern") reader
 
     let pNamed =
         parser {
@@ -371,9 +401,23 @@ module Rule =
 
 [<RequireQualifiedAccess>]
 module Rules =
+    let private pRule =
+        recoverWith
+            StoppingTokens.afterRule
+            DiagnosticSeverity.Error
+            DiagnosticCode.MissingRule
+            (fun toks ->
+                if toks.IsEmpty then
+                    Rule.Missing
+                else
+                    Rule.SkipsTokens(toks, Rule.Missing)
+            )
+            Rule.parse
+
+
     let parse: Parser<Rules<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
             let! firstBar = opt pBar
-            let! rules, bars = sepBy1 Rule.parse pBar
+            let! rules, bars = sepBy1 pRule pBar
             return Rules(firstBar, List.ofSeq rules, List.ofSeq bars)
         }

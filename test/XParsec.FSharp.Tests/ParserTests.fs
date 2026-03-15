@@ -40,8 +40,10 @@ let tests =
                 match XParsec.FSharp.Lexer.Lexing.lexString input with
                 | Error e -> failtestf "Lexing failed: %A" e
                 | Ok lexed ->
-                    let events = List<XParsec.FSharp.Parser.TraceEvent>()
-                    let traceCallback = XParsec.FSharp.Parser.TraceCallback(events.Add)
+                    let events = ResizeArray()
+
+                    let traceCallback =
+                        XParsec.FSharp.Parser.TraceCallback(fun x -> lock events (fun () -> events.Add x))
 
                     let reader =
                         XParsec.FSharp.Parser.Reader.ofLexedWithTracing lexed input Set.empty traceCallback
@@ -63,10 +65,9 @@ let tests =
                                 input.Substring(pos)
 
                         let lastEvents =
-                            events
-                            |> Seq.toArray
+                            lock events (fun () -> events.ToArray())
                             |> Array.rev
-                            |> Array.truncate 20
+                            |> Array.truncate 80
                             |> Array.rev
                             |> Array.map XParsec.FSharp.Parser.TraceEvent.format
                             |> String.concat "\n  "
@@ -85,7 +86,7 @@ let tests =
                                 events
                                 |> Seq.toArray
                                 |> Array.rev
-                                |> Array.truncate 20
+                                |> Array.truncate 80
                                 |> Array.rev
                                 |> Array.map XParsec.FSharp.Parser.TraceEvent.format
                                 |> String.concat "\n  "

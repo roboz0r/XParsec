@@ -765,6 +765,30 @@ module Parsing =
             reader.State <- savedState
             e
 
+    /// Record field separator: accepts a real ';' or emits a virtual separator when the next
+    /// token is at the same indent as the enclosing SeqBlock context (spec §15.1.5: $sep insertion).
+    let pRecordFieldSep: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+        let failSep = fail (Message "Expected ';' or newline at the same indent")
+
+        parser {
+            match! peekNextNonTriviaToken with
+            | t when t.Token = Token.OpSemicolon -> return! consumePeeked t
+            | t when t.Token = Token.KWRBrace -> return! failSep
+            | t ->
+                let! indent = currentIndent
+                let! state = getUserState
+
+                let atContextIndent =
+                    match state.Context with
+                    | { Indent = ctxIndent } :: _ -> indent = ctxIndent
+                    | [] -> false
+
+                if atContextIndent then
+                    return virtualToken (PositionedToken.Create(Token.OpSemicolon, t.StartIndex))
+                else
+                    return! failSep
+        }
+
     /// Fails if the next non-trivia token is 't'. Saves and restores reader position fully.
     let notFollowedByNonTriviaToken t (reader: Reader<PositionedToken, ParseState, _, _>) =
         let pos = reader.Position
