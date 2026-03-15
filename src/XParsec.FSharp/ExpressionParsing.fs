@@ -162,7 +162,7 @@ module FieldInitializer =
         parser {
             let! id = LongIdent.parse
             let! equals = pEquals
-            let! expr = refExprInRecords.Parser
+            let! expr = withContext OffsideContext.SeqBlock refExprInRecords.Parser
             return FieldInitializer(id, equals, expr)
         }
 
@@ -546,7 +546,8 @@ module Expr =
                     | Token.KWRBracket
                     | Token.KWRArrayBracket
                     | Token.KWRParen
-                    | Token.KWEnd -> return! failSep
+                    | Token.KWEnd
+                    | Token.OpBar -> return! failSep
                     | _ when TokenInfo.isOperator t.Token && not (TokenInfo.canBePrefix t.Token) -> return! failSep
                     | _ ->
                         let! indent = currentIndent
@@ -1364,13 +1365,18 @@ module Expr =
                             parser {
                                 let! baseExpr = refExprInRecords.Parser
                                 let! withTok = pWith
-                                let! fields, _ = sepBy1 FieldInitializer.parse pSemi
+
+                                let! fields, _ =
+                                    withContext OffsideContext.SeqBlock (sepBy1 FieldInitializer.parse pRecordFieldSep)
+
                                 let! rBrace = pRBrace
                                 return Expr.RecordClone(lBrace, baseExpr, withTok, List.ofSeq fields, rBrace)
                             }
                             // { Field = val; ... } — record literal
                             parser {
-                                let! fields, _ = sepBy1 FieldInitializer.parse pSemi
+                                let! fields, _ =
+                                    withContext OffsideContext.SeqBlock (sepBy1 FieldInitializer.parse pRecordFieldSep)
+
                                 let! rBrace = pRBrace
                                 return Expr.Record(lBrace, List.ofSeq fields, rBrace)
                             }

@@ -1,0 +1,55 @@
+module                             'module'          KWModule            tok=   0  pos=   0
+                                   'Test169'         Identifier          tok=   2  pos=   7
+TypeDefn.Record:
+  TypeName                         'R'               Identifier          tok=   7  pos=  21
+  =                                '='               OpEquality          tok=   9  pos=  23
+  {                                '{'               KWLBrace            tok=  11  pos=  25
+    Field:
+      ident                        'A'               Identifier          tok=  13  pos=  27
+      :                            ':'               OpColon             tok=  14  pos=  28
+      NamedType:
+        LongIdent:
+                                   'int'             Identifier          tok=  16  pos=  30
+    Field:
+      ident                        'B'               Identifier          tok=  19  pos=  35
+      :                            ':'               OpColon             tok=  20  pos=  36
+      NamedType:
+        LongIdent:
+                                   'string'          Identifier          tok=  22  pos=  38
+  }                                '}'               KWRBrace            tok=  24  pos=  45
+FunctionOrValue:
+  let                              'let'             KWLet               tok=  27  pos=  48
+    Pat.NamedSimple                'f'               Identifier          tok=  29  pos=  52
+    Pats:
+      Pat.NamedSimple              'x'               Identifier          tok=  31  pos=  54
+    =                              '='               OpEquality          tok=  33  pos=  56
+      Match:
+        MatchToken                 'match'           KWMatch             tok=  36  pos=  62
+        MatchExpr:
+          Ident                    'x'               Identifier          tok=  38  pos=  68
+        WithToken                  'with'            KWWith              tok=  40  pos=  70
+        Rule:
+          Bar                      '|'               OpBar               tok=  43  pos=  79
+          Pat:
+            Pat.Record             '{'               KWLBrace            tok=  45  pos=  81
+              FieldPat:
+                Ident              'A'               Identifier          tok=  48  pos=  95
+                =                  '='               OpEquality          tok=  50  pos=  97
+                Pat:
+                  Pat.NamedSimple  'a'               Identifier          tok=  52  pos=  99
+              FieldPat:
+                Ident              'B'               Identifier          tok=  55  pos= 113
+                =                  '='               OpEquality          tok=  57  pos= 115
+                Pat:
+                  Pat.NamedSimple  'b'               Identifier          tok=  59  pos= 117
+                                   '}'               KWRBrace            tok=  62  pos= 127
+          Arrow                    '->'              OpArrowRight        tok=  64  pos= 129
+          Expr:
+            Const                  'true'            KWTrue              tok=  66  pos= 132
+        Rule:
+          Bar                      '|'               OpBar               tok=  69  pos= 141
+          Pat:
+            Pat.Wildcard           '_'               Wildcard            tok=  71  pos= 143
+          Arrow                    '->'              OpArrowRight        tok=  73  pos= 145
+          Expr:
+            Const                  'false'           KWFalse             tok=  75  pos= 148

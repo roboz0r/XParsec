@@ -1,0 +1,41 @@
+module               'module'          KWModule            tok=   0  pos=   0
+                     'Test170'         Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                'let'             KWLet               tok=   5  pos=  16
+    Pat.NamedSimple  'x'               Identifier          tok=   7  pos=  20
+    =                '='               OpEquality          tok=   9  pos=  22
+      Record         '{'               KWLBrace            tok=  12  pos=  28
+        Field:
+          LongIdent:
+                     'A'               Identifier          tok=  14  pos=  30
+          =          '='               OpEquality          tok=  16  pos=  32
+          Expr:
+            Const    '1'               NumInt32            tok=  18  pos=  34
+        Field:
+          LongIdent:
+                     'B'               Identifier          tok=  21  pos=  42
+          =          '='               OpEquality          tok=  23  pos=  44
+          Expr:
+            Const    '2'               NumInt32            tok=  25  pos=  46
+                     '}'               KWRBrace            tok=  27  pos=  48
+FunctionOrValue:
+  let                'let'             KWLet               tok=  30  pos=  51
+    Pat.NamedSimple  'y'               Identifier          tok=  32  pos=  55
+    =                '='               OpEquality          tok=  34  pos=  57
+      RecordClone    '{'               KWLBrace            tok=  37  pos=  63
+        Base:
+          Ident      'x'               Identifier          tok=  39  pos=  65
+        with         'with'            KWWith              tok=  41  pos=  67
+        Field:
+          LongIdent:
+                     'A'               Identifier          tok=  44  pos=  80
+          =          '='               OpEquality          tok=  46  pos=  82
+          Expr:
+            Const    '3'               NumInt32            tok=  48  pos=  84
+        Field:
+          LongIdent:
+                     'B'               Identifier          tok=  51  pos=  94
+          =          '='               OpEquality          tok=  53  pos=  96
+          Expr:
+            Const    '4'               NumInt32            tok=  55  pos=  98
+                     '}'               KWRBrace            tok=  57  pos= 100
