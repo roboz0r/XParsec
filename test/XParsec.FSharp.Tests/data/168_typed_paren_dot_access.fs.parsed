@@ -1,0 +1,28 @@
+module                     'module'          KWModule            tok=   0  pos=   0
+                           'Test168'         Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                      'let'             KWLet               tok=   5  pos=  16
+    Pat.NamedSimple        'y'               Identifier          tok=   7  pos=  20
+    =                      '='               OpEquality          tok=   9  pos=  22
+      HighPrecedenceApp:
+        Func:
+          DotLookup:
+            Expr:
+              ParenBlock   '('               KWLParen            tok=  11  pos=  24
+                TypeAnnotation:
+                  Expr:
+                    Const  '1'               NumInt32            tok=  12  pos=  25
+                  Colon    ':'               OpColon             tok=  13  pos=  26
+                  NamedType:
+                    LongIdent:
+                           'int'             Identifier          tok=  15  pos=  28
+                           ')'               KWRParen            tok=  16  pos=  31
+            Dot            '.'               OpDot               tok=  17  pos=  32
+            LongIdentOrOp:
+              LongIdent:
+                           'ToString'        Identifier          tok=  18  pos=  33
+        (                  '('               KWLParen            tok=  19  pos=  41
+        Arg:
+          ParenBlock       '('               KWLParen            tok=  19  pos=  41
+                           ')'               KWRParen            tok=  20  pos=  42
+                           ')'               KWRParen            tok=  20  pos=  42

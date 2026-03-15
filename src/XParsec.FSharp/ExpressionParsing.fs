@@ -908,6 +908,9 @@ module Expr =
             // for correct offside behaviour. After the definition, we check for 'in' or emit
             // a virtual 'in' for the offside rule, then parse the body expression.
             parser {
+                // TODO: Move this indent-peeking logic into a separate parser combinator that runs before the main body parser to set up the correct offside context,
+                // so we don't have to repeat it for let and use and potentially other keywords with similar offside rules in the future (e.g. maybe 'do' in computation expressions).
+                // Apply the same logic to other LHS keywords as well (e.g. if, match) that have offside rules for their bodies.
                 let! kwTok = peekNextNonTriviaToken
 
                 match kwTok.Token with
@@ -1178,6 +1181,18 @@ module Expr =
         let skipsTokens toks missing = Expr.SkipsTokens(toks, missing)
         pEnclosed completeEmpty completeEnclosed Expr.Missing skipsTokens
 
+    let private pExprOrTypedPat =
+        parser {
+            let! expr = refExprSeqBlock.Parser
+
+            match! peekNextNonTriviaToken with
+            | t when t.Token = Token.OpColon ->
+                let! colon = consumePeeked t
+                let! typ = Type.parse
+                return Expr.TypeAnnotation(expr, colon, typ)
+            | _ -> return expr
+        }
+
     let pParen =
         pEnclosed
             pLParen
@@ -1185,7 +1200,7 @@ module Expr =
             ParenKind.Paren
             OffsideContext.Paren
             DiagnosticCode.ExpectedRParen
-            refExprSeqBlock.Parser
+            pExprOrTypedPat
 
     let pBeginEnd =
         pEnclosed
