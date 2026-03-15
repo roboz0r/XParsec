@@ -17,6 +17,7 @@ module Constant =
         || t = Token.KWTrue
         || t = Token.KWFalse
         || t = Token.KWNull
+        || t = Token.CharLiteral
         || t = Token.StringLiteral
         || t = Token.String3Literal
         || t = Token.VerbatimStringLiteral

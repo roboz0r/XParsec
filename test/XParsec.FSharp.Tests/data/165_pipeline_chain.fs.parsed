@@ -1,0 +1,41 @@
+module                     'module'          KWModule            tok=   0  pos=   0
+                           'Test165'         Identifier          tok=   2  pos=   7
+Import:
+  open                     'open'            KWOpen              tok=   5  pos=  16
+                           'System'          Identifier          tok=   7  pos=  21
+                           'Text'            Identifier          tok=   9  pos=  28
+FunctionOrValue:
+  let                      'let'             KWLet               tok=  12  pos=  34
+    Pat.NamedSimple        'f'               Identifier          tok=  14  pos=  38
+    Pats:
+      ParenBlock           '('               KWLParen            tok=  16  pos=  40
+        Pat.Typed:
+          Pat.NamedSimple  'sb'              Identifier          tok=  17  pos=  41
+          Colon            ':'               OpColon             tok=  18  pos=  43
+          NamedType:
+            LongIdent:
+                           'StringBuil...'   Identifier          tok=  20  pos=  45
+                           ')'               KWRParen            tok=  21  pos=  58
+    =                      '='               OpEquality          tok=  23  pos=  60
+      HighPrecedenceApp:
+        Func:
+          DotLookup:
+            Expr:
+              HighPrecedenceApp:
+                Func:
+                  LongIdentOrOp:
+                    LongIdent:
+                           'sb'              Identifier          tok=  26  pos=  66
+                           'Append'          Identifier          tok=  28  pos=  69
+                (          '('               KWLParen            tok=  29  pos=  75
+                Arg:
+                  Const    ''a''             CharLiteral         tok=  30  pos=  76
+                           ')'               KWRParen            tok=  31  pos=  79
+            Dot            '.'               OpDot               tok=  32  pos=  80
+            LongIdentOrOp:
+              LongIdent:
+                           'Append'          Identifier          tok=  33  pos=  81
+        (                  '('               KWLParen            tok=  34  pos=  87
+        Arg:
+          Const            ''b''             CharLiteral         tok=  35  pos=  88
+                           ')'               KWRParen            tok=  36  pos=  91

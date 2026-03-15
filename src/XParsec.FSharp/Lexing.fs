@@ -307,6 +307,7 @@ module LexBuilder =
     let complete idx (state: LexBuilder) =
         // Unwind any unclosed interpolated string contexts
         let rec unwindContext (ctx: LexContext list) =
+            // TODO: Handle other unclosed contexts (e.g. unterminated #if) — currently we just ignore them and let the parser handle any resulting errors
             match ctx with
             | [] -> ()
             | LexContext.InterpolatedString :: rest
