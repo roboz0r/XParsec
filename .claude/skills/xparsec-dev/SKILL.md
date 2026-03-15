@@ -7,7 +7,7 @@ description: Use this when you need to build the project, run tests, or format F
 
 You are operating on a Windows machine in the `XParsec` repository. To perform development tasks safely, you MUST use the local wrapper script (`./claude_tools.cmd`).
 
-- **DO NOT** use native Bash tools (`grep`, `tail`, `ls`) or raw `dotnet` commands. They will trigger permission blocks or flood your context window.
+- **DO NOT** use raw `dotnet` commands. They will trigger permission blocks or flood your context window.
 - **DO** use the **serena** MCP to search within the repository and navigate the codebase efficiently.
 
 ## Available Actions

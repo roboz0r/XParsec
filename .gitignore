@@ -409,3 +409,7 @@ interactive/XParsec.Client/build/
 .fsdocs/
 output/
 tmp/
+
+# LLM Tools
+.claude/settings.local.json
+.serena/

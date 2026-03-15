@@ -43,6 +43,11 @@ $LogFile = "claude_tools_output.log"
 # Clear previous run logs
 if (Test-Path $LogFile) { Clear-Content $LogFile }
 
+# --- FIX ENCODING HERE ---
+# Temporarily set the console to expect UTF-8 from external executables like 'dotnet'
+$originalConsoleEncoding = [Console]::OutputEncoding
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
 switch ($Action) {
     "Build" {
         if ([string]::IsNullOrWhiteSpace($SourceProject)) {
@@ -93,3 +98,6 @@ switch ($Action) {
         dotnet fantomas . 2>&1 | Tee-Object -FilePath $LogFile
     }
 }
+        
+# Restore the original encoding
+[Console]::OutputEncoding = $originalConsoleEncoding
