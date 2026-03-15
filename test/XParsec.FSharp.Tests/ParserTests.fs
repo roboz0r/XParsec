@@ -1,6 +1,7 @@
 module XParsec.FSharp.Lexer.Tests.ParserTests
 
 open System.IO
+open System.Collections.Generic
 
 open Expecto
 
@@ -39,7 +40,11 @@ let tests =
                 match XParsec.FSharp.Lexer.Lexing.lexString input with
                 | Error e -> failtestf "Lexing failed: %A" e
                 | Ok lexed ->
-                    let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed input Set.empty
+                    let events = List<XParsec.FSharp.Parser.TraceEvent>()
+                    let traceCallback = XParsec.FSharp.Parser.TraceCallback(events.Add)
+
+                    let reader =
+                        XParsec.FSharp.Parser.Reader.ofLexedWithTracing lexed input Set.empty traceCallback
 
                     let task =
                         System.Threading.Tasks.Task.Run(fun () -> XParsec.FSharp.Parser.FSharpAst.parse reader)
@@ -57,18 +62,38 @@ let tests =
                             else
                                 input.Substring(pos)
 
+                        let lastEvents =
+                            events
+                            |> Seq.toArray
+                            |> Array.rev
+                            |> Array.truncate 20
+                            |> Array.rev
+                            |> Array.map XParsec.FSharp.Parser.TraceEvent.format
+                            |> String.concat "\n  "
+
                         failtestf
-                            "Parsing stuck at reader index %d, token %A at line %d: '%s'"
+                            "Parsing stuck at reader index %d, token %A at line %d: '%s'\n\nLast trace events:\n  %s"
                             stuckIdx
                             tok
                             line
                             (context.Replace("\n", "\\n"))
+                            lastEvents
                     else
                         match task.Result with
                         | Error e ->
+                            let lastEvents =
+                                events
+                                |> Seq.toArray
+                                |> Array.rev
+                                |> Array.truncate 20
+                                |> Array.rev
+                                |> Array.map XParsec.FSharp.Parser.TraceEvent.format
+                                |> String.concat "\n  "
+
                             failtestf
-                                "Parsing failed:\n%s"
+                                "Parsing failed:\n%s\n\nLast trace events:\n  %s"
                                 (XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
+                                lastEvents
                         | Ok _ -> ()
             }
         ]
@@ -100,5 +125,87 @@ let integrityTests =
                         "Found %d orphaned golden file(s) with no corresponding .fs source:\n  %s"
                         orphans.Length
                         fileList
+            }
+        ]
+
+[<Tests>]
+let tracingTests =
+    testList
+        "TracingTests"
+        [
+            test "Tracing emits ContextPush events" {
+                let input = "let x = 1"
+
+                match XParsec.FSharp.Lexer.Lexing.lexString input with
+                | Error e -> failtestf "Lexing failed: %A" e
+                | Ok lexed ->
+                    let events = List<XParsec.FSharp.Parser.TraceEvent>()
+                    let traceCallback = XParsec.FSharp.Parser.TraceCallback(events.Add)
+
+                    let reader =
+                        XParsec.FSharp.Parser.Reader.ofLexedWithTracing lexed input Set.empty traceCallback
+
+                    match XParsec.FSharp.Parser.FSharpAst.parse reader with
+                    | Error e ->
+                        failtestf
+                            "Parsing failed:\n%s"
+                            (XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
+                    | Ok _ ->
+                        let pushEvents =
+                            events
+                            |> Seq.filter (fun e ->
+                                match e with
+                                | XParsec.FSharp.Parser.TraceEvent.ContextPush _ -> true
+                                | _ -> false
+                            )
+                            |> Seq.length
+
+                        Expect.isGreaterThan pushEvents 0 "Expected at least one ContextPush event"
+
+                        let consumeEvents =
+                            events
+                            |> Seq.filter (fun e ->
+                                match e with
+                                | XParsec.FSharp.Parser.TraceEvent.TokenConsumed _ -> true
+                                | _ -> false
+                            )
+                            |> Seq.length
+
+                        Expect.isGreaterThan consumeEvents 0 "Expected at least one TokenConsumed event"
+            }
+
+            test "Tracing is off by default" {
+                let input = "let x = 1"
+
+                match XParsec.FSharp.Lexer.Lexing.lexString input with
+                | Error e -> failtestf "Lexing failed: %A" e
+                | Ok lexed ->
+                    let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed input Set.empty
+
+                    // Should parse successfully with default (no-op) tracing
+                    match XParsec.FSharp.Parser.FSharpAst.parse reader with
+                    | Error e ->
+                        failtestf
+                            "Parsing failed:\n%s"
+                            (XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
+                    | Ok _ -> ()
+            }
+
+            test "TraceEvent.format produces non-empty strings" {
+                let events =
+                    [
+                        XParsec.FSharp.Parser.TraceEvent.ContextPush(
+                            XParsec.FSharp.Parser.OffsideContext.Let,
+                            4,
+                            XParsec.FSharp.Lexer.PositionedToken.Create(XParsec.FSharp.Lexer.Token.KWLet, 0),
+                            1
+                        )
+                        XParsec.FSharp.Parser.TraceEvent.ContextPop(XParsec.FSharp.Parser.OffsideContext.Let, 0)
+                        XParsec.FSharp.Parser.TraceEvent.VirtualToken(XParsec.FSharp.Lexer.Token.VirtualSep, 10)
+                    ]
+
+                for event in events do
+                    let formatted = XParsec.FSharp.Parser.TraceEvent.format event
+                    Expect.isNotEmpty formatted "TraceEvent.format should produce non-empty output"
             }
         ]

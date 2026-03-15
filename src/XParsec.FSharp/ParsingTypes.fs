@@ -196,7 +196,7 @@ module SyntaxToken =
         }
 
 module ParseState =
-    let create (lexed: Lexed) input definedSymbols =
+    let createWithTracing (lexed: Lexed) input definedSymbols (trace: TraceCallback) =
         {
             Input = input
             Lexed = lexed
@@ -209,8 +209,11 @@ module ParseState =
             CharsConsumedAfterTypeParams = 0
             ConditionalCompilationStack = []
             SplitRAttrBracket = false
-            Trace = TraceCallback.Empty
+            Trace = trace
         }
+
+    let create (lexed: Lexed) input definedSymbols =
+        createWithTracing lexed input definedSymbols TraceCallback.Empty
 
     let setIndentOn (state: ParseState) =
         { state with
@@ -392,4 +395,13 @@ module TraceEvent =
 module Reader =
     let ofLexed (lexed: Lexed) (input: string) (definedSymbols: Set<string>) : Reader<_, ParseState, _, _> =
         let initialState = ParseState.create lexed input definedSymbols
+        Reader.ofImmutableArray (lexed.Tokens.AsImmutableArray()) initialState
+
+    let ofLexedWithTracing
+        (lexed: Lexed)
+        (input: string)
+        (definedSymbols: Set<string>)
+        (trace: TraceCallback)
+        : Reader<_, ParseState, _, _> =
+        let initialState = ParseState.createWithTracing lexed input definedSymbols trace
         Reader.ofImmutableArray (lexed.Tokens.AsImmutableArray()) initialState
