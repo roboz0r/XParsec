@@ -801,6 +801,7 @@ let tests4 =
                         [
                             SimpleError.Message "Expected close ternary operator"
                             SimpleError.EndOfInput
+                            SimpleError.Message "RHS did not match any known operator"
                         ]
                      ),
                      3)
@@ -811,6 +812,7 @@ let tests4 =
                         [
                             SimpleError.Message "Expected closing operator 'RParen'"
                             SimpleError.EndOfInput
+                            SimpleError.Message "RHS did not match any known operator"
                         ]
                      ),
                      2)
