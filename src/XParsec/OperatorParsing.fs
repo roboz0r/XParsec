@@ -355,271 +355,536 @@ module internal Pratt =
         | hardErr, ValueSome s -> ParseError.createNested failure [ hardErr; s ] hardErr.Position
         | hardErr, ValueNone -> hardErr
 
+    let private ensureAdvanced (pos: Position<'State>) (reader: Reader<_, _, _, _>) : unit =
+        if reader.Index = pos.Index then
+            raise (InfiniteLoopException(pos))
+
+    // ── RHS operator case helpers ──────────────────────────────────────
+    // Each case is a separate function so the JIT allocates stack only for
+    // the locals of the branch actually taken, rather than for all branches.
+
+    let private rhsInfix
+        (parseLhsInternal: _ -> _ -> byte<bp> -> _ -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
+        (parseRhsInternal:
+            _
+                -> _
+                -> byte<bp>
+                -> 'Expr
+                -> ParseError<'T, 'State> voption
+                -> _
+                -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
+        pExpr
+        ops
+        minBinding
+        lhs
+        (errAcc: ParseError<'T, 'State> voption)
+        pos
+        rightPower
+        op
+        completeInfix
+        (reader: Reader<_, _, _, _>)
+        =
+        match parseLhsInternal pExpr ops rightPower reader with
+        | Ok { Expr = rhs; Error = errRhs } ->
+            ensureAdvanced pos reader
+            let combinedErr = mergeSoftErrors errAcc errRhs
+            parseRhsInternal pExpr ops minBinding (completeInfix lhs op rhs) combinedErr reader
+        | Error e -> Error(mergeWithError e errAcc)
+
+    let private rhsInfixNary
+        (parseLhsInternal: _ -> _ -> byte<bp> -> _ -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
+        (parseRhsInternal:
+            _
+                -> _
+                -> byte<bp>
+                -> 'Expr
+                -> ParseError<'T, 'State> voption
+                -> _
+                -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
+        pExpr
+        (ops: Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>)
+        minBinding
+        lhs
+        leftPower
+        op
+        allowTrailingOp
+        completeNary
+        (reader: Reader<_, _, _, _>)
+        =
+        let rec loopNary (items: ResizeArray<'Expr>) (parsedOps: ResizeArray<'Op>) accumulatedErr =
+            let rightPower = leftPower + 1uy<bp>
+
+            match parseLhsInternal pExpr ops rightPower reader with
+            | Error e when allowTrailingOp ->
+                if parsedOps.Count > 0 then
+                    parsedOps.RemoveAt(parsedOps.Count - 1)
+
+                preturn (items, ValueSome(mergeWithError e accumulatedErr)) reader
+            | Error e -> Error(mergeWithError e accumulatedErr)
+            | Ok { Expr = next; Error = errNext } ->
+                items.Add next
+                let currentErr = mergeSoftErrors accumulatedErr errNext
+                let nextPos = reader.Position
+
+                match ops.RhsParser reader with
+                | Ok nextOp ->
+                    match nextOp with
+                    | InfixNary(nextSym, _, _, _, _) when ops.OpComparer.Equals(nextSym, op) ->
+                        ensureAdvanced nextPos reader
+                        parsedOps.Add nextSym
+                        loopNary items parsedOps currentErr
+                    | _ ->
+                        reader.Position <- nextPos
+                        preturn (items, currentErr) reader
+                | Error errRhs ->
+                    reader.Position <- nextPos
+                    preturn (items, mergeSoftErrors currentErr (ValueSome errRhs)) reader
+
+        let items = ResizeArray()
+        let parsedOps = ResizeArray()
+        items.Add lhs
+        parsedOps.Add op
+
+        match loopNary items parsedOps ValueNone with
+        | Ok(items, errOpt) ->
+            match parseRhsInternal pExpr ops minBinding (completeNary items parsedOps) errOpt reader with
+            | Ok { Expr = finalExpr; Error = errFinal } ->
+                preturn (PrattParsed.withError finalExpr (mergeSoftErrors errOpt errFinal)) reader
+            | Error e -> Error(mergeWithError e errOpt)
+        | Error e -> Error e
+
+    let private rhsInfixMapped
+        (parseRhsInternal:
+            _
+                -> _
+                -> byte<bp>
+                -> 'Expr
+                -> ParseError<'T, 'State> voption
+                -> _
+                -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
+        pExpr
+        ops
+        minBinding
+        lhs
+        (errAcc: ParseError<'T, 'State> voption)
+        pos
+        op
+        (parseRight: Parser<_, 'T, 'State, 'Input, 'InputSlice>)
+        complete
+        (reader: Reader<_, _, _, _>)
+        =
+        match parseRight reader with
+        | Ok rightContent ->
+            ensureAdvanced pos reader
+            parseRhsInternal pExpr ops minBinding (complete lhs op rightContent) errAcc reader
+        | Error e -> Error(mergeWithError e errAcc)
+
+    let private rhsIndexer
+        (parseRhsInternal:
+            _
+                -> _
+                -> byte<bp>
+                -> 'Expr
+                -> ParseError<'T, 'State> voption
+                -> _
+                -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
+        pExpr
+        ops
+        minBinding
+        lhs
+        (errAcc: ParseError<'T, 'State> voption)
+        pos
+        op
+        (parseCloseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice>)
+        (innerParser: Parser<_, 'T, 'State, 'Input, 'InputSlice>)
+        completeIndexer
+        (reader: Reader<_, _, _, _>)
+        =
+        match innerParser reader with
+        | Ok inner ->
+            ensureAdvanced pos reader
+
+            match parseCloseOp reader with
+            | Ok closeTok ->
+                ensureAdvanced pos reader
+                parseRhsInternal pExpr ops minBinding (completeIndexer lhs op inner closeTok) errAcc reader
+            | Error e -> Error(mergeWithError e errAcc)
+        | Error e -> Error(mergeWithError e errAcc)
+
+    let private rhsTernary
+        (parseLhsInternal: _ -> _ -> byte<bp> -> _ -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
+        (parseRhsInternal:
+            _
+                -> _
+                -> byte<bp>
+                -> 'Expr
+                -> ParseError<'T, 'State> voption
+                -> _
+                -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
+        pExpr
+        ops
+        minBinding
+        lhs
+        (errAcc: ParseError<'T, 'State> voption)
+        pos
+        op
+        rightPower
+        (parseTernaryOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice>)
+        completeTernary
+        (reader: Reader<_, _, _, _>)
+        =
+        match parseLhsInternal pExpr ops rightPower reader with
+        | Ok { Expr = mid; Error = errMid } ->
+            match parseTernaryOp reader with
+            | Ok ternaryOp ->
+                match parseLhsInternal pExpr ops rightPower reader with
+                | Ok { Expr = rhs; Error = errRhs } ->
+                    ensureAdvanced pos reader
+                    let combinedErr = mergeSoftErrors errAcc errRhs
+                    parseRhsInternal pExpr ops minBinding (completeTernary lhs op mid ternaryOp rhs) combinedErr reader
+                | Error e -> Error(mergeWithError e errAcc)
+            | Error e ->
+                let expectedMsg =
+                    { e with
+                        Errors = Message "Expected close ternary operator"
+                    }
+
+                let hard = ParseError.createNested failure [ expectedMsg; e ] e.Position
+                Error(mergeWithError hard errMid)
+        | Error e -> Error e
+
+    // ── LHS operator case helpers ──────────────────────────────────────
+
+    let private lhsPrefix
+        (parseLhsInternal: _ -> _ -> byte<bp> -> _ -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
+        (parseRhsInternal:
+            _
+                -> _
+                -> byte<bp>
+                -> 'Expr
+                -> ParseError<'T, 'State> voption
+                -> _
+                -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
+        pExpr
+        ops
+        minBinding
+        op
+        rightPower
+        completePrefix
+        (reader: Reader<_, _, _, _>)
+        =
+        match parseLhsInternal pExpr ops rightPower reader with
+        | Ok { Expr = rhs; Error = errOpt } ->
+            match parseRhsInternal pExpr ops minBinding (completePrefix op rhs) errOpt reader with
+            | Ok { Expr = finalExpr; Error = errFinal } ->
+                preturn (PrattParsed.withError finalExpr (mergeSoftErrors errOpt errFinal)) reader
+            | Error e -> Error(mergeWithError e errOpt)
+        | Error e -> Error e
+
+    let private lhsEnclosed
+        (parseLhsInternal: _ -> _ -> byte<bp> -> _ -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
+        (parseRhsInternal:
+            _
+                -> _
+                -> byte<bp>
+                -> 'Expr
+                -> ParseError<'T, 'State> voption
+                -> _
+                -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
+        pExpr
+        ops
+        minBinding
+        op
+        (closeOp: 'Op)
+        (closeOpParser: Parser<'Op, 'T, 'State, 'Input, 'InputSlice>)
+        completeBracket
+        (reader: Reader<_, _, _, _>)
+        =
+        match parseLhsInternal pExpr ops Precedence.MinP reader with
+        | Ok { Expr = inner; Error = errOpt } ->
+            match closeOpParser reader with
+            | Ok closeTok ->
+                match parseRhsInternal pExpr ops minBinding (completeBracket op inner closeTok) errOpt reader with
+                | Ok { Expr = finalExpr; Error = errFinal } ->
+                    preturn (PrattParsed.withError finalExpr (mergeSoftErrors errOpt errFinal)) reader
+                | Error e -> Error(mergeWithError e errOpt)
+            | Error e ->
+                let expectedMsg =
+                    { e with
+                        Errors = Message $"Expected closing operator '{closeOp}'"
+                    }
+
+                let hard = ParseError.createNested failure [ expectedMsg; e ] e.Position
+                Error(mergeWithError hard errOpt)
+        | Error e -> Error e
+
+    let private lhsTernary
+        (parseLhsInternal: _ -> _ -> byte<bp> -> _ -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
+        (parseRhsInternal:
+            _
+                -> _
+                -> byte<bp>
+                -> 'Expr
+                -> ParseError<'T, 'State> voption
+                -> _
+                -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
+        pExpr
+        ops
+        minBinding
+        op
+        rightPower
+        (delim: 'Op)
+        (parseDelim: Parser<'Op, 'T, 'State, 'Input, 'InputSlice>)
+        complete
+        (reader: Reader<_, _, _, _>)
+        =
+        match parseLhsInternal pExpr ops rightPower reader with
+        | Ok { Expr = condition; Error = errCond } ->
+            match parseDelim reader with
+            | Ok delimTok ->
+                match parseLhsInternal pExpr ops Precedence.MinP reader with
+                | Ok { Expr = body; Error = errBody } ->
+                    match
+                        parseRhsInternal
+                            pExpr
+                            ops
+                            minBinding
+                            (complete op condition delimTok body)
+                            (mergeSoftErrors errCond errBody)
+                            reader
+                    with
+                    | Ok { Expr = finalExpr; Error = errFinal } ->
+                        let combined = mergeSoftErrors errCond errBody |> mergeSoftErrors errFinal
+                        preturn (PrattParsed.withError finalExpr combined) reader
+                    | Error e -> Error(mergeWithError e (mergeSoftErrors errCond errBody))
+                | Error e -> Error(mergeWithError e errCond)
+            | Error e ->
+                let expectedMsg =
+                    { e with
+                        Errors = Message $"Expected delimiter '{delim}'"
+                    }
+
+                let hard = ParseError.createNested failure [ expectedMsg; e ] e.Position
+                Error(mergeWithError hard errCond)
+        | Error e -> Error e
+
+    // ── Core recursive functions ───────────────────────────────────────
+
+    [<TailCall>]
     let rec private parseRhsInternal
         (pExpr: Parser<'Expr, 'T, _, _, _>)
         (ops: Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>)
         minBinding
         lhs
+        (errAcc: ParseError<'T, 'State> voption)
         (reader: Reader<_, _, _, _>)
         : ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _> =
-
-        let inline parseRhsInternal lhs reader =
-            parseRhsInternal pExpr ops minBinding lhs reader
-
-        let inline parseLhsInternal minBinding reader =
-            parseLhsInternal pExpr ops minBinding reader
 
         let pos = reader.Position
 
         match ops.RhsParser reader with
         | Ok op ->
             match op with
-            | Postfix(op, parseOp, leftPower, completePostfix) ->
+            | Postfix(op, _parseOp, leftPower, completePostfix) ->
+                if leftPower < minBinding then
+                    reader.Position <- pos
+                    preturn (PrattParsed.withError lhs errAcc) reader
+                elif leftPower = minBinding then
+                    fail ambiguous reader
+                else
+                    ensureAdvanced pos reader
+                    parseRhsInternal pExpr ops minBinding (completePostfix lhs op) errAcc reader
+
+            | InfixLeft(op, _parseOp, leftPower, completeInfix) ->
+                if leftPower < minBinding then
+                    reader.Position <- pos
+                    preturn (PrattParsed.withError lhs errAcc) reader
+                elif leftPower = minBinding then
+                    fail ambiguous reader
+                else
+                    rhsInfix
+                        parseLhsInternal
+                        parseRhsInternal
+                        pExpr
+                        ops
+                        minBinding
+                        lhs
+                        errAcc
+                        pos
+                        (leftPower + 1uy<bp>)
+                        op
+                        completeInfix
+                        reader
+
+            | InfixRight(op, _parseOp, leftPower, completeInfix) ->
+                if leftPower < minBinding then
+                    reader.Position <- pos
+                    preturn (PrattParsed.withError lhs errAcc) reader
+                elif leftPower = minBinding then
+                    fail ambiguous reader
+                else
+                    rhsInfix
+                        parseLhsInternal
+                        parseRhsInternal
+                        pExpr
+                        ops
+                        minBinding
+                        lhs
+                        errAcc
+                        pos
+                        (leftPower - 1uy<bp>)
+                        op
+                        completeInfix
+                        reader
+
+            | InfixNonAssociative(op, _parseOp, leftPower, completeInfix) ->
                 if leftPower < minBinding then
                     reader.Position <- pos
                     preturn (PrattParsed.success lhs) reader
                 elif leftPower = minBinding then
                     fail ambiguous reader
                 else
-                    parseRhsInternal (completePostfix lhs op) reader
+                    rhsInfix
+                        parseLhsInternal
+                        parseRhsInternal
+                        pExpr
+                        ops
+                        minBinding
+                        lhs
+                        errAcc
+                        pos
+                        leftPower
+                        op
+                        completeInfix
+                        reader
 
-            | InfixLeft(op, parseOp, leftPower, completeInfix) ->
+            | InfixNary(op, _parseOp, leftPower, allowTrailingOp, completeNary) ->
                 if leftPower < minBinding then
                     reader.Position <- pos
-                    preturn (PrattParsed.success lhs) reader
+                    preturn (PrattParsed.withError lhs errAcc) reader
                 elif leftPower = minBinding then
                     fail ambiguous reader
                 else
-                    let rightPower = leftPower + 1uy<bp>
+                    rhsInfixNary
+                        parseLhsInternal
+                        parseRhsInternal
+                        pExpr
+                        ops
+                        minBinding
+                        lhs
+                        leftPower
+                        op
+                        allowTrailingOp
+                        completeNary
+                        reader
 
-                    match parseLhsInternal rightPower reader with
-                    | Ok { Expr = rhs; Error = errRhs } ->
-                        match parseRhsInternal (completeInfix lhs op rhs) reader with
-                        | Ok { Expr = finalRhs; Error = errFinal } ->
-                            preturn (PrattParsed.withError finalRhs (mergeSoftErrors errRhs errFinal)) reader
-                        | Error e -> Error(mergeWithError e errRhs)
-                    | Error e -> Error e
-
-            | InfixRight(op, parseOp, leftPower, completeInfix) ->
+            | InfixMapped(op, _parseOp, leftPower, parseRight, complete) ->
                 if leftPower < minBinding then
                     reader.Position <- pos
-                    preturn (PrattParsed.success lhs) reader
+                    preturn (PrattParsed.withError lhs errAcc) reader
                 elif leftPower = minBinding then
                     fail ambiguous reader
                 else
-                    let rightPower = leftPower - 1uy<bp>
+                    rhsInfixMapped parseRhsInternal pExpr ops minBinding lhs errAcc pos op parseRight complete reader
 
-                    match parseLhsInternal rightPower reader with
-                    | Ok { Expr = rhs; Error = errRhs } ->
-                        match parseRhsInternal (completeInfix lhs op rhs) reader with
-                        | Ok { Expr = finalRhs; Error = errFinal } ->
-                            preturn (PrattParsed.withError finalRhs (mergeSoftErrors errRhs errFinal)) reader
-                        | Error e -> Error(mergeWithError e errRhs)
-                    | Error e -> Error e
-
-            | InfixNonAssociative(op, parseOp, leftPower, completeInfix) ->
+            | Indexer(op, _parseOp, leftPower, _closeOp, parseCloseOp, innerParser, completeIndexer) ->
                 if leftPower < minBinding then
                     reader.Position <- pos
-                    preturn (PrattParsed.success lhs) reader
+                    preturn (PrattParsed.withError lhs errAcc) reader
                 elif leftPower = minBinding then
                     fail ambiguous reader
                 else
-                    let rightPower = leftPower
+                    rhsIndexer
+                        parseRhsInternal
+                        pExpr
+                        ops
+                        minBinding
+                        lhs
+                        errAcc
+                        pos
+                        op
+                        parseCloseOp
+                        innerParser
+                        completeIndexer
+                        reader
 
-                    match parseLhsInternal rightPower reader with
-                    | Ok { Expr = rhs; Error = errRhs } ->
-                        match parseRhsInternal (completeInfix lhs op rhs) reader with
-                        | Ok { Expr = finalRhs; Error = errFinal } ->
-                            preturn (PrattParsed.withError finalRhs (mergeSoftErrors errRhs errFinal)) reader
-                        | Error e -> Error(mergeWithError e errRhs)
-                    | Error e -> Error e
-
-            | InfixNary(op, parseOp, leftPower, allowTrailingOp, completeNary) ->
+            | Ternary(op, _parseOp, leftPower, parseTernaryOp, completeTernary) ->
                 if leftPower < minBinding then
                     reader.Position <- pos
-                    preturn (PrattParsed.success lhs) reader
+                    preturn (PrattParsed.withError lhs errAcc) reader
                 elif leftPower = minBinding then
                     fail ambiguous reader
                 else
-                    let rec loopNary (items: ResizeArray<'Expr>) (parsedOps: ResizeArray<'Op>) accumulatedErr =
-                        let rightPower = leftPower + 1uy<bp>
-
-                        match parseLhsInternal rightPower reader with
-                        | Error e when allowTrailingOp ->
-                            if parsedOps.Count > 0 then
-                                parsedOps.RemoveAt(parsedOps.Count - 1)
-                            // Trailing op fails -> we treat the failure as a soft error and exit gracefully!
-                            preturn (items, ValueSome(mergeWithError e accumulatedErr)) reader
-                        | Error e -> Error(mergeWithError e accumulatedErr)
-                        | Ok { Expr = next; Error = errNext } ->
-                            items.Add next
-                            let currentErr = mergeSoftErrors accumulatedErr errNext
-                            let nextPos = reader.Position
-
-                            match ops.RhsParser reader with
-                            | Ok nextOp ->
-                                match nextOp with
-                                | InfixNary(nextSym, _, _, _, _) when ops.OpComparer.Equals(nextSym, op) ->
-                                    parsedOps.Add nextSym
-                                    loopNary items parsedOps currentErr
-                                | _ ->
-                                    reader.Position <- nextPos
-                                    preturn (items, currentErr) reader
-                            | Error errRhs ->
-                                reader.Position <- nextPos
-                                preturn (items, mergeSoftErrors currentErr (ValueSome errRhs)) reader
-
-                    let items = ResizeArray()
-                    let parsedOps = ResizeArray()
-                    items.Add lhs
-                    parsedOps.Add op
-
-                    match loopNary items parsedOps ValueNone with
-                    | Ok(items, errOpt) ->
-                        match parseRhsInternal (completeNary items parsedOps) reader with
-                        | Ok { Expr = finalExpr; Error = errFinal } ->
-                            preturn (PrattParsed.withError finalExpr (mergeSoftErrors errOpt errFinal)) reader
-                        | Error e -> Error(mergeWithError e errOpt)
-                    | Error e -> Error e
-
-            | InfixMapped(op, parseOp, leftPower, parseRight, complete) ->
-                if leftPower < minBinding then
-                    reader.Position <- pos
-                    preturn (PrattParsed.success lhs) reader
-                elif leftPower = minBinding then
-                    fail ambiguous reader
-                else
-                    match parseRight reader with
-                    | Ok rightContent -> parseRhsInternal (complete lhs op rightContent) reader
-                    | Error e -> Error e
-
-            | Indexer(op, parseOp, leftPower, closeOp, parseCloseOp, innerParser, completeIndexer) ->
-                if leftPower < minBinding then
-                    reader.Position <- pos
-                    preturn (PrattParsed.success lhs) reader
-                elif leftPower = minBinding then
-                    fail ambiguous reader
-                else
-                    match innerParser reader with
-                    | Ok inner ->
-                        match parseCloseOp reader with
-                        | Ok closeTok -> parseRhsInternal (completeIndexer lhs op inner closeTok) reader
-                        | Error e -> Error e
-                    | Error e -> Error e
-
-            | Ternary(op, parseOp, leftPower, parseTernaryOp, completeTernary) ->
-                if leftPower < minBinding then
-                    reader.Position <- pos
-                    preturn (PrattParsed.success lhs) reader
-                elif leftPower = minBinding then
-                    fail ambiguous reader
-                else
-                    let rightPower = leftPower - 1uy<bp>
-
-                    match parseLhsInternal rightPower reader with
-                    | Ok { Expr = mid; Error = errMid } ->
-                        match parseTernaryOp reader with
-                        | Ok ternaryOp ->
-                            match parseLhsInternal Precedence.MinP reader with
-                            | Ok { Expr = rhs; Error = errRhs } ->
-                                match parseRhsInternal (completeTernary lhs op mid ternaryOp rhs) reader with
-                                | Ok { Expr = finalExpr; Error = errFinal } ->
-                                    let combined = mergeSoftErrors errMid errRhs |> mergeSoftErrors errFinal
-                                    preturn (PrattParsed.withError finalExpr combined) reader
-                                | Error e -> Error(mergeWithError e (mergeSoftErrors errMid errRhs))
-                            | Error e -> Error(mergeWithError e errMid)
-                        | Error e ->
-                            let expectedMsg =
-                                { e with
-                                    Errors = Message "Expected close ternary operator"
-                                }
-
-                            let hard = ParseError.createNested failure [ expectedMsg; e ] e.Position
-                            Error(mergeWithError hard errMid)
-                    | Error e -> Error e
+                    rhsTernary
+                        parseLhsInternal
+                        parseRhsInternal
+                        pExpr
+                        ops
+                        minBinding
+                        lhs
+                        errAcc
+                        pos
+                        op
+                        (leftPower - 1uy<bp>)
+                        parseTernaryOp
+                        completeTernary
+                        reader
 
         | Error eRhs ->
             reader.Position <- pos
             preturn (PrattParsed.withError lhs (ValueSome eRhs)) reader
 
     and private parseLhsInternal pExpr ops minBinding reader : ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _> =
-        let inline parseLhsInternal minBinding reader =
-            parseLhsInternal pExpr ops minBinding reader
-
-        let inline parseRhsInternal lhs reader =
-            parseRhsInternal pExpr ops minBinding lhs reader
-
         let pos = reader.Position
 
         match pExpr reader with
-        | Ok lhsSuccess -> parseRhsInternal lhsSuccess reader
+        | Ok lhsSuccess -> parseRhsInternal pExpr ops minBinding lhsSuccess ValueNone reader
         | Error e0 ->
             reader.Position <- pos
 
             match ops.LhsParser reader with
             | Ok op ->
                 match op with
-                | Prefix(op, parseOp, rightPower, completePrefix) ->
-                    match parseLhsInternal rightPower reader with
-                    | Ok { Expr = rhs; Error = errOpt } ->
-                        match parseRhsInternal (completePrefix op rhs) reader with
-                        | Ok { Expr = finalExpr; Error = errFinal } ->
-                            preturn (PrattParsed.withError finalExpr (mergeSoftErrors errOpt errFinal)) reader
-                        | Error e -> Error(mergeWithError e errOpt)
-                    | Error e -> Error e
+                | Prefix(op, _parseOp, rightPower, completePrefix) ->
+                    lhsPrefix parseLhsInternal parseRhsInternal pExpr ops minBinding op rightPower completePrefix reader
 
-                | Enclosed(op, parseOp, rightPower, closeOp, closeOpParser, completeBracket) ->
-                    match parseLhsInternal Precedence.MinP reader with
-                    | Ok { Expr = inner; Error = errOpt } ->
-                        match closeOpParser reader with
-                        | Ok closeTok ->
-                            match parseRhsInternal (completeBracket op inner closeTok) reader with
-                            | Ok { Expr = finalExpr; Error = errFinal } ->
-                                preturn (PrattParsed.withError finalExpr (mergeSoftErrors errOpt errFinal)) reader
-                            | Error e -> Error(mergeWithError e errOpt)
-                        | Error e ->
-                            let expectedMsg =
-                                { e with
-                                    Errors = Message $"Expected closing operator '{closeOp}'"
-                                }
+                | Enclosed(op, _parseOp, _rightPower, closeOp, closeOpParser, completeBracket) ->
+                    lhsEnclosed
+                        parseLhsInternal
+                        parseRhsInternal
+                        pExpr
+                        ops
+                        minBinding
+                        op
+                        closeOp
+                        closeOpParser
+                        completeBracket
+                        reader
 
-                            let hard = ParseError.createNested failure [ expectedMsg; e ] e.Position
-                            Error(mergeWithError hard errOpt)
-                    | Error e -> Error e
-
-                | LHSTernary(op, parseOp, rightPower, delim, parseDelim, complete) ->
-                    match parseLhsInternal rightPower reader with
-                    | Ok { Expr = condition; Error = errCond } ->
-                        match parseDelim reader with
-                        | Ok delimTok ->
-                            match parseLhsInternal Precedence.MinP reader with
-                            | Ok { Expr = body; Error = errBody } ->
-                                match parseRhsInternal (complete op condition delimTok body) reader with
-                                | Ok { Expr = finalExpr; Error = errFinal } ->
-                                    let combined = mergeSoftErrors errCond errBody |> mergeSoftErrors errFinal
-                                    preturn (PrattParsed.withError finalExpr combined) reader
-                                | Error e -> Error(mergeWithError e (mergeSoftErrors errCond errBody))
-                            | Error e -> Error(mergeWithError e errCond)
-                        | Error e ->
-                            let expectedMsg =
-                                { e with
-                                    Errors = Message $"Expected delimiter '{delim}'"
-                                }
-
-                            let hard = ParseError.createNested failure [ expectedMsg; e ] e.Position
-                            Error(mergeWithError hard errCond)
-                    | Error e -> Error e
+                | LHSTernary(op, _parseOp, rightPower, delim, parseDelim, complete) ->
+                    lhsTernary
+                        parseLhsInternal
+                        parseRhsInternal
+                        pExpr
+                        ops
+                        minBinding
+                        op
+                        rightPower
+                        delim
+                        parseDelim
+                        complete
+                        reader
 
                 | PrefixMapped(op, _parseOp, parseRight, complete) ->
                     match parseRight reader with
-                    | Ok result -> parseRhsInternal (complete op result) reader
+                    | Ok result -> parseRhsInternal pExpr ops minBinding (complete op result) ValueNone reader
                     | Error e -> Error e
 
             | Error e1 -> Error(ParseError.createNested failure [ e1; e0 ] pos)
 
     let parseLhs pExpr ops minBinding reader =
         match parseLhsInternal pExpr ops minBinding reader with
-        | Ok { Expr = expr; Error = _ } -> preturn expr reader
+        | Ok { Expr = expr; Error = _ } -> Ok expr
         | Error e -> Error e
 
 /// Provides functions to create and parse expressions using operators.
