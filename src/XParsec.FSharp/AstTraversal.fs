@@ -1568,7 +1568,7 @@ and walkTypeDefn (visitor: AstVisitor<'T>) (typeDefn: TypeDefn<'T>) : unit =
             visitor.EnterSection "Case"
             visitor.VisitToken "ident" id
             visitor.VisitToken "=" eq
-            visitor.VisitToken "value" value
+            walkExpr visitor value
             visitor.ExitSection "Case"
 
         visitor.ExitSection ""
@@ -1640,6 +1640,10 @@ and walkTypeDefn (visitor: AstVisitor<'T>) (typeDefn: TypeDefn<'T>) : unit =
         visitor.ExitSection ""
         visitor.VisitToken "end" endTok
         visitor.ExitSection "TypeDefn.Anon"
+    | TypeDefn.AbstractType(typeName) ->
+        visitor.EnterSection "TypeDefn.Abstract"
+        walkTypeName visitor typeName
+        visitor.ExitSection "TypeDefn.Abstract"
     | TypeDefn.Missing -> visitor.WriteLine "TypeDefn.Missing"
     | TypeDefn.SkipsTokens(skippedTokens, inner) ->
         visitor.EnterSection "TypeDefn.SkipsTokens"

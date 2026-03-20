@@ -39,12 +39,17 @@ module ElifBranches =
             "Expected 'elif' or 'else'"
 
     let pConditionThen =
+        let pCond = withContext OffsideContext.If refExpr.Parser
+        let pThenExpr = withContext OffsideContext.Then refExprSeqBlock.Parser
+
         parser {
-            let! condition = withContext OffsideContext.If refExpr.Parser
+            let! condition = pCond
             let! thenTok = pThen
-            let! expr = withContext OffsideContext.Then refExprSeqBlock.Parser
+            let! expr = pThenExpr
             return (condition, thenTok, expr)
         }
+
+    let private pElseExpr = withContext OffsideContext.Else refExprSeqBlock.Parser
 
     let rec private parseBranches (acc: ResizeArray<_>) (reader: Reader<PositionedToken, ParseState, _, _>) =
         match pElifOrElseIf reader with
@@ -63,7 +68,7 @@ module ElifBranches =
             | Error e -> Error e
 
         | Ok(ElIfTok.Else elseTok) ->
-            match withContext OffsideContext.Else refExprSeqBlock.Parser reader with
+            match pElseExpr reader with
             | Ok expr -> Ok struct (List.ofSeq acc, ValueSome(ElseBranch.ElseBranch(elseTok, expr)))
             | Error e -> Error e
 
@@ -87,6 +92,8 @@ module Binding =
 
     /// Parse a function-style binding: [inline] [access] identOrOp [typar-defns] pat+ [: returnType] = expr
     let parseFunction attrs =
+        let pBody = refExprSeqBlock.Parser
+
         parser {
             let! inlineTok = opt pInlineTok
             let! access = opt pAccessModifier
@@ -98,7 +105,7 @@ module Binding =
             let! argumentPats = Pat.parseAtomicMany1
             let! returnType = opt ReturnType.parse
             let! equals = pEquals
-            let! expr = refExprSeqBlock.Parser
+            let! expr = pBody
 
             return
                 {
@@ -118,6 +125,8 @@ module Binding =
 
     /// Parse a value-style binding: [mutable] [access] pat [typar-defns] [: returnType] = expr
     let parseValue attrs =
+        let pBody = refExprSeqBlock.Parser
+
         parser {
             let! mut = opt pMutableTok
             let! access = opt pAccessModifier
@@ -125,7 +134,7 @@ module Binding =
             let! typarDefns = opt TyparDefns.parse
             let! returnType = opt ReturnType.parse
             let! equals = pEquals
-            let! expr = refExprSeqBlock.Parser
+            let! expr = pBody
 
             return
                 {
@@ -710,11 +719,12 @@ module Expr =
 
         let pIfBody =
             let pCond = withContext OffsideContext.If refExpr.Parser
+            let pThenExpr = withContext OffsideContext.Then refExprSeqBlock.Parser
 
             parser {
                 let! cond = pCond
                 let! thenTok = pThen
-                let! thenExpr = withContext OffsideContext.Then refExprSeqBlock.Parser
+                let! thenExpr = pThenExpr
                 let! elifs, elseBranch = ElifBranches.parse
 
                 return
@@ -771,13 +781,15 @@ module Expr =
                 })
 
         let pFunBody =
+            let pBody = refExprSeqBlock.Parser
+
             withContext
                 OffsideContext.Fun
                 (parser {
                     // let! funTok = pFun
                     let! pats = many1 Pat.parse
                     let! arrow = pArrowRight
-                    let! expr = refExprSeqBlock.Parser
+                    let! expr = pBody
                     return ExprAux.KeywordExpr(fun funTok -> Expr.Fun(funTok, List.ofSeq pats, arrow, expr))
                 })
 
@@ -794,9 +806,11 @@ module Expr =
                 }
 
             let pFinally =
+                let pBody = refExprSeqBlock.Parser
+
                 parser {
                     let! finTok = pFinally
-                    let! finExpr = refExprSeqBlock.Parser
+                    let! finExpr = pBody
 
                     return
                         fun tryExpr ->
@@ -838,10 +852,12 @@ module Expr =
             let pCond = withContext OffsideContext.While refExpr.Parser
             let pDo = withContext OffsideContext.While pDo
 
+            let pDoBody = withContext OffsideContext.Do refExprSeqBlock.Parser
+
             parser {
                 let! cond = pCond
                 let! doTok = pDo
-                let! body = withContext OffsideContext.Do refExprSeqBlock.Parser
+                let! body = pDoBody
                 let! doneTok = pDoneVirt
                 return ExprAux.KeywordExpr(fun whileTok -> Expr.While(whileTok, cond, doTok, body, doneTok))
             }
@@ -876,12 +892,14 @@ module Expr =
                     "Expected for-to or for-in iterator definition"
 
             let pForBody =
+                let pDoBody = withContext OffsideContext.Do refExprSeqBlock.Parser
+
                 withContext
                     OffsideContext.For
                     (parser {
                         let! iterDefn = pIterDefn
                         let! doTok = pDo <|> pArrowRight
-                        let! body = withContext OffsideContext.Do refExprSeqBlock.Parser
+                        let! body = pDoBody
                         return iterDefn doTok body
                     })
 
@@ -934,37 +952,68 @@ module Expr =
 
         /// Single body parser used by both `let/let!` and `use/use!`.
         /// The keyword token has been peeked but NOT consumed by lhsParser.
+        ///
+        /// Sequential let/use bindings (e.g. `let x = 1\nlet y = 2\nexpr`) are collected
+        /// iteratively to avoid deep recursion — each `let` in a sequence would otherwise
+        /// add ~30 stack frames via the Pratt parser → SeqBlock → pLetOrUseBody chain,
+        /// overflowing the stack on moderately nested code.
         let pLetOrUseBody =
-            // The keyword is still unconsumed. We peek it to get its column for the Let
-            // offside context (F# spec 15.1.7: "The start of a let ... token"), then consume.
-            // The definition gets parsed in a Let context, with another SeqBlock after the `=`
-            // for correct offside behaviour. After the definition, we check for 'in' or emit
-            // a virtual 'in' for the offside rule, then parse the body expression.
-            parser {
-                // TODO: Move this indent-peeking logic into a separate parser combinator that runs before the main body parser to set up the correct offside context,
-                // so we don't have to repeat it for let and use and potentially other keywords with similar offside rules in the future (e.g. maybe 'do' in computation expressions).
-                // Apply the same logic to other LHS keywords as well (e.g. if, match) that have offside rules for their bodies.
-                let! kwTok = peekNextNonTriviaToken
+            fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
+                let bindings = ResizeArray()
+                let mutable cont = true
+                let mutable error = Unchecked.defaultof<ParseResult<ExprAux, _, _>>
 
-                match kwTok.Token with
-                | Token.KWLet
-                | Token.KWLetBang
-                | Token.KWUse
-                | Token.KWUseBang ->
-                    let! kwTok = consumePeeked kwTok
-                    let! state = getUserState
+                while cont do
+                    match peekNextNonTriviaToken reader with
+                    | Error e ->
+                        if bindings.Count = 0 then
+                            error <- Error e
+                        // If we already have bindings, stop iterating; the body parse will report the error
+                        cont <- false
+                    | Ok peeked ->
+                        match peeked.Token with
+                        | Token.KWLet
+                        | Token.KWLetBang
+                        | Token.KWUse
+                        | Token.KWUseBang ->
+                            match consumePeeked peeked reader with
+                            | Error e ->
+                                error <- Error e
+                                cont <- false
+                            | Ok kwTok ->
+                                let indent =
+                                    match kwTok.Index with
+                                    | TokenIndex.Regular iT -> ParseState.getIndent reader.State iT
+                                    | TokenIndex.Virtual -> 0
 
-                    let indent =
-                        match kwTok.Index with
-                        | TokenIndex.Regular iT -> ParseState.getIndent state iT
-                        | TokenIndex.Virtual -> 0
+                                match pLetOrUseDefn indent kwTok.PositionedToken reader with
+                                | Error e ->
+                                    error <- Error e
+                                    cont <- false
+                                | Ok(recTok, defs) ->
+                                    match pLetOrUseIn reader with
+                                    | Error e ->
+                                        error <- Error e
+                                        cont <- false
+                                    | Ok inTok -> bindings.Add(struct (kwTok, recTok, defs, inTok))
+                        | _ ->
+                            if bindings.Count = 0 then
+                                error <-
+                                    Parsers.fail (Message $"Expected let/use keyword but got {peeked.Token}") reader
 
-                    let! (recTok, bindings) = pLetOrUseDefn indent kwTok.PositionedToken
-                    let! inTok = pLetOrUseIn
-                    let! expr = refExprSeqBlock.Parser
+                            cont <- false
 
-                    return
-                        ExprAux.KeywordExpr(fun _opTok ->
+                if bindings.Count = 0 then
+                    error
+                else
+                    match refExprSeqBlock.Parser reader with
+                    | Error e -> Error e
+                    | Ok body ->
+                        let mutable result = body
+
+                        for i in bindings.Count - 1 .. -1 .. 0 do
+                            let struct (kwTok, recTok, defs, inTok) = bindings[i]
+
                             let kw =
                                 match kwTok.Token with
                                 | Token.KWLet -> LetOrUseKeyword.Let kwTok
@@ -973,14 +1022,15 @@ module Expr =
                                 | Token.KWUseBang -> LetOrUseKeyword.UseBang kwTok
                                 | t -> failwith $"Unexpected keyword token for let/use body {t}"
 
-                            Expr.LetOrUse(kw, recTok, bindings, ValueSome inTok, ValueSome expr)
-                        )
-                | t -> return! fail (Message $"Expected let/use keyword but got {t}")
-            }
+                            result <- Expr.LetOrUse(kw, recTok, defs, ValueSome inTok, ValueSome result)
+
+                        preturn (ExprAux.KeywordExpr(fun _opTok -> result)) reader
 
         let pYieldReturnDoBody =
+            let pBody = refExprSeqBlock.Parser
+
             parser {
-                let! expr = refExprSeqBlock.Parser
+                let! expr = pBody
 
                 return
                     ExprAux.KeywordExpr(fun kwTok ->
@@ -1215,8 +1265,10 @@ module Expr =
         pEnclosed completeEmpty completeEnclosed Expr.Missing skipsTokens
 
     let private pExprOrTypedPat =
+        let pInnerExpr = refExprSeqBlock.Parser
+
         parser {
-            let! expr = refExprSeqBlock.Parser
+            let! expr = pInnerExpr
 
             match! peekNextNonTriviaToken with
             | t when t.Token = Token.OpColon ->

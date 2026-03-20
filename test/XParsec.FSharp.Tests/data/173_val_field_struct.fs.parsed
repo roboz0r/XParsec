@@ -1,0 +1,122 @@
+AnonymousModule:
+TypeDefn.Anon:
+  [<                         '[<'              KWLAttrBracket      tok=   0  pos=   0
+  NamedType:
+    LongIdent:
+                             'Struct'          Identifier          tok=   1  pos=   2
+  >]                         '>]'              KWRAttrBracket      tok=   2  pos=   8
+  TypeName                   'Foo'             Identifier          tok=   6  pos=  16
+  =                          '='               OpEquality          tok=   8  pos=  20
+  begin                      <virt>            KWBegin             tok=virt  pos=  26
+    Val:
+      val                    'val'             KWVal               tok=  11  pos=  26
+      ident                  'value'           Identifier          tok=  15  pos=  38
+      :                      ':'               OpColon             tok=  16  pos=  43
+      NamedType:
+        LongIdent:
+                             'uint64'          Identifier          tok=  18  pos=  45
+    AdditionalConstructor:
+      new                    'new'             KWNew               tok=  23  pos=  64
+      ParenBlock             '('               KWLParen            tok=  24  pos=  67
+        Pat.Typed:
+          Pat.NamedSimple    'value'           Identifier          tok=  25  pos=  68
+          Colon              ':'               OpColon             tok=  26  pos=  73
+          NamedType:
+            LongIdent:
+                             'uint64'          Identifier          tok=  28  pos=  75
+                             ')'               KWRParen            tok=  29  pos=  81
+      =                      '='               OpEquality          tok=  31  pos=  83
+      {                      '{'               KWLBrace            tok=  33  pos=  85
+      LongIdent:
+                             'value'           Identifier          tok=  35  pos=  87
+      =                      '='               OpEquality          tok=  37  pos=  93
+      Ident                  'value'           Identifier          tok=  39  pos=  95
+      }                      '}'               KWRBrace            tok=  41  pos= 101
+    static                   'static'          KWStatic            tok=  45  pos= 108
+    member                   'member'          KWMember            tok=  47  pos= 115
+    Pat.NamedSimple          'Create'          Identifier          tok=  49  pos= 122
+    Pats:
+      ParenBlock             '('               KWLParen            tok=  50  pos= 128
+        Pat.Tuple:
+          Pat.Typed:
+            Pat.NamedSimple  'tokenValue'      Identifier          tok=  51  pos= 129
+            Colon            ':'               OpColon             tok=  52  pos= 139
+            NamedType:
+              LongIdent:
+                             'int'             Identifier          tok=  54  pos= 141
+          Pat.Typed:
+            Pat.NamedSimple  'startIndex'      Identifier          tok=  57  pos= 146
+            Colon            ':'               OpColon             tok=  58  pos= 156
+            NamedType:
+              LongIdent:
+                             'int'             Identifier          tok=  60  pos= 158
+                             ')'               KWRParen            tok=  61  pos= 161
+    =                        '='               OpEquality          tok=  63  pos= 163
+      Let                    'let'             KWLet               tok=  66  pos= 173
+        Pat.NamedSimple      'indexPart'       Identifier          tok=  68  pos= 177
+        =                    '='               OpEquality          tok=  70  pos= 187
+          InfixApp           '<<<'             op_LeftShift        tok=  76  pos= 207
+            App:
+              Func:
+                Ident        'uint64'          Identifier          tok=  72  pos= 189
+              Args:
+                Ident        'startIndex'      Identifier          tok=  74  pos= 196
+            Const            '16'              NumInt32            tok=  78  pos= 211
+      in                     <virt>            KWIn                tok=virt  pos= 222
+      Body:
+        Let                  'let'             KWLet               tok=  81  pos= 222
+          Pat.NamedSimple    'tokenPart'       Identifier          tok=  83  pos= 226
+          =                  '='               OpEquality          tok=  85  pos= 236
+            App:
+              Func:
+                Ident        'uint64'          Identifier          tok=  87  pos= 238
+              Args:
+                Ident        'tokenValue'      Identifier          tok=  89  pos= 245
+        in                   <virt>            KWIn                tok=virt  pos= 264
+        Body:
+          HighPrecedenceApp:
+            Func:
+              Ident          'Foo'             Identifier          tok=  92  pos= 264
+            (                '('               KWLParen            tok=  93  pos= 267
+            Arg:
+              InfixApp       '|||'             op_BitwiseOr        tok=  96  pos= 278
+                Ident        'indexPart'       Identifier          tok=  94  pos= 268
+                Ident        'tokenPart'       Identifier          tok=  98  pos= 282
+                             ')'               KWRParen            tok=  99  pos= 291
+    member                   'member'          KWMember            tok= 103  pos= 298
+    self                     'this'            Identifier          tok= 105  pos= 305
+    Pat.NamedSimple          'Token'           Identifier          tok= 107  pos= 310
+    ReturnColon              ':'               OpColon             tok= 108  pos= 315
+    NamedType:
+      LongIdent:
+                             'int'             Identifier          tok= 110  pos= 317
+    =                        '='               OpEquality          tok= 112  pos= 321
+      App:
+        Func:
+          Ident              'int'             Identifier          tok= 115  pos= 331
+        Args:
+          LongIdentOrOp:
+            LongIdent:
+                             'this'            Identifier          tok= 117  pos= 335
+                             'value'           Identifier          tok= 119  pos= 340
+    member                   'member'          KWMember            tok= 123  pos= 351
+    self                     'this'            Identifier          tok= 125  pos= 358
+    Pat.NamedSimple          'StartIndex'      Identifier          tok= 127  pos= 363
+    ReturnColon              ':'               OpColon             tok= 128  pos= 373
+    NamedType:
+      LongIdent:
+                             'int'             Identifier          tok= 130  pos= 375
+    =                        '='               OpEquality          tok= 132  pos= 379
+      App:
+        Func:
+          Ident              'int'             Identifier          tok= 134  pos= 381
+        Args:
+          ParenBlock         '('               KWLParen            tok= 136  pos= 385
+            InfixApp         '>>>'             op_RightShift       tok= 141  pos= 397
+              LongIdentOrOp:
+                LongIdent:
+                             'this'            Identifier          tok= 137  pos= 386
+                             'value'           Identifier          tok= 139  pos= 391
+              Const          '16'              NumInt32            tok= 143  pos= 401
+                             ')'               KWRParen            tok= 144  pos= 403
+  end                        <virt>            KWEnd               tok=virt  pos= 405

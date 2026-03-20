@@ -285,7 +285,39 @@ module MethodOrPropDefn =
 
                         return MethodOrPropDefn.Property(ValueNone, binding)
 
-                    | _ -> return! fail (Message "Expected '.' or '=' after identifier in member definition")
+                    | _ ->
+                        // No self-identifier prefix (e.g., static member Create(args) = body)
+                        // The ident we consumed is the method/property name itself.
+                        return!
+                            choiceL
+                                [
+                                    parser {
+                                        let! typarDefns = opt TyparDefns.parse
+                                        let! argumentPats = Pat.parseAtomicMany1
+                                        let! returnType = opt ReturnType.parse
+                                        let! equals = pEquals
+                                        let! expr = refExprSeqBlock.Parser
+
+                                        let binding =
+                                            {
+                                                attributes = ValueNone
+                                                inlineToken = ValueNone
+                                                mutableToken = ValueNone
+                                                fixedToken = ValueNone
+                                                access = ValueNone
+                                                headPat = Pat.NamedSimple ident
+                                                typarDefns = typarDefns
+                                                argumentPats = List.ofSeq argumentPats
+                                                returnType = returnType
+                                                equals = equals
+                                                expr = expr
+                                            }
+
+                                        return MethodOrPropDefn.Method(ValueNone, binding)
+                                    }
+                                    pPropertyWithGetSet |>> fun f -> f ValueNone
+                                ]
+                                "MethodOrPropDefn no self-ident"
                 | ValueNone ->
                     return!
                         choiceL
@@ -888,7 +920,7 @@ module EnumTypeCase =
         parser {
             let! id = nextNonTriviaTokenIsL Token.Identifier "Enum Name"
             let! eq = pEquals
-            let! c = nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsNumeric) "Enum Constant"
+            let! c = withContext OffsideContext.SeqBlock refExpr.Parser
             return EnumTypeCase.EnumTypeCase(id, eq, c)
         }
 
@@ -958,6 +990,9 @@ module TypeDefn =
             if next2.Token = Token.KWWith && primaryConstr.IsNone then
                 let! elements = TypeExtensionElements.parse
                 return TypeDefn.TypeExtension(typeName, elements)
+            elif next2.Token <> Token.OpEquality then
+                // No '=' — abstract/opaque type (e.g., [<Measure>] type token)
+                return TypeDefn.AbstractType(typeName)
             else
 
                 // 3. Check for '='
