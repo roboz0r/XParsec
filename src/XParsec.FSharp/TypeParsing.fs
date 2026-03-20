@@ -278,6 +278,30 @@ module Type =
                             let newAcc = Type.ArrayType(acc, l, List.ofSeq commas, r)
                             return! loop newAcc
                         }
+                        // Dotted nested type: Foo<int>.Builder
+                        // The dot may be a regular OpDot token, or it may be
+                        // embedded in a fused operator like ">." after pCloseTypeParams
+                        // consumed the ">" and set CharsConsumedAfterTypeParams.
+                        parser {
+                            let! dot =
+                                choiceL
+                                    [
+                                        pDot
+                                        parser {
+                                            let! reprocessed = reprocessedOperatorAfterTypeParams
+
+                                            if reprocessed.PositionedToken.Token = Token.OpDot then
+                                                return reprocessed
+                                            else
+                                                return! fail (Message "Expected '.'")
+                                        }
+                                    ]
+                                    "."
+
+                            let! lid = LongIdent.parse
+                            let newAcc = Type.DottedType(acc, dot, lid)
+                            return! loop newAcc
+                        }
                         // Suffix: int list
                         // We only consume an identifier here if it's NOT a keyword,
                         // and not start of a new construct.

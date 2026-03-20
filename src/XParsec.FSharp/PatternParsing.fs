@@ -284,6 +284,17 @@ module Pat =
     let pWildcardPat = pWildcard |>> Pat.Wildcard
     let pNullPat = pNull |>> Pat.Null
 
+    let private pStructPat =
+        parser {
+            let! structTok = pStruct
+            let! pat = pParenPat
+
+            match pat with
+            | Pat.EnclosedBlock(ParenKind.Paren l, Pat.Tuple(elements, ops), r) ->
+                return Pat.StructTuple(structTok, l, elements, ops, r)
+            | _ -> return Pat.Struct(structTok, pat)
+        }
+
     let parseAtomic =
         dispatchNextNonTriviaTokenFallback
             [
@@ -296,6 +307,7 @@ module Pat =
                 Token.KWLArrayBracket, pArrayPat
                 Token.KWLBrace, pRecordPat
                 Token.KWLAttrBracket, pAttributesPat
+                Token.KWStruct, pStructPat
             ]
             pConstPat
 

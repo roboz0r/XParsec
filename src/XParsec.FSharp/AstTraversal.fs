@@ -514,6 +514,12 @@ and walkType (visitor: AstVisitor<'T>) (ty: Type<'T>) : unit =
         walkType visitor baseType
         walkLongIdentOrOp visitor (LongIdentOrOp.LongIdent longIdent)
         visitor.ExitSection "SuffixedType"
+    | Type.DottedType(baseType, dot, longIdent) ->
+        visitor.EnterSection "DottedType"
+        walkType visitor baseType
+        visitor.VisitToken "." dot
+        walkLongIdentOrOp visitor (LongIdentOrOp.LongIdent longIdent)
+        visitor.ExitSection "DottedType"
     | Type.ArrayType(baseType, lBracket, commas, rBracket) ->
         visitor.EnterSection "ArrayType"
         walkType visitor baseType
