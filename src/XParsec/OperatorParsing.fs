@@ -270,7 +270,7 @@ type OperatorsCollection<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
         member this.OpComparer = EqualityComparer<'Op>.Default
 
 
-module internal Pratt =
+module internal rec Pratt =
     open Parsers
     // Pratt parsing based on https://matklad.github.io/2020/04/13/simple-but-powerful-pratt-parsing.html
 
@@ -298,7 +298,7 @@ module internal Pratt =
 
     // Combines two optional soft errors. Typically, you want to nest them
     // or pick the furthest one depending on your exact ParseError design.
-    let inline private mergeSoftErrors
+    let private mergeSoftErrors
         (e1: ParseError<'T, 'State> voption)
         (e2: ParseError<'T, 'State> voption)
         : ParseError<'T, 'State> voption =
@@ -330,7 +330,7 @@ module internal Pratt =
         | ValueNone, ValueNone -> ValueNone
 
     // Injects a preceding soft error into a hard parser failure
-    let inline private mergeWithError (hardErr: ParseError<'T, 'State>) (softErr: _ voption) =
+    let private mergeWithError (hardErr: ParseError<'T, 'State>) (softErr: _ voption) =
         match hardErr, softErr with
         | {
               Position = hPos
@@ -364,15 +364,6 @@ module internal Pratt =
     // the locals of the branch actually taken, rather than for all branches.
 
     let private rhsInfix
-        (parseLhsInternal: _ -> _ -> byte<bp> -> _ -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
-        (parseRhsInternal:
-            _
-                -> _
-                -> byte<bp>
-                -> 'Expr
-                -> ParseError<'T, 'State> voption
-                -> _
-                -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
         pExpr
         ops
         minBinding
@@ -392,15 +383,6 @@ module internal Pratt =
         | Error e -> Error(mergeWithError e errAcc)
 
     let private rhsInfixNary
-        (parseLhsInternal: _ -> _ -> byte<bp> -> _ -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
-        (parseRhsInternal:
-            _
-                -> _
-                -> byte<bp>
-                -> 'Expr
-                -> ParseError<'T, 'State> voption
-                -> _
-                -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
         pExpr
         (ops: Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>)
         minBinding
@@ -454,14 +436,6 @@ module internal Pratt =
         | Error e -> Error e
 
     let private rhsInfixMapped
-        (parseRhsInternal:
-            _
-                -> _
-                -> byte<bp>
-                -> 'Expr
-                -> ParseError<'T, 'State> voption
-                -> _
-                -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
         pExpr
         ops
         minBinding
@@ -480,14 +454,6 @@ module internal Pratt =
         | Error e -> Error(mergeWithError e errAcc)
 
     let private rhsIndexer
-        (parseRhsInternal:
-            _
-                -> _
-                -> byte<bp>
-                -> 'Expr
-                -> ParseError<'T, 'State> voption
-                -> _
-                -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
         pExpr
         ops
         minBinding
@@ -512,15 +478,6 @@ module internal Pratt =
         | Error e -> Error(mergeWithError e errAcc)
 
     let private rhsTernary
-        (parseLhsInternal: _ -> _ -> byte<bp> -> _ -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
-        (parseRhsInternal:
-            _
-                -> _
-                -> byte<bp>
-                -> 'Expr
-                -> ParseError<'T, 'State> voption
-                -> _
-                -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
         pExpr
         ops
         minBinding
@@ -555,24 +512,7 @@ module internal Pratt =
 
     // ── LHS operator case helpers ──────────────────────────────────────
 
-    let private lhsPrefix
-        (parseLhsInternal: _ -> _ -> byte<bp> -> _ -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
-        (parseRhsInternal:
-            _
-                -> _
-                -> byte<bp>
-                -> 'Expr
-                -> ParseError<'T, 'State> voption
-                -> _
-                -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
-        pExpr
-        ops
-        minBinding
-        op
-        rightPower
-        completePrefix
-        (reader: Reader<_, _, _, _>)
-        =
+    let private lhsPrefix pExpr ops minBinding op rightPower completePrefix (reader: Reader<_, _, _, _>) =
         match parseLhsInternal pExpr ops rightPower reader with
         | Ok { Expr = rhs; Error = errOpt } ->
             match parseRhsInternal pExpr ops minBinding (completePrefix op rhs) errOpt reader with
@@ -582,15 +522,6 @@ module internal Pratt =
         | Error e -> Error e
 
     let private lhsEnclosed
-        (parseLhsInternal: _ -> _ -> byte<bp> -> _ -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
-        (parseRhsInternal:
-            _
-                -> _
-                -> byte<bp>
-                -> 'Expr
-                -> ParseError<'T, 'State> voption
-                -> _
-                -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
         pExpr
         ops
         minBinding
@@ -619,15 +550,6 @@ module internal Pratt =
         | Error e -> Error e
 
     let private lhsTernary
-        (parseLhsInternal: _ -> _ -> byte<bp> -> _ -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
-        (parseRhsInternal:
-            _
-                -> _
-                -> byte<bp>
-                -> 'Expr
-                -> ParseError<'T, 'State> voption
-                -> _
-                -> ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _>)
         pExpr
         ops
         minBinding
@@ -702,19 +624,7 @@ module internal Pratt =
                 elif leftPower = minBinding then
                     fail ambiguous reader
                 else
-                    rhsInfix
-                        parseLhsInternal
-                        parseRhsInternal
-                        pExpr
-                        ops
-                        minBinding
-                        lhs
-                        errAcc
-                        pos
-                        (leftPower + 1uy<bp>)
-                        op
-                        completeInfix
-                        reader
+                    rhsInfix pExpr ops minBinding lhs errAcc pos (leftPower + 1uy<bp>) op completeInfix reader
 
             | InfixRight(op, _parseOp, leftPower, completeInfix) ->
                 if leftPower < minBinding then
@@ -723,19 +633,7 @@ module internal Pratt =
                 elif leftPower = minBinding then
                     fail ambiguous reader
                 else
-                    rhsInfix
-                        parseLhsInternal
-                        parseRhsInternal
-                        pExpr
-                        ops
-                        minBinding
-                        lhs
-                        errAcc
-                        pos
-                        (leftPower - 1uy<bp>)
-                        op
-                        completeInfix
-                        reader
+                    rhsInfix pExpr ops minBinding lhs errAcc pos (leftPower - 1uy<bp>) op completeInfix reader
 
             | InfixNonAssociative(op, _parseOp, leftPower, completeInfix) ->
                 if leftPower < minBinding then
@@ -744,19 +642,7 @@ module internal Pratt =
                 elif leftPower = minBinding then
                     fail ambiguous reader
                 else
-                    rhsInfix
-                        parseLhsInternal
-                        parseRhsInternal
-                        pExpr
-                        ops
-                        minBinding
-                        lhs
-                        errAcc
-                        pos
-                        leftPower
-                        op
-                        completeInfix
-                        reader
+                    rhsInfix pExpr ops minBinding lhs errAcc pos leftPower op completeInfix reader
 
             | InfixNary(op, _parseOp, leftPower, allowTrailingOp, completeNary) ->
                 if leftPower < minBinding then
@@ -765,18 +651,7 @@ module internal Pratt =
                 elif leftPower = minBinding then
                     fail ambiguous reader
                 else
-                    rhsInfixNary
-                        parseLhsInternal
-                        parseRhsInternal
-                        pExpr
-                        ops
-                        minBinding
-                        lhs
-                        leftPower
-                        op
-                        allowTrailingOp
-                        completeNary
-                        reader
+                    rhsInfixNary pExpr ops minBinding lhs leftPower op allowTrailingOp completeNary reader
 
             | InfixMapped(op, _parseOp, leftPower, parseRight, complete) ->
                 if leftPower < minBinding then
@@ -785,7 +660,7 @@ module internal Pratt =
                 elif leftPower = minBinding then
                     fail ambiguous reader
                 else
-                    rhsInfixMapped parseRhsInternal pExpr ops minBinding lhs errAcc pos op parseRight complete reader
+                    rhsInfixMapped pExpr ops minBinding lhs errAcc pos op parseRight complete reader
 
             | Indexer(op, _parseOp, leftPower, _closeOp, parseCloseOp, innerParser, completeIndexer) ->
                 if leftPower < minBinding then
@@ -794,19 +669,7 @@ module internal Pratt =
                 elif leftPower = minBinding then
                     fail ambiguous reader
                 else
-                    rhsIndexer
-                        parseRhsInternal
-                        pExpr
-                        ops
-                        minBinding
-                        lhs
-                        errAcc
-                        pos
-                        op
-                        parseCloseOp
-                        innerParser
-                        completeIndexer
-                        reader
+                    rhsIndexer pExpr ops minBinding lhs errAcc pos op parseCloseOp innerParser completeIndexer reader
 
             | Ternary(op, _parseOp, leftPower, parseTernaryOp, completeTernary) ->
                 if leftPower < minBinding then
@@ -816,8 +679,6 @@ module internal Pratt =
                     fail ambiguous reader
                 else
                     rhsTernary
-                        parseLhsInternal
-                        parseRhsInternal
                         pExpr
                         ops
                         minBinding
@@ -834,7 +695,7 @@ module internal Pratt =
             reader.Position <- pos
             preturn (PrattParsed.withError lhs (ValueSome eRhs)) reader
 
-    and private parseLhsInternal pExpr ops minBinding reader : ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _> =
+    let private parseLhsInternal pExpr ops minBinding reader : ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _> =
         let pos = reader.Position
 
         match pExpr reader with
@@ -846,34 +707,13 @@ module internal Pratt =
             | Ok op ->
                 match op with
                 | Prefix(op, _parseOp, rightPower, completePrefix) ->
-                    lhsPrefix parseLhsInternal parseRhsInternal pExpr ops minBinding op rightPower completePrefix reader
+                    lhsPrefix pExpr ops minBinding op rightPower completePrefix reader
 
                 | Enclosed(op, _parseOp, _rightPower, closeOp, closeOpParser, completeBracket) ->
-                    lhsEnclosed
-                        parseLhsInternal
-                        parseRhsInternal
-                        pExpr
-                        ops
-                        minBinding
-                        op
-                        closeOp
-                        closeOpParser
-                        completeBracket
-                        reader
+                    lhsEnclosed pExpr ops minBinding op closeOp closeOpParser completeBracket reader
 
                 | LHSTernary(op, _parseOp, rightPower, delim, parseDelim, complete) ->
-                    lhsTernary
-                        parseLhsInternal
-                        parseRhsInternal
-                        pExpr
-                        ops
-                        minBinding
-                        op
-                        rightPower
-                        delim
-                        parseDelim
-                        complete
-                        reader
+                    lhsTernary pExpr ops minBinding op rightPower delim parseDelim complete reader
 
                 | PrefixMapped(op, _parseOp, parseRight, complete) ->
                     match parseRight reader with
