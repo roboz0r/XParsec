@@ -68,6 +68,7 @@ type Type<'T> =
     | GenericType of longIdent: LongIdent<'T> * lAngle: 'T * typeArgs: TypeArg<'T> list * rAngle: 'T
     | IncompleteGenericType of longIdent: LongIdent<'T> * lAngle: 'T * rAngle: 'T
     | SuffixedType of baseType: Type<'T> * longIdent: LongIdent<'T>
+    | DottedType of baseType: Type<'T> * dot: 'T * longIdent: LongIdent<'T>
     | ArrayType of baseType: Type<'T> * lBracket: 'T * commas: 'T list * rBracket: 'T
     | ConstrainedType of typ: Type<'T> * constraints: TyparDefns<'T>
     | SubtypeConstraint of typar: Typar<'T> * colonGreaterThan: 'T * typ: Type<'T>

@@ -1,0 +1,60 @@
+0, KWType
+4, Whitespace
+5, Identifier
+8, Whitespace
+9, OpEquality
+10, Newline
+11, Indent
+15, KWLBrace
+16, Newline
+17, Indent
+25, Identifier
+30, OpColon
+31, Whitespace
+32, Identifier
+38, OpDot
+39, Identifier
+50, OpDot
+51, Identifier
+60, OpDot
+61, Identifier
+75, Operator 0b1000000000001111 ComparisonAndBitwise
+76, Identifier
+79, Operator 0b1000000000001111 ComparisonAndBitwise
+81, Identifier
+88, Newline
+89, Indent
+97, Identifier
+101, OpColon
+102, Whitespace
+103, Identifier
+109, Operator 0b1000000000001111 ComparisonAndBitwise
+110, Identifier
+113, OpComma
+114, Whitespace
+115, Identifier
+121, Operator 0b1000000000001111 ComparisonAndBitwise
+123, Identifier
+125, Newline
+126, Indent
+130, KWRBrace
+131, Newline
+132, Newline
+133, KWLet
+136, Whitespace
+137, Identifier
+138, OpColon
+139, Whitespace
+140, Identifier
+154, Operator 0b1000000000001111 ComparisonAndBitwise
+155, Identifier
+158, Operator 0b1000000000001111 ComparisonAndBitwise
+160, Identifier
+167, Whitespace
+168, OpEquality
+169, Whitespace
+170, Identifier
+178, Whitespace
+179, StringLiteral
+181, Newline
+182, EOF

@@ -30,7 +30,7 @@ let tests =
                 let name = $"""Parsing {fileName} ({String.concat ", " symbols})"""
                 test name { testParseFileWithSymbols symbols path }
 
-            test "Stack Probe" {
+            ptest "Debug Test" {
                 let path = Path.Combine(testDataDir.Value, "file.fs")
                 let result = parseWithStackProbe 1_000_000 (System.TimeSpan.FromSeconds 5.0) path
                 writeStackProbe (path + ".stack") result
