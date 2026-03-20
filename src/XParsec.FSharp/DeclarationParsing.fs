@@ -87,10 +87,11 @@ module ModuleDefn =
             let! attrs = opt Attributes.parse
             let! modTok = pModule
             let! access = opt Access.parse
+            let! isRec = opt pRec
             let! ident = nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "Module identifier"
             let! eq = pEquals
             let! body = parseBody elementParser
-            return ModuleDefn(attrs, modTok, access, ident, eq, body)
+            return ModuleDefn(attrs, modTok, access, isRec, ident, eq, body)
         }
 
 [<RequireQualifiedAccess>]
@@ -142,8 +143,6 @@ module NamespaceDeclGroup =
     let parse =
         parser {
             let! nsTok = pNamespace
-
-            // Check for 'global' keyword
             let! globalTok = opt pGlobal
 
             match globalTok with
@@ -153,8 +152,9 @@ module NamespaceDeclGroup =
                 return NamespaceDeclGroup.Global(nsTok, gTok, elems)
 
             | ValueNone ->
-                // namespace LongIdent
+                // namespace [rec] LongIdent
+                let! isRec = opt pRec
                 let! ident = LongIdent.parse
                 let! elems = ModuleElem.parseElems
-                return NamespaceDeclGroup.Named(nsTok, ident, elems)
+                return NamespaceDeclGroup.Named(nsTok, isRec, ident, elems)
         }

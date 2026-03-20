@@ -44,11 +44,12 @@ and ModuleDefn<'T> =
         attributes: Attributes<'T> voption *
         moduleToken: 'T *
         access: Access<'T> voption *
+        isRec: 'T voption *
         ident: 'T *
         equals: 'T *
         body: ModuleDefnBody<'T>
 
 // Represents: namespace-decl-group
 type NamespaceDeclGroup<'T> =
-    | Named of namespaceToken: 'T * longIdent: LongIdent<'T> * elements: ModuleElems<'T>
+    | Named of namespaceToken: 'T * isRec: 'T voption * longIdent: LongIdent<'T> * elements: ModuleElems<'T>
     | Global of namespaceToken: 'T * globalToken: 'T * elements: ModuleElems<'T>

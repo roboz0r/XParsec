@@ -1742,7 +1742,8 @@ and walkModuleElem (visitor: AstVisitor<'T>) (elem: ModuleElem<'T>) : unit =
     | ModuleElem.Expression expr -> walkExpr visitor expr
 
 and walkModuleDefn (visitor: AstVisitor<'T>) (defn: ModuleDefn<'T>) : unit =
-    let (ModuleDefn.ModuleDefn(attrs, moduleToken, access, ident, equals, body)) = defn
+    let (ModuleDefn.ModuleDefn(attrs, moduleToken, access, isRec, ident, equals, body)) =
+        defn
 
     match attrs with
     | ValueSome a -> walkAttributes visitor a
@@ -1752,6 +1753,10 @@ and walkModuleDefn (visitor: AstVisitor<'T>) (defn: ModuleDefn<'T>) : unit =
 
     match access with
     | ValueSome a -> walkAccess visitor a
+    | ValueNone -> ()
+
+    match isRec with
+    | ValueSome r -> visitor.VisitToken "rec" r
     | ValueNone -> ()
 
     visitor.VisitToken "ident" ident
@@ -1774,8 +1779,12 @@ and walkModuleElems (visitor: AstVisitor<'T>) (elems: ModuleElems<'T>) : unit =
 
 and walkNamespaceDeclGroup (visitor: AstVisitor<'T>) (group: NamespaceDeclGroup<'T>) : unit =
     match group with
-    | NamespaceDeclGroup.Named(nsTok, longIdent, elems) ->
+    | NamespaceDeclGroup.Named(nsTok, isRec, longIdent, elems) ->
         visitor.VisitToken "namespace" nsTok
+
+        match isRec with
+        | ValueSome r -> visitor.VisitToken "rec" r
+        | ValueNone -> ()
 
         for id in longIdent do
             visitor.VisitToken "" id
@@ -1796,7 +1805,8 @@ and walkImplementationFile (visitor: AstVisitor<'T>) (file: ImplementationFile<'
         visitor.WriteLine "AnonymousModule:"
         walkModuleElems visitor elems
     | ImplementationFile.NamedModule namedModule ->
-        let (NamedModule.NamedModule(attrs, modTok, access, longIdent, elems)) = namedModule
+        let (NamedModule.NamedModule(attrs, modTok, access, isRec, longIdent, elems)) =
+            namedModule
 
         match attrs with
         | ValueSome a -> walkAttributes visitor a
@@ -1806,6 +1816,10 @@ and walkImplementationFile (visitor: AstVisitor<'T>) (file: ImplementationFile<'
 
         match access with
         | ValueSome a -> walkAccess visitor a
+        | ValueNone -> ()
+
+        match isRec with
+        | ValueSome r -> visitor.VisitToken "rec" r
         | ValueNone -> ()
 
         for id in longIdent do
