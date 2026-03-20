@@ -975,6 +975,66 @@ module TypeDefn =
 
     // Helper to detect specific type bodies based on lookahead or specific tokens
 
+    let private pRecordField =
+        parser {
+            let! attrs = opt Attributes.parse
+            let! mut = opt pMutable
+            let! acc = opt pAccessModifier
+            let! id = pIdent
+            let! col = pColon
+            let! t = withContext OffsideContext.SeqBlock Type.parse
+            let! _ = opt pSemi
+            return RecordField.RecordField(attrs, mut, acc, id, col, t)
+        }
+
+    let private parseAbbrevOrImplicitClass typeName (primaryConstr: PrimaryConstrArgs<SyntaxToken> voption) equals =
+        parser {
+            // If it starts with a class-body keyword or has a primary constructor, it's an implicit class.
+            // Otherwise it's a type abbreviation.
+            let! isImplicitClass =
+                lookAhead (
+                    choiceL
+                        [
+                            pMember
+                            pVal
+                            pNew
+                            pInherit
+                            pAbstract
+                            pDefault
+                            pOverride
+                            // If primary constructor was present, it's definitely a class/struct
+                            (if primaryConstr.IsSome then
+                                 preturn (Unchecked.defaultof<_>)
+                             else
+                                 fail (Message "Not implicit"))
+                        ]
+                        "Implicit check"
+                )
+                |> opt
+
+            match isImplicitClass with
+            | ValueSome _ ->
+                // Implicit Class — no explicit begin/end; use offside rule to determine body extent
+                let! beginTok = nextNonTriviaTokenVirtualIfNot Token.KWBegin
+                let! body = withContext OffsideContext.Type ClassTypeBody.parseOffside
+                let! endTok = nextNonTriviaTokenVirtualIfNot Token.KWEnd
+                return TypeDefn.Anon(typeName, primaryConstr, ValueNone, equals, beginTok, body, endTok)
+            | ValueNone ->
+                // Abbreviation
+                let! t =
+                    Type.parse
+                    |> recoverWith
+                        StoppingTokens.afterTypeDefn
+                        DiagnosticSeverity.Error
+                        DiagnosticCode.MissingType
+                        (fun toks ->
+                            let m: Type<SyntaxToken> = Type<_>.Missing
+                            if toks.IsEmpty then m else Type<_>.SkipsTokens(toks, m)
+                        )
+
+                return TypeDefn.Abbrev(typeName, equals, t)
+        }
+
     /// Parses the body of a type definition after the leading keyword (type or and) has been consumed.
     let private parseBody (attrs: Attributes<SyntaxToken> voption) : Parser<TypeDefn<SyntaxToken>, _, _, _, _> =
         parser {
@@ -1032,21 +1092,7 @@ module TypeDefn =
                     // The SeqBlock indent is set to the type's start column (e.g., `float` at column 7),
                     // so the next field name at column 4 is offside and stops the type parser.
                     let! lBrace = pLBrace
-
-                    let! fields =
-                        many1 (
-                            parser {
-                                let! attrs = opt Attributes.parse
-                                let! mut = opt pMutable
-                                let! acc = opt pAccessModifier
-                                let! id = pIdent
-                                let! col = pColon
-                                let! t = withContext OffsideContext.SeqBlock Type.parse
-                                let! _ = opt pSemi
-                                return RecordField.RecordField(attrs, mut, acc, id, col, t)
-                            }
-                        )
-
+                    let! fields = many1 pRecordField
                     let! rBrace = pRBrace
 
                     let! ext =
@@ -1078,57 +1124,7 @@ module TypeDefn =
                             ]
                             "Union or Enum"
 
-                | _ ->
-                    // Abbreviation or Implicit Class?
-                    // If it starts with Type, it's Abbrev.
-                    // If it starts with 'member', 'val', 'new', 'inherit' -> Implicit Class.
-
-                    // We attempt to parse Type. If successful and consumed everything? Abbrev.
-                    // But 'new' is not a type start. 'member' is not.
-
-                    // Let's lookahead at tokens that start a Class Body
-                    let! isImplicitClass =
-                        lookAhead (
-                            choiceL
-                                [
-                                    pMember
-                                    pVal
-                                    pNew
-                                    pInherit
-                                    pAbstract
-                                    pDefault
-                                    pOverride
-                                    // If primary constructor was present, it's definitely a class/struct
-                                    (if primaryConstr.IsSome then
-                                         preturn (Unchecked.defaultof<_>)
-                                     else
-                                         fail (Message "Not implicit"))
-                                ]
-                                "Implicit check"
-                        )
-                        |> opt
-
-                    match isImplicitClass with
-                    | ValueSome _ ->
-                        // Implicit Class — no explicit begin/end; use offside rule to determine body extent
-                        let! beginTok = nextNonTriviaTokenVirtualIfNot Token.KWBegin
-                        let! body = withContext OffsideContext.Type ClassTypeBody.parseOffside
-                        let! endTok = nextNonTriviaTokenVirtualIfNot Token.KWEnd
-                        return TypeDefn.Anon(typeName, primaryConstr, ValueNone, equals, beginTok, body, endTok)
-                    | ValueNone ->
-                        // Abbreviation
-                        let! t =
-                            Type.parse
-                            |> recoverWith
-                                StoppingTokens.afterTypeDefn
-                                DiagnosticSeverity.Error
-                                DiagnosticCode.MissingType
-                                (fun toks ->
-                                    let m: Type<SyntaxToken> = Type<_>.Missing
-                                    if toks.IsEmpty then m else Type<_>.SkipsTokens(toks, m)
-                                )
-
-                        return TypeDefn.Abbrev(typeName, equals, t)
+                | _ -> return! parseAbbrevOrImplicitClass typeName primaryConstr equals
         }
 
     let parse: Parser<TypeDefn<SyntaxToken>, _, _, _, _> =
