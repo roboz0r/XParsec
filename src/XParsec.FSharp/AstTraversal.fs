@@ -24,11 +24,21 @@ type AstVisitor<'T> =
 // Private helper — not part of the mutual recursion group
 // ---------------------------------------------------------------------------
 
+let inline visitTokenOpt (visitor: AstVisitor<'T>) (label: string) (token: 'T voption) : unit =
+    match token with
+    | ValueSome t -> visitor.VisitToken label t
+    | ValueNone -> ()
+
 let walkAccess (visitor: AstVisitor<'T>) (access: Access<'T>) : unit =
     match access with
     | Access.Private t
     | Access.Internal t
     | Access.Public t -> visitor.VisitToken "access" t
+
+let inline walkAccessOpt (visitor: AstVisitor<'T>) (access: Access<'T> voption) : unit =
+    match access with
+    | ValueSome a -> walkAccess visitor a
+    | ValueNone -> ()
 
 let parenKind lParen =
     match lParen with
@@ -142,16 +152,18 @@ and walkAttributeSet (visitor: AstVisitor<'T>) (attrSet: AttributeSet<'T>) : uni
 
     for attr, sep in attributes do
         walkAttribute visitor attr
-
-        match sep with
-        | ValueSome s -> visitor.VisitToken ";" s
-        | ValueNone -> ()
+        visitTokenOpt visitor ";" sep
 
     visitor.VisitToken ">]" rBracket
 
 and walkAttributes (visitor: AstVisitor<'T>) (attrs: Attributes<'T>) : unit =
     for attrSet in attrs do
         walkAttributeSet visitor attrSet
+
+and walkAttributesOpt (visitor: AstVisitor<'T>) (attrs: Attributes<'T> voption) : unit =
+    match attrs with
+    | ValueSome a -> walkAttributes visitor a
+    | ValueNone -> ()
 
 and walkIdentOrOp (visitor: AstVisitor<'T>) (identOrOp: IdentOrOp<'T>) : unit =
     match identOrOp with
@@ -190,9 +202,7 @@ and walkActivePatternOpName (visitor: AstVisitor<'T>) (apn: ActivePatternOpName<
         for ident in idents do
             visitor.VisitToken "" ident
 
-        match finalUnderscore with
-        | ValueSome u -> visitor.VisitToken "" u
-        | ValueNone -> ()
+        visitTokenOpt visitor "" finalUnderscore
 
         visitor.VisitToken "" rBar
         visitor.ExitSection "ActivePatternOp"
@@ -427,10 +437,7 @@ and walkTyparDefns (visitor: AstVisitor<'T>) (typars: TyparDefns<'T>) : unit =
     visitor.VisitToken "" lAngle
 
     for (TyparDefn(attrs, typar)) in defns do
-        match attrs with
-        | ValueSome a -> walkAttributes visitor a
-        | ValueNone -> ()
-
+        walkAttributesOpt visitor attrs
         walkTypar visitor typar
 
     match constraints with
@@ -557,25 +564,11 @@ and walkType (visitor: AstVisitor<'T>) (ty: Type<'T>) : unit =
         visitor.ExitSection "SkipsTokens"
 
 and walkBinding (visitor: AstVisitor<'T>) (binding: Binding<'T>) : unit =
-    match binding.attributes with
-    | ValueSome a -> walkAttributes visitor a
-    | ValueNone -> ()
-
-    match binding.inlineToken with
-    | ValueSome t -> visitor.VisitToken "inline" t
-    | ValueNone -> ()
-
-    match binding.mutableToken with
-    | ValueSome t -> visitor.VisitToken "mutable" t
-    | ValueNone -> ()
-
-    match binding.fixedToken with
-    | ValueSome t -> visitor.VisitToken "fixed" t
-    | ValueNone -> ()
-
-    match binding.access with
-    | ValueSome a -> visitor.VisitToken "access" a
-    | ValueNone -> ()
+    walkAttributesOpt visitor binding.attributes
+    visitTokenOpt visitor "inline" binding.inlineToken
+    visitTokenOpt visitor "mutable" binding.mutableToken
+    visitTokenOpt visitor "fixed" binding.fixedToken
+    visitTokenOpt visitor "access" binding.access
 
     walkPat visitor binding.headPat
 
@@ -641,9 +634,7 @@ and walkRules (visitor: AstVisitor<'T>) (rules: Rules<'T>) : unit =
         let bar = if i = 0 then firstBar else ValueSome bars[i - 1]
         visitor.EnterSection "Rule"
 
-        match bar with
-        | ValueSome b -> visitor.VisitToken "Bar" b
-        | ValueNone -> ()
+        visitTokenOpt visitor "Bar" bar
 
         match ruleList[i] with
         | Rule.Rule _
@@ -681,9 +672,7 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
                 visitor.VisitToken "UseBang" t
                 "UseBang"
 
-        match isRec with
-        | ValueSome recTok -> visitor.VisitToken "rec" recTok
-        | ValueNone -> ()
+        visitTokenOpt visitor "rec" isRec
 
         visitor.EnterSection ""
 
@@ -692,9 +681,7 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
 
         visitor.ExitSection ""
 
-        match inToken with
-        | ValueSome inTok -> visitor.VisitToken "in" inTok
-        | ValueNone -> ()
+        visitTokenOpt visitor "in" inToken
 
         match body with
         | ValueSome bodyExpr ->
@@ -983,9 +970,7 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         walkExpr visitor indexedExpr
         visitor.ExitSection "Expr"
 
-        match dot with
-        | ValueSome dot -> visitor.VisitToken "." dot
-        | ValueNone -> ()
+        visitTokenOpt visitor "." dot
 
         visitor.VisitToken "[" lBracket
         visitor.EnterSection "Index"
@@ -1095,9 +1080,7 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
             match part with
             | InterpolatedStringPart.Text t -> visitor.VisitToken "Text" t
             | InterpolatedStringPart.Expr(formatSpec, lBrace, expr, rBrace) ->
-                match formatSpec with
-                | ValueSome fs -> visitor.VisitToken "FormatSpec" fs
-                | ValueNone -> ()
+                visitTokenOpt visitor "FormatSpec" formatSpec
 
                 visitor.VisitToken "{" lBrace
                 visitor.EnterSection "Expr"
@@ -1150,9 +1133,7 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
 and walkArgSpec (visitor: AstVisitor<'T>) (argSpec: ArgSpec<'T>) : unit =
     let (ArgSpec(attrs, name, typ)) = argSpec
 
-    match attrs with
-    | ValueSome a -> walkAttributes visitor a
-    | ValueNone -> ()
+    walkAttributesOpt visitor attrs
 
     match name with
     | ValueSome(ArgNameSpec(_, ident, colon)) ->
@@ -1195,9 +1176,7 @@ and walkMemberSig (visitor: AstVisitor<'T>) (sign: MemberSig<'T>) : unit =
         visitor.VisitToken "with" withTok
         visitor.VisitToken "get/set" first
 
-        match second with
-        | ValueSome s -> visitor.VisitToken "set/get" s
-        | ValueNone -> ()
+        visitTokenOpt visitor "set/get" second
 
 and walkMethodOrPropDefn (visitor: AstVisitor<'T>) (defn: MethodOrPropDefn<'T>) : unit =
     match defn with
@@ -1221,11 +1200,7 @@ and walkMethodOrPropDefn (visitor: AstVisitor<'T>) (defn: MethodOrPropDefn<'T>) 
             walkBinding visitor binding
     | MethodOrPropDefn.AutoProperty(valTok, access, ident, returnType, eq, expr, withClause) ->
         visitor.VisitToken "val" valTok
-
-        match access with
-        | ValueSome acc -> visitor.VisitToken "access" acc
-        | ValueNone -> ()
-
+        visitTokenOpt visitor "access" access
         visitor.VisitToken "ident" ident
 
         match returnType with
@@ -1242,9 +1217,7 @@ and walkMethodOrPropDefn (visitor: AstVisitor<'T>) (defn: MethodOrPropDefn<'T>) 
             visitor.VisitToken "with" withTok
             visitor.VisitToken "accessor" acc1
 
-            match acc2 with
-            | ValueSome acc2Tok -> visitor.VisitToken "accessor" acc2Tok
-            | ValueNone -> ()
+            visitTokenOpt visitor "accessor" acc2
         | ValueNone -> ()
     | MethodOrPropDefn.AbstractSignature sign -> walkMemberSig visitor sign
 
@@ -1252,33 +1225,17 @@ and walkMemberDefn (visitor: AstVisitor<'T>) (memberDefn: MemberDefn<'T>) : unit
     match memberDefn with
     | MemberDefn.Value(attrs, staticTok, valTok, mutableTok, _, ident, colon, typ) ->
         visitor.EnterSection "Val"
-
-        match attrs with
-        | ValueSome a -> walkAttributes visitor a
-        | ValueNone -> ()
-
-        match staticTok with
-        | ValueSome s -> visitor.VisitToken "static" s
-        | ValueNone -> ()
-
+        walkAttributesOpt visitor attrs
+        visitTokenOpt visitor "static" staticTok
         visitor.VisitToken "val" valTok
-
-        match mutableTok with
-        | ValueSome m -> visitor.VisitToken "mutable" m
-        | ValueNone -> ()
-
+        visitTokenOpt visitor "mutable" mutableTok
         visitor.VisitToken "ident" ident
         visitor.VisitToken ":" colon
         walkType visitor typ
         visitor.ExitSection "Val"
     | MemberDefn.Member(attrs, staticTok, keyword, _, defn) ->
-        match attrs with
-        | ValueSome a -> walkAttributes visitor a
-        | ValueNone -> ()
-
-        match staticTok with
-        | ValueSome s -> visitor.VisitToken "static" s
-        | ValueNone -> ()
+        walkAttributesOpt visitor attrs
+        visitTokenOpt visitor "static" staticTok
 
         match keyword with
         | MemberKeyword.Member tok -> visitor.VisitToken "member" tok
@@ -1286,18 +1243,12 @@ and walkMemberDefn (visitor: AstVisitor<'T>) (memberDefn: MemberDefn<'T>) : unit
         | MemberKeyword.Default tok -> visitor.VisitToken "default" tok
         | MemberKeyword.Abstract(abstractTok, memberTok) ->
             visitor.VisitToken "abstract" abstractTok
-
-            match memberTok with
-            | ValueSome m -> visitor.VisitToken "member" m
-            | ValueNone -> ()
+            visitTokenOpt visitor "member" memberTok
 
         walkMethodOrPropDefn visitor defn
     | MemberDefn.AdditionalConstructor(attrs, _, newTok, pat, _, eq, body) ->
         visitor.EnterSection "AdditionalConstructor"
-
-        match attrs with
-        | ValueSome a -> walkAttributes visitor a
-        | ValueNone -> ()
+        walkAttributesOpt visitor attrs
 
         visitor.VisitToken "new" newTok
         walkPat visitor pat
@@ -1358,14 +1309,8 @@ and walkTypeDefnElement (visitor: AstVisitor<'T>) (elem: TypeDefnElement<'T>) : 
 
 and walkTypeName (visitor: AstVisitor<'T>) (typeName: TypeName<'T>) : unit =
     let (TypeName(attrs, access, ident, typars)) = typeName
-
-    match attrs with
-    | ValueSome a -> walkAttributes visitor a
-    | ValueNone -> ()
-
-    match access with
-    | ValueSome a -> visitor.VisitToken "access" a
-    | ValueNone -> ()
+    walkAttributesOpt visitor attrs
+    visitTokenOpt visitor "access" access
 
     for tok in ident do
         visitor.VisitToken "TypeName" tok
@@ -1407,21 +1352,13 @@ and walkExceptionDefn (visitor: AstVisitor<'T>) (exnDefn: ExceptionDefn<'T>) : u
     match exnDefn with
     | ExceptionDefn.Full(attrs, exTok, caseData) ->
         visitor.EnterSection "ExceptionDefn.Full"
-
-        match attrs with
-        | ValueSome a -> walkAttributes visitor a
-        | ValueNone -> ()
-
+        walkAttributesOpt visitor attrs
         visitor.VisitToken "exception" exTok
         walkUnionCaseData visitor caseData
         visitor.ExitSection "ExceptionDefn.Full"
     | ExceptionDefn.Abbreviation(attrs, exTok, ident, eq, longIdent) ->
         visitor.EnterSection "ExceptionDefn.Abbrev"
-
-        match attrs with
-        | ValueSome a -> walkAttributes visitor a
-        | ValueNone -> ()
-
+        walkAttributesOpt visitor attrs
         visitor.VisitToken "exception" exTok
         visitor.VisitToken "ident" ident
         visitor.VisitToken "=" eq
@@ -1445,30 +1382,16 @@ and walkObjectModelBody (visitor: AstVisitor<'T>) (body: ObjectModelBody<'T>) : 
     for preamble in body.classPreamble do
         match preamble with
         | ClassFunctionOrValueDefn.LetBindings(attrs, staticTok, letTok, isRec, bindings) ->
-            match attrs with
-            | ValueSome a -> walkAttributes visitor a
-            | ValueNone -> ()
-
-            match staticTok with
-            | ValueSome s -> visitor.VisitToken "static" s
-            | ValueNone -> ()
-
+            walkAttributesOpt visitor attrs
+            visitTokenOpt visitor "static" staticTok
             visitor.VisitToken "let" letTok
-
-            match isRec with
-            | ValueSome r -> visitor.VisitToken "rec" r
-            | ValueNone -> ()
+            visitTokenOpt visitor "rec" isRec
 
             for binding in bindings do
                 walkBinding visitor binding
         | ClassFunctionOrValueDefn.Do(attrs, staticTok, doTok, expr) ->
-            match attrs with
-            | ValueSome a -> walkAttributes visitor a
-            | ValueNone -> ()
-
-            match staticTok with
-            | ValueSome s -> visitor.VisitToken "static" s
-            | ValueNone -> ()
+            walkAttributesOpt visitor attrs
+            visitTokenOpt visitor "static" staticTok
 
             visitor.VisitToken "do" doTok
             walkExpr visitor expr
@@ -1494,10 +1417,7 @@ and walkTypeDefn (visitor: AstVisitor<'T>) (typeDefn: TypeDefn<'T>) : unit =
 
         for (UnionTypeCase(attrs, data)) in cases do
             visitor.EnterSection "Case"
-
-            match attrs with
-            | ValueSome a -> walkAttributes visitor a
-            | ValueNone -> ()
+            walkAttributesOpt visitor attrs
 
             match data with
             | UnionTypeCaseData.Nullary ident -> visitor.VisitToken "ident" ident
@@ -1530,19 +1450,9 @@ and walkTypeDefn (visitor: AstVisitor<'T>) (typeDefn: TypeDefn<'T>) : unit =
 
         for (RecordField(attrs, mutableTok, access, id, colon, typ)) in fields do
             visitor.EnterSection "Field"
-
-            match attrs with
-            | ValueSome a -> walkAttributes visitor a
-            | ValueNone -> ()
-
-            match mutableTok with
-            | ValueSome m -> visitor.VisitToken "mutable" m
-            | ValueNone -> ()
-
-            match access with
-            | ValueSome a -> visitor.VisitToken "access" a
-            | ValueNone -> ()
-
+            walkAttributesOpt visitor attrs
+            visitTokenOpt visitor "mutable" mutableTok
+            visitTokenOpt visitor "access" access
             visitor.VisitToken "ident" id
             visitor.VisitToken ":" colon
             walkType visitor typ
@@ -1663,15 +1573,9 @@ and walkTypeDefn (visitor: AstVisitor<'T>) (typeDefn: TypeDefn<'T>) : unit =
 and walkModuleFunctionOrValueDefn (visitor: AstVisitor<'T>) (defn: ModuleFunctionOrValueDefn<'T>) : unit =
     match defn with
     | ModuleFunctionOrValueDefn.Let(attrs, letToken, isRec, bindings) ->
-        match attrs with
-        | ValueSome a -> walkAttributes visitor a
-        | ValueNone -> ()
-
+        walkAttributesOpt visitor attrs
         visitor.VisitToken "let" letToken
-
-        match isRec with
-        | ValueSome t -> visitor.VisitToken "rec" t
-        | ValueNone -> ()
+        visitTokenOpt visitor "rec" isRec
 
         visitor.EnterSection ""
 
@@ -1680,10 +1584,7 @@ and walkModuleFunctionOrValueDefn (visitor: AstVisitor<'T>) (defn: ModuleFunctio
 
         visitor.ExitSection ""
     | ModuleFunctionOrValueDefn.Do(attrs, doToken, expr) ->
-        match attrs with
-        | ValueSome a -> walkAttributes visitor a
-        | ValueNone -> ()
-
+        walkAttributesOpt visitor attrs
         visitor.VisitToken "do" doToken
         visitor.EnterSection ""
         walkExpr visitor expr
@@ -1745,19 +1646,10 @@ and walkModuleDefn (visitor: AstVisitor<'T>) (defn: ModuleDefn<'T>) : unit =
     let (ModuleDefn.ModuleDefn(attrs, moduleToken, access, isRec, ident, equals, body)) =
         defn
 
-    match attrs with
-    | ValueSome a -> walkAttributes visitor a
-    | ValueNone -> ()
-
+    walkAttributesOpt visitor attrs
     visitor.VisitToken "module" moduleToken
-
-    match access with
-    | ValueSome a -> walkAccess visitor a
-    | ValueNone -> ()
-
-    match isRec with
-    | ValueSome r -> visitor.VisitToken "rec" r
-    | ValueNone -> ()
+    walkAccessOpt visitor access
+    visitTokenOpt visitor "rec" isRec
 
     visitor.VisitToken "ident" ident
     visitor.VisitToken "=" equals
@@ -1781,10 +1673,7 @@ and walkNamespaceDeclGroup (visitor: AstVisitor<'T>) (group: NamespaceDeclGroup<
     match group with
     | NamespaceDeclGroup.Named(nsTok, isRec, longIdent, elems) ->
         visitor.VisitToken "namespace" nsTok
-
-        match isRec with
-        | ValueSome r -> visitor.VisitToken "rec" r
-        | ValueNone -> ()
+        visitTokenOpt visitor "rec" isRec
 
         for id in longIdent do
             visitor.VisitToken "" id
@@ -1808,19 +1697,10 @@ and walkImplementationFile (visitor: AstVisitor<'T>) (file: ImplementationFile<'
         let (NamedModule.NamedModule(attrs, modTok, access, isRec, longIdent, elems)) =
             namedModule
 
-        match attrs with
-        | ValueSome a -> walkAttributes visitor a
-        | ValueNone -> ()
-
+        walkAttributesOpt visitor attrs
         visitor.VisitToken "module" modTok
-
-        match access with
-        | ValueSome a -> walkAccess visitor a
-        | ValueNone -> ()
-
-        match isRec with
-        | ValueSome r -> visitor.VisitToken "rec" r
-        | ValueNone -> ()
+        walkAccessOpt visitor access
+        visitTokenOpt visitor "rec" isRec
 
         for id in longIdent do
             visitor.VisitToken "" id
