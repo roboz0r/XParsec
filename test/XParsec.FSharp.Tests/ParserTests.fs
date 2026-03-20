@@ -1,13 +1,8 @@
 module XParsec.FSharp.Lexer.Tests.ParserTests
 
 open System.IO
-open System.Collections.Generic
 
 open Expecto
-open FSharp.NativeInterop
-
-#nowarn "9" // NativePtr
-#nowarn "51" // Native pointer address-of
 
 let specialFiles =
     [
@@ -36,151 +31,14 @@ let tests =
                 test name { testParseFileWithSymbols symbols path }
 
             test "Stack Probe" {
-                let fileName = "file.fs" // Change this to the specific file you want to debug
-                let path = Path.Combine(testDataDir.Value, fileName)
-                let input = File.ReadAllText path
-                let input = input.Replace("\r\n", "\n")
+                let path = Path.Combine(testDataDir.Value, "file.fs")
+                let result = parseWithStackProbe 1_000_000 (System.TimeSpan.FromSeconds 5.0) path
+                writeStackProbe (path + ".stack") result
 
-                match XParsec.FSharp.Lexer.Lexing.lexString input with
-                | Error e -> failtestf "Lexing failed: %A" e
-                | Ok lexed ->
-                    // Always write .lexed file
-                    writeLexed (path + ".lexed") lexed
-
-                    let events = ResizeArray()
-                    let eventsPath = path + ".trace"
-                    use eventsWriter = new StreamWriter(eventsPath, false)
-                    let mutable maxDepth = 0
-                    let mutable deepestTrace: System.Diagnostics.StackTrace = null
-                    let stackProbes = ResizeArray<struct (string * nativeint)>()
-
-                    let traceCallback =
-                        XParsec.FSharp.Parser.TraceCallback(fun x ->
-                            eventsWriter.WriteLine(XParsec.FSharp.Parser.TraceEvent.format x)
-
-                            match x with
-                            | XParsec.FSharp.Parser.TraceEvent.ContextPush(ctx, indent, _, depth) ->
-                                let mutable marker = 0
-                                let sp = NativePtr.toNativeInt &&marker
-                                stackProbes.Add(struct ($"PUSH {ctx} indent={indent} depth={depth}", sp))
-
-                                if depth > maxDepth then
-                                    maxDepth <- depth
-                                    deepestTrace <- System.Diagnostics.StackTrace(true)
-                            | XParsec.FSharp.Parser.TraceEvent.ContextPop(ctx, depth) ->
-                                let mutable marker = 0
-                                let sp = NativePtr.toNativeInt &&marker
-                                stackProbes.Add(struct ($"POP {ctx} depth={depth}", sp))
-                            | _ -> ()
-
-                            lock events (fun () -> events.Add x)
-                        )
-
-                    let reader =
-                        XParsec.FSharp.Parser.Reader.ofLexedWithTracing lexed input Set.empty traceCallback
-
-                    // let task =
-                    //     System.Threading.Tasks.Task.Run(fun () -> XParsec.FSharp.Parser.FSharpAst.parse reader)
-                    let mutable taskResult = Unchecked.defaultof<_>
-
-                    let thread =
-                        System.Threading.Thread(
-                            System.Threading.ThreadStart(fun () ->
-                                match XParsec.FSharp.Parser.FSharpAst.parse reader with
-                                | Error e -> taskResult <- Error e
-                                | Ok ast -> taskResult <- Ok ast
-                            ),
-                            1_000_000
-                        )
-
-                    thread.Start()
-                    // Wait up to 5 seconds for the parser to complete. If it doesn't, dump debugging info to help identify where it's stuck.
-                    // if not (task.Wait(5000)) then
-                    if not (thread.Join(5000)) then
-                        let stuckIdx = reader.Index
-                        let tok = lexed.Tokens.[stuckIdx * 1<_>]
-                        let pos = tok.StartIndex
-                        let lines = input.Substring(0, min pos input.Length).Split('\n')
-                        let line = lines.Length
-
-                        let context =
-                            if pos + 40 < input.Length then
-                                input.Substring(pos, 40)
-                            else
-                                input.Substring(pos)
-
-                        let lastEvents =
-                            lock events (fun () -> events.ToArray())
-                            |> Array.rev
-                            |> Array.truncate 80
-                            |> Array.rev
-                            |> Array.map XParsec.FSharp.Parser.TraceEvent.format
-                            |> String.concat "\n  "
-
-                        failtestf
-                            "Parsing stuck at reader index %d, token %A at line %d: '%s'\n\nLast trace events:\n  %s"
-                            stuckIdx
-                            tok
-                            line
-                            (context.Replace("\n", "\\n"))
-                            lastEvents
-                    else
-                        // match task.Result with
-                        match taskResult with
-                        | Error e ->
-                            let lastEvents =
-                                events
-                                |> Seq.toArray
-                                |> Array.rev
-                                |> Array.truncate 80
-                                |> Array.rev
-                                |> Array.map XParsec.FSharp.Parser.TraceEvent.format
-                                |> String.concat "\n  "
-
-                            failtestf
-                                "Parsing failed:\n%s\n\nLast trace events:\n  %s"
-                                (XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
-                                lastEvents
-                        | Ok ast ->
-                            // Always write .parsed file
-                            let ctx = XParsec.FSharp.Debug.PrintContext(2)
-                            XParsec.FSharp.Debug.printFSharpAst ctx input lexed ast
-                            XParsec.FSharp.Debug.printDiagnostics ctx reader.State.Diagnostics
-                            let output = ctx.FlushToString()
-                            File.WriteAllText(path + ".parsed", output)
-
-                    // Dump deepest stack trace
-                    let stackPath = path + ".stack"
-                    use sw = new StreamWriter(stackPath, false)
-                    sw.WriteLine($"Deepest context push depth: {maxDepth}")
-
-                    if deepestTrace <> null then
-                        sw.WriteLine($"Frame count: {deepestTrace.FrameCount}")
-                        sw.WriteLine()
-
-                        for i in 0 .. deepestTrace.FrameCount - 1 do
-                            let frame = deepestTrace.GetFrame(i)
-                            let m = frame.GetMethod()
-
-                            let typeName =
-                                if m <> null && m.DeclaringType <> null then
-                                    m.DeclaringType.Name
-                                else
-                                    "?"
-
-                            let methodName = if m <> null then m.Name else "?"
-                            let ilOffset = frame.GetILOffset()
-                            sw.WriteLine($"  [{i, 3}] {typeName}.{methodName} (IL offset={ilOffset})")
-
-                    sw.WriteLine()
-                    sw.WriteLine("=== Stack Pointer Probes (PUSH/POP at context boundaries) ===")
-                    sw.WriteLine()
-                    let mutable prev = 0n
-
-                    for struct (label, sp) in stackProbes do
-                        let delta = if prev = 0n then 0n else prev - sp // stack grows downward on x86/x64
-                        sw.WriteLine($"SP=0x{sp:X12}  delta={delta, 8}  {label}")
-                        prev <- sp
+                match result.ParseResult with
+                | Error e ->
+                    failtestf "Parsing failed:\n%s" (XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
+                | Ok _ -> ()
             }
         ]
 
@@ -225,7 +83,7 @@ let tracingTests =
                 match XParsec.FSharp.Lexer.Lexing.lexString input with
                 | Error e -> failtestf "Lexing failed: %A" e
                 | Ok lexed ->
-                    let events = List<XParsec.FSharp.Parser.TraceEvent>()
+                    let events = ResizeArray<XParsec.FSharp.Parser.TraceEvent>()
                     let traceCallback = XParsec.FSharp.Parser.TraceCallback(events.Add)
 
                     let reader =

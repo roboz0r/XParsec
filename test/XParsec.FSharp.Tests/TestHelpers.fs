@@ -384,6 +384,151 @@ let testParseFileWithSymbols (symbols: string list) (filePath: string) =
     testParseFileWith (Set.ofList symbols) filePath
 
 
+open FSharp.NativeInterop
+
+#nowarn "9" // NativePtr
+#nowarn "51" // Native pointer address-of
+
+/// Result of a stack-probing parse run. Contains the deepest stack trace,
+/// SP deltas at context boundaries, and the parse result.
+type StackProbeResult =
+    {
+        MaxDepth: int
+        DeepestTrace: System.Diagnostics.StackTrace option
+        StackProbes: struct (string * nativeint) array
+        ParseResult:
+            Result<
+                XParsec.FSharp.Parser.FSharpAst<XParsec.FSharp.Parser.SyntaxToken>,
+                XParsec.ParseError<XParsec.FSharp.Lexer.PositionedToken, XParsec.FSharp.Parser.ParseState>
+             >
+    }
+
+/// Parses a source file on a dedicated thread with stack probing enabled.
+/// Captures SP at each context push/pop and records the deepest stack trace.
+/// `stackSize` is the thread stack size in bytes.
+/// `timeout` is the maximum time to wait for the parse to complete.
+let parseWithStackProbe (stackSize: int) (timeout: System.TimeSpan) (filePath: string) : StackProbeResult =
+    let input = File.ReadAllText filePath
+    let input = input.Replace("\r\n", "\n")
+
+    match Lexing.lexString input with
+    | Error e -> failwithf "Lexing failed: %A" e
+    | Ok lexed ->
+        writeLexed (filePath + ".lexed") lexed
+
+        let mutable maxDepth = 0
+        let mutable deepestTrace: System.Diagnostics.StackTrace = null
+        let stackProbes = System.Collections.Generic.List<struct (string * nativeint)>()
+        let events = System.Collections.Generic.List<XParsec.FSharp.Parser.TraceEvent>()
+
+        let traceCallback =
+            XParsec.FSharp.Parser.TraceCallback(fun x ->
+                match x with
+                | XParsec.FSharp.Parser.TraceEvent.ContextPush(ctx, indent, _, depth) ->
+                    let mutable marker = 0
+                    let sp = NativePtr.toNativeInt &&marker
+                    stackProbes.Add(struct ($"PUSH {ctx} indent={indent} depth={depth}", sp))
+
+                    if depth > maxDepth then
+                        maxDepth <- depth
+                        deepestTrace <- System.Diagnostics.StackTrace(true)
+                | XParsec.FSharp.Parser.TraceEvent.ContextPop(ctx, depth) ->
+                    let mutable marker = 0
+                    let sp = NativePtr.toNativeInt &&marker
+                    stackProbes.Add(struct ($"POP {ctx} depth={depth}", sp))
+                | _ -> ()
+
+                lock events (fun () -> events.Add x)
+            )
+
+        let reader =
+            XParsec.FSharp.Parser.Reader.ofLexedWithTracing lexed input Set.empty traceCallback
+
+        let mutable taskResult = Unchecked.defaultof<_>
+
+        let thread =
+            System.Threading.Thread(
+                System.Threading.ThreadStart(fun () ->
+                    match XParsec.FSharp.Parser.FSharpAst.parse reader with
+                    | Error e -> taskResult <- Error e
+                    | Ok ast -> taskResult <- Ok ast
+                ),
+                stackSize
+            )
+
+        thread.Start()
+
+        if not (thread.Join(timeout)) then
+            let stuckIdx = reader.Index
+            let tok = lexed.Tokens.[stuckIdx * 1<token>]
+            let pos = tok.StartIndex
+            let lines = input.Substring(0, min (int pos) input.Length).Split('\n')
+            let line = lines.Length
+
+            let context =
+                if int pos + 40 < input.Length then
+                    input.Substring(int pos, 40)
+                else
+                    input.Substring(int pos)
+
+            let lastEvents =
+                lock events (fun () -> events.ToArray())
+                |> Array.rev
+                |> Array.truncate 80
+                |> Array.rev
+                |> Array.map XParsec.FSharp.Parser.TraceEvent.format
+                |> String.concat "\n  "
+
+            failwithf
+                "Parsing stuck at reader index %d, token %A at line %d: '%s'\n\nLast trace events:\n  %s"
+                stuckIdx
+                tok
+                line
+                (context.Replace("\n", "\\n"))
+                lastEvents
+
+        {
+            MaxDepth = maxDepth
+            DeepestTrace = if deepestTrace <> null then Some deepestTrace else None
+            StackProbes = stackProbes.ToArray()
+            ParseResult = taskResult
+        }
+
+/// Writes stack probe results (deepest stack trace + SP deltas) to the given path.
+let writeStackProbe (path: string) (result: StackProbeResult) =
+    use sw = new StreamWriter(path)
+    sw.WriteLine($"Deepest context push depth: {result.MaxDepth}")
+
+    match result.DeepestTrace with
+    | Some trace ->
+        sw.WriteLine($"Frame count: {trace.FrameCount}")
+        sw.WriteLine()
+
+        for i in 0 .. trace.FrameCount - 1 do
+            let frame = trace.GetFrame(i)
+            let m = frame.GetMethod()
+
+            let typeName =
+                if m <> null && m.DeclaringType <> null then
+                    m.DeclaringType.Name
+                else
+                    "?"
+
+            let methodName = if m <> null then m.Name else "?"
+            let ilOffset = frame.GetILOffset()
+            sw.WriteLine($"  [{i, 3}] {typeName}.{methodName} (IL offset={ilOffset})")
+    | None -> ()
+
+    sw.WriteLine()
+    sw.WriteLine("=== Stack Pointer Probes (PUSH/POP at context boundaries) ===")
+    sw.WriteLine()
+    let mutable prev = 0n
+
+    for struct (label, sp) in result.StackProbes do
+        let delta = if prev = 0n then 0n else prev - sp
+        sw.WriteLine($"SP=0x{sp:X12}  delta={delta, 8}  {label}")
+        prev <- sp
+
 /// Returns paths of golden files (`.parsed`, `.lexed`, `.lexedblocks`) in `dataDir` that have
 /// no corresponding `.fs` source file — i.e. orphans left behind after a source file was renamed
 /// or deleted.
