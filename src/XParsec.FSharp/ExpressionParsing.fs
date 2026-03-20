@@ -950,6 +950,29 @@ module Expr =
                     return struct (recTok, bindings)
                 })
 
+        /// Build nested `Expr.LetOrUse` from an accumulated list of bindings (innermost last)
+        /// and a body expression. The fold runs backwards so that the first binding wraps the outermost scope.
+        let buildNestedLetOrUse
+            (bindings: ResizeArray<struct (SyntaxToken * SyntaxToken voption * _ * SyntaxToken)>)
+            (body: Expr<SyntaxToken>)
+            =
+            let mutable result = body
+
+            for i in bindings.Count - 1 .. -1 .. 0 do
+                let struct (kwTok, recTok, defs, inTok) = bindings[i]
+
+                let kw =
+                    match kwTok.Token with
+                    | Token.KWLet -> LetOrUseKeyword.Let kwTok
+                    | Token.KWUse -> LetOrUseKeyword.Use kwTok
+                    | Token.KWLetBang -> LetOrUseKeyword.LetBang kwTok
+                    | Token.KWUseBang -> LetOrUseKeyword.UseBang kwTok
+                    | t -> failwith $"Unexpected keyword token for let/use body {t}"
+
+                result <- Expr.LetOrUse(kw, recTok, defs, ValueSome inTok, ValueSome result)
+
+            result
+
         /// Single body parser used by both `let/let!` and `use/use!`.
         /// The keyword token has been peeked but NOT consumed by lhsParser.
         ///
@@ -1009,21 +1032,7 @@ module Expr =
                     match refExprSeqBlock.Parser reader with
                     | Error e -> Error e
                     | Ok body ->
-                        let mutable result = body
-
-                        for i in bindings.Count - 1 .. -1 .. 0 do
-                            let struct (kwTok, recTok, defs, inTok) = bindings[i]
-
-                            let kw =
-                                match kwTok.Token with
-                                | Token.KWLet -> LetOrUseKeyword.Let kwTok
-                                | Token.KWUse -> LetOrUseKeyword.Use kwTok
-                                | Token.KWLetBang -> LetOrUseKeyword.LetBang kwTok
-                                | Token.KWUseBang -> LetOrUseKeyword.UseBang kwTok
-                                | t -> failwith $"Unexpected keyword token for let/use body {t}"
-
-                            result <- Expr.LetOrUse(kw, recTok, defs, ValueSome inTok, ValueSome result)
-
+                        let result = buildNestedLetOrUse bindings body
                         preturn (ExprAux.KeywordExpr(fun _opTok -> result)) reader
 
         let pYieldReturnDoBody =
@@ -1059,6 +1068,36 @@ module Expr =
                 | Token.EOF
                 | Token.OpComma -> return ExprAux.SliceAll
                 | _ -> return! fail (Message "Expected ',' or ']' for slice all syntax")
+            }
+
+        let pOperatorPrefix (token: SyntaxToken) =
+            parser {
+                match OperatorInfo.TryCreate(token.PositionedToken) with
+                // Note: Spec shows lazy and assert keywords as having same precedence as function application,
+                // so they are parsed as prefix operators with the same precedence level.
+                | ValueSome opInfo when opInfo.Token = Token.KWLazy ->
+                    let! tok = consumePeeked token
+                    let power = BindingPower.fromLevel (int opInfo.Precedence)
+                    return Prefix(tok, preturn tok, power, completeLazy)
+                | ValueSome opInfo when opInfo.Token = Token.KWAssert ->
+                    let! tok = consumePeeked token
+                    let power = BindingPower.fromLevel (int opInfo.Precedence)
+                    return Prefix(tok, preturn tok, power, completeAssert)
+                | ValueSome opInfo when opInfo.Token = Token.OpRange ->
+                    let! tok = consumePeeked token
+                    let power = BindingPower.fromLevel (int opInfo.Precedence)
+                    // A[..5]
+                    return Prefix(tok, preturn tok, power, completeSliceTo)
+                | ValueSome opInfo when opInfo.Token = Token.OpMultiply ->
+                    let! tok = consumePeeked token
+                    let power = BindingPower.fromLevel (int opInfo.Precedence)
+                    // A[0..1,*]
+                    return PrefixMapped(token, preturn tok, peekIsSliceAll, completeSliceAll)
+                | ValueSome opInfo when opInfo.CanBePrefix ->
+                    let! tok = consumePeeked token
+                    let power = BindingPower.fromLevel (int opInfo.Precedence)
+                    return Prefix(tok, preturn tok, power, completePrefix)
+                | _ -> return! fail (Message "Not a prefix operator")
             }
 
         let lhsParser =
@@ -1106,38 +1145,7 @@ module Expr =
                 | Token.KWYieldBang ->
                     let! token = consumePeeked token
                     return PrefixMapped(token, preturn token, pYieldReturnDoBody, completeKeyword)
-                | _ ->
-                    match OperatorInfo.TryCreate(token.PositionedToken) with
-                    // Note: Spec shows lazy and assert keywords as having same precedence as function application,
-                    // so they are parsed as prefix operators with the same precedence level.
-                    | ValueSome opInfo when opInfo.Token = Token.KWLazy ->
-                        // printOpInfo opInfo
-                        let! tok = consumePeeked token
-                        let power = BindingPower.fromLevel (int opInfo.Precedence)
-                        return Prefix(tok, preturn tok, power, completeLazy)
-                    | ValueSome opInfo when opInfo.Token = Token.KWAssert ->
-                        // printOpInfo opInfo
-                        let! tok = consumePeeked token
-                        let power = BindingPower.fromLevel (int opInfo.Precedence)
-                        return Prefix(tok, preturn tok, power, completeAssert)
-                    | ValueSome opInfo when opInfo.Token = Token.OpRange ->
-                        // printOpInfo opInfo
-                        let! tok = consumePeeked token
-                        let power = BindingPower.fromLevel (int opInfo.Precedence)
-                        // A[..5]
-                        return Prefix(tok, preturn tok, power, completeSliceTo)
-                    | ValueSome opInfo when opInfo.Token = Token.OpMultiply ->
-                        // printOpInfo opInfo
-                        let! tok = consumePeeked token
-                        let power = BindingPower.fromLevel (int opInfo.Precedence)
-                        // A[0..1,*]
-                        return PrefixMapped(token, preturn tok, peekIsSliceAll, completeSliceAll)
-                    | ValueSome opInfo when opInfo.CanBePrefix ->
-                        // printOpInfo opInfo
-                        let! tok = consumePeeked token
-                        let power = BindingPower.fromLevel (int opInfo.Precedence)
-                        return Prefix(tok, preturn tok, power, completePrefix)
-                    | _ -> return! fail (Message "Not a prefix operator")
+                | _ -> return! pOperatorPrefix token
             }
 
         interface Operators<
