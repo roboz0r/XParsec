@@ -16,11 +16,12 @@ module ImplementationFile =
             let! attrs = opt Attributes.parse
             let! modTok = pModule
             let! access = opt Access.parse
+            let! isRec = opt pRec
             let! longIdent = LongIdent.parse
             // Distinguish named module (module Foo.Bar <elems>) from module abbreviation (module X = Y.Z)
             do! notFollowedByEquals
             let! elems = ModuleElem.parseElems
-            return NamedModule.NamedModule(attrs, modTok, access, longIdent, elems)
+            return NamedModule.NamedModule(attrs, modTok, access, isRec, longIdent, elems)
         }
 
     let parse =

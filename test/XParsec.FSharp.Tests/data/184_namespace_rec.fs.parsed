@@ -1,0 +1,25 @@
+namespace      'namespace'       KWNamespace         tok=   0  pos=   0
+rec            'rec'             KWRec               tok=   2  pos=  10
+               'MyNamespac...'   Identifier          tok=   4  pos=  14
+  TypeDefn.Record:
+    TypeName   'Cat'             Identifier          tok=   9  pos=  32
+    =          '='               OpEquality          tok=  11  pos=  36
+    {          '{'               KWLBrace            tok=  13  pos=  38
+      Field:
+        ident  'Name'            Identifier          tok=  15  pos=  40
+        :      ':'               OpColon             tok=  16  pos=  44
+        NamedType:
+          LongIdent:
+               'string'          Identifier          tok=  18  pos=  46
+    }          '}'               KWRBrace            tok=  20  pos=  53
+  TypeDefn.Record:
+    TypeName   'Dog'             Identifier          tok=  25  pos=  61
+    =          '='               OpEquality          tok=  27  pos=  65
+    {          '{'               KWLBrace            tok=  29  pos=  67
+      Field:
+        ident  'Name'            Identifier          tok=  31  pos=  69
+        :      ':'               OpColon             tok=  32  pos=  73
+        NamedType:
+          LongIdent:
+               'string'          Identifier          tok=  34  pos=  75
+    }          '}'               KWRBrace            tok=  36  pos=  82
