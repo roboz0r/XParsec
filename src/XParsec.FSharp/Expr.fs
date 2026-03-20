@@ -542,7 +542,7 @@ and RecordField<'T> =
 and RecordFields<'T> = RecordField<'T> list
 
 // Represents: enum-type-defn and its cases
-and EnumTypeCase<'T> = | EnumTypeCase of ident: 'T * equals: 'T * constValue: 'T
+and EnumTypeCase<'T> = | EnumTypeCase of ident: 'T * equals: 'T * constValue: Expr<'T>
 
 and EnumTypeCases<'T> = EnumTypeCase<'T> list
 
@@ -605,6 +605,7 @@ and [<RequireQualifiedAccess>] TypeDefn<'T> =
     | Enum of typeName: TypeName<'T> * equals: 'T * cases: EnumTypeCases<'T>
     | Delegate of typeName: TypeName<'T> * equals: 'T * sign: DelegateSig<'T>
     | TypeExtension of typeName: TypeName<'T> * elements: TypeExtensionElements<'T>
+    | AbstractType of typeName: TypeName<'T>
     | Missing
     | SkipsTokens of skippedTokens: 'T list * typeDefn: TypeDefn<'T>
 

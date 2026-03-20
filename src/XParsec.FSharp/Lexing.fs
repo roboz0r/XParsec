@@ -1632,6 +1632,7 @@ module Lexing =
                         | "*" -> Token.OpMultiply, CtxOp.NoOp
                         | "/" -> Token.OpDivision, CtxOp.NoOp
                         | "^" -> Token.OpConcatenate, CtxOp.NoOp
+                        | "~~~" -> Token.OpLogicalNot, CtxOp.NoOp
                         | _ ->
                             let token = Token.ofCustomOperator (op.AsSpan())
                             token, CtxOp.NoOp

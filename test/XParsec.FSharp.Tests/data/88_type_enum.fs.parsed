@@ -6,12 +6,12 @@ TypeDefn.Enum:
     Case:
       ident  'Red'             Identifier          tok=  14  pos=  36
       =      '='               OpEquality          tok=  16  pos=  40
-      value  '0'               NumInt32            tok=  18  pos=  42
+      Const  '0'               NumInt32            tok=  18  pos=  42
     Case:
       ident  'Green'           Identifier          tok=  23  pos=  50
       =      '='               OpEquality          tok=  25  pos=  56
-      value  '1'               NumInt32            tok=  27  pos=  58
+      Const  '1'               NumInt32            tok=  27  pos=  58
     Case:
       ident  'Blue'            Identifier          tok=  32  pos=  66
       =      '='               OpEquality          tok=  34  pos=  71
-      value  '2'               NumInt32            tok=  36  pos=  73
+      Const  '2'               NumInt32            tok=  36  pos=  73
