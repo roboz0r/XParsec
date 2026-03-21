@@ -30,9 +30,23 @@ let tests =
                 let name = $"""Parsing {fileName} ({String.concat ", " symbols})"""
                 test name { testParseFileWithSymbols symbols path }
 
-            ptest "Debug Test" {
+            ptest "Step Debugging Test" {
+                // This test is intended for manual use with a debugger to verify that stepping
+                // through the parser works correctly.
+                // Change the file path to point to a specific test file you want to debug, change to `ftest`, then set a breakpoint in the parser.
                 let path = Path.Combine(testDataDir.Value, "manual", "file.fs")
-                let result = parseWithStackProbe 1_000_000 (System.TimeSpan.FromSeconds 5.0) path
+                testParseFile path
+            }
+
+            ptest "Trace Debugging Test" {
+                // This test will print detailed trace events from the parser into file.fs.trace and file.fs.stack files
+                // which can be useful for debugging complex parsing issues.
+                let path = Path.Combine(testDataDir.Value, "manual", "file.fs")
+                // 1MB is default stack size for .NET, which should be sufficient for most parsing tasks.
+                // Increase if necessary for debugging stack overflows.
+                // 5 second timeout to prevent hanging indefinitely if there is an infinite loop or other issue.
+                let stackSize = 0x100000
+                let result = parseWithStackProbe stackSize (System.TimeSpan.FromSeconds 5.0) path
 
                 match result with
                 | Error e ->
