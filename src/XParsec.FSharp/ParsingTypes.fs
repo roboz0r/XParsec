@@ -113,6 +113,8 @@ type DiagnosticCode =
     | MissingType of ParseError<PositionedToken, ParseState>
     | MissingRule of ParseError<PositionedToken, ParseState>
     | MissingTypeDefn of ParseError<PositionedToken, ParseState>
+    | MissingModuleElem of ParseError<PositionedToken, ParseState>
+    | UnexpectedTopLevel of ParseError<PositionedToken, ParseState>
     | ExpectedEnd of ParseError<PositionedToken, ParseState>
     | ExpectedRParen of ParseError<PositionedToken, ParseState>
     | ExpectedRBracket of ParseError<PositionedToken, ParseState>

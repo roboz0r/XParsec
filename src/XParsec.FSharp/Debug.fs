@@ -309,6 +309,8 @@ let sprintDiagnosticCode (code: DiagnosticCode) : string =
     | DiagnosticCode.MissingType _ -> "MissingType"
     | DiagnosticCode.MissingRule _ -> "MissingRule"
     | DiagnosticCode.MissingTypeDefn _ -> "MissingTypeDefn"
+    | DiagnosticCode.MissingModuleElem _ -> "MissingModuleElem"
+    | DiagnosticCode.UnexpectedTopLevel _ -> "UnexpectedTopLevel"
     | DiagnosticCode.Other msg -> $"Other({msg})"
     | DiagnosticCode.TyparInConstant _ -> "TyparInConstant"
     | DiagnosticCode.ExpectedEnd _ -> "ExpectedEnd"

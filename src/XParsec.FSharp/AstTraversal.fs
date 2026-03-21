@@ -1644,6 +1644,17 @@ and walkModuleElem (visitor: AstVisitor<'T>) (elem: ModuleElem<'T>) : unit =
         walkCompilerDirective visitor directive
         visitor.ExitSection "CompilerDirective"
     | ModuleElem.Expression expr -> walkExpr visitor expr
+    | ModuleElem.Missing -> visitor.WriteLine "Missing"
+    | ModuleElem.SkipsTokens(skippedTokens, innerElem) ->
+        visitor.EnterSection "SkipsTokens"
+
+        for t in skippedTokens do
+            visitor.VisitToken "(skipped)" t
+
+        visitor.EnterSection "ModuleElem"
+        walkModuleElem visitor innerElem
+        visitor.ExitSection "ModuleElem"
+        visitor.ExitSection "SkipsTokens"
 
 and walkModuleDefn (visitor: AstVisitor<'T>) (defn: ModuleDefn<'T>) : unit =
     let (ModuleDefn.ModuleDefn(attrs, moduleToken, access, isRec, ident, equals, body)) =

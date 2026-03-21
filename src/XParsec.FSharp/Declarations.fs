@@ -31,6 +31,8 @@ type ModuleElem<'T> =
     | Import of ImportDecl<'T>
     | CompilerDirective of CompilerDirectiveDecl<'T>
     | Expression of Expr<'T>
+    | Missing
+    | SkipsTokens of skippedTokens: 'T list * elem: ModuleElem<'T>
 
 // Represents: module-elems := module-elem ... module-elem
 and ModuleElems<'T> = ModuleElem<'T> list
