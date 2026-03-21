@@ -1280,6 +1280,7 @@ and walkMemberDefn (visitor: AstVisitor<'T>) (memberDefn: MemberDefn<'T>) : unit
                 visitor.VisitToken "new" newTok2
                 walkType visitor typ
                 walkExpr visitor expr
+            | AdditionalConstrInitExpr.Expression(expr) -> walkExpr visitor expr
         | _ -> visitor.WriteLine "<complex constructor body>"
 
         visitor.ExitSection "AdditionalConstructor"

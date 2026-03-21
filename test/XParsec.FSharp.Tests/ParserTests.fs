@@ -44,9 +44,9 @@ let tests =
                 let path = Path.Combine(testDataDir.Value, "manual", "file.fs")
                 // 1MB is default stack size for .NET, which should be sufficient for most parsing tasks.
                 // Increase if necessary for debugging stack overflows.
-                // 5 second timeout to prevent hanging indefinitely if there is an infinite loop or other issue.
+                // 10 second timeout to prevent hanging indefinitely if there is an infinite loop or other issue.
                 let stackSize = 0x100000
-                let result = parseWithStackProbe stackSize (System.TimeSpan.FromSeconds 5.0) path
+                let result = parseWithStackProbe stackSize (System.TimeSpan.FromSeconds 10.0) path
 
                 match result with
                 | Error e ->

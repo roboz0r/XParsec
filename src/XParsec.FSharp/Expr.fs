@@ -466,6 +466,7 @@ and AdditionalConstrInitExpr<'T> =
         initializers: FieldInitializer<'T> list *
         rBrace: 'T
     | Delegated of newToken: 'T * typ: Type<'T> * expr: Expr<'T>
+    | Expression of expr: Expr<'T>
 
 and AsDefn<'T> = | AsDefn of asToken: 'T * ident: 'T
 
