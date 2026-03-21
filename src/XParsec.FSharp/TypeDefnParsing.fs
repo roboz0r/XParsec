@@ -1135,10 +1135,11 @@ module TypeDefn =
         }
 
     /// Parses a type definition continuation starting with 'and' (for mutual recursion groups).
+    /// In F# syntax: and [attrs] TypeName = ...  (attributes come after 'and')
     let parseAndContinuation: Parser<TypeDefn<SyntaxToken>, _, _, _, _> =
         parser {
-            let! attrs = opt Attributes.parse
             let! _ = pAnd
+            let! attrs = opt Attributes.parse
             return! parseBody attrs
         }
 
