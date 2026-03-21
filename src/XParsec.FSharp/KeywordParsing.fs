@@ -139,6 +139,7 @@ module internal Keywords =
     let pAnd: KWParser = nextNonTriviaTokenIsL Token.KWAnd "and"
     let pOr: KWParser = nextNonTriviaTokenIsL Token.KWOr "or"
     let pStatic: KWParser = nextNonTriviaTokenIsL Token.KWStatic "static"
+    let pInline: KWParser = nextNonTriviaTokenIsL Token.KWInline "inline"
     let pMember: KWParser = nextNonTriviaTokenIsL Token.KWMember "member"
     let pOverride: KWParser = nextNonTriviaTokenIsL Token.KWOverride "override"
     let pAbstract: KWParser = nextNonTriviaTokenIsL Token.KWAbstract "abstract"

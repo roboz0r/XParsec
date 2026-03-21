@@ -476,6 +476,7 @@ and [<RequireQualifiedAccess>] MemberDefn<'T> =
         attributes: Attributes<'T> voption *
         staticToken: 'T voption *
         keyword: MemberKeyword<'T> *
+        inlineToken: 'T voption *
         access: 'T voption *
         defn: MethodOrPropDefn<'T>
     | Value of

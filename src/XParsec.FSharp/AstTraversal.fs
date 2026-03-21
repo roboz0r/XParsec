@@ -1233,7 +1233,7 @@ and walkMemberDefn (visitor: AstVisitor<'T>) (memberDefn: MemberDefn<'T>) : unit
         visitor.VisitToken ":" colon
         walkType visitor typ
         visitor.ExitSection "Val"
-    | MemberDefn.Member(attrs, staticTok, keyword, _, defn) ->
+    | MemberDefn.Member(attrs, staticTok, keyword, inlineTok, _, defn) ->
         walkAttributesOpt visitor attrs
         visitTokenOpt visitor "static" staticTok
 
@@ -1244,6 +1244,8 @@ and walkMemberDefn (visitor: AstVisitor<'T>) (memberDefn: MemberDefn<'T>) : unit
         | MemberKeyword.Abstract(abstractTok, memberTok) ->
             visitor.VisitToken "abstract" abstractTok
             visitTokenOpt visitor "member" memberTok
+
+        visitTokenOpt visitor "inline" inlineTok
 
         walkMethodOrPropDefn visitor defn
     | MemberDefn.AdditionalConstructor(attrs, _, newTok, pat, _, eq, body) ->

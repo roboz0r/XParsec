@@ -428,6 +428,7 @@ module MemberDefn =
             match! peekNextNonTriviaToken with
             | t when t.Token = Token.KWMember ->
                 let! mem = consumePeeked t
+                let! inlineTok = opt pInline
 
                 match! peekNextNonTriviaToken with
                 | t when t.Token = Token.KWVal ->
@@ -435,7 +436,7 @@ module MemberDefn =
 
                     return
                         (fun attrs ->
-                            MemberDefn.Member(attrs, ValueSome staticTok, MemberKeyword.Member mem, ValueNone, defn)
+                            MemberDefn.Member(attrs, ValueSome staticTok, MemberKeyword.Member mem, inlineTok, ValueNone, defn)
                         )
                 | _ ->
                     let! access = opt pAccessModifier
@@ -443,7 +444,7 @@ module MemberDefn =
 
                     return
                         (fun attrs ->
-                            MemberDefn.Member(attrs, ValueSome staticTok, MemberKeyword.Member mem, access, defn)
+                            MemberDefn.Member(attrs, ValueSome staticTok, MemberKeyword.Member mem, inlineTok, access, defn)
                         )
             | t when t.Token = Token.KWVal ->
                 let! valTok = consumePeeked t
@@ -461,18 +462,19 @@ module MemberDefn =
     let private pMemberDefn =
         parser {
             let! memberTok = pMember
+            let! inlineTok = opt pInline
 
             match! peekNextNonTriviaToken with
             | t when t.Token = Token.KWVal ->
                 let! defn = AutoPropDefn.parse
 
                 return
-                    (fun attrs -> MemberDefn.Member(attrs, ValueNone, MemberKeyword.Member memberTok, ValueNone, defn))
+                    (fun attrs -> MemberDefn.Member(attrs, ValueNone, MemberKeyword.Member memberTok, inlineTok, ValueNone, defn))
             | _ ->
                 let! access = opt pAccessModifier
                 let! defn = MethodOrPropDefn.parse
 
-                return (fun attrs -> MemberDefn.Member(attrs, ValueNone, MemberKeyword.Member memberTok, access, defn))
+                return (fun attrs -> MemberDefn.Member(attrs, ValueNone, MemberKeyword.Member memberTok, inlineTok, access, defn))
         }
 
     let private pAbstractMemberDefn =
@@ -488,6 +490,7 @@ module MemberDefn =
                         attrs,
                         ValueNone,
                         MemberKeyword.Abstract(abstractTok, memTok),
+                        ValueNone,
                         access,
                         MethodOrPropDefn.AbstractSignature sigDef
                     )
@@ -504,14 +507,14 @@ module MemberDefn =
 
                 return
                     (fun attrs ->
-                        MemberDefn.Member(attrs, ValueNone, MemberKeyword.Override overrideTok, ValueNone, defn)
+                        MemberDefn.Member(attrs, ValueNone, MemberKeyword.Override overrideTok, ValueNone, ValueNone, defn)
                     )
             | _ ->
                 let! access = opt pAccessModifier
                 let! defn = MethodOrPropDefn.parse
 
                 return
-                    (fun attrs -> MemberDefn.Member(attrs, ValueNone, MemberKeyword.Override overrideTok, access, defn))
+                    (fun attrs -> MemberDefn.Member(attrs, ValueNone, MemberKeyword.Override overrideTok, ValueNone, access, defn))
         }
 
     let private pDefaultMemberDefn =
@@ -524,14 +527,14 @@ module MemberDefn =
 
                 return
                     (fun attrs ->
-                        MemberDefn.Member(attrs, ValueNone, MemberKeyword.Default defaultTok, ValueNone, defn)
+                        MemberDefn.Member(attrs, ValueNone, MemberKeyword.Default defaultTok, ValueNone, ValueNone, defn)
                     )
             | _ ->
                 let! access = opt pAccessModifier
                 let! defn = MethodOrPropDefn.parse
 
                 return
-                    (fun attrs -> MemberDefn.Member(attrs, ValueNone, MemberKeyword.Default defaultTok, access, defn))
+                    (fun attrs -> MemberDefn.Member(attrs, ValueNone, MemberKeyword.Default defaultTok, ValueNone, access, defn))
         }
 
     let private pValueMemberDefn =

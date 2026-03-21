@@ -78,9 +78,6 @@ module ElifBranches =
         fun reader -> parseBranches (ResizeArray()) reader
 
 module Binding =
-    let private pInlineTok =
-        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWInline) "Expected 'inline'"
-
     let private pMutableTok =
         nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWMutable) "Expected 'mutable'"
 
@@ -95,7 +92,7 @@ module Binding =
         let pBody = refExprSeqBlock.Parser
 
         parser {
-            let! inlineTok = opt pInlineTok
+            let! inlineTok = opt pInline
             let! access = opt pAccessModifier
             let! identOrOp = IdentOrOp.parse
             let! typarDefns = opt TyparDefns.parse
