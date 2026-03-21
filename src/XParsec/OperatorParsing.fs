@@ -395,8 +395,9 @@ module internal rec Pratt =
         =
         let rec loopNary (items: ResizeArray<'Expr>) (parsedOps: ResizeArray<'Op>) accumulatedErr =
             let rightPower = leftPower + 1uy<bp>
+            let nextItemPos = reader.Position
 
-            match parseLhsInternal pExpr ops rightPower reader with
+            match parseLhsInternal pExpr ops rightPower reader with // Parse item
             | Error e when allowTrailingOp ->
                 if parsedOps.Count > 0 then
                     parsedOps.RemoveAt(parsedOps.Count - 1)
@@ -404,22 +405,22 @@ module internal rec Pratt =
                 preturn (items, ValueSome(mergeWithError e accumulatedErr)) reader
             | Error e -> Error(mergeWithError e accumulatedErr)
             | Ok { Expr = next; Error = errNext } ->
+                ensureAdvanced nextItemPos reader // Parsed item without consuming input - likely an infinite loop, so throw
                 items.Add next
                 let currentErr = mergeSoftErrors accumulatedErr errNext
-                let nextPos = reader.Position
+                let nextOpPos = reader.Position
 
-                match ops.RhsParser reader with
+                match ops.RhsParser reader with // Parse next operator
                 | Ok nextOp ->
                     match nextOp with
                     | InfixNary(nextSym, _, _, _, _) when ops.OpComparer.Equals(nextSym, op) ->
-                        ensureAdvanced nextPos reader
                         parsedOps.Add nextSym
                         loopNary items parsedOps currentErr
                     | _ ->
-                        reader.Position <- nextPos
+                        reader.Position <- nextOpPos
                         preturn (items, currentErr) reader
                 | Error errRhs ->
-                    reader.Position <- nextPos
+                    reader.Position <- nextOpPos
                     preturn (items, mergeSoftErrors currentErr (ValueSome errRhs)) reader
 
         let items = ResizeArray()
