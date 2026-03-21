@@ -1,0 +1,16 @@
+module                   'module'          KWModule            tok=   0  pos=   0
+                         'Test194'         Identifier          tok=   2  pos=   7
+Module:
+  module                 'module'          KWModule            tok=   5  pos=  16
+  ident                  'Inner'           Identifier          tok=   7  pos=  23
+  =                      <virt>            OpEquality          tok=virt  pos=  33
+  begin                  <virt>            KWBegin             tok=virt  pos=  33
+    FunctionOrValue:
+      let                'let'             KWLet               tok=  10  pos=  33
+        Pat.NamedSimple  'x'               Identifier          tok=  12  pos=  37
+        =                '='               OpEquality          tok=  14  pos=  39
+          Const          '1'               NumInt32            tok=  16  pos=  41
+  end                    <virt>            KWEnd               tok=virt  pos=  43
+---
+Diagnostics:
+  [error] Other(Expected '=' after module identifier) at 33

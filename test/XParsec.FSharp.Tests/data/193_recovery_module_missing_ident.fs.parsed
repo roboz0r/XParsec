@@ -1,0 +1,10 @@
+module               'module'          KWModule            tok=   0  pos=   0
+                     <virt>            Identifier          tok=virt  pos=   8
+FunctionOrValue:
+  let                'let'             KWLet               tok=   3  pos=   8
+    Pat.NamedSimple  'x'               Identifier          tok=   5  pos=  12
+    =                '='               OpEquality          tok=   7  pos=  14
+      Const          '1'               NumInt32            tok=   9  pos=  16
+---
+Diagnostics:
+  [error] Other(Expected module identifier) at 8

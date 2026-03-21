@@ -1,0 +1,9 @@
+0, Identifier
+5, Whitespace
+6, KWLBrace
+7, Whitespace
+8, KWReturn
+14, Whitespace
+15, KWRBrace
+16, Newline
+17, EOF

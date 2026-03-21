@@ -1,0 +1,16 @@
+AnonymousModule:
+IfThenElse:
+  IfToken      'if'              KWIf                tok=   0  pos=   0
+  Condition:
+    App:
+      Func:
+        Const  'true'            KWTrue              tok=   2  pos=   3
+      Args:
+        Const  '1'               NumInt32            tok=   4  pos=   8
+  ThenToken    <virt>            KWThen              tok=virt  pos=  10
+  ThenExpr:
+    Missing
+---
+Diagnostics:
+  [error] Other(Expected 'then' after condition) at 10
+  [error] MissingExpression at 10

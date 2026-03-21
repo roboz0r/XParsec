@@ -1,0 +1,16 @@
+AnonymousModule:
+Match:
+  MatchToken           'match'           KWMatch             tok=   0  pos=   0
+  MatchExpr:
+    Missing
+  WithToken            'with'            KWWith              tok=   2  pos=   6
+  Rule:
+    Bar                '|'               OpBar               tok=   4  pos=  11
+    Pat:
+      Pat.NamedSimple  'x'               Identifier          tok=   6  pos=  13
+    Arrow              '->'              OpArrowRight        tok=   8  pos=  15
+    Expr:
+      Ident            'x'               Identifier          tok=  10  pos=  18
+---
+Diagnostics:
+  [error] MissingExpression at 6

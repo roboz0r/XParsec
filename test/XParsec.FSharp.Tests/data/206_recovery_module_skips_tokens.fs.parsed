@@ -1,0 +1,16 @@
+module               'module'          KWModule            tok=   0  pos=   0
+                     'Test206'         Identifier          tok=   2  pos=   7
+SkipsTokens:
+  (skipped)          ')'               KWRParen            tok=   5  pos=  16
+  (skipped)          ']'               KWRBracket          tok=   7  pos=  18
+  (skipped)          '}'               KWRBrace            tok=   9  pos=  20
+  ModuleElem:
+    Missing
+FunctionOrValue:
+  let                'let'             KWLet               tok=  11  pos=  22
+    Pat.NamedSimple  'x'               Identifier          tok=  13  pos=  26
+    =                '='               OpEquality          tok=  15  pos=  28
+      Const          '1'               NumInt32            tok=  17  pos=  30
+---
+Diagnostics:
+  [error] MissingModuleElem at 16

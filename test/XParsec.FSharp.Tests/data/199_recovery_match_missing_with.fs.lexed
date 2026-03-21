@@ -1,0 +1,13 @@
+0, KWMatch
+5, Whitespace
+6, NumInt32
+7, Newline
+8, OpBar
+9, Whitespace
+10, Identifier
+11, Whitespace
+12, OpArrowRight
+14, Whitespace
+15, Identifier
+16, Newline
+17, EOF

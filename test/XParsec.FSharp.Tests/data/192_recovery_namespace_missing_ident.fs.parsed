@@ -1,0 +1,10 @@
+namespace              'namespace'       KWNamespace         tok=   0  pos=   0
+                       <virt>            Identifier          tok=virt  pos=  11
+  FunctionOrValue:
+    let                'let'             KWLet               tok=   3  pos=  11
+      Pat.NamedSimple  'x'               Identifier          tok=   5  pos=  15
+      =                '='               OpEquality          tok=   7  pos=  17
+        Const          '1'               NumInt32            tok=   9  pos=  19
+---
+Diagnostics:
+  [error] Other(Expected namespace identifier) at 11

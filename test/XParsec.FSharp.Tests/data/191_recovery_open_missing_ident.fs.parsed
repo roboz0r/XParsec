@@ -1,0 +1,13 @@
+module               'module'          KWModule            tok=   0  pos=   0
+                     'Test191'         Identifier          tok=   2  pos=   7
+Import:
+  open               'open'            KWOpen              tok=   5  pos=  16
+                     <virt>            Identifier          tok=virt  pos=  21
+FunctionOrValue:
+  let                'let'             KWLet               tok=   7  pos=  21
+    Pat.NamedSimple  'x'               Identifier          tok=   9  pos=  25
+    =                '='               OpEquality          tok=  11  pos=  27
+      Const          '1'               NumInt32            tok=  13  pos=  29
+---
+Diagnostics:
+  [error] Other(Expected identifier after 'open') at 21

@@ -1,0 +1,11 @@
+AnonymousModule:
+IfThenElse:
+  IfToken    'if'              KWIf                tok=   0  pos=   0
+  Condition:
+    Missing
+  ThenToken  'then'            KWThen              tok=   2  pos=   3
+  ThenExpr:
+    Const    '1'               NumInt32            tok=   4  pos=   8
+---
+Diagnostics:
+  [error] MissingExpression at 3
