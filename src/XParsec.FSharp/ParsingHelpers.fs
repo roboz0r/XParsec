@@ -720,14 +720,10 @@ module Parsing =
                 }
 
             reader.State <- ParseState.pushOffside entry reader.State
-            let stackDepth = reader.State.Context.Length
-
-            reader.State.Trace.Invoke(TraceEvent.ContextPush(ctx, indent, peekTok.PositionedToken, stackDepth))
 
             match innerParser reader with
             | Ok result ->
-                reader.State.Trace.Invoke(TraceEvent.ContextPop(ctx, stackDepth - 1))
-                reader.State <- ParseState.popOffside reader.State
+                reader.State <- ParseState.popOffside entry reader.State
                 Ok result
             | Error _ as e ->
                 reader.State <- savedState
@@ -753,13 +749,10 @@ module Parsing =
             }
 
         reader.State <- ParseState.pushOffside entry reader.State
-        let stackDepth = reader.State.Context.Length
-        reader.State.Trace.Invoke(TraceEvent.ContextPush(ctx, indent, token, stackDepth))
 
         match innerParser reader with
         | Ok result ->
-            reader.State.Trace.Invoke(TraceEvent.ContextPop(ctx, stackDepth - 1))
-            reader.State <- ParseState.popOffside reader.State
+            reader.State <- ParseState.popOffside entry reader.State
             Ok result
         | Error _ as e ->
             reader.State <- savedState
@@ -935,13 +928,9 @@ module Parsing =
                     }
 
                 reader.State <- ParseState.pushOffside entry reader.State
-                let stackDepth = reader.State.Context.Length
-
-                reader.State.Trace.Invoke(TraceEvent.ContextPush(offsideCtx, 0, l.PositionedToken, stackDepth))
 
                 let inline popAndReturn result =
-                    reader.State.Trace.Invoke(TraceEvent.ContextPop(offsideCtx, stackDepth - 1))
-                    reader.State <- ParseState.popOffside reader.State
+                    reader.State <- ParseState.popOffside entry reader.State
                     result
 
                 match peekNextNonTriviaToken reader with

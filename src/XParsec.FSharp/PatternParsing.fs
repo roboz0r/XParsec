@@ -212,11 +212,6 @@ module Pat =
                     }
 
                 reader.State <- ParseState.pushOffside braceEntry reader.State
-                let stackDepth = reader.State.Context.Length
-
-                reader.State.Trace.Invoke(
-                    TraceEvent.ContextPush(OffsideContext.Brace, 0, l.PositionedToken, stackDepth)
-                )
 
                 let innerParser =
                     parser {
@@ -227,8 +222,7 @@ module Pat =
 
                 match innerParser reader with
                 | Ok result ->
-                    reader.State.Trace.Invoke(TraceEvent.ContextPop(OffsideContext.Brace, stackDepth - 1))
-                    reader.State <- ParseState.popOffside reader.State
+                    reader.State <- ParseState.popOffside braceEntry reader.State
                     Ok result
                 | Error _ ->
                     reader.State <- savedState

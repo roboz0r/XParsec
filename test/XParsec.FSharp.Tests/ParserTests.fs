@@ -31,11 +31,10 @@ let tests =
                 test name { testParseFileWithSymbols symbols path }
 
             ptest "Debug Test" {
-                let path = Path.Combine(testDataDir.Value, "file.fs")
+                let path = Path.Combine(testDataDir.Value, "manual", "file.fs")
                 let result = parseWithStackProbe 1_000_000 (System.TimeSpan.FromSeconds 5.0) path
-                writeStackProbe (path + ".stack") result
 
-                match result.ParseResult with
+                match result with
                 | Error e ->
                     failtestf "Parsing failed:\n%s" (XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
                 | Ok _ -> ()
@@ -133,23 +132,5 @@ let tracingTests =
                             "Parsing failed:\n%s"
                             (XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
                     | Ok _ -> ()
-            }
-
-            test "TraceEvent.format produces non-empty strings" {
-                let events =
-                    [
-                        XParsec.FSharp.Parser.TraceEvent.ContextPush(
-                            XParsec.FSharp.Parser.OffsideContext.Let,
-                            4,
-                            XParsec.FSharp.Lexer.PositionedToken.Create(XParsec.FSharp.Lexer.Token.KWLet, 0),
-                            1
-                        )
-                        XParsec.FSharp.Parser.TraceEvent.ContextPop(XParsec.FSharp.Parser.OffsideContext.Let, 0)
-                        XParsec.FSharp.Parser.TraceEvent.VirtualToken(XParsec.FSharp.Lexer.Token.VirtualSep, 10)
-                    ]
-
-                for event in events do
-                    let formatted = XParsec.FSharp.Parser.TraceEvent.format event
-                    Expect.isNotEmpty formatted "TraceEvent.format should produce non-empty output"
             }
         ]
