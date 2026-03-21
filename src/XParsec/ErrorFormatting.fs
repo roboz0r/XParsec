@@ -25,13 +25,14 @@ type LineIndex(endings: ImmutableArray<int>, maxIndex) =
 
     member _.Indices = endings
 
-    /// Returns the 1-based line number and column number of the given 0-based index
+    /// Returns the 1-based line number and column number of the given 0-based index.
+    /// Accepts index = maxIndex + 1 (one past the end) to represent the EOF position.
     member _.GetLineCol(index: int) =
         if index < 0 then
             invalidArg "index" "Index must be non-negative"
 
-        if index > maxIndex then
-            raise (IndexOutOfRangeException $"Index must be less than or equal to {maxIndex}")
+        if index > maxIndex + 1 then
+            raise (IndexOutOfRangeException $"Index must be less than or equal to {maxIndex + 1}")
         // Line and column are 1-based
         if endings.IsEmpty then
             struct (1, index + 1)
