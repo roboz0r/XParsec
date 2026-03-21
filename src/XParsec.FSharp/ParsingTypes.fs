@@ -108,20 +108,19 @@ type DiagnosticCode =
     | Other of string
     | TyparInConstant of Typar<SyntaxToken>
     // Recovery-specific:
-    | MissingExpression of ParseError<PositionedToken, ParseState>
-    | MissingPattern of ParseError<PositionedToken, ParseState>
-    | MissingType of ParseError<PositionedToken, ParseState>
-    | MissingRule of ParseError<PositionedToken, ParseState>
-    | MissingTypeDefn of ParseError<PositionedToken, ParseState>
-    | MissingModuleElem of ParseError<PositionedToken, ParseState>
-    | UnexpectedTopLevel of ParseError<PositionedToken, ParseState>
-    | ExpectedEnd of ParseError<PositionedToken, ParseState>
-    | ExpectedRParen of ParseError<PositionedToken, ParseState>
-    | ExpectedRBracket of ParseError<PositionedToken, ParseState>
-    | ExpectedRArrayBracket of ParseError<PositionedToken, ParseState>
-    | ExpectedQuotationTypedRight of ParseError<PositionedToken, ParseState>
-    | ExpectedQuotationUntypedRight of ParseError<PositionedToken, ParseState>
-    | UnexpectedTokenSkipped of token: SyntaxToken
+    | MissingExpression
+    | MissingPattern
+    | MissingType
+    | MissingRule
+    | MissingTypeDefn
+    | MissingModuleElem
+    | UnexpectedTopLevel
+    | ExpectedEnd
+    | ExpectedRParen
+    | ExpectedRBracket
+    | ExpectedRArrayBracket
+    | ExpectedQuotationTypedRight
+    | ExpectedQuotationUntypedRight
     | UnclosedDelimiter of opened: SyntaxToken * expected: Token
 
 and Diagnostic =
@@ -130,6 +129,7 @@ and Diagnostic =
         Severity: DiagnosticSeverity
         Token: PositionedToken
         TokenEnd: PositionedToken option
+        Error: ParseError<PositionedToken, ParseState> option
     }
 
 and [<RequireQualifiedAccess>] Syntax =
@@ -255,7 +255,7 @@ module ParseState =
             state.Trace.Invoke(TraceEvent.ContextPop(head.Context, state.Context.Length))
             { state with Context = tail }
 
-    let addDiagnostic code severity startToken endToken (state: ParseState) =
+    let addDiagnostic code severity startToken endToken error (state: ParseState) =
         state.Trace.Invoke(TraceEvent.DiagnosticEmitted(code, severity, startToken))
 
         let diag =
@@ -264,6 +264,7 @@ module ParseState =
                 Severity = severity
                 Token = startToken
                 TokenEnd = endToken
+                Error = error
             }
 
         { state with

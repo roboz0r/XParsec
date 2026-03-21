@@ -11,4 +11,10 @@ Rule:
     Const         '1'               NumInt32            tok=   8  pos=  14
 ---
 Diagnostics:
-  [error] MissingExpression at 4
+  [error] MissingExpression at 4 (Ln 2, Col 1)
+    with _ ->
+    ^ At index 4 (Ln 2, Col 1)
+    Multiple errors:
+    ├───Operator parsing failed
+    ├───Not a prefix operator
+    └───Expected constant literal

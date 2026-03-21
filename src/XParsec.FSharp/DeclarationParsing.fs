@@ -178,10 +178,11 @@ module ModuleElem =
 
                             reader.State <-
                                 ParseState.addDiagnostic
-                                    (DiagnosticCode.MissingModuleElem parseErr)
+                                    DiagnosticCode.MissingModuleElem
                                     DiagnosticSeverity.Error
                                     startTok.PositionedToken
                                     None
+                                    (Some parseErr)
                                     reader.State
 
                             result.Add(ModuleElem.SkipsTokens(List.ofSeq skipped))

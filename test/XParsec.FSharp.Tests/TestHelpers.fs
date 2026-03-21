@@ -360,7 +360,7 @@ let testParseFileWith (definedSymbols: Set<string>) (filePath: string) =
             | Ok ast ->
                 let ctx = XParsec.FSharp.Debug.PrintContext(2)
                 XParsec.FSharp.Debug.printFSharpAst ctx input lexed ast
-                XParsec.FSharp.Debug.printDiagnostics ctx reader.State.Diagnostics
+                XParsec.FSharp.Debug.printDiagnostics ctx input reader.State.Diagnostics
                 ctx.FlushToString()
 
     if updateSnapshots || not (File.Exists expectedPath) then

@@ -13,4 +13,10 @@ Match:
       Ident            'x'               Identifier          tok=  10  pos=  18
 ---
 Diagnostics:
-  [error] MissingExpression at 6
+  [error] MissingExpression at 6 (Ln 1, Col 7)
+    match wit
+          ^ At index 6 (Ln 1, Col 7)
+    Multiple errors:
+    ├───Operator parsing failed
+    ├───Not a prefix operator
+    └───Expected constant literal

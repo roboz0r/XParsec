@@ -27,8 +27,8 @@
     <Compile Include="TypeDefnParsing.fs" />
     <Compile Include="DeclarationParsing.fs" />
     <Compile Include="ProgramStructureParsing.fs" />
-    <Compile Include="Debug.fs" />
     <Compile Include="FSharpErrorFormatting.fs" />
+    <Compile Include="Debug.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\XParsec\XParsec.fsproj" />

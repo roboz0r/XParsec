@@ -10,4 +10,10 @@ App:
                       '}'               KWRBrace            tok=   6  pos=  15
 ---
 Diagnostics:
-  [error] MissingExpression at 15
+  [error] MissingExpression at 15 (Ln 1, Col 16)
+    async { return
+                   ^ At index 15 (Ln 1, Col 16)
+    Multiple errors:
+    ├───Operator parsing failed
+    ├───Not a prefix operator
+    └───Expected constant literal

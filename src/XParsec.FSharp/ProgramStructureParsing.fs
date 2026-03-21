@@ -103,10 +103,11 @@ module FSharpAst =
 
                         reader.State <-
                             addDiagnostic
-                                (DiagnosticCode.UnexpectedTopLevel topErr)
+                                DiagnosticCode.UnexpectedTopLevel
                                 DiagnosticSeverity.Error
                                 startTok.PositionedToken
                                 None
+                                (Some topErr)
                                 reader.State
 
                     Ok(FSharpAst.ImplementationFile implFile)
@@ -125,10 +126,11 @@ module FSharpAst =
 
                             reader.State <-
                                 addDiagnostic
-                                    (DiagnosticCode.UnexpectedTopLevel topErr)
+                                    DiagnosticCode.UnexpectedTopLevel
                                     DiagnosticSeverity.Error
                                     startTok.PositionedToken
                                     None
+                                    (Some topErr)
                                     reader.State
 
                         Ok(FSharpAst.ScriptFragment(ScriptFragment.ScriptFragment [ ModuleElem.Expression expr ]))
@@ -144,10 +146,11 @@ module FSharpAst =
 
                                 reader.State <-
                                     addDiagnostic
-                                        (DiagnosticCode.UnexpectedTopLevel topErr)
+                                        DiagnosticCode.UnexpectedTopLevel
                                         DiagnosticSeverity.Error
                                         startTok.PositionedToken
                                         None
+                                        (Some topErr)
                                         reader.State
 
                                 [ ModuleElem.SkipsTokens(skipped) ]

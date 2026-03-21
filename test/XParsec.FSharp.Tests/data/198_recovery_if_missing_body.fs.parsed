@@ -8,4 +8,10 @@ IfThenElse:
     Missing
 ---
 Diagnostics:
-  [error] MissingExpression at 13
+  [error] MissingExpression at 13 (Ln 2, Col 1)
+    
+    ^ At index 13 (Ln 2, Col 1)
+    Multiple errors:
+    ├───Operator parsing failed
+    ├───Not a prefix operator
+    └───Expected constant literal

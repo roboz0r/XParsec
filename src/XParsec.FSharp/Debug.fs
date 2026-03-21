@@ -3,6 +3,7 @@ module XParsec.FSharp.Debug
 open System
 open System.IO
 
+open XParsec
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.AstTraversal
@@ -304,34 +305,33 @@ let printFSharpAst (ctx: PrintContext) (input: string) (lexed: Lexed) (ast: FSha
 /// Formats a DiagnosticCode as a short, stable string suitable for golden-file output.
 let sprintDiagnosticCode (code: DiagnosticCode) : string =
     match code with
-    | DiagnosticCode.MissingExpression _ -> "MissingExpression"
-    | DiagnosticCode.MissingPattern _ -> "MissingPattern"
-    | DiagnosticCode.MissingType _ -> "MissingType"
-    | DiagnosticCode.MissingRule _ -> "MissingRule"
-    | DiagnosticCode.MissingTypeDefn _ -> "MissingTypeDefn"
-    | DiagnosticCode.MissingModuleElem _ -> "MissingModuleElem"
-    | DiagnosticCode.UnexpectedTopLevel _ -> "UnexpectedTopLevel"
+    | DiagnosticCode.MissingExpression -> "MissingExpression"
+    | DiagnosticCode.MissingPattern -> "MissingPattern"
+    | DiagnosticCode.MissingType -> "MissingType"
+    | DiagnosticCode.MissingRule -> "MissingRule"
+    | DiagnosticCode.MissingTypeDefn -> "MissingTypeDefn"
+    | DiagnosticCode.MissingModuleElem -> "MissingModuleElem"
+    | DiagnosticCode.UnexpectedTopLevel -> "UnexpectedTopLevel"
     | DiagnosticCode.Other msg -> $"Other({msg})"
     | DiagnosticCode.TyparInConstant _ -> "TyparInConstant"
-    | DiagnosticCode.ExpectedEnd _ -> "ExpectedEnd"
-    | DiagnosticCode.UnexpectedTokenSkipped tok ->
-        let base' = TokenInfo.withoutFlags tok.Token
-        $"UnexpectedTokenSkipped({base'})"
+    | DiagnosticCode.ExpectedEnd -> "ExpectedEnd"
     | DiagnosticCode.UnclosedDelimiter(opened, expected) ->
         let openedBase = TokenInfo.withoutFlags opened.Token
         let expectedBase = TokenInfo.withoutFlags expected
         $"UnclosedDelimiter({openedBase}, {expectedBase})"
-    | DiagnosticCode.ExpectedRParen _ -> "ExpectedRParen"
-    | DiagnosticCode.ExpectedRBracket _ -> "ExpectedRBracket"
-    | DiagnosticCode.ExpectedRArrayBracket _ -> "ExpectedRArrayBracket"
-    | DiagnosticCode.ExpectedQuotationTypedRight _ -> "ExpectedQuotationTypedRight"
-    | DiagnosticCode.ExpectedQuotationUntypedRight _ -> "ExpectedQuotationUntypedRight"
+    | DiagnosticCode.ExpectedRParen -> "ExpectedRParen"
+    | DiagnosticCode.ExpectedRBracket -> "ExpectedRBracket"
+    | DiagnosticCode.ExpectedRArrayBracket -> "ExpectedRArrayBracket"
+    | DiagnosticCode.ExpectedQuotationTypedRight -> "ExpectedQuotationTypedRight"
+    | DiagnosticCode.ExpectedQuotationUntypedRight -> "ExpectedQuotationUntypedRight"
 
 /// Appends a "---\nDiagnostics:" section to the buffer when there are diagnostics.
 /// Diagnostics are emitted in source order (reversed from the accumulation order).
 /// Has no effect when `diagnostics` is empty, so well-formed golden files are not touched.
-let printDiagnostics (ctx: PrintContext) (diagnostics: Diagnostic list) =
+let printDiagnostics (ctx: PrintContext) (input: string) (diagnostics: Diagnostic list) =
     if not diagnostics.IsEmpty then
+        let lineIndex = LineIndex.OfString input
+
         ctx.WriteLine("---")
         ctx.WriteLine("Diagnostics:")
 
@@ -346,5 +346,19 @@ let printDiagnostics (ctx: PrintContext) (diagnostics: Diagnostic list) =
                         | DiagnosticSeverity.Info -> "info"
                         | DiagnosticSeverity.Hint -> "hint"
 
-                    ctx.WriteLine($"[{severity}] {sprintDiagnosticCode diag.Code} at {diag.Token.StartIndex}")
+                    let pos = diag.Token.StartIndex
+                    let struct (ln, col) = lineIndex.GetLineCol(min pos (input.Length))
+                    ctx.WriteLine($"[{severity}] {sprintDiagnosticCode diag.Code} at {pos} (Ln {ln}, Col {col})")
+
+                    match diag.Error with
+                    | Some err ->
+                        indent
+                            ctx
+                            (fun () ->
+                                let formatted = ErrorFormatting.splitAndFormatTokenErrors err
+
+                                for line in formatted.Split('\n') do
+                                    ctx.WriteLine(line.TrimEnd())
+                            )
+                    | None -> ()
             )

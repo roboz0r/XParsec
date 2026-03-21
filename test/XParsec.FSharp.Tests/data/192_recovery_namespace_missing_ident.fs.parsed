@@ -7,4 +7,4 @@ namespace              'namespace'       KWNamespace         tok=   0  pos=   0
         Const          '1'               NumInt32            tok=   9  pos=  19
 ---
 Diagnostics:
-  [error] Other(Expected namespace identifier) at 11
+  [error] Other(Expected namespace identifier) at 11 (Ln 3, Col 1)

@@ -20,4 +20,10 @@ Match:
       Const      '3'               NumInt32            tok=  18  pos=  27
 ---
 Diagnostics:
-  [error] MissingExpression at 20
+  [error] MissingExpression at 20 (Ln 3, Col 1)
+    | 2 ->
+    ^ At index 20 (Ln 3, Col 1)
+    Multiple errors:
+    ├───Operator parsing failed
+    ├───Not a prefix operator
+    └───Expected constant literal

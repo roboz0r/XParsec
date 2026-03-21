@@ -13,4 +13,4 @@ Module:
   end                    <virt>            KWEnd               tok=virt  pos=  43
 ---
 Diagnostics:
-  [error] Other(Expected '=' after module identifier) at 33
+  [error] Other(Expected '=' after module identifier) at 33 (Ln 4, Col 5)

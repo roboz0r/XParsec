@@ -122,7 +122,7 @@ module Constant =
                     | Typar.Named(x, x1) -> x.PositionedToken, Some x1.PositionedToken
                     | Typar.Static(x, x1) -> x.PositionedToken, Some x1.PositionedToken
 
-                state <- ParseState.addDiagnostic code DiagnosticSeverity.Error tokStart tokEnd state
+                state <- ParseState.addDiagnostic code DiagnosticSeverity.Error tokStart tokEnd None state
 
             reader.State <- state
 
