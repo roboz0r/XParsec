@@ -66,7 +66,6 @@ TypeDefn.Abbrev:
       (skipped)  '='               OpEquality          tok=  85  pos= 241
       (skipped)  '('               KWLParen            tok=  87  pos= 243
       (skipped)  ')'               KWRParen            tok=  88  pos= 244
-      Missing
 ---
 Diagnostics:
   [error] MissingType at 218

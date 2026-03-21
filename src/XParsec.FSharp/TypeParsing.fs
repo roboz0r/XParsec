@@ -393,7 +393,7 @@ module ReturnType =
                     DiagnosticCode.MissingType
                     (fun toks ->
                         let m: Type<SyntaxToken> = Type<_>.Missing
-                        if toks.IsEmpty then m else Type<_>.SkipsTokens(toks, m)
+                        if toks.IsEmpty then m else Type<_>.SkipsTokens(toks)
                     )
 
             return ReturnType(colon, typ)

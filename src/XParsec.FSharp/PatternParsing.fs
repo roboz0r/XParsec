@@ -158,7 +158,7 @@ module Pat =
     let private pEnclosed =
         let completeEmpty l r = Pat.EmptyBlock(l, r)
         let completeEnclosed l e r = Pat.EnclosedBlock(l, e, r)
-        let skipsTokens toks missing = Pat.SkipsTokens(toks, missing)
+        let skipsTokens toks = Pat.SkipsTokens(toks)
         pEnclosed completeEmpty completeEnclosed Pat.Missing skipsTokens
 
     let pParenPat =
@@ -363,7 +363,7 @@ module PatternGuard =
                         if toks.IsEmpty then
                             Expr.Missing
                         else
-                            Expr.SkipsTokens(toks, Expr.Missing)
+                            Expr.SkipsTokens(toks)
                     )
 
             return PatternGuard(w, e)
@@ -379,12 +379,7 @@ module Rule =
                     StoppingTokens.afterPattern
                     DiagnosticSeverity.Error
                     DiagnosticCode.MissingPattern
-                    (fun toks ->
-                        if toks.IsEmpty then
-                            Pat.Missing
-                        else
-                            Pat.SkipsTokens(toks, Pat.Missing)
-                    )
+                    (fun toks -> if toks.IsEmpty then Pat.Missing else Pat.SkipsTokens(toks))
 
             let! guard = opt PatternGuard.parse
             let! arrow = pArrowRight
@@ -399,7 +394,7 @@ module Rule =
                         if toks.IsEmpty then
                             Expr.Missing
                         else
-                            Expr.SkipsTokens(toks, Expr.Missing)
+                            Expr.SkipsTokens(toks)
                     )
 
             return Rule.Rule(pat, guard, arrow, expr)
@@ -416,7 +411,7 @@ module Rules =
                 if toks.IsEmpty then
                     Rule.Missing
                 else
-                    Rule.SkipsTokens(toks, Rule.Missing)
+                    Rule.SkipsTokens(toks)
             )
             Rule.parse
 

@@ -74,7 +74,7 @@ type Type<'T> =
     | SubtypeConstraint of typar: Typar<'T> * colonGreaterThan: 'T * typ: Type<'T>
     | AnonymousSubtype of hash: 'T * typ: Type<'T>
     | Missing
-    | SkipsTokens of skippedTokens: 'T list * typ: Type<'T>
+    | SkipsTokens of skippedTokens: 'T list
 
 and [<RequireQualifiedAccess>] TypeArg<'T> =
     | Type of Type<'T>
@@ -312,7 +312,7 @@ type Expr<'T> =
     | InterpolatedString of opening: 'T * parts: InterpolatedStringPart<'T> list * closing: 'T
     // Incomplete or Placeholder
     | Missing // Placeholder for missing expression
-    | SkipsTokens of skippedTokens: 'T list * expr: Expr<'T> // Placeholder for skipped tokens
+    | SkipsTokens of skippedTokens: 'T list // Placeholder for skipped tokens
     // Added to make things work
     | Ident of ident: 'T
     | Pat of pattern: Pat<'T>
@@ -356,7 +356,7 @@ and [<RequireQualifiedAccess>] Pat<'T> =
     | Struct of structToken: 'T * pat: Pat<'T> // For error recovery
     | Op of IdentOrOp<'T> // For operator/active-pattern names in function binding heads
     | Missing
-    | SkipsTokens of skippedTokens: 'T list * pat: Pat<'T>
+    | SkipsTokens of skippedTokens: 'T list
 
 // Represents: pattern-guard := when expr
 and PatternGuard<'T> = | PatternGuard of whenToken: 'T * expr: Expr<'T>
@@ -365,7 +365,7 @@ and PatternGuard<'T> = | PatternGuard of whenToken: 'T * expr: Expr<'T>
 and [<RequireQualifiedAccess>] Rule<'T> =
     | Rule of pat: Pat<'T> * guard: PatternGuard<'T> voption * arrow: 'T * expr: Expr<'T>
     | Missing
-    | SkipsTokens of skippedTokens: 'T list * rule: Rule<'T>
+    | SkipsTokens of skippedTokens: 'T list
 
 // Represents: rules := '|'~opt rule '|' ... '|' rule
 and Rules<'T> = | Rules of leadingBar: 'T voption * rules: Rule<'T> list * bars: 'T list
@@ -610,7 +610,7 @@ and [<RequireQualifiedAccess>] TypeDefn<'T> =
     | TypeExtension of typeName: TypeName<'T> * elements: TypeExtensionElements<'T>
     | AbstractType of typeName: TypeName<'T>
     | Missing
-    | SkipsTokens of skippedTokens: 'T list * typeDefn: TypeDefn<'T>
+    | SkipsTokens of skippedTokens: 'T list
 
 
 // 9 Units of Measure
