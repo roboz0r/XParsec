@@ -363,6 +363,10 @@ module AdditionalConstrExpr =
                     let! e = Expr.parse
                     return AdditionalConstrInitExpr.Delegated(newTok, t, e)
                 }
+                parser {
+                    let! e = Expr.parseSeqBlock
+                    return AdditionalConstrInitExpr.Expression(e)
+                }
             ]
             "Constructor Init"
 

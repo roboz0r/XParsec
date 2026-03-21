@@ -1,0 +1,32 @@
+module               'module'          KWModule            tok=   0  pos=   0
+                     'Test'            Identifier          tok=   2  pos=   7
+TypeDefn.Anon:
+  TypeName           'Foo'             Identifier          tok=   7  pos=  18
+  (                  '('               KWLParen            tok=   8  pos=  21
+  Pat.Typed:
+    Pat.NamedSimple  'x'               Identifier          tok=   9  pos=  22
+    Colon            ':'               OpColon             tok=  10  pos=  23
+    NamedType:
+      LongIdent:
+                     'int'             Identifier          tok=  12  pos=  25
+  )                  ')'               KWRParen            tok=  13  pos=  28
+  =                  '='               OpEquality          tok=  15  pos=  30
+  begin              <virt>            KWBegin             tok=virt  pos=  36
+    AdditionalConstructor:
+      new            'new'             KWNew               tok=  18  pos=  36
+      ParenBlock     '('               KWLParen            tok=  19  pos=  39
+                     ')'               KWRParen            tok=  20  pos=  40
+      =              '='               OpEquality          tok=  22  pos=  42
+      HighPrecedenceApp:
+        Func:
+          Ident      'Foo'             Identifier          tok=  24  pos=  44
+        (            '('               KWLParen            tok=  25  pos=  47
+        Arg:
+          Const      '0'               NumInt32            tok=  26  pos=  48
+                     ')'               KWRParen            tok=  27  pos=  49
+    member           'member'          KWMember            tok=  30  pos=  55
+    self             '_'               Wildcard            tok=  32  pos=  62
+    Pat.NamedSimple  'X'               Identifier          tok=  34  pos=  64
+    =                '='               OpEquality          tok=  36  pos=  66
+      Ident          'x'               Identifier          tok=  38  pos=  68
+  end                <virt>            KWEnd               tok=virt  pos=  70

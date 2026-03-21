@@ -457,7 +457,7 @@ let parseWithStackProbe (stackSize: int) (timeout: System.TimeSpan) (filePath: s
         let mutable deepestTrace: System.Diagnostics.StackTrace option = None
         let stackProbes = ResizeArray<struct (string * nativeint)>()
         let events = ResizeArray<XParsec.FSharp.Parser.TraceEvent>()
-        use traceWriter = new StreamWriter(filePath + ".trace", false)
+        let traceWriter = new StreamWriter(filePath + ".trace", false)
         traceWriter.AutoFlush <- true
 
         let traceCallback =
@@ -535,6 +535,7 @@ let parseWithStackProbe (stackSize: int) (timeout: System.TimeSpan) (filePath: s
                 (context.Replace("\n", "\\n"))
                 lastEvents
 
+        traceWriter.Dispose()
         taskResult
 
 /// Returns paths of golden files (`.parsed`, `.lexed`, `.lexedblocks`) in `dataDir` that have
