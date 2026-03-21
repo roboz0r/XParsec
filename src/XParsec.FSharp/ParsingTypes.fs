@@ -57,6 +57,9 @@ type OffsideContext =
     /// The `with` keyword as part of an extension, interface, or object expression whose members use the syntax `{ new Foo member x.M() = 1 member x. N() = 2 }`
     | WithAugment
     | Match
+    /// Between the `for` and `do` or `->` in a `for` expression. The pattern and iterable must be indented
+    /// past the `for` keyword, but the body can be at the same indent as `for` or indented further.
+    /// The body is represented by a `Do` context, which is pushed after the `do` or `->`.
     | For
     | While
     | Then
@@ -227,14 +230,28 @@ module ParseState =
         }
 
     let pushOffside offsideCtx (state: ParseState) =
-        { state with
-            Context = offsideCtx :: state.Context
-        }
+        let newState =
+            { state with
+                Context = offsideCtx :: state.Context
+            }
 
-    let popOffside (state: ParseState) =
+        let stackDepth = newState.Context.Length
+
+        newState.Trace.Invoke(
+            TraceEvent.ContextPush(offsideCtx.Context, offsideCtx.Indent, offsideCtx.Token, stackDepth)
+        )
+
+        newState
+
+    let popOffside current (state: ParseState) =
         match state.Context with
         | [] -> invalidOp "Attempted to pop empty context"
-        | head :: tail -> { state with Context = tail }
+        | head :: tail ->
+            if head <> current then
+                invalidOp $"Attempted to pop context {current} but top of stack was {head}"
+
+            state.Trace.Invoke(TraceEvent.ContextPop(head.Context, state.Context.Length))
+            { state with Context = tail }
 
     let addDiagnostic code severity startToken endToken (state: ParseState) =
         state.Trace.Invoke(TraceEvent.DiagnosticEmitted(code, severity, startToken))
@@ -373,14 +390,17 @@ module ParseState =
         state.DefinedSymbols.Contains(symbol)
 
 module TraceEvent =
-    let format (event: TraceEvent) =
+    let format (lexed: Lexed) (event: TraceEvent) =
         match event with
         | TraceEvent.ContextPush(ctx, indent, token, depth) ->
             $"PUSH {ctx} indent={indent} token={token.Token} @{token.StartIndex} depth={depth}"
         | TraceEvent.ContextPop(ctx, depth) -> $"POP {ctx} depth={depth}"
         | TraceEvent.TokenConsumed(token, index, col) ->
-            $"CONSUME {token.Token} @{token.StartIndex} index={index} col={col}"
-        | TraceEvent.TokenPeeked(token, index, col) -> $"PEEK {token.Token} @{token.StartIndex} index={index} col={col}"
+            let line = lexed.GetLineForToken(index * 1<token>)
+            $"CONSUME {token.Token} @{token.StartIndex} index={index} col={col} line={line}"
+        | TraceEvent.TokenPeeked(token, index, col) ->
+            let line = lexed.GetLineForToken(index * 1<token>)
+            $"PEEK {token.Token} @{token.StartIndex} index={index} col={col} line={line}"
         | TraceEvent.VirtualToken(token, startIndex) -> $"VIRTUAL {token} @{startIndex}"
         | TraceEvent.OffsideOk(token, tokenCol, contextIndent, ctx) ->
             $"OFFSIDE_OK {token.Token} col={tokenCol} >= indent={contextIndent} ctx={ctx}"

@@ -396,20 +396,57 @@ type StackProbeResult =
         MaxDepth: int
         DeepestTrace: System.Diagnostics.StackTrace option
         StackProbes: struct (string * nativeint) array
-        ParseResult:
-            Result<
-                XParsec.FSharp.Parser.FSharpAst<XParsec.FSharp.Parser.SyntaxToken>,
-                XParsec.ParseError<XParsec.FSharp.Lexer.PositionedToken, XParsec.FSharp.Parser.ParseState>
-             >
     }
+
+/// Writes stack probe results (deepest stack trace + SP deltas) to the given path.
+let writeStackProbe (path: string) (result: StackProbeResult) =
+    use sw = new StreamWriter(path)
+    sw.WriteLine($"Deepest context push depth: {result.MaxDepth}")
+
+    match result.DeepestTrace with
+    | Some trace ->
+        sw.WriteLine($"Frame count: {trace.FrameCount}")
+        sw.WriteLine()
+
+        for i in 0 .. trace.FrameCount - 1 do
+            let frame = trace.GetFrame(i)
+            let m = frame.GetMethod()
+
+            let typeName =
+                if m <> null && m.DeclaringType <> null then
+                    m.DeclaringType.Name
+                else
+                    "?"
+
+            let methodName = if m <> null then m.Name else "?"
+            let ilOffset = frame.GetILOffset()
+            sw.WriteLine($"  [{i, 3}] {typeName}.{methodName} (IL offset={ilOffset})")
+    | None -> ()
+
+    sw.WriteLine()
+    sw.WriteLine("=== Stack Pointer Probes (PUSH/POP at context boundaries) ===")
+    sw.WriteLine()
+    let mutable prev = 0n
+
+    for struct (label, sp) in result.StackProbes do
+        let delta = if prev = 0n then 0n else prev - sp
+        sw.WriteLine($"SP=0x{sp:X12}  delta={delta, 8}  {label}")
+        prev <- sp
 
 /// Parses a source file on a dedicated thread with stack probing enabled.
 /// Captures SP at each context push/pop and records the deepest stack trace.
 /// `stackSize` is the thread stack size in bytes.
 /// `timeout` is the maximum time to wait for the parse to complete.
-let parseWithStackProbe (stackSize: int) (timeout: System.TimeSpan) (filePath: string) : StackProbeResult =
+let parseWithStackProbe (stackSize: int) (timeout: System.TimeSpan) (filePath: string) =
     let input = File.ReadAllText filePath
     let input = input.Replace("\r\n", "\n")
+
+    // Eagerly clean up old debug files
+    for ext in [| ".lexed"; ".parsed"; ".stack"; ".trace" |] do
+        let p = filePath + ext
+
+        if File.Exists p then
+            File.Delete p
 
     match Lexing.lexString input with
     | Error e -> failwithf "Lexing failed: %A" e
@@ -417,9 +454,11 @@ let parseWithStackProbe (stackSize: int) (timeout: System.TimeSpan) (filePath: s
         writeLexed (filePath + ".lexed") lexed
 
         let mutable maxDepth = 0
-        let mutable deepestTrace: System.Diagnostics.StackTrace = null
-        let stackProbes = System.Collections.Generic.List<struct (string * nativeint)>()
-        let events = System.Collections.Generic.List<XParsec.FSharp.Parser.TraceEvent>()
+        let mutable deepestTrace: System.Diagnostics.StackTrace option = None
+        let stackProbes = ResizeArray<struct (string * nativeint)>()
+        let events = ResizeArray<XParsec.FSharp.Parser.TraceEvent>()
+        use traceWriter = new StreamWriter(filePath + ".trace", false)
+        traceWriter.AutoFlush <- true
 
         let traceCallback =
             XParsec.FSharp.Parser.TraceCallback(fun x ->
@@ -431,14 +470,23 @@ let parseWithStackProbe (stackSize: int) (timeout: System.TimeSpan) (filePath: s
 
                     if depth > maxDepth then
                         maxDepth <- depth
-                        deepestTrace <- System.Diagnostics.StackTrace(true)
+                        deepestTrace <- Some(System.Diagnostics.StackTrace(true))
+
+                        writeStackProbe
+                            (filePath + ".stack")
+                            {
+                                MaxDepth = maxDepth
+                                DeepestTrace = deepestTrace
+                                StackProbes = stackProbes.ToArray()
+                            }
                 | XParsec.FSharp.Parser.TraceEvent.ContextPop(ctx, depth) ->
                     let mutable marker = 0
                     let sp = NativePtr.toNativeInt &&marker
                     stackProbes.Add(struct ($"POP {ctx} depth={depth}", sp))
                 | _ -> ()
 
-                lock events (fun () -> events.Add x)
+                events.Add x
+                traceWriter.WriteLine(XParsec.FSharp.Parser.TraceEvent.format lexed x)
             )
 
         let reader =
@@ -476,7 +524,7 @@ let parseWithStackProbe (stackSize: int) (timeout: System.TimeSpan) (filePath: s
                 |> Array.rev
                 |> Array.truncate 80
                 |> Array.rev
-                |> Array.map XParsec.FSharp.Parser.TraceEvent.format
+                |> Array.map (XParsec.FSharp.Parser.TraceEvent.format lexed)
                 |> String.concat "\n  "
 
             failwithf
@@ -487,47 +535,7 @@ let parseWithStackProbe (stackSize: int) (timeout: System.TimeSpan) (filePath: s
                 (context.Replace("\n", "\\n"))
                 lastEvents
 
-        {
-            MaxDepth = maxDepth
-            DeepestTrace = if deepestTrace <> null then Some deepestTrace else None
-            StackProbes = stackProbes.ToArray()
-            ParseResult = taskResult
-        }
-
-/// Writes stack probe results (deepest stack trace + SP deltas) to the given path.
-let writeStackProbe (path: string) (result: StackProbeResult) =
-    use sw = new StreamWriter(path)
-    sw.WriteLine($"Deepest context push depth: {result.MaxDepth}")
-
-    match result.DeepestTrace with
-    | Some trace ->
-        sw.WriteLine($"Frame count: {trace.FrameCount}")
-        sw.WriteLine()
-
-        for i in 0 .. trace.FrameCount - 1 do
-            let frame = trace.GetFrame(i)
-            let m = frame.GetMethod()
-
-            let typeName =
-                if m <> null && m.DeclaringType <> null then
-                    m.DeclaringType.Name
-                else
-                    "?"
-
-            let methodName = if m <> null then m.Name else "?"
-            let ilOffset = frame.GetILOffset()
-            sw.WriteLine($"  [{i, 3}] {typeName}.{methodName} (IL offset={ilOffset})")
-    | None -> ()
-
-    sw.WriteLine()
-    sw.WriteLine("=== Stack Pointer Probes (PUSH/POP at context boundaries) ===")
-    sw.WriteLine()
-    let mutable prev = 0n
-
-    for struct (label, sp) in result.StackProbes do
-        let delta = if prev = 0n then 0n else prev - sp
-        sw.WriteLine($"SP=0x{sp:X12}  delta={delta, 8}  {label}")
-        prev <- sp
+        taskResult
 
 /// Returns paths of golden files (`.parsed`, `.lexed`, `.lexedblocks`) in `dataDir` that have
 /// no corresponding `.fs` source file — i.e. orphans left behind after a source file was renamed

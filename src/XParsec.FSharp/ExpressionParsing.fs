@@ -267,6 +267,7 @@ type ExprAux =
     | TypeCast of Type<SyntaxToken> // :> Type
     /// Wraps a fully-parsed Expr for use as 'Aux in PrefixMapped keyword operators (if, match, let, etc.)
     | KeywordExpr of (SyntaxToken -> Expr<SyntaxToken>)
+    | ForExpr of Expr<SyntaxToken>
     | SliceAll
     | SliceFrom
     | Range of Expr<SyntaxToken>
@@ -290,6 +291,11 @@ module Expr =
                 // with the new step in the middle and the new end on the right
                 Expr.SteppedRange(l, dotdot1, step, op, r)
             | _ -> Expr.Range(l, op, r)
+
+        let completeFor _forTok (expr: ExprAux) =
+            match expr with
+            | ExprAux.ForExpr forExpr -> forExpr
+            | _ -> failwith "Unexpected Aux type for For expression completion"
 
         let completeSequence (exprs: ResizeArray<Expr<_>>) ops =
             Expr.Sequential(List.ofSeq exprs, List.ofSeq ops)
@@ -862,8 +868,8 @@ module Expr =
                 return ExprAux.KeywordExpr(fun whileTok -> Expr.While(whileTok, cond, doTok, body, doneTok))
             }
 
-        let pForBody =
-            let pIterDefn =
+        let pForExpr =
+            let pForHeader =
                 choiceL
                     [
                         // for ident = start to end do
@@ -873,41 +879,56 @@ module Expr =
                             let! startExpr = refExprGuard.Parser
                             let! toTok = pToOrDownTo
                             let! endExpr = refExprGuard.Parser
+                            let! doTok = pDo <|> pArrowRight
 
                             return
-                                fun doTok body doneTok forTok ->
+                                fun forTok body doneTok ->
                                     Expr.ForTo(forTok, ident, eq, startExpr, toTok, endExpr, doTok, body, doneTok)
                         }
                         // for pat in expr do
                         parser {
                             let! pat = Pat.parse
                             let! inTok = pIn
-                            let! range = refExprGuard.Parser
+                            let! iterable = refExprGuard.Parser
+                            let! doTok = pDo <|> pArrowRight
 
                             return
-                                fun doTok body doneTok forTok ->
-                                    Expr.ForIn(forTok, pat, inTok, range, doTok, body, doneTok)
+                                fun forTok body doneTok ->
+                                    Expr.ForIn(forTok, pat, inTok, iterable, doTok, body, doneTok)
                         }
                     ]
-                    "Expected for-to or for-in iterator definition"
+                    "Expected 'for-to' or 'for-in' loop header"
 
-            let pForBody =
-                let pDoBody = withContext OffsideContext.Do refExprSeqBlock.Parser
+            let assertFor reader =
+                // We throw here as `pForExpr` should only be called if we've already peeked and confirmed we have a 'for' token.
+                match peekNextNonTriviaToken reader with
+                | Ok t when t.Token = Token.KWFor ->
+                    (consumePeeked t
+                     |>> fun forTok ->
+                         let state = reader.State
 
-                withContext
-                    OffsideContext.For
-                    (parser {
-                        let! iterDefn = pIterDefn
-                        let! doTok = pDo <|> pArrowRight
-                        let! body = pDoBody
-                        return iterDefn doTok body
-                    })
+                         let indent =
+                             match forTok.Index with
+                             | TokenIndex.Regular iT -> ParseState.getIndent state iT
+                             | TokenIndex.Virtual ->
+                                 invalidOp "Virtual tokens should not be used for 'for' keyword in pForBody"
+
+                         struct (forTok, indent))
+                        reader
+
+                | Ok t -> invalidOp $"Expected 'for' keyword. Got {t.Token} at position {t.StartIndex}"
+                | Error e -> invalidOp $"Expected 'for' keyword. Failed to peek next token: {e}"
 
             parser {
-                // let! forTok = pFor
-                let! forBody = pForBody
+                let! (forTok, indent) = assertFor
+                // The pattern and iterator (or variable and range) must be indented past the 'for' keyword
+                // After do, the body can be at the same indent as 'for' or indented further
+                let headerMinIndent = indent + 1
+                let bodyMinIndent = indent
+                let! forBuilder = withContextAt OffsideContext.For headerMinIndent forTok.PositionedToken pForHeader
+                let! body = withContextAt OffsideContext.Do bodyMinIndent forTok.PositionedToken refExprSeqBlock.Parser
                 let! doneTok = pDoneVirt
-                return ExprAux.KeywordExpr(forBody doneTok)
+                return ExprAux.ForExpr(forBuilder forTok body doneTok)
             }
 
         let pLetOrUseIn =
@@ -1128,8 +1149,8 @@ module Expr =
                     let! token = consumePeeked token
                     return PrefixMapped(token, preturn token, pWhileBody, completeKeyword)
                 | Token.KWFor ->
-                    let! token = consumePeeked token
-                    return PrefixMapped(token, preturn token, pForBody, completeKeyword)
+                    // Do NOT consume here — pForBody peeks the 'for' keyword to set the context indent, then consumes.
+                    return PrefixMapped(token, preturn token, pForExpr, completeFor)
                 | Token.KWLet
                 | Token.KWLetBang
                 | Token.KWUse
@@ -1381,11 +1402,6 @@ module Expr =
                     }
 
                 reader.State <- ParseState.pushOffside entry reader.State
-                let stackDepth = reader.State.Context.Length
-
-                reader.State.Trace.Invoke(
-                    TraceEvent.ContextPush(OffsideContext.Brace, 0, lBrace.PositionedToken, stackDepth)
-                )
 
                 let innerParser =
                     choiceL
@@ -1445,8 +1461,7 @@ module Expr =
 
                 match innerParser reader with
                 | Ok result ->
-                    reader.State.Trace.Invoke(TraceEvent.ContextPop(OffsideContext.Brace, stackDepth - 1))
-                    reader.State <- ParseState.popOffside reader.State
+                    reader.State <- ParseState.popOffside entry reader.State
                     Ok result
                 | Error _ ->
                     reader.State <- savedState
