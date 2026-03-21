@@ -1587,6 +1587,12 @@ module Lexing =
                 )
         }
 
+    /// When `"` is encountered inside a triple-quoted interpolated string, try to close with `"""`.
+    /// If fewer than 3 quotes, treat them as literal fragment content.
+    let pInterpolated3QuoteOrFragment =
+        pInterpolated3EndToken
+        <|> pToken (many1Chars (pchar '"')) Token.Interpolated3StringFragment
+
 
     let pNewlineToken =
         parser {
@@ -2094,28 +2100,33 @@ module Lexing =
         let pFormatSpecifierTokens: Parser<unit, _, _, ReadableString, _> =
             parser {
                 let! pos = getPosition
-                let! percents = many1Chars (pchar '%')
+                let! percents = lookAhead (many1Chars (pchar '%'))
                 let! state = getUserState
                 let tokens = state.Tokens
 
                 match LexBuilder.level state with
                 | 1 ->
                     // Level 1 logic
-                    let mutable count = percents.Length
-                    let mutable idx = pos.Index
+                    let count, idx =
+                        let mutable count = percents.Length
+                        let mutable idx = pos.Index
 
-                    while count > 1 do
-                        if count >= 2 then // %% is an escape sequence for '%'
+                        while count > 1 do
+                            // %% is an escape sequence for '%'
                             tokens.Add(PositionedToken.Create(Token.EscapePercent, idx))
                             idx <- idx + 2
                             count <- count - 2
 
+                        count, idx
+
                     match count with
                     | 0 ->
+                        // All percents consumed as %% escape pairs by many1Chars above
                         do! skipN percents.Length
                         return ()
                     | _ ->
-                        do! skipN (percents.Length - 1)
+                        // reads flags/width/precision/type after the final '%'
+                        do! skipN percents.Length
                         let! t = lFormatPlaceholderToken
                         tokens.Add(PositionedToken.Create(t, idx))
                         return ()
@@ -2129,20 +2140,22 @@ module Lexing =
 
                     if leading < 0 then
                         tokens.Add(PositionedToken.Create(Token.InterpolatedStringFragment, idx))
-                        // do! skipN count
+                        do! skipN count
                         return ()
                     elif leading = 0 then
                         // Exactly enough to start a FormatPlaceholder
+                        do! skipN count
                         let! t = lFormatPlaceholderToken
                         tokens.Add(PositionedToken.Create(t, idx))
                         return ()
                     elif leading >= level then
                         // Too many leading '%'
+                        do! skipN count
                         tokens.Add(PositionedToken.Create(Token.InvalidFormatPercents, idx))
                         return ()
                     else
                         tokens.Add(PositionedToken.Create(Token.InterpolatedStringFragment, idx))
-                        // do! skipN leading
+                        do! skipN leading
                         let! pos = getPosition
                         let! t = lFormatPlaceholderToken
                         tokens.Add(PositionedToken.Create(t, pos.Index))
@@ -2399,7 +2412,7 @@ module Lexing =
                 | '}', NonInterpolatedExpressionCtx -> pCloseBraceExpressionContext
                 | '"', LexContext.InterpolatedString -> pInterpolatedStringEndToken
                 | '"', LexContext.VerbatimInterpolatedString -> pVerbatimInterpolatedStringQuoteToken
-                | '"', LexContext.Interpolated3String _ -> pInterpolated3EndToken
+                | '"', LexContext.Interpolated3String _ -> pInterpolated3QuoteOrFragment
                 | '"', _ ->
                     // String or triple-quoted string literals
                     pDoubleQuoteToken
