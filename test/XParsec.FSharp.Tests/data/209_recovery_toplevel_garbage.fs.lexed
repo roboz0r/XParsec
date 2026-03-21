@@ -1,0 +1,9 @@
+0, KWRParen
+1, Whitespace
+2, KWRBracket
+3, Whitespace
+4, KWRBrace
+5, Whitespace
+6, KWEnd
+9, Newline
+10, EOF

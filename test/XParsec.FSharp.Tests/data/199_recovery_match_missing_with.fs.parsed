@@ -1,0 +1,16 @@
+AnonymousModule:
+Match:
+  MatchToken           'match'           KWMatch             tok=   0  pos=   0
+  MatchExpr:
+    Const              '1'               NumInt32            tok=   2  pos=   6
+  WithToken            <virt>            KWWith              tok=virt  pos=   8
+  Rule:
+    Bar                '|'               OpBar               tok=   4  pos=   8
+    Pat:
+      Pat.NamedSimple  'x'               Identifier          tok=   6  pos=  10
+    Arrow              '->'              OpArrowRight        tok=   8  pos=  12
+    Expr:
+      Ident            'x'               Identifier          tok=  10  pos=  15
+---
+Diagnostics:
+  [error] Other(Expected 'with' after match expression) at 8

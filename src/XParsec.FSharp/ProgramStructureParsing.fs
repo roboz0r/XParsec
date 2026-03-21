@@ -18,7 +18,8 @@ module ImplementationFile =
             let! modTok = pModule
             let! access = opt Access.parse
             let! isRec = opt pRec
-            let! longIdent = LongIdent.parse
+            // Committed after 'module' — recover with virtual ident if LongIdent fails
+            let! longIdent = recoverLongIdent "Expected module identifier" LongIdent.parse
             // Distinguish named module (module Foo.Bar <elems>) from module abbreviation (module X = Y.Z)
             do! notFollowedByEquals
             let! elems = ModuleElem.parseElemsWithRecovery

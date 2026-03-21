@@ -583,6 +583,81 @@ module Parsing =
                     }
                     reader
 
+    /// Wraps a parser so that on failure, it emits a diagnostic and returns a virtual token
+    /// of the given type. Used for committed-keyword recovery where the parser must not fail
+    /// after a keyword has been consumed.
+    let recoverWithVirtualToken
+        (expectedToken: Token)
+        (diagMsg: string)
+        (p: Parser<SyntaxToken, PositionedToken, ParseState, _, _>)
+        : Parser<SyntaxToken, PositionedToken, ParseState, _, _> =
+        fun reader ->
+            match p reader with
+            | Ok result -> Ok result
+            | Error _ ->
+                match peekNextNonTriviaToken reader with
+                | Error e -> Error e
+                | Ok token ->
+                    reader.State <-
+                        ParseState.addDiagnostic
+                            (DiagnosticCode.Other diagMsg)
+                            DiagnosticSeverity.Error
+                            token.PositionedToken
+                            None
+                            reader.State
+
+                    let pt =
+                        PositionedToken.Create(
+                            Token.ofUInt16 (uint16 expectedToken ||| TokenRepresentation.IsVirtual),
+                            token.StartIndex
+                        )
+
+                    reader.State.Trace.Invoke(TraceEvent.VirtualToken(pt.Token, pt.StartIndex))
+
+                    preturn
+                        {
+                            PositionedToken = pt
+                            Index = TokenIndex.Virtual
+                        }
+                        reader
+
+    /// Wraps a LongIdent parser so that on failure, it emits a diagnostic and returns a
+    /// single-element virtual identifier. Used after committed keywords like `open`, `namespace`, `module`.
+    let recoverLongIdent
+        (diagMsg: string)
+        (p: Parser<LongIdent<SyntaxToken>, PositionedToken, ParseState, _, _>)
+        : Parser<LongIdent<SyntaxToken>, PositionedToken, ParseState, _, _> =
+        fun reader ->
+            match p reader with
+            | Ok result -> Ok result
+            | Error _ ->
+                match peekNextNonTriviaToken reader with
+                | Error e -> Error e
+                | Ok token ->
+                    reader.State <-
+                        ParseState.addDiagnostic
+                            (DiagnosticCode.Other diagMsg)
+                            DiagnosticSeverity.Error
+                            token.PositionedToken
+                            None
+                            reader.State
+
+                    let pt =
+                        PositionedToken.Create(
+                            Token.ofUInt16 (uint16 Token.Identifier ||| TokenRepresentation.IsVirtual),
+                            token.StartIndex
+                        )
+
+                    reader.State.Trace.Invoke(TraceEvent.VirtualToken(pt.Token, pt.StartIndex))
+
+                    let virtualIdent: SyntaxToken =
+                        {
+                            PositionedToken = pt
+                            Index = TokenIndex.Virtual
+                        }
+
+                    preturn ([ virtualIdent ]: LongIdent<SyntaxToken>) reader
+
     module StoppingTokens =
         let afterType (tok: SyntaxToken) =
             match tok.Token with

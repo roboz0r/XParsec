@@ -1,0 +1,11 @@
+0, KWTry
+3, Newline
+4, KWWith
+8, Whitespace
+9, Wildcard
+10, Whitespace
+11, OpArrowRight
+13, Whitespace
+14, NumInt32
+15, Newline
+16, EOF

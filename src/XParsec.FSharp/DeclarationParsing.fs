@@ -14,7 +14,8 @@ module ImportDecl =
     let parse =
         parser {
             let! openTok = pOpen
-            let! ident = LongIdent.parse
+            // Committed after consuming 'open' — recover with virtual ident if LongIdent fails
+            let! ident = recoverLongIdent "Expected identifier after 'open'" LongIdent.parse
             return ImportDecl(openTok, ident)
         }
 
@@ -34,7 +35,13 @@ module CompilerDirectiveDecl =
     let parse: Parser<CompilerDirectiveDecl<SyntaxToken>, _, _, ReadableImmutableArray<_>, _> =
         parser {
             let! hash = pHash
-            let! ident = nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "Directive identifier"
+            // Committed after consuming '#' — recover with virtual identifier if missing
+            let! ident =
+                recoverWithVirtualToken
+                    Token.Identifier
+                    "Expected directive identifier after '#'"
+                    (nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "Directive identifier")
+
             let! strings = many (nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsText) "String argument")
             return CompilerDirectiveDecl(hash, ident, List.ofSeq strings)
         }
@@ -63,7 +70,20 @@ module ModuleFunctionOrValueDefn =
 
             match token.Token with
             | Token.KWDo ->
-                let! expr = Expr.parse
+                // Committed after 'do' — recover with Expr.Missing if expression fails
+                let! expr =
+                    recoverWith
+                        StoppingTokens.afterExpr
+                        DiagnosticSeverity.Error
+                        DiagnosticCode.MissingExpression
+                        (fun toks ->
+                            if toks.IsEmpty then
+                                Expr.Missing
+                            else
+                                Expr.SkipsTokens(toks, Expr.Missing)
+                        )
+                        Expr.parse
+
                 return ModuleFunctionOrValueDefn.Do(attrs, token, expr)
 
             | Token.KWLet -> return! pLetBinding attrs token
@@ -88,8 +108,15 @@ module ModuleDefn =
             let! modTok = pModule
             let! access = opt Access.parse
             let! isRec = opt pRec
-            let! ident = nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "Module identifier"
-            let! eq = pEquals
+            // Committed after 'module' — recover ident and '=' with virtuals if missing
+            let! ident =
+                recoverWithVirtualToken
+                    Token.Identifier
+                    "Expected module identifier"
+                    (nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "Module identifier")
+
+            let! eq = recoverWithVirtualToken Token.OpEquality "Expected '=' after module identifier" pEquals
+
             let! body = parseBody elementParser
             return ModuleDefn(attrs, modTok, access, isRec, ident, eq, body)
         }
@@ -215,9 +242,9 @@ module NamespaceDeclGroup =
                 return NamespaceDeclGroup.Global(nsTok, gTok, elems)
 
             | ValueNone ->
-                // namespace [rec] LongIdent
+                // namespace [rec] LongIdent — committed after 'namespace'
                 let! isRec = opt pRec
-                let! ident = LongIdent.parse
+                let! ident = recoverLongIdent "Expected namespace identifier" LongIdent.parse
                 let! elems = ModuleElem.parseElemsWithRecovery
                 return NamespaceDeclGroup.Named(nsTok, isRec, ident, elems)
         }

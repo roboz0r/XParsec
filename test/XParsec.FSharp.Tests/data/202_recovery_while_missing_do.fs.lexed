@@ -1,0 +1,9 @@
+0, KWWhile
+5, Whitespace
+6, KWTrue
+10, Newline
+11, Indent
+15, KWLParen
+16, KWRParen
+17, Newline
+18, EOF

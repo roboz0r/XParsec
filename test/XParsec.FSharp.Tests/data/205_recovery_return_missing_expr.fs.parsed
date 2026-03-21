@@ -1,0 +1,13 @@
+AnonymousModule:
+App:
+  Func:
+    Ident             'async'           Identifier          tok=   0  pos=   0
+  Args:
+    ComputationBlock  '{'               KWLBrace            tok=   2  pos=   6
+      return          'return'          KWReturn            tok=   4  pos=   8
+      Return:
+        Missing
+                      '}'               KWRBrace            tok=   6  pos=  15
+---
+Diagnostics:
+  [error] MissingExpression at 15

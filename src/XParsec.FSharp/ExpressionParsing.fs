@@ -724,10 +724,24 @@ module Expr =
             let pCond = withContext OffsideContext.If refExpr.Parser
             let pThenExpr = withContext OffsideContext.Then refExprSeqBlock.Parser
 
+            let recoverExprMissing p =
+                recoverWith
+                    StoppingTokens.afterExpr
+                    DiagnosticSeverity.Error
+                    DiagnosticCode.MissingExpression
+                    (fun toks ->
+                        if toks.IsEmpty then
+                            Expr.Missing
+                        else
+                            Expr.SkipsTokens(toks, Expr.Missing)
+                    )
+                    p
+
             parser {
-                let! cond = pCond
-                let! thenTok = pThen
-                let! thenExpr = pThenExpr
+                // Committed after 'if' — recover each part with virtuals/Missing
+                let! cond = recoverExprMissing pCond
+                let! thenTok = recoverWithVirtualToken Token.KWThen "Expected 'then' after condition" pThen
+                let! thenExpr = recoverExprMissing pThenExpr
                 let! elifs, elseBranch = ElifBranches.parse
 
                 return
@@ -768,9 +782,23 @@ module Expr =
         let pMatchBody =
             let pMatchExpr = withContext OffsideContext.Match refExpr.Parser
 
+            let recoverExprMissing p =
+                recoverWith
+                    StoppingTokens.afterExpr
+                    DiagnosticSeverity.Error
+                    DiagnosticCode.MissingExpression
+                    (fun toks ->
+                        if toks.IsEmpty then
+                            Expr.Missing
+                        else
+                            Expr.SkipsTokens(toks, Expr.Missing)
+                    )
+                    p
+
             parser {
-                let! e = pMatchExpr
-                let! w = pWith
+                // Committed after 'match' — recover each part
+                let! e = recoverExprMissing pMatchExpr
+                let! w = recoverWithVirtualToken Token.KWWith "Expected 'with' after match expression" pWith
                 let! rules = pMatchRules
                 return ExprAux.KeywordExpr(fun m -> Expr.Match(m, e, w, rules))
             }
@@ -786,20 +814,36 @@ module Expr =
         let pFunBody =
             let pBody = refExprSeqBlock.Parser
 
+            let recoverExprMissing p =
+                recoverWith
+                    StoppingTokens.afterExpr
+                    DiagnosticSeverity.Error
+                    DiagnosticCode.MissingExpression
+                    (fun toks ->
+                        if toks.IsEmpty then
+                            Expr.Missing
+                        else
+                            Expr.SkipsTokens(toks, Expr.Missing)
+                    )
+                    p
+
             withContext
                 OffsideContext.Fun
                 (parser {
-                    // let! funTok = pFun
+                    // Committed after 'fun' — recover arrow and body
                     let! pats = many1 Pat.parse
-                    let! arrow = pArrowRight
-                    let! expr = pBody
+
+                    let! arrow =
+                        recoverWithVirtualToken Token.OpArrowRight "Expected '->' after fun parameters" pArrowRight
+
+                    let! expr = recoverExprMissing pBody
                     return ExprAux.KeywordExpr(fun funTok -> Expr.Fun(funTok, List.ofSeq pats, arrow, expr))
                 })
 
         let pTryBody =
             let pTryExpr = withContext OffsideContext.Try refExprSeqBlock.Parser
 
-            let pWith =
+            let pWith' =
                 parser {
                     let! withTok = pWith
                     let! rules = pMatchRules
@@ -822,11 +866,25 @@ module Expr =
 
             let pWithOrFinally =
                 dispatchNextNonTriviaTokenL
-                    [ Token.KWWith, pWith; Token.KWFinally, pFinally ]
+                    [ Token.KWWith, pWith'; Token.KWFinally, pFinally ]
                     "Expected 'with' or 'finally'"
 
+            let recoverExprMissing p =
+                recoverWith
+                    StoppingTokens.afterExpr
+                    DiagnosticSeverity.Error
+                    DiagnosticCode.MissingExpression
+                    (fun toks ->
+                        if toks.IsEmpty then
+                            Expr.Missing
+                        else
+                            Expr.SkipsTokens(toks, Expr.Missing)
+                    )
+                    p
+
             parser {
-                let! tryExpr = pTryExpr
+                // Committed after 'try' — recover the body expression
+                let! tryExpr = recoverExprMissing pTryExpr
                 let! withOrFinally = pWithOrFinally
                 return withOrFinally tryExpr
             }
@@ -853,14 +911,28 @@ module Expr =
             // Note: Both the condition and the do must be indented past the 'while'
             // but they may be at different indents from each other.
             let pCond = withContext OffsideContext.While refExpr.Parser
-            let pDo = withContext OffsideContext.While pDo
+            let pDo' = withContext OffsideContext.While pDo
 
             let pDoBody = withContext OffsideContext.Do refExprSeqBlock.Parser
 
+            let recoverExprMissing p =
+                recoverWith
+                    StoppingTokens.afterExpr
+                    DiagnosticSeverity.Error
+                    DiagnosticCode.MissingExpression
+                    (fun toks ->
+                        if toks.IsEmpty then
+                            Expr.Missing
+                        else
+                            Expr.SkipsTokens(toks, Expr.Missing)
+                    )
+                    p
+
             parser {
-                let! cond = pCond
-                let! doTok = pDo
-                let! body = pDoBody
+                // Committed after 'while' — recover each part
+                let! cond = recoverExprMissing pCond
+                let! doTok = recoverWithVirtualToken Token.KWDo "Expected 'do' after while condition" pDo'
+                let! body = recoverExprMissing pDoBody
                 let! doneTok = pDoneVirt
                 return ExprAux.KeywordExpr(fun whileTok -> Expr.While(whileTok, cond, doTok, body, doneTok))
             }
@@ -1047,16 +1119,42 @@ module Expr =
                 if bindings.Count = 0 then
                     error
                 else
-                    match refExprSeqBlock.Parser reader with
-                    | Error e -> Error e
-                    | Ok body ->
-                        let result = buildNestedLetOrUse bindings body
-                        preturn (ExprAux.KeywordExpr(fun _opTok -> result)) reader
+                    // Committed after consuming let/use bindings — recover body expression if it fails
+                    let body =
+                        match refExprSeqBlock.Parser reader with
+                        | Ok body -> body
+                        | Error err ->
+                            reader.State <-
+                                ParseState.addDiagnostic
+                                    (DiagnosticCode.MissingExpression err)
+                                    DiagnosticSeverity.Error
+                                    (match peekNextNonTriviaToken reader with
+                                     | Ok tok -> tok.PositionedToken
+                                     | Error _ -> PositionedToken.Create(Token.EOF, 0))
+                                    None
+                                    reader.State
+
+                            Expr.Missing
+
+                    let result = buildNestedLetOrUse bindings body
+                    preturn (ExprAux.KeywordExpr(fun _opTok -> result)) reader
 
         let pYieldReturnDoBody =
-            let pBody = refExprSeqBlock.Parser
+            let pBody =
+                recoverWith
+                    StoppingTokens.afterExpr
+                    DiagnosticSeverity.Error
+                    DiagnosticCode.MissingExpression
+                    (fun toks ->
+                        if toks.IsEmpty then
+                            Expr.Missing
+                        else
+                            Expr.SkipsTokens(toks, Expr.Missing)
+                    )
+                    refExprSeqBlock.Parser
 
             parser {
+                // Committed after do/return/yield keyword
                 let! expr = pBody
 
                 return

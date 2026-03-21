@@ -1,0 +1,12 @@
+0, KWModule
+6, Newline
+7, Newline
+8, KWLet
+11, Whitespace
+12, Identifier
+13, Whitespace
+14, OpEquality
+15, Whitespace
+16, NumInt32
+17, Newline
+18, EOF

@@ -1,0 +1,14 @@
+AnonymousModule:
+TryWith           'try'             KWTry               tok=   0  pos=   0
+TryExpr:
+  Missing
+WithToken         'with'            KWWith              tok=   2  pos=   4
+Rule:
+  Pat:
+    Pat.Wildcard  '_'               Wildcard            tok=   4  pos=   9
+  Arrow           '->'              OpArrowRight        tok=   6  pos=  11
+  Expr:
+    Const         '1'               NumInt32            tok=   8  pos=  14
+---
+Diagnostics:
+  [error] MissingExpression at 4
