@@ -4,8 +4,6 @@ SkipsTokens:
   (skipped)          ')'               KWRParen            tok=   5  pos=  16
   (skipped)          ']'               KWRBracket          tok=   7  pos=  18
   (skipped)          '}'               KWRBrace            tok=   9  pos=  20
-  ModuleElem:
-    Missing
 FunctionOrValue:
   let                'let'             KWLet               tok=  11  pos=  22
     Pat.NamedSimple  'x'               Identifier          tok=  13  pos=  26

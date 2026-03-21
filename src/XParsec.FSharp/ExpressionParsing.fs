@@ -733,7 +733,7 @@ module Expr =
                         if toks.IsEmpty then
                             Expr.Missing
                         else
-                            Expr.SkipsTokens(toks, Expr.Missing)
+                            Expr.SkipsTokens(toks)
                     )
                     p
 
@@ -770,7 +770,7 @@ module Expr =
                     else
                         let missingWithSkips =
                             Rule.Rule(
-                                Pat.SkipsTokens(toks, Pat.Missing),
+                                Pat.SkipsTokens(toks),
                                 ValueNone,
                                 virtualToken (PositionedToken.Create(Token.OpArrowRight, 0)),
                                 Expr.Missing
@@ -791,7 +791,7 @@ module Expr =
                         if toks.IsEmpty then
                             Expr.Missing
                         else
-                            Expr.SkipsTokens(toks, Expr.Missing)
+                            Expr.SkipsTokens(toks)
                     )
                     p
 
@@ -823,7 +823,7 @@ module Expr =
                         if toks.IsEmpty then
                             Expr.Missing
                         else
-                            Expr.SkipsTokens(toks, Expr.Missing)
+                            Expr.SkipsTokens(toks)
                     )
                     p
 
@@ -878,7 +878,7 @@ module Expr =
                         if toks.IsEmpty then
                             Expr.Missing
                         else
-                            Expr.SkipsTokens(toks, Expr.Missing)
+                            Expr.SkipsTokens(toks)
                     )
                     p
 
@@ -924,7 +924,7 @@ module Expr =
                         if toks.IsEmpty then
                             Expr.Missing
                         else
-                            Expr.SkipsTokens(toks, Expr.Missing)
+                            Expr.SkipsTokens(toks)
                     )
                     p
 
@@ -1149,7 +1149,7 @@ module Expr =
                         if toks.IsEmpty then
                             Expr.Missing
                         else
-                            Expr.SkipsTokens(toks, Expr.Missing)
+                            Expr.SkipsTokens(toks)
                     )
                     refExprSeqBlock.Parser
 
@@ -1385,7 +1385,7 @@ module Expr =
     let private pEnclosed =
         let completeEmpty l r = Expr.EmptyBlock(l, r)
         let completeEnclosed l e r = Expr.EnclosedBlock(l, e, r)
-        let skipsTokens toks missing = Expr.SkipsTokens(toks, missing)
+        let skipsTokens toks = Expr.SkipsTokens(toks)
         pEnclosed completeEmpty completeEnclosed Expr.Missing skipsTokens
 
     let private pExprOrTypedPat =
@@ -1571,7 +1571,7 @@ module Expr =
                 if toks.IsEmpty then
                     Expr.Missing
                 else
-                    Expr.SkipsTokens(toks, Expr.Missing)
+                    Expr.SkipsTokens(toks)
             )
             p
 
@@ -1614,7 +1614,7 @@ module Expr =
                 if toks.IsEmpty then
                     Expr.Missing
                 else
-                    Expr.SkipsTokens(toks, Expr.Missing)
+                    Expr.SkipsTokens(toks)
             )
 
     do

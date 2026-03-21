@@ -150,7 +150,7 @@ module FSharpAst =
                                         None
                                         reader.State
 
-                                [ ModuleElem.SkipsTokens(skipped, ModuleElem.Missing) ]
+                                [ ModuleElem.SkipsTokens(skipped) ]
                             else
                                 []
 

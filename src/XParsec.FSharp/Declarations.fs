@@ -32,7 +32,7 @@ type ModuleElem<'T> =
     | CompilerDirective of CompilerDirectiveDecl<'T>
     | Expression of Expr<'T>
     | Missing
-    | SkipsTokens of skippedTokens: 'T list * elem: ModuleElem<'T>
+    | SkipsTokens of skippedTokens: 'T list
 
 // Represents: module-elems := module-elem ... module-elem
 and ModuleElems<'T> = ModuleElem<'T> list

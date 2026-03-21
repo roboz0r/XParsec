@@ -80,7 +80,7 @@ module ModuleFunctionOrValueDefn =
                             if toks.IsEmpty then
                                 Expr.Missing
                             else
-                                Expr.SkipsTokens(toks, Expr.Missing)
+                                Expr.SkipsTokens(toks)
                         )
                         Expr.parse
 
@@ -184,7 +184,7 @@ module ModuleElem =
                                     None
                                     reader.State
 
-                            result.Add(ModuleElem.SkipsTokens(List.ofSeq skipped, ModuleElem.Missing))
+                            result.Add(ModuleElem.SkipsTokens(List.ofSeq skipped))
                         else
                             // Can't skip anything and can't parse — avoid infinite loop
                             keepGoing <- false

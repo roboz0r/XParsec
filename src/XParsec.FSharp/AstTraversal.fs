@@ -356,13 +356,12 @@ and walkPat (visitor: AstVisitor<'T>) (pat: Pat<'T>) : unit =
         walkIdentOrOp visitor identOrOp
         visitor.ExitSection "Pat.Op"
     | Pat.Missing -> visitor.WriteLine "Missing"
-    | Pat.SkipsTokens(skippedTokens, innerPat) ->
+    | Pat.SkipsTokens(skippedTokens) ->
         visitor.EnterSection "SkipsTokens"
 
         for t in skippedTokens do
             visitor.VisitToken "(skipped)" t
 
-        walkPat visitor innerPat
         visitor.ExitSection "SkipsTokens"
 
 and walkTypar (visitor: AstVisitor<'T>) (typar: Typar<'T>) : unit =
@@ -554,13 +553,12 @@ and walkType (visitor: AstVisitor<'T>) (ty: Type<'T>) : unit =
         walkType visitor typ
         visitor.ExitSection "AnonymousSubtype"
     | Type.Missing -> visitor.WriteLine "Missing"
-    | Type.SkipsTokens(skippedTokens, innerType) ->
+    | Type.SkipsTokens(skippedTokens) ->
         visitor.EnterSection "SkipsTokens"
 
         for t in skippedTokens do
             visitor.VisitToken "(skipped)" t
 
-        walkType visitor innerType
         visitor.ExitSection "SkipsTokens"
 
 and walkBinding (visitor: AstVisitor<'T>) (binding: Binding<'T>) : unit =
@@ -607,7 +605,7 @@ and walkFieldInitializer (visitor: AstVisitor<'T>) (fieldInit: FieldInitializer<
 
 and walkRules (visitor: AstVisitor<'T>) (rules: Rules<'T>) : unit =
     let (Rules(firstBar, ruleList, bars)) = rules
-    // Shared helper used for both the outer rule and the inner rule inside SkipsTokens.
+
     let walkOneRule (rule: Rule<'T>) =
         match rule with
         | Rule.Rule(pat, guard, arrow, ruleExpr) ->
@@ -639,15 +637,12 @@ and walkRules (visitor: AstVisitor<'T>) (rules: Rules<'T>) : unit =
         match ruleList[i] with
         | Rule.Rule _
         | Rule.Missing as rule -> walkOneRule rule
-        | Rule.SkipsTokens(skippedTokens, innerRule) ->
+        | Rule.SkipsTokens(skippedTokens) ->
             visitor.EnterSection "SkipsTokens"
 
             for t in skippedTokens do
                 visitor.VisitToken "(skipped)" t
 
-            visitor.EnterSection "Rule"
-            walkOneRule innerRule
-            visitor.ExitSection "Rule"
             visitor.ExitSection "SkipsTokens"
 
         visitor.ExitSection "Rule"
@@ -1013,15 +1008,12 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         walkExpr visitor castExpr
         visitor.ExitSection ""
     | Expr.Missing -> visitor.WriteLine "Missing"
-    | Expr.SkipsTokens(skippedTokens, innerExpr) ->
+    | Expr.SkipsTokens(skippedTokens) ->
         visitor.EnterSection "SkipsTokens"
 
         for t in skippedTokens do
             visitor.VisitToken "(skipped)" t
 
-        visitor.EnterSection "Expr"
-        walkExpr visitor innerExpr
-        visitor.ExitSection "Expr"
         visitor.ExitSection "SkipsTokens"
     | Expr.Pat innerPat ->
         visitor.EnterSection "Pat"
@@ -1564,13 +1556,12 @@ and walkTypeDefn (visitor: AstVisitor<'T>) (typeDefn: TypeDefn<'T>) : unit =
         walkTypeName visitor typeName
         visitor.ExitSection "TypeDefn.Abstract"
     | TypeDefn.Missing -> visitor.WriteLine "TypeDefn.Missing"
-    | TypeDefn.SkipsTokens(skippedTokens, inner) ->
+    | TypeDefn.SkipsTokens(skippedTokens) ->
         visitor.EnterSection "TypeDefn.SkipsTokens"
 
         for t in skippedTokens do
             visitor.VisitToken "(skipped)" t
 
-        walkTypeDefn visitor inner
         visitor.ExitSection "TypeDefn.SkipsTokens"
 
 and walkModuleFunctionOrValueDefn (visitor: AstVisitor<'T>) (defn: ModuleFunctionOrValueDefn<'T>) : unit =
@@ -1645,15 +1636,12 @@ and walkModuleElem (visitor: AstVisitor<'T>) (elem: ModuleElem<'T>) : unit =
         visitor.ExitSection "CompilerDirective"
     | ModuleElem.Expression expr -> walkExpr visitor expr
     | ModuleElem.Missing -> visitor.WriteLine "Missing"
-    | ModuleElem.SkipsTokens(skippedTokens, innerElem) ->
+    | ModuleElem.SkipsTokens(skippedTokens) ->
         visitor.EnterSection "SkipsTokens"
 
         for t in skippedTokens do
             visitor.VisitToken "(skipped)" t
 
-        visitor.EnterSection "ModuleElem"
-        walkModuleElem visitor innerElem
-        visitor.ExitSection "ModuleElem"
         visitor.ExitSection "SkipsTokens"
 
 and walkModuleDefn (visitor: AstVisitor<'T>) (defn: ModuleDefn<'T>) : unit =

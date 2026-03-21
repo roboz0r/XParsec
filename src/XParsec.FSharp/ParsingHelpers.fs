@@ -1057,7 +1057,7 @@ module Parsing =
                                         let t = toks |> List.last
                                         virtualToken (PositionedToken.Create(expectedRightTok, t.StartIndex))
 
-                                    completeEnclosed (parenKindConstructor l) (skipsTokens toks missing) endTok
+                                    completeEnclosed (parenKindConstructor l) (skipsTokens toks) endTok
                             )
                             (parser {
                                 let! e = pInner
