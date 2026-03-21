@@ -1,5 +1,6 @@
 module XParsec.FSharp.Lexer.Tests.ParserTests
 
+open System
 open System.IO
 
 open Expecto
@@ -147,4 +148,69 @@ let tracingTests =
                             (XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
                     | Ok _ -> ()
             }
+        ]
+
+/// Tests that parsing every prefix of every golden file at token boundaries always returns Ok.
+/// This validates the error recovery: no truncation should cause a parse Error or exception.
+let testSlicedParsing (filePath: string) =
+    let input = File.ReadAllText filePath
+    let input = input.Replace("\r\n", "\n")
+
+    // Get token boundaries from the full lex
+    match XParsec.FSharp.Lexer.Lexing.lexString input with
+    | Error _ -> () // If lexing the full file fails, skip (lexer errors are out of scope)
+    | Ok lexed ->
+        // Collect unique character positions at token boundaries (StartIndex of each token)
+        let boundaries =
+            [|
+                yield 0 // empty input
+                for i in 0 .. lexed.Tokens.Length - 1 do
+                    let tok = lexed.Tokens.[i * 1<XParsec.FSharp.Lexer.token>]
+                    let startIdx = tok.StartIndex
+
+                    if startIdx > 0 && startIdx <= input.Length then
+                        yield startIdx
+            |]
+            |> Array.distinct
+            |> Array.sort
+
+        let mutable failures = ResizeArray<string>()
+
+        for boundary in boundaries do
+            let slice = input.[.. boundary - 1] // Take first `boundary` characters
+
+            match XParsec.FSharp.Lexer.Lexing.lexString slice with
+            | Error _ -> () // Skip lexer failures (incomplete strings, etc.)
+            | Ok slicedLexed ->
+                let reader = XParsec.FSharp.Parser.Reader.ofLexed slicedLexed slice Set.empty
+
+                try
+                    match XParsec.FSharp.Parser.FSharpAst.parse reader with
+                    | Error e ->
+                        failures.Add(
+                            $"  length={boundary}: Error - {XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e}"
+                        )
+                    | Ok _ -> ()
+                with ex ->
+                    failures.Add($"  length={boundary}: Exception - {ex.GetType().Name}: {ex.Message}")
+
+        if failures.Count > 0 then
+            let details = String.Join("\n", failures)
+
+            failtestf
+                "Sliced parsing failed for %d of %d boundaries in %s:\n%s"
+                failures.Count
+                boundaries.Length
+                (Path.GetFileName filePath)
+                details
+
+[<Tests>]
+let recoveryTests =
+    testList
+        "RecoveryTests"
+        [
+            for path in testData.Value do
+                let fileName = Path.GetFileName path
+                let name = $"Sliced recovery {fileName}"
+                test name { testSlicedParsing path }
         ]

@@ -657,6 +657,25 @@ module Parsing =
             | Token.EOF -> true
             | _ -> false
 
+        let afterModuleElem (tok: SyntaxToken) =
+            match tok.Token with
+            // Tokens that can start a new module element
+            | Token.KWLet
+            | Token.KWDo
+            | Token.KWOpen
+            | Token.KWType
+            | Token.KWModule
+            | Token.KWNamespace
+            | Token.KWException
+            | Token.KWHash
+            | Token.KWLAttrBracket // [< starts attributes which precede module elements
+            // Closing/structural tokens that should not be consumed
+            | Token.KWEnd
+            | Token.KWWith
+            | Token.KWIn
+            | Token.EOF -> true
+            | _ -> false
+
     /// On failure: calls makeCode with the ParseError to produce a DiagnosticCode,
     /// emits the diagnostic, skips tokens until `stopping` returns true,
     /// then succeeds with `placeholder skippedTokens`.
