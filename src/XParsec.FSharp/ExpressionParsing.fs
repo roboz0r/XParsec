@@ -1126,12 +1126,13 @@ module Expr =
                         | Error err ->
                             reader.State <-
                                 ParseState.addDiagnostic
-                                    (DiagnosticCode.MissingExpression err)
+                                    DiagnosticCode.MissingExpression
                                     DiagnosticSeverity.Error
                                     (match peekNextNonTriviaToken reader with
                                      | Ok tok -> tok.PositionedToken
                                      | Error _ -> PositionedToken.Create(Token.EOF, 0))
                                     None
+                                    (Some err)
                                     reader.State
 
                             Expr.Missing

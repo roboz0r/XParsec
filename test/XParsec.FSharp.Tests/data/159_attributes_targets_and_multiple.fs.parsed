@@ -68,4 +68,7 @@ TypeDefn.Abbrev:
       (skipped)  ')'               KWRParen            tok=  88  pos= 244
 ---
 Diagnostics:
-  [error] MissingType at 218
+  [error] MissingType at 218 (Ln 14, Col 5)
+        static member DoWork() = (
+        ^ At index 218 (Ln 14, Col 5)
+    Atomic Type

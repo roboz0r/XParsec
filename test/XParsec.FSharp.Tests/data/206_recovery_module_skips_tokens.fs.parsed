@@ -11,4 +11,7 @@ FunctionOrValue:
       Const          '1'               NumInt32            tok=  17  pos=  30
 ---
 Diagnostics:
-  [error] MissingModuleElem at 16
+  [error] MissingModuleElem at 16 (Ln 3, Col 1)
+    let x =
+    ^ At index 22 (Ln 4, Col 1)
+    Unexpected token(s) in module

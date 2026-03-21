@@ -10,5 +10,11 @@ Body:
   Missing
 ---
 Diagnostics:
-  [error] Other(Expected '->' after fun parameters) at 8
-  [error] MissingExpression at 8
+  [error] Other(Expected '->' after fun parameters) at 8 (Ln 2, Col 1)
+  [error] MissingExpression at 8 (Ln 2, Col 1)
+    
+    ^ At index 8 (Ln 2, Col 1)
+    Multiple errors:
+    ├───Operator parsing failed
+    ├───Not a prefix operator
+    └───Expected constant literal

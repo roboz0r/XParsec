@@ -13,4 +13,15 @@ Match:
       Const   '2'               NumInt32            tok=  10  pos=  18
 ---
 Diagnostics:
-  [error] MissingPattern at 15
+  [error] MissingPattern at 15 (Ln 2, Col 3)
+    | ->
+      ^ At index 15 (Ln 2, Col 3)
+    Multiple errors:
+    ├───Operator parsing failed
+    └───Expected constant literal
+    
+    ---
+    
+    | ->
+        ^ At index 17 (Ln 2, Col 5)
+    Not a prefix pattern operator

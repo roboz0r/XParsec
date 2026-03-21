@@ -10,4 +10,4 @@ FunctionOrValue:
       Const          '1'               NumInt32            tok=  13  pos=  29
 ---
 Diagnostics:
-  [error] Other(Expected identifier after 'open') at 21
+  [error] Other(Expected identifier after 'open') at 21 (Ln 4, Col 1)

@@ -117,7 +117,10 @@ module Parsing =
         | Error e ->
             // Invalid #if expression: record a diagnostic and treat the whole block as inactive
             let msg = $"Invalid #if expression: {e}"
-            reader.State <- addDiagnostic (DiagnosticCode.Other msg) DiagnosticSeverity.Error ifToken None reader.State
+
+            reader.State <-
+                addDiagnostic (DiagnosticCode.Other msg) DiagnosticSeverity.Error ifToken None None reader.State
+
             skipInactiveBranch reader |> ignore
             nextNonTriviaToken reader
 
@@ -566,7 +569,7 @@ module Parsing =
                     | ValueNone -> DiagnosticCode.Other $"Expected '{t}'"
 
                 reader.State <-
-                    ParseState.addDiagnostic code DiagnosticSeverity.Error token.PositionedToken None reader.State
+                    ParseState.addDiagnostic code DiagnosticSeverity.Error token.PositionedToken None None reader.State
 
                 let pt =
                     PositionedToken.Create(
@@ -604,6 +607,7 @@ module Parsing =
                             DiagnosticSeverity.Error
                             token.PositionedToken
                             None
+                            None
                             reader.State
 
                     let pt =
@@ -639,6 +643,7 @@ module Parsing =
                             (DiagnosticCode.Other diagMsg)
                             DiagnosticSeverity.Error
                             token.PositionedToken
+                            None
                             None
                             reader.State
 
@@ -751,13 +756,13 @@ module Parsing =
             | Token.EOF -> true
             | _ -> false
 
-    /// On failure: calls makeCode with the ParseError to produce a DiagnosticCode,
-    /// emits the diagnostic, skips tokens until `stopping` returns true,
+    /// On failure: emits a diagnostic with the given code and the underlying ParseError,
+    /// skips tokens until `stopping` returns true,
     /// then succeeds with `placeholder skippedTokens`.
     let recoverWith
         (stopping: SyntaxToken -> bool)
         (severity: DiagnosticSeverity)
-        (makeCode: ParseError<PositionedToken, ParseState> -> DiagnosticCode)
+        (code: DiagnosticCode)
         (placeholder: SyntaxToken list -> 'Parsed)
         (p: Parser<'Parsed, PositionedToken, ParseState, _, _>)
         : Parser<'Parsed, PositionedToken, ParseState, _, _> =
@@ -785,9 +790,8 @@ module Parsing =
                                 | Ok t -> skipped.Add(t)
                                 | Error _ -> keepGoing <- false
 
-                    let code = makeCode err
-
-                    reader.State <- ParseState.addDiagnostic code severity startTok.PositionedToken None reader.State
+                    reader.State <-
+                        ParseState.addDiagnostic code severity startTok.PositionedToken None (Some err) reader.State
 
                     Ok(placeholder (List.ofSeq skipped))
 
@@ -999,7 +1003,7 @@ module Parsing =
         (expectedRightTok: Token)
         (parenKindConstructor: SyntaxToken -> ParenKind<SyntaxToken>)
         (offsideCtx: OffsideContext)
-        (diagCode: _ -> DiagnosticCode)
+        (diagCode: DiagnosticCode)
         (pInner: Parser<_, _, _, _, _>)
         : Parser<_, PositionedToken, ParseState, _, _> =
 

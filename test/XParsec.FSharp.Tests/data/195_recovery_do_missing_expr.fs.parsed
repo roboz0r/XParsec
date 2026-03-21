@@ -5,4 +5,10 @@ FunctionOrValue:
     Missing
 ---
 Diagnostics:
-  [error] MissingExpression at 19
+  [error] MissingExpression at 19 (Ln 4, Col 1)
+    
+    ^ At index 19 (Ln 4, Col 1)
+    Multiple errors:
+    ├───Operator parsing failed
+    ├───Not a prefix operator
+    └───Expected constant literal

@@ -9,4 +9,4 @@ Body:
 DoneToken     <virt>            KWDone              tok=virt  pos=  18
 ---
 Diagnostics:
-  [error] Other(Expected 'do' after while condition) at 15
+  [error] Other(Expected 'do' after while condition) at 15 (Ln 2, Col 5)

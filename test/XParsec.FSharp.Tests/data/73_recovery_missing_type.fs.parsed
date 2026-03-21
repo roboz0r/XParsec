@@ -10,4 +10,7 @@ Body:
   Ident            'x'               Identifier          tok=  12  pos=  15
 ---
 Diagnostics:
-  [error] MissingType at 8
+  [error] MissingType at 8 (Ln 1, Col 9)
+    let x : = 1 in
+            ^ At index 8 (Ln 1, Col 9)
+    Atomic Type

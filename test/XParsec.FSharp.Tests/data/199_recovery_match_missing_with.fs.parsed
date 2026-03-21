@@ -13,4 +13,4 @@ Match:
       Ident            'x'               Identifier          tok=  10  pos=  15
 ---
 Diagnostics:
-  [error] Other(Expected 'with' after match expression) at 8
+  [error] Other(Expected 'with' after match expression) at 8 (Ln 2, Col 1)

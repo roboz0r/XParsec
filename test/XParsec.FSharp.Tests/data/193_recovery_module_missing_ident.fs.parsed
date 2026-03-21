@@ -7,4 +7,4 @@ FunctionOrValue:
       Const          '1'               NumInt32            tok=   9  pos=  16
 ---
 Diagnostics:
-  [error] Other(Expected module identifier) at 8
+  [error] Other(Expected module identifier) at 8 (Ln 3, Col 1)
