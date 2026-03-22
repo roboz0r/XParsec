@@ -96,10 +96,14 @@ module Binding =
             let! access = opt pAccessModifier
             let! identOrOp = IdentOrOp.parse
             let! typarDefns = opt TyparDefns.parse
-            // Parse one or more argument patterns
-            // Note: Must be atomic patterns to avoid consuming tokens that belong to the parent.
-            // e.g. `let f x : int = 1` should parse `x` as an argument pattern, not `x : int` which would consume the return type annotation.
-            let! argumentPats = Pat.parseAtomicMany1
+            // Parse argument patterns (atomic to avoid consuming return type annotations).
+            // Operator definitions (e.g., `let (|PointFree|) = expr`) allow zero arguments.
+            // Named function definitions require at least one argument.
+            let! argumentPats =
+                match identOrOp with
+                | IdentOrOp.ParenOp _
+                | IdentOrOp.StarOp _ -> many Pat.parseAtomic
+                | IdentOrOp.Ident _ -> Pat.parseAtomicMany1
             let! returnType = opt ReturnType.parse
             let! equals = pEquals
             let! expr = pBody

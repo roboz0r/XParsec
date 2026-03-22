@@ -1,0 +1,69 @@
+module                 'module'          KWModule            tok=   0  pos=   0
+                       'Test'            Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                  'let'             KWLet               tok=   5  pos=  13
+    Pat.Op:
+      ParenOp:
+                       '('               KWLParen            tok=   7  pos=  17
+        ActivePatternOp:
+          ActivePatternOp:
+                       '|'               OpBar               tok=   8  pos=  18
+                       'Last'            Identifier          tok=   9  pos=  19
+                       '|'               OpBar               tok=  10  pos=  23
+                       ')'               KWRParen            tok=  11  pos=  24
+    Pats:
+      Pat.NamedSimple  'xs'              Identifier          tok=  13  pos=  26
+    =                  '='               OpEquality          tok=  15  pos=  29
+      App:
+        Func:
+          LongIdentOrOp:
+            LongIdent:
+                       'List'            Identifier          tok=  17  pos=  31
+                       'last'            Identifier          tok=  19  pos=  36
+        Args:
+          Ident        'xs'              Identifier          tok=  21  pos=  41
+FunctionOrValue:
+  let                  'let'             KWLet               tok=  23  pos=  44
+    Pat.Op:
+      ParenOp:
+                       '('               KWLParen            tok=  25  pos=  48
+        ActivePatternOp:
+          ActivePatternOp:
+                       '|'               OpBar               tok=  26  pos=  49
+                       'Even'            Identifier          tok=  27  pos=  50
+                       'Odd'             Identifier          tok=  29  pos=  55
+                       '|'               OpBar               tok=  30  pos=  58
+                       ')'               KWRParen            tok=  31  pos=  59
+    Pats:
+      Pat.NamedSimple  'n'               Identifier          tok=  33  pos=  61
+    =                  '='               OpEquality          tok=  35  pos=  63
+      IfThenElse:
+        IfToken        'if'              KWIf                tok=  37  pos=  65
+        Condition:
+          InfixApp     '='               OpEquality          tok=  45  pos=  74
+            InfixApp   '%'               op_Modulus          tok=  41  pos=  70
+              Ident    'n'               Identifier          tok=  39  pos=  68
+              Const    '2'               NumInt32            tok=  43  pos=  72
+            Const      '0'               NumInt32            tok=  47  pos=  76
+        ThenToken      'then'            KWThen              tok=  49  pos=  78
+        ThenExpr:
+          Ident        'Even'            Identifier          tok=  51  pos=  83
+        ElseToken      'else'            KWElse              tok=  53  pos=  88
+        ElseExpr:
+          Ident        'Odd'             Identifier          tok=  55  pos=  93
+FunctionOrValue:
+  let                  'let'             KWLet               tok=  57  pos=  97
+    Pat.Op:
+      ParenOp:
+                       '('               KWLParen            tok=  59  pos= 101
+        ActivePatternOp:
+          ActivePatternOp:
+                       '|'               OpBar               tok=  60  pos= 102
+                       'PointFree'       Identifier          tok=  61  pos= 103
+                       '|'               OpBar               tok=  62  pos= 112
+                       ')'               KWRParen            tok=  63  pos= 113
+    =                  '='               OpEquality          tok=  65  pos= 115
+      LongIdentOrOp:
+        LongIdent:
+                       'List'            Identifier          tok=  67  pos= 117
+                       'last'            Identifier          tok=  69  pos= 122
