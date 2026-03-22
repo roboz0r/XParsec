@@ -570,6 +570,13 @@ and walkType (visitor: AstVisitor<'T>) (ty: Type<'T>) : unit =
         visitor.VisitToken "" hash
         walkType visitor typ
         visitor.ExitSection "AnonymousSubtype"
+    | Type.Null nullToken -> visitor.VisitToken "null" nullToken
+    | Type.UnionType(left, bar, right) ->
+        visitor.EnterSection "UnionType"
+        walkType visitor left
+        visitor.VisitToken "|" bar
+        walkType visitor right
+        visitor.ExitSection "UnionType"
     | Type.Missing -> visitor.WriteLine "Missing"
     | Type.SkipsTokens(skippedTokens) ->
         visitor.EnterSection "SkipsTokens"
