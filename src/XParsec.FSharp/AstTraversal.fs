@@ -351,6 +351,11 @@ and walkPat (visitor: AstVisitor<'T>) (pat: Pat<'T>) : unit =
         visitor.VisitToken "" structToken
         walkPat visitor innerPat
         visitor.ExitSection "Pat.Struct"
+    | Pat.Optional(questionMark, innerPat) ->
+        visitor.EnterSection "Pat.Optional"
+        visitor.VisitToken "?" questionMark
+        walkPat visitor innerPat
+        visitor.ExitSection "Pat.Optional"
     | Pat.Op identOrOp ->
         visitor.EnterSection "Pat.Op"
         walkIdentOrOp visitor identOrOp

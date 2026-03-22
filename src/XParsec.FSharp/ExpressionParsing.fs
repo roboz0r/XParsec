@@ -104,6 +104,7 @@ module Binding =
                 | IdentOrOp.ParenOp _
                 | IdentOrOp.StarOp _ -> many Pat.parseAtomic
                 | IdentOrOp.Ident _ -> Pat.parseAtomicMany1
+
             let! returnType = opt ReturnType.parse
             let! equals = pEquals
             let! expr = pBody
