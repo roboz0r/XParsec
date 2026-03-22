@@ -71,6 +71,7 @@ type Type<'T> =
     | DottedType of baseType: Type<'T> * dot: 'T * longIdent: LongIdent<'T>
     | ArrayType of baseType: Type<'T> * lBracket: 'T * commas: 'T list * rBracket: 'T
     | ConstrainedType of typ: Type<'T> * constraints: TyparDefns<'T>
+    | WhenConstrainedType of typ: Type<'T> * constraints: TyparConstraints<'T>
     | SubtypeConstraint of typar: Typar<'T> * colonGreaterThan: 'T * typ: Type<'T>
     | AnonymousSubtype of hash: 'T * typ: Type<'T>
     | Null of nullToken: 'T
@@ -109,6 +110,7 @@ and [<RequireQualifiedAccess>] Constraint<'T> =
         rParen: 'T
     | Struct of typar: Typar<'T> * colon: 'T * structToken: 'T
     | ReferenceType of typar: Typar<'T> * colon: 'T * notToken: 'T * structToken: 'T
+    | NotNull of typar: Typar<'T> * colon: 'T * notToken: 'T * nullToken: 'T
     | Enum of typar: Typar<'T> * colon: 'T * enumToken: 'T * lAngle: 'T * typ: Type<'T> * rAngle: 'T
     | Unmanaged of typar: Typar<'T> * colon: 'T * unmanagedToken: 'T
     | Delegate of

@@ -143,8 +143,12 @@ module Constraint =
                 | _ when tokenStringIs "comparison" token state -> return Constraint.Comparison(typar, colon, token)
                 | _ when tokenStringIs "unmanaged" token state -> return Constraint.Unmanaged(typar, colon, token)
                 | _ when tokenStringIs "not" token state ->
-                    let! structTok = pStruct
-                    return Constraint.ReferenceType(typar, colon, token, structTok)
+                    let! next = nextNonTriviaToken
+
+                    match next.Token with
+                    | Token.KWStruct -> return Constraint.ReferenceType(typar, colon, token, next)
+                    | Token.KWNull -> return Constraint.NotNull(typar, colon, token, next)
+                    | _ -> return! fail (Message "Expected 'struct' or 'null' after 'not'")
                 | _ when tokenStringIs "enum" token state ->
                     let! lAngle = pLessThan
                     let! t = refType.Parser
@@ -389,8 +393,22 @@ module Type =
 
         pFunc ()
 
+    let private pWhenConstraints =
+        parser {
+            let! whenTok = pWhen
+            let! constrs, _ = sepBy1 Constraint.parse pAnd
+            return TyparConstraints.TyparConstraints(whenTok, List.ofSeq constrs)
+        }
+
     // Entry point for simple types
-    let parse = pFunctionType
+    let parse =
+        parser {
+            let! typ = pFunctionType
+
+            match! opt pWhenConstraints with
+            | ValueSome constraints -> return Type.WhenConstrainedType(typ, constraints)
+            | ValueNone -> return typ
+        }
 
     /// Parses a single type without consuming `*` as a tuple separator.
     /// Use in contexts where `*` is an explicit separator (e.g. union case fields).
