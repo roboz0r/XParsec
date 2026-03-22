@@ -150,7 +150,6 @@ module ParseError =
     let shouldFailInPlace = Message "The parser failed but consumed input."
     let unexpectedEnd = Message "Unexpected end of input"
     let expectedEnd = Message "Expected end of input"
-    let refParserInit = Message "RefParser was not initialized."
     let expectedAtLeastOne = Message "Expected at least one item."
     let zero = Message ""
     let allChoicesFailed = Message "All choices failed."

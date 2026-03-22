@@ -417,7 +417,7 @@ type RefParser<'Parsed, 'T, 'State, 'Input, 'InputSlice
     when 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>>(pInner) =
     let mutable p: Parser<'Parsed, 'T, 'State, 'Input, 'InputSlice> = pInner
 
-    new() = RefParser(Parsers.fail ParseError.refParserInit)
+    new() = RefParser(fun _ -> invalidOp "RefParser was not initialized.")
 
     member _.Set(parser) = p <- parser
     member _.Parser(reader: Reader<'T, 'State, 'Input, 'InputSlice>) = p reader
