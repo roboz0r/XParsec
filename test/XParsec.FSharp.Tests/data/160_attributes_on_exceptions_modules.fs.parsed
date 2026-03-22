@@ -41,22 +41,22 @@ Module:
             =                '='               OpEquality          tok=  55  pos= 163
               Const          '1'               NumInt32            tok=  57  pos= 165
       end                    <virt>            KWEnd               tok=virt  pos= 172
-  end                        <virt>            KWEnd               tok=virt  pos= 172
-Module:
-  [<                         '[<'              KWLAttrBracket      tok=  61  pos= 172
-  NamedType:
-    LongIdent:
+    Module:
+      [<                     '[<'              KWLAttrBracket      tok=  61  pos= 172
+      NamedType:
+        LongIdent:
                              'RequireQua...'   Identifier          tok=  62  pos= 174
-  >]                         '>]'              KWRAttrBracket      tok=  63  pos= 196
-  module                     'module'          KWModule            tok=  66  pos= 203
-  ident                      'Qualified'       Identifier          tok=  68  pos= 210
-  =                          '='               OpEquality          tok=  70  pos= 220
-  begin                      <virt>            KWBegin             tok=virt  pos= 230
-    FunctionOrValue:
-      let                    'let'             KWLet               tok=  73  pos= 230
-        Pat.NamedSimple      'y'               Identifier          tok=  75  pos= 234
-        =                    '='               OpEquality          tok=  77  pos= 236
-          Const              '2'               NumInt32            tok=  79  pos= 238
+      >]                     '>]'              KWRAttrBracket      tok=  63  pos= 196
+      module                 'module'          KWModule            tok=  66  pos= 203
+      ident                  'Qualified'       Identifier          tok=  68  pos= 210
+      =                      '='               OpEquality          tok=  70  pos= 220
+      begin                  <virt>            KWBegin             tok=virt  pos= 230
+        FunctionOrValue:
+          let                'let'             KWLet               tok=  73  pos= 230
+            Pat.NamedSimple  'y'               Identifier          tok=  75  pos= 234
+            =                '='               OpEquality          tok=  77  pos= 236
+              Const          '2'               NumInt32            tok=  79  pos= 238
+      end                    <virt>            KWEnd               tok=virt  pos= 241
   end                        <virt>            KWEnd               tok=virt  pos= 241
 ExceptionDefn.Full:
   [<                         '[<'              KWLAttrBracket      tok=  82  pos= 241

@@ -1007,8 +1007,9 @@ module Expr =
 
             parser {
                 let! (whileTok, indent) = assertKeywordToken Token.KWWhile
-                // Condition at while_col + 1
-                let! cond = recoverExprMissing (withContextAt OffsideContext.While (indent + 1) whileTok.PositionedToken refExpr.Parser)
+                // Condition at while_col + 1 (uses refExprNoSeq to prevent `do` from being consumed
+                // as a keyword expression via sequential composition)
+                let! cond = recoverExprMissing (withContextAt OffsideContext.While (indent + 1) whileTok.PositionedToken refExprNoSeq.Parser)
                 // do keyword also at while_col + 1 (NOT permitted undentation)
                 let! doTok = recoverWithVirtualToken Token.KWDo "Expected 'do' after while condition" (withContextAt OffsideContext.While (indent + 1) whileTok.PositionedToken pDo)
                 // Body at while_col
@@ -1290,6 +1291,13 @@ module Expr =
                     let power = BindingPower.fromLevel (int opInfo.Precedence)
                     // A[0..1,*]
                     return PrefixMapped(token, preturn tok, peekIsSliceAll, completeSliceAll)
+                // & and && are address-of operators when used as prefix.
+                // Must be checked before the generic CanBePrefix handler to use
+                // PrecedenceLevel.Prefix instead of their infix precedence (LogicalAnd).
+                | ValueSome opInfo when opInfo.Token = Token.OpAmp || opInfo.Token = Token.OpAmpAmp ->
+                    let! tok = consumePeeked token
+                    let power = BindingPower.fromLevel (int PrecedenceLevel.Prefix)
+                    return Prefix(tok, preturn tok, power, completePrefix)
                 | ValueSome opInfo when opInfo.CanBePrefix ->
                     let! tok = consumePeeked token
                     let power = BindingPower.fromLevel (int opInfo.Precedence)
@@ -1785,6 +1793,13 @@ module Expr =
     do
         refExpr.Set parse
         refExprSeqBlock.Set parseSeqBlock
+
+        // Single expression without sequential composition — used for while conditions
+        // and other contexts where the next keyword (e.g. `do`) must not be consumed as
+        // a keyword expression via newline-triggered virtual semicolons.
+        refExprNoSeq.Set(
+            Operator.parserAt (int PrecedenceLevel.Semicolon + 1 |> BindingPower.fromLevel) parseAtomic operators
+        )
 
         // Semicolon has special handling in F# records, and object expressions
         // where it is used as a separator between elements rather than an operator, and it

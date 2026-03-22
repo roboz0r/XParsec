@@ -94,10 +94,22 @@ module ModuleFunctionOrValueDefn =
 [<RequireQualifiedAccess>]
 module ModuleDefn =
 
-    let parseBody (elementParser: Parser<ModuleElems<SyntaxToken>, _, _, _, _>) =
+    let parseBody
+        (modTok: SyntaxToken)
+        (elementParser: Parser<ModuleElems<SyntaxToken>, _, _, _, _>)
+        : Parser<_, _, _, _, _>
+        =
         parser {
+            let! state = getUserState
+
+            let indent =
+                match modTok.Index with
+                | TokenIndex.Regular iT -> ParseState.getIndent state iT
+                | TokenIndex.Virtual -> 0
+
             let! beginTok = nextNonTriviaTokenVirtualIfNot Token.KWBegin
-            let! elems = withContext OffsideContext.Module (opt elementParser)
+            // Module body at module_col + 1, anchored to the keyword's column
+            let! elems = withContextAt OffsideContext.Module (indent + 1) modTok.PositionedToken (opt elementParser)
             let! endTok = nextNonTriviaTokenVirtualIfNot Token.KWEnd
             return ModuleDefnBody(beginTok, elems, endTok)
         }
@@ -117,7 +129,7 @@ module ModuleDefn =
 
             let! eq = recoverWithVirtualToken Token.OpEquality "Expected '=' after module identifier" pEquals
 
-            let! body = parseBody elementParser
+            let! body = parseBody modTok elementParser
             return ModuleDefn(attrs, modTok, access, isRec, ident, eq, body)
         }
 
