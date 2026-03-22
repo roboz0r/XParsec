@@ -1,0 +1,15 @@
+module               'module'          KWModule            tok=  21  pos=  56
+                     'Test'            Identifier          tok=  23  pos=  63
+FunctionOrValue:
+  let                'let'             KWLet               tok=  26  pos=  69
+    Pat.NamedSimple  'x'               Identifier          tok=  28  pos=  73
+    =                '='               OpEquality          tok=  30  pos=  75
+      Const          '1'               NumInt32            tok=  32  pos=  77
+---
+WarnDirectives:
+  #nowarn 40 (Ln 0)
+  #nowarn 9 (Ln 1)
+  #nowarn 6 (Ln 2)
+  #nowarn 9 (Ln 2)
+  #nowarn 40 (Ln 2)
+  #warnon 40 (Ln 4)

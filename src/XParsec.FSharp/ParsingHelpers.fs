@@ -124,6 +124,75 @@ module Parsing =
             skipInactiveBranch reader |> ignore
             nextNonTriviaToken reader
 
+    let processWarnDirective
+        (nextNonTriviaToken: Parser<_, _, _, _, _>)
+        (isSuppress: bool)
+        (_directiveToken: PositionedToken)
+        (reader: Reader<PositionedToken, ParseState, _, _>)
+        =
+        let state = reader.State
+        let lexed = state.Lexed
+        let currentLine = findLineNumber state (tokenIndex reader)
+        let nextLine = currentLine + 1<_>
+
+        let nextLineTokenIndex =
+            if nextLine < lexed.LineStarts.LengthM then
+                lexed.LineStarts[nextLine]
+            else
+                lexed.Tokens.LengthM - 1<_>
+
+        // Skip the directive token itself
+        reader.Skip()
+
+        let mutable warnDirectives = state.WarnDirectives
+
+        // Scan remaining tokens on this line for warning codes
+        while reader.Index < int nextLineTokenIndex do
+            match reader.Peek() with
+            | ValueNone -> reader.Index <- int nextLineTokenIndex
+            | ValueSome token when isTriviaToken state token -> reader.Skip()
+            | ValueSome token ->
+                let tIdx = tokenIndex reader
+                let text = lexed.GetTokenString(tIdx, state.Input)
+                reader.Skip()
+
+                match token.Token with
+                | Token.NumInt32 ->
+                    match System.Int32.TryParse(text) with
+                    | true, n ->
+                        warnDirectives <-
+                            {
+                                Line = currentLine
+                                WarningNumber = n
+                                Suppress = isSuppress
+                            }
+                            :: warnDirectives
+                    | _ -> ()
+                | Token.StringLiteral when text.Length >= 2 ->
+                    let inner = text.[1 .. text.Length - 2]
+
+                    match System.Int32.TryParse(inner) with
+                    | true, n ->
+                        warnDirectives <-
+                            {
+                                Line = currentLine
+                                WarningNumber = n
+                                Suppress = isSuppress
+                            }
+                            :: warnDirectives
+                    | _ -> ()
+                | _ -> ()
+
+        // Ensure we're past the directive line
+        reader.Index <- int nextLineTokenIndex
+
+        reader.State <-
+            { reader.State with
+                WarnDirectives = warnDirectives
+            }
+
+        nextNonTriviaToken reader
+
     /// Returns the text length of the token at the given index in the lexed token array.
     let private getTokenLength (state: ParseState) (index: int<token>) =
         let tokens = state.Lexed.Tokens
@@ -386,6 +455,10 @@ module Parsing =
             // End of a conditional block whose then-branch was active (no #else encountered).
             reader.Skip() // consume #endif
             nextNonTriviaTokenImpl isPeek reader
+        | ValueSome token when token.Token = Token.NoWarnDirective ->
+            processWarnDirective (nextNonTriviaTokenImpl isPeek) true token reader
+        | ValueSome token when token.Token = Token.WarnOnDirective ->
+            processWarnDirective (nextNonTriviaTokenImpl isPeek) false token reader
         | ValueSome token when isTriviaToken reader.State token ->
             reader.Skip()
             nextNonTriviaTokenImpl isPeek reader
