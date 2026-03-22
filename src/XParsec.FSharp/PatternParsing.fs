@@ -289,12 +289,20 @@ module Pat =
             | _ -> return Pat.Struct(structTok, pat)
         }
 
+    let private pOptionalPat =
+        parser {
+            let! qmark = pQuestionMark
+            let! pat = pNamed
+            return Pat.Optional(qmark, pat)
+        }
+
     let parseAtomic =
         dispatchNextNonTriviaTokenFallback
             [
                 Token.Wildcard, pWildcardPat
                 Token.KWNull, pNullPat
                 Token.OpTypeTest, pTypeTestPat
+                Token.OpDynamic, pOptionalPat
                 Token.Identifier, pNamed
                 Token.KWLParen, pParenPat
                 Token.KWLBracket, pListPat

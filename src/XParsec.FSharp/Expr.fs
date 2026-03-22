@@ -354,6 +354,7 @@ and [<RequireQualifiedAccess>] Pat<'T> =
     | Null of nullToken: 'T
     | Attributed of attributes: Attributes<'T> * pat: Pat<'T>
     | Struct of structToken: 'T * pat: Pat<'T> // For error recovery
+    | Optional of questionMark: 'T * pat: Pat<'T>
     | Op of IdentOrOp<'T> // For operator/active-pattern names in function binding heads
     | Missing
     | SkipsTokens of skippedTokens: 'T list
