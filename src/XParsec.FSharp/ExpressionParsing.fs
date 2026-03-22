@@ -176,6 +176,10 @@ module FieldInitializer =
 
 [<RequireQualifiedAccess>]
 module ObjectConstruction =
+    // Dummy function to ensure the static constructor runs and initializes refObjectConstruction
+    let mutable private x = 0
+    let init () = x <- x + 1
+
     let parse: Parser<ObjectConstruction<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
             let! typ = Type.parse

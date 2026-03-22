@@ -456,6 +456,11 @@ module Parsing =
     /// Allows parser to avoid re-skipping trivia tokens when it needs to look ahead at the next token to decide what to parse.
     let peekNextNonTriviaToken (reader: Reader<PositionedToken, ParseState, _, _>) = nextNonTriviaTokenImpl true reader
 
+    /// Emits a trace message. Use with `do!` inside a `parser { }` CE for debugging.
+    let trace (msg: string) (reader: Reader<PositionedToken, ParseState, _, _>) =
+        reader.State.Trace.Invoke(TraceEvent.Message msg)
+        preturn () reader
+
     /// Consumes the given token, which must have been previously returned by `peekNextNotTriviaToken`, and returns it.
     let consumePeeked (token: SyntaxToken) (reader: Reader<PositionedToken, ParseState, _, _>) =
         match token.Index with
@@ -463,6 +468,8 @@ module Parsing =
         | TokenIndex.Regular tokenIdx ->
             assert (reader.Index = tokenIdx * 1< / token>) // Ensure the reader is still at the expected position
             reader.Index <- (tokenIdx + 1<token>) * 1< / token>
+            let col = ParseState.getIndent reader.State tokenIdx
+            reader.State.Trace.Invoke(TraceEvent.TokenConsumed(token.PositionedToken, int tokenIdx, col))
             preturn token reader
 
     let rec nextNonTriviaTokenVirtualIfNot t (reader: Reader<PositionedToken, ParseState, _, _>) =
