@@ -1,0 +1,123 @@
+module                   'module'          KWModule            tok=   0  pos=   0
+                         'DelimiterM...'   Identifier          tok=   2  pos=   7
+Module:
+  module                 'module'          KWModule            tok=  21  pos= 435
+  ident                  'ParenTests'      Identifier          tok=  23  pos= 442
+  =                      '='               OpEquality          tok=  25  pos= 453
+  begin                  <virt>            KWBegin             tok=virt  pos= 500
+    FunctionOrValue:
+      let                'let'             KWLet               tok=  32  pos= 500
+        Pat.NamedSimple  'parenConte...'   Identifier          tok=  34  pos= 504
+        =                '='               OpEquality          tok=  36  pos= 517
+          ParenBlock     '('               KWLParen            tok=  39  pos= 527
+            Const        '1'               NumInt32            tok=  42  pos= 534
+                         ')'               KWRParen            tok=  45  pos= 544
+    FunctionOrValue:
+      let                'let'             KWLet               tok=  52  pos= 593
+        Pat.NamedSimple  'parenClose'      Identifier          tok=  54  pos= 597
+        =                '='               OpEquality          tok=  56  pos= 608
+          ParenBlock     '('               KWLParen            tok=  59  pos= 618
+            Const        '1'               NumInt32            tok=  62  pos= 632
+                         ')'               KWRParen            tok=  65  pos= 637
+  end                    <virt>            KWEnd               tok=virt  pos= 668
+Module:
+  module                 'module'          KWModule            tok=  71  pos= 668
+  ident                  'BracketTes...'   Identifier          tok=  73  pos= 675
+  =                      '='               OpEquality          tok=  75  pos= 688
+  begin                  <virt>            KWBegin             tok=virt  pos= 735
+    FunctionOrValue:
+      let                'let'             KWLet               tok=  82  pos= 735
+        Pat.NamedSimple  'bracketCon...'   Identifier          tok=  84  pos= 739
+        =                '='               OpEquality          tok=  86  pos= 754
+          List           '['               KWLBracket          tok=  89  pos= 764
+            Const        '1'               NumInt32            tok=  92  pos= 771
+                         ']'               KWRBracket          tok=  95  pos= 781
+    FunctionOrValue:
+      let                'let'             KWLet               tok= 102  pos= 829
+        Pat.NamedSimple  'bracketClo...'   Identifier          tok= 104  pos= 833
+        =                '='               OpEquality          tok= 106  pos= 846
+          List           '['               KWLBracket          tok= 109  pos= 856
+            Const        '1'               NumInt32            tok= 112  pos= 870
+                         ']'               KWRBracket          tok= 115  pos= 875
+  end                    <virt>            KWEnd               tok=virt  pos= 897
+TypeDefn.Record:
+  TypeName               'R'               Identifier          tok= 123  pos= 902
+  =                      '='               OpEquality          tok= 125  pos= 904
+  {                      '{'               KWLBrace            tok= 127  pos= 906
+    Field:
+      ident              'X'               Identifier          tok= 129  pos= 908
+      :                  ':'               OpColon             tok= 130  pos= 909
+      NamedType:
+        LongIdent:
+                         'int'             Identifier          tok= 132  pos= 911
+  }                      '}'               KWRBrace            tok= 134  pos= 915
+Module:
+  module                 'module'          KWModule            tok= 137  pos= 918
+  ident                  'BraceTests'      Identifier          tok= 139  pos= 925
+  =                      '='               OpEquality          tok= 141  pos= 936
+  begin                  <virt>            KWBegin             tok=virt  pos= 983
+    FunctionOrValue:
+      let                'let'             KWLet               tok= 148  pos= 983
+        Pat.NamedSimple  'braceConte...'   Identifier          tok= 150  pos= 987
+        =                '='               OpEquality          tok= 152  pos=1000
+          Record         '{'               KWLBrace            tok= 155  pos=1010
+            Field:
+              LongIdent:
+                         'X'               Identifier          tok= 158  pos=1017
+              =          '='               OpEquality          tok= 160  pos=1019
+              Expr:
+                Const    '1'               NumInt32            tok= 162  pos=1021
+                         '}'               KWRBrace            tok= 165  pos=1031
+    FunctionOrValue:
+      let                'let'             KWLet               tok= 172  pos=1079
+        Pat.NamedSimple  'braceClose'      Identifier          tok= 174  pos=1083
+        =                '='               OpEquality          tok= 176  pos=1094
+          Record         '{'               KWLBrace            tok= 179  pos=1104
+            Field:
+              LongIdent:
+                         'X'               Identifier          tok= 182  pos=1118
+              =          '='               OpEquality          tok= 184  pos=1120
+              Expr:
+                Const    '1'               NumInt32            tok= 186  pos=1122
+                         '}'               KWRBrace            tok= 189  pos=1127
+  end                    <virt>            KWEnd               tok=virt  pos=1157
+Module:
+  module                 'module'          KWModule            tok= 195  pos=1157
+  ident                  'ArrayTests'      Identifier          tok= 197  pos=1164
+  =                      '='               OpEquality          tok= 199  pos=1175
+  begin                  <virt>            KWBegin             tok=virt  pos=1222
+    FunctionOrValue:
+      let                'let'             KWLet               tok= 206  pos=1222
+        Pat.NamedSimple  'arrayConte...'   Identifier          tok= 208  pos=1226
+        =                '='               OpEquality          tok= 210  pos=1239
+          Array          '[|'              KWLArrayBracket     tok= 213  pos=1249
+            Const        '1'               NumInt32            tok= 216  pos=1257
+                         '|]'              KWRArrayBracket     tok= 219  pos=1267
+    FunctionOrValue:
+      let                'let'             KWLet               tok= 226  pos=1317
+        Pat.NamedSimple  'arrayClose'      Identifier          tok= 228  pos=1321
+        =                '='               OpEquality          tok= 230  pos=1332
+          Array          '[|'              KWLArrayBracket     tok= 233  pos=1342
+            Const        '1'               NumInt32            tok= 236  pos=1357
+                         '|]'              KWRArrayBracket     tok= 239  pos=1362
+  end                    <virt>            KWEnd               tok=virt  pos=1388
+Module:
+  module                 'module'          KWModule            tok= 245  pos=1388
+  ident                  'BeginEndTe...'   Identifier          tok= 247  pos=1395
+  =                      '='               OpEquality          tok= 249  pos=1409
+  begin                  <virt>            KWBegin             tok=virt  pos=1456
+    FunctionOrValue:
+      let                'let'             KWLet               tok= 256  pos=1456
+        Pat.NamedSimple  'beginConte...'   Identifier          tok= 258  pos=1460
+        =                '='               OpEquality          tok= 260  pos=1473
+          BeginEndBlock  'begin'           KWBegin             tok= 263  pos=1483
+            Const        '1'               NumInt32            tok= 266  pos=1494
+                         'end'             KWEnd               tok= 269  pos=1504
+    FunctionOrValue:
+      let                'let'             KWLet               tok= 276  pos=1548
+        Pat.NamedSimple  'beginClose'      Identifier          tok= 278  pos=1552
+        =                '='               OpEquality          tok= 280  pos=1563
+          BeginEndBlock  'begin'           KWBegin             tok= 283  pos=1573
+            Const        '1'               NumInt32            tok= 286  pos=1591
+                         'end'             KWEnd               tok= 289  pos=1596
+  end                    <virt>            KWEnd               tok=virt  pos=1600

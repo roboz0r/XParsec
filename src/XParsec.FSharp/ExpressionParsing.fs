@@ -770,14 +770,11 @@ module Expr =
             | ExprAux.KeywordExpr e -> e op
             | _ -> failwith "Unexpected Aux type for keyword expression"
 
-        // Body parsers for PrefixMapped keyword forms.
-        // Each parser consumes the keyword itself (inside withContext for correct offside behaviour).
-        // They are called AFTER lhsParser has peeked (but NOT consumed) the keyword token.
+        // Keyword expression parsers. Each parser consumes its own keyword via assertKeywordToken
+        // and uses withContextAt to set the offside indent based on the keyword's column.
+        // lhsParser peeks but does NOT consume — the parser handles consumption.
 
-        let pIfBody =
-            let pCond = withContext OffsideContext.If refExpr.Parser
-            let pThenExpr = withContext OffsideContext.Then refExprSeqBlock.Parser
-
+        let pIfExpr =
             let recoverExprMissing p =
                 recoverWith
                     StoppingTokens.afterExpr
@@ -792,14 +789,17 @@ module Expr =
                     p
 
             parser {
-                // Committed after 'if' — recover each part with virtuals/Missing
-                let! cond = recoverExprMissing pCond
+                let! (ifTok, indent) = assertKeywordToken Token.KWIf
+                // Condition at if_col + 1
+                let! cond = recoverExprMissing (withContextAt OffsideContext.If (indent + 1) ifTok.PositionedToken refExpr.Parser)
+                // then permitted undentation at if_col via contextPermitsToken
                 let! thenTok = recoverWithVirtualToken Token.KWThen "Expected 'then' after condition" pThen
-                let! thenExpr = recoverExprMissing pThenExpr
+                // Body anchored to if_col + 1, NOT then_col + 1
+                let! thenExpr = recoverExprMissing (withContextAt OffsideContext.Then (indent + 1) ifTok.PositionedToken refExprSeqBlock.Parser)
                 let! elifs, elseBranch = ElifBranches.parse
 
                 return
-                    ExprAux.KeywordExpr(fun ifTok ->
+                    ExprAux.ForExpr(
                         Expr.IfThenElse(ifTok, cond, thenTok, thenExpr, List.ofSeq elifs, elseBranch)
                     )
             }
@@ -833,9 +833,7 @@ module Expr =
                         Rules(ValueNone, [ missingWithSkips ], [])
                 )
 
-        let pMatchBody =
-            let pMatchExpr = withContext OffsideContext.Match refExpr.Parser
-
+        let pMatchExpr =
             let recoverExprMissing p =
                 recoverWith
                     StoppingTokens.afterExpr
@@ -849,23 +847,57 @@ module Expr =
                     )
                     p
 
+            let parseMatchBody (matchTok: SyntaxToken) (indent: int) (reader: Reader<PositionedToken, ParseState, _, _>) : Result<ExprAux, _> =
+                let savedState = reader.State
+
+                // Push Match context at match_col — stays active for with/| undentation
+                let matchEntry =
+                    {
+                        Context = OffsideContext.Match
+                        Indent = indent
+                        Token = matchTok.PositionedToken
+                    }
+
+                reader.State <- ParseState.pushOffside matchEntry reader.State
+
+                // Match expression inner content at match_col + 1
+                match recoverExprMissing (withContextAt OffsideContext.SeqBlock (indent + 1) matchTok.PositionedToken refExpr.Parser) reader with
+                | Error e ->
+                    reader.State <- savedState
+                    Error e
+                | Ok e ->
+
+                // with permitted at match_col via contextPermitsToken (Match context still active)
+                match recoverWithVirtualToken Token.KWWith "Expected 'with' after match expression" pWith reader with
+                | Error e ->
+                    reader.State <- savedState
+                    Error e
+                | Ok w ->
+
+                // | permitted at match_col via contextPermitsToken (Match context still active)
+                match pMatchRules reader with
+                | Error e ->
+                    reader.State <- savedState
+                    Error e
+                | Ok rules ->
+
+                reader.State <- ParseState.popOffside matchEntry reader.State
+                Ok(ExprAux.ForExpr(Expr.Match(matchTok, e, w, rules)))
+
+            fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
+                match assertKeywordTokens Token.KWMatch Token.KWMatchBang reader with
+                | Error e -> Error e
+                | Ok(matchTok, indent) -> parseMatchBody matchTok indent reader
+
+        let pFunctionExpr =
             parser {
-                // Committed after 'match' — recover each part
-                let! e = recoverExprMissing pMatchExpr
-                let! w = recoverWithVirtualToken Token.KWWith "Expected 'with' after match expression" pWith
-                let! rules = pMatchRules
-                return ExprAux.KeywordExpr(fun m -> Expr.Match(m, e, w, rules))
+                let! (funcTok, indent) = assertKeywordToken Token.KWFunction
+                // Function context at function_col for | undentation
+                let! rules = withContextAt OffsideContext.Function indent funcTok.PositionedToken pMatchRules
+                return ExprAux.ForExpr(Expr.Function(funcTok, rules))
             }
 
-        let pFunctionBody =
-            withContext
-                OffsideContext.Function
-                (parser {
-                    let! rules = pMatchRules
-                    return ExprAux.KeywordExpr(fun funTok -> Expr.Function(funTok, rules))
-                })
-
-        let pFunBody =
+        let pFunExpr =
             let pBody = refExprSeqBlock.Parser
 
             let recoverExprMissing p =
@@ -881,47 +913,39 @@ module Expr =
                     )
                     p
 
-            withContext
-                OffsideContext.Fun
-                (parser {
-                    // Committed after 'fun' — recover arrow and body
-                    let! pats = many1 Pat.parse
+            parser {
+                let! (funTok, indent) = assertKeywordToken Token.KWFun
+                // params, arrow, and body all at fun_col + 1
+                let! result =
+                    withContextAt OffsideContext.Fun (indent + 1) funTok.PositionedToken (parser {
+                        let! pats = many1 Pat.parse
 
-                    let! arrow =
-                        recoverWithVirtualToken Token.OpArrowRight "Expected '->' after fun parameters" pArrowRight
+                        let! arrow =
+                            recoverWithVirtualToken Token.OpArrowRight "Expected '->' after fun parameters" pArrowRight
 
-                    let! expr = recoverExprMissing pBody
-                    return ExprAux.KeywordExpr(fun funTok -> Expr.Fun(funTok, List.ofSeq pats, arrow, expr))
-                })
+                        let! expr = recoverExprMissing pBody
+                        return Expr.Fun(funTok, List.ofSeq pats, arrow, expr)
+                    })
 
-        let pTryBody =
-            let pTryExpr = withContext OffsideContext.Try refExprSeqBlock.Parser
+                return ExprAux.ForExpr result
+            }
 
-            let pWith' =
+        let pTryExpr =
+            let pWith' tryTok tryExpr =
                 parser {
                     let! withTok = pWith
                     let! rules = pMatchRules
-
-                    return
-                        fun tryExpr -> ExprAux.KeywordExpr(fun tryTok -> Expr.TryWith(tryTok, tryExpr, withTok, rules))
+                    return Expr.TryWith(tryTok, tryExpr, withTok, rules)
                 }
 
-            let pFinally =
+            let pFinally' tryTok tryExpr =
                 let pBody = refExprSeqBlock.Parser
 
                 parser {
                     let! finTok = pFinally
                     let! finExpr = pBody
-
-                    return
-                        fun tryExpr ->
-                            ExprAux.KeywordExpr(fun tryTok -> Expr.TryFinally(tryTok, tryExpr, finTok, finExpr))
+                    return Expr.TryFinally(tryTok, tryExpr, finTok, finExpr)
                 }
-
-            let pWithOrFinally =
-                dispatchNextNonTriviaTokenL
-                    [ Token.KWWith, pWith'; Token.KWFinally, pFinally ]
-                    "Expected 'with' or 'finally'"
 
             let recoverExprMissing p =
                 recoverWith
@@ -937,10 +961,16 @@ module Expr =
                     p
 
             parser {
-                // Committed after 'try' — recover the body expression
-                let! tryExpr = recoverExprMissing pTryExpr
-                let! withOrFinally = pWithOrFinally
-                return withOrFinally tryExpr
+                let! (tryTok, indent) = assertKeywordToken Token.KWTry
+                // Try body at try_col — with/finally permitted undentation at try_col via contextPermitsToken
+                let! tryExpr = recoverExprMissing (withContextAt OffsideContext.Try indent tryTok.PositionedToken refExprSeqBlock.Parser)
+
+                let! result =
+                    dispatchNextNonTriviaTokenL
+                        [ Token.KWWith, pWith' tryTok tryExpr; Token.KWFinally, pFinally' tryTok tryExpr ]
+                        "Expected 'with' or 'finally'"
+
+                return ExprAux.ForExpr result
             }
 
         let pDoneVirt reader =
@@ -961,14 +991,7 @@ module Expr =
                     // So, we throw here
                     failwith "Unexpected end of input while looking for 'done' or virtual 'done'"
 
-        let pWhileBody =
-            // Note: Both the condition and the do must be indented past the 'while'
-            // but they may be at different indents from each other.
-            let pCond = withContext OffsideContext.While refExpr.Parser
-            let pDo' = withContext OffsideContext.While pDo
-
-            let pDoBody = withContext OffsideContext.Do refExprSeqBlock.Parser
-
+        let pWhileExpr =
             let recoverExprMissing p =
                 recoverWith
                     StoppingTokens.afterExpr
@@ -983,12 +1006,15 @@ module Expr =
                     p
 
             parser {
-                // Committed after 'while' — recover each part
-                let! cond = recoverExprMissing pCond
-                let! doTok = recoverWithVirtualToken Token.KWDo "Expected 'do' after while condition" pDo'
-                let! body = recoverExprMissing pDoBody
+                let! (whileTok, indent) = assertKeywordToken Token.KWWhile
+                // Condition at while_col + 1
+                let! cond = recoverExprMissing (withContextAt OffsideContext.While (indent + 1) whileTok.PositionedToken refExpr.Parser)
+                // do keyword also at while_col + 1 (NOT permitted undentation)
+                let! doTok = recoverWithVirtualToken Token.KWDo "Expected 'do' after while condition" (withContextAt OffsideContext.While (indent + 1) whileTok.PositionedToken pDo)
+                // Body at while_col
+                let! body = recoverExprMissing (withContextAt OffsideContext.Do indent whileTok.PositionedToken refExprSeqBlock.Parser)
                 let! doneTok = pDoneVirt
-                return ExprAux.KeywordExpr(fun whileTok -> Expr.While(whileTok, cond, doTok, body, doneTok))
+                return ExprAux.ForExpr(Expr.While(whileTok, cond, doTok, body, doneTok))
             }
 
         let pForExpr =
@@ -1280,24 +1306,24 @@ module Expr =
                 // We peek but do NOT consume — the body parser handles consumption inside withContext.
                 match token.Token with
                 | Token.KWIf ->
-                    let! token = consumePeeked token
-                    return PrefixMapped(token, preturn token, pIfBody, completeKeyword)
+                    // Do NOT consume here — pIfExpr peeks the 'if' keyword to set the context indent, then consumes.
+                    return PrefixMapped(token, preturn token, pIfExpr, completeFor)
                 | Token.KWMatch
                 | Token.KWMatchBang ->
-                    let! token = consumePeeked token
-                    return PrefixMapped(token, preturn token, pMatchBody, completeKeyword)
+                    // Do NOT consume here — pMatchExpr peeks the 'match' keyword to set the context indent, then consumes.
+                    return PrefixMapped(token, preturn token, pMatchExpr, completeFor)
                 | Token.KWFunction ->
-                    let! token = consumePeeked token
-                    return PrefixMapped(token, preturn token, pFunctionBody, completeKeyword)
+                    // Do NOT consume here — pFunctionExpr peeks the 'function' keyword to set the context indent, then consumes.
+                    return PrefixMapped(token, preturn token, pFunctionExpr, completeFor)
                 | Token.KWFun ->
-                    let! token = consumePeeked token
-                    return PrefixMapped(token, preturn token, pFunBody, completeKeyword)
+                    // Do NOT consume here — pFunExpr peeks the 'fun' keyword to set the context indent, then consumes.
+                    return PrefixMapped(token, preturn token, pFunExpr, completeFor)
                 | Token.KWTry ->
-                    let! token = consumePeeked token
-                    return PrefixMapped(token, preturn token, pTryBody, completeKeyword)
+                    // Do NOT consume here — pTryExpr peeks the 'try' keyword to set the context indent, then consumes.
+                    return PrefixMapped(token, preturn token, pTryExpr, completeFor)
                 | Token.KWWhile ->
-                    let! token = consumePeeked token
-                    return PrefixMapped(token, preturn token, pWhileBody, completeKeyword)
+                    // Do NOT consume here — pWhileExpr peeks the 'while' keyword to set the context indent, then consumes.
+                    return PrefixMapped(token, preturn token, pWhileExpr, completeFor)
                 | Token.KWFor ->
                     // Do NOT consume here — pForBody peeks the 'for' keyword to set the context indent, then consumes.
                     return PrefixMapped(token, preturn token, pForExpr, completeFor)
@@ -1599,7 +1625,78 @@ module Expr =
                                     return Expr.EnclosedBlock(ParenKind.Brace lBrace, body, rBrace)
                                 | _ -> return! fail (Message "Not a computation expression body")
                             }
-                            // TODO: '{' new base-call object-members interface-impls '}' -- object expression
+                            // '{' new base-call object-members interface-impls '}' -- object expression
+                            parser {
+                                let! newTok = pNew
+                                let! construction = ObjectConstruction.parse
+
+                                let! baseCall =
+                                    opt (
+                                        parser {
+                                            let! asTok = pAs
+                                            let! ident = nextNonTriviaTokenIsL Token.Identifier "identifier"
+                                            return struct (asTok, ident)
+                                        }
+                                    )
+
+                                let baseCall =
+                                    match baseCall with
+                                    | ValueSome struct (asTok, ident) ->
+                                        BaseCall.NamedBaseCall(construction, asTok, ident)
+                                    | ValueNone -> BaseCall.AnonBaseCall(construction)
+
+                                let! withTok = pWith
+                                let! members =
+                                    withContext OffsideContext.WithAugment (many refMemberDefn.Parser)
+
+                                // Parse additional interface implementations
+                                let! interfaceImpls = many (parser {
+                                    let! interfaceTok = pInterface
+                                    let! typ = Type.parse
+                                    let! intfWithTok = opt pWith
+                                    match intfWithTok with
+                                    | ValueSome wTok ->
+                                        let! intfMembers =
+                                            withContext OffsideContext.WithAugment (many refMemberDefn.Parser)
+
+                                        let! intfNextTokOpt = opt peekNextNonTriviaToken
+                                        let intfVirtualEnd =
+                                            {
+                                                PositionedToken =
+                                                    PositionedToken.Create(
+                                                        Token.ofUInt16 (uint16 Token.KWEnd ||| TokenRepresentation.IsVirtual),
+                                                        match intfNextTokOpt with
+                                                        | ValueSome tok -> tok.StartIndex
+                                                        | ValueNone -> 0
+                                                    )
+                                                Index = TokenIndex.Virtual
+                                            }
+                                        let objMembers = ObjectMembers.ObjectMembers(wTok, List.ofSeq intfMembers, intfVirtualEnd)
+                                        return InterfaceImpl.InterfaceImpl(interfaceTok, typ, ValueSome objMembers)
+                                    | ValueNone ->
+                                        return InterfaceImpl.InterfaceImpl(interfaceTok, typ, ValueNone)
+                                })
+
+                                // Synthesize virtual end for the main ObjectMembers
+                                let! nextTokOpt = opt peekNextNonTriviaToken
+                                let virtualEnd =
+                                    {
+                                        PositionedToken =
+                                            PositionedToken.Create(
+                                                Token.ofUInt16 (uint16 Token.KWEnd ||| TokenRepresentation.IsVirtual),
+                                                match nextTokOpt with
+                                                | ValueSome tok -> tok.StartIndex
+                                                | ValueNone -> 0
+                                            )
+                                        Index = TokenIndex.Virtual
+                                    }
+                                let objMembers = ObjectMembers.ObjectMembers(withTok, List.ofSeq members, virtualEnd)
+
+                                let! rBrace =
+                                    nextNonTriviaTokenVirtualWithDiagnostic (ValueSome lBrace) Token.KWRBrace
+
+                                return Expr.Object(lBrace, ValueSome newTok, baseCall, objMembers, List.ofSeq interfaceImpls, rBrace)
+                            }
                             // { expr with Field = val; ... } — record clone/update
                             parser {
                                 let! baseExpr = refExprInRecords.Parser

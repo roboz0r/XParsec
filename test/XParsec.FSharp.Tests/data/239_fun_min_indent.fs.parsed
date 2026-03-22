@@ -1,0 +1,110 @@
+module                         'module'          KWModule            tok=   0  pos=   0
+                               'FunMinInde...'   Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                          'let'             KWLet               tok=  14  pos= 206
+    Pat.NamedSimple            'paramsOnNe...'   Identifier          tok=  16  pos= 210
+    =                          '='               OpEquality          tok=  18  pos= 227
+      Fun                      'fun'             KWFun               tok=  21  pos= 233
+      Pats:
+        Pat.NamedSimple        'x'               Identifier          tok=  24  pos= 242
+      Arrow                    '->'              OpArrowRight        tok=  26  pos= 244
+      Body:
+        InfixApp               '+'               op_Addition         tok=  33  pos= 297
+          Ident                'x'               Identifier          tok=  31  pos= 295
+          Const                '1'               NumInt32            tok=  35  pos= 299
+FunctionOrValue:
+  let                          'let'             KWLet               tok=  47  pos= 484
+    Pat.NamedSimple            'arrowOnNex...'   Identifier          tok=  49  pos= 488
+    =                          '='               OpEquality          tok=  51  pos= 504
+      Fun                      'fun'             KWFun               tok=  54  pos= 510
+      Pats:
+        Pat.NamedSimple        'x'               Identifier          tok=  56  pos= 514
+      Arrow                    '->'              OpArrowRight        tok=  59  pos= 521
+      Body:
+        InfixApp               '+'               op_Addition         tok=  63  pos= 526
+          Ident                'x'               Identifier          tok=  61  pos= 524
+          Const                '1'               NumInt32            tok=  65  pos= 528
+FunctionOrValue:
+  let                          'let'             KWLet               tok=  79  pos= 787
+    Pat.NamedSimple            'bodyAtFunP...'   Identifier          tok=  81  pos= 791
+    =                          '='               OpEquality          tok=  83  pos= 806
+      Fun                      'fun'             KWFun               tok=  86  pos= 812
+      Pats:
+        Pat.NamedSimple        'x'               Identifier          tok=  88  pos= 816
+      Arrow                    '->'              OpArrowRight        tok=  90  pos= 818
+      Body:
+        InfixApp               '+'               op_Addition         tok=  95  pos= 828
+          Ident                'x'               Identifier          tok=  93  pos= 826
+          Const                '1'               NumInt32            tok=  97  pos= 830
+FunctionOrValue:
+  let                          'let'             KWLet               tok= 117  pos=1244
+    Pat.NamedSimple            'funInParen...'   Identifier          tok= 119  pos=1248
+    =                          '='               OpEquality          tok= 121  pos=1260
+      ParenBlock               '('               KWLParen            tok= 124  pos=1266
+        Fun                    'fun'             KWFun               tok= 125  pos=1267
+        Pats:
+          Pat.NamedSimple      'x'               Identifier          tok= 127  pos=1271
+        Arrow                  '->'              OpArrowRight        tok= 129  pos=1273
+        Body:
+          InfixApp             '+'               op_Addition         tok= 134  pos=1279
+            Ident              'x'               Identifier          tok= 132  pos=1277
+            Const              '1'               NumInt32            tok= 136  pos=1281
+                               ')'               KWRParen            tok= 137  pos=1282
+FunctionOrValue:
+  let                          'let'             KWLet               tok= 144  pos=1404
+    Pat.NamedSimple            'funInParen...'   Identifier          tok= 146  pos=1408
+    =                          '='               OpEquality          tok= 148  pos=1424
+      ParenBlock               '('               KWLParen            tok= 151  pos=1430
+        Fun                    'fun'             KWFun               tok= 152  pos=1431
+        Pats:
+          Pat.NamedSimple      'x'               Identifier          tok= 154  pos=1435
+        Arrow                  '->'              OpArrowRight        tok= 156  pos=1437
+        Body:
+          InfixApp             '+'               op_Addition         tok= 161  pos=1444
+            Ident              'x'               Identifier          tok= 159  pos=1442
+            Const              '1'               NumInt32            tok= 163  pos=1446
+                               ')'               KWRParen            tok= 164  pos=1447
+FunctionOrValue:
+  let                          'let'             KWLet               tok= 171  pos=1569
+    Pat.NamedSimple            'f'               Identifier          tok= 173  pos=1573
+    Pats:
+      Pat.NamedSimple          'g'               Identifier          tok= 175  pos=1575
+    =                          '='               OpEquality          tok= 177  pos=1577
+      App:
+        Func:
+          Ident                'g'               Identifier          tok= 179  pos=1579
+        Args:
+          Const                '1'               NumInt32            tok= 181  pos=1581
+FunctionOrValue:
+  let                          'let'             KWLet               tok= 183  pos=1583
+    Pat.NamedSimple            'funAsArg'        Identifier          tok= 185  pos=1587
+    =                          '='               OpEquality          tok= 187  pos=1596
+      App:
+        Func:
+          Ident                'f'               Identifier          tok= 190  pos=1602
+        Args:
+          ParenBlock           '('               KWLParen            tok= 192  pos=1604
+            Fun                'fun'             KWFun               tok= 193  pos=1605
+            Pats:
+              Pat.NamedSimple  'x'               Identifier          tok= 195  pos=1609
+            Arrow              '->'              OpArrowRight        tok= 197  pos=1611
+            Body:
+              InfixApp         '+'               op_Addition         tok= 202  pos=1621
+                Ident          'x'               Identifier          tok= 200  pos=1619
+                Const          '1'               NumInt32            tok= 204  pos=1623
+                               ')'               KWRParen            tok= 205  pos=1624
+FunctionOrValue:
+  let                          'let'             KWLet               tok= 219  pos=1871
+    Pat.NamedSimple            'multiParam...'   Identifier          tok= 221  pos=1875
+    =                          '='               OpEquality          tok= 223  pos=1887
+      Fun                      'fun'             KWFun               tok= 226  pos=1893
+      Pats:
+        Pat.Named:
+          Ident                'x'               Identifier          tok= 229  pos=1902
+          Param:
+            Pat.NamedSimple    'y'               Identifier          tok= 234  pos=1955
+      Arrow                    '->'              OpArrowRight        tok= 236  pos=1957
+      Body:
+        InfixApp               '+'               op_Addition         tok= 243  pos=2010
+          Ident                'x'               Identifier          tok= 241  pos=2008
+          Ident                'y'               Identifier          tok= 245  pos=2012

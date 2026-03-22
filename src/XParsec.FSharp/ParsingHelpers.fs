@@ -271,6 +271,12 @@ module Parsing =
             | OffsideContext.Type, (Token.KWRBrace | Token.KWEnd | Token.KWAnd | Token.OpBar) -> true
             // 15.1.9: end may align with interface (WithAugment)
             | OffsideContext.WithAugment, Token.KWEnd -> true
+            // 15.1.9: with/| may align with match
+            | OffsideContext.Match, (Token.KWWith | Token.OpBar) -> true
+            // 15.1.9: | may align with function
+            | OffsideContext.Function, Token.OpBar -> true
+            // 15.1.9: done may align with while
+            | OffsideContext.While, Token.KWDone -> true
             | _ -> false
         )
 
@@ -544,6 +550,40 @@ module Parsing =
             let col = ParseState.getIndent reader.State tokenIdx
             reader.State.Trace.Invoke(TraceEvent.TokenConsumed(token.PositionedToken, int tokenIdx, col))
             preturn token reader
+
+    /// Peeks the next non-trivia token, asserts it matches the expected token,
+    /// consumes it, and returns the token together with its column indent.
+    /// Used by keyword expression parsers to capture the keyword's indent for offside context.
+    let assertKeywordToken (expected: Token) (reader: Reader<PositionedToken, ParseState, _, _>) =
+        match peekNextNonTriviaToken reader with
+        | Ok t when t.Token = expected ->
+            (consumePeeked t
+             |>> fun kwTok ->
+                 let indent =
+                     match kwTok.Index with
+                     | TokenIndex.Regular iT -> ParseState.getIndent reader.State iT
+                     | TokenIndex.Virtual -> invalidOp $"Virtual tokens should not be used for '{expected}' keyword"
+
+                 struct (kwTok, indent))
+                reader
+        | Ok t -> fail (Message $"Expected '{expected}' keyword") reader
+        | Error e -> Error e
+
+    let assertKeywordTokens (expected1: Token) (expected2: Token) (reader: Reader<PositionedToken, ParseState, _, _>) =
+        match peekNextNonTriviaToken reader with
+        | Ok t when t.Token = expected1 || t.Token = expected2 ->
+            (consumePeeked t
+             |>> fun kwTok ->
+                 let indent =
+                     match kwTok.Index with
+                     | TokenIndex.Regular iT -> ParseState.getIndent reader.State iT
+                     | TokenIndex.Virtual ->
+                         invalidOp $"Virtual tokens should not be used for '{expected1}'|'{expected2}' keyword"
+
+                 struct (kwTok, indent))
+                reader
+        | Ok _ -> fail (Message $"Expected '{expected1}' or '{expected2}' keyword") reader
+        | Error e -> Error e
 
     let rec nextNonTriviaTokenVirtualIfNot t (reader: Reader<PositionedToken, ParseState, _, _>) =
         match peekNextNonTriviaToken reader with

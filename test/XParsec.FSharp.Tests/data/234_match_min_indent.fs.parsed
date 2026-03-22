@@ -1,0 +1,208 @@
+module                    'module'          KWModule            tok=   0  pos=   0
+                          'MatchMinIn...'   Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                     'let'             KWLet               tok=  14  pos= 242
+    Pat.NamedSimple       'matchExprO...'   Identifier          tok=  16  pos= 246
+    Pats:
+      Pat.NamedSimple     'x'               Identifier          tok=  18  pos= 266
+    =                     '='               OpEquality          tok=  20  pos= 268
+      Match:
+        MatchToken        'match'           KWMatch             tok=  23  pos= 274
+        MatchExpr:
+          Ident           'x'               Identifier          tok=  26  pos= 285
+        WithToken         'with'            KWWith              tok=  31  pos= 335
+        Rule:
+          Bar             '|'               OpBar               tok=  34  pos= 344
+          Pat:
+            Pat.Const     '1'               NumInt32            tok=  36  pos= 346
+          Arrow           '->'              OpArrowRight        tok=  38  pos= 348
+          Expr:
+            Const         '"one"'           StringLiteral       tok=  40  pos= 351
+        Rule:
+          Bar             '|'               OpBar               tok=  43  pos= 361
+          Pat:
+            Pat.Wildcard  '_'               Wildcard            tok=  45  pos= 363
+          Arrow           '->'              OpArrowRight        tok=  47  pos= 365
+          Expr:
+            Const         '"other"'         StringLiteral       tok=  49  pos= 368
+FunctionOrValue:
+  let                     'let'             KWLet               tok=  61  pos= 578
+    Pat.NamedSimple       'withAtMatc...'   Identifier          tok=  63  pos= 582
+    Pats:
+      Pat.NamedSimple     'x'               Identifier          tok=  65  pos= 597
+    =                     '='               OpEquality          tok=  67  pos= 599
+      Match:
+        MatchToken        'match'           KWMatch             tok=  70  pos= 605
+        MatchExpr:
+          Ident           'x'               Identifier          tok=  72  pos= 611
+        WithToken         'with'            KWWith              tok=  75  pos= 617
+        Rule:
+          Bar             '|'               OpBar               tok=  80  pos= 687
+          Pat:
+            Pat.Const     '1'               NumInt32            tok=  82  pos= 689
+          Arrow           '->'              OpArrowRight        tok=  84  pos= 691
+          Expr:
+            Const         '"one"'           StringLiteral       tok=  86  pos= 694
+        Rule:
+          Bar             '|'               OpBar               tok=  89  pos= 704
+          Pat:
+            Pat.Wildcard  '_'               Wildcard            tok=  91  pos= 706
+          Arrow           '->'              OpArrowRight        tok=  93  pos= 708
+          Expr:
+            Const         '"other"'         StringLiteral       tok=  95  pos= 711
+FunctionOrValue:
+  let                     'let'             KWLet               tok= 109  pos= 974
+    Pat.NamedSimple       'barAtMatch...'   Identifier          tok= 111  pos= 978
+    Pats:
+      Pat.NamedSimple     'x'               Identifier          tok= 113  pos= 992
+    =                     '='               OpEquality          tok= 115  pos= 994
+      Match:
+        MatchToken        'match'           KWMatch             tok= 118  pos=1000
+        MatchExpr:
+          Ident           'x'               Identifier          tok= 120  pos=1006
+        WithToken         'with'            KWWith              tok= 122  pos=1008
+        Rule:
+          Bar             '|'               OpBar               tok= 125  pos=1017
+          Pat:
+            Pat.Const     '1'               NumInt32            tok= 127  pos=1019
+          Arrow           '->'              OpArrowRight        tok= 129  pos=1021
+          Expr:
+            Const         '"one"'           StringLiteral       tok= 131  pos=1024
+        Rule:
+          Bar             '|'               OpBar               tok= 136  pos=1084
+          Pat:
+            Pat.Wildcard  '_'               Wildcard            tok= 138  pos=1086
+          Arrow           '->'              OpArrowRight        tok= 140  pos=1088
+          Expr:
+            Const         '"other"'         StringLiteral       tok= 142  pos=1091
+FunctionOrValue:
+  let                     'let'             KWLet               tok= 158  pos=1442
+    Pat.NamedSimple       'bodyAtBarP...'   Identifier          tok= 160  pos=1446
+    Pats:
+      Pat.NamedSimple     'x'               Identifier          tok= 162  pos=1461
+    =                     '='               OpEquality          tok= 164  pos=1463
+      Match:
+        MatchToken        'match'           KWMatch             tok= 167  pos=1469
+        MatchExpr:
+          Ident           'x'               Identifier          tok= 169  pos=1475
+        WithToken         'with'            KWWith              tok= 171  pos=1477
+        Rule:
+          Bar             '|'               OpBar               tok= 174  pos=1486
+          Pat:
+            Pat.Const     '1'               NumInt32            tok= 176  pos=1488
+          Arrow           '->'              OpArrowRight        tok= 178  pos=1490
+          Expr:
+            Const         '"one"'           StringLiteral       tok= 181  pos=1498
+        Rule:
+          Bar             '|'               OpBar               tok= 186  pos=1544
+          Pat:
+            Pat.Wildcard  '_'               Wildcard            tok= 188  pos=1546
+          Arrow           '->'              OpArrowRight        tok= 190  pos=1548
+          Expr:
+            Const         '"other"'         StringLiteral       tok= 193  pos=1556
+FunctionOrValue:
+  let                     'let'             KWLet               tok= 200  pos=1659
+    Pat.NamedSimple       'barIndente...'   Identifier          tok= 202  pos=1663
+    Pats:
+      Pat.NamedSimple     'x'               Identifier          tok= 204  pos=1689
+    =                     '='               OpEquality          tok= 206  pos=1691
+      Match:
+        MatchToken        'match'           KWMatch             tok= 209  pos=1697
+        MatchExpr:
+          Ident           'x'               Identifier          tok= 211  pos=1703
+        WithToken         'with'            KWWith              tok= 213  pos=1705
+        Rule:
+          Bar             '|'               OpBar               tok= 216  pos=1716
+          Pat:
+            Pat.Const     '1'               NumInt32            tok= 218  pos=1718
+          Arrow           '->'              OpArrowRight        tok= 220  pos=1720
+          Expr:
+            Const         '"one"'           StringLiteral       tok= 223  pos=1730
+        Rule:
+          Bar             '|'               OpBar               tok= 228  pos=1776
+          Pat:
+            Pat.Wildcard  '_'               Wildcard            tok= 230  pos=1778
+          Arrow           '->'              OpArrowRight        tok= 232  pos=1780
+          Expr:
+            Const         '"other"'         StringLiteral       tok= 235  pos=1790
+FunctionOrValue:
+  let                     'let'             KWLet               tok= 249  pos=2066
+    Pat.NamedSimple       'noLeadingB...'   Identifier          tok= 251  pos=2070
+    Pats:
+      Pat.NamedSimple     'x'               Identifier          tok= 253  pos=2083
+    =                     '='               OpEquality          tok= 255  pos=2085
+      Match:
+        MatchToken        'match'           KWMatch             tok= 258  pos=2091
+        MatchExpr:
+          Ident           'x'               Identifier          tok= 260  pos=2097
+        WithToken         'with'            KWWith              tok= 262  pos=2099
+        Rule:
+          Pat:
+            Pat.Const     '1'               NumInt32            tok= 265  pos=2109
+          Arrow           '->'              OpArrowRight        tok= 267  pos=2111
+          Expr:
+            Const         '"one"'           StringLiteral       tok= 272  pos=2169
+        Rule:
+          Bar             '|'               OpBar               tok= 277  pos=2219
+          Pat:
+            Pat.Wildcard  '_'               Wildcard            tok= 279  pos=2221
+          Arrow           '->'              OpArrowRight        tok= 281  pos=2223
+          Expr:
+            Const         '"other"'         StringLiteral       tok= 283  pos=2226
+FunctionOrValue:
+  let                     'let'             KWLet               tok= 295  pos=2459
+    Pat.NamedSimple       'withOnNext...'   Identifier          tok= 297  pos=2463
+    Pats:
+      Pat.NamedSimple     'x'               Identifier          tok= 299  pos=2478
+    =                     '='               OpEquality          tok= 301  pos=2480
+      Match:
+        MatchToken        'match'           KWMatch             tok= 304  pos=2486
+        MatchExpr:
+          Ident           'x'               Identifier          tok= 306  pos=2492
+        WithToken         'with'            KWWith              tok= 309  pos=2498
+        Rule:
+          Bar             '|'               OpBar               tok= 312  pos=2507
+          Pat:
+            Pat.Const     '1'               NumInt32            tok= 314  pos=2509
+          Arrow           '->'              OpArrowRight        tok= 316  pos=2511
+          Expr:
+            Const         '"one"'           StringLiteral       tok= 318  pos=2514
+        Rule:
+          Bar             '|'               OpBar               tok= 321  pos=2524
+          Pat:
+            Pat.Wildcard  '_'               Wildcard            tok= 323  pos=2526
+          Arrow           '->'              OpArrowRight        tok= 325  pos=2528
+          Expr:
+            Const         '"other"'         StringLiteral       tok= 328  pos=2536
+FunctionOrValue:
+  let                     'let'             KWLet               tok= 342  pos=2801
+    Pat.NamedSimple       'multipleCl...'   Identifier          tok= 344  pos=2805
+    Pats:
+      Pat.NamedSimple     'x'               Identifier          tok= 346  pos=2821
+    =                     '='               OpEquality          tok= 348  pos=2823
+      Match:
+        MatchToken        'match'           KWMatch             tok= 351  pos=2829
+        MatchExpr:
+          Ident           'x'               Identifier          tok= 353  pos=2835
+        WithToken         'with'            KWWith              tok= 355  pos=2837
+        Rule:
+          Bar             '|'               OpBar               tok= 358  pos=2846
+          Pat:
+            Pat.Const     '1'               NumInt32            tok= 360  pos=2848
+          Arrow           '->'              OpArrowRight        tok= 362  pos=2850
+          Expr:
+            Const         '"one"'           StringLiteral       tok= 365  pos=2858
+        Rule:
+          Bar             '|'               OpBar               tok= 368  pos=2868
+          Pat:
+            Pat.Const     '2'               NumInt32            tok= 370  pos=2870
+          Arrow           '->'              OpArrowRight        tok= 372  pos=2872
+          Expr:
+            Const         '"two"'           StringLiteral       tok= 375  pos=2880
+        Rule:
+          Bar             '|'               OpBar               tok= 378  pos=2890
+          Pat:
+            Pat.Wildcard  '_'               Wildcard            tok= 380  pos=2892
+          Arrow           '->'              OpArrowRight        tok= 382  pos=2894
+          Expr:
+            Const         '"other"'         StringLiteral       tok= 385  pos=2902

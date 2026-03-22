@@ -1,0 +1,173 @@
+module                           'module'          KWModule            tok=   0  pos=   0
+                                 'Test'            Identifier          tok=   2  pos=   7
+Import:
+  open                           'open'            KWOpen              tok=   5  pos=  13
+                                 'System'          Identifier          tok=   7  pos=  18
+FunctionOrValue:
+  let                            'let'             KWLet               tok=  12  pos=  54
+    Pat.NamedSimple              'disposable'      Identifier          tok=  14  pos=  58
+    =                            '='               OpEquality          tok=  16  pos=  69
+      ObjectExpr:
+        {                        '{'               KWLBrace            tok=  19  pos=  75
+        new                      'new'             KWNew               tok=  21  pos=  77
+        NamedType:
+          LongIdent:
+                                 'IDisposabl...'   Identifier          tok=  23  pos=  81
+        with                     'with'            KWWith              tok=  25  pos=  93
+          member                 'member'          KWMember            tok=  28  pos= 106
+          self                   '_'               Wildcard            tok=  30  pos= 113
+          Pat.NamedSimple        'Dispose'         Identifier          tok=  32  pos= 115
+          Pats:
+            ParenBlock           '('               KWLParen            tok=  33  pos= 122
+                                 ')'               KWRParen            tok=  34  pos= 123
+          =                      '='               OpEquality          tok=  36  pos= 125
+            ParenBlock           '('               KWLParen            tok=  38  pos= 127
+                                 ')'               KWRParen            tok=  39  pos= 128
+        end                      <virt>            KWEnd               tok=virt  pos= 130
+        }                        '}'               KWRBrace            tok=  41  pos= 130
+FunctionOrValue:
+  let                            'let'             KWLet               tok=  46  pos= 179
+    Pat.NamedSimple              'comparer'        Identifier          tok=  48  pos= 183
+    =                            '='               OpEquality          tok=  50  pos= 192
+      ObjectExpr:
+        {                        '{'               KWLBrace            tok=  53  pos= 198
+        new                      'new'             KWNew               tok=  55  pos= 200
+        GenericType:
+          LongIdent:
+                                 'System'          Identifier          tok=  57  pos= 204
+                                 'Collection...'   Identifier          tok=  59  pos= 211
+                                 'Generic'         Identifier          tok=  61  pos= 223
+                                 'Comparer'        Identifier          tok=  63  pos= 231
+          <                      '<'               op_LessThan         tok=  64  pos= 239
+          TypeArg.Type:
+            NamedType:
+              LongIdent:
+                                 'int'             Identifier          tok=  65  pos= 240
+          >                      '>'               op_GreaterThan      tok=  66  pos= 243
+        ParenBlock               '('               KWLParen            tok=  67  pos= 244
+                                 ')'               KWRParen            tok=  68  pos= 245
+        with                     'with'            KWWith              tok=  70  pos= 247
+          member                 'member'          KWMember            tok=  73  pos= 260
+          self                   '_'               Wildcard            tok=  75  pos= 267
+          Pat.NamedSimple        'Compare'         Identifier          tok=  77  pos= 269
+          Pats:
+            ParenBlock           '('               KWLParen            tok=  78  pos= 276
+              Pat.Tuple:
+                Pat.NamedSimple  'x'               Identifier          tok=  79  pos= 277
+                Pat.NamedSimple  'y'               Identifier          tok=  82  pos= 280
+                                 ')'               KWRParen            tok=  83  pos= 281
+          =                      '='               OpEquality          tok=  85  pos= 283
+            InfixApp             '-'               op_Subtraction      tok=  89  pos= 287
+              Ident              'x'               Identifier          tok=  87  pos= 285
+              Ident              'y'               Identifier          tok=  91  pos= 289
+        end                      <virt>            KWEnd               tok=virt  pos= 291
+        }                        '}'               KWRBrace            tok=  93  pos= 291
+FunctionOrValue:
+  let                            'let'             KWLet               tok=  98  pos= 346
+    Pat.NamedSimple              'combined'        Identifier          tok= 100  pos= 350
+    =                            '='               OpEquality          tok= 102  pos= 359
+      ObjectExpr:
+        {                        '{'               KWLBrace            tok= 105  pos= 365
+        new                      'new'             KWNew               tok= 107  pos= 367
+        NamedType:
+          LongIdent:
+                                 'IDisposabl...'   Identifier          tok= 109  pos= 371
+        with                     'with'            KWWith              tok= 111  pos= 383
+          member                 'member'          KWMember            tok= 114  pos= 396
+          self                   '_'               Wildcard            tok= 116  pos= 403
+          Pat.NamedSimple        'Dispose'         Identifier          tok= 118  pos= 405
+          Pats:
+            ParenBlock           '('               KWLParen            tok= 119  pos= 412
+                                 ')'               KWRParen            tok= 120  pos= 413
+          =                      '='               OpEquality          tok= 122  pos= 415
+            ParenBlock           '('               KWLParen            tok= 124  pos= 417
+                                 ')'               KWRParen            tok= 125  pos= 418
+        end                      <virt>            KWEnd               tok=virt  pos= 487
+        InterfaceImpl:
+          interface              'interface'       KWInterface         tok= 128  pos= 426
+          NamedType:
+            LongIdent:
+                                 'IComparabl...'   Identifier          tok= 130  pos= 436
+          with                   'with'            KWWith              tok= 132  pos= 448
+            member               'member'          KWMember            tok= 135  pos= 461
+            self                 '_'               Wildcard            tok= 137  pos= 468
+            Pat.NamedSimple      'CompareTo'       Identifier          tok= 139  pos= 470
+            Pats:
+              ParenBlock         '('               KWLParen            tok= 140  pos= 479
+                Pat.Wildcard     '_'               Wildcard            tok= 141  pos= 480
+                                 ')'               KWRParen            tok= 142  pos= 481
+            =                    '='               OpEquality          tok= 144  pos= 483
+              Const              '0'               NumInt32            tok= 146  pos= 485
+          end                    <virt>            KWEnd               tok=virt  pos= 487
+        }                        '}'               KWRBrace            tok= 148  pos= 487
+FunctionOrValue:
+  let                            'let'             KWLet               tok= 153  pos= 533
+    Pat.NamedSimple              'multi'           Identifier          tok= 155  pos= 537
+    =                            '='               OpEquality          tok= 157  pos= 543
+      ObjectExpr:
+        {                        '{'               KWLBrace            tok= 160  pos= 549
+        new                      'new'             KWNew               tok= 162  pos= 551
+        NamedType:
+          LongIdent:
+                                 'IDisposabl...'   Identifier          tok= 164  pos= 555
+        with                     'with'            KWWith              tok= 166  pos= 567
+          member                 'member'          KWMember            tok= 169  pos= 580
+          self                   '_'               Wildcard            tok= 171  pos= 587
+          Pat.NamedSimple        'Dispose'         Identifier          tok= 173  pos= 589
+          Pats:
+            ParenBlock           '('               KWLParen            tok= 174  pos= 596
+                                 ')'               KWRParen            tok= 175  pos= 597
+          =                      '='               OpEquality          tok= 177  pos= 599
+            ParenBlock           '('               KWLParen            tok= 179  pos= 601
+                                 ')'               KWRParen            tok= 180  pos= 602
+          member                 'member'          KWMember            tok= 183  pos= 612
+          self                   'x'               Identifier          tok= 185  pos= 619
+          Pat.NamedSimple        'ToString'        Identifier          tok= 187  pos= 621
+          Pats:
+            ParenBlock           '('               KWLParen            tok= 188  pos= 629
+                                 ')'               KWRParen            tok= 189  pos= 630
+          =                      '='               OpEquality          tok= 191  pos= 632
+            Const                '"hello"'         StringLiteral       tok= 193  pos= 634
+        end                      <virt>            KWEnd               tok=virt  pos= 642
+        }                        '}'               KWRBrace            tok= 195  pos= 642
+FunctionOrValue:
+  let                            'let'             KWLet               tok= 200  pos= 690
+    Pat.NamedSimple              'f'               Identifier          tok= 202  pos= 694
+    Pats:
+      ParenBlock                 '('               KWLParen            tok= 204  pos= 696
+        Pat.Typed:
+          Pat.NamedSimple        'd'               Identifier          tok= 205  pos= 697
+          Colon                  ':'               OpColon             tok= 206  pos= 698
+          NamedType:
+            LongIdent:
+                                 'IDisposabl...'   Identifier          tok= 208  pos= 700
+                                 ')'               KWRParen            tok= 209  pos= 711
+    =                            '='               OpEquality          tok= 211  pos= 713
+      ParenBlock                 '('               KWLParen            tok= 213  pos= 715
+                                 ')'               KWRParen            tok= 214  pos= 716
+FunctionOrValue:
+  let                            'let'             KWLet               tok= 216  pos= 718
+    Pat.NamedSimple              'test'            Identifier          tok= 218  pos= 722
+    =                            '='               OpEquality          tok= 220  pos= 727
+      App:
+        Func:
+          Ident                  'f'               Identifier          tok= 222  pos= 729
+        Args:
+          ObjectExpr:
+            {                    '{'               KWLBrace            tok= 224  pos= 731
+            new                  'new'             KWNew               tok= 226  pos= 733
+            NamedType:
+              LongIdent:
+                                 'IDisposabl...'   Identifier          tok= 228  pos= 737
+            with                 'with'            KWWith              tok= 230  pos= 749
+              member             'member'          KWMember            tok= 232  pos= 754
+              self               '_'               Wildcard            tok= 234  pos= 761
+              Pat.NamedSimple    'Dispose'         Identifier          tok= 236  pos= 763
+              Pats:
+                ParenBlock       '('               KWLParen            tok= 237  pos= 770
+                                 ')'               KWRParen            tok= 238  pos= 771
+              =                  '='               OpEquality          tok= 240  pos= 773
+                ParenBlock       '('               KWLParen            tok= 242  pos= 775
+                                 ')'               KWRParen            tok= 243  pos= 776
+            end                  <virt>            KWEnd               tok=virt  pos= 778
+            }                    '}'               KWRBrace            tok= 245  pos= 778

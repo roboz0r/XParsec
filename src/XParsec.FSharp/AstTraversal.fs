@@ -1126,7 +1126,51 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         visitor.ExitSection "Parts"
         visitor.VisitToken "" closing
     | Expr.Object(lBrace, newKeyword, baseCall, members, interfaceImpls, rBrace) ->
-        failwith "Not implemented: Object expressions"
+        visitor.EnterSection "ObjectExpr"
+        visitor.VisitToken "{" lBrace
+
+        match newKeyword with
+        | ValueSome tok -> visitor.VisitToken "new" tok
+        | ValueNone -> ()
+
+        match baseCall with
+        | BaseCall.AnonBaseCall construction -> walkObjectConstruction visitor construction
+        | BaseCall.NamedBaseCall(construction, asTok, ident) ->
+            walkObjectConstruction visitor construction
+            visitor.VisitToken "as" asTok
+            visitor.VisitToken "" ident
+
+        let (ObjectMembers.ObjectMembers(withTok, memberDefs, endTok)) = members
+        visitor.VisitToken "with" withTok
+        visitor.EnterSection ""
+
+        for m in memberDefs do
+            walkMemberDefn visitor m
+
+        visitor.ExitSection ""
+        visitor.VisitToken "end" endTok
+
+        for InterfaceImpl.InterfaceImpl(interfaceTok, typ, objMembers) in interfaceImpls do
+            visitor.EnterSection "InterfaceImpl"
+            visitor.VisitToken "interface" interfaceTok
+            walkType visitor typ
+
+            match objMembers with
+            | ValueSome(ObjectMembers.ObjectMembers(wTok, intfMembers, intfEndTok)) ->
+                visitor.VisitToken "with" wTok
+                visitor.EnterSection ""
+
+                for m in intfMembers do
+                    walkMemberDefn visitor m
+
+                visitor.ExitSection ""
+                visitor.VisitToken "end" intfEndTok
+            | ValueNone -> ()
+
+            visitor.ExitSection "InterfaceImpl"
+
+        visitor.VisitToken "}" rBrace
+        visitor.ExitSection "ObjectExpr"
     | Expr.Range(fromExpr, dotdot, toExpr) ->
         visitor.EnterSection "Range"
         walkExpr visitor fromExpr

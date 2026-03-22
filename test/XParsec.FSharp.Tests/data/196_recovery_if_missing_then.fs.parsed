@@ -16,7 +16,4 @@ Diagnostics:
   [error] MissingExpression at 10 (Ln 2, Col 1)
     
     ^ At index 10 (Ln 2, Col 1)
-    Multiple errors:
-    ├───Operator parsing failed
-    ├───Not a prefix operator
-    └───Expected constant literal
+    Offside
