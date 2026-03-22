@@ -424,6 +424,13 @@ and walkConstraint (visitor: AstVisitor<'T>) (c: Constraint<'T>) : unit =
         visitor.EnterSection "Constraint.ReferenceType"
         walkTypar visitor typar
         visitor.ExitSection "Constraint.ReferenceType"
+    | Constraint.NotNull(typar, colon, notToken, nullToken) ->
+        visitor.EnterSection "Constraint.NotNull"
+        walkTypar visitor typar
+        visitor.VisitToken ":" colon
+        visitor.VisitToken "not" notToken
+        visitor.VisitToken "null" nullToken
+        visitor.ExitSection "Constraint.NotNull"
     | Constraint.Enum(typar, _colon, _enumToken, _lAngle, typ, _rAngle) ->
         visitor.EnterSection "Constraint.Enum"
         walkTypar visitor typar
@@ -559,6 +566,15 @@ and walkType (visitor: AstVisitor<'T>) (ty: Type<'T>) : unit =
         walkType visitor typ
         walkTyparDefns visitor constraints
         visitor.ExitSection "ConstrainedType"
+    | Type.WhenConstrainedType(typ, TyparConstraints.TyparConstraints(whenTok, constraints)) ->
+        visitor.EnterSection "WhenConstrainedType"
+        walkType visitor typ
+        visitor.VisitToken "when" whenTok
+
+        for c in constraints do
+            walkConstraint visitor c
+
+        visitor.ExitSection "WhenConstrainedType"
     | Type.SubtypeConstraint(typar, colonGreaterThan, typ) ->
         visitor.EnterSection "SubtypeConstraint"
         walkTypar visitor typar
