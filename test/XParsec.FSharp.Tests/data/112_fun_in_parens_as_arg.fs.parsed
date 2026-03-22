@@ -27,7 +27,7 @@ FunctionOrValue:
                         Pat.NamedSimple  't'               Identifier          tok=  33  pos= 101
                       Arrow              '->'              OpArrowRight        tok=  35  pos= 103
                       Body:
-                        InfixApp         '&&'              op_BooleanAnd       tok=  47  pos= 133
+                        InfixApp         '&&'              OpAmpAmp            tok=  47  pos= 133
                           InfixApp       '='               OpEquality          tok=  41  pos= 114
                             LongIdentOrOp:
                               LongIdent:

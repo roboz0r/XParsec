@@ -1634,6 +1634,7 @@ module Lexing =
                         | "!" -> Token.OpDereference, CtxOp.NoOp
                         | "??" -> Token.OpQMarkQMark, CtxOp.NoOp
                         | "=" -> Token.OpEquality, CtxOp.NoOp
+                        | "&&" -> Token.OpAmpAmp, CtxOp.NoOp
                         | "&" -> Token.OpAmp, CtxOp.NoOp
                         | "*" -> Token.OpMultiply, CtxOp.NoOp
                         | "/" -> Token.OpDivision, CtxOp.NoOp

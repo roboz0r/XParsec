@@ -27,6 +27,11 @@ module internal ParserRefs =
     /// as part of the guard expression and remains available for Rule.parse.
     let refExprGuard = FSRefParser<Expr<SyntaxToken>>()
 
+    /// Expression parser that stops before sequential composition (semicolons/virtual seps).
+    /// Used for while conditions, where `do` at the same indent must not be consumed as a
+    /// `do expr` keyword expression via sequential composition.
+    let refExprNoSeq = FSRefParser<Expr<SyntaxToken>>()
+
     /// Expression parser for parsing expressions in collection and record initializers,
     /// which should stop before consuming a semicolon.
     let refExprInRecords = FSRefParser<Expr<SyntaxToken>>()

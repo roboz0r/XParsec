@@ -587,28 +587,34 @@ module Parsing =
 
     let rec nextNonTriviaTokenVirtualIfNot t (reader: Reader<PositionedToken, ParseState, _, _>) =
         match peekNextNonTriviaToken reader with
-        | Error e -> Error e
-        | Ok token ->
-            if token.Token = t then
-                // Real token matches: consume it and return it.
-                consumePeeked token reader
-            else
-                // Real token doesn't match: synthesise a virtual token in its place without
-                // consuming the actual token (the caller's body parser will see it next).
-                let pt =
-                    PositionedToken.Create(
-                        Token.ofUInt16 (uint16 t ||| TokenRepresentation.IsVirtual),
-                        token.StartIndex
-                    )
+        | Ok token when token.Token = t ->
+            // Real token matches: consume it and return it.
+            consumePeeked token reader
+        | result ->
+            // Real token doesn't match (Ok with different token) or offside failure (Error):
+            // produce a virtual substitute without consuming.
+            let startIndex =
+                match result with
+                | Ok token -> token.StartIndex
+                | Error _ ->
+                    match reader.Peek() with
+                    | ValueSome tok -> tok.StartIndex
+                    | ValueNone -> 0
 
-                reader.State.Trace.Invoke(TraceEvent.VirtualToken(pt.Token, pt.StartIndex))
+            let pt =
+                PositionedToken.Create(
+                    Token.ofUInt16 (uint16 t ||| TokenRepresentation.IsVirtual),
+                    startIndex
+                )
 
-                preturn
-                    {
-                        PositionedToken = pt
-                        Index = TokenIndex.Virtual
-                    }
-                    reader
+            reader.State.Trace.Invoke(TraceEvent.VirtualToken(pt.Token, pt.StartIndex))
+
+            preturn
+                {
+                    PositionedToken = pt
+                    Index = TokenIndex.Virtual
+                }
+                reader
 
     let rec nextNonTriviaTokenSatisfiesL (predicate: SyntaxToken -> bool) msg reader =
         match peekNextNonTriviaToken reader with
@@ -678,33 +684,40 @@ module Parsing =
     /// when the token must be synthesised.
     let nextNonTriviaTokenVirtualWithDiagnostic (openTok: SyntaxToken voption) t reader =
         match peekNextNonTriviaToken reader with
-        | Error e -> Error e
-        | Ok token ->
-            if token.Token = t then
-                consumePeeked token reader
-            else
-                let code =
-                    match openTok with
-                    | ValueSome o -> DiagnosticCode.UnclosedDelimiter(o, t)
-                    | ValueNone -> DiagnosticCode.Other $"Expected '{t}'"
+        | Ok token when token.Token = t ->
+            consumePeeked token reader
+        | result ->
+            // Real token doesn't match or offside failure: emit diagnostic and produce virtual.
+            let startIndex, diagToken =
+                match result with
+                | Ok token -> token.StartIndex, token.PositionedToken
+                | Error _ ->
+                    match reader.Peek() with
+                    | ValueSome tok -> tok.StartIndex, tok
+                    | ValueNone -> 0, PositionedToken.Create(Token.EOF, 0)
 
-                reader.State <-
-                    ParseState.addDiagnostic code DiagnosticSeverity.Error token.PositionedToken None None reader.State
+            let code =
+                match openTok with
+                | ValueSome o -> DiagnosticCode.UnclosedDelimiter(o, t)
+                | ValueNone -> DiagnosticCode.Other $"Expected '{t}'"
 
-                let pt =
-                    PositionedToken.Create(
-                        Token.ofUInt16 (uint16 t ||| TokenRepresentation.IsVirtual),
-                        token.StartIndex
-                    )
+            reader.State <-
+                ParseState.addDiagnostic code DiagnosticSeverity.Error diagToken None None reader.State
 
-                reader.State.Trace.Invoke(TraceEvent.VirtualToken(pt.Token, pt.StartIndex))
+            let pt =
+                PositionedToken.Create(
+                    Token.ofUInt16 (uint16 t ||| TokenRepresentation.IsVirtual),
+                    startIndex
+                )
 
-                preturn
-                    {
-                        PositionedToken = pt
-                        Index = TokenIndex.Virtual
-                    }
-                    reader
+            reader.State.Trace.Invoke(TraceEvent.VirtualToken(pt.Token, pt.StartIndex))
+
+            preturn
+                {
+                    PositionedToken = pt
+                    Index = TokenIndex.Virtual
+                }
+                reader
 
     /// Wraps a parser so that on failure, it emits a diagnostic and returns a virtual token
     /// of the given type. Used for committed-keyword recovery where the parser must not fail

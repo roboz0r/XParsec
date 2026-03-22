@@ -2237,7 +2237,10 @@ type OperatorInfo =
         | Token.KWTry
         | Token.KWFun
         | Token.KWFunction
-        | Token.OpDereference -> true
+        | Token.OpDereference
+        // & and && are keyword-encoded but can be prefix (address-of / native address-of)
+        | Token.OpAmp
+        | Token.OpAmpAmp -> true
         | t -> TokenInfo.isOperator t && TokenInfo.canBePrefix t
 
     member this.Associativity = OperatorInfo.associativity this.Precedence

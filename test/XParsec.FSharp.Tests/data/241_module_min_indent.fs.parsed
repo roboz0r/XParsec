@@ -1,0 +1,30 @@
+module                       'module'          KWModule            tok=   0  pos=   0
+                             'ModuleMinI...'   Identifier          tok=   2  pos=   7
+Module:
+  module                     'module'          KWModule            tok=  14  pos= 213
+  ident                      'M'               Identifier          tok=  16  pos= 220
+  =                          '='               OpEquality          tok=  18  pos= 222
+  begin                      <virt>            KWBegin             tok=virt  pos= 225
+    FunctionOrValue:
+      let                    'let'             KWLet               tok=  21  pos= 225
+        Pat.NamedSimple      'x'               Identifier          tok=  23  pos= 229
+        =                    '='               OpEquality          tok=  25  pos= 231
+          Const              '1'               NumInt32            tok=  27  pos= 233
+  end                        <virt>            KWEnd               tok=virt  pos= 280
+Module:
+  module                     'module'          KWModule            tok=  32  pos= 280
+  ident                      'Outer'           Identifier          tok=  34  pos= 287
+  =                          '='               OpEquality          tok=  36  pos= 293
+  begin                      <virt>            KWBegin             tok=virt  pos= 299
+    Module:
+      module                 'module'          KWModule            tok=  39  pos= 299
+      ident                  'Inner'           Identifier          tok=  41  pos= 306
+      =                      '='               OpEquality          tok=  43  pos= 312
+      begin                  <virt>            KWBegin             tok=virt  pos= 319
+        FunctionOrValue:
+          let                'let'             KWLet               tok=  46  pos= 319
+            Pat.NamedSimple  'x'               Identifier          tok=  48  pos= 323
+            =                '='               OpEquality          tok=  50  pos= 325
+              Const          '1'               NumInt32            tok=  52  pos= 327
+      end                    <virt>            KWEnd               tok=virt  pos= 375
+  end                        <virt>            KWEnd               tok=virt  pos= 375
