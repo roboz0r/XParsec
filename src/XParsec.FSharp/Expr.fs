@@ -73,6 +73,8 @@ type Type<'T> =
     | ConstrainedType of typ: Type<'T> * constraints: TyparDefns<'T>
     | SubtypeConstraint of typar: Typar<'T> * colonGreaterThan: 'T * typ: Type<'T>
     | AnonymousSubtype of hash: 'T * typ: Type<'T>
+    | Null of nullToken: 'T
+    | UnionType of left: Type<'T> * bar: 'T * right: Type<'T>
     | Missing
     | SkipsTokens of skippedTokens: 'T list
 

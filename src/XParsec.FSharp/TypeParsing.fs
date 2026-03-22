@@ -228,6 +228,8 @@ module Type =
                     let! t = refType.Parser
                     return Type.AnonymousSubtype(h, t)
                 }
+                // null
+                pNull |>> Type.Null
                 // 'a
                 Typar.parse |>> Type.VarType
                 // LongIdent or LongIdent<Types>
@@ -322,16 +324,33 @@ module Type =
             return! loop atom
         }
 
+    // Union: T | T (for nullable reference types: string | null)
+    let private pBarType =
+        parser {
+            let! bar = pBar
+            let! rhs = pPostfixType
+            return (bar, rhs)
+        }
+
+    let private pUnionType =
+        parser {
+            let! lhs = pPostfixType
+
+            match! opt pBarType with
+            | ValueSome(bar, rhs) -> return Type.UnionType(lhs, bar, rhs)
+            | ValueNone -> return lhs
+        }
+
     // Tuple: T * T * T
     let private pTupleType =
         parser {
-            let! first = pPostfixType
+            let! first = pUnionType
 
             let! rest =
                 many (
                     parser {
                         let! _ = pOpMultiply
-                        return! pPostfixType
+                        return! pUnionType
                     }
                 )
 
