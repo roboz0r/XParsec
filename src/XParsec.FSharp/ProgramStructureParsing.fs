@@ -12,6 +12,7 @@ module ImplementationFile =
     /// Distinguished from module abbreviation (module X = Y.Z) by the absence of '=' after the LongIdent.
     let private pNamedModule =
         let notFollowedByEquals = notFollowedByNonTriviaToken Token.OpEquality
+        do ObjectConstruction.init () // Force static constructor to run and initialize refObjectConstruction
 
         parser {
             let! attrs = opt Attributes.parse

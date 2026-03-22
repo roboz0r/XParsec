@@ -1175,7 +1175,32 @@ module TypeDefn =
                             ]
                             "Union or Enum"
 
-                | _ -> return! parseAbbrevOrImplicitClass typeName primaryConstr equals
+                | _ ->
+                    // Try union without leading '|' (e.g., type Foo = Foo of int | Bar of string)
+                    // A single nullary case (type Foo = Bar) is ambiguous — treat as type abbreviation.
+                    return!
+                        choiceL
+                            [
+                                parser {
+                                    let! cases = UnionTypeCases.parse
+
+                                    match cases with
+                                    | [ UnionTypeCase.UnionTypeCase(_, UnionTypeCaseData.Nullary _) ] ->
+                                        // Single nullary case without '|' is a type abbreviation, not a DU
+                                        return! fail (Message "Single nullary union case is a type abbreviation")
+                                    | _ ->
+                                        let! ext =
+                                            opt (
+                                                choiceL
+                                                    [ TypeExtensionElements.parse; TypeExtensionElements.parseLight ]
+                                                    "Type Extension"
+                                            )
+
+                                        return TypeDefn.Union(typeName, equals, cases, ext)
+                                }
+                                parseAbbrevOrImplicitClass typeName primaryConstr equals
+                            ]
+                            "Union or Type body"
         }
 
     let parse: Parser<TypeDefn<SyntaxToken>, _, _, _, _> =

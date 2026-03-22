@@ -148,6 +148,7 @@ and [<RequireQualifiedAccess>] TraceEvent =
     | DiagnosticEmitted of code: DiagnosticCode * severity: DiagnosticSeverity * token: PositionedToken
     | SplitRAttrBracketSet of atStartIndex: int
     | SplitRAttrBracketConsumed of atStartIndex: int
+    | Message of message: string
 
 /// Holds the trace callback. A reference type so it doesn't affect ParseState equality
 /// and is shared across immutable record copies.
@@ -414,6 +415,7 @@ module TraceEvent =
         | TraceEvent.DiagnosticEmitted(code, severity, token) -> $"DIAGNOSTIC {severity} {code} @{token.StartIndex}"
         | TraceEvent.SplitRAttrBracketSet(startIndex) -> $"SPLIT_RATTR_SET @{startIndex}"
         | TraceEvent.SplitRAttrBracketConsumed(startIndex) -> $"SPLIT_RATTR_CONSUMED @{startIndex}"
+        | TraceEvent.Message(msg) -> $"MSG: {msg}"
 
 [<RequireQualifiedAccess>]
 module Reader =
