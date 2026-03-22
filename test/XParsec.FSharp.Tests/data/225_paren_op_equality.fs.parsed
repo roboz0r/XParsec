@@ -1,0 +1,40 @@
+module                      'module'          KWModule            tok=   0  pos=   0
+                            'Test'            Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                       'let'             KWLet               tok=   7  pos=  58
+    Pat.NamedSimple         'eq'              Identifier          tok=   9  pos=  62
+    =                       '='               OpEquality          tok=  11  pos=  65
+      LongIdentOrOp:
+        ParenOp:
+                            '('               KWLParen            tok=  13  pos=  67
+          SymbolicOp        '='               OpEquality          tok=  14  pos=  68
+                            ')'               KWRParen            tok=  15  pos=  69
+FunctionOrValue:
+  let                       'let'             KWLet               tok=  17  pos=  71
+    Pat.NamedSimple         'result'          Identifier          tok=  19  pos=  75
+    =                       '='               OpEquality          tok=  21  pos=  82
+      InfixApp              '|>'              op_PipeRight        tok=  31  pos=  92
+        List                '['               KWLBracket          tok=  23  pos=  84
+          Sequential:
+            Const           '1'               NumInt32            tok=  24  pos=  85
+            Const           '2'               NumInt32            tok=  26  pos=  87
+            Const           '3'               NumInt32            tok=  28  pos=  89
+                            ']'               KWRBracket          tok=  29  pos=  90
+        App:
+          Func:
+            LongIdentOrOp:
+              LongIdent:
+                            'List'            Identifier          tok=  33  pos=  95
+                            'forall2'         Identifier          tok=  35  pos= 100
+          Args:
+            LongIdentOrOp:
+              ParenOp:
+                            '('               KWLParen            tok=  37  pos= 108
+                SymbolicOp  '='               OpEquality          tok=  38  pos= 109
+                            ')'               KWRParen            tok=  39  pos= 110
+            List            '['               KWLBracket          tok=  41  pos= 112
+              Sequential:
+                Const       '1'               NumInt32            tok=  42  pos= 113
+                Const       '2'               NumInt32            tok=  44  pos= 115
+                Const       '3'               NumInt32            tok=  46  pos= 117
+                            ']'               KWRBracket          tok=  47  pos= 118

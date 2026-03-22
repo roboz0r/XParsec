@@ -1457,14 +1457,27 @@ module Expr =
             | _ -> return expr
         }
 
+    let private pParenOpExpr =
+        parser {
+            let! l = pLParen
+            let! op = OpName.parse
+            let! r = pRParen
+            return Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(l, op, r)))
+        }
+
     let pParen =
-        pEnclosed
-            pLParen
-            Token.KWRParen
-            ParenKind.Paren
-            OffsideContext.Paren
-            DiagnosticCode.ExpectedRParen
-            pExprOrTypedPat
+        choiceL
+            [
+                pParenOpExpr
+                pEnclosed
+                    pLParen
+                    Token.KWRParen
+                    ParenKind.Paren
+                    OffsideContext.Paren
+                    DiagnosticCode.ExpectedRParen
+                    pExprOrTypedPat
+            ]
+            "pParen"
 
     let pBeginEnd =
         pEnclosed

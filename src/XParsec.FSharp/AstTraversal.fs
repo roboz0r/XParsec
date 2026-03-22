@@ -174,7 +174,12 @@ and walkIdentOrOp (visitor: AstVisitor<'T>) (identOrOp: IdentOrOp<'T>) : unit =
         walkOpName visitor opName
         visitor.VisitToken "" rParen
         visitor.ExitSection "ParenOp"
-    | IdentOrOp.StarOp _ -> visitor.WriteLine "StarOp: "
+    | IdentOrOp.StarOp(lParen, star, rParen) ->
+        visitor.EnterSection "StarOp"
+        visitor.VisitToken "" lParen
+        visitor.VisitToken "" star
+        visitor.VisitToken "" rParen
+        visitor.ExitSection "StarOp"
 
 and walkOpName (visitor: AstVisitor<'T>) (opName: OpName<'T>) : unit =
     match opName with
@@ -216,8 +221,16 @@ and walkLongIdentOrOp (visitor: AstVisitor<'T>) (longIdentOrOp: LongIdentOrOp<'T
             visitor.VisitToken "" ident
 
         visitor.ExitSection "LongIdent"
-    | LongIdentOrOp.Op _ -> visitor.WriteLine "Op: "
-    | LongIdentOrOp.QualifiedOp _ -> visitor.WriteLine "QualifiedOp: "
+    | LongIdentOrOp.Op identOrOp -> walkIdentOrOp visitor identOrOp
+    | LongIdentOrOp.QualifiedOp(longIdent, dot, identOrOp) ->
+        visitor.EnterSection "QualifiedOp"
+
+        for ident in longIdent do
+            visitor.VisitToken "" ident
+
+        visitor.VisitToken "." dot
+        walkIdentOrOp visitor identOrOp
+        visitor.ExitSection "QualifiedOp"
 
 and walkPat (visitor: AstVisitor<'T>) (pat: Pat<'T>) : unit =
     match pat with
