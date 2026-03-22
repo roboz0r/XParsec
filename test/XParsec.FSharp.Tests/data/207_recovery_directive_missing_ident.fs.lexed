@@ -3,7 +3,7 @@
 7, Identifier
 14, Newline
 15, Newline
-16, ReservedIdentifierHash
+16, KWHash
 17, Newline
 18, KWLet
 21, Whitespace

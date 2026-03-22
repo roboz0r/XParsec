@@ -2356,7 +2356,7 @@ module Lexing =
 
 
     let pHashToken =
-        choiceL [ pDirectiveToken; pToken (pchar '#') Token.ReservedIdentifierHash ] "Hash or Directive"
+        choiceL [ pDirectiveToken; pToken (pchar '#') Token.KWHash ] "Hash or Directive"
 
     [<TailCall>]
     let rec lex (reader: Reader<char, LexBuilder, ReadableString, _>) =

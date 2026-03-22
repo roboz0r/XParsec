@@ -72,7 +72,7 @@ let keywords =
         "use!", Token.KWUseBang
         "yield!", Token.KWYieldBang
         "'", Token.KWSingleQuote
-        "#", Token.ReservedIdentifierHash
+        "#", Token.KWHash
 
         // IsKeywordOperator
         "assert", Token.KWAssert
