@@ -577,7 +577,27 @@ module Expr =
             }
 
         let pApplication =
-            let isAtomicExprToken (t: SyntaxToken) =
+            /// Checks whether the operator at the given raw token index is an ADJACENT_PREFIX_OP:
+            /// adjacent to the following token (no whitespace after) but with whitespace before.
+            /// See F# spec 3.8.1 "Post-filtering of Adjacent Prefix Tokens".
+            let isAdjacentPrefixOp (state: ParseState) (rawIndex: int<token>) =
+                let tokens = state.Lexed.Tokens
+
+                // Check right-adjacency: next raw token must NOT be trivia (whitespace/newline/comment)
+                let rightAdjacent =
+                    rawIndex + 1<token> < tokens.Length * 1<token>
+                    && not (ParseState.isTriviaToken state tokens[rawIndex + 1<token>])
+
+                // Check left-separation: previous raw token must be trivia (whitespace/newline/comment)
+                // or the operator must be at the start of input
+                let leftSeparated =
+                    rawIndex = 0<token>
+                    || (rawIndex > 0<token>
+                        && ParseState.isTriviaToken state tokens[rawIndex - 1<token>])
+
+                rightAdjacent && leftSeparated
+
+            let isAtomicExprToken (state: ParseState) (t: SyntaxToken) =
                 match t.Token with
                 | Token.Identifier
                 | Token.KWLParen
@@ -597,31 +617,40 @@ module Expr =
                         true
                     else
                         match OperatorInfo.TryCreate t.PositionedToken with
-                        | ValueSome opInfo -> false //TODO: opInfo.CanBePrefix
-                        | ValueNone -> false
+                        | ValueSome opInfo when opInfo.CanBePrefix ->
+                            // Prefix-only operators (e.g. !, ~~~) always start application args.
+                            // Dual-use operators (e.g. -, +) only start application args when they
+                            // are ADJACENT_PREFIX_OPs: adjacent to the right token with whitespace before.
+                            // See F# spec 3.8.1 "Post-filtering of Adjacent Prefix Tokens".
+                            opInfo.Precedence = PrecedenceLevel.Prefix
+                            || (
+                                match t.Index with
+                                | TokenIndex.Regular rawIndex -> isAdjacentPrefixOp state rawIndex
+                                | TokenIndex.Virtual -> false
+                            )
+                        | _ -> false
 
             let failApp = fail (Message "Expected expression after application")
             // Application is *juxtaposition* of two expressions with trivia in between, e.g. `f x` or `f (g y)` or `f(*comment*)x`.
             parser {
                 match! peekNextNonTriviaToken with
                 | t when t.Token = Token.EOF -> return! failApp
-                | t when isAtomicExprToken t ->
+                | t ->
                     let! indent = currentIndent
                     let! state = getUserState
-                    // printfn "Application check: indent=%d, context=%A" indent state.Context
-                    let atAppIndent =
-                        match state.Context with
-                        | { Indent = ctxIndent } :: _ -> indent > ctxIndent
-                        | [] -> indent > 0
 
-                    if atAppIndent then
-                        // We have a valid argument token coming up, so this is an application
-                        return virtualToken (PositionedToken.Create(Token.VirtualApp, t.StartIndex))
-                    else
+                    if not (isAtomicExprToken state t) then
                         return! failApp
-                | _ ->
-                    // Not a valid argument token, fail to avoid consuming tokens that should be parsed by outer parsers
-                    return! failApp
+                    else
+                        let atAppIndent =
+                            match state.Context with
+                            | { Indent = ctxIndent } :: _ -> indent > ctxIndent
+                            | [] -> indent > 0
+
+                        if atAppIndent then
+                            return virtualToken (PositionedToken.Create(Token.VirtualApp, t.StartIndex))
+                        else
+                            return! failApp
             }
 
         let pTypeApplication =
@@ -690,6 +719,22 @@ module Expr =
                     | Token.KWTry
                     | Token.KWFun
                     | Token.KWFunction -> fail (Message "Unexpected prefix keyword in RHS expression context")
+                    | _ when
+                        // These precedence levels are LHS-only (no RHS handler registered).
+                        // When encountered in RHS position, fail so the Pratt parser stops
+                        // and lets function application or outer parsers handle them.
+                        (match opInfo.Precedence with
+                         | PrecedenceLevel.Prefix
+                         | PrecedenceLevel.Function
+                         | PrecedenceLevel.If
+                         | PrecedenceLevel.Let
+                         | PrecedenceLevel.As
+                         | PrecedenceLevel.When
+                         | PrecedenceLevel.PatternMatchBar
+                         | PrecedenceLevel.Parens -> true
+                         | _ -> false)
+                        ->
+                        fail (Message "LHS-only operator cannot appear in infix position")
                     | _ -> preturn (getRhsOperatorHandler opInfo token)
 
             // First try type application, then whitespace application, then explicit operator.

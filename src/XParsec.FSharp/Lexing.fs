@@ -401,8 +401,8 @@ module LexBuilder =
 
     let appendI token (idx: int) ctxOp (state: LexBuilder) =
         // Coalesce adjacent string fragments
-        // TODO: Handle literal negation
-        // Consider if this should be done in the `lex` function instead
+        // TODO: Handle literal negation (merging adjacent `-` and numeric literal into a single negative literal token)
+        // ADJACENT_PREFIX_OP handling is done in the parser (isAdjacentPrefixOp in ExpressionParsing.fs)
         // https://fsharp.github.io/fslang-spec/lexical-analysis/#381-post-filtering-of-adjacent-prefix-tokens
         let tokenCount = state.Tokens.Count
         let tokenIdx = tokenCount * 1<token>

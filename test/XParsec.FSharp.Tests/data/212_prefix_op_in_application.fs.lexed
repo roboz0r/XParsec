@@ -1,0 +1,54 @@
+0, KWLet
+3, Whitespace
+4, Identifier
+5, Whitespace
+6, OpEquality
+7, Whitespace
+8, Identifier
+9, Whitespace
+10, Operator 0b1000000001011001 Prefix (can be prefix)
+12, Identifier
+13, Newline
+14, KWLet
+17, Whitespace
+18, Identifier
+19, Whitespace
+20, OpEquality
+21, Whitespace
+22, Identifier
+23, Whitespace
+24, Operator 0b1000000001011001 Prefix (can be prefix)
+26, Identifier
+27, Whitespace
+28, Operator 0b1000000001011001 Prefix (can be prefix)
+30, Identifier
+31, Newline
+32, KWLet
+35, Whitespace
+36, Identifier
+37, Whitespace
+38, OpEquality
+39, Whitespace
+40, Identifier
+41, Whitespace
+42, KWLParen
+43, Operator 0b1000000001011001 Prefix (can be prefix)
+45, Identifier
+46, KWRParen
+47, Whitespace
+48, KWLParen
+49, Operator 0b1000000001011001 Prefix (can be prefix)
+51, Identifier
+52, KWRParen
+53, Newline
+54, KWAssert
+60, Whitespace
+61, KWLParen
+62, Identifier
+63, Whitespace
+64, OpEquality
+65, Whitespace
+66, Identifier
+67, KWRParen
+68, Newline
+69, EOF
