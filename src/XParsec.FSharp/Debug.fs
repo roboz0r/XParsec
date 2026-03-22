@@ -362,3 +362,17 @@ let printDiagnostics (ctx: PrintContext) (input: string) (diagnostics: Diagnosti
                             )
                     | None -> ()
             )
+
+let printWarnDirectives (ctx: PrintContext) (warnDirectives: WarnDirective list) =
+    if not warnDirectives.IsEmpty then
+        ctx.WriteLine("---")
+        ctx.WriteLine("WarnDirectives:")
+
+        indent
+            ctx
+            (fun () ->
+                // Print in source order (reverse of accumulation order)
+                for d in List.rev warnDirectives do
+                    let kind = if d.Suppress then "#nowarn" else "#warnon"
+                    ctx.WriteLine($"{kind} {d.WarningNumber} (Ln {d.Line})")
+            )

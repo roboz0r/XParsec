@@ -157,6 +157,13 @@ and TraceCallback(callback: TraceEvent -> unit) =
     static member Empty = empty
     member _.Invoke(event) = callback event
 
+and [<Struct>] WarnDirective =
+    {
+        Line: int<line>
+        WarningNumber: int
+        Suppress: bool
+    }
+
 and ParseState =
     // TODO: Refactor to separate the unchanged input/state from the mutable aspects like diagnostics and LastLine and frequently updated Context, to minimize the amount of data being copied on each state update.
     {
@@ -176,6 +183,8 @@ and ParseState =
         /// is rewritten to `KWRBracket`. Set by the measure parser when it splits `>]` into
         /// a virtual `>` (for the measure close) and a real `]` (for the enclosing indexer).
         SplitRAttrBracket: bool
+        /// Accumulated #nowarn / #warnon directives (most recent first).
+        WarnDirectives: WarnDirective list
         /// Callback for structured parse tracing. Default is no-op.
         /// Shared across immutable record copies.
         Trace: TraceCallback
@@ -216,6 +225,7 @@ module ParseState =
             CharsConsumedAfterTypeParams = 0
             ConditionalCompilationStack = []
             SplitRAttrBracket = false
+            WarnDirectives = []
             Trace = trace
         }
 
@@ -392,6 +402,13 @@ module ParseState =
     let isDefined (state: ParseState) (symbolToken: SyntaxToken) =
         let symbol = tokenString symbolToken state
         state.DefinedSymbols.Contains(symbol)
+
+    /// Check if a warning number is suppressed at a given line.
+    let isWarningSuppressed (warningNumber: int) (line: int<line>) (state: ParseState) =
+        state.WarnDirectives
+        |> List.tryFind (fun d -> d.WarningNumber = warningNumber && d.Line <= line)
+        |> Option.map (fun d -> d.Suppress)
+        |> Option.defaultValue false
 
 module TraceEvent =
     let format (lexed: Lexed) (event: TraceEvent) =
