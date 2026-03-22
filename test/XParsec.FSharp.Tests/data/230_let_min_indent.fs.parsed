@@ -1,0 +1,71 @@
+module                     'module'          KWModule            tok=   0  pos=   0
+                           'LetMinInde...'   Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                      'let'             KWLet               tok=  20  pos= 374
+    Pat.NamedSimple        'a'               Identifier          tok=  22  pos= 378
+    =                      '='               OpEquality          tok=  24  pos= 380
+      Const                '1'               NumInt32            tok=  27  pos= 383
+FunctionOrValue:
+  let                      'let'             KWLet               tok=  34  pos= 439
+    Pat.NamedSimple        'b'               Identifier          tok=  36  pos= 443
+    =                      '='               OpEquality          tok=  38  pos= 445
+      Const                '1'               NumInt32            tok=  41  pos= 451
+FunctionOrValue:
+  let                      'let'             KWLet               tok=  48  pos= 551
+    Pat.NamedSimple        'c'               Identifier          tok=  50  pos= 555
+    =                      '='               OpEquality          tok=  53  pos= 563
+      Const                '1'               NumInt32            tok=  56  pos= 566
+FunctionOrValue:
+  let                      'let'             KWLet               tok=  63  pos= 650
+    Pat.NamedSimple        'f'               Identifier          tok=  65  pos= 654
+    Pats:
+      Pat.NamedSimple      'x'               Identifier          tok=  67  pos= 656
+    =                      '='               OpEquality          tok=  69  pos= 658
+      InfixApp             '+'               op_Addition         tok=  74  pos= 663
+        Ident              'x'               Identifier          tok=  72  pos= 661
+        Const              '1'               NumInt32            tok=  76  pos= 665
+FunctionOrValue:
+  let                      'let'             KWLet               tok=  94  pos=1023
+    Pat.NamedSimple        'outer1'          Identifier          tok=  96  pos=1027
+    =                      '='               OpEquality          tok=  98  pos=1034
+      Let                  'let'             KWLet               tok= 101  pos=1040
+        Pat.NamedSimple    'a'               Identifier          tok= 103  pos=1044
+        =                  '='               OpEquality          tok= 105  pos=1046
+          Const            '1'               NumInt32            tok= 107  pos=1048
+      in                   <virt>            KWIn                tok=virt  pos=1054
+      Body:
+        InfixApp           '+'               op_Addition         tok= 112  pos=1056
+          Ident            'a'               Identifier          tok= 110  pos=1054
+          Const            '1'               NumInt32            tok= 114  pos=1058
+FunctionOrValue:
+  let                      'let'             KWLet               tok= 119  pos=1117
+    Pat.NamedSimple        'outer2'          Identifier          tok= 121  pos=1121
+    =                      '='               OpEquality          tok= 123  pos=1128
+      Let                  'let'             KWLet               tok= 126  pos=1134
+        Pat.NamedSimple    'a'               Identifier          tok= 128  pos=1138
+        =                  '='               OpEquality          tok= 130  pos=1140
+          Const            '1'               NumInt32            tok= 132  pos=1142
+      in                   'in'              KWIn                tok= 135  pos=1149
+      Body:
+        InfixApp           '+'               op_Addition         tok= 142  pos=1205
+          Ident            'a'               Identifier          tok= 140  pos=1203
+          Const            '1'               NumInt32            tok= 144  pos=1207
+FunctionOrValue:
+  let                      'let'             KWLet               tok= 158  pos=1449
+    Pat.NamedSimple        'nested'          Identifier          tok= 160  pos=1453
+    =                      '='               OpEquality          tok= 162  pos=1460
+      Let                  'let'             KWLet               tok= 165  pos=1466
+        Pat.NamedSimple    'a'               Identifier          tok= 167  pos=1470
+        =                  '='               OpEquality          tok= 169  pos=1472
+          Const            '1'               NumInt32            tok= 172  pos=1479
+      in                   <virt>            KWIn                tok=virt  pos=1522
+      Body:
+        Let                'let'             KWLet               tok= 177  pos=1522
+          Pat.NamedSimple  'b'               Identifier          tok= 179  pos=1526
+          =                '='               OpEquality          tok= 181  pos=1528
+            Const          '2'               NumInt32            tok= 184  pos=1535
+        in                 <virt>            KWIn                tok=virt  pos=1578
+        Body:
+          InfixApp         '+'               op_Addition         tok= 191  pos=1580
+            Ident          'a'               Identifier          tok= 189  pos=1578
+            Ident          'b'               Identifier          tok= 193  pos=1582

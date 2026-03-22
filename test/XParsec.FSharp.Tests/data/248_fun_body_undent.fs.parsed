@@ -1,0 +1,54 @@
+module                         'module'          KWModule            tok=   0  pos=   0
+                               'FunBodyUnd...'   Identifier          tok=   2  pos=   7
+Module:
+  module                       'module'          KWModule            tok=  16  pos= 312
+  ident                        'InParens'        Identifier          tok=  18  pos= 319
+  =                            '='               OpEquality          tok=  20  pos= 328
+  begin                        <virt>            KWBegin             tok=virt  pos= 381
+    FunctionOrValue:
+      let                      'let'             KWLet               tok=  27  pos= 381
+        Pat.NamedSimple        'atFunCol'        Identifier          tok=  29  pos= 385
+        =                      '='               OpEquality          tok=  31  pos= 394
+          ParenBlock           '('               KWLParen            tok=  34  pos= 404
+            Fun                'fun'             KWFun               tok=  35  pos= 405
+            Pats:
+              Pat.NamedSimple  'x'               Identifier          tok=  37  pos= 409
+            Arrow              '->'              OpArrowRight        tok=  39  pos= 411
+            Body:
+              InfixApp         '+'               op_Addition         tok=  44  pos= 424
+                Ident          'x'               Identifier          tok=  42  pos= 422
+                Const          '1'               NumInt32            tok=  46  pos= 426
+                               ')'               KWRParen            tok=  47  pos= 427
+    FunctionOrValue:
+      let                      'let'             KWLet               tok=  54  pos= 493
+        Pat.NamedSimple        'atLetColPl...'   Identifier          tok=  56  pos= 497
+        =                      '='               OpEquality          tok=  58  pos= 511
+          ParenBlock           '('               KWLParen            tok=  61  pos= 521
+            Fun                'fun'             KWFun               tok=  62  pos= 522
+            Pats:
+              Pat.NamedSimple  'x'               Identifier          tok=  64  pos= 526
+            Arrow              '->'              OpArrowRight        tok=  66  pos= 528
+            Body:
+              InfixApp         '+'               op_Addition         tok=  71  pos= 538
+                Ident          'x'               Identifier          tok=  69  pos= 536
+                Const          '1'               NumInt32            tok=  73  pos= 540
+                               ')'               KWRParen            tok=  74  pos= 541
+  end                          <virt>            KWEnd               tok=virt  pos= 777
+Module:
+  module                       'module'          KWModule            tok=  86  pos= 777
+  ident                        'WithoutPar...'   Identifier          tok=  88  pos= 784
+  =                            '='               OpEquality          tok=  90  pos= 798
+  begin                        <virt>            KWBegin             tok=virt  pos= 804
+    FunctionOrValue:
+      let                      'let'             KWLet               tok=  93  pos= 804
+        Pat.NamedSimple        'atFunColPl...'   Identifier          tok=  95  pos= 808
+        =                      '='               OpEquality          tok=  97  pos= 822
+          Fun                  'fun'             KWFun               tok= 100  pos= 832
+          Pats:
+            Pat.NamedSimple    'x'               Identifier          tok= 102  pos= 836
+          Arrow                '->'              OpArrowRight        tok= 104  pos= 838
+          Body:
+            InfixApp           '+'               op_Addition         tok= 109  pos= 852
+              Ident            'x'               Identifier          tok= 107  pos= 850
+              Const            '1'               NumInt32            tok= 111  pos= 854
+  end                          <virt>            KWEnd               tok=virt  pos= 893

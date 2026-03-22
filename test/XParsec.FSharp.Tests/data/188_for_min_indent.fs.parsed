@@ -9,69 +9,69 @@ FunctionOrValue:
       ForIn                          'for'             KWFor               tok=  15  pos=  42
       Pat:
         Pat.NamedSimple              'x'               Identifier          tok=  18  pos=  51
-      InToken                        'in'              KWIn                tok=  22  pos=  59
-      Ident                          'xs'              Identifier          tok=  25  pos=  67
-      DoToken                        'do'              KWDo                tok=  28  pos=  75
+      InToken                        'in'              KWIn                tok=  23  pos=  90
+      Ident                          'xs'              Identifier          tok=  28  pos= 129
+      DoToken                        'do'              KWDo                tok=  33  pos= 168
       Body:
         Sequential:
           App:
             Func:
-              Ident                  'ignore'          Identifier          tok=  31  pos=  82
+              Ident                  'ignore'          Identifier          tok=  38  pos= 206
             Args:
-              Ident                  'x'               Identifier          tok=  33  pos=  89
+              Ident                  'x'               Identifier          tok=  40  pos= 213
           Match:
-            MatchToken               'match'           KWMatch             tok=  36  pos=  95
+            MatchToken               'match'           KWMatch             tok=  45  pos= 312
             MatchExpr:
-              Ident                  'x'               Identifier          tok=  38  pos= 101
-            WithToken                'with'            KWWith              tok=  40  pos= 103
+              Ident                  'x'               Identifier          tok=  47  pos= 318
+            WithToken                'with'            KWWith              tok=  49  pos= 320
             Rule:
-              Bar                    '|'               OpBar               tok=  43  pos= 116
+              Bar                    '|'               OpBar               tok=  52  pos= 333
               Pat:
                 Pat.Named:
-                  Ident              'Some'            Identifier          tok=  45  pos= 118
+                  Ident              'Some'            Identifier          tok=  54  pos= 335
                   Param:
-                    Pat.NamedSimple  'y'               Identifier          tok=  47  pos= 123
-              Arrow                  '->'              OpArrowRight        tok=  49  pos= 125
+                    Pat.NamedSimple  'y'               Identifier          tok=  56  pos= 340
+              Arrow                  '->'              OpArrowRight        tok=  58  pos= 342
               Expr:
                 App:
                   Func:
-                    Ident            'printfn'         Identifier          tok=  51  pos= 128
+                    Ident            'printfn'         Identifier          tok=  60  pos= 345
                   Args:
-                    Const            '"Got %A"'        StringLiteral       tok=  53  pos= 136
-                    Ident            'y'               Identifier          tok=  55  pos= 145
+                    Const            '"Got %A"'        StringLiteral       tok=  62  pos= 353
+                    Ident            'y'               Identifier          tok=  64  pos= 362
             Rule:
-              Bar                    '|'               OpBar               tok=  58  pos= 155
+              Bar                    '|'               OpBar               tok=  67  pos= 372
               Pat:
-                Pat.NamedSimple      'None'            Identifier          tok=  60  pos= 157
-              Arrow                  '->'              OpArrowRight        tok=  62  pos= 162
+                Pat.NamedSimple      'None'            Identifier          tok=  69  pos= 374
+              Arrow                  '->'              OpArrowRight        tok=  71  pos= 379
               Expr:
                 App:
                   Func:
-                    Ident            'printfn'         Identifier          tok=  64  pos= 165
+                    Ident            'printfn'         Identifier          tok=  73  pos= 382
                   Args:
-                    Const            '"Got nothi...'   StringLiteral       tok=  66  pos= 173
-      DoneToken                      <virt>            KWDone              tok=virt  pos= 188
+                    Const            '"Got nothi...'   StringLiteral       tok=  75  pos= 390
+      DoneToken                      <virt>            KWDone              tok=virt  pos= 405
 FunctionOrValue:
-  let                                'let'             KWLet               tok=  69  pos= 188
-    Pat.NamedSimple                  'g'               Identifier          tok=  71  pos= 192
+  let                                'let'             KWLet               tok=  78  pos= 405
+    Pat.NamedSimple                  'g'               Identifier          tok=  80  pos= 409
     Pats:
-      ParenBlock                     '('               KWLParen            tok=  73  pos= 194
-                                     ')'               KWRParen            tok=  74  pos= 195
-    =                                '='               OpEquality          tok=  76  pos= 197
-      ForTo                          'for'             KWFor               tok=  79  pos= 203
-      Ident                          'i'               Identifier          tok=  82  pos= 212
-      Equals                         '='               OpEquality          tok=  85  pos= 219
+      ParenBlock                     '('               KWLParen            tok=  82  pos= 411
+                                     ')'               KWRParen            tok=  83  pos= 412
+    =                                '='               OpEquality          tok=  85  pos= 414
+      ForTo                          'for'             KWFor               tok=  88  pos= 420
+      Ident                          'i'               Identifier          tok=  91  pos= 429
+      Equals                         '='               OpEquality          tok=  96  pos= 468
       Start:
-        Const                        '1'               NumInt32            tok=  88  pos= 226
-      ToToken                        'to'              KWTo                tok=  91  pos= 233
+        Const                        '1'               NumInt32            tok= 101  pos= 507
+      ToToken                        'to'              KWTo                tok= 106  pos= 546
       End:
-        Const                        '10'              NumInt32            tok=  94  pos= 241
-      DoToken                        'do'              KWDo                tok=  97  pos= 249
+        Const                        '10'              NumInt32            tok= 111  pos= 585
+      DoToken                        'do'              KWDo                tok= 116  pos= 624
       Body:
         App:
           Func:
-            Ident                    'printfn'         Identifier          tok= 100  pos= 256
+            Ident                    'printfn'         Identifier          tok= 121  pos= 662
           Args:
-            Const                    '"i = %d"'        StringLiteral       tok= 102  pos= 264
-            Ident                    'i'               Identifier          tok= 104  pos= 273
-      DoneToken                      <virt>            KWDone              tok=virt  pos= 275
+            Const                    '"i = %d"'        StringLiteral       tok= 123  pos= 670
+            Ident                    'i'               Identifier          tok= 125  pos= 679
+      DoneToken                      <virt>            KWDone              tok=virt  pos= 774
