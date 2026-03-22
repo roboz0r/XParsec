@@ -1,7 +1,8 @@
 module               'module'          KWModule            tok=   0  pos=   0
                      'Test207'         Identifier          tok=   2  pos=   7
-SkipsTokens:
-  (skipped)          '#'               ReservedIdentifierHash  tok=   5  pos=  16
+CompilerDirective:
+  #                  '#'               KWHash              tok=   5  pos=  16
+  directive          <virt>            Identifier          tok=virt  pos=  18
 FunctionOrValue:
   let                'let'             KWLet               tok=   7  pos=  18
     Pat.NamedSimple  'x'               Identifier          tok=   9  pos=  22
@@ -9,7 +10,4 @@ FunctionOrValue:
       Const          '1'               NumInt32            tok=  13  pos=  26
 ---
 Diagnostics:
-  [error] MissingModuleElem at 16 (Ln 3, Col 1)
-    let x =
-    ^ At index 18 (Ln 4, Col 1)
-    Unexpected token(s) in module
+  [error] Other(Expected directive identifier after '#') at 18 (Ln 4, Col 1)
