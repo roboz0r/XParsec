@@ -259,8 +259,8 @@ module Parsing =
             match ctx.Context, token with
             // 15.1.9: then/elif/else may align with if
             | OffsideContext.If, (Token.KWThen | Token.KWElif | Token.KWElse) -> true
-            // 15.1.9: with/finally may align with try
-            | OffsideContext.Try, (Token.KWWith | Token.KWFinally) -> true
+            // 15.1.9: with/finally/| may align with try
+            | OffsideContext.Try, (Token.KWWith | Token.KWFinally | Token.OpBar) -> true
             // 15.1.9: done may align with for
             | OffsideContext.For, Token.KWDone -> true
             // 15.1.9: done may align with do

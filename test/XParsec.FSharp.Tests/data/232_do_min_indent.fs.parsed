@@ -1,0 +1,22 @@
+module             'module'          KWModule            tok=   0  pos=   0
+                   'DoMinInden...'   Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  do               'do'              KWDo                tok=  14  pos= 203
+    App:
+      Func:
+        Ident      'printfn'         Identifier          tok=  17  pos= 207
+      Args:
+        Const      '"body at d...'   StringLiteral       tok=  19  pos= 215
+Module:
+  module           'module'          KWModule            tok=  24  pos= 268
+  ident            'Nested'          Identifier          tok=  26  pos= 275
+  =                '='               OpEquality          tok=  28  pos= 282
+  begin            <virt>            KWBegin             tok=virt  pos= 288
+    FunctionOrValue:
+      do           'do'              KWDo                tok=  31  pos= 288
+        App:
+          Func:
+            Ident  'printfn'         Identifier          tok=  34  pos= 296
+          Args:
+            Const  '"nested bo...'   StringLiteral       tok=  36  pos= 304
+  end              <virt>            KWEnd               tok=virt  pos= 363
