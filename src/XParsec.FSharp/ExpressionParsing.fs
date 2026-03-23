@@ -558,19 +558,12 @@ module Expr =
                 | t when t.Token = Token.OpSemicolon -> return! consumePeeked t
                 | t ->
                     // Not a semicolon, but maybe we emit a virtual semicolon for newline-separated expressions.
-                    // Closing delimiters (}, ], |], ), end) cannot start an expression, so never emit VirtualSep for them —
-                    // they belong to an enclosing parser (e.g. the paren/brace block that called us).
-                    // Pure infix operators (e.g. ||, &&, |>, >>) cannot start an expression either —
-                    // they must be continuations of the previous expression (F# spec permits infix continuation).
-                    match t.Token with
-                    | Token.KWRBrace
-                    | Token.KWRBracket
-                    | Token.KWRArrayBracket
-                    | Token.KWRParen
-                    | Token.KWEnd
-                    | Token.OpBar -> return! failSep
-                    | _ when TokenInfo.isOperator t.Token && not (TokenInfo.canBePrefix t.Token) -> return! failSep
-                    | _ ->
+                    // Only emit VirtualSep when the next token can actually start an expression.
+                    // Tokens that cannot start expressions (closing delimiters, block-continuation keywords
+                    // like `with`/`finally`/`then`/`else`, pure infix operators, etc.) must NOT trigger
+                    // VirtualSep — doing so causes infinite loops in the Pratt parser's InfixNary handler
+                    // because the zero-width virtual token never advances the reader.
+                    if TokenInfo.canStartExpression t.Token then
                         let! indent = currentIndent
                         let! state = getUserState
 
@@ -583,6 +576,8 @@ module Expr =
                             return virtualToken (PositionedToken.Create(Token.VirtualSep, t.StartIndex))
                         else
                             return! failSep
+                    else
+                        return! failSep
             }
 
         let pApplication =
@@ -931,22 +926,6 @@ module Expr =
             }
 
         let pTryExpr =
-            let pWith' tryTok tryExpr =
-                parser {
-                    let! withTok = pWith
-                    let! rules = pMatchRules
-                    return Expr.TryWith(tryTok, tryExpr, withTok, rules)
-                }
-
-            let pFinally' tryTok tryExpr =
-                let pBody = refExprSeqBlock.Parser
-
-                parser {
-                    let! finTok = pFinally
-                    let! finExpr = pBody
-                    return Expr.TryFinally(tryTok, tryExpr, finTok, finExpr)
-                }
-
             let recoverExprMissing p =
                 recoverWith
                     StoppingTokens.afterExpr
@@ -960,18 +939,91 @@ module Expr =
                     )
                     p
 
-            parser {
-                let! (tryTok, indent) = assertKeywordToken Token.KWTry
-                // Try body at try_col — with/finally permitted undentation at try_col via contextPermitsToken
-                let! tryExpr = recoverExprMissing (withContextAt OffsideContext.Try indent tryTok.PositionedToken refExprSeqBlock.Parser)
+            let pTryMatchRules indent tryTok =
+                withContextAt OffsideContext.MatchClauses indent tryTok Rules.parse
+                |> recoverWith
+                    StoppingTokens.afterRule
+                    DiagnosticSeverity.Error
+                    DiagnosticCode.MissingRule
+                    (fun toks ->
+                        let missing =
+                            Rule.Rule(
+                                Pat.Missing,
+                                ValueNone,
+                                virtualToken (PositionedToken.Create(Token.OpArrowRight, 0)),
+                                Expr.Missing
+                            )
 
-                let! result =
+                        if toks.IsEmpty then
+                            Rules(ValueNone, [ missing ], [])
+                        else
+                            let missingWithSkips =
+                                Rule.Rule(
+                                    Pat.SkipsTokens(toks),
+                                    ValueNone,
+                                    virtualToken (PositionedToken.Create(Token.OpArrowRight, 0)),
+                                    Expr.Missing
+                                )
+
+                            Rules(ValueNone, [ missingWithSkips ], [])
+                    )
+
+            // Manually manage the Try context so it stays active through with/finally parsing,
+            // similar to how parseMatchBody keeps Match context active for | undentation.
+            fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
+                match assertKeywordToken Token.KWTry reader with
+                | Error e -> Error e
+                | Ok(tryTok, indent) ->
+
+                let savedState = reader.State
+
+                // Push Try context at try_col — stays active for with/finally/| undentation
+                let tryEntry =
+                    {
+                        Context = OffsideContext.Try
+                        Indent = indent
+                        Token = tryTok.PositionedToken
+                    }
+
+                reader.State <- ParseState.pushOffside tryEntry reader.State
+
+                // Try body — SeqBlock set by refExprSeqBlock at first expression's indent.
+                // The Try context below it permits with/finally undentation to try_col.
+                match recoverExprMissing refExprSeqBlock.Parser reader with
+                | Error e ->
+                    reader.State <- savedState
+                    Error e
+                | Ok tryExpr ->
+
+                // with/finally permitted at try_col via contextPermitsToken (Try context still active)
+                let pWith' =
+                    parser {
+                        let! withTok = pWith
+                        // | permitted at try_col via contextPermitsToken (Try context still active)
+                        // MatchClauses at try_col so clause bodies can be at try_col
+                        let! rules = pTryMatchRules indent tryTok.PositionedToken
+                        return Expr.TryWith(tryTok, tryExpr, withTok, rules)
+                    }
+
+                let pFinally' =
+                    parser {
+                        let! finTok = pFinally
+                        let! finExpr = refExprSeqBlock.Parser
+                        return Expr.TryFinally(tryTok, tryExpr, finTok, finExpr)
+                    }
+
+                match
                     dispatchNextNonTriviaTokenL
-                        [ Token.KWWith, pWith' tryTok tryExpr; Token.KWFinally, pFinally' tryTok tryExpr ]
+                        [ Token.KWWith, pWith'; Token.KWFinally, pFinally' ]
                         "Expected 'with' or 'finally'"
-
-                return ExprAux.ForExpr result
-            }
+                        reader
+                with
+                | Error e ->
+                    reader.State <- savedState
+                    Error e
+                | Ok result ->
+                    reader.State <- ParseState.popOffside tryEntry reader.State
+                    Ok(ExprAux.ForExpr result)
 
         let pDoneVirt reader =
             match peekNextNonTriviaToken reader with

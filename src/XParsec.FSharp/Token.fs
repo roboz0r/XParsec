@@ -1813,6 +1813,60 @@ module internal TokenInfo =
         uint16 token &&& mask |> uint16 |> LanguagePrimitives.EnumOfValue
 
     let canBePrefix token = hasFlag token CanBePrefix
+
+    /// Can this token appear as the first token of an expression?
+    /// Used to guard virtual separator emission in seq blocks — only tokens that can
+    /// actually start an expression should trigger a virtual `;`.
+    let canStartExpression (token: Token) =
+        match token with
+        // Identifiers
+        | Token.Identifier -> true
+        // Literals (numeric and text kinds cover all number/string/char/byte-array tokens)
+        | _ when isLiteral token -> true
+        // Boolean and null keywords (classified as keywords, not literals)
+        | Token.KWTrue
+        | Token.KWFalse
+        | Token.KWNull -> true
+        // Opening delimiters
+        | Token.KWLParen
+        | Token.KWLBracket
+        | Token.KWLArrayBracket
+        | Token.KWLBrace
+        | Token.KWBegin
+        | Token.KWStruct -> true
+        // Keyword expression starters (control flow, binding, computation)
+        | Token.KWIf
+        | Token.KWMatch
+        | Token.KWMatchBang
+        | Token.KWFunction
+        | Token.KWFun
+        | Token.KWTry
+        | Token.KWWhile
+        | Token.KWFor
+        | Token.KWNew
+        | Token.KWLet
+        | Token.KWLetBang
+        | Token.KWUse
+        | Token.KWUseBang
+        | Token.KWDo
+        | Token.KWDoBang
+        | Token.KWReturn
+        | Token.KWReturnBang
+        | Token.KWYield
+        | Token.KWYieldBang
+        | Token.KWLazy
+        | Token.KWAssert -> true
+        // Quotation markers
+        | Token.OpQuotationTypedLeft
+        | Token.OpQuotationUntypedLeft -> true
+        // Interpolated string opens
+        | Token.InterpolatedStringOpen
+        | Token.VerbatimInterpolatedStringOpen
+        | Token.Interpolated3StringOpen -> true
+        // Prefix operators (-, +, !, ~, &, &&, .., *, not, etc.)
+        | _ when isOperator token && canBePrefix token -> true
+        | _ -> false
+
     // https://learn.microsoft.com/en-us/dotnet/fsharp/language-reference/symbol-and-operator-reference/#operator-precedence
     // 4.4.2 Precedence of Symbolic Operators and Pattern/Expression Constructs
 
