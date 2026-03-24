@@ -1277,10 +1277,18 @@ module ExceptionDefn =
             return!
                 choiceL
                     [
-                        // Full: exception Foo of int  (case data requires ident + 'of')
+                        // Full: exception Foo of int with members
                         parser {
                             let! caseData = UnionTypeCaseData.parseNary
-                            return ExceptionDefn.Full(attrs, exTok, caseData)
+
+                            let! ext =
+                                opt (
+                                    choiceL
+                                        [ TypeExtensionElements.parse; TypeExtensionElements.parseLight ]
+                                        "Type Extension"
+                                )
+
+                            return ExceptionDefn.Full(attrs, exTok, caseData, ext)
                         }
                         // Abbreviation: exception Foo = Other.Exception
                         parser {
@@ -1292,7 +1300,15 @@ module ExceptionDefn =
                         // Nullary: exception Foo
                         parser {
                             let! ident = pIdent
-                            return ExceptionDefn.Full(attrs, exTok, UnionTypeCaseData.Nullary ident)
+
+                            let! ext =
+                                opt (
+                                    choiceL
+                                        [ TypeExtensionElements.parse; TypeExtensionElements.parseLight ]
+                                        "Type Extension"
+                                )
+
+                            return ExceptionDefn.Full(attrs, exTok, UnionTypeCaseData.Nullary ident, ext)
                         }
                     ]
                     "Exception definition"

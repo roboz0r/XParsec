@@ -1507,11 +1507,22 @@ and walkUnionCaseData (visitor: AstVisitor<'T>) (data: UnionTypeCaseData<'T>) : 
 
 and walkExceptionDefn (visitor: AstVisitor<'T>) (exnDefn: ExceptionDefn<'T>) : unit =
     match exnDefn with
-    | ExceptionDefn.Full(attrs, exTok, caseData) ->
+    | ExceptionDefn.Full(attrs, exTok, caseData, extensions) ->
         visitor.EnterSection "ExceptionDefn.Full"
         walkAttributesOpt visitor attrs
         visitor.VisitToken "exception" exTok
         walkUnionCaseData visitor caseData
+        match extensions with
+        | ValueSome(TypeExtensionElements(withTok, elems, endTok)) ->
+            visitor.VisitToken "with" withTok
+            visitor.EnterSection ""
+
+            for e in elems do
+                walkTypeDefnElement visitor e
+
+            visitor.ExitSection ""
+            visitor.VisitToken "end" endTok
+        | ValueNone -> ()
         visitor.ExitSection "ExceptionDefn.Full"
     | ExceptionDefn.Abbreviation(attrs, exTok, ident, eq, longIdent) ->
         visitor.EnterSection "ExceptionDefn.Abbrev"
