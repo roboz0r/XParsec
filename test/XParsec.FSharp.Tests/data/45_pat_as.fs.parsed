@@ -9,7 +9,7 @@ Match:
     Pat:
       Pat.As:
         ParenBlock        '('               KWLParen            tok=   8  pos=  16
-          Pat.Cons        '::'              KWColonColon        tok=  11  pos=  19
+          Pat.Cons        '::'              OpCons              tok=  11  pos=  19
             Pat.Wildcard  '_'               Wildcard            tok=   9  pos=  17
             Pat.Wildcard  '_'               Wildcard            tok=  13  pos=  22
                           ')'               KWRParen            tok=  14  pos=  23

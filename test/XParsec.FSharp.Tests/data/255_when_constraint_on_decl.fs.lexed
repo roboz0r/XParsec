@@ -1,0 +1,95 @@
+0, KWModule
+6, Whitespace
+7, Identifier
+11, Newline
+12, Newline
+13, KWOpen
+17, Whitespace
+18, Identifier
+24, OpDot
+25, Identifier
+36, OpDot
+37, Identifier
+44, Newline
+45, Newline
+46, LineComment
+86, Newline
+87, KWType
+91, Whitespace
+92, Identifier
+97, Operator 0b1000000000001111 ComparisonAndBitwise
+98, TypeParameter
+100, OpComma
+101, Whitespace
+102, TypeParameter
+106, Operator 0b1000000000001111 ComparisonAndBitwise
+107, Whitespace
+108, KWWhen
+112, Whitespace
+113, TypeParameter
+117, Whitespace
+118, OpUpcast
+120, Whitespace
+121, Identifier
+130, Operator 0b1000000000001111 ComparisonAndBitwise
+131, TypeParameter
+133, Operator 0b1000000000001111 ComparisonAndBitwise
+134, KWLParen
+135, Identifier
+143, OpColon
+144, Whitespace
+145, Identifier
+154, Operator 0b1000000000001111 ComparisonAndBitwise
+155, TypeParameter
+157, Operator 0b1000000000001111 ComparisonAndBitwise
+158, KWRParen
+159, Whitespace
+160, OpEquality
+161, Newline
+162, Indent
+166, KWMember
+172, Whitespace
+173, Wildcard
+174, OpDot
+175, Identifier
+183, Whitespace
+184, OpEquality
+185, Whitespace
+186, Identifier
+194, Newline
+195, Newline
+196, LineComment
+242, Newline
+243, KWLet
+246, Whitespace
+247, KWInline
+253, Whitespace
+254, Identifier
+264, Operator 0b1000000000001111 ComparisonAndBitwise
+265, TypeParameter
+267, Whitespace
+268, KWWhen
+272, Whitespace
+273, TypeParameter
+275, OpColon
+276, Whitespace
+277, Identifier
+285, Operator 0b1000000000001111 ComparisonAndBitwise
+286, Whitespace
+287, OpColon
+288, Whitespace
+289, Identifier
+306, Operator 0b1000000000001111 ComparisonAndBitwise
+307, TypeParameter
+309, Operator 0b1000000000001111 ComparisonAndBitwise
+310, Whitespace
+311, OpEquality
+312, Newline
+313, Indent
+317, Identifier
+333, Operator 0b1000000000001111 ComparisonAndBitwise
+334, TypeParameter
+336, Operator 0b1000000000001111 ComparisonAndBitwise
+338, Identifier
+345, Newline
+346, EOF

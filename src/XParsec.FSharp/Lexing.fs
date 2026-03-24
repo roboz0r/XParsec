@@ -858,7 +858,7 @@ module Lexing =
             | _ ->
                 match span[0], span[1] with
                 | '`', '`' ->
-                    // Escaped backtick within identifier
+                    // Closing ``
                     reader.SkipN(2)
                     preturn Token.BacktickedIdentifier reader
                 | '`', ('\n' | '\r' | '\t') ->
@@ -890,6 +890,8 @@ module Lexing =
         | _ ->
             match span[0], span[1] with
             | '`', '`' ->
+                reader.SkipN(2) // Consume opening ``
+
                 match pRest reader with
                 | Ok token ->
                     reader.State <- LexBuilder.append token pos CtxOp.NoOp reader.State
@@ -1315,9 +1317,17 @@ module Lexing =
         pTokenPopCtx (pchar '"') Token.InterpolatedStringClose LexContext.InterpolatedString
 
     let pInterpolatedStringFragmentToken =
-        pToken
-            (many1Chars (satisfy (fun c -> c <> '"' && c <> '{' && c <> '}' && c <> '%')))
-            Token.InterpolatedStringFragment
+        // Non-verbatim interpolated strings support escape sequences like \"
+        // A backslash consumes itself and the next character as an escape pair.
+        let pFragmentChar =
+            choiceL
+                [
+                    pchar '\\' >>. anyChar
+                    satisfy (fun c -> c <> '"' && c <> '{' && c <> '}' && c <> '%' && c <> '\\')
+                ]
+                "Interpolated string fragment char"
+
+        pToken (many1Chars pFragmentChar) Token.InterpolatedStringFragment
 
     let pInterpolated3StringFragmentToken =
         pToken
@@ -2197,6 +2207,8 @@ module Lexing =
                 pToken (pstring "(*F#") Token.StartFSharpBlockComment
                 // 3.2 Comments
                 pToken (pstring "(*") Token.BlockCommentStart
+                // IL intrinsic literal opening
+                pToken (pstring "(#") Token.KWLHashParen
                 //pToken (pstring "()") Token.Unit
                 pOpenParenExpressionContext
             ]
@@ -2357,7 +2369,14 @@ module Lexing =
 
 
     let pHashToken =
-        choiceL [ pDirectiveToken; pToken (pchar '#') Token.KWHash ] "Hash or Directive"
+        choiceL
+            [
+                pDirectiveToken
+                // IL intrinsic literal closing
+                pToken (pstring "#)") Token.KWRHashParen
+                pToken (pchar '#') Token.KWHash
+            ]
+            "Hash or Directive"
 
     [<TailCall>]
     let rec lex (reader: Reader<char, LexBuilder, ReadableString, _>) =
@@ -2439,6 +2458,7 @@ module Lexing =
                 | c, ExpressionCtx when NumericLiterals.isDecimalDigit c -> NumericLiterals.parseToken
                 | c, ExpressionCtx when customOperatorChars.Contains c -> pCustomOperatorToken
                 | c, ExpressionCtx when isIdentStartChar c -> pIdentifierOrKeywordToken
+                | '`', ExpressionCtx -> pBacktickedIdentifierToken
                 | _, _ -> pOtherToken
 
             match p reader with

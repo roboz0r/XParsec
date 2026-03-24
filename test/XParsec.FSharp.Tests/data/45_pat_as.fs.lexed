@@ -9,7 +9,7 @@
 16, KWLParen
 17, Wildcard
 18, Whitespace
-19, KWColonColon
+19, OpCons
 21, Whitespace
 22, Wildcard
 23, KWRParen

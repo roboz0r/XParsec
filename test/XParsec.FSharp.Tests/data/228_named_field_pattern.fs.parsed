@@ -1,0 +1,77 @@
+module                               'module'          KWModule            tok=   0  pos=   0
+                                     'Test'            Identifier          tok=   2  pos=   7
+TypeDefn.Union:
+  TypeName                           'Item'            Identifier          tok=   7  pos=  18
+  =                                  '='               OpEquality          tok=   9  pos=  23
+    Case:
+      ident                          'Property'        Identifier          tok=  14  pos=  31
+      of                             'of'              KWOf                tok=  16  pos=  40
+      ident                          'info'            Identifier          tok=  18  pos=  43
+      :                              ':'               OpColon             tok=  19  pos=  47
+      SuffixedType:
+        NamedType:
+          LongIdent:
+                                     'string'          Identifier          tok=  21  pos=  49
+        LongIdent:
+                                     'list'            Identifier          tok=  23  pos=  56
+      ident                          'tag'             Identifier          tok=  27  pos=  63
+      :                              ':'               OpColon             tok=  28  pos=  66
+      NamedType:
+        LongIdent:
+                                     'int'             Identifier          tok=  30  pos=  68
+FunctionOrValue:
+  let                                'let'             KWLet               tok=  33  pos=  73
+    Pat.NamedSimple                  'test'            Identifier          tok=  35  pos=  77
+    Pats:
+      Pat.NamedSimple                'item'            Identifier          tok=  37  pos=  82
+    =                                '='               OpEquality          tok=  39  pos=  87
+      Match:
+        MatchToken                   'match'           KWMatch             tok=  42  pos=  93
+        MatchExpr:
+          Ident                      'item'            Identifier          tok=  44  pos=  99
+        WithToken                    'with'            KWWith              tok=  46  pos= 104
+        Rule:
+          Bar                        '|'               OpBar               tok=  49  pos= 113
+          Pat:
+            Pat.NamedFieldPats:
+              Ident                  'Property'        Identifier          tok=  51  pos= 115
+              (                      '('               KWLParen            tok=  52  pos= 123
+              FieldPat:
+                Ident                'info'            Identifier          tok=  53  pos= 124
+                =                    '='               OpEquality          tok=  55  pos= 129
+                Pat:
+                  Pat.Cons           '::'              OpCons              tok=  59  pos= 133
+                    Pat.NamedSimple  'x'               Identifier          tok=  57  pos= 131
+                    Pat.Wildcard     '_'               Wildcard            tok=  61  pos= 136
+              FieldPat:
+                Ident                'tag'             Identifier          tok=  64  pos= 139
+                =                    '='               OpEquality          tok=  66  pos= 143
+                Pat:
+                  Pat.NamedSimple    't'               Identifier          tok=  68  pos= 145
+              )                      ')'               KWRParen            tok=  69  pos= 146
+          Arrow                      '->'              OpArrowRight        tok=  71  pos= 148
+          Expr:
+            Ident                    'x'               Identifier          tok=  73  pos= 151
+        Rule:
+          Bar                        '|'               OpBar               tok=  76  pos= 157
+          Pat:
+            Pat.NamedFieldPats:
+              Ident                  'Property'        Identifier          tok=  78  pos= 159
+              (                      '('               KWLParen            tok=  79  pos= 167
+              FieldPat:
+                Ident                'info'            Identifier          tok=  80  pos= 168
+                =                    '='               OpEquality          tok=  82  pos= 173
+                Pat:
+                  List               '['               KWLBracket          tok=  84  pos= 175
+                                     ']'               KWRBracket          tok=  85  pos= 176
+              )                      ')'               KWRParen            tok=  86  pos= 177
+          Arrow                      '->'              OpArrowRight        tok=  88  pos= 179
+          Expr:
+            Const                    '"none"'          StringLiteral       tok=  90  pos= 182
+        Rule:
+          Bar                        '|'               OpBar               tok=  93  pos= 193
+          Pat:
+            Pat.Wildcard             '_'               Wildcard            tok=  95  pos= 195
+          Arrow                      '->'              OpArrowRight        tok=  97  pos= 197
+          Expr:
+            Const                    '"other"'         StringLiteral       tok=  99  pos= 200

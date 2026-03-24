@@ -81,7 +81,7 @@ module internal Keywords =
 
     let pDone: KWParser = nextNonTriviaTokenIsL Token.KWDone "done"
 
-    let pIdent: KWParser = nextNonTriviaTokenIsL Token.Identifier "identifier"
+    let pIdent: KWParser = nextNonTriviaIdentifierL "identifier"
 
     let pToOrDownTo: KWParser =
         nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWTo || t.Token = Token.KWDownto) "to/downto"

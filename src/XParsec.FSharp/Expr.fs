@@ -314,6 +314,10 @@ type Expr<'T> =
         expr: Expr<'T> *
         rParen: 'T
     | InterpolatedString of opening: 'T * parts: InterpolatedStringPart<'T> list * closing: 'T
+    // IL intrinsic literal: (# "il" expr : type #)
+    | ILIntrinsic of lHashParen: 'T * tokens: 'T list * rHashParen: 'T
+    // Shorthand member access lambda: _.Member (F# 8+)
+    | Wildcard of underscore: 'T
     // Incomplete or Placeholder
     | Missing // Placeholder for missing expression
     | SkipsTokens of skippedTokens: 'T list // Placeholder for skipped tokens
@@ -344,6 +348,7 @@ and [<RequireQualifiedAccess>] Pat<'T> =
     | Elems of pats: Pat<'T> list * separators: 'T list
     | NamedSimple of ident: 'T
     | Named of longIdent: LongIdent<'T> * param: Pat<'T> voption * pat: Pat<'T> voption
+    | NamedFieldPats of longIdent: LongIdent<'T> * lParen: 'T * fieldPats: FieldPat<'T> list * commas: 'T list * rParen: 'T
     | Wildcard of underscore: 'T
     | As of pat: Pat<'T> * asToken: 'T * ident: 'T
     | Or of left: Pat<'T> * bar: 'T * right: Pat<'T>
@@ -396,7 +401,8 @@ type TypeName<'T> =
         attributes: Attributes<'T> voption *
         access: 'T voption *
         ident: LongIdent<'T> *
-        typarDefns: TyparDefns<'T> voption
+        typarDefns: TyparDefns<'T> voption *
+        postfixConstraints: TyparConstraints<'T> voption
 
 // Represents: type-defn-element and related constructs
 type TypeDefnElement<'T> =
@@ -588,7 +594,7 @@ and [<RequireQualifiedAccess>] TypeDefn<'T> =
     | Anon of
         typeName: TypeName<'T> *
         primaryConstr: PrimaryConstrArgs<'T> voption *
-        objectVal: 'T voption *  // Placeholder
+        asDefn: AsDefn<'T> voption *
         equals: 'T *
         beginToken: 'T *
         body: ObjectModelBody<'T> *
@@ -596,7 +602,7 @@ and [<RequireQualifiedAccess>] TypeDefn<'T> =
     | Class of
         typeName: TypeName<'T> *
         primaryConstr: PrimaryConstrArgs<'T> voption *
-        objectVal: 'T voption *  // Placeholder
+        asDefn: AsDefn<'T> voption *
         equals: 'T *
         classToken: 'T *
         body: ObjectModelBody<'T> *

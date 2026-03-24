@@ -111,7 +111,7 @@ module ActivePatternOpName =
         // Recursive helper to parse segments: ident | ...
         let rec parseSegments acc =
             parser {
-                let! ident = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.Identifier) "Expected identifier"
+                let! ident = nextNonTriviaIdentifierL "Expected identifier"
 
                 let! bar = pBar
 
@@ -165,8 +165,8 @@ module IdentOrOp =
     let parse: Parser<IdentOrOp<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         choiceL
             [
-                // Case 1: Simple Identifier
-                nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.Identifier) "Expected Identifier"
+                // Case 1: Simple Identifier (including backticked)
+                nextNonTriviaIdentifierL "Expected Identifier"
                 |>> IdentOrOp.Ident
 
                 // Case 2: Star Operator (*)
@@ -256,7 +256,7 @@ module LongIdentOrOp =
 [<RequireQualifiedAccess>]
 module LongIdent =
     // Simple parser for A.B.C
-    let private pIdent = nextNonTriviaTokenIsL Token.Identifier "Expected Identifier"
+    let private pIdent = nextNonTriviaIdentifierL "Expected Identifier"
     let parse = sepBy1 pIdent pDot |>> fun struct (xs, dots) -> List.ofSeq xs
 
 
