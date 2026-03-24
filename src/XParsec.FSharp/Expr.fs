@@ -412,10 +412,17 @@ type PrimaryConstrArgs<'T> =
         rParen: 'T
 
 // Represents: type-name
+/// ML-style prefix type parameters: 'T ident or ('a, 'b) ident
+[<RequireQualifiedAccess>]
+type PrefixTypars<'T> =
+    | Single of typar: Typar<'T>
+    | Multiple of lParen: 'T * typars: Typar<'T> list * rParen: 'T
+
 type TypeName<'T> =
     | TypeName of
         attributes: Attributes<'T> voption *
         access: 'T voption *
+        prefixTypars: PrefixTypars<'T> voption *
         ident: LongIdent<'T> *
         typarDefns: TyparDefns<'T> voption *
         postfixConstraints: TyparConstraints<'T> voption

@@ -1,0 +1,50 @@
+module       'module'          KWModule            tok=   0  pos=   0
+             'Test'            Identifier          tok=   2  pos=   7
+TypeDefn.Abbrev:
+  PrefixTypar:
+    Typar.Named:
+             ''T'              TypeParameter       tok=   9  pos=  63
+  TypeName   'pickler'         Identifier          tok=  11  pos=  66
+  =          '='               OpEquality          tok=  13  pos=  74
+    FunctionType:
+      VarType:
+        Typar.Named:
+             ''T'              TypeParameter       tok=  15  pos=  76
+      ->     '->'              OpArrowRight        tok=  17  pos=  79
+      NamedType:
+        LongIdent:
+             'int'             Identifier          tok=  19  pos=  82
+TypeDefn.Abbrev:
+  PrefixTypars:
+    (        '('               KWLParen            tok=  26  pos= 125
+    Typar.Named:
+             ''a'              TypeParameter       tok=  27  pos= 126
+    Typar.Named:
+             ''b'              TypeParameter       tok=  30  pos= 130
+    )        ')'               KWRParen            tok=  31  pos= 132
+  TypeName   'mapping'         Identifier          tok=  33  pos= 134
+  =          '='               OpEquality          tok=  35  pos= 142
+    FunctionType:
+      VarType:
+        Typar.Named:
+             ''a'              TypeParameter       tok=  37  pos= 144
+      ->     '->'              OpArrowRight        tok=  39  pos= 147
+      VarType:
+        Typar.Named:
+             ''b'              TypeParameter       tok=  41  pos= 150
+TypeDefn.Record:
+  TypeName   'Wrapper'         Identifier          tok=  48  pos= 199
+  TyparDefns:
+             '<'               op_LessThan         tok=  49  pos= 206
+    Typar.Named:
+             ''T'              TypeParameter       tok=  50  pos= 207
+             '>'               op_GreaterThan      tok=  51  pos= 209
+  =          '='               OpEquality          tok=  53  pos= 211
+  {          '{'               KWLBrace            tok=  55  pos= 213
+    Field:
+      ident  'Value'           Identifier          tok=  57  pos= 215
+      :      ':'               OpColon             tok=  58  pos= 220
+      VarType:
+        Typar.Named:
+             ''T'              TypeParameter       tok=  60  pos= 222
+  }          '}'               KWRBrace            tok=  62  pos= 225

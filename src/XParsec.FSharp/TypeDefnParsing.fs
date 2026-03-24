@@ -25,10 +25,27 @@ module PrimaryConstrArgs =
 
 [<RequireQualifiedAccess>]
 module TypeName =
+    /// Parse ML-style prefix type parameters: 'T or ('a, 'b)
+    let private pPrefixTypars: Parser<PrefixTypars<SyntaxToken>, _, _, _, _> =
+        choiceL
+            [
+                // ('a, 'b) — multiple prefix typars
+                parser {
+                    let! lParen = pLParen
+                    let! typars, _ = sepBy1 Typar.parse pComma
+                    let! rParen = pRParen
+                    return PrefixTypars.Multiple(lParen, List.ofSeq typars, rParen)
+                }
+                // 'T — single prefix typar
+                Typar.parse |>> PrefixTypars.Single
+            ]
+            "Prefix type parameters"
+
     /// Parses a TypeName using pre-parsed attributes (from before the `type` keyword).
     let parseWithAttrs (attrs: Attributes<SyntaxToken> voption) : Parser<TypeName<SyntaxToken>, _, _, _, _> =
         parser {
             let! access = opt pAccessModifier
+            let! prefixTypars = opt pPrefixTypars
             let! ident = LongIdent.parse
             let! typars = opt TyparDefns.parse
 
@@ -43,7 +60,7 @@ module TypeName =
                     }
                 )
 
-            return TypeName(attrs, access, ident, typars, postfixConstraints)
+            return TypeName(attrs, access, prefixTypars, ident, typars, postfixConstraints)
         }
 
     let parse: Parser<TypeName<SyntaxToken>, _, _, _, _> =
