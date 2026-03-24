@@ -577,7 +577,11 @@ and TypeExtensionElements<'T> = | TypeExtensionElements of withToken: 'T * eleme
 
 // Represents: exception-defn
 and [<RequireQualifiedAccess>] ExceptionDefn<'T> =
-    | Full of attributes: Attributes<'T> voption * exceptionToken: 'T * caseData: UnionTypeCaseData<'T>
+    | Full of
+        attributes: Attributes<'T> voption *
+        exceptionToken: 'T *
+        caseData: UnionTypeCaseData<'T> *
+        extensions: TypeExtensionElements<'T> voption
     | Abbreviation of
         attributes: Attributes<'T> voption *
         exceptionToken: 'T *

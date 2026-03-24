@@ -1,0 +1,57 @@
+module                               'module'          KWModule            tok=   0  pos=   0
+                                     'Test'            Identifier          tok=   2  pos=   7
+ExceptionDefn.Full:
+  exception                          'exception'       KWException         tok=   7  pos=  48
+  ident                              'WrappedErr...'   Identifier          tok=   9  pos=  58
+  of                                 'of'              KWOf                tok=  11  pos=  71
+  NamedType:
+    LongIdent:
+                                     'exn'             Identifier          tok=  13  pos=  74
+  NamedType:
+    LongIdent:
+                                     'string'          Identifier          tok=  17  pos=  80
+  with                               'with'            KWWith              tok=  19  pos=  87
+    override                         'override'        KWOverride          tok=  22  pos=  96
+    self                             'this'            Identifier          tok=  24  pos= 105
+    Pat.NamedSimple                  'Message'         Identifier          tok=  26  pos= 110
+    =                                '='               OpEquality          tok=  28  pos= 118
+      Match:
+        MatchToken                   'match'           KWMatch             tok=  31  pos= 128
+        MatchExpr:
+          StaticUpcast:
+            Expr:
+              Ident                  'this'            Identifier          tok=  33  pos= 134
+            :>                       ':>'              OpUpcast            tok=  35  pos= 139
+            NamedType:
+              LongIdent:
+                                     'exn'             Identifier          tok=  37  pos= 142
+        WithToken                    'with'            KWWith              tok=  39  pos= 146
+        Rule:
+          Bar                        '|'               OpBar               tok=  42  pos= 159
+          Pat:
+            Pat.Named:
+              Ident                  'WrappedErr...'   Identifier          tok=  44  pos= 161
+              Param:
+                ParenBlock           '('               KWLParen            tok=  45  pos= 173
+                  Pat.Tuple:
+                    Pat.Wildcard     '_'               Wildcard            tok=  46  pos= 174
+                    Pat.NamedSimple  'msg'             Identifier          tok=  49  pos= 177
+                                     ')'               KWRParen            tok=  50  pos= 180
+          Arrow                      '->'              OpArrowRight        tok=  52  pos= 182
+          Expr:
+            Ident                    'msg'             Identifier          tok=  54  pos= 185
+        Rule:
+          Bar                        '|'               OpBar               tok=  57  pos= 197
+          Pat:
+            Pat.Wildcard             '_'               Wildcard            tok=  59  pos= 199
+          Arrow                      '->'              OpArrowRight        tok=  61  pos= 201
+          Expr:
+            Const                    '"unknown"'       StringLiteral       tok=  63  pos= 204
+  end                                <virt>            KWEnd               tok=virt  pos= 255
+ExceptionDefn.Full:
+  exception                          'exception'       KWException         tok=  68  pos= 255
+  ident                              'SimpleErro...'   Identifier          tok=  70  pos= 265
+  of                                 'of'              KWOf                tok=  72  pos= 277
+  NamedType:
+    LongIdent:
+                                     'string'          Identifier          tok=  74  pos= 280
