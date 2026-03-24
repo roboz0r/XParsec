@@ -1457,9 +1457,27 @@ and walkTypeDefnElement (visitor: AstVisitor<'T>) (elem: TypeDefnElement<'T>) : 
     | TypeDefnElement.InterfaceSpec _ -> visitor.WriteLine "<interface spec>"
 
 and walkTypeName (visitor: AstVisitor<'T>) (typeName: TypeName<'T>) : unit =
-    let (TypeName(attrs, access, ident, typars, postfixConstraints)) = typeName
+    let (TypeName(attrs, access, prefixTypars, ident, typars, postfixConstraints)) =
+        typeName
+
     walkAttributesOpt visitor attrs
     visitTokenOpt visitor "access" access
+
+    match prefixTypars with
+    | ValueSome(PrefixTypars.Single typar) ->
+        visitor.EnterSection "PrefixTypar"
+        walkTypar visitor typar
+        visitor.ExitSection "PrefixTypar"
+    | ValueSome(PrefixTypars.Multiple(lParen, typars, rParen)) ->
+        visitor.EnterSection "PrefixTypars"
+        visitor.VisitToken "(" lParen
+
+        for tp in typars do
+            walkTypar visitor tp
+
+        visitor.VisitToken ")" rParen
+        visitor.ExitSection "PrefixTypars"
+    | ValueNone -> ()
 
     for tok in ident do
         visitor.VisitToken "TypeName" tok
