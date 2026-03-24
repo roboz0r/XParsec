@@ -13,7 +13,7 @@ open XParsec.FSharp.Parser.ParseState
 module Typar =
 
     let private pIdent =
-        nextNonTriviaTokenIsL Token.Identifier "Expected identifier for type parameter"
+        nextNonTriviaIdentifierL "Expected identifier for type parameter"
 
     let pAnon = pWildcard |>> Typar.Anon
 
@@ -55,7 +55,7 @@ module StaticTypars =
         parser {
             let! state = getUserState
             let! caret = nextNonTriviaTokenSatisfiesL (fun t -> tokenStringIs "^" t state) "Expected '^'"
-            let! ident = nextNonTriviaTokenIsL Token.Identifier "Expected identifier"
+            let! ident = nextNonTriviaIdentifierL "Expected identifier"
             return StaticTypars.Single(caret, ident)
         }
 
@@ -86,7 +86,7 @@ module Constraint =
     let private pMemberSig: Parser<MemberSig<SyntaxToken>, _, _, _, _> =
         // Consumes tokens until matching paren? Placeholder implementation.
         // In real impl, this parses property/method signatures.
-        nextNonTriviaTokenIsL Token.Identifier "MemberSig Placeholder"
+        nextNonTriviaIdentifierL "MemberSig Placeholder"
         |>> fun _ -> failwith "MemberSig parsing not implemented"
 
     let private pMemberTrait =
@@ -104,7 +104,7 @@ module Constraint =
             let! colonUnit = pColon
             //let! unitTok = nextNonTriviaTokenIsL Token.Unit "Expected '()'" // Simplified
             let! arrow = pArrowRight
-            let! quoteT = nextNonTriviaTokenIsL Token.Identifier "Expected 'T" // Simplified
+            let! quoteT = nextNonTriviaIdentifierL "Expected 'T" // Simplified
             let! rParen = pRParen
             // Re-map unitTok to ensure types align if AST expects specific tokens.
             // Note: AST asks for 'colonUnit' then 'arrow', logic adjusted to AST structure:

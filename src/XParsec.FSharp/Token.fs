@@ -675,8 +675,14 @@ module TokenRepresentation =
         [<Literal>]
         let OpRangeStep = 173us // .. ..
 
+        [<Literal>]
+        let LHashParen = 174us // (#
+
+        [<Literal>]
+        let RHashParen = 175us // #)
+
         // ==========================================================
-        // Available 174-179us
+        // Available 176-179us
         // ==========================================================
 
         // 3.7 Symbolic Operators
@@ -1418,6 +1424,8 @@ type Token =
     | KWRBrace = (KindKeyword ||| KW.RBrace)
     | KWSingleQuote = (KindKeyword ||| KW.SingleQuote)
     | KWHash = (KindKeyword ||| KW.Hash)
+    | KWLHashParen = (KindKeyword ||| KW.LHashParen) // (#
+    | KWRHashParen = (KindKeyword ||| KW.RHashParen) // #)
     | OpDowncast = (KindKeyword ||| KW.OpDowncast) // :?>
     | OpTypeTest = (KindKeyword ||| KW.OpTypeTest) // :?
     | OpUpcast = (KindKeyword ||| KW.OpUpcast) // :>
@@ -1820,7 +1828,9 @@ module internal TokenInfo =
     let canStartExpression (token: Token) =
         match token with
         // Identifiers
-        | Token.Identifier -> true
+        | Token.Identifier
+        | Token.BacktickedIdentifier
+        | Token.UnterminatedBacktickedIdentifier -> true
         // Literals (numeric and text kinds cover all number/string/char/byte-array tokens)
         | _ when isLiteral token -> true
         // Boolean and null keywords (classified as keywords, not literals)

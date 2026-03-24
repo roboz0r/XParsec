@@ -628,6 +628,28 @@ module Parsing =
     let nextNonTriviaTokenIsL (t: Token) msg =
         nextNonTriviaTokenSatisfiesL (fun synTok -> synTok.Token = t) msg
 
+    /// Matches Token.Identifier, Token.BacktickedIdentifier, or Token.UnterminatedBacktickedIdentifier.
+    /// Emits a diagnostic for unterminated backticked identifiers.
+    let nextNonTriviaIdentifierL msg (reader: Reader<PositionedToken, ParseState, _, _>) =
+        match peekNextNonTriviaToken reader with
+        | Error e -> Error e
+        | Ok token ->
+            match token.Token with
+            | Token.Identifier
+            | Token.BacktickedIdentifier -> consumePeeked token reader
+            | Token.UnterminatedBacktickedIdentifier ->
+                reader.State <-
+                    ParseState.addDiagnostic
+                        (DiagnosticCode.Other "Unterminated backticked identifier")
+                        DiagnosticSeverity.Error
+                        token.PositionedToken
+                        None
+                        None
+                        reader.State
+
+                consumePeeked token reader
+            | _ -> fail (Message msg) reader
+
     let dispatchNextNonTriviaTokenFallback (routes: (Token * Parser<_, _, _, _, _>) list) pFallback =
         // Note: Routes are typically <20 items, so linear search is fine. Likely to be 5 or less in practice.
         // So an array is likely more efficient than a dictionary.

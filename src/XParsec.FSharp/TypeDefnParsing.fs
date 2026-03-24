@@ -31,7 +31,19 @@ module TypeName =
             let! access = opt pAccessModifier
             let! ident = LongIdent.parse
             let! typars = opt TyparDefns.parse
-            return TypeName(attrs, access, ident, typars)
+
+            // Parse optional postfix 'when' constraints (outside angle brackets):
+            // type Set<'T, 'Tag> when 'Tag :> IComparer<'T> = ...
+            let! postfixConstraints =
+                opt (
+                    parser {
+                        let! whenTok = pWhen
+                        let! constrs, _ = sepBy1 Constraint.parse pAnd
+                        return TyparConstraints.TyparConstraints(whenTok, List.ofSeq constrs)
+                    }
+                )
+
+            return TypeName(attrs, access, ident, typars, postfixConstraints)
         }
 
     let parse: Parser<TypeName<SyntaxToken>, _, _, _, _> =
@@ -372,9 +384,23 @@ module AdditionalConstrExpr =
 
     let parse =
         parser {
-            // Simplified recursive parser for constructor body
+            // Parse constructor init expression
             let! init = pInit
-            return AdditionalConstrExpr.Init init
+            let initExpr = AdditionalConstrExpr.Init init
+
+            // Check for optional 'then' continuation
+            let! thenClause =
+                opt (
+                    parser {
+                        let! thenTok = pThen
+                        let! expr = Expr.parseSeqBlock
+                        return (thenTok, expr)
+                    }
+                )
+
+            match thenClause with
+            | ValueSome(thenTok, expr) -> return AdditionalConstrExpr.SequenceBefore(initExpr, thenTok, expr)
+            | ValueNone -> return initExpr
         }
 
     do refAdditionalConstrExpr.Set parse
@@ -900,7 +926,7 @@ module UnionTypeCaseData =
 
     let parseNary: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _, _> =
         parser {
-            let! ident = nextNonTriviaTokenIsL Token.Identifier "Union Case Name"
+            let! ident = nextNonTriviaIdentifierL "Union Case Name"
             let! ofTok = pOf
 
             // Check for uncurried signature (colon Type) or field list
@@ -924,7 +950,7 @@ module UnionTypeCaseData =
             [
                 parseNary
                 parser {
-                    let! ident = nextNonTriviaTokenIsL Token.Identifier "Union Case Name"
+                    let! ident = nextNonTriviaIdentifierL "Union Case Name"
                     return UnionTypeCaseData.Nullary ident
                 }
             ]
@@ -969,7 +995,7 @@ module RecordField =
 module EnumTypeCase =
     let parse: Parser<EnumTypeCase<SyntaxToken>, _, _, _, _> =
         parser {
-            let! id = nextNonTriviaTokenIsL Token.Identifier "Enum Name"
+            let! id = nextNonTriviaIdentifierL "Enum Name"
             let! eq = pEquals
             let! c = withContext OffsideContext.SeqBlock refExpr.Parser
             return EnumTypeCase.EnumTypeCase(id, eq, c)
@@ -1038,7 +1064,7 @@ module TypeDefn =
             return RecordField.RecordField(attrs, mut, acc, id, col, t)
         }
 
-    let private parseAbbrevOrImplicitClass typeName (primaryConstr: PrimaryConstrArgs<SyntaxToken> voption) equals =
+    let private parseAbbrevOrImplicitClass typeName (primaryConstr: PrimaryConstrArgs<SyntaxToken> voption) (asDefn: AsDefn<SyntaxToken> voption) equals =
         parser {
             // If it starts with a class-body keyword or has a primary constructor, it's an implicit class.
             // Otherwise it's a type abbreviation.
@@ -1053,8 +1079,16 @@ module TypeDefn =
                             pAbstract
                             pDefault
                             pOverride
-                            // If primary constructor was present, it's definitely a class/struct
-                            (if primaryConstr.IsSome then
+                            // Attributes followed by a class-body keyword (e.g., [<FieldOffset(0)>] val ...)
+                            parser {
+                                let! _ = Attributes.parse
+                                return!
+                                    choiceL
+                                        [ pMember; pVal; pNew; pAbstract; pDefault; pOverride; pStatic ]
+                                        "Attributed class keyword"
+                            }
+                            // If primary constructor or as-defn was present, it's definitely a class/struct
+                            (if primaryConstr.IsSome || asDefn.IsSome then
                                  preturn (Unchecked.defaultof<_>)
                              else
                                  fail (Message "Not implicit"))
@@ -1069,7 +1103,7 @@ module TypeDefn =
                 let! beginTok = nextNonTriviaTokenVirtualIfNot Token.KWBegin
                 let! body = withContext OffsideContext.Type ClassTypeBody.parseOffside
                 let! endTok = nextNonTriviaTokenVirtualIfNot Token.KWEnd
-                return TypeDefn.Anon(typeName, primaryConstr, ValueNone, equals, beginTok, body, endTok)
+                return TypeDefn.Anon(typeName, primaryConstr, asDefn, equals, beginTok, body, endTok)
             | ValueNone ->
                 // Abbreviation
                 let! t =
@@ -1095,6 +1129,9 @@ module TypeDefn =
             // 1. Check for Primary Constructor (Class/Struct)
             let! primaryConstr = opt PrimaryConstrArgs.parse
 
+            // 1b. Check for 'as self' identifier (e.g., type Foo(x) as this = ...)
+            let! asDefn = opt AsDefn.parse
+
             // 2. Check for TypeExtension ('with' without '=') vs regular definition ('=')
             let! next2 = peekNextNonTriviaToken
 
@@ -1118,7 +1155,7 @@ module TypeDefn =
                     // Explicit Struct
                     let! str = pStruct
                     let! body, endTok = StructTypeBody.parse pEnd
-                    return TypeDefn.Struct(typeName, primaryConstr, ValueNone, equals, str, body, endTok)
+                    return TypeDefn.Struct(typeName, primaryConstr, asDefn, equals, str, body, endTok)
 
                 | Token.KWInterface when primaryConstr.IsNone ->
                     // Explicit Interface type: type IFoo = interface ... end
@@ -1131,7 +1168,7 @@ module TypeDefn =
                     // Explicit Class
                     let! cls = pClass
                     let! body, endTok = ClassTypeBody.parse pEnd
-                    return TypeDefn.Class(typeName, primaryConstr, ValueNone, equals, cls, body, endTok)
+                    return TypeDefn.Class(typeName, primaryConstr, asDefn, equals, cls, body, endTok)
 
                 | Token.KWDelegate ->
                     let! delSig = DelegateSig.parse
@@ -1198,7 +1235,7 @@ module TypeDefn =
 
                                         return TypeDefn.Union(typeName, equals, cases, ext)
                                 }
-                                parseAbbrevOrImplicitClass typeName primaryConstr equals
+                                parseAbbrevOrImplicitClass typeName primaryConstr asDefn equals
                             ]
                             "Union or Type body"
         }
@@ -1207,7 +1244,18 @@ module TypeDefn =
         parser {
             let! attrs = opt Attributes.parse
             let! _ = pType
-            return! parseBody attrs
+            // Attributes can also appear between 'type' and the type name:
+            //   type [<NoEquality>] MyRecord = ...
+            let! attrsAfterType = opt Attributes.parse
+
+            let mergedAttrs =
+                match attrs, attrsAfterType with
+                | ValueNone, ValueNone -> ValueNone
+                | ValueSome a, ValueNone -> ValueSome a
+                | ValueNone, ValueSome a -> ValueSome a
+                | ValueSome list1, ValueSome list2 -> ValueSome(list1 @ list2)
+
+            return! parseBody mergedAttrs
         }
 
     /// Parses a type definition continuation starting with 'and' (for mutual recursion groups).

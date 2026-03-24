@@ -98,11 +98,13 @@ module Binding =
             let! typarDefns = opt TyparDefns.parse
             // Parse argument patterns (atomic to avoid consuming return type annotations).
             // Operator definitions (e.g., `let (|PointFree|) = expr`) allow zero arguments.
+            // Generic value definitions (e.g., `let inline f<'T> : Type = expr`) also allow zero arguments.
             // Named function definitions require at least one argument.
             let! argumentPats =
                 match identOrOp with
                 | IdentOrOp.ParenOp _
                 | IdentOrOp.StarOp _ -> many Pat.parseAtomic
+                | IdentOrOp.Ident _ when typarDefns.IsSome -> many Pat.parseAtomic
                 | IdentOrOp.Ident _ -> Pat.parseAtomicMany1
 
             let! returnType = opt ReturnType.parse
@@ -331,7 +333,7 @@ module Expr =
             printfn
                 $"Operator: {op.PositionedToken}({op.StartIndex}), Precedence: {op.Precedence}, Associativity: %A{op.Associativity}"
 
-        let pIdent = nextNonTriviaTokenIsL Token.Identifier "Expected identifier after '.'"
+        let pIdentAfterDot = nextNonTriviaIdentifierL "Expected identifier after '.'"
 
         let parseDotRhs: Parser<ExprAux, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
             // Note: cannot use module-level pIdent here as that maps to Expr.Ident
@@ -346,7 +348,7 @@ module Expr =
                     }
                     // .ident — field/member access (e.g. x.Name)
                     parser {
-                        let! ident = pIdent
+                        let! ident = pIdentAfterDot
                         return ExprAux.Ident ident
                     }
                 ]
@@ -604,6 +606,8 @@ module Expr =
             let isAtomicExprToken (state: ParseState) (t: SyntaxToken) =
                 match t.Token with
                 | Token.Identifier
+                | Token.BacktickedIdentifier
+                | Token.UnterminatedBacktickedIdentifier
                 | Token.KWLParen
                 | Token.KWLBracket
                 | Token.KWLArrayBracket
@@ -757,7 +761,7 @@ module Expr =
                 "RHS operator"
 
         // Used for for-to and use identifiers (not the dot-access pIdent above)
-        let pIdentTok = nextNonTriviaTokenIsL Token.Identifier "identifier"
+        let pIdentTok = nextNonTriviaIdentifierL "identifier"
 
         // Shared complete function for all PrefixMapped keyword forms.
         let completeKeyword (op: SyntaxToken) (aux: ExprAux) =
@@ -1519,8 +1523,8 @@ module Expr =
             return Expr.InterpolatedString(opening, Seq.toList parts, closing)
         }
 
-    let pIdent =
-        nextNonTriviaTokenSatisfiesL (fun synTok -> synTok.Token = Token.Identifier) "Expected identifier"
+    let pIdentExpr =
+        nextNonTriviaIdentifierL "Expected identifier"
         |>> Expr.Ident
 
     let private pEnclosed =
@@ -1694,7 +1698,7 @@ module Expr =
                                     opt (
                                         parser {
                                             let! asTok = pAs
-                                            let! ident = nextNonTriviaTokenIsL Token.Identifier "identifier"
+                                            let! ident = nextNonTriviaIdentifierL "identifier"
                                             return struct (asTok, ident)
                                         }
                                     )
@@ -1787,6 +1791,15 @@ module Expr =
                     reader.State <- savedState
                     fail (Message "Record or RecordClone") reader
 
+    let private pILIntrinsic =
+        parser {
+            let! lHashParen = nextNonTriviaTokenIsL Token.KWLHashParen "(#"
+            let pAnyToken = nextNonTriviaTokenSatisfiesL (fun _ -> true) "IL intrinsic token"
+            let pEnd = nextNonTriviaTokenIsL Token.KWRHashParen "#)"
+            let! tokens, rHashParen = manyTill pAnyToken pEnd
+            return Expr.ILIntrinsic(lHashParen, List.ofSeq tokens, rHashParen)
+        }
+
     let private recoverExpr p =
         recoverWith
             StoppingTokens.afterExpr
@@ -1805,7 +1818,9 @@ module Expr =
         dispatchNextNonTriviaTokenFallback
             [
                 // TODO: Performance, sort this by frequency and put most common cases first
-                Token.Identifier, pIdent
+                Token.Identifier, pIdentExpr
+                Token.BacktickedIdentifier, pIdentExpr
+                Token.UnterminatedBacktickedIdentifier, pIdentExpr
                 //Token.Unit, pConst
                 // Note: KWLet, KWIf, KWMatch, KWFunction, KWFun, KWTry, KWWhile, KWFor, KWUse
                 // are handled as PrefixMapped operators in ExprOperatorParser.lhsParser.
@@ -1822,6 +1837,8 @@ module Expr =
                 Token.InterpolatedStringOpen, pInterpolatedString
                 Token.VerbatimInterpolatedStringOpen, pInterpolatedString
                 Token.Interpolated3StringOpen, pInterpolatedString
+                Token.KWLHashParen, pILIntrinsic
+                Token.Wildcard, (nextNonTriviaTokenIsL Token.Wildcard "_" |>> Expr.Wildcard)
             ]
             pConst
 

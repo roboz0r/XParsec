@@ -153,6 +153,7 @@ module Pat =
 
     let private refPat = FSRefParser<Pat<SyntaxToken>>()
     let private refFieldPat = FSRefParser<Pat<SyntaxToken>>()
+    let private refUnionFieldPat = FSRefParser<Pat<SyntaxToken>>()
     let private refPatAtomic = FSRefParser<Pat<SyntaxToken>>()
 
     let private pEnclosed =
@@ -228,20 +229,46 @@ module Pat =
                     reader.State <- savedState
                     fail (Message "Record pattern") reader
 
-    let pNamed =
+    /// Parse a single field in a named union case pattern: fieldName = pat (excludes comma)
+    let private pUnionFieldPat =
         parser {
             let! lid = LongIdent.parse
-            let! param = opt refPatAtomic.Parser
-            let! arg = opt refPat.Parser
-
-            match lid, param, arg with
-            | [ name ], ValueNone, ValueNone ->
-                // Simple named pattern (variable)
-                return Pat.NamedSimple(name)
-            | _ ->
-                // Full named pattern
-                return Pat.Named(lid, param, arg)
+            let! eq = pEquals
+            let! p = withContext OffsideContext.SeqBlock refUnionFieldPat.Parser
+            return FieldPat(lid, eq, p)
         }
+
+    /// Parse named field patterns: UnionCase(field1 = pat1, field2 = pat2)
+    let private pNamedFieldPats =
+        parser {
+            let! lid = LongIdent.parse
+            let! lParen = pLParen
+            let! fields, commas = sepBy1 pUnionFieldPat pComma
+            let! rParen = pRParen
+            return Pat.NamedFieldPats(lid, lParen, List.ofSeq fields, List.ofSeq commas, rParen)
+        }
+
+    let pNamed =
+        // Try named field patterns first (backtracking on failure),
+        // then fall back to standard named pattern parsing.
+        choiceL
+            [
+                pNamedFieldPats
+                parser {
+                    let! lid = LongIdent.parse
+                    let! param = opt refPatAtomic.Parser
+                    let! arg = opt refPat.Parser
+
+                    match lid, param, arg with
+                    | [ name ], ValueNone, ValueNone ->
+                        // Simple named pattern (variable)
+                        return Pat.NamedSimple(name)
+                    | _ ->
+                        // Full named pattern
+                        return Pat.Named(lid, param, arg)
+                }
+            ]
+            "Named pattern"
 
     let pTypeTestPat =
         parser {
@@ -304,6 +331,8 @@ module Pat =
                 Token.OpTypeTest, pTypeTestPat
                 Token.OpDynamic, pOptionalPat
                 Token.Identifier, pNamed
+                Token.BacktickedIdentifier, pNamed
+                Token.UnterminatedBacktickedIdentifier, pNamed
                 Token.KWLParen, pParenPat
                 Token.KWLBracket, pListPat
                 Token.KWLArrayBracket, pArrayPat
@@ -316,9 +345,13 @@ module Pat =
     do refPatAtomic.Set parseAtomic
 
     let parse = Operator.parser parseAtomic (PatOperatorParser())
-    // For field patterns, we want to allow the same operators as the top-level, but not semicolon since that separates fields.
+    // For record field patterns, we want to allow the same operators as the top-level, but not semicolon since that separates fields.
     let private parseFieldPat =
         Operator.parserAt (BindingPower.fromLevel (int PrecedenceLevel.Semicolon + 1)) parseAtomic (PatOperatorParser())
+
+    // For named union case field patterns (comma-separated), exclude both comma and semicolon.
+    let private parseUnionFieldPat =
+        Operator.parserAt (BindingPower.fromLevel (int PrecedenceLevel.Comma + 1)) parseAtomic (PatOperatorParser())
 
     let parseMany1 = many1 parse
     let parseAtomicMany1 = many1 parseAtomic
@@ -352,6 +385,7 @@ module Pat =
 
     do refPat.Set parse
     do refFieldPat.Set parseFieldPat
+    do refUnionFieldPat.Set parseUnionFieldPat
 
 
 [<RequireQualifiedAccess>]

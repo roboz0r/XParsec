@@ -1,0 +1,89 @@
+module               'module'          KWModule            tok=   0  pos=   0
+                     'Test'            Identifier          tok=   2  pos=   7
+Import:
+  open               'open'            KWOpen              tok=   5  pos=  13
+                     'System'          Identifier          tok=   7  pos=  18
+                     'Collection...'   Identifier          tok=   9  pos=  25
+                     'Generic'         Identifier          tok=  11  pos=  37
+TypeDefn.Anon:
+  TypeName           'MySet'           Identifier          tok=  18  pos=  92
+  TyparDefns:
+                     '<'               op_LessThan         tok=  19  pos=  97
+    Typar.Named:
+                     ''T'              TypeParameter       tok=  20  pos=  98
+    Typar.Named:
+                     ''Tag'            TypeParameter       tok=  23  pos= 102
+                     '>'               op_GreaterThan      tok=  24  pos= 106
+  when               'when'            KWWhen              tok=  26  pos= 108
+  Constraint.Coercion:
+    Typar.Named:
+                     ''Tag'            TypeParameter       tok=  28  pos= 113
+    :>               ':>'              OpUpcast            tok=  30  pos= 118
+    GenericType:
+      LongIdent:
+                     'IComparer'       Identifier          tok=  32  pos= 121
+      <              '<'               op_LessThan         tok=  33  pos= 130
+      TypeArg.Type:
+        VarType:
+          Typar.Named:
+                     ''T'              TypeParameter       tok=  34  pos= 131
+      >              '>'               op_GreaterThan      tok=  35  pos= 133
+  (                  '('               KWLParen            tok=  36  pos= 134
+  Pat.Typed:
+    Pat.NamedSimple  'comparer'        Identifier          tok=  37  pos= 135
+    Colon            ':'               OpColon             tok=  38  pos= 143
+    GenericType:
+      LongIdent:
+                     'IComparer'       Identifier          tok=  40  pos= 145
+      <              '<'               op_LessThan         tok=  41  pos= 154
+      TypeArg.Type:
+        VarType:
+          Typar.Named:
+                     ''T'              TypeParameter       tok=  42  pos= 155
+      >              '>'               op_GreaterThan      tok=  43  pos= 157
+  )                  ')'               KWRParen            tok=  44  pos= 158
+  =                  '='               OpEquality          tok=  46  pos= 160
+  begin              <virt>            KWBegin             tok=virt  pos= 166
+    member           'member'          KWMember            tok=  49  pos= 166
+    self             '_'               Wildcard            tok=  51  pos= 173
+    Pat.NamedSimple  'Comparer'        Identifier          tok=  53  pos= 175
+    =                '='               OpEquality          tok=  55  pos= 184
+      Ident          'comparer'        Identifier          tok=  57  pos= 186
+  end                <virt>            KWEnd               tok=virt  pos= 243
+FunctionOrValue:
+  let                'let'             KWLet               tok=  62  pos= 243
+    inline           'inline'          KWInline            tok=  64  pos= 247
+    Pat.NamedSimple  'Structural'      Identifier          tok=  66  pos= 254
+    TyparDefns:
+                     '<'               op_LessThan         tok=  67  pos= 264
+      Typar.Named:
+                     ''T'              TypeParameter       tok=  68  pos= 265
+      when           'when'            KWWhen              tok=  70  pos= 268
+      Constraint.Equality:
+        Typar.Named:
+                     ''T'              TypeParameter       tok=  72  pos= 273
+                     '>'               op_GreaterThan      tok=  76  pos= 285
+    ReturnColon      ':'               OpColon             tok=  78  pos= 287
+    GenericType:
+      LongIdent:
+                     'IEqualityC...'   Identifier          tok=  80  pos= 289
+      <              '<'               op_LessThan         tok=  81  pos= 306
+      TypeArg.Type:
+        VarType:
+          Typar.Named:
+                     ''T'              TypeParameter       tok=  82  pos= 307
+      >              '>'               op_GreaterThan      tok=  83  pos= 309
+    =                '='               OpEquality          tok=  85  pos= 311
+      DotLookup:
+        Expr:
+          TypeApp:
+            Expr:
+              Ident  'EqualityCo...'   Identifier          tok=  88  pos= 317
+            Types:
+              VarType:
+                Typar.Named:
+                     ''T'              TypeParameter       tok=  90  pos= 334
+        Dot          '.'               OpDot               tok=  91  pos= 337
+        LongIdentOrOp:
+          LongIdent:
+                     'Default'         Identifier          tok=  92  pos= 338

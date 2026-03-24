@@ -258,6 +258,28 @@ and walkPat (visitor: AstVisitor<'T>) (pat: Pat<'T>) : unit =
         | ValueNone -> ()
 
         visitor.ExitSection "Pat.Named"
+    | Pat.NamedFieldPats(longIdent, lParen, fieldPats, _commas, rParen) ->
+        visitor.EnterSection "Pat.NamedFieldPats"
+
+        for ident in longIdent do
+            visitor.VisitToken "Ident" ident
+
+        visitor.VisitToken "(" lParen
+
+        for FieldPat(fieldLongIdent, equals, innerPat) in fieldPats do
+            visitor.EnterSection "FieldPat"
+
+            for ident in fieldLongIdent do
+                visitor.VisitToken "Ident" ident
+
+            visitor.VisitToken "=" equals
+            visitor.EnterSection "Pat"
+            walkPat visitor innerPat
+            visitor.ExitSection "Pat"
+            visitor.ExitSection "FieldPat"
+
+        visitor.VisitToken ")" rParen
+        visitor.ExitSection "Pat.NamedFieldPats"
     | Pat.As(innerPat, asToken, ident) ->
         visitor.EnterSection "Pat.As"
         walkPat visitor innerPat
@@ -1048,6 +1070,16 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         visitor.EnterSection ""
         walkExpr visitor castExpr
         visitor.ExitSection ""
+    | Expr.ILIntrinsic(lHashParen, tokens, rHashParen) ->
+        visitor.EnterSection "ILIntrinsic"
+        visitor.VisitToken "(#" lHashParen
+
+        for t in tokens do
+            visitor.VisitToken "token" t
+
+        visitor.VisitToken "#)" rHashParen
+        visitor.ExitSection "ILIntrinsic"
+    | Expr.Wildcard underscore -> visitor.VisitToken "Wildcard" underscore
     | Expr.Missing -> visitor.WriteLine "Missing"
     | Expr.SkipsTokens(skippedTokens) ->
         visitor.EnterSection "SkipsTokens"
@@ -1333,36 +1365,43 @@ and walkMemberDefn (visitor: AstVisitor<'T>) (memberDefn: MemberDefn<'T>) : unit
         walkPat visitor pat
         visitor.VisitToken "=" eq
 
-        match body with
-        | AdditionalConstrExpr.Init initExpr ->
-            match initExpr with
-            | AdditionalConstrInitExpr.Explicit(lBrace, inherits, inits, rBrace) ->
-                visitor.VisitToken "{" lBrace
-
-                match inherits with
-                | ValueSome(ClassInheritsDecl(inhTok, typ, expr)) ->
-                    visitor.VisitToken "inherit" inhTok
-                    walkType visitor typ
-
-                    match expr with
-                    | ValueSome e -> walkExpr visitor e
-                    | ValueNone -> ()
-                | ValueNone -> ()
-
-                for FieldInitializer(longIdent, eq, expr) in inits do
-                    walkLongIdentOrOp visitor (LongIdentOrOp.LongIdent longIdent)
-                    visitor.VisitToken "=" eq
-                    walkExpr visitor expr
-
-                visitor.VisitToken "}" rBrace
-            | AdditionalConstrInitExpr.Delegated(newTok2, typ, expr) ->
-                visitor.VisitToken "new" newTok2
-                walkType visitor typ
-                walkExpr visitor expr
-            | AdditionalConstrInitExpr.Expression(expr) -> walkExpr visitor expr
-        | _ -> visitor.WriteLine "<complex constructor body>"
+        walkAdditionalConstrExpr visitor body
 
         visitor.ExitSection "AdditionalConstructor"
+
+and walkAdditionalConstrExpr (visitor: AstVisitor<'T>) (body: AdditionalConstrExpr<'T>) : unit =
+    match body with
+    | AdditionalConstrExpr.Init initExpr ->
+        match initExpr with
+        | AdditionalConstrInitExpr.Explicit(lBrace, inherits, inits, rBrace) ->
+            visitor.VisitToken "{" lBrace
+
+            match inherits with
+            | ValueSome(ClassInheritsDecl(inhTok, typ, expr)) ->
+                visitor.VisitToken "inherit" inhTok
+                walkType visitor typ
+
+                match expr with
+                | ValueSome e -> walkExpr visitor e
+                | ValueNone -> ()
+            | ValueNone -> ()
+
+            for FieldInitializer(longIdent, eq, expr) in inits do
+                walkLongIdentOrOp visitor (LongIdentOrOp.LongIdent longIdent)
+                visitor.VisitToken "=" eq
+                walkExpr visitor expr
+
+            visitor.VisitToken "}" rBrace
+        | AdditionalConstrInitExpr.Delegated(newTok2, typ, expr) ->
+            visitor.VisitToken "new" newTok2
+            walkType visitor typ
+            walkExpr visitor expr
+        | AdditionalConstrInitExpr.Expression(expr) -> walkExpr visitor expr
+    | AdditionalConstrExpr.SequenceBefore(before, thenToken, expr) ->
+        walkAdditionalConstrExpr visitor before
+        visitor.VisitToken "then" thenToken
+        walkExpr visitor expr
+    | _ -> visitor.WriteLine "<complex constructor body>"
 
 and walkTypeDefnElement (visitor: AstVisitor<'T>) (elem: TypeDefnElement<'T>) : unit =
     match elem with
@@ -1388,7 +1427,7 @@ and walkTypeDefnElement (visitor: AstVisitor<'T>) (elem: TypeDefnElement<'T>) : 
     | TypeDefnElement.InterfaceSpec _ -> visitor.WriteLine "<interface spec>"
 
 and walkTypeName (visitor: AstVisitor<'T>) (typeName: TypeName<'T>) : unit =
-    let (TypeName(attrs, access, ident, typars)) = typeName
+    let (TypeName(attrs, access, ident, typars, postfixConstraints)) = typeName
     walkAttributesOpt visitor attrs
     visitTokenOpt visitor "access" access
 
@@ -1397,6 +1436,14 @@ and walkTypeName (visitor: AstVisitor<'T>) (typeName: TypeName<'T>) : unit =
 
     match typars with
     | ValueSome tp -> walkTyparDefns visitor tp
+    | ValueNone -> ()
+
+    match postfixConstraints with
+    | ValueSome(TyparConstraints(whenTok, constrs)) ->
+        visitor.VisitToken "when" whenTok
+
+        for c in constrs do
+            walkConstraint visitor c
     | ValueNone -> ()
 
 and walkPrimaryConstrArgs (visitor: AstVisitor<'T>) (args: PrimaryConstrArgs<'T>) : unit =
