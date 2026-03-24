@@ -1792,13 +1792,96 @@ module Expr =
                     fail (Message "Record or RecordClone") reader
 
     let private pILIntrinsic =
-        parser {
-            let! lHashParen = nextNonTriviaTokenIsL Token.KWLHashParen "(#"
-            let pAnyToken = nextNonTriviaTokenSatisfiesL (fun _ -> true) "IL intrinsic token"
-            let pEnd = nextNonTriviaTokenIsL Token.KWRHashParen "#)"
-            let! tokens, rHashParen = manyTill pAnyToken pEnd
-            return Expr.ILIntrinsic(lHashParen, List.ofSeq tokens, rHashParen)
-        }
+        // Structured IL intrinsic parser: (# "instr" type('T) args : retType #)
+        let pAnyToken = nextNonTriviaTokenSatisfiesL (fun _ -> true) "IL intrinsic token"
+
+        let pTypeArg (reader: Reader<PositionedToken, ParseState, _, _>) =
+            // Parse type('T) or type ('T) — balanced parens after 'type' keyword
+            match peekNextNonTriviaToken reader with
+            | Error e -> Error e
+            | Ok tok when tok.Token = Token.KWType ->
+                match consumePeeked tok reader with
+                | Error e -> Error e
+                | Ok typeKw ->
+                    match nextNonTriviaTokenIsL Token.KWLParen "(" reader with
+                    | Error e -> Error e
+                    | Ok lParen ->
+                        let tokens = ResizeArray()
+                        let mutable depth = 1
+                        let mutable rParen = Unchecked.defaultof<SyntaxToken>
+                        let mutable error = ValueNone
+
+                        while depth > 0 && error = ValueNone do
+                            match pAnyToken reader with
+                            | Error e -> error <- ValueSome e
+                            | Ok t ->
+                                if t.Token = Token.KWLParen then
+                                    depth <- depth + 1
+                                    tokens.Add(t)
+                                elif t.Token = Token.KWRParen then
+                                    depth <- depth - 1
+
+                                    if depth > 0 then
+                                        tokens.Add(t)
+                                    else
+                                        rParen <- t
+                                else
+                                    tokens.Add(t)
+
+                        match error with
+                        | ValueSome e -> Error e
+                        | ValueNone ->
+                            preturn (ValueSome(ILTypeArg(typeKw, lParen, List.ofSeq tokens, rParen))) reader
+            | _ -> preturn ValueNone reader
+
+        fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
+            match nextNonTriviaTokenIsL Token.KWLHashParen "(#" reader with
+            | Error e -> Error e
+            | Ok lHashParen ->
+                // Instruction string
+                match nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsText) "IL instruction string" reader with
+                | Error e -> Error e
+                | Ok instruction ->
+                    // Optional type argument: type('T)
+                    match pTypeArg reader with
+                    | Error e -> Error e
+                    | Ok typeArg ->
+                        // Collect args as atomic expressions, stopping at ':' or '#)'
+                        let args = ResizeArray()
+                        let mutable finished = false
+                        let mutable error = ValueNone
+
+                        while not finished && error = ValueNone do
+                            match peekNextNonTriviaToken reader with
+                            | Error e -> error <- ValueSome e
+                            | Ok tok ->
+                                match tok.Token with
+                                | Token.KWRHashParen | Token.OpColon -> finished <- true
+                                | _ ->
+                                    match refExprAtomic.Parser reader with
+                                    | Error e -> error <- ValueSome e
+                                    | Ok arg -> args.Add(arg)
+
+                        match error with
+                        | ValueSome e -> Error e
+                        | ValueNone ->
+                            // Optional return type annotation (: Type)
+                            match opt ReturnType.parse reader with
+                            | Error e -> Error e
+                            | Ok returnType ->
+                                match nextNonTriviaTokenIsL Token.KWRHashParen "#)" reader with
+                                | Error e -> Error e
+                                | Ok rHashParen ->
+                                    preturn
+                                        (Expr.ILIntrinsic(
+                                            lHashParen,
+                                            instruction,
+                                            typeArg,
+                                            List.ofSeq args,
+                                            returnType,
+                                            rHashParen
+                                        ))
+                                        reader
 
     let private recoverExpr p =
         recoverWith
@@ -1860,6 +1943,7 @@ module Expr =
             )
 
     do
+        refExprAtomic.Set parseAtomic
         refExpr.Set parse
         refExprSeqBlock.Set parseSeqBlock
 

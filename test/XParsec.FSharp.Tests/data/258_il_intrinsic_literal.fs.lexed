@@ -1,0 +1,54 @@
+0, KWModule
+6, Whitespace
+7, Identifier
+11, Newline
+12, Newline
+13, LineComment
+61, Newline
+62, KWLet
+65, Whitespace
+66, KWInline
+72, Whitespace
+73, Identifier
+84, Whitespace
+85, KWLParen
+86, Identifier
+93, OpColon
+94, Whitespace
+95, Identifier
+104, KWRParen
+105, Whitespace
+106, OpEquality
+107, Whitespace
+108, KWLHashParen
+110, Whitespace
+111, StringLiteral
+113, Whitespace
+114, Identifier
+121, Whitespace
+122, OpColon
+123, Whitespace
+124, Identifier
+133, Operator 0b1000000000001111 ComparisonAndBitwise
+134, Identifier
+137, Operator 0b1000000000001111 ComparisonAndBitwise
+138, Whitespace
+139, KWRHashParen
+141, Newline
+142, Newline
+143, KWType
+147, Whitespace
+148, BacktickedIdentifier
+154, Operator 0b1000000000001111 ComparisonAndBitwise
+155, TypeParameter
+157, Operator 0b1000000000001111 ComparisonAndBitwise
+158, Whitespace
+159, OpEquality
+160, Whitespace
+161, KWLHashParen
+163, Whitespace
+164, StringLiteral
+170, Whitespace
+171, KWRHashParen
+173, Newline
+174, EOF

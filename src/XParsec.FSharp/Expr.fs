@@ -76,6 +76,7 @@ type Type<'T> =
     | AnonymousSubtype of hash: 'T * typ: Type<'T>
     | Null of nullToken: 'T
     | UnionType of left: Type<'T> * bar: 'T * right: Type<'T>
+    | ILIntrinsic of lHashParen: 'T * instruction: 'T * rHashParen: 'T
     | Missing
     | SkipsTokens of skippedTokens: 'T list
 
@@ -211,6 +212,11 @@ type ParenKind<'T> =
     /// &lt;@@ ... @@&gt; (Used for Untyped Quotations)
     | DoubleQuoted of 'T
 
+// IL intrinsic sub-structures
+/// Type argument in IL intrinsic: type('T) or type ('T)
+type ILTypeArg<'T> =
+    | ILTypeArg of typeKw: 'T * lParen: 'T * typeTokens: 'T list * rParen: 'T
+
 // The complete expression type
 [<RequireQualifiedAccess>]
 type Expr<'T> =
@@ -314,8 +320,14 @@ type Expr<'T> =
         expr: Expr<'T> *
         rParen: 'T
     | InterpolatedString of opening: 'T * parts: InterpolatedStringPart<'T> list * closing: 'T
-    // IL intrinsic literal: (# "il" expr : type #)
-    | ILIntrinsic of lHashParen: 'T * tokens: 'T list * rHashParen: 'T
+    // IL intrinsic literal: (# "il" type('T) args : returnType #)
+    | ILIntrinsic of
+        lHashParen: 'T *
+        instruction: 'T *
+        typeArg: ILTypeArg<'T> voption *
+        args: Expr<'T> list *
+        returnType: ReturnType<'T> voption *
+        rHashParen: 'T
     // Shorthand member access lambda: _.Member (F# 8+)
     | Wildcard of underscore: 'T
     // Incomplete or Placeholder

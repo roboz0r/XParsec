@@ -615,6 +615,12 @@ and walkType (visitor: AstVisitor<'T>) (ty: Type<'T>) : unit =
         visitor.VisitToken "|" bar
         walkType visitor right
         visitor.ExitSection "UnionType"
+    | Type.ILIntrinsic(lHashParen, instruction, rHashParen) ->
+        visitor.EnterSection "ILIntrinsic"
+        visitor.VisitToken "(#" lHashParen
+        visitor.VisitToken "instruction" instruction
+        visitor.VisitToken "#)" rHashParen
+        visitor.ExitSection "ILIntrinsic"
     | Type.Missing -> visitor.WriteLine "Missing"
     | Type.SkipsTokens(skippedTokens) ->
         visitor.EnterSection "SkipsTokens"
@@ -1070,12 +1076,36 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         visitor.EnterSection ""
         walkExpr visitor castExpr
         visitor.ExitSection ""
-    | Expr.ILIntrinsic(lHashParen, tokens, rHashParen) ->
+    | Expr.ILIntrinsic(lHashParen, instruction, typeArg, args, returnType, rHashParen) ->
         visitor.EnterSection "ILIntrinsic"
         visitor.VisitToken "(#" lHashParen
+        visitor.VisitToken "instruction" instruction
 
-        for t in tokens do
-            visitor.VisitToken "token" t
+        match typeArg with
+        | ValueSome(ILTypeArg(typeKw, lParen, typeTokens, rParen)) ->
+            visitor.EnterSection "ILTypeArg"
+            visitor.VisitToken "type" typeKw
+            visitor.VisitToken "(" lParen
+
+            for t in typeTokens do
+                visitor.VisitToken "typeToken" t
+
+            visitor.VisitToken ")" rParen
+            visitor.ExitSection "ILTypeArg"
+        | ValueNone -> ()
+
+        for arg in args do
+            visitor.EnterSection "Arg"
+            walkExpr visitor arg
+            visitor.ExitSection "Arg"
+
+        match returnType with
+        | ValueSome(ReturnType(colon, typ)) ->
+            visitor.EnterSection "ILReturnType"
+            visitor.VisitToken ":" colon
+            walkType visitor typ
+            visitor.ExitSection "ILReturnType"
+        | ValueNone -> ()
 
         visitor.VisitToken "#)" rHashParen
         visitor.ExitSection "ILIntrinsic"
