@@ -236,6 +236,13 @@ module Type =
                 pNull |>> Type.Null
                 // 'a
                 Typar.parse |>> Type.VarType
+                // (# "iltype" #) — IL intrinsic type
+                parser {
+                    let! l = nextNonTriviaTokenIsL Token.KWLHashParen "(#"
+                    let! instr = nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsText) "IL instruction string"
+                    let! r = nextNonTriviaTokenIsL Token.KWRHashParen "#)"
+                    return Type.ILIntrinsic(l, instr, r)
+                }
                 // LongIdent or LongIdent<Types>
                 parser {
                     let! lid = LongIdent.parse

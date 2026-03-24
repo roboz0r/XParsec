@@ -35,3 +35,7 @@ module internal ParserRefs =
     /// Expression parser for parsing expressions in collection and record initializers,
     /// which should stop before consuming a semicolon.
     let refExprInRecords = FSRefParser<Expr<SyntaxToken>>()
+
+    /// Atomic expression parser for use in IL intrinsics, where each argument
+    /// is a standalone atomic expression (identifier, literal, parenthesized expr, etc.)
+    let refExprAtomic = FSRefParser<Expr<SyntaxToken>>()
