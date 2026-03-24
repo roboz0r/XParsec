@@ -790,17 +790,21 @@ module Expr =
             parser {
                 let! (ifTok, indent) = assertKeywordToken Token.KWIf
                 // Condition at if_col + 1
-                let! cond = recoverExprMissing (withContextAt OffsideContext.If (indent + 1) ifTok.PositionedToken refExpr.Parser)
+                let! cond =
+                    recoverExprMissing (
+                        withContextAt OffsideContext.If (indent + 1) ifTok.PositionedToken refExpr.Parser
+                    )
                 // then permitted undentation at if_col via contextPermitsToken
                 let! thenTok = recoverWithVirtualToken Token.KWThen "Expected 'then' after condition" pThen
                 // Body anchored to if_col + 1, NOT then_col + 1
-                let! thenExpr = recoverExprMissing (withContextAt OffsideContext.Then (indent + 1) ifTok.PositionedToken refExprSeqBlock.Parser)
+                let! thenExpr =
+                    recoverExprMissing (
+                        withContextAt OffsideContext.Then (indent + 1) ifTok.PositionedToken refExprSeqBlock.Parser
+                    )
+
                 let! elifs, elseBranch = ElifBranches.parse
 
-                return
-                    ExprAux.ForExpr(
-                        Expr.IfThenElse(ifTok, cond, thenTok, thenExpr, List.ofSeq elifs, elseBranch)
-                    )
+                return ExprAux.ForExpr(Expr.IfThenElse(ifTok, cond, thenTok, thenExpr, List.ofSeq elifs, elseBranch))
             }
 
         let pMatchRules =
@@ -846,7 +850,11 @@ module Expr =
                     )
                     p
 
-            let parseMatchBody (matchTok: SyntaxToken) (indent: int) (reader: Reader<PositionedToken, ParseState, _, _>) : Result<ExprAux, _> =
+            let parseMatchBody
+                (matchTok: SyntaxToken)
+                (indent: int)
+                (reader: Reader<PositionedToken, ParseState, _, _>)
+                : Result<ExprAux, _> =
                 let savedState = reader.State
 
                 // Push Match context at match_col — stays active for with/| undentation
@@ -860,28 +868,34 @@ module Expr =
                 reader.State <- ParseState.pushOffside matchEntry reader.State
 
                 // Match expression inner content at match_col + 1
-                match recoverExprMissing (withContextAt OffsideContext.SeqBlock (indent + 1) matchTok.PositionedToken refExpr.Parser) reader with
+                match
+                    recoverExprMissing
+                        (withContextAt OffsideContext.SeqBlock (indent + 1) matchTok.PositionedToken refExpr.Parser)
+                        reader
+                with
                 | Error e ->
                     reader.State <- savedState
                     Error e
                 | Ok e ->
 
-                // with permitted at match_col via contextPermitsToken (Match context still active)
-                match recoverWithVirtualToken Token.KWWith "Expected 'with' after match expression" pWith reader with
-                | Error e ->
-                    reader.State <- savedState
-                    Error e
-                | Ok w ->
+                    // with permitted at match_col via contextPermitsToken (Match context still active)
+                    match
+                        recoverWithVirtualToken Token.KWWith "Expected 'with' after match expression" pWith reader
+                    with
+                    | Error e ->
+                        reader.State <- savedState
+                        Error e
+                    | Ok w ->
 
-                // | permitted at match_col via contextPermitsToken (Match context still active)
-                match pMatchRules reader with
-                | Error e ->
-                    reader.State <- savedState
-                    Error e
-                | Ok rules ->
+                        // | permitted at match_col via contextPermitsToken (Match context still active)
+                        match pMatchRules reader with
+                        | Error e ->
+                            reader.State <- savedState
+                            Error e
+                        | Ok rules ->
 
-                reader.State <- ParseState.popOffside matchEntry reader.State
-                Ok(ExprAux.ForExpr(Expr.Match(matchTok, e, w, rules)))
+                            reader.State <- ParseState.popOffside matchEntry reader.State
+                            Ok(ExprAux.ForExpr(Expr.Match(matchTok, e, w, rules)))
 
             fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
                 match assertKeywordTokens Token.KWMatch Token.KWMatchBang reader with
@@ -916,15 +930,22 @@ module Expr =
                 let! (funTok, indent) = assertKeywordToken Token.KWFun
                 // params, arrow, and body all at fun_col + 1
                 let! result =
-                    withContextAt OffsideContext.Fun (indent + 1) funTok.PositionedToken (parser {
-                        let! pats = many1 Pat.parse
+                    withContextAt
+                        OffsideContext.Fun
+                        (indent + 1)
+                        funTok.PositionedToken
+                        (parser {
+                            let! pats = many1 Pat.parse
 
-                        let! arrow =
-                            recoverWithVirtualToken Token.OpArrowRight "Expected '->' after fun parameters" pArrowRight
+                            let! arrow =
+                                recoverWithVirtualToken
+                                    Token.OpArrowRight
+                                    "Expected '->' after fun parameters"
+                                    pArrowRight
 
-                        let! expr = recoverExprMissing pBody
-                        return Expr.Fun(funTok, List.ofSeq pats, arrow, expr)
-                    })
+                            let! expr = recoverExprMissing pBody
+                            return Expr.Fun(funTok, List.ofSeq pats, arrow, expr)
+                        })
 
                 return ExprAux.ForExpr result
             }
@@ -979,55 +1000,55 @@ module Expr =
                 | Error e -> Error e
                 | Ok(tryTok, indent) ->
 
-                let savedState = reader.State
+                    let savedState = reader.State
 
-                // Push Try context at try_col — stays active for with/finally/| undentation
-                let tryEntry =
-                    {
-                        Context = OffsideContext.Try
-                        Indent = indent
-                        Token = tryTok.PositionedToken
-                    }
+                    // Push Try context at try_col — stays active for with/finally/| undentation
+                    let tryEntry =
+                        {
+                            Context = OffsideContext.Try
+                            Indent = indent
+                            Token = tryTok.PositionedToken
+                        }
 
-                reader.State <- ParseState.pushOffside tryEntry reader.State
+                    reader.State <- ParseState.pushOffside tryEntry reader.State
 
-                // Try body — SeqBlock set by refExprSeqBlock at first expression's indent.
-                // The Try context below it permits with/finally undentation to try_col.
-                match recoverExprMissing refExprSeqBlock.Parser reader with
-                | Error e ->
-                    reader.State <- savedState
-                    Error e
-                | Ok tryExpr ->
+                    // Try body — SeqBlock set by refExprSeqBlock at first expression's indent.
+                    // The Try context below it permits with/finally undentation to try_col.
+                    match recoverExprMissing refExprSeqBlock.Parser reader with
+                    | Error e ->
+                        reader.State <- savedState
+                        Error e
+                    | Ok tryExpr ->
 
-                // with/finally permitted at try_col via contextPermitsToken (Try context still active)
-                let pWith' =
-                    parser {
-                        let! withTok = pWith
-                        // | permitted at try_col via contextPermitsToken (Try context still active)
-                        // MatchClauses at try_col so clause bodies can be at try_col
-                        let! rules = pTryMatchRules indent tryTok.PositionedToken
-                        return Expr.TryWith(tryTok, tryExpr, withTok, rules)
-                    }
+                        // with/finally permitted at try_col via contextPermitsToken (Try context still active)
+                        let pWith' =
+                            parser {
+                                let! withTok = pWith
+                                // | permitted at try_col via contextPermitsToken (Try context still active)
+                                // MatchClauses at try_col so clause bodies can be at try_col
+                                let! rules = pTryMatchRules indent tryTok.PositionedToken
+                                return Expr.TryWith(tryTok, tryExpr, withTok, rules)
+                            }
 
-                let pFinally' =
-                    parser {
-                        let! finTok = pFinally
-                        let! finExpr = refExprSeqBlock.Parser
-                        return Expr.TryFinally(tryTok, tryExpr, finTok, finExpr)
-                    }
+                        let pFinally' =
+                            parser {
+                                let! finTok = pFinally
+                                let! finExpr = refExprSeqBlock.Parser
+                                return Expr.TryFinally(tryTok, tryExpr, finTok, finExpr)
+                            }
 
-                match
-                    dispatchNextNonTriviaTokenL
-                        [ Token.KWWith, pWith'; Token.KWFinally, pFinally' ]
-                        "Expected 'with' or 'finally'"
-                        reader
-                with
-                | Error e ->
-                    reader.State <- savedState
-                    Error e
-                | Ok result ->
-                    reader.State <- ParseState.popOffside tryEntry reader.State
-                    Ok(ExprAux.ForExpr result)
+                        match
+                            dispatchNextNonTriviaTokenL
+                                [ Token.KWWith, pWith'; Token.KWFinally, pFinally' ]
+                                "Expected 'with' or 'finally'"
+                                reader
+                        with
+                        | Error e ->
+                            reader.State <- savedState
+                            Error e
+                        | Ok result ->
+                            reader.State <- ParseState.popOffside tryEntry reader.State
+                            Ok(ExprAux.ForExpr result)
 
         let pDoneVirt reader =
             match peekNextNonTriviaToken reader with
@@ -1065,11 +1086,22 @@ module Expr =
                 let! (whileTok, indent) = assertKeywordToken Token.KWWhile
                 // Condition at while_col + 1 (uses refExprNoSeq to prevent `do` from being consumed
                 // as a keyword expression via sequential composition)
-                let! cond = recoverExprMissing (withContextAt OffsideContext.While (indent + 1) whileTok.PositionedToken refExprNoSeq.Parser)
+                let! cond =
+                    recoverExprMissing (
+                        withContextAt OffsideContext.While (indent + 1) whileTok.PositionedToken refExprNoSeq.Parser
+                    )
                 // do keyword also at while_col + 1 (NOT permitted undentation)
-                let! doTok = recoverWithVirtualToken Token.KWDo "Expected 'do' after while condition" (withContextAt OffsideContext.While (indent + 1) whileTok.PositionedToken pDo)
+                let! doTok =
+                    recoverWithVirtualToken
+                        Token.KWDo
+                        "Expected 'do' after while condition"
+                        (withContextAt OffsideContext.While (indent + 1) whileTok.PositionedToken pDo)
                 // Body at while_col
-                let! body = recoverExprMissing (withContextAt OffsideContext.Do indent whileTok.PositionedToken refExprSeqBlock.Parser)
+                let! body =
+                    recoverExprMissing (
+                        withContextAt OffsideContext.Do indent whileTok.PositionedToken refExprSeqBlock.Parser
+                    )
+
                 let! doneTok = pDoneVirt
                 return ExprAux.ForExpr(Expr.While(whileTok, cond, doTok, body, doneTok))
             }
@@ -1523,9 +1555,7 @@ module Expr =
             return Expr.InterpolatedString(opening, Seq.toList parts, closing)
         }
 
-    let pIdentExpr =
-        nextNonTriviaIdentifierL "Expected identifier"
-        |>> Expr.Ident
+    let pIdentExpr = nextNonTriviaIdentifierL "Expected identifier" |>> Expr.Ident
 
     let private pEnclosed =
         let completeEmpty l r = Expr.EmptyBlock(l, r)
@@ -1710,39 +1740,54 @@ module Expr =
                                     | ValueNone -> BaseCall.AnonBaseCall(construction)
 
                                 let! withTok = pWith
-                                let! members =
-                                    withContext OffsideContext.WithAugment (many refMemberDefn.Parser)
+                                let! members = withContext OffsideContext.WithAugment (many refMemberDefn.Parser)
 
                                 // Parse additional interface implementations
-                                let! interfaceImpls = many (parser {
-                                    let! interfaceTok = pInterface
-                                    let! typ = Type.parse
-                                    let! intfWithTok = opt pWith
-                                    match intfWithTok with
-                                    | ValueSome wTok ->
-                                        let! intfMembers =
-                                            withContext OffsideContext.WithAugment (many refMemberDefn.Parser)
+                                let! interfaceImpls =
+                                    many (
+                                        parser {
+                                            let! interfaceTok = pInterface
+                                            let! typ = Type.parse
+                                            let! intfWithTok = opt pWith
 
-                                        let! intfNextTokOpt = opt peekNextNonTriviaToken
-                                        let intfVirtualEnd =
-                                            {
-                                                PositionedToken =
-                                                    PositionedToken.Create(
-                                                        Token.ofUInt16 (uint16 Token.KWEnd ||| TokenRepresentation.IsVirtual),
-                                                        match intfNextTokOpt with
-                                                        | ValueSome tok -> tok.StartIndex
-                                                        | ValueNone -> 0
+                                            match intfWithTok with
+                                            | ValueSome wTok ->
+                                                let! intfMembers =
+                                                    withContext OffsideContext.WithAugment (many refMemberDefn.Parser)
+
+                                                let! intfNextTokOpt = opt peekNextNonTriviaToken
+
+                                                let intfVirtualEnd =
+                                                    {
+                                                        PositionedToken =
+                                                            PositionedToken.Create(
+                                                                Token.ofUInt16 (
+                                                                    uint16 Token.KWEnd ||| TokenRepresentation.IsVirtual
+                                                                ),
+                                                                match intfNextTokOpt with
+                                                                | ValueSome tok -> tok.StartIndex
+                                                                | ValueNone -> 0
+                                                            )
+                                                        Index = TokenIndex.Virtual
+                                                    }
+
+                                                let objMembers =
+                                                    ObjectMembers.ObjectMembers(
+                                                        wTok,
+                                                        List.ofSeq intfMembers,
+                                                        intfVirtualEnd
                                                     )
-                                                Index = TokenIndex.Virtual
-                                            }
-                                        let objMembers = ObjectMembers.ObjectMembers(wTok, List.ofSeq intfMembers, intfVirtualEnd)
-                                        return InterfaceImpl.InterfaceImpl(interfaceTok, typ, ValueSome objMembers)
-                                    | ValueNone ->
-                                        return InterfaceImpl.InterfaceImpl(interfaceTok, typ, ValueNone)
-                                })
+
+                                                return
+                                                    InterfaceImpl.InterfaceImpl(interfaceTok, typ, ValueSome objMembers)
+                                            | ValueNone ->
+                                                return InterfaceImpl.InterfaceImpl(interfaceTok, typ, ValueNone)
+                                        }
+                                    )
 
                                 // Synthesize virtual end for the main ObjectMembers
                                 let! nextTokOpt = opt peekNextNonTriviaToken
+
                                 let virtualEnd =
                                     {
                                         PositionedToken =
@@ -1754,12 +1799,21 @@ module Expr =
                                             )
                                         Index = TokenIndex.Virtual
                                     }
-                                let objMembers = ObjectMembers.ObjectMembers(withTok, List.ofSeq members, virtualEnd)
 
-                                let! rBrace =
-                                    nextNonTriviaTokenVirtualWithDiagnostic (ValueSome lBrace) Token.KWRBrace
+                                let objMembers =
+                                    ObjectMembers.ObjectMembers(withTok, List.ofSeq members, virtualEnd)
 
-                                return Expr.Object(lBrace, ValueSome newTok, baseCall, objMembers, List.ofSeq interfaceImpls, rBrace)
+                                let! rBrace = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome lBrace) Token.KWRBrace
+
+                                return
+                                    Expr.Object(
+                                        lBrace,
+                                        ValueSome newTok,
+                                        baseCall,
+                                        objMembers,
+                                        List.ofSeq interfaceImpls,
+                                        rBrace
+                                    )
                             }
                             // { expr with Field = val; ... } — record clone/update
                             parser {
@@ -1821,17 +1875,13 @@ module Expr =
                                 elif t.Token = Token.KWRParen then
                                     depth <- depth - 1
 
-                                    if depth > 0 then
-                                        tokens.Add(t)
-                                    else
-                                        rParen <- t
+                                    if depth > 0 then tokens.Add(t) else rParen <- t
                                 else
                                     tokens.Add(t)
 
                         match error with
                         | ValueSome e -> Error e
-                        | ValueNone ->
-                            preturn (ValueSome(ILTypeArg(typeKw, lParen, List.ofSeq tokens, rParen))) reader
+                        | ValueNone -> preturn (ValueSome(ILTypeArg(typeKw, lParen, List.ofSeq tokens, rParen))) reader
             | _ -> preturn ValueNone reader
 
         fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
@@ -1856,7 +1906,8 @@ module Expr =
                             | Error e -> error <- ValueSome e
                             | Ok tok ->
                                 match tok.Token with
-                                | Token.KWRHashParen | Token.OpColon -> finished <- true
+                                | Token.KWRHashParen
+                                | Token.OpColon -> finished <- true
                                 | _ ->
                                     match refExprAtomic.Parser reader with
                                     | Error e -> error <- ValueSome e

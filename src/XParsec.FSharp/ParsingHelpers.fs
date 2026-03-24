@@ -602,10 +602,7 @@ module Parsing =
                     | ValueNone -> 0
 
             let pt =
-                PositionedToken.Create(
-                    Token.ofUInt16 (uint16 t ||| TokenRepresentation.IsVirtual),
-                    startIndex
-                )
+                PositionedToken.Create(Token.ofUInt16 (uint16 t ||| TokenRepresentation.IsVirtual), startIndex)
 
             reader.State.Trace.Invoke(TraceEvent.VirtualToken(pt.Token, pt.StartIndex))
 
@@ -706,8 +703,7 @@ module Parsing =
     /// when the token must be synthesised.
     let nextNonTriviaTokenVirtualWithDiagnostic (openTok: SyntaxToken voption) t reader =
         match peekNextNonTriviaToken reader with
-        | Ok token when token.Token = t ->
-            consumePeeked token reader
+        | Ok token when token.Token = t -> consumePeeked token reader
         | result ->
             // Real token doesn't match or offside failure: emit diagnostic and produce virtual.
             let startIndex, diagToken =
@@ -723,14 +719,10 @@ module Parsing =
                 | ValueSome o -> DiagnosticCode.UnclosedDelimiter(o, t)
                 | ValueNone -> DiagnosticCode.Other $"Expected '{t}'"
 
-            reader.State <-
-                ParseState.addDiagnostic code DiagnosticSeverity.Error diagToken None None reader.State
+            reader.State <- ParseState.addDiagnostic code DiagnosticSeverity.Error diagToken None None reader.State
 
             let pt =
-                PositionedToken.Create(
-                    Token.ofUInt16 (uint16 t ||| TokenRepresentation.IsVirtual),
-                    startIndex
-                )
+                PositionedToken.Create(Token.ofUInt16 (uint16 t ||| TokenRepresentation.IsVirtual), startIndex)
 
             reader.State.Trace.Invoke(TraceEvent.VirtualToken(pt.Token, pt.StartIndex))
 

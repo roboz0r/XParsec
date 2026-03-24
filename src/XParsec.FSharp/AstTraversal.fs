@@ -1512,6 +1512,7 @@ and walkExceptionDefn (visitor: AstVisitor<'T>) (exnDefn: ExceptionDefn<'T>) : u
         walkAttributesOpt visitor attrs
         visitor.VisitToken "exception" exTok
         walkUnionCaseData visitor caseData
+
         match extensions with
         | ValueSome(TypeExtensionElements(withTok, elems, endTok)) ->
             visitor.VisitToken "with" withTok
@@ -1523,6 +1524,7 @@ and walkExceptionDefn (visitor: AstVisitor<'T>) (exnDefn: ExceptionDefn<'T>) : u
             visitor.ExitSection ""
             visitor.VisitToken "end" endTok
         | ValueNone -> ()
+
         visitor.ExitSection "ExceptionDefn.Full"
     | ExceptionDefn.Abbreviation(attrs, exTok, ident, eq, longIdent) ->
         visitor.EnterSection "ExceptionDefn.Abbrev"
