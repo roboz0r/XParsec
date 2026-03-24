@@ -1064,7 +1064,12 @@ module TypeDefn =
             return RecordField.RecordField(attrs, mut, acc, id, col, t)
         }
 
-    let private parseAbbrevOrImplicitClass typeName (primaryConstr: PrimaryConstrArgs<SyntaxToken> voption) (asDefn: AsDefn<SyntaxToken> voption) equals =
+    let private parseAbbrevOrImplicitClass
+        typeName
+        (primaryConstr: PrimaryConstrArgs<SyntaxToken> voption)
+        (asDefn: AsDefn<SyntaxToken> voption)
+        equals
+        =
         parser {
             // If it starts with a class-body keyword or has a primary constructor, it's an implicit class.
             // Otherwise it's a type abbreviation.
@@ -1082,6 +1087,7 @@ module TypeDefn =
                             // Attributes followed by a class-body keyword (e.g., [<FieldOffset(0)>] val ...)
                             parser {
                                 let! _ = Attributes.parse
+
                                 return!
                                     choiceL
                                         [ pMember; pVal; pNew; pAbstract; pDefault; pOverride; pStatic ]

@@ -214,8 +214,7 @@ type ParenKind<'T> =
 
 // IL intrinsic sub-structures
 /// Type argument in IL intrinsic: type('T) or type ('T)
-type ILTypeArg<'T> =
-    | ILTypeArg of typeKw: 'T * lParen: 'T * typeTokens: 'T list * rParen: 'T
+type ILTypeArg<'T> = | ILTypeArg of typeKw: 'T * lParen: 'T * typeTokens: 'T list * rParen: 'T
 
 // The complete expression type
 [<RequireQualifiedAccess>]
@@ -360,7 +359,12 @@ and [<RequireQualifiedAccess>] Pat<'T> =
     | Elems of pats: Pat<'T> list * separators: 'T list
     | NamedSimple of ident: 'T
     | Named of longIdent: LongIdent<'T> * param: Pat<'T> voption * pat: Pat<'T> voption
-    | NamedFieldPats of longIdent: LongIdent<'T> * lParen: 'T * fieldPats: FieldPat<'T> list * commas: 'T list * rParen: 'T
+    | NamedFieldPats of
+        longIdent: LongIdent<'T> *
+        lParen: 'T *
+        fieldPats: FieldPat<'T> list *
+        commas: 'T list *
+        rParen: 'T
     | Wildcard of underscore: 'T
     | As of pat: Pat<'T> * asToken: 'T * ident: 'T
     | Or of left: Pat<'T> * bar: 'T * right: Pat<'T>

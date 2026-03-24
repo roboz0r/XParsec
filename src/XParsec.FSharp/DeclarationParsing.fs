@@ -97,8 +97,7 @@ module ModuleDefn =
     let parseBody
         (modTok: SyntaxToken)
         (elementParser: Parser<ModuleElems<SyntaxToken>, _, _, _, _>)
-        : Parser<_, _, _, _, _>
-        =
+        : Parser<_, _, _, _, _> =
         parser {
             let! state = getUserState
 

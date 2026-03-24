@@ -166,8 +166,7 @@ module IdentOrOp =
         choiceL
             [
                 // Case 1: Simple Identifier (including backticked)
-                nextNonTriviaIdentifierL "Expected Identifier"
-                |>> IdentOrOp.Ident
+                nextNonTriviaIdentifierL "Expected Identifier" |>> IdentOrOp.Ident
 
                 // Case 2: Star Operator (*)
                 // Subcase 2a: Parsed as a single token KWOpDeclareMultiply `(*)`
