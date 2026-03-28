@@ -108,10 +108,10 @@ type Reader<'T, 'State, 'Input, 'InputSlice
     member _.AtEnd = index >= input.Length
 
     member _.Slice(newStart, newLength) =
-        Reader(input.Slice(index - newStart, newLength), (), 0)
+        Reader(input.Slice(index + newStart, newLength), (), 0)
 
     member _.Slice(newStart, newLength, newState) =
-        Reader(input.Slice(index - newStart, newLength), newState, 0)
+        Reader(input.Slice(index + newStart, newLength), newState, 0)
 
 type ErrorType<'T, 'State> =
     | Expected of 'T
