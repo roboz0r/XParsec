@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.4.0 - 2026-03-28
+
+### 0.4.0 Breaking Changes
+
+- **`ParseSuccess` struct removed:** Parsers now return `Result<'Parsed, _>` directly instead of wrapping the result in a `ParseSuccess` struct.
+  - *Migration:* Replace `result.Parsed` with `result`, and `ParseSuccess.create x` with `Ok x`.
+- **`RefParser` default constructor now throws:** An uninitialized `RefParser` now raises `InvalidOperationException` instead of returning a parser error.
+  - *Migration:* Ensure `RefParser.Set` is called before the parser is used.
+
+### 0.4.0 Added
+
+#### 0.4.0 Combinators
+
+- `dispatch` and `dispatchWithState`: New combinators for token-dispatch based parsing, allowing efficient branching on the current token without backtracking.
+
+#### 0.4.0 Operator Parsing
+
+- `LHSOperator.PrefixMapped`: New operator type for prefix operators where the result is not an expression (analogous to `RHSOperator.InfixMapped`).
+- `RHSOperator.InfixNary.allowTrailingOp`: New option to allow a trailing operator at the end of an nary sequence.
+- Operator parsing now accumulates errors from all attempted branches, improving error messages on failure.
+
+### 0.4.0 Fixes
+
+- Fix `skipManyTill` to ensure `pEnd` is tried first, consistent with `manyTill` behaviour.
+- Fix `Reader.Slice` offset calculation (`index - newStart` → `index + newStart`).
+- Fix infinite loop detection in `OperatorParser.InfixNary`.
+- Fix excessive stack consumption in operator parsing.
+- Fix `ParserCE.While` to detect and raise `InfiniteLoopException` when the body parser makes no progress.
+- Fix `LineIndex.GetLineCol` to tolerate an index equal to `input.Length`.
+
 ## 0.3.1 - 2026-01-15
 
 ### 0.3.1 Fixes
