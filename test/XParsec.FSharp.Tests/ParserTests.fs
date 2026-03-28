@@ -1,4 +1,4 @@
-module XParsec.FSharp.Lexer.Tests.ParserTests
+module XParsec.FSharp.Tests.ParserTests
 
 open System
 open System.IO

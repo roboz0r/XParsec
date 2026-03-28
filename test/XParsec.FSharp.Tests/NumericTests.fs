@@ -1,4 +1,4 @@
-module XParsec.FSharp.Lexer.Tests.NumericTests
+module XParsec.FSharp.Tests.NumericTests
 
 open System
 open System.Text

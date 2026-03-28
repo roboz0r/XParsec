@@ -1,4 +1,4 @@
-module XParsec.FSharp.Lexer.Tests.KeywordTests
+module XParsec.FSharp.Tests.KeywordTests
 
 open System
 open System.IO
