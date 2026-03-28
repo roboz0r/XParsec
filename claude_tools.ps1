@@ -34,7 +34,10 @@ param(
     [int]$SummaryLines = 30,
 
     [Parameter(Mandatory = $false)]
-    [switch]$UpdateSnapshots
+    [switch]$UpdateSnapshots,
+
+    [Parameter(Mandatory = $false)]
+    [string]$Filter
 )
 
 $ErrorActionPreference = "Stop"
@@ -95,7 +98,14 @@ try {
             $TestPath = "test/$TestProject"
             Write-Host "Running tests for $TestProject..." -ForegroundColor Cyan
 
-            $testOutput = dotnet test $TestPath 2>&1
+            if (-not [string]::IsNullOrWhiteSpace($Filter)) {
+                # Use dotnet run with Expecto's --filter for targeted tests
+                $testArgs = @("run", "--project", $TestPath, "--no-build", "--", "--filter", $Filter)
+            }
+            else {
+                $testArgs = @("test", $TestPath)
+            }
+            $testOutput = & dotnet @testArgs 2>&1
             $testExitCode = $LASTEXITCODE
 
             # Save full output to log
