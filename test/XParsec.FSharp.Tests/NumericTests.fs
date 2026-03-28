@@ -293,7 +293,7 @@ let tests1 =
         [
             for input, expectedBase in intPartCases do
                 test $"Lexing numeric literal '{input}'" {
-                    let reader = Reader.ofString input (LexBuilder.init ())
+                    let reader = Reader.ofString input (LexBuilder.init input)
 
                     match NumericLiterals.pXIntBase reader with
                     | Ok actualBase ->

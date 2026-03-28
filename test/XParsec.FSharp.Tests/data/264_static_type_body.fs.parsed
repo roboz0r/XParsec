@@ -1,0 +1,77 @@
+module                 'module'          KWModule            tok=   0  pos=   0
+                       'TestStatic...'   Identifier          tok=   2  pos=   7
+TypeDefn.Anon:
+  [<                   '[<'              KWLAttrBracket      tok=   5  pos=  27
+  NamedType:
+    LongIdent:
+                       'Sealed'          Identifier          tok=   6  pos=  29
+  >]                   '>]'              KWRAttrBracket      tok=   7  pos=  35
+  TypeName             'Cancellabl...'   Identifier          tok=  11  pos=  43
+  =                    '='               OpEquality          tok=  13  pos=  55
+  begin                <virt>            KWBegin             tok=virt  pos=  61
+    static             'static'          KWStatic            tok=  16  pos=  61
+    let                'let'             KWLet               tok=  18  pos=  68
+    Pat.NamedSimple    'tokenHolde...'   Identifier          tok=  20  pos=  72
+    =                  '='               OpEquality          tok=  22  pos=  84
+      HighPrecedenceApp:
+        Func:
+          TypeApp:
+            Expr:
+              Ident    'AsyncLocal'      Identifier          tok=  24  pos=  86
+            Types:
+              SuffixedType:
+                NamedType:
+                  LongIdent:
+                       'Cancellati...'   Identifier          tok=  26  pos=  97
+                LongIdent:
+                       'voption'         Identifier          tok=  28  pos= 115
+        (              '('               KWLParen            tok=  30  pos= 123
+        Arg:
+          ParenBlock   '('               KWLParen            tok=  30  pos= 123
+                       ')'               KWRParen            tok=  31  pos= 124
+                       ')'               KWRParen            tok=  31  pos= 124
+    static             'static'          KWStatic            tok=  34  pos= 130
+    let                'let'             KWLet               tok=  36  pos= 137
+    Pat.NamedSimple    'guard'           Identifier          tok=  38  pos= 141
+    =                  '='               OpEquality          tok=  40  pos= 147
+      Const            'true'            KWTrue              tok=  42  pos= 149
+    static             'static'          KWStatic            tok=  45  pos= 158
+    member             'member'          KWMember            tok=  47  pos= 165
+    Pat.NamedSimple    'Token'           Identifier          tok=  49  pos= 172
+    =                  '='               OpEquality          tok=  51  pos= 178
+      LongIdentOrOp:
+        LongIdent:
+                       'tokenHolde...'   Identifier          tok=  53  pos= 180
+                       'Value'           Identifier          tok=  55  pos= 192
+    static             'static'          KWStatic            tok=  58  pos= 202
+    member             'member'          KWMember            tok=  60  pos= 209
+    Pat.NamedSimple    'Set'             Identifier          tok=  62  pos= 216
+    Pats:
+      Pat.NamedSimple  'v'               Identifier          tok=  64  pos= 220
+    =                  '='               OpEquality          tok=  66  pos= 222
+      Assignment       '<-'              OpArrowLeft         tok=  72  pos= 242
+        LongIdentOrOp:
+          LongIdent:
+                       'tokenHolde...'   Identifier          tok=  68  pos= 224
+                       'Value'           Identifier          tok=  70  pos= 236
+        App:
+          Func:
+            Ident      'ValueSome'       Identifier          tok=  74  pos= 245
+          Args:
+            Ident      'v'               Identifier          tok=  76  pos= 255
+  end                  <virt>            KWEnd               tok=virt  pos= 258
+TypeDefn.Anon:
+  TypeName             'StaticOnly'      Identifier          tok=  81  pos= 263
+  =                    '='               OpEquality          tok=  83  pos= 274
+  begin                <virt>            KWBegin             tok=virt  pos= 280
+    static             'static'          KWStatic            tok=  86  pos= 280
+    member             'member'          KWMember            tok=  88  pos= 287
+    Pat.NamedSimple    'X'               Identifier          tok=  90  pos= 294
+    =                  '='               OpEquality          tok=  92  pos= 296
+      Const            '1'               NumInt32            tok=  94  pos= 298
+    static             'static'          KWStatic            tok=  97  pos= 304
+    member             'member'          KWMember            tok=  99  pos= 311
+    Pat.NamedSimple    'Y'               Identifier          tok= 101  pos= 318
+    =                  '='               OpEquality          tok= 103  pos= 320
+      Const            '2'               NumInt32            tok= 105  pos= 322
+  end                  <virt>            KWEnd               tok=virt  pos= 324

@@ -14,9 +14,14 @@ module ImportDecl =
     let parse =
         parser {
             let! openTok = pOpen
+            let! typeTok = opt pType
+
             // Committed after consuming 'open' — recover with virtual ident if LongIdent fails
             let! ident = recoverLongIdent "Expected identifier after 'open'" LongIdent.parse
-            return ImportDecl(openTok, ident)
+
+            match typeTok with
+            | ValueSome typeTok -> return ImportDeclType(openTok, typeTok, ident)
+            | ValueNone -> return ImportDecl(openTok, ident)
         }
 
 [<RequireQualifiedAccess>]

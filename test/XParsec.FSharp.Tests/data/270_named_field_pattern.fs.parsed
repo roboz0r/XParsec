@@ -1,0 +1,115 @@
+module                             'module'          KWModule            tok=   0  pos=   0
+                                   'TestNamedF...'   Identifier          tok=   2  pos=   7
+TypeDefn.Union:
+  TypeName                         'MyDU'            Identifier          tok=   7  pos=  44
+  =                                '='               OpEquality          tok=   9  pos=  49
+    Case:
+      ident                        'Foo'             Identifier          tok=  14  pos=  57
+      of                           'of'              KWOf                tok=  16  pos=  61
+      ident                        'isStruct'        Identifier          tok=  18  pos=  64
+      :                            ':'               OpColon             tok=  19  pos=  72
+      NamedType:
+        LongIdent:
+                                   'bool'            Identifier          tok=  21  pos=  74
+      ident                        'elementPat...'   Identifier          tok=  25  pos=  81
+      :                            ':'               OpColon             tok=  26  pos=  92
+      SuffixedType:
+        NamedType:
+          LongIdent:
+                                   'int'             Identifier          tok=  28  pos=  94
+        LongIdent:
+                                   'list'            Identifier          tok=  30  pos=  98
+    Case:
+      ident                        'Bar'             Identifier          tok=  35  pos= 109
+      of                           'of'              KWOf                tok=  37  pos= 113
+      ident                        'name'            Identifier          tok=  39  pos= 116
+      :                            ':'               OpColon             tok=  40  pos= 120
+      NamedType:
+        LongIdent:
+                                   'string'          Identifier          tok=  42  pos= 122
+      ident                        'value'           Identifier          tok=  46  pos= 131
+      :                            ':'               OpColon             tok=  47  pos= 136
+      NamedType:
+        LongIdent:
+                                   'int'             Identifier          tok=  49  pos= 138
+FunctionOrValue:
+  let                              'let'             KWLet               tok=  52  pos= 143
+    Pat.NamedSimple                'f'               Identifier          tok=  54  pos= 147
+    Pats:
+      Pat.NamedSimple              'x'               Identifier          tok=  56  pos= 149
+    =                              '='               OpEquality          tok=  58  pos= 151
+      Match:
+        MatchToken                 'match'           KWMatch             tok=  61  pos= 157
+        MatchExpr:
+          Ident                    'x'               Identifier          tok=  63  pos= 163
+        WithToken                  'with'            KWWith              tok=  65  pos= 165
+        Rule:
+          Bar                      '|'               OpBar               tok=  68  pos= 174
+          Pat:
+            Pat.NamedFieldPats:
+              Ident                'Foo'             Identifier          tok=  70  pos= 176
+              (                    '('               KWLParen            tok=  71  pos= 179
+              FieldPat:
+                Ident              'isStruct'        Identifier          tok=  72  pos= 180
+                =                  '='               OpEquality          tok=  74  pos= 189
+                Pat:
+                  Pat.Const        'false'           KWFalse             tok=  76  pos= 191
+              FieldPat:
+                Ident              'elementPat...'   Identifier          tok=  79  pos= 198
+                =                  '='               OpEquality          tok=  81  pos= 210
+                Pat:
+                  Pat.NamedSimple  'pats'            Identifier          tok=  83  pos= 212
+              )                    ')'               KWRParen            tok=  84  pos= 216
+          Arrow                    '->'              OpArrowRight        tok=  86  pos= 218
+          Expr:
+            Ident                  'pats'            Identifier          tok=  88  pos= 221
+        Rule:
+          Bar                      '|'               OpBar               tok=  91  pos= 230
+          Pat:
+            Pat.NamedFieldPats:
+              Ident                'Foo'             Identifier          tok=  93  pos= 232
+              (                    '('               KWLParen            tok=  94  pos= 235
+              FieldPat:
+                Ident              'isStruct'        Identifier          tok=  95  pos= 236
+                =                  '='               OpEquality          tok=  97  pos= 245
+                Pat:
+                  Pat.Const        'true'            KWTrue              tok=  99  pos= 247
+              FieldPat:
+                Ident              'elementPat...'   Identifier          tok= 102  pos= 253
+                =                  '='               OpEquality          tok= 104  pos= 265
+                Pat:
+                  Pat.NamedSimple  'pats'            Identifier          tok= 106  pos= 267
+              )                    ')'               KWRParen            tok= 107  pos= 271
+          Arrow                    '->'              OpArrowRight        tok= 109  pos= 273
+          Expr:
+            Ident                  'pats'            Identifier          tok= 111  pos= 276
+        Rule:
+          Bar                      '|'               OpBar               tok= 114  pos= 285
+          Pat:
+            Pat.NamedFieldPats:
+              Ident                'Bar'             Identifier          tok= 116  pos= 287
+              (                    '('               KWLParen            tok= 117  pos= 290
+              FieldPat:
+                Ident              'name'            Identifier          tok= 118  pos= 291
+                =                  '='               OpEquality          tok= 120  pos= 296
+                Pat:
+                  Pat.NamedSimple  'n'               Identifier          tok= 122  pos= 298
+              FieldPat:
+                Ident              'value'           Identifier          tok= 125  pos= 301
+                =                  '='               OpEquality          tok= 127  pos= 307
+                Pat:
+                  Pat.NamedSimple  'v'               Identifier          tok= 129  pos= 309
+              )                    ')'               KWRParen            tok= 130  pos= 310
+          Arrow                    '->'              OpArrowRight        tok= 132  pos= 312
+          Expr:
+            List                   '['               KWLBracket          tok= 134  pos= 315
+              Ident                'v'               Identifier          tok= 135  pos= 316
+                                   ']'               KWRBracket          tok= 136  pos= 317
+        Rule:
+          Bar                      '|'               OpBar               tok= 139  pos= 323
+          Pat:
+            Pat.Wildcard           '_'               Wildcard            tok= 141  pos= 325
+          Arrow                    '->'              OpArrowRight        tok= 143  pos= 327
+          Expr:
+            List                   '['               KWLBracket          tok= 145  pos= 330
+                                   ']'               KWRBracket          tok= 146  pos= 331

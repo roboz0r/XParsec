@@ -1,0 +1,44 @@
+0, NumInt32
+2, Newline
+3, Identifier
+4, Whitespace
+5, Operator 0b1000000001010011 InfixAdd (can be prefix)
+6, Whitespace
+7, NumInt32
+8, Newline
+9, Identifier
+10, Whitespace
+11, NumInt32
+13, Newline
+14, KWLParen
+15, NumInt32
+17, KWRParen
+18, Newline
+19, KWLBracket
+20, NumInt32
+22, KWRBracket
+23, Newline
+24, KWLArrayBracket
+26, NumInt32
+28, KWRArrayBracket
+30, Newline
+31, KWLBrace
+32, NumInt32
+34, KWRBrace
+35, Newline
+36, KWBegin
+41, NumInt32
+43, Whitespace
+44, KWEnd
+47, Newline
+48, Operator 0b1000000001010011 InfixAdd (can be prefix)
+50, NumInt32
+51, Newline
+52, Operator 0b1000000001010011 InfixAdd (can be prefix)
+53, NumInt32
+54, Newline
+55, NumIEEE64
+59, Newline
+60, NumUInt32
+63, Newline
+64, EOF

@@ -1,0 +1,81 @@
+module                         'module'          KWModule            tok=   0  pos=   0
+                               'TestOption...'   Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                          'let'             KWLet               tok=   5  pos=  24
+    Pat.NamedSimple            'f'               Identifier          tok=   7  pos=  28
+    Pats:
+      ParenBlock               '('               KWLParen            tok=   9  pos=  30
+        Pat.Typed:
+          Pat.Optional:
+            ?                  '?'               OpDynamic           tok=  10  pos=  31
+            Pat.NamedSimple    'x'               Identifier          tok=  11  pos=  32
+          Colon                ':'               OpColon             tok=  12  pos=  33
+          NamedType:
+            LongIdent:
+                               'int'             Identifier          tok=  14  pos=  35
+                               ')'               KWRParen            tok=  15  pos=  38
+    =                          '='               OpEquality          tok=  17  pos=  40
+      Ident                    'x'               Identifier          tok=  19  pos=  42
+FunctionOrValue:
+  let                          'let'             KWLet               tok=  22  pos=  45
+    Pat.NamedSimple            'g'               Identifier          tok=  24  pos=  49
+    Pats:
+      ParenBlock               '('               KWLParen            tok=  26  pos=  51
+                               ')'               KWRParen            tok=  27  pos=  52
+    =                          '='               OpEquality          tok=  29  pos=  54
+      HighPrecedenceApp:
+        Func:
+          Ident                'someMethod'      Identifier          tok=  32  pos=  60
+        (                      '('               KWLParen            tok=  33  pos=  70
+        Arg:
+          Tuple:
+            Ident              'layout'          Identifier          tok=  34  pos=  71
+            Ident              'xml'             Identifier          tok=  37  pos=  79
+            InfixApp           '='               OpEquality          tok=  42  pos=  96
+              OptionalArg:
+                ?              '?'               OpDynamic           tok=  40  pos=  84
+                Ident          'typeMappin...'   Identifier          tok=  41  pos=  85
+              Ident            'typeMappin...'   Identifier          tok=  43  pos=  97
+            InfixApp           '='               OpEquality          tok=  48  pos= 117
+              OptionalArg:
+                ?              '?'               OpDynamic           tok=  46  pos= 110
+                Ident          'symbol'          Identifier          tok=  47  pos= 111
+              Ident            'symbol'          Identifier          tok=  49  pos= 118
+                               ')'               KWRParen            tok=  50  pos= 124
+TypeDefn.Anon:
+  TypeName                     'MyClass'         Identifier          tok=  55  pos= 132
+  (                            '('               KWLParen            tok=  56  pos= 139
+  )                            ')'               KWRParen            tok=  57  pos= 140
+  =                            '='               OpEquality          tok=  59  pos= 142
+  begin                        <virt>            KWBegin             tok=virt  pos= 148
+    member                     'member'          KWMember            tok=  62  pos= 148
+    self                       '_'               Wildcard            tok=  64  pos= 155
+    Pat.NamedSimple            'Method'          Identifier          tok=  66  pos= 157
+    Pats:
+      ParenBlock               '('               KWLParen            tok=  67  pos= 163
+        Pat.Tuple:
+          Pat.Typed:
+            Pat.Optional:
+              ?                '?'               OpDynamic           tok=  68  pos= 164
+              Pat.NamedSimple  'label'           Identifier          tok=  69  pos= 165
+            Colon              ':'               OpColon             tok=  70  pos= 170
+            NamedType:
+              LongIdent:
+                               'string'          Identifier          tok=  72  pos= 172
+          Pat.Typed:
+            Pat.Optional:
+              ?                '?'               OpDynamic           tok=  75  pos= 180
+              Pat.NamedSimple  'count'           Identifier          tok=  76  pos= 181
+            Colon              ':'               OpColon             tok=  77  pos= 186
+            NamedType:
+              LongIdent:
+                               'int'             Identifier          tok=  79  pos= 188
+                               ')'               KWRParen            tok=  80  pos= 191
+    =                          '='               OpEquality          tok=  82  pos= 193
+      App:
+        Func:
+          Ident                'defaultArg'      Identifier          tok=  85  pos= 203
+        Args:
+          Ident                'label'           Identifier          tok=  87  pos= 214
+          Const                '"default"'       StringLiteral       tok=  89  pos= 220
+  end                          <virt>            KWEnd               tok=virt  pos= 230

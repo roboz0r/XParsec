@@ -59,95 +59,93 @@ FunctionOrValue:
             Const          '0'               NumInt32            tok= 119  pos= 870
         ElseToken          'else'            KWElse              tok= 122  pos= 876
         ElseExpr:
-          PrefixApp        '-'               op_Subtraction      tok= 127  pos= 951
-            Const          '1'               NumInt32            tok= 128  pos= 952
+          Const            '-1'              NumInt32            tok= 127  pos= 951
 FunctionOrValue:
-  let                      'let'             KWLet               tok= 146  pos=1297
-    Pat.NamedSimple        'bodyMinima...'   Identifier          tok= 148  pos=1301
+  let                      'let'             KWLet               tok= 145  pos=1297
+    Pat.NamedSimple        'bodyMinima...'   Identifier          tok= 147  pos=1301
     Pats:
-      Pat.NamedSimple      'x'               Identifier          tok= 150  pos=1313
-    =                      '='               OpEquality          tok= 152  pos=1315
+      Pat.NamedSimple      'x'               Identifier          tok= 149  pos=1313
+    =                      '='               OpEquality          tok= 151  pos=1315
       IfThenElse:
-        IfToken            'if'              KWIf                tok= 155  pos=1321
+        IfToken            'if'              KWIf                tok= 154  pos=1321
         Condition:
-          InfixApp         '>'               op_GreaterThan      tok= 159  pos=1326
-            Ident          'x'               Identifier          tok= 157  pos=1324
-            Const          '0'               NumInt32            tok= 161  pos=1328
-        ThenToken          'then'            KWThen              tok= 163  pos=1330
+          InfixApp         '>'               op_GreaterThan      tok= 158  pos=1326
+            Ident          'x'               Identifier          tok= 156  pos=1324
+            Const          '0'               NumInt32            tok= 160  pos=1328
+        ThenToken          'then'            KWThen              tok= 162  pos=1330
         ThenExpr:
-          Ident            'x'               Identifier          tok= 166  pos=1340
-        ElseToken          'else'            KWElse              tok= 171  pos=1387
+          Ident            'x'               Identifier          tok= 165  pos=1340
+        ElseToken          'else'            KWElse              tok= 170  pos=1387
         ElseExpr:
-          PrefixApp        '-'               op_Subtraction      tok= 174  pos=1397
-            Ident          'x'               Identifier          tok= 175  pos=1398
+          PrefixApp        '-'               op_Subtraction      tok= 173  pos=1397
+            Ident          'x'               Identifier          tok= 174  pos=1398
 FunctionOrValue:
-  let                      'let'             KWLet               tok= 182  pos=1504
-    Pat.NamedSimple        'thenIndent...'   Identifier          tok= 184  pos=1508
+  let                      'let'             KWLet               tok= 181  pos=1504
+    Pat.NamedSimple        'thenIndent...'   Identifier          tok= 183  pos=1508
     Pats:
-      Pat.NamedSimple      'x'               Identifier          tok= 186  pos=1521
-    =                      '='               OpEquality          tok= 188  pos=1523
+      Pat.NamedSimple      'x'               Identifier          tok= 185  pos=1521
+    =                      '='               OpEquality          tok= 187  pos=1523
       IfThenElse:
-        IfToken            'if'              KWIf                tok= 191  pos=1529
+        IfToken            'if'              KWIf                tok= 190  pos=1529
         Condition:
-          InfixApp         '>'               op_GreaterThan      tok= 195  pos=1534
-            Ident          'x'               Identifier          tok= 193  pos=1532
-            Const          '0'               NumInt32            tok= 197  pos=1536
-        ThenToken          'then'            KWThen              tok= 200  pos=1545
+          InfixApp         '>'               op_GreaterThan      tok= 194  pos=1534
+            Ident          'x'               Identifier          tok= 192  pos=1532
+            Const          '0'               NumInt32            tok= 196  pos=1536
+        ThenToken          'then'            KWThen              tok= 199  pos=1545
         ThenExpr:
-          Ident            'x'               Identifier          tok= 203  pos=1555
-        ElseToken          'else'            KWElse              tok= 208  pos=1629
+          Ident            'x'               Identifier          tok= 202  pos=1555
+        ElseToken          'else'            KWElse              tok= 207  pos=1629
         ElseExpr:
-          PrefixApp        '-'               op_Subtraction      tok= 211  pos=1639
-            Ident          'x'               Identifier          tok= 212  pos=1640
+          PrefixApp        '-'               op_Subtraction      tok= 210  pos=1639
+            Ident          'x'               Identifier          tok= 211  pos=1640
 FunctionOrValue:
-  let                      'let'             KWLet               tok= 228  pos=1997
-    Pat.NamedSimple        'inlineThen'      Identifier          tok= 230  pos=2001
+  let                      'let'             KWLet               tok= 227  pos=1997
+    Pat.NamedSimple        'inlineThen'      Identifier          tok= 229  pos=2001
     Pats:
-      Pat.NamedSimple      'x'               Identifier          tok= 232  pos=2012
-    =                      '='               OpEquality          tok= 234  pos=2014
+      Pat.NamedSimple      'x'               Identifier          tok= 231  pos=2012
+    =                      '='               OpEquality          tok= 233  pos=2014
       IfThenElse:
-        IfToken            'if'              KWIf                tok= 237  pos=2020
+        IfToken            'if'              KWIf                tok= 236  pos=2020
         Condition:
-          InfixApp         '>'               op_GreaterThan      tok= 241  pos=2025
-            Ident          'x'               Identifier          tok= 239  pos=2023
-            Const          '0'               NumInt32            tok= 243  pos=2027
-        ThenToken          'then'            KWThen              tok= 246  pos=2033
+          InfixApp         '>'               op_GreaterThan      tok= 240  pos=2025
+            Ident          'x'               Identifier          tok= 238  pos=2023
+            Const          '0'               NumInt32            tok= 242  pos=2027
+        ThenToken          'then'            KWThen              tok= 245  pos=2033
         ThenExpr:
-          Ident            'x'               Identifier          tok= 248  pos=2038
-        ElseToken          'else'            KWElse              tok= 253  pos=2091
+          Ident            'x'               Identifier          tok= 247  pos=2038
+        ElseToken          'else'            KWElse              tok= 252  pos=2091
         ElseExpr:
-          PrefixApp        '-'               op_Subtraction      tok= 255  pos=2096
-            Ident          'x'               Identifier          tok= 256  pos=2097
+          PrefixApp        '-'               op_Subtraction      tok= 254  pos=2096
+            Ident          'x'               Identifier          tok= 255  pos=2097
 FunctionOrValue:
-  let                      'let'             KWLet               tok= 268  pos=2292
-    Pat.NamedSimple        'nestedIf'        Identifier          tok= 270  pos=2296
+  let                      'let'             KWLet               tok= 267  pos=2292
+    Pat.NamedSimple        'nestedIf'        Identifier          tok= 269  pos=2296
     Pats:
       Pat.Named:
-        Ident              'x'               Identifier          tok= 272  pos=2305
+        Ident              'x'               Identifier          tok= 271  pos=2305
         Param:
-          Pat.NamedSimple  'y'               Identifier          tok= 274  pos=2307
-    =                      '='               OpEquality          tok= 276  pos=2309
+          Pat.NamedSimple  'y'               Identifier          tok= 273  pos=2307
+    =                      '='               OpEquality          tok= 275  pos=2309
       IfThenElse:
-        IfToken            'if'              KWIf                tok= 279  pos=2315
+        IfToken            'if'              KWIf                tok= 278  pos=2315
         Condition:
-          InfixApp         '>'               op_GreaterThan      tok= 283  pos=2320
-            Ident          'x'               Identifier          tok= 281  pos=2318
-            Const          '0'               NumInt32            tok= 285  pos=2322
-        ThenToken          'then'            KWThen              tok= 287  pos=2324
+          InfixApp         '>'               op_GreaterThan      tok= 282  pos=2320
+            Ident          'x'               Identifier          tok= 280  pos=2318
+            Const          '0'               NumInt32            tok= 284  pos=2322
+        ThenToken          'then'            KWThen              tok= 286  pos=2324
         ThenExpr:
           IfThenElse:
-            IfToken        'if'              KWIf                tok= 290  pos=2337
+            IfToken        'if'              KWIf                tok= 289  pos=2337
             Condition:
-              InfixApp     '>'               op_GreaterThan      tok= 294  pos=2342
-                Ident      'y'               Identifier          tok= 292  pos=2340
-                Const      '0'               NumInt32            tok= 296  pos=2344
-            ThenToken      'then'            KWThen              tok= 298  pos=2346
+              InfixApp     '>'               op_GreaterThan      tok= 293  pos=2342
+                Ident      'y'               Identifier          tok= 291  pos=2340
+                Const      '0'               NumInt32            tok= 295  pos=2344
+            ThenToken      'then'            KWThen              tok= 297  pos=2346
             ThenExpr:
-              Const        '1'               NumInt32            tok= 301  pos=2360
-            ElseToken      'else'            KWElse              tok= 306  pos=2413
+              Const        '1'               NumInt32            tok= 300  pos=2360
+            ElseToken      'else'            KWElse              tok= 305  pos=2413
             ElseExpr:
-              PrefixApp    '-'               op_Subtraction      tok= 309  pos=2427
-                Const      '1'               NumInt32            tok= 310  pos=2428
-        ElseToken          'else'            KWElse              tok= 315  pos=2476
+              Const        '-1'              NumInt32            tok= 308  pos=2427
+        ElseToken          'else'            KWElse              tok= 313  pos=2476
         ElseExpr:
-          Const            '0'               NumInt32            tok= 318  pos=2486
+          Const            '0'               NumInt32            tok= 316  pos=2486

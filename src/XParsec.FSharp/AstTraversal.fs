@@ -764,6 +764,11 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         visitor.EnterSection ""
         walkExpr visitor expr
         visitor.ExitSection ""
+    | Expr.OptionalArgExpr(qmark, ident) ->
+        visitor.EnterSection "OptionalArg"
+        visitor.VisitToken "?" qmark
+        visitor.VisitToken "Ident" ident
+        visitor.ExitSection "OptionalArg"
     | Expr.Sequential(exprs, _ops) ->
         visitor.EnterSection "Sequential"
 
@@ -1778,11 +1783,18 @@ and walkModuleFunctionOrValueDefn (visitor: AstVisitor<'T>) (defn: ModuleFunctio
         visitor.ExitSection ""
 
 and walkImportDecl (visitor: AstVisitor<'T>) (decl: ImportDecl<'T>) : unit =
-    let (ImportDecl.ImportDecl(openToken, longIdent)) = decl
-    visitor.VisitToken "open" openToken
+    match decl with
+    | ImportDecl.ImportDecl(openToken, longIdent) ->
+        visitor.VisitToken "open" openToken
 
-    for ident in longIdent do
-        visitor.VisitToken "" ident
+        for ident in longIdent do
+            visitor.VisitToken "" ident
+    | ImportDecl.ImportDeclType(openToken, typeToken, longIdent) ->
+        visitor.VisitToken "open" openToken
+        visitor.VisitToken "type" typeToken
+
+        for ident in longIdent do
+            visitor.VisitToken "" ident
 
 and walkModuleAbbrev (visitor: AstVisitor<'T>) (abbrev: ModuleAbbrev<'T>) : unit =
     let (ModuleAbbrev.ModuleAbbrev(moduleToken, ident, equals, longIdent)) = abbrev

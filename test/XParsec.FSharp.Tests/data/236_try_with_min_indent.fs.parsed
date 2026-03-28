@@ -246,46 +246,45 @@ FunctionOrValue:
                              'ArgumentEx...'   Identifier          tok= 423  pos=2914
         Arrow                '->'              OpArrowRight        tok= 425  pos=2932
         Expr:
-          PrefixApp          '-'               op_Subtraction      tok= 428  pos=2940
-            Const            '1'               NumInt32            tok= 429  pos=2941
+          Const              '-1'              NumInt32            tok= 428  pos=2940
       Rule:
-        Bar                  '|'               OpBar               tok= 434  pos=3010
+        Bar                  '|'               OpBar               tok= 433  pos=3010
         Pat:
-          Pat.Wildcard       '_'               Wildcard            tok= 436  pos=3012
-        Arrow                '->'              OpArrowRight        tok= 438  pos=3014
+          Pat.Wildcard       '_'               Wildcard            tok= 435  pos=3012
+        Arrow                '->'              OpArrowRight        tok= 437  pos=3014
         Expr:
-          Const              '0'               NumInt32            tok= 441  pos=3022
+          Const              '0'               NumInt32            tok= 440  pos=3022
 FunctionOrValue:
-  let                        'let'             KWLet               tok= 452  pos=3304
-    Pat.NamedSimple          'multipleCl...'   Identifier          tok= 454  pos=3308
+  let                        'let'             KWLet               tok= 451  pos=3304
+    Pat.NamedSimple          'multipleCl...'   Identifier          tok= 453  pos=3308
     Pats:
-      ParenBlock             '('               KWLParen            tok= 456  pos=3331
-                             ')'               KWRParen            tok= 457  pos=3332
-    =                        '='               OpEquality          tok= 459  pos=3334
-      TryWith                'try'             KWTry               tok= 462  pos=3340
+      ParenBlock             '('               KWLParen            tok= 455  pos=3331
+                             ')'               KWRParen            tok= 456  pos=3332
+    =                        '='               OpEquality          tok= 458  pos=3334
+      TryWith                'try'             KWTry               tok= 461  pos=3340
       TryExpr:
         App:
           Func:
-            Ident            'failwith'        Identifier          tok= 465  pos=3352
+            Ident            'failwith'        Identifier          tok= 464  pos=3352
           Args:
-            Const            '"x"'             StringLiteral       tok= 467  pos=3361
-      WithToken              'with'            KWWith              tok= 470  pos=3369
+            Const            '"x"'             StringLiteral       tok= 466  pos=3361
+      WithToken              'with'            KWWith              tok= 469  pos=3369
       Rule:
-        Bar                  '|'               OpBar               tok= 473  pos=3378
+        Bar                  '|'               OpBar               tok= 472  pos=3378
         Pat:
           Pat.TypeTest:
-            ColonQuestion    ':?'              OpTypeTest          tok= 475  pos=3380
+            ColonQuestion    ':?'              OpTypeTest          tok= 474  pos=3380
             NamedType:
               LongIdent:
-                             'System'          Identifier          tok= 477  pos=3383
-                             'ArgumentEx...'   Identifier          tok= 479  pos=3390
-        Arrow                '->'              OpArrowRight        tok= 481  pos=3408
+                             'System'          Identifier          tok= 476  pos=3383
+                             'ArgumentEx...'   Identifier          tok= 478  pos=3390
+        Arrow                '->'              OpArrowRight        tok= 480  pos=3408
         Expr:
-          Const              '99'              NumInt32            tok= 484  pos=3416
+          Const              '99'              NumInt32            tok= 483  pos=3416
       Rule:
-        Bar                  '|'               OpBar               tok= 489  pos=3485
+        Bar                  '|'               OpBar               tok= 488  pos=3485
         Pat:
-          Pat.Wildcard       '_'               Wildcard            tok= 491  pos=3487
-        Arrow                '->'              OpArrowRight        tok= 493  pos=3489
+          Pat.Wildcard       '_'               Wildcard            tok= 490  pos=3487
+        Arrow                '->'              OpArrowRight        tok= 492  pos=3489
         Expr:
-          Const              '0'               NumInt32            tok= 496  pos=3497
+          Const              '0'               NumInt32            tok= 495  pos=3497

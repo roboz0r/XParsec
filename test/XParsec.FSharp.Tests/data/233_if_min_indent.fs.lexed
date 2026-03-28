@@ -125,8 +125,7 @@
 894, LineComment
 942, Newline
 943, Indent
-951, Operator 0b1000000001010011 InfixAdd (can be prefix)
-952, NumInt32
+951, NumInt32
 953, Newline
 954, Newline
 955, LineComment
@@ -307,8 +306,7 @@
 2413, KWElse
 2417, Newline
 2418, Indent
-2427, Operator 0b1000000001010011 InfixAdd (can be prefix)
-2428, NumInt32
+2427, NumInt32
 2429, Whitespace
 2436, LineComment
 2471, Newline

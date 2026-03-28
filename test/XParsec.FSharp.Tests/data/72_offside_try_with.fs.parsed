@@ -38,18 +38,16 @@ Rule:
                        'Message'         Identifier          tok=  46  pos=  90
     in                 <virt>            KWIn                tok=virt  pos= 102
     Body:
-      PrefixApp        '-'               op_Subtraction      tok=  49  pos= 102
-        Const          '1'               NumInt32            tok=  50  pos= 103
+      Const            '-1'              NumInt32            tok=  49  pos= 102
 Rule:
-  Bar                  '|'               OpBar               tok=  52  pos= 105
+  Bar                  '|'               OpBar               tok=  51  pos= 105
   Pat:
     Pat.TypeTest:
-      ColonQuestion    ':?'              OpTypeTest          tok=  54  pos= 107
+      ColonQuestion    ':?'              OpTypeTest          tok=  53  pos= 107
       NamedType:
         LongIdent:
-                       'System'          Identifier          tok=  56  pos= 110
-                       'InvalidOpe...'   Identifier          tok=  58  pos= 117
-  Arrow                '->'              OpArrowRight        tok=  60  pos= 143
+                       'System'          Identifier          tok=  55  pos= 110
+                       'InvalidOpe...'   Identifier          tok=  57  pos= 117
+  Arrow                '->'              OpArrowRight        tok=  59  pos= 143
   Expr:
-    PrefixApp          '-'               op_Subtraction      tok=  63  pos= 150
-      Const            '2'               NumInt32            tok=  64  pos= 151
+    Const              '-2'              NumInt32            tok=  62  pos= 150
