@@ -1,4 +1,4 @@
-module XParsec.FSharp.Lexer.Tests.BlocksTests
+module XParsec.FSharp.Tests.BlocksTests
 
 open System
 open System.IO

@@ -1,5 +1,5 @@
 [<AutoOpen>]
-module XParsec.FSharp.Lexer.Tests.TestHelpers
+module XParsec.FSharp.Tests.TestHelpers
 
 open System
 open System.IO
@@ -274,6 +274,10 @@ let lexOnlyTestData =
     lazy
         let dir = Path.Combine(testDataDir.Value, "lex-only")
         IO.Directory.GetFiles(dir, "*.fs")
+
+let corpusTestData subDir =
+    let dir = Path.Combine(testDataDir.Value, subDir)
+    IO.Directory.GetFiles(dir, "*.fs") |> Array.sort
 
 let testLexFile (filePath: string) =
     let input = File.ReadAllText filePath
@@ -556,3 +560,46 @@ let findOrphanedGoldenFiles (dataDir: string) : string array =
             not (File.Exists(Path.Combine(dataDir, sourceName)))
     )
     |> Array.sort
+
+type CorpusParseResult =
+    | LexError of string
+    | ParseError of string
+    | ParseException of exn
+    | Timeout
+    | Success of diagnosticCount: int
+
+/// Attempts to lex and parse a corpus file, returning a structured result.
+/// Runs on a separate thread with a timeout to guard against infinite loops / stack overflows.
+let tryParseCorpusFile (filePath: string) : CorpusParseResult =
+    let input = File.ReadAllText filePath
+    let input = input.Replace("\r\n", "\n")
+
+    match Lexing.lexString input with
+    | Error e -> LexError(ErrorFormatting.formatStringError input e)
+    | Ok lexed ->
+        let mutable result = Timeout
+
+        let thread =
+            System.Threading.Thread(
+                System.Threading.ThreadStart(fun () ->
+                    try
+                        let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed input Set.empty
+
+                        match XParsec.FSharp.Parser.FSharpAst.parse reader with
+                        | Error e ->
+                            result <- ParseError(XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
+                        | Ok _ ->
+                            let diagCount = reader.State.Diagnostics.Length
+                            result <- Success diagCount
+                    with ex ->
+                        result <- ParseException ex
+                ),
+                0x200000 // 2MB stack
+            )
+
+        thread.Start()
+
+        if not (thread.Join(System.TimeSpan.FromSeconds 30.0)) then
+            Timeout
+        else
+            result
