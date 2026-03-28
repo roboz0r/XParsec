@@ -27,5 +27,4 @@ Match:
       Pat.Wildcard       '_'               Wildcard            tok=  27  pos=  37
     Arrow                '->'              OpArrowRight        tok=  29  pos=  39
     Expr:
-      PrefixApp          '-'               op_Subtraction      tok=  31  pos=  42
-        Const            '1'               NumInt32            tok=  32  pos=  43
+      Const              '-1'              NumInt32            tok=  31  pos=  42

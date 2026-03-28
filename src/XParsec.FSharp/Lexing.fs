@@ -173,7 +173,7 @@ type LexContext =
 
 type LexBuilder =
     {
-        // Resume here
+        Source: string
         Tokens: ImmutableArray<PositionedToken>.Builder
         mutable AtStartOfLine: bool
         mutable Context: LexContext list
@@ -341,9 +341,10 @@ module LexBuilder =
             Blocks = blocks
         }
 
-    let init () =
+    let init (input: string) =
         let x =
             {
+                Source = input
                 Tokens = ImmutableArray.CreateBuilder()
                 AtStartOfLine = true
                 Context = []
@@ -399,16 +400,76 @@ module LexBuilder =
         | Token.InterpolatedStringFragment -> true
         | _ -> false
 
+    let private isLexTrivia (token: PositionedToken) =
+        if token.InComment then
+            true
+        else
+            match token.TokenWithoutCommentFlags with
+            | Token.LineComment
+            | Token.Indent
+            | Token.Whitespace
+            | Token.BlockCommentStart
+            | Token.BlockCommentEnd
+            | Token.StartFSharpBlockComment
+            | Token.EndFSharpBlockComment
+            | Token.StartOCamlBlockComment
+            | Token.EndOCamlBlockComment
+            | Token.Newline
+            | Token.Tab -> true
+            | _ -> false
+
+    /// Returns true if the token before `-` means `-` cannot be binary subtraction,
+    /// and thus `-<numeric>` should be merged into a single negative literal token.
+    let private allowsNegativeLiteral (token: PositionedToken) =
+        if isLexTrivia token then
+            true
+        else
+            match token.TokenWithoutCommentFlags with
+            | Token.KWLParen
+            | Token.KWLBracket
+            | Token.KWLArrayBracket
+            | Token.KWLBrace
+            | Token.KWLAttrBracket
+            | Token.KWBegin -> true
+            | _ -> false
+
+    /// Check if the current numeric token should be merged with a preceding `-` token
+    /// to form a negative literal. Returns true if the merge was performed.
+    let private tryMergeNegativeLiteral (token: Token) (idx: int) (state: LexBuilder) =
+        if not token.IsNumeric then
+            false
+        else
+            let tokenCount = state.Tokens.Count
+
+            if tokenCount < 1 then
+                false
+            else
+                let prevIdx = tokenCount - 1
+                let prev = state.Tokens[prevIdx]
+
+                if
+                    prev.Token <> Token.OpSubtraction
+                    || idx - prev.StartIndex <> 1
+                    || state.Source[prev.StartIndex] <> '-'
+                then
+                    false
+                elif prevIdx = 0 || allowsNegativeLiteral state.Tokens[prevIdx - 1] then
+                    state.Tokens[prevIdx] <- PositionedToken.Create(token, prev.StartIndex)
+                    true
+                else
+                    false
+
     let appendI token (idx: int) ctxOp (state: LexBuilder) =
         // Coalesce adjacent string fragments
-        // TODO: Handle literal negation (merging adjacent `-` and numeric literal into a single negative literal token)
         // ADJACENT_PREFIX_OP handling is done in the parser (isAdjacentPrefixOp in ExpressionParsing.fs)
         // https://fsharp.github.io/fslang-spec/lexical-analysis/#381-post-filtering-of-adjacent-prefix-tokens
         let tokenCount = state.Tokens.Count
         let tokenIdx = tokenCount * 1<token>
 
         let addToken =
-            if tokenCount > 0 then
+            if tryMergeNegativeLiteral token idx state then
+                false
+            elif tokenCount > 0 then
                 match token, state.Tokens[tokenCount - 1] with
                 | CoalescableToken, t when t.Token = token -> false
                 | _ -> true
@@ -2466,5 +2527,5 @@ module Lexing =
             | Error e -> Error e
 
     let lexString (input: string) =
-        let reader = Reader.ofString input (LexBuilder.init ())
+        let reader = Reader.ofString input (LexBuilder.init input)
         lex reader

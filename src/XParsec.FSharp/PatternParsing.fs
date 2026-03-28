@@ -239,11 +239,12 @@ module Pat =
         }
 
     /// Parse named field patterns: UnionCase(field1 = pat1, field2 = pat2)
+    /// Accepts both commas and semicolons as separators (F# allows both).
     let private pNamedFieldPats =
         parser {
             let! lid = LongIdent.parse
             let! lParen = pLParen
-            let! fields, commas = sepBy1 pUnionFieldPat pComma
+            let! fields, commas = sepBy1 pUnionFieldPat (pComma <|> pSemi)
             let! rParen = pRParen
             return Pat.NamedFieldPats(lid, lParen, List.ofSeq fields, List.ofSeq commas, rParen)
         }

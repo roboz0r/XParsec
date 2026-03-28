@@ -7,8 +7,10 @@ type Access<'T> =
     | Internal of internalToken: 'T
     | Public of publicToken: 'T
 
-// Represents: import-decl := open long-ident
-type ImportDecl<'T> = | ImportDecl of openToken: 'T * longIdent: LongIdent<'T>
+// Represents: import-decl := open long-ident | open type long-ident
+type ImportDecl<'T> =
+    | ImportDecl of openToken: 'T * longIdent: LongIdent<'T>
+    | ImportDeclType of openToken: 'T * typeToken: 'T * longIdent: LongIdent<'T>
 
 // Represents: module-abbrev := module ident = long-ident
 type ModuleAbbrev<'T> = | ModuleAbbrev of moduleToken: 'T * ident: 'T * equals: 'T * longIdent: LongIdent<'T>

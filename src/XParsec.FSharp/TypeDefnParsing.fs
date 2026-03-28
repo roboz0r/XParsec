@@ -1101,6 +1101,7 @@ module TypeDefn =
                             pAbstract
                             pDefault
                             pOverride
+                            pStatic
                             // Attributes followed by a class-body keyword (e.g., [<FieldOffset(0)>] val ...)
                             parser {
                                 let! _ = Attributes.parse

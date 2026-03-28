@@ -426,8 +426,7 @@
 2932, OpArrowRight
 2934, Newline
 2935, Indent
-2940, Operator 0b1000000001010011 InfixAdd (can be prefix)
-2941, NumInt32
+2940, NumInt32
 2942, Whitespace
 2957, LineComment
 3005, Newline

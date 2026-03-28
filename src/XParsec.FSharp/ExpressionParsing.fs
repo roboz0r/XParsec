@@ -269,6 +269,7 @@ type ExprAux =
     | Ident of SyntaxToken
     | TypeApp of SyntaxToken * Type<SyntaxToken> list * SyntaxToken
     | DotIndex of SyntaxToken * Expr<SyntaxToken> * SyntaxToken // .[ expr ]
+    | DotParenOp of IdentOrOp<SyntaxToken> // .( op ) — qualified operator access
     | PostfixDynamic of SyntaxToken * Type<SyntaxToken> // :? Type (DynamicTypeTest)
     | HighPrecApp of SyntaxToken * Expr<SyntaxToken> * SyntaxToken // ( expr ) for f(x, y)
     | HighPrecIndex of SyntaxToken * Expr<SyntaxToken> * SyntaxToken // [ expr ] for arr[i] (F# 6+ dot-less indexing)
@@ -346,6 +347,13 @@ module Expr =
                         let! rBracket = pRBracket
                         return ExprAux.DotIndex(lBracket, indexExpr, rBracket)
                     }
+                    // .(op) — qualified operator access (e.g. Module.(+))
+                    parser {
+                        let! lParen = pLParen
+                        let! op = OpName.parse
+                        let! rParen = pRParen
+                        return ExprAux.DotParenOp(IdentOrOp.ParenOp(lParen, op, rParen))
+                    }
                     // .ident — field/member access (e.g. x.Name)
                     parser {
                         let! ident = pIdentAfterDot
@@ -367,6 +375,12 @@ module Expr =
 
                     Expr.LongIdentOrOp(LongIdentOrOp.LongIdent newLongIdent)
                 | _ -> Expr.DotLookup(expr, op, LongIdentOrOp.LongIdent [ ident ])
+            | ExprAux.DotParenOp identOrOp ->
+                match expr with
+                | Expr.Ident firstIdent -> Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp([ firstIdent ], op, identOrOp))
+                | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent longIdent) ->
+                    Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(longIdent, op, identOrOp))
+                | _ -> Expr.DotLookup(expr, op, LongIdentOrOp.Op identOrOp)
             | ExprAux.DotIndex(lBracket, indexExpr, rBracket) ->
                 Expr.IndexedLookup(expr, ValueSome op, lBracket, indexExpr, rBracket)
             | _ -> failwith "Unexpected Aux type for dot completion"
@@ -1110,9 +1124,9 @@ module Expr =
             let pForHeader =
                 choiceL
                     [
-                        // for ident = start to end do
+                        // for ident = start to end do (also accepts _ as wildcard)
                         parser {
-                            let! ident = pIdentTok
+                            let! ident = pIdentTok <|> pWildcard
                             let! eq = pEquals
                             let! startExpr = refExprGuard.Parser
                             let! toTok = pToOrDownTo
@@ -1169,30 +1183,40 @@ module Expr =
                 return ExprAux.ForExpr(forBuilder forTok body doneTok)
             }
 
-        let pLetOrUseIn =
-            parser {
-                match! peekNextNonTriviaToken with
-                | t when t.Token = Token.KWIn -> return! consumePeeked t
-                | t ->
-                    // Not 'in', but maybe we emit a virtual 'in' for offside rule in let bindings without 'in'.
-                    // We can only emit VirtualIn if the next token is indented less than or equal to the 'let' and we're at the correct context indent.
-                    let! indent = currentIndent
-                    let! state = getUserState
+        let pLetOrUseIn (reader: Reader<PositionedToken, ParseState, _, _>) =
+            match peekNextNonTriviaToken reader with
+            | Ok t when t.Token = Token.KWIn -> consumePeeked t reader
+            | Ok t ->
+                // Not 'in', but maybe we emit a virtual 'in' for offside rule in let bindings without 'in'.
+                // We can only emit VirtualIn if the next token is indented less than or equal to the 'let' and we're at the correct context indent.
+                let indent = ParseState.getIndent reader.State (reader.Index * 1<token>)
+                let state = reader.State
 
-                    let atContextIndent =
-                        match state.Context with
-                        | { Indent = ctxIndent } :: _ -> indent = ctxIndent
-                        | [] -> indent = 0
+                let atContextIndent =
+                    match state.Context with
+                    | { Indent = ctxIndent } :: _ -> indent = ctxIndent
+                    | [] -> indent = 0
 
-                    if atContextIndent then
-                        return virtualToken (PositionedToken.Create(Token.VirtualIn, t.StartIndex))
+                if atContextIndent then
+                    Ok(virtualToken (PositionedToken.Create(Token.VirtualIn, t.StartIndex)))
+                else
+                    // TODO: Consider parser recovery here instead of hard failure,
+                    // e.g. skip tokens until we find one that is at the correct indent
+                    // or a valid separator (e.g. semicolon, newline with correct indent, or closing delimiter).
+                    // Maybe still emit a virtual 'in' as well as a diagnostic error for the missing 'in' to allow parsing to continue and produce a more complete AST with error nodes.
+                    fail (Message "Expected 'in' at the same indent as 'let'") reader
+            | Error _ ->
+                // Peek failed (e.g., EOF offside or end of input).
+                // Emit a virtual 'in' — this handles `use _ = expr` at the end of a scope.
+                let pos = reader.Index * 1<token>
+
+                let startIndex =
+                    if pos < reader.State.Lexed.Tokens.Length * 1<token> then
+                        reader.State.Lexed.Tokens[pos].StartIndex
                     else
-                        // TODO: Consider parser recovery here instead of hard failure,
-                        // e.g. skip tokens until we find one that is at the correct indent
-                        // or a valid separator (e.g. semicolon, newline with correct indent, or closing delimiter).
-                        // Maybe still emit a virtual 'in' as well as a diagnostic error for the missing 'in' to allow parsing to continue and produce a more complete AST with error nodes.
-                        return! fail (Message "Expected 'in' at the same indent as 'let'")
-            }
+                        0
+
+                Ok(virtualToken (PositionedToken.Create(Token.VirtualIn, startIndex)))
 
         // Shared definition parser for let/use bindings:
         // Parses [rec] binding [and binding ...] inside a Let offside context.
@@ -1213,7 +1237,7 @@ module Expr =
         /// and a body expression. The fold runs backwards so that the first binding wraps the outermost scope.
         let buildNestedLetOrUse
             (bindings: ResizeArray<struct (SyntaxToken * SyntaxToken voption * _ * SyntaxToken)>)
-            (body: Expr<SyntaxToken>)
+            (body: Expr<SyntaxToken> voption)
             =
             let mutable result = body
 
@@ -1228,9 +1252,11 @@ module Expr =
                     | Token.KWUseBang -> LetOrUseKeyword.UseBang kwTok
                     | t -> failwith $"Unexpected keyword token for let/use body {t}"
 
-                result <- Expr.LetOrUse(kw, recTok, defs, ValueSome inTok, ValueSome result)
+                result <- ValueSome(Expr.LetOrUse(kw, recTok, defs, ValueSome inTok, result))
 
-            result
+            match result with
+            | ValueSome expr -> expr
+            | ValueNone -> Expr.Missing
 
         /// Single body parser used by both `let/let!` and `use/use!`.
         /// The keyword token has been peeked but NOT consumed by lhsParser.
@@ -1291,20 +1317,28 @@ module Expr =
                     // Committed after consuming let/use bindings — recover body expression if it fails
                     let body =
                         match refExprSeqBlock.Parser reader with
-                        | Ok body -> body
+                        | Ok body -> ValueSome body
                         | Error err ->
-                            reader.State <-
-                                ParseState.addDiagnostic
-                                    DiagnosticCode.MissingExpression
-                                    DiagnosticSeverity.Error
-                                    (match peekNextNonTriviaToken reader with
-                                     | Ok tok -> tok.PositionedToken
-                                     | Error _ -> PositionedToken.Create(Token.EOF, 0))
-                                    None
-                                    (Some err)
-                                    reader.State
+                            let struct (lastKw, _, _, _) = bindings[bindings.Count - 1]
 
-                            Expr.Missing
+                            match lastKw.Token with
+                            | Token.KWUse
+                            | Token.KWUseBang ->
+                                // use/use! with no body is valid F# (e.g. `use _ = expr` at end of scope)
+                                ValueNone
+                            | _ ->
+                                reader.State <-
+                                    ParseState.addDiagnostic
+                                        DiagnosticCode.MissingExpression
+                                        DiagnosticSeverity.Error
+                                        (match peekNextNonTriviaToken reader with
+                                         | Ok tok -> tok.PositionedToken
+                                         | Error _ -> PositionedToken.Create(Token.EOF, 0))
+                                        None
+                                        (Some err)
+                                        reader.State
+
+                                ValueSome Expr.Missing
 
                     let result = buildNestedLetOrUse bindings body
                     preturn (ExprAux.KeywordExpr(fun _opTok -> result)) reader
@@ -1948,6 +1982,15 @@ module Expr =
             p
 
 
+    /// Parses `?ident` — optional argument expression in function calls.
+    /// e.g., `f(?x=value)` passes `value` as optional parameter `x`.
+    let private pOptionalArgExpr =
+        parser {
+            let! qmark = pQuestionMark
+            let! ident = nextNonTriviaIdentifierL "Expected identifier after '?'"
+            return Expr.OptionalArgExpr(qmark, ident)
+        }
+
     let parseAtomic =
         dispatchNextNonTriviaTokenFallback
             [
@@ -1973,6 +2016,7 @@ module Expr =
                 Token.Interpolated3StringOpen, pInterpolatedString
                 Token.KWLHashParen, pILIntrinsic
                 Token.Wildcard, (nextNonTriviaTokenIsL Token.Wildcard "_" |>> Expr.Wildcard)
+                Token.OpDynamic, pOptionalArgExpr
             ]
             pConst
 

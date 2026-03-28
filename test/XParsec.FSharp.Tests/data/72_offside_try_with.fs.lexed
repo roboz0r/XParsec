@@ -47,8 +47,7 @@
 90, Identifier
 97, Newline
 98, Indent
-102, Operator 0b1000000001010011 InfixAdd (can be prefix)
-103, NumInt32
+102, NumInt32
 104, Newline
 105, OpBar
 106, Whitespace
@@ -61,7 +60,6 @@
 143, OpArrowRight
 145, Newline
 146, Indent
-150, Operator 0b1000000001010011 InfixAdd (can be prefix)
-151, NumInt32
+150, NumInt32
 152, Newline
 153, EOF

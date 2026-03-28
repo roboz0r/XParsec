@@ -1873,6 +1873,8 @@ module internal TokenInfo =
         | Token.InterpolatedStringOpen
         | Token.VerbatimInterpolatedStringOpen
         | Token.Interpolated3StringOpen -> true
+        // ? for optional argument expressions (e.g., f(?x=value))
+        | Token.OpDynamic -> true
         // Prefix operators (-, +, !, ~, &, &&, .., *, not, etc.)
         | _ when isOperator token && canBePrefix token -> true
         | _ -> false
