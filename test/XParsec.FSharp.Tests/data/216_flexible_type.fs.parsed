@@ -50,7 +50,7 @@ FunctionOrValue:
                         NamedType:
                           LongIdent:
                               'int'             Identifier          tok=  37  pos=  54
-                      >       <virt>            OpPipeLeft3         tok=virt  pos=  57
+                      >       <virt>            OpPipeLeft2         tok=virt  pos=  57
               >               '>>'              op_ComposeRight     tok=  38  pos=  57
                               ')'               KWRParen            tok=  39  pos=  59
     =                         '='               OpEquality          tok=  41  pos=  61

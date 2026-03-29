@@ -67,11 +67,17 @@ FunctionOrValue:
               )                      ')'               KWRParen            tok=  86  pos= 177
           Arrow                      '->'              OpArrowRight        tok=  88  pos= 179
           Expr:
-            Const                    '"none"'          StringLiteral       tok=  90  pos= 182
+            StringLiteral            '"'               StringOpen          tok=  90  pos= 182
+            Parts:
+              Text                   'none'            StringFragment      tok=  91  pos= 183
+                                     '"'               StringClose         tok=  92  pos= 187
         Rule:
-          Bar                        '|'               OpBar               tok=  93  pos= 193
+          Bar                        '|'               OpBar               tok=  95  pos= 193
           Pat:
-            Pat.Wildcard             '_'               Wildcard            tok=  95  pos= 195
-          Arrow                      '->'              OpArrowRight        tok=  97  pos= 197
+            Pat.Wildcard             '_'               Wildcard            tok=  97  pos= 195
+          Arrow                      '->'              OpArrowRight        tok=  99  pos= 197
           Expr:
-            Const                    '"other"'         StringLiteral       tok=  99  pos= 200
+            StringLiteral            '"'               StringOpen          tok= 101  pos= 200
+            Parts:
+              Text                   'other'           StringFragment      tok= 102  pos= 201
+                                     '"'               StringClose         tok= 103  pos= 206

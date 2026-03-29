@@ -198,7 +198,13 @@ module ObjectConstruction =
                     parser {
                         let! token = lookAhead nextNonTriviaToken
 
-                        if token.Token = Token.KWLParen || TokenInfo.isLiteral token.Token then
+                        if
+                            token.Token = Token.KWLParen
+                            || TokenInfo.isLiteral token.Token
+                            || token.Token = Token.StringOpen
+                            || token.Token = Token.VerbatimStringOpen
+                            || token.Token = Token.String3Open
+                        then
                             return! refExpr.Parser
                         else
                             return! fail (Message "No constructor arguments")
@@ -631,6 +637,9 @@ module Expr =
                 | Token.InterpolatedStringOpen
                 | Token.VerbatimInterpolatedStringOpen
                 | Token.Interpolated3StringOpen
+                | Token.StringOpen
+                | Token.VerbatimStringOpen
+                | Token.String3Open
                 | Token.Wildcard -> true
                 | _ ->
                     if Constant.isLiteralToken t.Token then
@@ -1534,18 +1543,23 @@ module Expr =
 
     let pConst = Constant.parse |>> Expr.Const
 
-    let private isInterpolatedFragment (tok: Token) =
+    let private isStringTextFragment (tok: Token) =
         match tok with
+        // Plain string fragments
+        | Token.StringFragment
+        | Token.EscapeSequence
+        // Interpolated string fragments
         | Token.InterpolatedStringFragment
         | Token.VerbatimInterpolatedStringFragment
         | Token.Interpolated3StringFragment
         | Token.EscapeLBrace
         | Token.EscapeRBrace
+        // Shared fragment tokens
         | Token.EscapePercent
         | Token.VerbatimEscapeQuote -> true
         | _ -> false
 
-    let private isInterpolatedInvalidText (tok: Token) =
+    let private isStringInvalidText (tok: Token) =
         match tok with
         | Token.UnmatchedInterpolatedRBrace
         | Token.InvalidFormatPlaceholder
@@ -1554,30 +1568,68 @@ module Expr =
         | Token.TooManyRBracesInInterpolated3String -> true
         | _ -> false
 
-    let private isInterpolatedClose (tok: Token) =
+    let private isStringClose (tok: Token) =
         match tok with
+        // Plain string close
+        | Token.StringClose
+        | Token.ByteArrayClose
+        | Token.VerbatimStringClose
+        | Token.VerbatimByteArrayClose
+        | Token.String3Close
+        | Token.UnterminatedStringLiteral
+        | Token.UnterminatedVerbatimStringLiteral
+        | Token.UnterminatedString3Literal
+        // Interpolated string close
         | Token.InterpolatedStringClose
         | Token.VerbatimInterpolatedStringClose
         | Token.Interpolated3StringClose
         | Token.UnterminatedInterpolatedString -> true
         | _ -> false
 
-    let pInterpolatedString =
-        let rec loop (parts: ResizeArray<InterpolatedStringPart<SyntaxToken>>) reader =
+    let private stringKindOfToken (t: SyntaxToken) =
+        match t.Token with
+        | Token.StringOpen -> StringKind.String t
+        | Token.VerbatimStringOpen -> StringKind.VerbatimString t
+        | Token.String3Open -> StringKind.String3 t
+        | Token.InterpolatedStringOpen -> StringKind.InterpolatedString t
+        | Token.VerbatimInterpolatedStringOpen -> StringKind.VerbatimInterpolatedString t
+        | Token.Interpolated3StringOpen -> StringKind.Interpolated3String t
+        | _ -> invalidOp $"Not a string open token: {t.Token}"
+
+    let private isStringOpen (tok: Token) =
+        match tok with
+        | Token.StringOpen
+        | Token.VerbatimStringOpen
+        | Token.String3Open
+        | Token.InterpolatedStringOpen
+        | Token.VerbatimInterpolatedStringOpen
+        | Token.Interpolated3StringOpen -> true
+        | _ -> false
+
+    let pString =
+        let rec loop (isInterpolated: bool) (parts: ResizeArray<StringPart<SyntaxToken>>) reader =
             match peekNextNonTriviaToken reader with
             | Error e -> Error e
-            | Ok t when isInterpolatedFragment t.Token ->
+            // Text fragments (plain and interpolated)
+            | Ok t when isStringTextFragment t.Token ->
                 match consumePeeked t reader with
                 | Error e -> Error e
                 | Ok fragment ->
-                    parts.Add(InterpolatedStringPart.Text fragment)
-                    loop parts reader
+                    parts.Add(StringPart.Text fragment)
+                    loop isInterpolated parts reader
+            // Escape sequences (plain strings only)
+            | Ok t when t.Token = Token.EscapeSequence ->
+                match consumePeeked t reader with
+                | Error e -> Error e
+                | Ok esc ->
+                    parts.Add(StringPart.EscapeSequence esc)
+                    loop isInterpolated parts reader
+            // Format specifier (%d etc.) — may be followed by expression hole in interpolated strings
             | Ok t when t.Token = Token.FormatPlaceholder ->
                 match consumePeeked t reader with
                 | Error e -> Error e
                 | Ok formatSpec ->
                     match peekNextNonTriviaToken reader with
-                    | Error e -> Error e
                     | Ok next when next.Token = Token.InterpolatedExpressionOpen ->
                         match consumePeeked next reader with
                         | Error e -> Error e
@@ -1585,7 +1637,6 @@ module Expr =
                             match refExpr.Parser reader with
                             | Error e -> Error e
                             | Ok expr ->
-                                // Optionally consume format clause (:format) before closing }
                                 let formatClause =
                                     match peekNextNonTriviaToken reader with
                                     | Ok fc when fc.Token = Token.InterpolatedFormatClause ->
@@ -1596,20 +1647,17 @@ module Expr =
                                 match nextNonTriviaTokenIsL Token.InterpolatedExpressionClose "Expected }" reader with
                                 | Error e -> Error e
                                 | Ok rBrace ->
-                                    parts.Add(
-                                        InterpolatedStringPart.Expr(
-                                            ValueSome formatSpec,
-                                            lBrace,
-                                            expr,
-                                            formatClause,
-                                            rBrace
-                                        )
-                                    )
+                                    parts.Add(StringPart.Expr(ValueSome formatSpec, lBrace, expr, formatClause, rBrace))
 
-                                    loop parts reader
+                                    loop isInterpolated parts reader
                     | _ ->
-                        parts.Add(InterpolatedStringPart.OrphanFormatSpecifier formatSpec)
-                        loop parts reader
+                        if isInterpolated then
+                            parts.Add(StringPart.OrphanFormatSpecifier formatSpec)
+                        else
+                            parts.Add(StringPart.FormatSpecifier formatSpec)
+
+                        loop isInterpolated parts reader
+            // Expression hole without format specifier (interpolated strings only)
             | Ok t when t.Token = Token.InterpolatedExpressionOpen ->
                 match consumePeeked t reader with
                 | Error e -> Error e
@@ -1617,7 +1665,6 @@ module Expr =
                     match refExpr.Parser reader with
                     | Error e -> Error e
                     | Ok expr ->
-                        // Optionally consume format clause (:format) before closing }
                         let formatClause =
                             match peekNextNonTriviaToken reader with
                             | Ok fc when fc.Token = Token.InterpolatedFormatClause ->
@@ -1628,34 +1675,34 @@ module Expr =
                         match nextNonTriviaTokenIsL Token.InterpolatedExpressionClose "Expected }" reader with
                         | Error e -> Error e
                         | Ok rBrace ->
-                            parts.Add(InterpolatedStringPart.Expr(ValueNone, lBrace, expr, formatClause, rBrace))
-                            loop parts reader
-            | Ok t when isInterpolatedInvalidText t.Token ->
+                            parts.Add(StringPart.Expr(ValueNone, lBrace, expr, formatClause, rBrace))
+                            loop isInterpolated parts reader
+            // Invalid text tokens (interpolated strings only)
+            | Ok t when isStringInvalidText t.Token ->
                 match consumePeeked t reader with
                 | Error e -> Error e
                 | Ok invalid ->
-                    parts.Add(InterpolatedStringPart.InvalidText invalid)
-                    loop parts reader
+                    parts.Add(StringPart.InvalidText invalid)
+                    loop isInterpolated parts reader
             | Ok _ -> Ok parts
 
         parser {
-            let! opening =
-                nextNonTriviaTokenSatisfiesL
-                    (fun t ->
-                        match t.Token with
-                        | Token.InterpolatedStringOpen
-                        | Token.VerbatimInterpolatedStringOpen
-                        | Token.Interpolated3StringOpen -> true
-                        | _ -> false
-                    )
-                    "Expected interpolated string open"
+            let! opening = nextNonTriviaTokenSatisfiesL (fun t -> isStringOpen t.Token) "Expected string open"
 
-            let! parts = loop (ResizeArray())
+            let kind = stringKindOfToken opening
 
-            let! closing =
-                nextNonTriviaTokenSatisfiesL (fun t -> isInterpolatedClose t.Token) "Expected interpolated string close"
+            let isInterpolated =
+                match kind with
+                | StringKind.InterpolatedString _
+                | StringKind.VerbatimInterpolatedString _
+                | StringKind.Interpolated3String _ -> true
+                | _ -> false
 
-            return Expr.InterpolatedString(opening, Seq.toList parts, closing)
+            let! parts = loop isInterpolated (ResizeArray())
+
+            let! closing = nextNonTriviaTokenSatisfiesL (fun t -> isStringClose t.Token) "Expected string close"
+
+            return Expr.String(kind, Seq.toList parts, closing)
         }
 
     let pIdentExpr = nextNonTriviaIdentifierL "Expected identifier" |>> Expr.Ident
@@ -2001,9 +2048,9 @@ module Expr =
             | Error e -> Error e
             | Ok lHashParen ->
                 // Instruction string
-                match nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsText) "IL instruction string" reader with
+                match parsePlainStringLiteral "IL instruction string" reader with
                 | Error e -> Error e
-                | Ok instruction ->
+                | Ok(instrKind, instrParts, instrClose) ->
                     // Optional type argument: type('T)
                     match pTypeArg reader with
                     | Error e -> Error e
@@ -2038,7 +2085,9 @@ module Expr =
                                     preturn
                                         (Expr.ILIntrinsic(
                                             lHashParen,
-                                            instruction,
+                                            instrKind,
+                                            instrParts,
+                                            instrClose,
                                             typeArg,
                                             List.ofSeq args,
                                             returnType,
@@ -2089,9 +2138,12 @@ module Expr =
                 Token.KWLBrace, recoverExpr pRecordOrObjectExpr
                 Token.OpQuotationTypedLeft, recoverExpr pQuoteTyped
                 Token.OpQuotationUntypedLeft, recoverExpr pQuoteUntyped
-                Token.InterpolatedStringOpen, pInterpolatedString
-                Token.VerbatimInterpolatedStringOpen, pInterpolatedString
-                Token.Interpolated3StringOpen, pInterpolatedString
+                Token.InterpolatedStringOpen, pString
+                Token.VerbatimInterpolatedStringOpen, pString
+                Token.Interpolated3StringOpen, pString
+                Token.StringOpen, pString
+                Token.VerbatimStringOpen, pString
+                Token.String3Open, pString
                 Token.KWLHashParen, pILIntrinsic
                 Token.KWBase, (nextNonTriviaTokenIsL Token.KWBase "base" |>> Expr.Ident)
                 Token.Wildcard, (nextNonTriviaTokenIsL Token.Wildcard "_" |>> Expr.Wildcard)

@@ -58,7 +58,9 @@
 165, Whitespace
 166, OpEquality
 167, Whitespace
-168, StringLiteral
+168, StringOpen
+169, StringFragment
+174, StringClose
 175, Newline
 176, Indent
 184, KWAnd

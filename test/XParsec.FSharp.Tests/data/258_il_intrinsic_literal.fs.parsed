@@ -16,30 +16,34 @@ FunctionOrValue:
     =                      '='               OpEquality          tok=  20  pos= 106
       ILIntrinsic:
         (#                 '(#'              KWLHashParen        tok=  22  pos= 108
-        instruction        '""'              StringLiteral       tok=  24  pos= 111
+        StringLiteral      '"'               StringOpen          tok=  24  pos= 111
+                           '"'               StringClose         tok=  25  pos= 112
         Arg:
-          Ident            'address'         Identifier          tok=  26  pos= 114
+          Ident            'address'         Identifier          tok=  27  pos= 114
         ILReturnType:
-          :                ':'               OpColon             tok=  28  pos= 122
+          :                ':'               OpColon             tok=  29  pos= 122
           GenericType:
             LongIdent:
-                           'nativeptr'       Identifier          tok=  30  pos= 124
-            <              '<'               op_LessThan         tok=  31  pos= 133
+                           'nativeptr'       Identifier          tok=  31  pos= 124
+            <              '<'               op_LessThan         tok=  32  pos= 133
             TypeArg.Type:
               NamedType:
                 LongIdent:
-                           'int'             Identifier          tok=  32  pos= 134
-            >              '>'               op_GreaterThan      tok=  33  pos= 137
-        #)                 '#)'              KWRHashParen        tok=  35  pos= 139
+                           'int'             Identifier          tok=  33  pos= 134
+            >              '>'               op_GreaterThan      tok=  34  pos= 137
+        #)                 '#)'              KWRHashParen        tok=  36  pos= 139
 TypeDefn.Abbrev:
-  TypeName                 '``[]``'          BacktickedIdentifier  tok=  40  pos= 148
+  TypeName                 '``[]``'          BacktickedIdentifier  tok=  41  pos= 148
   TyparDefns:
-                           '<'               op_LessThan         tok=  41  pos= 154
+                           '<'               op_LessThan         tok=  42  pos= 154
     Typar.Named:
-                           ''T'              TypeParameter       tok=  42  pos= 155
-                           '>'               op_GreaterThan      tok=  43  pos= 157
-  =                        '='               OpEquality          tok=  45  pos= 159
+                           ''T'              TypeParameter       tok=  43  pos= 155
+                           '>'               op_GreaterThan      tok=  44  pos= 157
+  =                        '='               OpEquality          tok=  46  pos= 159
     ILIntrinsic:
-      (#                   '(#'              KWLHashParen        tok=  47  pos= 161
-      instruction          '"!0[]"'          StringLiteral       tok=  49  pos= 164
-      #)                   '#)'              KWRHashParen        tok=  51  pos= 171
+      (#                   '(#'              KWLHashParen        tok=  48  pos= 161
+      StringLiteral        '"'               StringOpen          tok=  50  pos= 164
+      Parts:
+        Text               '!0[]'            StringFragment      tok=  51  pos= 165
+                           '"'               StringClose         tok=  52  pos= 169
+      #)                   '#)'              KWRHashParen        tok=  54  pos= 171

@@ -1,80 +1,104 @@
-module                    'module'          KWModule            tok=   0  pos=   0
-                          'TestNegati...'   Identifier          tok=   2  pos=   7
+module                     'module'          KWModule            tok=   0  pos=   0
+                           'TestNegati...'   Identifier          tok=   2  pos=   7
 FunctionOrValue:
-  let                     'let'             KWLet               tok=   5  pos=  35
-    Pat.NamedSimple       'f'               Identifier          tok=   7  pos=  39
+  let                      'let'             KWLet               tok=   5  pos=  35
+    Pat.NamedSimple        'f'               Identifier          tok=   7  pos=  39
     Pats:
-      Pat.NamedSimple     'x'               Identifier          tok=   9  pos=  41
-    =                     '='               OpEquality          tok=  11  pos=  43
+      Pat.NamedSimple      'x'               Identifier          tok=   9  pos=  41
+    =                      '='               OpEquality          tok=  11  pos=  43
       Match:
-        MatchToken        'match'           KWMatch             tok=  14  pos=  49
+        MatchToken         'match'           KWMatch             tok=  14  pos=  49
         MatchExpr:
-          Ident           'x'               Identifier          tok=  16  pos=  55
-        WithToken         'with'            KWWith              tok=  18  pos=  57
+          Ident            'x'               Identifier          tok=  16  pos=  55
+        WithToken          'with'            KWWith              tok=  18  pos=  57
         Rule:
-          Bar             '|'               OpBar               tok=  21  pos=  66
+          Bar              '|'               OpBar               tok=  21  pos=  66
           Pat:
-            Pat.Const     '-1'              NumInt32            tok=  23  pos=  68
-          Arrow           '->'              OpArrowRight        tok=  25  pos=  71
+            Pat.Const      '-1'              NumInt32            tok=  23  pos=  68
+          Arrow            '->'              OpArrowRight        tok=  25  pos=  71
           Expr:
-            Const         '"minus one...'   StringLiteral       tok=  27  pos=  74
+            StringLiteral  '"'               StringOpen          tok=  27  pos=  74
+            Parts:
+              Text         'minus one'       StringFragment      tok=  28  pos=  75
+                           '"'               StringClose         tok=  29  pos=  84
         Rule:
-          Bar             '|'               OpBar               tok=  30  pos=  90
+          Bar              '|'               OpBar               tok=  32  pos=  90
           Pat:
-            Pat.Const     '0'               NumInt32            tok=  32  pos=  92
-          Arrow           '->'              OpArrowRight        tok=  34  pos=  94
+            Pat.Const      '0'               NumInt32            tok=  34  pos=  92
+          Arrow            '->'              OpArrowRight        tok=  36  pos=  94
           Expr:
-            Const         '"zero"'          StringLiteral       tok=  36  pos=  97
+            StringLiteral  '"'               StringOpen          tok=  38  pos=  97
+            Parts:
+              Text         'zero'            StringFragment      tok=  39  pos=  98
+                           '"'               StringClose         tok=  40  pos= 102
         Rule:
-          Bar             '|'               OpBar               tok=  39  pos= 108
+          Bar              '|'               OpBar               tok=  43  pos= 108
           Pat:
-            Pat.Const     '1'               NumInt32            tok=  41  pos= 110
-          Arrow           '->'              OpArrowRight        tok=  43  pos= 112
+            Pat.Const      '1'               NumInt32            tok=  45  pos= 110
+          Arrow            '->'              OpArrowRight        tok=  47  pos= 112
           Expr:
-            Const         '"one"'           StringLiteral       tok=  45  pos= 115
+            StringLiteral  '"'               StringOpen          tok=  49  pos= 115
+            Parts:
+              Text         'one'             StringFragment      tok=  50  pos= 116
+                           '"'               StringClose         tok=  51  pos= 119
         Rule:
-          Bar             '|'               OpBar               tok=  48  pos= 125
+          Bar              '|'               OpBar               tok=  54  pos= 125
           Pat:
-            Pat.Const     '-100'            NumInt32            tok=  50  pos= 127
-          Arrow           '->'              OpArrowRight        tok=  52  pos= 132
+            Pat.Const      '-100'            NumInt32            tok=  56  pos= 127
+          Arrow            '->'              OpArrowRight        tok=  58  pos= 132
           Expr:
-            Const         '"minus hun...'   StringLiteral       tok=  54  pos= 135
+            StringLiteral  '"'               StringOpen          tok=  60  pos= 135
+            Parts:
+              Text         'minus hund...'   StringFragment      tok=  61  pos= 136
+                           '"'               StringClose         tok=  62  pos= 149
         Rule:
-          Bar             '|'               OpBar               tok=  57  pos= 155
+          Bar              '|'               OpBar               tok=  65  pos= 155
           Pat:
-            Pat.Wildcard  '_'               Wildcard            tok=  59  pos= 157
-          Arrow           '->'              OpArrowRight        tok=  61  pos= 159
+            Pat.Wildcard   '_'               Wildcard            tok=  67  pos= 157
+          Arrow            '->'              OpArrowRight        tok=  69  pos= 159
           Expr:
-            Const         '"other"'         StringLiteral       tok=  63  pos= 162
+            StringLiteral  '"'               StringOpen          tok=  71  pos= 162
+            Parts:
+              Text         'other'           StringFragment      tok=  72  pos= 163
+                           '"'               StringClose         tok=  73  pos= 168
 FunctionOrValue:
-  let                     'let'             KWLet               tok=  66  pos= 171
-    Pat.NamedSimple       'g'               Identifier          tok=  68  pos= 175
+  let                      'let'             KWLet               tok=  76  pos= 171
+    Pat.NamedSimple        'g'               Identifier          tok=  78  pos= 175
     Pats:
-      Pat.NamedSimple     'x'               Identifier          tok=  70  pos= 177
-    =                     '='               OpEquality          tok=  72  pos= 179
+      Pat.NamedSimple      'x'               Identifier          tok=  80  pos= 177
+    =                      '='               OpEquality          tok=  82  pos= 179
       Match:
-        MatchToken        'match'           KWMatch             tok=  75  pos= 185
+        MatchToken         'match'           KWMatch             tok=  85  pos= 185
         MatchExpr:
-          Ident           'x'               Identifier          tok=  77  pos= 191
-        WithToken         'with'            KWWith              tok=  79  pos= 193
+          Ident            'x'               Identifier          tok=  87  pos= 191
+        WithToken          'with'            KWWith              tok=  89  pos= 193
         Rule:
-          Bar             '|'               OpBar               tok=  82  pos= 202
+          Bar              '|'               OpBar               tok=  92  pos= 202
           Pat:
-            Pat.Const     '-1.0'            NumIEEE64           tok=  84  pos= 204
-          Arrow           '->'              OpArrowRight        tok=  86  pos= 209
+            Pat.Const      '-1.0'            NumIEEE64           tok=  94  pos= 204
+          Arrow            '->'              OpArrowRight        tok=  96  pos= 209
           Expr:
-            Const         '"neg one"'       StringLiteral       tok=  88  pos= 212
+            StringLiteral  '"'               StringOpen          tok=  98  pos= 212
+            Parts:
+              Text         'neg one'         StringFragment      tok=  99  pos= 213
+                           '"'               StringClose         tok= 100  pos= 220
         Rule:
-          Bar             '|'               OpBar               tok=  91  pos= 226
+          Bar              '|'               OpBar               tok= 103  pos= 226
           Pat:
-            Pat.Const     '0.0'             NumIEEE64           tok=  93  pos= 228
-          Arrow           '->'              OpArrowRight        tok=  95  pos= 232
+            Pat.Const      '0.0'             NumIEEE64           tok= 105  pos= 228
+          Arrow            '->'              OpArrowRight        tok= 107  pos= 232
           Expr:
-            Const         '"zero"'          StringLiteral       tok=  97  pos= 235
+            StringLiteral  '"'               StringOpen          tok= 109  pos= 235
+            Parts:
+              Text         'zero'            StringFragment      tok= 110  pos= 236
+                           '"'               StringClose         tok= 111  pos= 240
         Rule:
-          Bar             '|'               OpBar               tok= 100  pos= 246
+          Bar              '|'               OpBar               tok= 114  pos= 246
           Pat:
-            Pat.Wildcard  '_'               Wildcard            tok= 102  pos= 248
-          Arrow           '->'              OpArrowRight        tok= 104  pos= 250
+            Pat.Wildcard   '_'               Wildcard            tok= 116  pos= 248
+          Arrow            '->'              OpArrowRight        tok= 118  pos= 250
           Expr:
-            Const         '"other"'         StringLiteral       tok= 106  pos= 253
+            StringLiteral  '"'               StringOpen          tok= 120  pos= 253
+            Parts:
+              Text         'other'           StringFragment      tok= 121  pos= 254
+                           '"'               StringClose         tok= 122  pos= 259

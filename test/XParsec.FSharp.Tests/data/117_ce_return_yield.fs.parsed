@@ -103,78 +103,81 @@ FunctionOrValue:
                                        'Token'           Identifier          tok= 146  pos= 511
                                        'EOF'             Identifier          tok= 148  pos= 517
                                        ')'               KWRParen            tok= 149  pos= 520
-                  Const                '"eof"'           StringLiteral       tok= 151  pos= 522
-                                       '}'               KWRBrace            tok= 154  pos= 532
+                  StringLiteral        '"'               StringOpen          tok= 151  pos= 522
+                  Parts:
+                    Text               'eof'             StringFragment      tok= 152  pos= 523
+                                       '"'               StringClose         tok= 153  pos= 526
+                                       '}'               KWRBrace            tok= 156  pos= 532
 FunctionOrValue:
-  let                                  'let'             KWLet               tok= 159  pos= 562
-    Pat.NamedSimple                    'f'               Identifier          tok= 161  pos= 566
-    =                                  '='               OpEquality          tok= 163  pos= 568
+  let                                  'let'             KWLet               tok= 161  pos= 562
+    Pat.NamedSimple                    'f'               Identifier          tok= 163  pos= 566
+    =                                  '='               OpEquality          tok= 165  pos= 568
       App:
         Func:
-          Ident                        'seq'             Identifier          tok= 166  pos= 574
+          Ident                        'seq'             Identifier          tok= 168  pos= 574
         Args:
-          ComputationBlock             '{'               KWLBrace            tok= 168  pos= 578
-            yield                      'yield'           KWYield             tok= 171  pos= 588
+          ComputationBlock             '{'               KWLBrace            tok= 170  pos= 578
+            yield                      'yield'           KWYield             tok= 173  pos= 588
             Yield:
-              Const                    '1'               NumInt32            tok= 173  pos= 594
-                                       '}'               KWRBrace            tok= 176  pos= 600
+              Const                    '1'               NumInt32            tok= 175  pos= 594
+                                       '}'               KWRBrace            tok= 178  pos= 600
 FunctionOrValue:
-  let                                  'let'             KWLet               tok= 181  pos= 628
-    Pat.NamedSimple                    'g'               Identifier          tok= 183  pos= 632
-    =                                  '='               OpEquality          tok= 185  pos= 634
+  let                                  'let'             KWLet               tok= 183  pos= 628
+    Pat.NamedSimple                    'g'               Identifier          tok= 185  pos= 632
+    =                                  '='               OpEquality          tok= 187  pos= 634
       App:
         Func:
-          Ident                        'seq'             Identifier          tok= 188  pos= 640
+          Ident                        'seq'             Identifier          tok= 190  pos= 640
         Args:
-          ComputationBlock             '{'               KWLBrace            tok= 190  pos= 644
-            yield                      'yield'           KWYield             tok= 193  pos= 654
+          ComputationBlock             '{'               KWLBrace            tok= 192  pos= 644
+            yield                      'yield'           KWYield             tok= 195  pos= 654
             Yield:
-              InfixApp                 '*'               OpMultiply          tok= 197  pos= 662
-                Ident                  'x'               Identifier          tok= 195  pos= 660
-                Const                  '2'               NumInt32            tok= 199  pos= 664
-                                       '}'               KWRBrace            tok= 202  pos= 670
+              InfixApp                 '*'               OpMultiply          tok= 199  pos= 662
+                Ident                  'x'               Identifier          tok= 197  pos= 660
+                Const                  '2'               NumInt32            tok= 201  pos= 664
+                                       '}'               KWRBrace            tok= 204  pos= 670
 FunctionOrValue:
-  let                                  'let'             KWLet               tok= 207  pos= 700
-    Pat.NamedSimple                    'h'               Identifier          tok= 209  pos= 704
-    =                                  '='               OpEquality          tok= 211  pos= 706
+  let                                  'let'             KWLet               tok= 209  pos= 700
+    Pat.NamedSimple                    'h'               Identifier          tok= 211  pos= 704
+    =                                  '='               OpEquality          tok= 213  pos= 706
       App:
         Func:
-          Ident                        'seq'             Identifier          tok= 214  pos= 712
+          Ident                        'seq'             Identifier          tok= 216  pos= 712
         Args:
-          ComputationBlock             '{'               KWLBrace            tok= 216  pos= 716
-            yield!                     'yield!'          KWYieldBang         tok= 219  pos= 726
+          ComputationBlock             '{'               KWLBrace            tok= 218  pos= 716
+            yield!                     'yield!'          KWYieldBang         tok= 221  pos= 726
             YieldBang:
               App:
                 Func:
-                  Ident                'getItems'        Identifier          tok= 221  pos= 733
+                  Ident                'getItems'        Identifier          tok= 223  pos= 733
                 Args:
-                  ParenBlock           '('               KWLParen            tok= 223  pos= 742
-                                       ')'               KWRParen            tok= 224  pos= 743
-                                       '}'               KWRBrace            tok= 227  pos= 749
+                  ParenBlock           '('               KWLParen            tok= 225  pos= 742
+                                       ')'               KWRParen            tok= 226  pos= 743
+                                       '}'               KWRBrace            tok= 229  pos= 749
 FunctionOrValue:
-  let                                  'let'             KWLet               tok= 232  pos= 780
-    Pat.NamedSimple                    'i'               Identifier          tok= 234  pos= 784
-    =                                  '='               OpEquality          tok= 236  pos= 786
+  let                                  'let'             KWLet               tok= 234  pos= 780
+    Pat.NamedSimple                    'i'               Identifier          tok= 236  pos= 784
+    =                                  '='               OpEquality          tok= 238  pos= 786
       App:
         Func:
-          Ident                        'seq'             Identifier          tok= 239  pos= 792
+          Ident                        'seq'             Identifier          tok= 241  pos= 792
         Args:
-          ComputationBlock             '{'               KWLBrace            tok= 241  pos= 796
-            yield!                     'yield!'          KWYieldBang         tok= 244  pos= 806
+          ComputationBlock             '{'               KWLBrace            tok= 243  pos= 796
+            yield!                     'yield!'          KWYieldBang         tok= 246  pos= 806
             YieldBang:
               App:
                 Func:
-                  Ident                'filter'          Identifier          tok= 246  pos= 813
+                  Ident                'filter'          Identifier          tok= 248  pos= 813
                 Args:
-                  ParenBlock           '('               KWLParen            tok= 248  pos= 820
-                    Fun                'fun'             KWFun               tok= 249  pos= 821
+                  ParenBlock           '('               KWLParen            tok= 250  pos= 820
+                    Fun                'fun'             KWFun               tok= 251  pos= 821
                     Pats:
-                      Pat.NamedSimple  'x'               Identifier          tok= 251  pos= 825
-                    Arrow              '->'              OpArrowRight        tok= 253  pos= 827
+                      Pat.NamedSimple  'x'               Identifier          tok= 253  pos= 825
+                    Arrow              '->'              OpArrowRight        tok= 255  pos= 827
                     Body:
-                      InfixApp         '>'               op_GreaterThan      tok= 257  pos= 832
-                        Ident          'x'               Identifier          tok= 255  pos= 830
-                        Const          '0'               NumInt32            tok= 259  pos= 834
-                                       ')'               KWRParen            tok= 260  pos= 835
-                  Ident                'xs'              Identifier          tok= 262  pos= 837
-                                       '}'               KWRBrace            tok= 265  pos= 844
+                      InfixApp         '>'               op_GreaterThan      tok= 259  pos= 832
+                        Ident          'x'               Identifier          tok= 257  pos= 830
+                        Const          '0'               NumInt32            tok= 261  pos= 834
+                                       ')'               KWRParen            tok= 262  pos= 835
+                  Ident                'xs'              Identifier          tok= 264  pos= 837
+                                       '}'               KWRBrace            tok= 267  pos= 844

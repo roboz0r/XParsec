@@ -13,7 +13,8 @@
 19, Whitespace
 20, Identifier
 28, Whitespace
-29, StringLiteral
+29, StringOpen
+30, StringClose
 31, Newline
 32, KWLet
 35, Whitespace
@@ -33,6 +34,7 @@
 54, Whitespace
 55, Identifier
 63, Whitespace
-64, StringLiteral
+64, StringOpen
+65, StringClose
 66, Newline
 67, EOF

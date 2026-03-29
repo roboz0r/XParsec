@@ -76,7 +76,12 @@ type Type<'T> =
     | AnonymousSubtype of hash: 'T * typ: Type<'T>
     | Null of nullToken: 'T
     | UnionType of left: Type<'T> * bar: 'T * right: Type<'T>
-    | ILIntrinsic of lHashParen: 'T * instruction: 'T * rHashParen: 'T
+    | ILIntrinsic of
+        lHashParen: 'T *
+        instruction: StringKind<'T> *
+        instrParts: StringPart<'T> list *
+        instrClose: 'T *
+        rHashParen: 'T
     | Missing
     | SkipsTokens of skippedTokens: 'T list
 
@@ -319,11 +324,13 @@ type Expr<'T> =
         rParenMember: 'T *
         expr: Expr<'T> *
         rParen: 'T
-    | InterpolatedString of opening: 'T * parts: InterpolatedStringPart<'T> list * closing: 'T
+    | String of kind: StringKind<'T> * parts: StringPart<'T> list * closing: 'T
     // IL intrinsic literal: (# "il" type('T) args : returnType #)
     | ILIntrinsic of
         lHashParen: 'T *
-        instruction: 'T *
+        instruction: StringKind<'T> *
+        instrParts: StringPart<'T> list *
+        instrClose: 'T *
         typeArg: ILTypeArg<'T> voption *
         args: Expr<'T> list *
         returnType: ReturnType<'T> voption *
@@ -382,6 +389,7 @@ and [<RequireQualifiedAccess>] Pat<'T> =
     | Struct of structToken: 'T * pat: Pat<'T> // For error recovery
     | Optional of questionMark: 'T * pat: Pat<'T>
     | Op of IdentOrOp<'T> // For operator/active-pattern names in function binding heads
+    | String of kind: StringKind<'T> * parts: StringPart<'T> list * closing: 'T
     | Missing
     | SkipsTokens of skippedTokens: 'T list
 
@@ -684,14 +692,37 @@ type Constant<'T> =
     /// e.g., `10<kg>` or `9.8<m/s^2>`
     | MeasuredLiteral of value: 'T * lAngle: 'T * measure: Measure<'T> * rAngle: 'T
 
-/// A part of an interpolated string — either a text fragment or an expression hole.
-and [<RequireQualifiedAccess>] InterpolatedStringPart<'T> =
-    /// A literal text fragment, escaped brace, or format specifier between expression holes.
+/// The kind of string literal, carrying the opening token.
+and [<RequireQualifiedAccess>] StringKind<'T> =
+    /// Regular string: "..."
+    | String of 'T
+    /// Verbatim string: @"..."
+    | VerbatimString of 'T
+    /// Triple-quoted string: """..."""
+    | String3 of 'T
+    /// Interpolated string: $"..."
+    | InterpolatedString of 'T
+    /// Verbatim interpolated string: $@"..." or @$"..."
+    | VerbatimInterpolatedString of 'T
+    /// Triple-quoted interpolated string: $"""..."""
+    | Interpolated3String of 'T
+
+/// A part of a string — text fragments, escape sequences, format specifiers, or expression holes.
+and [<RequireQualifiedAccess>] StringPart<'T> =
+    /// A literal text fragment.
     | Text of 'T
+    /// An escape sequence (e.g., \n, \t, \", \\, \xHH, \uXXXX, \UXXXXXXXX, \DDD).
+    | EscapeSequence of 'T
+    /// A printf-style format specifier (e.g., %d, %s).
+    | FormatSpecifier of 'T
+    /// An escaped percent sign (%%).
+    | EscapePercent of 'T
+    /// A verbatim escape quote ("" inside @"...").
+    | VerbatimEscapeQuote of 'T
     /// An expression hole: {expr}, optionally preceded by a format specifier like %4i
     /// and optionally followed by a format clause like :P2.
     | Expr of formatSpecifier: 'T voption * lBrace: 'T * expr: Expr<'T> * formatClause: 'T voption * rBrace: 'T
-    /// A format specifier (e.g. %d) not immediately followed by an expression hole.
+    /// A format specifier (e.g. %d) not immediately followed by an expression hole (interpolated strings only).
     | OrphanFormatSpecifier of 'T
     /// A lexer error token inside the string (e.g. UnmatchedInterpolatedRBrace, InvalidFormatPlaceholder).
     | InvalidText of 'T

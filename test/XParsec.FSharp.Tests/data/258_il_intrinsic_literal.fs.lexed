@@ -22,7 +22,8 @@
 107, Whitespace
 108, KWLHashParen
 110, Whitespace
-111, StringLiteral
+111, StringOpen
+112, StringClose
 113, Whitespace
 114, Identifier
 121, Whitespace
@@ -47,7 +48,9 @@
 160, Whitespace
 161, KWLHashParen
 163, Whitespace
-164, StringLiteral
+164, StringOpen
+165, StringFragment
+169, StringClose
 170, Whitespace
 171, KWRHashParen
 173, Newline

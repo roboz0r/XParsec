@@ -44,7 +44,8 @@
 94, Whitespace
 95, OpEquality
 96, Whitespace
-97, StringLiteral
+97, StringOpen
+98, StringClose
 99, Whitespace
 100, KWWith
 104, Whitespace

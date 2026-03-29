@@ -345,6 +345,83 @@ module Pat =
             return Pat.Const c
         }
 
+    let private isStringClose (tok: Token) =
+        match tok with
+        | Token.StringClose
+        | Token.ByteArrayClose
+        | Token.VerbatimStringClose
+        | Token.VerbatimByteArrayClose
+        | Token.String3Close
+        | Token.UnterminatedStringLiteral
+        | Token.UnterminatedVerbatimStringLiteral
+        | Token.UnterminatedString3Literal -> true
+        | _ -> false
+
+    let private isStringTextFragment (tok: Token) =
+        match tok with
+        | Token.StringFragment
+        | Token.EscapePercent
+        | Token.VerbatimEscapeQuote -> true
+        | _ -> false
+
+    let private stringKindOfToken (t: SyntaxToken) =
+        match t.Token with
+        | Token.StringOpen -> StringKind.String t
+        | Token.VerbatimStringOpen -> StringKind.VerbatimString t
+        | Token.String3Open -> StringKind.String3 t
+        | _ -> invalidOp $"Not a string open token: {t.Token}"
+
+    let pStringPat =
+        let rec loop (parts: ResizeArray<StringPart<SyntaxToken>>) reader =
+            match peekNextNonTriviaToken reader with
+            | Error e -> Error e
+            | Ok t when isStringTextFragment t.Token ->
+                match consumePeeked t reader with
+                | Error e -> Error e
+                | Ok fragment ->
+                    parts.Add(StringPart.Text fragment)
+                    loop parts reader
+            | Ok t when t.Token = Token.EscapeSequence ->
+                match consumePeeked t reader with
+                | Error e -> Error e
+                | Ok esc ->
+                    parts.Add(StringPart.EscapeSequence esc)
+                    loop parts reader
+            | Ok t when t.Token = Token.FormatPlaceholder ->
+                match consumePeeked t reader with
+                | Error e -> Error e
+                | Ok fmt ->
+                    parts.Add(StringPart.FormatSpecifier fmt)
+                    loop parts reader
+            | Ok t when
+                t.Token = Token.InvalidFormatPlaceholder
+                || t.Token = Token.InvalidFormatPercents
+                ->
+                match consumePeeked t reader with
+                | Error e -> Error e
+                | Ok _ -> loop parts reader
+            | Ok _ -> Ok parts
+
+        parser {
+            let! opening =
+                nextNonTriviaTokenSatisfiesL
+                    (fun t ->
+                        match t.Token with
+                        | Token.StringOpen
+                        | Token.VerbatimStringOpen
+                        | Token.String3Open -> true
+                        | _ -> false
+                    )
+                    "Expected string literal open"
+
+            let kind = stringKindOfToken opening
+            let! parts = loop (ResizeArray())
+
+            let! closing = nextNonTriviaTokenSatisfiesL (fun t -> isStringClose t.Token) "Expected string close"
+
+            return Pat.String(kind, Seq.toList parts, closing)
+        }
+
     let pWildcardPat = pWildcard |>> Pat.Wildcard
     let pNullPat = pNull |>> Pat.Null
 
@@ -382,6 +459,9 @@ module Pat =
                 Token.KWLBrace, pRecordPat
                 Token.KWLAttrBracket, pAttributesPat
                 Token.KWStruct, pStructPat
+                Token.StringOpen, pStringPat
+                Token.VerbatimStringOpen, pStringPat
+                Token.String3Open, pStringPat
             ]
             pConstPat
 

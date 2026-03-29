@@ -1,70 +1,82 @@
-module               'module'          KWModule            tok=   0  pos=   0
-                     'TryFinally...'   Identifier          tok=   2  pos=   7
+module                     'module'          KWModule            tok=   0  pos=   0
+                           'TryFinally...'   Identifier          tok=   2  pos=   7
 FunctionOrValue:
-  let                'let'             KWLet               tok=  14  pos= 230
-    Pat.NamedSimple  'tryBodyAtT...'   Identifier          tok=  16  pos= 234
+  let                      'let'             KWLet               tok=  14  pos= 230
+    Pat.NamedSimple        'tryBodyAtT...'   Identifier          tok=  16  pos= 234
     Pats:
-      ParenBlock     '('               KWLParen            tok=  18  pos= 250
-                     ')'               KWRParen            tok=  19  pos= 251
-    =                '='               OpEquality          tok=  21  pos= 253
-      TryFinally     'try'             KWTry               tok=  24  pos= 259
+      ParenBlock           '('               KWLParen            tok=  18  pos= 250
+                           ')'               KWRParen            tok=  19  pos= 251
+    =                      '='               OpEquality          tok=  21  pos= 253
+      TryFinally           'try'             KWTry               tok=  24  pos= 259
       TryExpr:
-        Const        '1'               NumInt32            tok=  27  pos= 267
-      FinallyToken   'finally'         KWFinally           tok=  32  pos= 316
+        Const              '1'               NumInt32            tok=  27  pos= 267
+      FinallyToken         'finally'         KWFinally           tok=  32  pos= 316
       FinallyExpr:
         App:
           Func:
-            Ident    'printfn'         Identifier          tok=  35  pos= 332
+            Ident          'printfn'         Identifier          tok=  35  pos= 332
           Args:
-            Const    '"done"'          StringLiteral       tok=  37  pos= 340
+            StringLiteral  '"'               StringOpen          tok=  37  pos= 340
+            Parts:
+              Text         'done'            StringFragment      tok=  38  pos= 341
+                           '"'               StringClose         tok=  39  pos= 345
 FunctionOrValue:
-  let                'let'             KWLet               tok=  49  pos= 564
-    Pat.NamedSimple  'finallyAtT...'   Identifier          tok=  51  pos= 568
+  let                      'let'             KWLet               tok=  51  pos= 564
+    Pat.NamedSimple        'finallyAtT...'   Identifier          tok=  53  pos= 568
     Pats:
-      ParenBlock     '('               KWLParen            tok=  53  pos= 584
-                     ')'               KWRParen            tok=  54  pos= 585
-    =                '='               OpEquality          tok=  56  pos= 587
-      TryFinally     'try'             KWTry               tok=  59  pos= 593
+      ParenBlock           '('               KWLParen            tok=  55  pos= 584
+                           ')'               KWRParen            tok=  56  pos= 585
+    =                      '='               OpEquality          tok=  58  pos= 587
+      TryFinally           'try'             KWTry               tok=  61  pos= 593
       TryExpr:
-        Const        '1'               NumInt32            tok=  62  pos= 605
-      FinallyToken   'finally'         KWFinally           tok=  65  pos= 611
+        Const              '1'               NumInt32            tok=  64  pos= 605
+      FinallyToken         'finally'         KWFinally           tok=  67  pos= 611
       FinallyExpr:
         App:
           Func:
-            Ident    'printfn'         Identifier          tok=  70  pos= 690
+            Ident          'printfn'         Identifier          tok=  72  pos= 690
           Args:
-            Const    '"done"'          StringLiteral       tok=  72  pos= 698
+            StringLiteral  '"'               StringOpen          tok=  74  pos= 698
+            Parts:
+              Text         'done'            StringFragment      tok=  75  pos= 699
+                           '"'               StringClose         tok=  76  pos= 703
 FunctionOrValue:
-  let                'let'             KWLet               tok=  84  pos= 907
-    Pat.NamedSimple  'finallyBod...'   Identifier          tok=  86  pos= 911
+  let                      'let'             KWLet               tok=  88  pos= 907
+    Pat.NamedSimple        'finallyBod...'   Identifier          tok=  90  pos= 911
     Pats:
-      ParenBlock     '('               KWLParen            tok=  88  pos= 931
-                     ')'               KWRParen            tok=  89  pos= 932
-    =                '='               OpEquality          tok=  91  pos= 934
-      TryFinally     'try'             KWTry               tok=  94  pos= 940
+      ParenBlock           '('               KWLParen            tok=  92  pos= 931
+                           ')'               KWRParen            tok=  93  pos= 932
+    =                      '='               OpEquality          tok=  95  pos= 934
+      TryFinally           'try'             KWTry               tok=  98  pos= 940
       TryExpr:
-        Const        '1'               NumInt32            tok=  97  pos= 952
-      FinallyToken   'finally'         KWFinally           tok= 100  pos= 958
+        Const              '1'               NumInt32            tok= 101  pos= 952
+      FinallyToken         'finally'         KWFinally           tok= 104  pos= 958
       FinallyExpr:
         App:
           Func:
-            Ident    'printfn'         Identifier          tok= 103  pos= 970
+            Ident          'printfn'         Identifier          tok= 107  pos= 970
           Args:
-            Const    '"done"'          StringLiteral       tok= 105  pos= 978
+            StringLiteral  '"'               StringOpen          tok= 109  pos= 978
+            Parts:
+              Text         'done'            StringFragment      tok= 110  pos= 979
+                           '"'               StringClose         tok= 111  pos= 983
 FunctionOrValue:
-  let                'let'             KWLet               tok= 110  pos=1016
-    Pat.NamedSimple  'finallyBod...'   Identifier          tok= 112  pos=1020
+  let                      'let'             KWLet               tok= 116  pos=1016
+    Pat.NamedSimple        'finallyBod...'   Identifier          tok= 118  pos=1020
     Pats:
-      ParenBlock     '('               KWLParen            tok= 114  pos=1040
-                     ')'               KWRParen            tok= 115  pos=1041
-    =                '='               OpEquality          tok= 117  pos=1043
-      TryFinally     'try'             KWTry               tok= 120  pos=1049
+      ParenBlock           '('               KWLParen            tok= 120  pos=1040
+                           ')'               KWRParen            tok= 121  pos=1041
+    =                      '='               OpEquality          tok= 123  pos=1043
+      TryFinally           'try'             KWTry               tok= 126  pos=1049
       TryExpr:
-        Const        '1'               NumInt32            tok= 123  pos=1061
-      FinallyToken   'finally'         KWFinally           tok= 126  pos=1067
+        Const              '1'               NumInt32            tok= 129  pos=1061
+      FinallyToken         'finally'         KWFinally           tok= 132  pos=1067
       FinallyExpr:
         App:
           Func:
-            Ident    'printfn'         Identifier          tok= 129  pos=1083
+            Ident          'printfn'         Identifier          tok= 135  pos=1083
           Args:
-            Const    '"done"'          StringLiteral       tok= 131  pos=1091
+            StringLiteral  '"'               StringOpen          tok= 137  pos=1091
+            Parts:
+              Text         'done'            StringFragment      tok= 138  pos=1092
+                           '"'               StringClose         tok= 139  pos=1096

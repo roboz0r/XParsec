@@ -177,7 +177,9 @@
 656, Whitespace
 657, OpEquality
 658, Whitespace
-659, StringLiteral
+659, StringOpen
+660, StringFragment
+664, StringClose
 665, Whitespace
 666, KWWith
 670, Whitespace
@@ -213,7 +215,9 @@
 787, Whitespace
 788, OpEquality
 789, Whitespace
-790, StringLiteral
+790, StringOpen
+791, StringFragment
+798, StringClose
 799, Whitespace
 800, KWWith
 804, Whitespace

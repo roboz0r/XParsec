@@ -16,5 +16,5 @@ FunctionOrValue:
               <                    '<'               op_LessThan         tok=  20  pos= 211
               Measure:
                 Measure.Anonymous  '_'               Wildcard            tok=  21  pos= 212
-              >                    <virt>            OpPipeLeft3         tok=virt  pos= 213
+              >                    <virt>            OpPipeLeft2         tok=virt  pos= 213
                                    ']'               KWRAttrBracket      tok=  22  pos= 214

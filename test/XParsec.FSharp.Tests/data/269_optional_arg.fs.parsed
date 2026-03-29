@@ -77,5 +77,8 @@ TypeDefn.Anon:
           Ident                'defaultArg'      Identifier          tok=  85  pos= 203
         Args:
           Ident                'label'           Identifier          tok=  87  pos= 214
-          Const                '"default"'       StringLiteral       tok=  89  pos= 220
+          StringLiteral        '"'               StringOpen          tok=  89  pos= 220
+          Parts:
+            Text               'default'         StringFragment      tok=  90  pos= 221
+                               '"'               StringClose         tok=  91  pos= 228
   end                          <virt>            KWEnd               tok=virt  pos= 230

@@ -20,7 +20,9 @@
 48, Whitespace
 49, OpEquality
 50, Whitespace
-51, StringLiteral
+51, StringOpen
+52, StringFragment
+59, StringClose
 60, Whitespace
 61, KWWith
 65, Whitespace

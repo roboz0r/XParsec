@@ -11,5 +11,8 @@ TypeDefn.TypeExtension:
       ParenBlock     '('               KWLParen            tok=  19  pos=  62
                      ')'               KWRParen            tok=  20  pos=  63
     =                '='               OpEquality          tok=  22  pos=  65
-      Const          '"hello"'         StringLiteral       tok=  24  pos=  67
-  end                'end'             KWEnd               tok=  26  pos=  75
+      StringLiteral  '"'               StringOpen          tok=  24  pos=  67
+      Parts:
+        Text         'hello'           StringFragment      tok=  25  pos=  68
+                     '"'               StringClose         tok=  26  pos=  73
+  end                'end'             KWEnd               tok=  28  pos=  75

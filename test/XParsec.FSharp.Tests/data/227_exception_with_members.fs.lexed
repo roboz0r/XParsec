@@ -61,7 +61,9 @@
 200, Whitespace
 201, OpArrowRight
 203, Whitespace
-204, StringLiteral
+204, StringOpen
+205, StringFragment
+212, StringClose
 213, Newline
 214, Newline
 215, LineComment

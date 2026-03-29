@@ -22,7 +22,9 @@
 64, Whitespace
 65, OpEquality
 66, Whitespace
-67, StringLiteral
+67, StringOpen
+68, StringFragment
+73, StringClose
 74, Newline
 75, KWEnd
 78, Newline

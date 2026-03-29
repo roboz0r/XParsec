@@ -35,7 +35,9 @@
 324, Indent
 332, Identifier
 339, Whitespace
-340, StringLiteral
+340, StringOpen
+341, StringFragment
+345, StringClose
 346, Newline
 347, Newline
 348, LineComment
@@ -70,7 +72,9 @@
 682, Indent
 690, Identifier
 697, Whitespace
-698, StringLiteral
+698, StringOpen
+699, StringFragment
+703, StringClose
 704, Newline
 705, Newline
 706, LineComment
@@ -103,7 +107,9 @@
 966, Indent
 970, Identifier
 977, Whitespace
-978, StringLiteral
+978, StringOpen
+979, StringFragment
+983, StringClose
 984, Whitespace
 988, LineComment
 1014, Newline
@@ -129,7 +135,9 @@
 1075, Indent
 1083, Identifier
 1090, Whitespace
-1091, StringLiteral
+1091, StringOpen
+1092, StringFragment
+1096, StringClose
 1097, Whitespace
 1098, LineComment
 1115, Newline

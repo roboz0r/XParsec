@@ -56,16 +56,23 @@ let private sprintToken (input: string) (pt: PositionedToken) (p1: int) =
     | t when t.IsNumeric ->
         let id = input.AsSpan(p, p1 - p).ToString()
         sprintf "%d, %A (%s) %s" p t id isInComment
-    | Token.StringLiteral
     | Token.UnterminatedStringLiteral
-    | Token.VerbatimStringLiteral
     | Token.UnterminatedVerbatimStringLiteral
-    | Token.String3Literal
     | Token.UnterminatedString3Literal
     | Token.UnterminatedInterpolatedString
     | Token.InterpolatedStringFragment
     | Token.Interpolated3StringFragment
-    | Token.VerbatimInterpolatedStringFragment as t ->
+    | Token.VerbatimInterpolatedStringFragment
+    | Token.StringOpen
+    | Token.StringClose
+    | Token.ByteArrayClose
+    | Token.VerbatimStringOpen
+    | Token.VerbatimStringClose
+    | Token.VerbatimByteArrayClose
+    | Token.String3Open
+    | Token.String3Close
+    | Token.StringFragment
+    | Token.EscapeSequence as t ->
         let id = input.AsSpan(p, p1 - p).ToString()
         let id = escapeSpecialCharacters id
         let id = truncateMiddle 40 id

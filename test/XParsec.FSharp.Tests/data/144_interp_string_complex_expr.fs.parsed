@@ -1,69 +1,75 @@
 AnonymousModule:
 FunctionOrValue:
-  let                     'let'             KWLet               tok=   0  pos=   0
-    Pat.NamedSimple       'a'               Identifier          tok=   2  pos=   4
-    =                     '='               OpEquality          tok=   4  pos=   6
-      InterpolatedString  '$"'              InterpolatedStringOpen  tok=   6  pos=   8
+  let                        'let'             KWLet               tok=   0  pos=   0
+    Pat.NamedSimple          'a'               Identifier          tok=   2  pos=   4
+    =                        '='               OpEquality          tok=   4  pos=   6
+      InterpolatedString     '$"'              InterpolatedStringOpen  tok=   6  pos=   8
       Parts:
-        {                 '{'               InterpolatedExpressionOpen  tok=   7  pos=  10
+        {                    '{'               InterpolatedExpressionOpen  tok=   7  pos=  10
         Expr:
-          InfixApp        '+'               op_Addition         tok=  10  pos=  13
-            Ident         'x'               Identifier          tok=   8  pos=  11
-            Const         '1'               NumInt32            tok=  12  pos=  15
-        }                 '}'               InterpolatedExpressionClose  tok=  13  pos=  16
-                          '"'               InterpolatedStringClose  tok=  14  pos=  17
+          InfixApp           '+'               op_Addition         tok=  10  pos=  13
+            Ident            'x'               Identifier          tok=   8  pos=  11
+            Const            '1'               NumInt32            tok=  12  pos=  15
+        }                    '}'               InterpolatedExpressionClose  tok=  13  pos=  16
+                             '"'               InterpolatedStringClose  tok=  14  pos=  17
 FunctionOrValue:
-  let                     'let'             KWLet               tok=  16  pos=  19
-    Pat.NamedSimple       'b'               Identifier          tok=  18  pos=  23
-    =                     '='               OpEquality          tok=  20  pos=  25
-      InterpolatedString  '$"'              InterpolatedStringOpen  tok=  22  pos=  27
+  let                        'let'             KWLet               tok=  16  pos=  19
+    Pat.NamedSimple          'b'               Identifier          tok=  18  pos=  23
+    =                        '='               OpEquality          tok=  20  pos=  25
+      InterpolatedString     '$"'              InterpolatedStringOpen  tok=  22  pos=  27
       Parts:
-        {                 '{'               InterpolatedExpressionOpen  tok=  23  pos=  29
+        {                    '{'               InterpolatedExpressionOpen  tok=  23  pos=  29
         Expr:
           IfThenElse:
-            IfToken       'if'              KWIf                tok=  24  pos=  30
+            IfToken          'if'              KWIf                tok=  24  pos=  30
             Condition:
-              InfixApp    '>'               op_GreaterThan      tok=  28  pos=  35
-                Ident     'x'               Identifier          tok=  26  pos=  33
-                Const     '0'               NumInt32            tok=  30  pos=  37
-            ThenToken     'then'            KWThen              tok=  32  pos=  39
+              InfixApp       '>'               op_GreaterThan      tok=  28  pos=  35
+                Ident        'x'               Identifier          tok=  26  pos=  33
+                Const        '0'               NumInt32            tok=  30  pos=  37
+            ThenToken        'then'            KWThen              tok=  32  pos=  39
             ThenExpr:
-              Const       '"pos"'           StringLiteral       tok=  34  pos=  44
-            ElseToken     'else'            KWElse              tok=  36  pos=  50
+              StringLiteral  '"'               StringOpen          tok=  34  pos=  44
+              Parts:
+                Text         'pos'             StringFragment      tok=  35  pos=  45
+                             '"'               StringClose         tok=  36  pos=  48
+            ElseToken        'else'            KWElse              tok=  38  pos=  50
             ElseExpr:
-              Const       '"neg"'           StringLiteral       tok=  38  pos=  55
-        }                 '}'               InterpolatedExpressionClose  tok=  39  pos=  60
-                          '"'               InterpolatedStringClose  tok=  40  pos=  61
+              StringLiteral  '"'               StringOpen          tok=  40  pos=  55
+              Parts:
+                Text         'neg'             StringFragment      tok=  41  pos=  56
+                             '"'               StringClose         tok=  42  pos=  59
+        }                    '}'               InterpolatedExpressionClose  tok=  43  pos=  60
+                             '"'               InterpolatedStringClose  tok=  44  pos=  61
 FunctionOrValue:
-  let                     'let'             KWLet               tok=  42  pos=  63
-    Pat.NamedSimple       'c'               Identifier          tok=  44  pos=  67
-    =                     '='               OpEquality          tok=  46  pos=  69
-      InterpolatedString  '$"'              InterpolatedStringOpen  tok=  48  pos=  71
+  let                        'let'             KWLet               tok=  46  pos=  63
+    Pat.NamedSimple          'c'               Identifier          tok=  48  pos=  67
+    =                        '='               OpEquality          tok=  50  pos=  69
+      InterpolatedString     '$"'              InterpolatedStringOpen  tok=  52  pos=  71
       Parts:
-        {                 '{'               InterpolatedExpressionOpen  tok=  49  pos=  73
+        {                    '{'               InterpolatedExpressionOpen  tok=  53  pos=  73
         Expr:
-          InfixApp        '|>'              op_PipeRight        tok=  52  pos=  79
-            Ident         'list'            Identifier          tok=  50  pos=  74
+          InfixApp           '|>'              op_PipeRight        tok=  56  pos=  79
+            Ident            'list'            Identifier          tok=  54  pos=  74
             LongIdentOrOp:
               LongIdent:
-                          'List'            Identifier          tok=  54  pos=  82
-                          'length'          Identifier          tok=  56  pos=  87
-        }                 '}'               InterpolatedExpressionClose  tok=  57  pos=  93
-                          '"'               InterpolatedStringClose  tok=  58  pos=  94
+                             'List'            Identifier          tok=  58  pos=  82
+                             'length'          Identifier          tok=  60  pos=  87
+        }                    '}'               InterpolatedExpressionClose  tok=  61  pos=  93
+                             '"'               InterpolatedStringClose  tok=  62  pos=  94
 FunctionOrValue:
-  let                     'let'             KWLet               tok=  60  pos=  96
-    Pat.NamedSimple       'd'               Identifier          tok=  62  pos= 100
-    =                     '='               OpEquality          tok=  64  pos= 102
-      InterpolatedString  '$"'              InterpolatedStringOpen  tok=  66  pos= 104
+  let                        'let'             KWLet               tok=  64  pos=  96
+    Pat.NamedSimple          'd'               Identifier          tok=  66  pos= 100
+    =                        '='               OpEquality          tok=  68  pos= 102
+      InterpolatedString     '$"'              InterpolatedStringOpen  tok=  70  pos= 104
       Parts:
-        {                 '{'               InterpolatedExpressionOpen  tok=  67  pos= 106
+        {                    '{'               InterpolatedExpressionOpen  tok=  71  pos= 106
         Expr:
           HighPrecedenceApp:
             Func:
-              Ident       'f'               Identifier          tok=  68  pos= 107
-            (             '('               KWLParen            tok=  69  pos= 108
+              Ident          'f'               Identifier          tok=  72  pos= 107
+            (                '('               KWLParen            tok=  73  pos= 108
             Arg:
-              Ident       'x'               Identifier          tok=  70  pos= 109
-                          ')'               KWRParen            tok=  71  pos= 110
-        }                 '}'               InterpolatedExpressionClose  tok=  72  pos= 111
-                          '"'               InterpolatedStringClose  tok=  73  pos= 112
+              Ident          'x'               Identifier          tok=  74  pos= 109
+                             ')'               KWRParen            tok=  75  pos= 110
+        }                    '}'               InterpolatedExpressionClose  tok=  76  pos= 111
+                             '"'               InterpolatedStringClose  tok=  77  pos= 112

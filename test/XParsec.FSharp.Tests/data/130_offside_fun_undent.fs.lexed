@@ -23,7 +23,13 @@
 49, Indent
 57, Identifier
 64, Whitespace
-65, StringLiteral
+65, StringOpen
+66, StringFragment
+73, FormatPlaceholder
+75, StringFragment
+76, FormatPlaceholder
+78, StringFragment
+79, StringClose
 80, Whitespace
 81, Identifier
 82, Whitespace

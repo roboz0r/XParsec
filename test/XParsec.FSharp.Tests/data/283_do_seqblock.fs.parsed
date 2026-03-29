@@ -1,85 +1,91 @@
-module                     'module'          KWModule            tok=   0  pos=   0
-                           'Test'            Identifier          tok=   2  pos=   7
+module                             'module'          KWModule            tok=   0  pos=   0
+                                   'Test'            Identifier          tok=   2  pos=   7
 TypeDefn.Anon:
-  TypeName                 'Validator'       Identifier          tok=   7  pos=  18
-  (                        '('               KWLParen            tok=   8  pos=  27
+  TypeName                         'Validator'       Identifier          tok=   7  pos=  18
+  (                                '('               KWLParen            tok=   8  pos=  27
   Pat.Tuple:
     Pat.Typed:
-      Pat.NamedSimple      'bytes'           Identifier          tok=   9  pos=  28
-      Colon                ':'               OpColon             tok=  10  pos=  33
+      Pat.NamedSimple              'bytes'           Identifier          tok=   9  pos=  28
+      Colon                        ':'               OpColon             tok=  10  pos=  33
       ArrayType:
         NamedType:
           LongIdent:
-                           'byte'            Identifier          tok=  12  pos=  35
-                           '['               KWLBracket          tok=  13  pos=  39
-                           ']'               KWRBracket          tok=  14  pos=  40
-    Pat.NamedSimple        'length'          Identifier          tok=  17  pos=  43
-  )                        ')'               KWRParen            tok=  18  pos=  49
-  =                        '='               OpEquality          tok=  20  pos=  51
-  begin                    <virt>            KWBegin             tok=virt  pos=  57
-    do                     'do'              KWDo                tok=  23  pos=  57
+                                   'byte'            Identifier          tok=  12  pos=  35
+                                   '['               KWLBracket          tok=  13  pos=  39
+                                   ']'               KWRBracket          tok=  14  pos=  40
+    Pat.NamedSimple                'length'          Identifier          tok=  17  pos=  43
+  )                                ')'               KWRParen            tok=  18  pos=  49
+  =                                '='               OpEquality          tok=  20  pos=  51
+  begin                            <virt>            KWBegin             tok=virt  pos=  57
+    do                             'do'              KWDo                tok=  23  pos=  57
     Sequential:
       IfThenElse:
-        IfToken            'if'              KWIf                tok=  26  pos=  68
+        IfToken                    'if'              KWIf                tok=  26  pos=  68
         Condition:
-          InfixApp         '>'               op_GreaterThan      tok=  38  pos=  92
-            InfixApp       '||'              op_BooleanOr        tok=  34  pos=  82
-              InfixApp     '<'               op_LessThan         tok=  30  pos=  78
-                Ident      'length'          Identifier          tok=  28  pos=  71
-                Const      '0'               NumInt32            tok=  32  pos=  80
-              Ident        'length'          Identifier          tok=  36  pos=  85
+          InfixApp                 '>'               op_GreaterThan      tok=  38  pos=  92
+            InfixApp               '||'              op_BooleanOr        tok=  34  pos=  82
+              InfixApp             '<'               op_LessThan         tok=  30  pos=  78
+                Ident              'length'          Identifier          tok=  28  pos=  71
+                Const              '0'               NumInt32            tok=  32  pos=  80
+              Ident                'length'          Identifier          tok=  36  pos=  85
             LongIdentOrOp:
               LongIdent:
-                           'bytes'           Identifier          tok=  40  pos=  94
-                           'Length'          Identifier          tok=  42  pos= 100
-        ThenToken          'then'            KWThen              tok=  44  pos= 107
+                                   'bytes'           Identifier          tok=  40  pos=  94
+                                   'Length'          Identifier          tok=  42  pos= 100
+        ThenToken                  'then'            KWThen              tok=  44  pos= 107
         ThenExpr:
           App:
             Func:
-              Ident        'raise'           Identifier          tok=  47  pos= 124
+              Ident                'raise'           Identifier          tok=  47  pos= 124
             Args:
-              ParenBlock   '('               KWLParen            tok=  49  pos= 130
+              ParenBlock           '('               KWLParen            tok=  49  pos= 130
                 HighPrecedenceApp:
                   Func:
                     LongIdentOrOp:
                       LongIdent:
-                           'System'          Identifier          tok=  50  pos= 131
-                           'ArgumentOu...'   Identifier          tok=  52  pos= 138
-                  (        '('               KWLParen            tok=  53  pos= 165
+                                   'System'          Identifier          tok=  50  pos= 131
+                                   'ArgumentOu...'   Identifier          tok=  52  pos= 138
+                  (                '('               KWLParen            tok=  53  pos= 165
                   Arg:
-                    Const  '"length"'        StringLiteral       tok=  54  pos= 166
-                           ')'               KWRParen            tok=  55  pos= 174
-                           ')'               KWRParen            tok=  56  pos= 175
+                    StringLiteral  '"'               StringOpen          tok=  54  pos= 166
+                    Parts:
+                      Text         'length'          StringFragment      tok=  55  pos= 167
+                                   '"'               StringClose         tok=  56  pos= 173
+                                   ')'               KWRParen            tok=  57  pos= 174
+                                   ')'               KWRParen            tok=  58  pos= 175
       IfThenElse:
-        IfToken            'if'              KWIf                tok=  60  pos= 186
+        IfToken                    'if'              KWIf                tok=  62  pos= 186
         Condition:
-          InfixApp         '='               OpEquality          tok=  66  pos= 202
+          InfixApp                 '='               OpEquality          tok=  68  pos= 202
             LongIdentOrOp:
               LongIdent:
-                           'bytes'           Identifier          tok=  62  pos= 189
-                           'Length'          Identifier          tok=  64  pos= 195
-            Const          '0'               NumInt32            tok=  68  pos= 204
-        ThenToken          'then'            KWThen              tok=  70  pos= 206
+                                   'bytes'           Identifier          tok=  64  pos= 189
+                                   'Length'          Identifier          tok=  66  pos= 195
+            Const                  '0'               NumInt32            tok=  70  pos= 204
+        ThenToken                  'then'            KWThen              tok=  72  pos= 206
         ThenExpr:
           App:
             Func:
-              Ident        'raise'           Identifier          tok=  73  pos= 223
+              Ident                'raise'           Identifier          tok=  75  pos= 223
             Args:
-              ParenBlock   '('               KWLParen            tok=  75  pos= 229
+              ParenBlock           '('               KWLParen            tok=  77  pos= 229
                 HighPrecedenceApp:
                   Func:
                     LongIdentOrOp:
                       LongIdent:
-                           'System'          Identifier          tok=  76  pos= 230
-                           'ArgumentEx...'   Identifier          tok=  78  pos= 237
-                  (        '('               KWLParen            tok=  79  pos= 254
+                                   'System'          Identifier          tok=  78  pos= 230
+                                   'ArgumentEx...'   Identifier          tok=  80  pos= 237
+                  (                '('               KWLParen            tok=  81  pos= 254
                   Arg:
-                    Const  '"bytes"'         StringLiteral       tok=  80  pos= 255
-                           ')'               KWRParen            tok=  81  pos= 262
-                           ')'               KWRParen            tok=  82  pos= 263
-    member                 'member'          KWMember            tok=  86  pos= 270
-    self                   '_'               Wildcard            tok=  88  pos= 277
-    Pat.NamedSimple        'Length'          Identifier          tok=  90  pos= 279
-    =                      '='               OpEquality          tok=  92  pos= 286
-      Ident                'length'          Identifier          tok=  94  pos= 288
-  end                      <virt>            KWEnd               tok=virt  pos= 295
+                    StringLiteral  '"'               StringOpen          tok=  82  pos= 255
+                    Parts:
+                      Text         'bytes'           StringFragment      tok=  83  pos= 256
+                                   '"'               StringClose         tok=  84  pos= 261
+                                   ')'               KWRParen            tok=  85  pos= 262
+                                   ')'               KWRParen            tok=  86  pos= 263
+    member                         'member'          KWMember            tok=  90  pos= 270
+    self                           '_'               Wildcard            tok=  92  pos= 277
+    Pat.NamedSimple                'Length'          Identifier          tok=  94  pos= 279
+    =                              '='               OpEquality          tok=  96  pos= 286
+      Ident                        'length'          Identifier          tok=  98  pos= 288
+  end                              <virt>            KWEnd               tok=virt  pos= 295

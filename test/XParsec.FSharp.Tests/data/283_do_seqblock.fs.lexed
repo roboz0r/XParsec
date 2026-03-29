@@ -52,7 +52,9 @@
 137, OpDot
 138, Identifier
 165, KWLParen
-166, StringLiteral
+166, StringOpen
+167, StringFragment
+173, StringClose
 174, KWRParen
 175, KWRParen
 176, Newline
@@ -78,7 +80,9 @@
 236, OpDot
 237, Identifier
 254, KWLParen
-255, StringLiteral
+255, StringOpen
+256, StringFragment
+261, StringClose
 262, KWRParen
 263, KWRParen
 264, Newline

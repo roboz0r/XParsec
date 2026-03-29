@@ -1,29 +1,32 @@
-module        'module'          KWModule            tok=   0  pos=   0
-              'MyModule'        Identifier          tok=   2  pos=   7
+module               'module'          KWModule            tok=   0  pos=   0
+                     'MyModule'        Identifier          tok=   2  pos=   7
 TypeDefn.Class:
-  TypeName    'MyClass'         Identifier          tok=   7  pos=  22
-  =           '='               OpEquality          tok=  11  pos=  32
-  class       'class'           KWClass             tok=  14  pos=  38
-    member    'member'          KWMember            tok=  17  pos=  52
-    val       'val'             KWVal               tok=  19  pos=  59
-    ident     'Name'            Identifier          tok=  21  pos=  63
-    =         '='               OpEquality          tok=  23  pos=  68
-    Const     '"default"'       StringLiteral       tok=  25  pos=  70
-    static    'static'          KWStatic            tok=  28  pos=  88
-    member    'member'          KWMember            tok=  30  pos=  95
-    val       'val'             KWVal               tok=  32  pos= 102
-    ident     'Count'           Identifier          tok=  34  pos= 106
-    =         '='               OpEquality          tok=  36  pos= 112
-    Const     '0'               NumInt32            tok=  38  pos= 114
-    with      'with'            KWWith              tok=  40  pos= 116
-    accessor  'get'             Identifier          tok=  42  pos= 121
-    accessor  'set'             Identifier          tok=  45  pos= 126
-    member    'member'          KWMember            tok=  48  pos= 138
-    val       'val'             KWVal               tok=  50  pos= 145
-    access    'internal'        KWInternal          tok=  52  pos= 149
-    ident     'ReadOnly'        Identifier          tok=  54  pos= 158
-    =         '='               OpEquality          tok=  56  pos= 167
-    Const     '42'              NumInt32            tok=  58  pos= 169
-    with      'with'            KWWith              tok=  60  pos= 172
-    accessor  'get'             Identifier          tok=  62  pos= 177
-  end         'end'             KWEnd               tok=  65  pos= 185
+  TypeName           'MyClass'         Identifier          tok=   7  pos=  22
+  =                  '='               OpEquality          tok=  11  pos=  32
+  class              'class'           KWClass             tok=  14  pos=  38
+    member           'member'          KWMember            tok=  17  pos=  52
+    val              'val'             KWVal               tok=  19  pos=  59
+    ident            'Name'            Identifier          tok=  21  pos=  63
+    =                '='               OpEquality          tok=  23  pos=  68
+      StringLiteral  '"'               StringOpen          tok=  25  pos=  70
+      Parts:
+        Text         'default'         StringFragment      tok=  26  pos=  71
+                     '"'               StringClose         tok=  27  pos=  78
+    static           'static'          KWStatic            tok=  30  pos=  88
+    member           'member'          KWMember            tok=  32  pos=  95
+    val              'val'             KWVal               tok=  34  pos= 102
+    ident            'Count'           Identifier          tok=  36  pos= 106
+    =                '='               OpEquality          tok=  38  pos= 112
+      Const          '0'               NumInt32            tok=  40  pos= 114
+      with           'with'            KWWith              tok=  42  pos= 116
+      accessor       'get'             Identifier          tok=  44  pos= 121
+      accessor       'set'             Identifier          tok=  47  pos= 126
+    member           'member'          KWMember            tok=  50  pos= 138
+    val              'val'             KWVal               tok=  52  pos= 145
+    access           'internal'        KWInternal          tok=  54  pos= 149
+    ident            'ReadOnly'        Identifier          tok=  56  pos= 158
+    =                '='               OpEquality          tok=  58  pos= 167
+      Const          '42'              NumInt32            tok=  60  pos= 169
+      with           'with'            KWWith              tok=  62  pos= 172
+      accessor       'get'             Identifier          tok=  64  pos= 177
+  end                'end'             KWEnd               tok=  67  pos= 185

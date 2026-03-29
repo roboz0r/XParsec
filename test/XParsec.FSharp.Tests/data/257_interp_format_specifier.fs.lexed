@@ -17,7 +17,9 @@
 34, Whitespace
 35, OpEquality
 36, Whitespace
-37, StringLiteral
+37, StringOpen
+38, StringFragment
+43, StringClose
 44, Newline
 45, Newline
 46, LineComment

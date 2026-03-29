@@ -6,6 +6,8 @@
 24, Whitespace
 25, OpEquality
 26, Whitespace
-27, StringLiteral
+27, StringOpen
+28, StringFragment
+33, StringClose
 34, Newline
 35, EOF

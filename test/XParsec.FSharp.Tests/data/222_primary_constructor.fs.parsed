@@ -1,27 +1,30 @@
-module                 'module'          KWModule            tok=   0  pos=   0
-                       'Test'            Identifier          tok=   2  pos=   7
+module                   'module'          KWModule            tok=   0  pos=   0
+                         'Test'            Identifier          tok=   2  pos=   7
 TypeDefn.Anon:
-  TypeName             'MyClass'         Identifier          tok=   9  pos=  63
-  (                    '('               KWLParen            tok=  10  pos=  70
+  TypeName               'MyClass'         Identifier          tok=   9  pos=  63
+  (                      '('               KWLParen            tok=  10  pos=  70
   Pat.Typed:
     Pat.Optional:
-      ?                '?'               OpDynamic           tok=  11  pos=  71
-      Pat.NamedSimple  'label'           Identifier          tok=  12  pos=  72
-    Colon              ':'               OpColon             tok=  13  pos=  77
+      ?                  '?'               OpDynamic           tok=  11  pos=  71
+      Pat.NamedSimple    'label'           Identifier          tok=  12  pos=  72
+    Colon                ':'               OpColon             tok=  13  pos=  77
     NamedType:
       LongIdent:
-                       'string'          Identifier          tok=  15  pos=  79
-  )                    ')'               KWRParen            tok=  16  pos=  85
-  =                    '='               OpEquality          tok=  18  pos=  87
-  begin                <virt>            KWBegin             tok=virt  pos=  93
-    member             'member'          KWMember            tok=  21  pos=  93
-    self               '_'               Wildcard            tok=  23  pos= 100
-    Pat.NamedSimple    'Label'           Identifier          tok=  25  pos= 102
-    =                  '='               OpEquality          tok=  27  pos= 108
+                         'string'          Identifier          tok=  15  pos=  79
+  )                      ')'               KWRParen            tok=  16  pos=  85
+  =                      '='               OpEquality          tok=  18  pos=  87
+  begin                  <virt>            KWBegin             tok=virt  pos=  93
+    member               'member'          KWMember            tok=  21  pos=  93
+    self                 '_'               Wildcard            tok=  23  pos= 100
+    Pat.NamedSimple      'Label'           Identifier          tok=  25  pos= 102
+    =                    '='               OpEquality          tok=  27  pos= 108
       App:
         Func:
-          Ident        'defaultArg'      Identifier          tok=  29  pos= 110
+          Ident          'defaultArg'      Identifier          tok=  29  pos= 110
         Args:
-          Ident        'label'           Identifier          tok=  31  pos= 121
-          Const        '"default"'       StringLiteral       tok=  33  pos= 127
-  end                  <virt>            KWEnd               tok=virt  pos= 137
+          Ident          'label'           Identifier          tok=  31  pos= 121
+          StringLiteral  '"'               StringOpen          tok=  33  pos= 127
+          Parts:
+            Text         'default'         StringFragment      tok=  34  pos= 128
+                         '"'               StringClose         tok=  35  pos= 135
+  end                    <virt>            KWEnd               tok=virt  pos= 137

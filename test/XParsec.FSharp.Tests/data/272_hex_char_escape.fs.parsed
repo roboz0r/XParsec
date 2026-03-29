@@ -24,9 +24,18 @@ FunctionOrValue:
   let                'let'             KWLet               tok=  37  pos=  85
     Pat.NamedSimple  'hexString'       Identifier          tok=  39  pos=  89
     =                '='               OpEquality          tok=  41  pos=  99
-      Const          '"hello\x00...'   StringLiteral       tok=  43  pos= 101
+      StringLiteral  '"'               StringOpen          tok=  43  pos= 101
+      Parts:
+        Text         'hello'           StringFragment      tok=  44  pos= 102
+        Text         '\x00'            EscapeSequence      tok=  45  pos= 107
+        Text         'world'           StringFragment      tok=  46  pos= 111
+                     '"'               StringClose         tok=  47  pos= 116
 FunctionOrValue:
-  let                'let'             KWLet               tok=  45  pos= 118
-    Pat.NamedSimple  'hexInStrin...'   Identifier          tok=  47  pos= 122
-    =                '='               OpEquality          tok=  49  pos= 134
-      Const          '"\x1A\x7F"'      StringLiteral       tok=  51  pos= 136
+  let                'let'             KWLet               tok=  49  pos= 118
+    Pat.NamedSimple  'hexInStrin...'   Identifier          tok=  51  pos= 122
+    =                '='               OpEquality          tok=  53  pos= 134
+      StringLiteral  '"'               StringOpen          tok=  55  pos= 136
+      Parts:
+        Text         '\x1A'            EscapeSequence      tok=  56  pos= 137
+        Text         '\x7F'            EscapeSequence      tok=  57  pos= 141
+                     '"'               StringClose         tok=  58  pos= 145

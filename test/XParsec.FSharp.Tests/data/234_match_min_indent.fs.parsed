@@ -1,208 +1,259 @@
-module                    'module'          KWModule            tok=   0  pos=   0
-                          'MatchMinIn...'   Identifier          tok=   2  pos=   7
+module                     'module'          KWModule            tok=   0  pos=   0
+                           'MatchMinIn...'   Identifier          tok=   2  pos=   7
 FunctionOrValue:
-  let                     'let'             KWLet               tok=  14  pos= 242
-    Pat.NamedSimple       'matchExprO...'   Identifier          tok=  16  pos= 246
+  let                      'let'             KWLet               tok=  14  pos= 242
+    Pat.NamedSimple        'matchExprO...'   Identifier          tok=  16  pos= 246
     Pats:
-      Pat.NamedSimple     'x'               Identifier          tok=  18  pos= 266
-    =                     '='               OpEquality          tok=  20  pos= 268
+      Pat.NamedSimple      'x'               Identifier          tok=  18  pos= 266
+    =                      '='               OpEquality          tok=  20  pos= 268
       Match:
-        MatchToken        'match'           KWMatch             tok=  23  pos= 274
+        MatchToken         'match'           KWMatch             tok=  23  pos= 274
         MatchExpr:
-          Ident           'x'               Identifier          tok=  26  pos= 285
-        WithToken         'with'            KWWith              tok=  31  pos= 335
+          Ident            'x'               Identifier          tok=  26  pos= 285
+        WithToken          'with'            KWWith              tok=  31  pos= 335
         Rule:
-          Bar             '|'               OpBar               tok=  34  pos= 344
+          Bar              '|'               OpBar               tok=  34  pos= 344
           Pat:
-            Pat.Const     '1'               NumInt32            tok=  36  pos= 346
-          Arrow           '->'              OpArrowRight        tok=  38  pos= 348
+            Pat.Const      '1'               NumInt32            tok=  36  pos= 346
+          Arrow            '->'              OpArrowRight        tok=  38  pos= 348
           Expr:
-            Const         '"one"'           StringLiteral       tok=  40  pos= 351
+            StringLiteral  '"'               StringOpen          tok=  40  pos= 351
+            Parts:
+              Text         'one'             StringFragment      tok=  41  pos= 352
+                           '"'               StringClose         tok=  42  pos= 355
         Rule:
-          Bar             '|'               OpBar               tok=  43  pos= 361
+          Bar              '|'               OpBar               tok=  45  pos= 361
           Pat:
-            Pat.Wildcard  '_'               Wildcard            tok=  45  pos= 363
-          Arrow           '->'              OpArrowRight        tok=  47  pos= 365
+            Pat.Wildcard   '_'               Wildcard            tok=  47  pos= 363
+          Arrow            '->'              OpArrowRight        tok=  49  pos= 365
           Expr:
-            Const         '"other"'         StringLiteral       tok=  49  pos= 368
+            StringLiteral  '"'               StringOpen          tok=  51  pos= 368
+            Parts:
+              Text         'other'           StringFragment      tok=  52  pos= 369
+                           '"'               StringClose         tok=  53  pos= 374
 FunctionOrValue:
-  let                     'let'             KWLet               tok=  61  pos= 578
-    Pat.NamedSimple       'withAtMatc...'   Identifier          tok=  63  pos= 582
+  let                      'let'             KWLet               tok=  65  pos= 578
+    Pat.NamedSimple        'withAtMatc...'   Identifier          tok=  67  pos= 582
     Pats:
-      Pat.NamedSimple     'x'               Identifier          tok=  65  pos= 597
-    =                     '='               OpEquality          tok=  67  pos= 599
+      Pat.NamedSimple      'x'               Identifier          tok=  69  pos= 597
+    =                      '='               OpEquality          tok=  71  pos= 599
       Match:
-        MatchToken        'match'           KWMatch             tok=  70  pos= 605
+        MatchToken         'match'           KWMatch             tok=  74  pos= 605
         MatchExpr:
-          Ident           'x'               Identifier          tok=  72  pos= 611
-        WithToken         'with'            KWWith              tok=  75  pos= 617
+          Ident            'x'               Identifier          tok=  76  pos= 611
+        WithToken          'with'            KWWith              tok=  79  pos= 617
         Rule:
-          Bar             '|'               OpBar               tok=  80  pos= 687
+          Bar              '|'               OpBar               tok=  84  pos= 687
           Pat:
-            Pat.Const     '1'               NumInt32            tok=  82  pos= 689
-          Arrow           '->'              OpArrowRight        tok=  84  pos= 691
+            Pat.Const      '1'               NumInt32            tok=  86  pos= 689
+          Arrow            '->'              OpArrowRight        tok=  88  pos= 691
           Expr:
-            Const         '"one"'           StringLiteral       tok=  86  pos= 694
+            StringLiteral  '"'               StringOpen          tok=  90  pos= 694
+            Parts:
+              Text         'one'             StringFragment      tok=  91  pos= 695
+                           '"'               StringClose         tok=  92  pos= 698
         Rule:
-          Bar             '|'               OpBar               tok=  89  pos= 704
+          Bar              '|'               OpBar               tok=  95  pos= 704
           Pat:
-            Pat.Wildcard  '_'               Wildcard            tok=  91  pos= 706
-          Arrow           '->'              OpArrowRight        tok=  93  pos= 708
+            Pat.Wildcard   '_'               Wildcard            tok=  97  pos= 706
+          Arrow            '->'              OpArrowRight        tok=  99  pos= 708
           Expr:
-            Const         '"other"'         StringLiteral       tok=  95  pos= 711
+            StringLiteral  '"'               StringOpen          tok= 101  pos= 711
+            Parts:
+              Text         'other'           StringFragment      tok= 102  pos= 712
+                           '"'               StringClose         tok= 103  pos= 717
 FunctionOrValue:
-  let                     'let'             KWLet               tok= 109  pos= 974
-    Pat.NamedSimple       'barAtMatch...'   Identifier          tok= 111  pos= 978
+  let                      'let'             KWLet               tok= 117  pos= 974
+    Pat.NamedSimple        'barAtMatch...'   Identifier          tok= 119  pos= 978
     Pats:
-      Pat.NamedSimple     'x'               Identifier          tok= 113  pos= 992
-    =                     '='               OpEquality          tok= 115  pos= 994
+      Pat.NamedSimple      'x'               Identifier          tok= 121  pos= 992
+    =                      '='               OpEquality          tok= 123  pos= 994
       Match:
-        MatchToken        'match'           KWMatch             tok= 118  pos=1000
+        MatchToken         'match'           KWMatch             tok= 126  pos=1000
         MatchExpr:
-          Ident           'x'               Identifier          tok= 120  pos=1006
-        WithToken         'with'            KWWith              tok= 122  pos=1008
+          Ident            'x'               Identifier          tok= 128  pos=1006
+        WithToken          'with'            KWWith              tok= 130  pos=1008
         Rule:
-          Bar             '|'               OpBar               tok= 125  pos=1017
+          Bar              '|'               OpBar               tok= 133  pos=1017
           Pat:
-            Pat.Const     '1'               NumInt32            tok= 127  pos=1019
-          Arrow           '->'              OpArrowRight        tok= 129  pos=1021
+            Pat.Const      '1'               NumInt32            tok= 135  pos=1019
+          Arrow            '->'              OpArrowRight        tok= 137  pos=1021
           Expr:
-            Const         '"one"'           StringLiteral       tok= 131  pos=1024
+            StringLiteral  '"'               StringOpen          tok= 139  pos=1024
+            Parts:
+              Text         'one'             StringFragment      tok= 140  pos=1025
+                           '"'               StringClose         tok= 141  pos=1028
         Rule:
-          Bar             '|'               OpBar               tok= 136  pos=1084
+          Bar              '|'               OpBar               tok= 146  pos=1084
           Pat:
-            Pat.Wildcard  '_'               Wildcard            tok= 138  pos=1086
-          Arrow           '->'              OpArrowRight        tok= 140  pos=1088
+            Pat.Wildcard   '_'               Wildcard            tok= 148  pos=1086
+          Arrow            '->'              OpArrowRight        tok= 150  pos=1088
           Expr:
-            Const         '"other"'         StringLiteral       tok= 142  pos=1091
+            StringLiteral  '"'               StringOpen          tok= 152  pos=1091
+            Parts:
+              Text         'other'           StringFragment      tok= 153  pos=1092
+                           '"'               StringClose         tok= 154  pos=1097
 FunctionOrValue:
-  let                     'let'             KWLet               tok= 158  pos=1442
-    Pat.NamedSimple       'bodyAtBarP...'   Identifier          tok= 160  pos=1446
+  let                      'let'             KWLet               tok= 170  pos=1442
+    Pat.NamedSimple        'bodyAtBarP...'   Identifier          tok= 172  pos=1446
     Pats:
-      Pat.NamedSimple     'x'               Identifier          tok= 162  pos=1461
-    =                     '='               OpEquality          tok= 164  pos=1463
+      Pat.NamedSimple      'x'               Identifier          tok= 174  pos=1461
+    =                      '='               OpEquality          tok= 176  pos=1463
       Match:
-        MatchToken        'match'           KWMatch             tok= 167  pos=1469
+        MatchToken         'match'           KWMatch             tok= 179  pos=1469
         MatchExpr:
-          Ident           'x'               Identifier          tok= 169  pos=1475
-        WithToken         'with'            KWWith              tok= 171  pos=1477
+          Ident            'x'               Identifier          tok= 181  pos=1475
+        WithToken          'with'            KWWith              tok= 183  pos=1477
         Rule:
-          Bar             '|'               OpBar               tok= 174  pos=1486
+          Bar              '|'               OpBar               tok= 186  pos=1486
           Pat:
-            Pat.Const     '1'               NumInt32            tok= 176  pos=1488
-          Arrow           '->'              OpArrowRight        tok= 178  pos=1490
+            Pat.Const      '1'               NumInt32            tok= 188  pos=1488
+          Arrow            '->'              OpArrowRight        tok= 190  pos=1490
           Expr:
-            Const         '"one"'           StringLiteral       tok= 181  pos=1498
+            StringLiteral  '"'               StringOpen          tok= 193  pos=1498
+            Parts:
+              Text         'one'             StringFragment      tok= 194  pos=1499
+                           '"'               StringClose         tok= 195  pos=1502
         Rule:
-          Bar             '|'               OpBar               tok= 186  pos=1544
+          Bar              '|'               OpBar               tok= 200  pos=1544
           Pat:
-            Pat.Wildcard  '_'               Wildcard            tok= 188  pos=1546
-          Arrow           '->'              OpArrowRight        tok= 190  pos=1548
+            Pat.Wildcard   '_'               Wildcard            tok= 202  pos=1546
+          Arrow            '->'              OpArrowRight        tok= 204  pos=1548
           Expr:
-            Const         '"other"'         StringLiteral       tok= 193  pos=1556
+            StringLiteral  '"'               StringOpen          tok= 207  pos=1556
+            Parts:
+              Text         'other'           StringFragment      tok= 208  pos=1557
+                           '"'               StringClose         tok= 209  pos=1562
 FunctionOrValue:
-  let                     'let'             KWLet               tok= 200  pos=1659
-    Pat.NamedSimple       'barIndente...'   Identifier          tok= 202  pos=1663
+  let                      'let'             KWLet               tok= 216  pos=1659
+    Pat.NamedSimple        'barIndente...'   Identifier          tok= 218  pos=1663
     Pats:
-      Pat.NamedSimple     'x'               Identifier          tok= 204  pos=1689
-    =                     '='               OpEquality          tok= 206  pos=1691
+      Pat.NamedSimple      'x'               Identifier          tok= 220  pos=1689
+    =                      '='               OpEquality          tok= 222  pos=1691
       Match:
-        MatchToken        'match'           KWMatch             tok= 209  pos=1697
+        MatchToken         'match'           KWMatch             tok= 225  pos=1697
         MatchExpr:
-          Ident           'x'               Identifier          tok= 211  pos=1703
-        WithToken         'with'            KWWith              tok= 213  pos=1705
+          Ident            'x'               Identifier          tok= 227  pos=1703
+        WithToken          'with'            KWWith              tok= 229  pos=1705
         Rule:
-          Bar             '|'               OpBar               tok= 216  pos=1716
+          Bar              '|'               OpBar               tok= 232  pos=1716
           Pat:
-            Pat.Const     '1'               NumInt32            tok= 218  pos=1718
-          Arrow           '->'              OpArrowRight        tok= 220  pos=1720
+            Pat.Const      '1'               NumInt32            tok= 234  pos=1718
+          Arrow            '->'              OpArrowRight        tok= 236  pos=1720
           Expr:
-            Const         '"one"'           StringLiteral       tok= 223  pos=1730
+            StringLiteral  '"'               StringOpen          tok= 239  pos=1730
+            Parts:
+              Text         'one'             StringFragment      tok= 240  pos=1731
+                           '"'               StringClose         tok= 241  pos=1734
         Rule:
-          Bar             '|'               OpBar               tok= 228  pos=1776
+          Bar              '|'               OpBar               tok= 246  pos=1776
           Pat:
-            Pat.Wildcard  '_'               Wildcard            tok= 230  pos=1778
-          Arrow           '->'              OpArrowRight        tok= 232  pos=1780
+            Pat.Wildcard   '_'               Wildcard            tok= 248  pos=1778
+          Arrow            '->'              OpArrowRight        tok= 250  pos=1780
           Expr:
-            Const         '"other"'         StringLiteral       tok= 235  pos=1790
+            StringLiteral  '"'               StringOpen          tok= 253  pos=1790
+            Parts:
+              Text         'other'           StringFragment      tok= 254  pos=1791
+                           '"'               StringClose         tok= 255  pos=1796
 FunctionOrValue:
-  let                     'let'             KWLet               tok= 249  pos=2066
-    Pat.NamedSimple       'noLeadingB...'   Identifier          tok= 251  pos=2070
+  let                      'let'             KWLet               tok= 269  pos=2066
+    Pat.NamedSimple        'noLeadingB...'   Identifier          tok= 271  pos=2070
     Pats:
-      Pat.NamedSimple     'x'               Identifier          tok= 253  pos=2083
-    =                     '='               OpEquality          tok= 255  pos=2085
+      Pat.NamedSimple      'x'               Identifier          tok= 273  pos=2083
+    =                      '='               OpEquality          tok= 275  pos=2085
       Match:
-        MatchToken        'match'           KWMatch             tok= 258  pos=2091
+        MatchToken         'match'           KWMatch             tok= 278  pos=2091
         MatchExpr:
-          Ident           'x'               Identifier          tok= 260  pos=2097
-        WithToken         'with'            KWWith              tok= 262  pos=2099
+          Ident            'x'               Identifier          tok= 280  pos=2097
+        WithToken          'with'            KWWith              tok= 282  pos=2099
         Rule:
           Pat:
-            Pat.Const     '1'               NumInt32            tok= 265  pos=2109
-          Arrow           '->'              OpArrowRight        tok= 267  pos=2111
+            Pat.Const      '1'               NumInt32            tok= 285  pos=2109
+          Arrow            '->'              OpArrowRight        tok= 287  pos=2111
           Expr:
-            Const         '"one"'           StringLiteral       tok= 272  pos=2169
+            StringLiteral  '"'               StringOpen          tok= 292  pos=2169
+            Parts:
+              Text         'one'             StringFragment      tok= 293  pos=2170
+                           '"'               StringClose         tok= 294  pos=2173
         Rule:
-          Bar             '|'               OpBar               tok= 277  pos=2219
+          Bar              '|'               OpBar               tok= 299  pos=2219
           Pat:
-            Pat.Wildcard  '_'               Wildcard            tok= 279  pos=2221
-          Arrow           '->'              OpArrowRight        tok= 281  pos=2223
+            Pat.Wildcard   '_'               Wildcard            tok= 301  pos=2221
+          Arrow            '->'              OpArrowRight        tok= 303  pos=2223
           Expr:
-            Const         '"other"'         StringLiteral       tok= 283  pos=2226
+            StringLiteral  '"'               StringOpen          tok= 305  pos=2226
+            Parts:
+              Text         'other'           StringFragment      tok= 306  pos=2227
+                           '"'               StringClose         tok= 307  pos=2232
 FunctionOrValue:
-  let                     'let'             KWLet               tok= 295  pos=2459
-    Pat.NamedSimple       'withOnNext...'   Identifier          tok= 297  pos=2463
+  let                      'let'             KWLet               tok= 319  pos=2459
+    Pat.NamedSimple        'withOnNext...'   Identifier          tok= 321  pos=2463
     Pats:
-      Pat.NamedSimple     'x'               Identifier          tok= 299  pos=2478
-    =                     '='               OpEquality          tok= 301  pos=2480
+      Pat.NamedSimple      'x'               Identifier          tok= 323  pos=2478
+    =                      '='               OpEquality          tok= 325  pos=2480
       Match:
-        MatchToken        'match'           KWMatch             tok= 304  pos=2486
+        MatchToken         'match'           KWMatch             tok= 328  pos=2486
         MatchExpr:
-          Ident           'x'               Identifier          tok= 306  pos=2492
-        WithToken         'with'            KWWith              tok= 309  pos=2498
+          Ident            'x'               Identifier          tok= 330  pos=2492
+        WithToken          'with'            KWWith              tok= 333  pos=2498
         Rule:
-          Bar             '|'               OpBar               tok= 312  pos=2507
+          Bar              '|'               OpBar               tok= 336  pos=2507
           Pat:
-            Pat.Const     '1'               NumInt32            tok= 314  pos=2509
-          Arrow           '->'              OpArrowRight        tok= 316  pos=2511
+            Pat.Const      '1'               NumInt32            tok= 338  pos=2509
+          Arrow            '->'              OpArrowRight        tok= 340  pos=2511
           Expr:
-            Const         '"one"'           StringLiteral       tok= 318  pos=2514
+            StringLiteral  '"'               StringOpen          tok= 342  pos=2514
+            Parts:
+              Text         'one'             StringFragment      tok= 343  pos=2515
+                           '"'               StringClose         tok= 344  pos=2518
         Rule:
-          Bar             '|'               OpBar               tok= 321  pos=2524
+          Bar              '|'               OpBar               tok= 347  pos=2524
           Pat:
-            Pat.Wildcard  '_'               Wildcard            tok= 323  pos=2526
-          Arrow           '->'              OpArrowRight        tok= 325  pos=2528
+            Pat.Wildcard   '_'               Wildcard            tok= 349  pos=2526
+          Arrow            '->'              OpArrowRight        tok= 351  pos=2528
           Expr:
-            Const         '"other"'         StringLiteral       tok= 328  pos=2536
+            StringLiteral  '"'               StringOpen          tok= 354  pos=2536
+            Parts:
+              Text         'other'           StringFragment      tok= 355  pos=2537
+                           '"'               StringClose         tok= 356  pos=2542
 FunctionOrValue:
-  let                     'let'             KWLet               tok= 342  pos=2801
-    Pat.NamedSimple       'multipleCl...'   Identifier          tok= 344  pos=2805
+  let                      'let'             KWLet               tok= 370  pos=2801
+    Pat.NamedSimple        'multipleCl...'   Identifier          tok= 372  pos=2805
     Pats:
-      Pat.NamedSimple     'x'               Identifier          tok= 346  pos=2821
-    =                     '='               OpEquality          tok= 348  pos=2823
+      Pat.NamedSimple      'x'               Identifier          tok= 374  pos=2821
+    =                      '='               OpEquality          tok= 376  pos=2823
       Match:
-        MatchToken        'match'           KWMatch             tok= 351  pos=2829
+        MatchToken         'match'           KWMatch             tok= 379  pos=2829
         MatchExpr:
-          Ident           'x'               Identifier          tok= 353  pos=2835
-        WithToken         'with'            KWWith              tok= 355  pos=2837
+          Ident            'x'               Identifier          tok= 381  pos=2835
+        WithToken          'with'            KWWith              tok= 383  pos=2837
         Rule:
-          Bar             '|'               OpBar               tok= 358  pos=2846
+          Bar              '|'               OpBar               tok= 386  pos=2846
           Pat:
-            Pat.Const     '1'               NumInt32            tok= 360  pos=2848
-          Arrow           '->'              OpArrowRight        tok= 362  pos=2850
+            Pat.Const      '1'               NumInt32            tok= 388  pos=2848
+          Arrow            '->'              OpArrowRight        tok= 390  pos=2850
           Expr:
-            Const         '"one"'           StringLiteral       tok= 365  pos=2858
+            StringLiteral  '"'               StringOpen          tok= 393  pos=2858
+            Parts:
+              Text         'one'             StringFragment      tok= 394  pos=2859
+                           '"'               StringClose         tok= 395  pos=2862
         Rule:
-          Bar             '|'               OpBar               tok= 368  pos=2868
+          Bar              '|'               OpBar               tok= 398  pos=2868
           Pat:
-            Pat.Const     '2'               NumInt32            tok= 370  pos=2870
-          Arrow           '->'              OpArrowRight        tok= 372  pos=2872
+            Pat.Const      '2'               NumInt32            tok= 400  pos=2870
+          Arrow            '->'              OpArrowRight        tok= 402  pos=2872
           Expr:
-            Const         '"two"'           StringLiteral       tok= 375  pos=2880
+            StringLiteral  '"'               StringOpen          tok= 405  pos=2880
+            Parts:
+              Text         'two'             StringFragment      tok= 406  pos=2881
+                           '"'               StringClose         tok= 407  pos=2884
         Rule:
-          Bar             '|'               OpBar               tok= 378  pos=2890
+          Bar              '|'               OpBar               tok= 410  pos=2890
           Pat:
-            Pat.Wildcard  '_'               Wildcard            tok= 380  pos=2892
-          Arrow           '->'              OpArrowRight        tok= 382  pos=2894
+            Pat.Wildcard   '_'               Wildcard            tok= 412  pos=2892
+          Arrow            '->'              OpArrowRight        tok= 414  pos=2894
           Expr:
-            Const         '"other"'         StringLiteral       tok= 385  pos=2902
+            StringLiteral  '"'               StringOpen          tok= 417  pos=2902
+            Parts:
+              Text         'other'           StringFragment      tok= 418  pos=2903
+                           '"'               StringClose         tok= 419  pos=2908

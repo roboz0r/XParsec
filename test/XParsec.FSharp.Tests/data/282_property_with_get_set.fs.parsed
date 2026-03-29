@@ -29,18 +29,21 @@ TypeDefn.Anon:
       ParenBlock           '('               KWLParen            tok=  55  pos= 163
                            ')'               KWRParen            tok=  56  pos= 164
     =                      '='               OpEquality          tok=  58  pos= 166
-      Const                '"hello"'         StringLiteral       tok=  60  pos= 168
-    Pat.NamedSimple        'set'             Identifier          tok=  65  pos= 188
+      StringLiteral        '"'               StringOpen          tok=  60  pos= 168
+      Parts:
+        Text               'hello'           StringFragment      tok=  61  pos= 169
+                           '"'               StringClose         tok=  62  pos= 174
+    Pat.NamedSimple        'set'             Identifier          tok=  67  pos= 188
     Pats:
-      ParenBlock           '('               KWLParen            tok=  67  pos= 192
+      ParenBlock           '('               KWLParen            tok=  69  pos= 192
         Pat.Typed:
-          Pat.NamedSimple  'v'               Identifier          tok=  68  pos= 193
-          Colon            ':'               OpColon             tok=  69  pos= 194
+          Pat.NamedSimple  'v'               Identifier          tok=  70  pos= 193
+          Colon            ':'               OpColon             tok=  71  pos= 194
           NamedType:
             LongIdent:
-                           'string'          Identifier          tok=  71  pos= 196
-                           ')'               KWRParen            tok=  72  pos= 202
-    =                      '='               OpEquality          tok=  74  pos= 204
-      ParenBlock           '('               KWLParen            tok=  76  pos= 206
-                           ')'               KWRParen            tok=  77  pos= 207
+                           'string'          Identifier          tok=  73  pos= 196
+                           ')'               KWRParen            tok=  74  pos= 202
+    =                      '='               OpEquality          tok=  76  pos= 204
+      ParenBlock           '('               KWLParen            tok=  78  pos= 206
+                           ')'               KWRParen            tok=  79  pos= 207
   end                      <virt>            KWEnd               tok=virt  pos= 209

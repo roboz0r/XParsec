@@ -21,7 +21,9 @@
 54, OpDot
 55, Identifier
 64, KWLParen
-65, StringLiteral
+65, StringOpen
+66, StringFragment
+71, StringClose
 72, KWRParen
 73, Newline
 74, Indent

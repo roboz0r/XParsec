@@ -10,46 +10,49 @@ TypeDefn.Anon:
     val              'val'             KWVal               tok=  16  pos=  40
     ident            'Name'            Identifier          tok=  18  pos=  44
     =                '='               OpEquality          tok=  20  pos=  49
-    Const            '"default"'       StringLiteral       tok=  22  pos=  51
-    with             'with'            KWWith              tok=  24  pos=  61
-    accessor         'get'             Identifier          tok=  26  pos=  66
-    accessor         'set'             Identifier          tok=  29  pos=  71
-    member           'member'          KWMember            tok=  32  pos=  79
-    val              'val'             KWVal               tok=  34  pos=  86
-    ident            'Count'           Identifier          tok=  36  pos=  90
-    :                ':'               OpColon             tok=  37  pos=  95
+      StringLiteral  '"'               StringOpen          tok=  22  pos=  51
+      Parts:
+        Text         'default'         StringFragment      tok=  23  pos=  52
+                     '"'               StringClose         tok=  24  pos=  59
+      with           'with'            KWWith              tok=  26  pos=  61
+      accessor       'get'             Identifier          tok=  28  pos=  66
+      accessor       'set'             Identifier          tok=  31  pos=  71
+    member           'member'          KWMember            tok=  34  pos=  79
+    val              'val'             KWVal               tok=  36  pos=  86
+    ident            'Count'           Identifier          tok=  38  pos=  90
+    :                ':'               OpColon             tok=  39  pos=  95
     NamedType:
       LongIdent:
-                     'int'             Identifier          tok=  39  pos=  97
-    =                '='               OpEquality          tok=  41  pos= 101
-    Const            '0'               NumInt32            tok=  43  pos= 103
-    with             'with'            KWWith              tok=  45  pos= 105
-    accessor         'get'             Identifier          tok=  47  pos= 110
-    accessor         'set'             Identifier          tok=  50  pos= 115
-    member           'member'          KWMember            tok=  53  pos= 123
-    val              'val'             KWVal               tok=  55  pos= 130
-    ident            'Items'           Identifier          tok=  57  pos= 134
-    :                ':'               OpColon             tok=  58  pos= 139
+                     'int'             Identifier          tok=  41  pos=  97
+    =                '='               OpEquality          tok=  43  pos= 101
+      Const          '0'               NumInt32            tok=  45  pos= 103
+      with           'with'            KWWith              tok=  47  pos= 105
+      accessor       'get'             Identifier          tok=  49  pos= 110
+      accessor       'set'             Identifier          tok=  52  pos= 115
+    member           'member'          KWMember            tok=  55  pos= 123
+    val              'val'             KWVal               tok=  57  pos= 130
+    ident            'Items'           Identifier          tok=  59  pos= 134
+    :                ':'               OpColon             tok=  60  pos= 139
     ArrayType:
       NamedType:
         LongIdent:
-                     'int'             Identifier          tok=  60  pos= 141
-                     '['               KWLBracket          tok=  61  pos= 144
-                     ']'               KWRBracket          tok=  62  pos= 145
-    =                '='               OpEquality          tok=  64  pos= 147
-    Array            '[|'              KWLArrayBracket     tok=  66  pos= 149
-                     '|]'              KWRArrayBracket     tok=  67  pos= 151
-    with             'with'            KWWith              tok=  69  pos= 154
-    accessor         'get'             Identifier          tok=  71  pos= 159
-    accessor         'set'             Identifier          tok=  74  pos= 164
-    member           'member'          KWMember            tok=  78  pos= 173
-    self             'this'            Identifier          tok=  80  pos= 180
-    Pat.NamedSimple  'Total'           Identifier          tok=  82  pos= 185
-    =                '='               OpEquality          tok=  84  pos= 191
-      InfixApp       '+'               op_Addition         tok=  90  pos= 204
+                     'int'             Identifier          tok=  62  pos= 141
+                     '['               KWLBracket          tok=  63  pos= 144
+                     ']'               KWRBracket          tok=  64  pos= 145
+    =                '='               OpEquality          tok=  66  pos= 147
+      Array          '[|'              KWLArrayBracket     tok=  68  pos= 149
+                     '|]'              KWRArrayBracket     tok=  69  pos= 151
+      with           'with'            KWWith              tok=  71  pos= 154
+      accessor       'get'             Identifier          tok=  73  pos= 159
+      accessor       'set'             Identifier          tok=  76  pos= 164
+    member           'member'          KWMember            tok=  80  pos= 173
+    self             'this'            Identifier          tok=  82  pos= 180
+    Pat.NamedSimple  'Total'           Identifier          tok=  84  pos= 185
+    =                '='               OpEquality          tok=  86  pos= 191
+      InfixApp       '+'               op_Addition         tok=  92  pos= 204
         LongIdentOrOp:
           LongIdent:
-                     'this'            Identifier          tok=  86  pos= 193
-                     'Count'           Identifier          tok=  88  pos= 198
-        Const        '1'               NumInt32            tok=  92  pos= 206
+                     'this'            Identifier          tok=  88  pos= 193
+                     'Count'           Identifier          tok=  90  pos= 198
+        Const        '1'               NumInt32            tok=  94  pos= 206
   end                <virt>            KWEnd               tok=virt  pos= 208

@@ -17,7 +17,9 @@
 206, Indent
 207, Identifier
 214, Whitespace
-215, StringLiteral
+215, StringOpen
+216, StringFragment
+234, StringClose
 235, Whitespace
 237, LineComment
 266, Newline
@@ -34,7 +36,9 @@
 291, Indent
 296, Identifier
 303, Whitespace
-304, StringLiteral
+304, StringOpen
+305, StringFragment
+330, StringClose
 331, Whitespace
 333, LineComment
 362, Newline

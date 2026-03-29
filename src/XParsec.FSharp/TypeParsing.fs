@@ -239,9 +239,9 @@ module Type =
                 // (# "iltype" #) — IL intrinsic type
                 parser {
                     let! l = nextNonTriviaTokenIsL Token.KWLHashParen "(#"
-                    let! instr = nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsText) "IL instruction string"
+                    let! (kind, parts, instrClose) = parsePlainStringLiteral "IL instruction string"
                     let! r = nextNonTriviaTokenIsL Token.KWRHashParen "#)"
-                    return Type.ILIntrinsic(l, instr, r)
+                    return Type.ILIntrinsic(l, kind, parts, instrClose, r)
                 }
                 // LongIdent or LongIdent<Types>
                 parser {

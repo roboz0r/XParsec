@@ -128,7 +128,8 @@
 268, OpArrowRight
 270, Whitespace
 271, KWLParen
-272, StringLiteral
+272, StringOpen
+273, StringClose
 274, OpComma
 275, Whitespace
 276, NumInt32

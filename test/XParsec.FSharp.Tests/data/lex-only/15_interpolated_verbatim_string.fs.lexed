@@ -6,7 +6,9 @@
 67, Whitespace
 68, OpEquality
 69, Whitespace
-70, StringLiteral
+70, StringOpen
+71, StringFragment
+75, StringClose
 76, Newline
 77, KWLet
 80, Whitespace
@@ -24,7 +26,9 @@
 123, Newline
 124, Identifier
 131, Whitespace
-132, StringLiteral
+132, StringOpen
+133, FormatPlaceholder
+135, StringClose
 136, Whitespace
 137, Identifier
 138, Newline

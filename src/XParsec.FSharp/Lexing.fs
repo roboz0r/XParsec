@@ -170,6 +170,10 @@ type LexContext =
     | TypedQuotedExpression
     /// #if context has different rules for identifiers and operators, so we track it with a separate context
     | IfDirective
+    // Plain string contexts (fragment-based lexing)
+    | PlainString
+    | VerbatimString
+    | TripleQuotedString
 
 type LexBuilder =
     {
@@ -304,12 +308,20 @@ module LexBuilder =
 
             findBlocks (iLineNext + 1<_>) thisIndent
 
-    let complete idx (state: LexBuilder) =
-        // Unwind any unclosed interpolated string contexts
+    let private emitUnterminatedStrings idx (state: LexBuilder) =
         let rec unwindContext (ctx: LexContext list) =
             // TODO: Handle other unclosed contexts (e.g. unterminated #if) — currently we just ignore them and let the parser handle any resulting errors
             match ctx with
             | [] -> ()
+            | LexContext.PlainString :: rest ->
+                state.Tokens.Add(PositionedToken.Create(Token.UnterminatedStringLiteral, idx))
+                unwindContext rest
+            | LexContext.VerbatimString :: rest ->
+                state.Tokens.Add(PositionedToken.Create(Token.UnterminatedVerbatimStringLiteral, idx))
+                unwindContext rest
+            | LexContext.TripleQuotedString :: rest ->
+                state.Tokens.Add(PositionedToken.Create(Token.UnterminatedString3Literal, idx))
+                unwindContext rest
             | LexContext.InterpolatedString :: rest
             | LexContext.VerbatimInterpolatedString :: rest
             | LexContext.Interpolated3String _ :: rest ->
@@ -321,6 +333,9 @@ module LexBuilder =
                 unwindContext rest
 
         unwindContext state.Context
+
+    let complete idx (state: LexBuilder) =
+        emitUnterminatedStrings idx state
         state.Tokens.Add(PositionedToken.Create(Token.EOF, idx))
         let tokens = ImmutableArrayM(state.Tokens.ToImmutable())
 
@@ -386,6 +401,9 @@ module LexBuilder =
                 | LexContext.Interpolated3String level -> level
                 | LexContext.InterpolatedString -> 1
                 | LexContext.VerbatimInterpolatedString -> 1
+                | LexContext.PlainString -> 1
+                | LexContext.VerbatimString -> 1
+                | LexContext.TripleQuotedString -> 1
                 | _ -> findLevel tail
 
         findLevel x.Context
@@ -397,7 +415,8 @@ module LexBuilder =
         // | Token.OtherUnlexed
         | Token.Interpolated3StringFragment
         | Token.VerbatimInterpolatedStringFragment
-        | Token.InterpolatedStringFragment -> true
+        | Token.InterpolatedStringFragment
+        | Token.StringFragment -> true
         | _ -> false
 
     let private isLexTrivia (token: PositionedToken) =
@@ -1146,212 +1165,7 @@ module Lexing =
                 reader.Skip()
                 preturn (CharChar.Simple c) reader
 
-    let pStringChar (reader: Reader<char, LexBuilder, ReadableString, _>) =
-        let span = reader.PeekN(2)
-
-        match span.Length with
-        | 0 -> fail EndOfInput reader
-        | 1 ->
-            match span[0] with
-            | '"' -> fail (Unexpected '"') reader
-            // TODO: The F# spec doesn't provide a listing for "simple-string-char" but empirically it's possible to have control chars in a string
-            // | ('\n' | '\t' | '\r' | '\b' | '\a' | '\f' | '\v' | '\\') as c -> fail (Unexpected c) reader
-            | c ->
-                reader.Skip()
-                preturn c reader
-        | _ ->
-            match span[0], span[1] with
-            // Escape chars ["\'ntbrafv]
-            | '\\', '"' ->
-                // Escaped quote
-                reader.SkipN(2)
-                preturn '"' reader
-            | '\\', '\\' ->
-                // Escaped backslash
-                reader.SkipN(2)
-                preturn '\\' reader
-            | '\\', '\'' ->
-                // Escaped single quote
-                reader.SkipN(2)
-                preturn '\'' reader
-            | '\\', 'n' ->
-                reader.SkipN(2)
-                preturn '\n' reader
-            | '\\', 't' ->
-                reader.SkipN(2)
-                preturn '\t' reader
-            | '\\', 'b' ->
-                reader.SkipN(2)
-                preturn '\b' reader
-            | '\\', 'r' ->
-                reader.SkipN(2)
-                preturn '\r' reader
-            | '\\', 'a' ->
-                reader.SkipN(2)
-                preturn '\a' reader
-            | '\\', 'f' ->
-                reader.SkipN(2)
-                preturn '\f' reader
-            | '\\', 'v' ->
-                reader.SkipN(2)
-                preturn '\v' reader
-            | '\\', 'u' ->
-                // unicodegraph-short
-                let span = reader.PeekN(6)
-
-                if span.Length = 6 then
-                    let hex = span.Slice(2, 4)
-
-                    match UInt16.TryParse(hex, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) with
-                    | true, code ->
-                        reader.SkipN(6)
-                        preturn (char code) reader
-                    | false, _ ->
-                        reader.Skip()
-                        preturn '\\' reader
-                else
-                    reader.Skip()
-                    preturn '\\' reader
-            | '\\', 'x' ->
-                // hex escape \xHH
-                let span = reader.PeekN(4)
-
-                if span.Length = 4 then
-                    let hex = span.Slice(2, 2)
-
-                    match Byte.TryParse(hex, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) with
-                    | true, code ->
-                        reader.SkipN(4)
-                        preturn (char code) reader
-                    | false, _ ->
-                        reader.Skip()
-                        preturn '\\' reader
-                else
-                    reader.Skip()
-                    preturn '\\' reader
-            | '\\', 'U' ->
-                // unicodegraph-long
-                let span = reader.PeekN(10)
-
-                if span.Length = 10 then
-                    let hex = span.Slice(2, 8)
-
-                    match UInt32.TryParse(hex, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) with
-                    | true, code when code <= 0xFFFFu ->
-                        reader.SkipN(10)
-                        preturn (char code) reader
-                    | true, code ->
-                        reader.SkipN(10)
-                        // TODO: This is the wrong code for code points > U+FFFF
-                        // We'd need to return a string or 2 chars
-                        // Consider, sidechannel a second char through the parser state?
-                        // Or a custom, many char poarser that we can appendrange to the state?
-                        preturn (char code) reader
-                    | false, _ ->
-                        reader.Skip()
-                        preturn '\\' reader
-                else
-                    reader.Skip()
-                    preturn '\\' reader
-            | '\\', c ->
-                if isDigit c then
-                    // trigraph
-                    let span = reader.PeekN(4)
-
-                    if span.Length = 4 then
-                        let digits = span.Slice(1, 3)
-
-                        match Int32.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture) with
-                        | true, code when code <= 255 ->
-                            reader.SkipN(4)
-                            preturn (char code) reader
-                        | true, code ->
-                            // TODO: This is currently a warning in F#
-                            // We should probably have a way to report warnings from the lexer
-                            reader.SkipN(4)
-                            preturn (char (code % 256)) reader
-                        | false, _ ->
-                            reader.Skip()
-                            preturn '\\' reader
-                    else
-                        reader.Skip()
-                        preturn '\\' reader
-                else
-                    // non-escape-chars
-                    // Just return the backslash and the next char as-is
-                    reader.Skip()
-                    preturn '\\' reader
-
-            | '"', _ -> fail (Unexpected '"') reader
-            | c, ('\\' | '"') ->
-                // simple-char-char
-                reader.Skip()
-                preturn c reader
-            | _, _ ->
-                // Regular character
-                // TODO: We could go faster by skipping two at a time until we hit a special char
-                reader.Skip()
-                preturn span[0] reader
-
-
-    let pVerbatimStringChar (reader: Reader<char, LexBuilder, ReadableString, _>) =
-        let span = reader.PeekN(2)
-
-        match span.Length with
-        | 0 -> fail EndOfInput reader
-        | 1 ->
-            match span[0] with
-            | '"' -> fail (Unexpected '"') reader
-            | c ->
-                reader.Skip()
-                preturn c reader
-        | _ ->
-            match span[0], span[1] with
-            | '"', '"' ->
-                // Escaped quote
-                reader.SkipN(2)
-                preturn '"' reader
-            | '"', _ -> fail (Unexpected '"') reader
-            | c, _ ->
-                // simple-char-char
-                reader.Skip()
-                preturn c reader
-
-    let pString3Char = anyChar
-
-    let pString3Literal =
-        pstring "\"\"\""
-        >>. manyCharsTill
-                pString3Char
-                (pstring "\"\"\"" >>% Token.String3Literal
-                 <|> (eof >>% Token.UnterminatedString3Literal))
-
-    let pVerbatimStringLiteral =
-        pstring "@\""
-        >>. manyCharsTill
-                pVerbatimStringChar
-                (choiceL
-                    [
-                        pstring "\"B" >>% Token.VerbatimByteArrayLiteral
-                        pchar '"' >>% Token.VerbatimStringLiteral
-                        eof >>% Token.UnterminatedVerbatimStringLiteral
-                    ]
-                    "verbatim string literal")
-
-    let pStringLiteral =
-        (pchar '"')
-        >>. manyCharsTill
-                pStringChar
-                (choiceL
-                    [
-                        pstring "\"B" >>% Token.ByteArrayLiteral
-                        pchar '"' >>% Token.StringLiteral
-                        eof >>% Token.UnterminatedStringLiteral
-                    ]
-                    "string literal")
-
-
-    let pStringToken pLiteral =
+    let private pStringToken pLiteral =
         parser {
             let! pos = getPosition
             let! (s, token) = pLiteral
@@ -1370,10 +1184,144 @@ module Lexing =
         )
         |> pStringToken
 
+    // ======================================================================
+    // Fragment-based plain string lexing (paralleling interpolated strings)
+    // ======================================================================
 
-    let pStringLiteralToken = pStringToken pStringLiteral
-    let pString3LiteralToken = pStringToken pString3Literal
-    let pVerbatimStringLiteralToken = pStringToken pVerbatimStringLiteral
+    let pStringOpenToken =
+        pTokenPushCtx (pchar '"') Token.StringOpen LexContext.PlainString
+
+    let pVerbatimStringOpenToken =
+        pTokenPushCtx (pstring "@\"") Token.VerbatimStringOpen LexContext.VerbatimString
+
+    let pString3OpenToken =
+        pTokenPushCtx (pstring "\"\"\"") Token.String3Open LexContext.TripleQuotedString
+
+    // Fragment: plain text inside a regular string (stops at ", \, %)
+    let pPlainStringFragmentToken =
+        pToken (many1Chars (satisfy (fun c -> c <> '"' && c <> '\\' && c <> '%'))) Token.StringFragment
+
+    // Fragment: plain text inside a verbatim string (stops at ", %)
+    let pVerbatimStringFragmentToken2 =
+        pToken (many1Chars (satisfy (fun c -> c <> '"' && c <> '%'))) Token.StringFragment
+
+    // Fragment: plain text inside a triple-quoted string (stops at ", %)
+    let pTripleStringFragmentToken =
+        pToken (many1Chars (satisfy (fun c -> c <> '"' && c <> '%'))) Token.StringFragment
+
+    // Escape sequence inside a regular string: \n, \t, \xHH, \uXXXX, \UXXXXXXXX, \DDD, etc.
+    let pStringEscapeToken (reader: Reader<char, LexBuilder, ReadableString, _>) =
+        let pos = reader.Position
+        let span = reader.PeekN(2)
+
+        if span.Length < 2 then
+            // Backslash at EOF — treat as a single char fragment
+            reader.Skip()
+            updateUserState (LexBuilder.append Token.EscapeSequence pos CtxOp.NoOp) reader
+        else
+            let c1 = span[1]
+
+            match c1 with
+            | '"'
+            | '\\'
+            | '\''
+            | 'n'
+            | 't'
+            | 'b'
+            | 'r'
+            | 'a'
+            | 'f'
+            | 'v' ->
+                reader.SkipN(2)
+                updateUserState (LexBuilder.append Token.EscapeSequence pos CtxOp.NoOp) reader
+            | 'u' ->
+                // \uXXXX — try to consume 6 chars, fall back to 2
+                let full = reader.PeekN(6)
+
+                if full.Length = 6 then reader.SkipN(6) else reader.SkipN(2)
+
+                updateUserState (LexBuilder.append Token.EscapeSequence pos CtxOp.NoOp) reader
+            | 'x' ->
+                // \xHH — try to consume 4 chars, fall back to 2
+                let full = reader.PeekN(4)
+
+                if full.Length = 4 then reader.SkipN(4) else reader.SkipN(2)
+
+                updateUserState (LexBuilder.append Token.EscapeSequence pos CtxOp.NoOp) reader
+            | 'U' ->
+                // \UXXXXXXXX — try to consume 10 chars, fall back to 2
+                let full = reader.PeekN(10)
+
+                if full.Length = 10 then
+                    reader.SkipN(10)
+                else
+                    reader.SkipN(2)
+
+                updateUserState (LexBuilder.append Token.EscapeSequence pos CtxOp.NoOp) reader
+            | c when isDigit c ->
+                // \DDD trigraph — try to consume 4 chars, fall back to 2
+                let full = reader.PeekN(4)
+
+                if full.Length = 4 then reader.SkipN(4) else reader.SkipN(2)
+
+                updateUserState (LexBuilder.append Token.EscapeSequence pos CtxOp.NoOp) reader
+            | _ ->
+                // Unknown escape — consume \ and the next char
+                reader.SkipN(2)
+                updateUserState (LexBuilder.append Token.EscapeSequence pos CtxOp.NoOp) reader
+
+    // Close tokens for plain strings
+    let pPlainStringCloseToken =
+        choiceL
+            [
+                pTokenPopCtx (pstring "\"B") Token.ByteArrayClose LexContext.PlainString
+                pTokenPopCtx (pchar '"') Token.StringClose LexContext.PlainString
+            ]
+            "string close"
+
+    // Verbatim string: "" is an escape, "B is byte array close, " is close
+    let pVerbatimStringQuoteToken2 =
+        parser {
+            let! pos = getPosition
+            let! quotes = lookAhead (many1Chars (pchar '"'))
+
+            if quotes.Length >= 2 then
+                // "" is an escaped quote
+                do! skipN 2
+                do! updateUserState (LexBuilder.append Token.VerbatimEscapeQuote pos CtxOp.NoOp)
+            else
+                // Single " — check for "B (byte array) or plain close
+                let! span = lookAhead (pstring "\"B" >>% true <|> preturn false)
+
+                if span then
+                    do! skipN 2
+
+                    do!
+                        updateUserState (
+                            LexBuilder.append Token.VerbatimByteArrayClose pos (CtxOp.Pop LexContext.VerbatimString)
+                        )
+                else
+                    do! skip
+
+                    do!
+                        updateUserState (
+                            LexBuilder.append Token.VerbatimStringClose pos (CtxOp.Pop LexContext.VerbatimString)
+                        )
+        }
+
+    // Triple-quoted string: """ closes, fewer quotes are fragment text
+    let pTripleStringQuoteOrFragment =
+        parser {
+            let! pos = getPosition
+            let! quotes = lookAhead (many1Chars (pchar '"'))
+
+            if quotes.Length >= 3 then
+                do! skipN 3
+                do! updateUserState (LexBuilder.append Token.String3Close pos (CtxOp.Pop LexContext.TripleQuotedString))
+            else
+                do! skipN quotes.Length
+                do! updateUserState (LexBuilder.append Token.StringFragment pos CtxOp.NoOp)
+        }
 
     let pTypeParamToken =
         let keywords = dict identifierKeywords
@@ -2331,7 +2279,7 @@ module Lexing =
         choiceL [ pToken pRAttrBrack Token.KWRAttrBracket; pOperatorToken ] "Right bracket or operator"
 
     let pDoubleQuoteToken =
-        choiceL [ pString3LiteralToken; pStringLiteralToken ] "String literal"
+        choiceL [ pString3OpenToken; pStringOpenToken ] "String literal"
 
     let pSingleQuoteToken =
         choiceL [ pCharToken; pTypeParamToken; pToken (pchar '\'') Token.KWSingleQuote ] "Single quote"
@@ -2349,7 +2297,7 @@ module Lexing =
 
     let pAtToken =
         choiceL
-            [ pVerbatimInterpolatedStartToken; pVerbatimStringLiteralToken; pOperatorToken ]
+            [ pVerbatimInterpolatedStartToken; pVerbatimStringOpenToken; pOperatorToken ]
             "Verbatim string or operator"
 
     let pSlashToken =
@@ -2519,7 +2467,7 @@ module Lexing =
                 | '{', LexContext.Interpolated3String level ->
                     // In a triple-quoted interpolated string, { * level starts an expression or is escaped as {{
                     pInterpolated3ExpressionStartToken
-                | '{', _ -> pOpenBraceExpressionContext
+                | '{', ExpressionCtx -> pOpenBraceExpressionContext
                 | '}', LexContext.InterpolatedString ->
                     // In an interpolated string, } is escaped as }}
                     pInterpolatedStringFragmentRBraces
@@ -2536,6 +2484,11 @@ module Lexing =
                 | '"', LexContext.InterpolatedString -> pInterpolatedStringEndToken
                 | '"', LexContext.VerbatimInterpolatedString -> pVerbatimInterpolatedStringQuoteToken
                 | '"', LexContext.Interpolated3String _ -> pInterpolated3QuoteOrFragment
+                // Plain string contexts
+                | '"', LexContext.PlainString -> pPlainStringCloseToken
+                | '"', LexContext.VerbatimString -> pVerbatimStringQuoteToken2
+                | '"', LexContext.TripleQuotedString -> pTripleStringQuoteOrFragment
+                | '\\', LexContext.PlainString -> pStringEscapeToken
                 | '"', _ ->
                     // String or triple-quoted string literals
                     pDoubleQuoteToken
@@ -2552,9 +2505,15 @@ module Lexing =
                 | '%',
                   (LexContext.InterpolatedString | LexContext.VerbatimInterpolatedString | LexContext.Interpolated3String _) ->
                     pFormatSpecifierTokens
+                | '%', (LexContext.PlainString | LexContext.VerbatimString | LexContext.TripleQuotedString) ->
+                    pFormatSpecifierTokens
                 | _, LexContext.InterpolatedString -> pInterpolatedStringFragmentToken
                 | _, LexContext.VerbatimInterpolatedString -> pVerbatimInterpolatedStringFragmentToken
                 | _, LexContext.Interpolated3String _ -> pInterpolated3StringFragmentToken
+                // Plain string fragment fallthroughs
+                | _, LexContext.PlainString -> pPlainStringFragmentToken
+                | _, LexContext.VerbatimString -> pVerbatimStringFragmentToken2
+                | _, LexContext.TripleQuotedString -> pTripleStringFragmentToken
                 | ':', LexContext.InterpolatedExpression -> pInterpolatedFormatClause
                 | ';', ExpressionCtx -> pSemicolonToken
                 | '.', ExpressionCtx -> pDotToken

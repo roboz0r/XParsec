@@ -185,7 +185,9 @@
 1363, Indent
 1371, Identifier
 1379, Whitespace
-1380, StringLiteral
+1380, StringOpen
+1381, StringFragment
+1382, StringClose
 1383, Newline
 1384, Indent
 1388, KWWith
@@ -214,7 +216,9 @@
 1477, Indent
 1485, Identifier
 1493, Whitespace
-1494, StringLiteral
+1494, StringOpen
+1495, StringFragment
+1496, StringClose
 1497, Newline
 1498, Indent
 1502, KWWith
@@ -261,7 +265,9 @@
 2000, Indent
 2008, Identifier
 2016, Whitespace
-2017, StringLiteral
+2017, StringOpen
+2018, StringFragment
+2019, StringClose
 2020, Newline
 2021, Indent
 2025, KWWith
@@ -293,7 +299,9 @@
 2179, Indent
 2187, Identifier
 2195, Whitespace
-2196, StringLiteral
+2196, StringOpen
+2197, StringFragment
+2198, StringClose
 2199, Newline
 2200, Indent
 2204, KWWith
@@ -325,7 +333,9 @@
 2370, Indent
 2378, Identifier
 2386, Whitespace
-2387, StringLiteral
+2387, StringOpen
+2388, StringFragment
+2389, StringClose
 2390, Newline
 2391, Indent
 2395, KWWith
@@ -357,7 +367,9 @@
 2518, Indent
 2526, Identifier
 2534, Whitespace
-2535, StringLiteral
+2535, StringOpen
+2536, StringFragment
+2537, StringClose
 2538, Newline
 2539, Indent
 2543, KWWith
@@ -409,7 +421,9 @@
 2868, Indent
 2876, Identifier
 2884, Whitespace
-2885, StringLiteral
+2885, StringOpen
+2886, StringFragment
+2887, StringClose
 2888, Newline
 2889, Indent
 2893, KWWith
@@ -464,7 +478,9 @@
 3344, Indent
 3352, Identifier
 3360, Whitespace
-3361, StringLiteral
+3361, StringOpen
+3362, StringFragment
+3363, StringClose
 3364, Newline
 3365, Indent
 3369, KWWith
