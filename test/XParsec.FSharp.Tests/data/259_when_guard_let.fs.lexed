@@ -57,7 +57,9 @@
 123, Whitespace
 124, OpArrowRight
 126, Whitespace
-127, StringLiteral
+127, StringOpen
+128, StringFragment
+133, StringClose
 134, Newline
 135, Newline
 136, LineComment
@@ -117,6 +119,8 @@
 273, Whitespace
 274, OpArrowRight
 276, Whitespace
-277, StringLiteral
+277, StringOpen
+278, StringFragment
+283, StringClose
 284, Newline
 285, EOF

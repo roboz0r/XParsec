@@ -1,51 +1,54 @@
-module                  'module'          KWModule            tok=   0  pos=   0
-                        'TestForWil...'   Identifier          tok=   2  pos=   7
+module                     'module'          KWModule            tok=   0  pos=   0
+                           'TestForWil...'   Identifier          tok=   2  pos=   7
 FunctionOrValue:
-  let                   'let'             KWLet               tok=   5  pos=  24
-    Pat.NamedSimple     'f'               Identifier          tok=   7  pos=  28
+  let                      'let'             KWLet               tok=   5  pos=  24
+    Pat.NamedSimple        'f'               Identifier          tok=   7  pos=  28
     Pats:
-      ParenBlock        '('               KWLParen            tok=   9  pos=  30
-                        ')'               KWRParen            tok=  10  pos=  31
-    =                   '='               OpEquality          tok=  12  pos=  33
-      ForTo             'for'             KWFor               tok=  15  pos=  39
-      Ident             '_'               Wildcard            tok=  17  pos=  43
-      Equals            '='               OpEquality          tok=  19  pos=  45
+      ParenBlock           '('               KWLParen            tok=   9  pos=  30
+                           ')'               KWRParen            tok=  10  pos=  31
+    =                      '='               OpEquality          tok=  12  pos=  33
+      ForTo                'for'             KWFor               tok=  15  pos=  39
+      Ident                '_'               Wildcard            tok=  17  pos=  43
+      Equals               '='               OpEquality          tok=  19  pos=  45
       Start:
-        Const           '0'               NumInt32            tok=  21  pos=  47
-      ToToken           'to'              KWTo                tok=  23  pos=  49
+        Const              '0'               NumInt32            tok=  21  pos=  47
+      ToToken              'to'              KWTo                tok=  23  pos=  49
       End:
-        Const           '10'              NumInt32            tok=  25  pos=  52
-      DoToken           'do'              KWDo                tok=  27  pos=  55
+        Const              '10'              NumInt32            tok=  25  pos=  52
+      DoToken              'do'              KWDo                tok=  27  pos=  55
       Body:
         App:
           Func:
-            Ident       'printfn'         Identifier          tok=  30  pos=  66
+            Ident          'printfn'         Identifier          tok=  30  pos=  66
           Args:
-            Const       '"hello"'         StringLiteral       tok=  32  pos=  74
-      DoneToken         <virt>            KWDone              tok=virt  pos=  83
+            StringLiteral  '"'               StringOpen          tok=  32  pos=  74
+            Parts:
+              Text         'hello'           StringFragment      tok=  33  pos=  75
+                           '"'               StringClose         tok=  34  pos=  80
+      DoneToken            <virt>            KWDone              tok=virt  pos=  83
 FunctionOrValue:
-  let                   'let'             KWLet               tok=  35  pos=  83
-    Pat.NamedSimple     'g'               Identifier          tok=  37  pos=  87
+  let                      'let'             KWLet               tok=  37  pos=  83
+    Pat.NamedSimple        'g'               Identifier          tok=  39  pos=  87
     Pats:
-      ParenBlock        '('               KWLParen            tok=  39  pos=  89
-                        ')'               KWRParen            tok=  40  pos=  90
-    =                   '='               OpEquality          tok=  42  pos=  92
-      ForTo             'for'             KWFor               tok=  45  pos=  98
-      Ident             '_'               Wildcard            tok=  47  pos= 102
-      Equals            '='               OpEquality          tok=  49  pos= 104
+      ParenBlock           '('               KWLParen            tok=  41  pos=  89
+                           ')'               KWRParen            tok=  42  pos=  90
+    =                      '='               OpEquality          tok=  44  pos=  92
+      ForTo                'for'             KWFor               tok=  47  pos=  98
+      Ident                '_'               Wildcard            tok=  49  pos= 102
+      Equals               '='               OpEquality          tok=  51  pos= 104
       Start:
-        Const           '1'               NumInt32            tok=  51  pos= 106
-      ToToken           'to'              KWTo                tok=  53  pos= 108
+        Const              '1'               NumInt32            tok=  53  pos= 106
+      ToToken              'to'              KWTo                tok=  55  pos= 108
       End:
-        InfixApp        '-'               op_Subtraction      tok=  57  pos= 117
-          Ident         'count'           Identifier          tok=  55  pos= 111
-          Const         '1'               NumInt32            tok=  59  pos= 119
-      DoToken           'do'              KWDo                tok=  61  pos= 121
+        InfixApp           '-'               op_Subtraction      tok=  59  pos= 117
+          Ident            'count'           Identifier          tok=  57  pos= 111
+          Const            '1'               NumInt32            tok=  61  pos= 119
+      DoToken              'do'              KWDo                tok=  63  pos= 121
       Body:
         App:
           Func:
-            Ident       'doSomethin...'   Identifier          tok=  64  pos= 132
+            Ident          'doSomethin...'   Identifier          tok=  66  pos= 132
           Args:
-            ParenBlock  '('               KWLParen            tok=  66  pos= 144
-                        ')'               KWRParen            tok=  67  pos= 145
-      DoneToken         <virt>            KWDone              tok=virt  pos= 147
+            ParenBlock     '('               KWLParen            tok=  68  pos= 144
+                           ')'               KWRParen            tok=  69  pos= 145
+      DoneToken            <virt>            KWDone              tok=virt  pos= 147

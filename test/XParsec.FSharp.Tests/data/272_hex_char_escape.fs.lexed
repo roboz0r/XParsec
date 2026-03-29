@@ -41,7 +41,11 @@
 98, Whitespace
 99, OpEquality
 100, Whitespace
-101, StringLiteral
+101, StringOpen
+102, StringFragment
+107, EscapeSequence
+111, StringFragment
+116, StringClose
 117, Newline
 118, KWLet
 121, Whitespace
@@ -49,6 +53,9 @@
 133, Whitespace
 134, OpEquality
 135, Whitespace
-136, StringLiteral
+136, StringOpen
+137, EscapeSequence
+141, EscapeSequence
+145, StringClose
 146, Newline
 147, EOF

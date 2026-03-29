@@ -395,6 +395,7 @@ and walkPat (visitor: AstVisitor<'T>) (pat: Pat<'T>) : unit =
         visitor.EnterSection "Pat.Op"
         walkIdentOrOp visitor identOrOp
         visitor.ExitSection "Pat.Op"
+    | Pat.String(kind, parts, closing) -> walkStringKindAndParts visitor kind parts closing
     | Pat.Missing -> visitor.WriteLine "Missing"
     | Pat.SkipsTokens(skippedTokens) ->
         visitor.EnterSection "SkipsTokens"
@@ -615,10 +616,10 @@ and walkType (visitor: AstVisitor<'T>) (ty: Type<'T>) : unit =
         visitor.VisitToken "|" bar
         walkType visitor right
         visitor.ExitSection "UnionType"
-    | Type.ILIntrinsic(lHashParen, instruction, rHashParen) ->
+    | Type.ILIntrinsic(lHashParen, instrKind, instrParts, instrClose, rHashParen) ->
         visitor.EnterSection "ILIntrinsic"
         visitor.VisitToken "(#" lHashParen
-        visitor.VisitToken "instruction" instruction
+        walkStringKindAndParts visitor instrKind instrParts instrClose
         visitor.VisitToken "#)" rHashParen
         visitor.ExitSection "ILIntrinsic"
     | Type.Missing -> visitor.WriteLine "Missing"
@@ -718,6 +719,48 @@ and walkRules (visitor: AstVisitor<'T>) (rules: Rules<'T>) : unit =
             visitor.ExitSection "SkipsTokens"
 
         visitor.ExitSection "Rule"
+
+and walkStringKindAndParts
+    (visitor: AstVisitor<'T>)
+    (kind: StringKind<'T>)
+    (parts: StringPart<'T> list)
+    (closing: 'T)
+    : unit =
+    let label, opening =
+        match kind with
+        | StringKind.String t -> "StringLiteral", t
+        | StringKind.VerbatimString t -> "StringLiteral", t
+        | StringKind.String3 t -> "StringLiteral", t
+        | StringKind.InterpolatedString t -> "InterpolatedString", t
+        | StringKind.VerbatimInterpolatedString t -> "InterpolatedString", t
+        | StringKind.Interpolated3String t -> "InterpolatedString", t
+
+    visitor.VisitToken label opening
+
+    if not parts.IsEmpty then
+        visitor.EnterSection "Parts"
+
+        for part in parts do
+            match part with
+            | StringPart.Text t -> visitor.VisitToken "Text" t
+            | StringPart.EscapeSequence e -> visitor.VisitToken "Escape" e
+            | StringPart.FormatSpecifier f -> visitor.VisitToken "FormatSpec" f
+            | StringPart.EscapePercent e -> visitor.VisitToken "EscapePercent" e
+            | StringPart.VerbatimEscapeQuote e -> visitor.VisitToken "VerbatimEscapeQuote" e
+            | StringPart.Expr(formatSpec, lBrace, expr, formatClause, rBrace) ->
+                visitTokenOpt visitor "FormatSpec" formatSpec
+                visitor.VisitToken "{" lBrace
+                visitor.EnterSection "Expr"
+                walkExpr visitor expr
+                visitor.ExitSection "Expr"
+                visitTokenOpt visitor "FormatClause" formatClause
+                visitor.VisitToken "}" rBrace
+            | StringPart.OrphanFormatSpecifier fs -> visitor.VisitToken "OrphanFormatSpec" fs
+            | StringPart.InvalidText t -> visitor.VisitToken "InvalidText" t
+
+        visitor.ExitSection "Parts"
+
+    visitor.VisitToken "" closing
 
 and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
     match expr with
@@ -1084,10 +1127,10 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         visitor.EnterSection ""
         walkExpr visitor castExpr
         visitor.ExitSection ""
-    | Expr.ILIntrinsic(lHashParen, instruction, typeArg, args, returnType, rHashParen) ->
+    | Expr.ILIntrinsic(lHashParen, instrKind, instrParts, instrClose, typeArg, args, returnType, rHashParen) ->
         visitor.EnterSection "ILIntrinsic"
         visitor.VisitToken "(#" lHashParen
-        visitor.VisitToken "instruction" instruction
+        walkStringKindAndParts visitor instrKind instrParts instrClose
 
         match typeArg with
         | ValueSome(ILTypeArg(typeKw, lParen, typeTokens, rParen)) ->
@@ -1175,27 +1218,7 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         walkExpr visitor expr
         visitor.VisitToken ")" rParen
         visitor.ExitSection "StaticMemberInvocation"
-    | Expr.InterpolatedString(opening, parts, closing) ->
-        visitor.VisitToken "InterpolatedString" opening
-        visitor.EnterSection "Parts"
-
-        for part in parts do
-            match part with
-            | InterpolatedStringPart.Text t -> visitor.VisitToken "Text" t
-            | InterpolatedStringPart.Expr(formatSpec, lBrace, expr, formatClause, rBrace) ->
-                visitTokenOpt visitor "FormatSpec" formatSpec
-
-                visitor.VisitToken "{" lBrace
-                visitor.EnterSection "Expr"
-                walkExpr visitor expr
-                visitor.ExitSection "Expr"
-                visitTokenOpt visitor "FormatClause" formatClause
-                visitor.VisitToken "}" rBrace
-            | InterpolatedStringPart.OrphanFormatSpecifier fs -> visitor.VisitToken "OrphanFormatSpec" fs
-            | InterpolatedStringPart.InvalidText t -> visitor.VisitToken "InvalidText" t
-
-        visitor.ExitSection "Parts"
-        visitor.VisitToken "" closing
+    | Expr.String(kind, parts, closing) -> walkStringKindAndParts visitor kind parts closing
     | Expr.Object(lBrace, newKeyword, baseCall, members, interfaceImpls, rBrace) ->
         visitor.EnterSection "ObjectExpr"
         visitor.VisitToken "{" lBrace
@@ -1358,6 +1381,7 @@ and walkMethodOrPropDefn (visitor: AstVisitor<'T>) (defn: MethodOrPropDefn<'T>) 
         | ValueNone -> ()
 
         visitor.VisitToken "=" eq
+        visitor.EnterSection ""
         walkExpr visitor expr
 
         match withClause with
@@ -1367,6 +1391,8 @@ and walkMethodOrPropDefn (visitor: AstVisitor<'T>) (defn: MethodOrPropDefn<'T>) 
 
             visitTokenOpt visitor "accessor" acc2
         | ValueNone -> ()
+
+        visitor.ExitSection ""
     | MethodOrPropDefn.AbstractSignature sign -> walkMemberSig visitor sign
 
 and walkMemberDefn (visitor: AstVisitor<'T>) (memberDefn: MemberDefn<'T>) : unit =

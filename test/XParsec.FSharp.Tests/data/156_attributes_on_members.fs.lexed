@@ -34,7 +34,9 @@
 95, OpDot
 96, Identifier
 104, KWLParen
-105, StringLiteral
+105, StringOpen
+106, StringFragment
+127, StringClose
 128, KWRParen
 129, KWRAttrBracket
 131, Newline
@@ -91,6 +93,8 @@
 267, Whitespace
 268, OpEquality
 269, Whitespace
-270, StringLiteral
+270, StringOpen
+271, StringFragment
+278, StringClose
 279, Newline
 280, EOF

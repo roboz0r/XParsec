@@ -1,68 +1,69 @@
 AnonymousModule:
 TypeDefn.Record:
-  TypeName           'Foo'             Identifier          tok=   2  pos=   5
-  =                  '='               OpEquality          tok=   4  pos=   9
-  {                  '{'               KWLBrace            tok=   7  pos=  15
+  TypeName               'Foo'             Identifier          tok=   2  pos=   5
+  =                      '='               OpEquality          tok=   4  pos=   9
+  {                      '{'               KWLBrace            tok=   7  pos=  15
     Field:
-      ident          'Items'           Identifier          tok=  10  pos=  25
-      :              ':'               OpColon             tok=  11  pos=  30
+      ident              'Items'           Identifier          tok=  10  pos=  25
+      :                  ':'               OpColon             tok=  11  pos=  30
       DottedType:
         GenericType:
           LongIdent:
-                     'System'          Identifier          tok=  13  pos=  32
-                     'Collection...'   Identifier          tok=  15  pos=  39
-                     'Immutable'       Identifier          tok=  17  pos=  51
-                     'ImmutableA...'   Identifier          tok=  19  pos=  61
-          <          '<'               op_LessThan         tok=  20  pos=  75
+                         'System'          Identifier          tok=  13  pos=  32
+                         'Collection...'   Identifier          tok=  15  pos=  39
+                         'Immutable'       Identifier          tok=  17  pos=  51
+                         'ImmutableA...'   Identifier          tok=  19  pos=  61
+          <              '<'               op_LessThan         tok=  20  pos=  75
           TypeArg.Type:
             NamedType:
               LongIdent:
-                     'int'             Identifier          tok=  21  pos=  76
-          >          <virt>            OpPipeLeft3         tok=virt  pos=  79
-        .            '.'               OpDot               tok=  22  pos=  80
+                         'int'             Identifier          tok=  21  pos=  76
+          >              <virt>            OpPipeLeft2         tok=virt  pos=  79
+        .                '.'               OpDot               tok=  22  pos=  80
         LongIdent:
-                     'Builder'         Identifier          tok=  23  pos=  81
+                         'Builder'         Identifier          tok=  23  pos=  81
     Field:
-      ident          'More'            Identifier          tok=  26  pos=  97
-      :              ':'               OpColon             tok=  27  pos= 101
+      ident              'More'            Identifier          tok=  26  pos=  97
+      :                  ':'               OpColon             tok=  27  pos= 101
       DottedType:
         GenericType:
           LongIdent:
-                     'Result'          Identifier          tok=  29  pos= 103
-          <          '<'               op_LessThan         tok=  30  pos= 109
+                         'Result'          Identifier          tok=  29  pos= 103
+          <              '<'               op_LessThan         tok=  30  pos= 109
           TypeArg.Type:
             NamedType:
               LongIdent:
-                     'int'             Identifier          tok=  31  pos= 110
+                         'int'             Identifier          tok=  31  pos= 110
           TypeArg.Type:
             NamedType:
               LongIdent:
-                     'string'          Identifier          tok=  34  pos= 115
-          >          <virt>            OpPipeLeft3         tok=virt  pos= 121
-        .            '.'               OpDot               tok=  35  pos= 122
+                         'string'          Identifier          tok=  34  pos= 115
+          >              <virt>            OpPipeLeft2         tok=virt  pos= 121
+        .                '.'               OpDot               tok=  35  pos= 122
         LongIdent:
-                     'Ok'              Identifier          tok=  36  pos= 123
-  }                  '}'               KWRBrace            tok=  39  pos= 130
+                         'Ok'              Identifier          tok=  36  pos= 123
+  }                      '}'               KWRBrace            tok=  39  pos= 130
 FunctionOrValue:
-  let                'let'             KWLet               tok=  42  pos= 133
-    Pat.NamedSimple  'x'               Identifier          tok=  44  pos= 137
-    ReturnColon      ':'               OpColon             tok=  45  pos= 138
+  let                    'let'             KWLet               tok=  42  pos= 133
+    Pat.NamedSimple      'x'               Identifier          tok=  44  pos= 137
+    ReturnColon          ':'               OpColon             tok=  45  pos= 138
     DottedType:
       GenericType:
         LongIdent:
-                     'ImmutableA...'   Identifier          tok=  47  pos= 140
-        <            '<'               op_LessThan         tok=  48  pos= 154
+                         'ImmutableA...'   Identifier          tok=  47  pos= 140
+        <                '<'               op_LessThan         tok=  48  pos= 154
         TypeArg.Type:
           NamedType:
             LongIdent:
-                     'int'             Identifier          tok=  49  pos= 155
-        >            <virt>            OpPipeLeft3         tok=virt  pos= 158
-      .              '.'               OpDot               tok=  50  pos= 159
+                         'int'             Identifier          tok=  49  pos= 155
+        >                <virt>            OpPipeLeft2         tok=virt  pos= 158
+      .                  '.'               OpDot               tok=  50  pos= 159
       LongIdent:
-                     'Builder'         Identifier          tok=  51  pos= 160
-    =                '='               OpEquality          tok=  53  pos= 168
+                         'Builder'         Identifier          tok=  51  pos= 160
+    =                    '='               OpEquality          tok=  53  pos= 168
       App:
         Func:
-          Ident      'failwith'        Identifier          tok=  55  pos= 170
+          Ident          'failwith'        Identifier          tok=  55  pos= 170
         Args:
-          Const      '""'              StringLiteral       tok=  57  pos= 179
+          StringLiteral  '"'               StringOpen          tok=  57  pos= 179
+                         '"'               StringClose         tok=  58  pos= 180

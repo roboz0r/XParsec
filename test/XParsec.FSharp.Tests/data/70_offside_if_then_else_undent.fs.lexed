@@ -10,7 +10,9 @@
 13, Whitespace
 14, Identifier
 23, Whitespace
-24, StringLiteral
+24, StringOpen
+25, StringFragment
+30, StringClose
 31, Whitespace
 32, KWElse
 36, Newline

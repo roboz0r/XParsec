@@ -46,7 +46,9 @@
 487, Indent
 499, Identifier
 507, Whitespace
-508, StringLiteral
+508, StringOpen
+509, StringFragment
+513, StringClose
 514, Newline
 515, Indent
 523, KWWith
@@ -55,7 +57,9 @@
 529, Whitespace
 530, OpArrowRight
 532, Whitespace
-533, StringLiteral
+533, StringOpen
+534, StringFragment
+540, StringClose
 541, Whitespace
 543, LineComment
 584, Newline
@@ -66,7 +70,9 @@
 592, Whitespace
 593, OpArrowRight
 595, Whitespace
-596, StringLiteral
+596, StringOpen
+597, StringFragment
+602, StringClose
 603, Newline
 604, Newline
 605, LineComment
@@ -98,7 +104,9 @@
 729, Whitespace
 730, Identifier
 738, Whitespace
-739, StringLiteral
+739, StringOpen
+740, StringFragment
+744, StringClose
 745, Newline
 746, Indent
 754, KWWith
@@ -107,7 +115,9 @@
 760, Whitespace
 761, OpArrowRight
 763, Whitespace
-764, StringLiteral
+764, StringOpen
+765, StringFragment
+771, StringClose
 772, Whitespace
 774, LineComment
 815, Newline
@@ -118,7 +128,9 @@
 823, Whitespace
 824, OpArrowRight
 826, Whitespace
-827, StringLiteral
+827, StringOpen
+828, StringFragment
+833, StringClose
 834, Newline
 835, Newline
 836, LineComment

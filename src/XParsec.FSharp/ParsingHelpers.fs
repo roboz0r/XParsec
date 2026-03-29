@@ -168,19 +168,27 @@ module Parsing =
                             }
                             :: warnDirectives
                     | _ -> ()
-                | Token.StringLiteral when text.Length >= 2 ->
-                    let inner = text.[1 .. text.Length - 2]
+                | Token.StringOpen ->
+                    // String is now fragmented: StringOpen, StringFragment*, StringClose
+                    // Look for a single StringFragment containing the warning number
+                    if reader.Index < int nextLineTokenIndex then
+                        match reader.Peek() with
+                        | ValueSome fragToken when fragToken.Token = Token.StringFragment ->
+                            let fragIdx = tokenIndex reader
+                            let fragText = lexed.GetTokenString(fragIdx, state.Input)
+                            reader.Skip()
 
-                    match System.Int32.TryParse(inner) with
-                    | true, n ->
-                        warnDirectives <-
-                            {
-                                Line = currentLine
-                                WarningNumber = n
-                                Suppress = isSuppress
-                            }
-                            :: warnDirectives
-                    | _ -> ()
+                            match System.Int32.TryParse(fragText) with
+                            | true, n ->
+                                warnDirectives <-
+                                    {
+                                        Line = currentLine
+                                        WarningNumber = n
+                                        Suppress = isSuppress
+                                    }
+                                    :: warnDirectives
+                            | _ -> ()
+                        | _ -> ()
                 | _ -> ()
 
         // Ensure we're past the directive line
@@ -624,6 +632,90 @@ module Parsing =
 
     let nextNonTriviaTokenIsL (t: Token) msg =
         nextNonTriviaTokenSatisfiesL (fun synTok -> synTok.Token = t) msg
+
+    let isPlainStringOpen (tok: Token) =
+        match tok with
+        | Token.StringOpen
+        | Token.VerbatimStringOpen
+        | Token.String3Open -> true
+        | _ -> false
+
+    let isPlainStringClose (tok: Token) =
+        match tok with
+        | Token.StringClose
+        | Token.ByteArrayClose
+        | Token.VerbatimStringClose
+        | Token.VerbatimByteArrayClose
+        | Token.String3Close
+        | Token.UnterminatedStringLiteral
+        | Token.UnterminatedVerbatimStringLiteral
+        | Token.UnterminatedString3Literal -> true
+        | _ -> false
+
+    let isPlainStringFragment (tok: Token) =
+        match tok with
+        | Token.StringFragment
+        | Token.EscapeSequence
+        | Token.EscapePercent
+        | Token.VerbatimEscapeQuote
+        | Token.FormatPlaceholder -> true
+        | _ -> false
+
+    let plainStringKindOfToken (t: SyntaxToken) =
+        match t.Token with
+        | Token.StringOpen -> StringKind.String t
+        | Token.VerbatimStringOpen -> StringKind.VerbatimString t
+        | Token.String3Open -> StringKind.String3 t
+        | _ -> invalidOp $"Not a plain string open token: {t.Token}"
+
+    let plainStringPartOfToken (t: SyntaxToken) =
+        match t.Token with
+        | Token.StringFragment -> StringPart.Text t
+        | Token.EscapeSequence -> StringPart.EscapeSequence t
+        | Token.EscapePercent -> StringPart.EscapePercent t
+        | Token.VerbatimEscapeQuote -> StringPart.VerbatimEscapeQuote t
+        | Token.FormatPlaceholder -> StringPart.FormatSpecifier t
+        | _ -> invalidOp $"Not a string fragment token: {t.Token}"
+
+    /// Parses a plain (non-interpolated) string literal into StringKind * StringPart list * closing token.
+    let parsePlainStringLiteral msg (reader: Reader<PositionedToken, ParseState, _, _>) =
+        match peekNextNonTriviaToken reader with
+        | Error e -> Error e
+        | Ok token when isPlainStringOpen token.Token ->
+            match consumePeeked token reader with
+            | Error e -> Error e
+            | Ok opening ->
+                let kind = plainStringKindOfToken opening
+                let parts = ResizeArray()
+                let mutable closing = Unchecked.defaultof<SyntaxToken>
+                let mutable finished = false
+                let mutable error = ValueNone
+
+                while not finished do
+                    match peekNextNonTriviaToken reader with
+                    | Error e ->
+                        error <- ValueSome e
+                        finished <- true
+                    | Ok t when isPlainStringFragment t.Token ->
+                        match consumePeeked t reader with
+                        | Error e ->
+                            error <- ValueSome e
+                            finished <- true
+                        | Ok frag -> parts.Add(plainStringPartOfToken frag)
+                    | Ok t when isPlainStringClose t.Token ->
+                        match consumePeeked t reader with
+                        | Error e ->
+                            error <- ValueSome e
+                            finished <- true
+                        | Ok close ->
+                            closing <- close
+                            finished <- true
+                    | Ok _ -> finished <- true
+
+                match error with
+                | ValueSome e -> Error e
+                | ValueNone -> preturn (kind, Seq.toList parts, closing) reader
+        | _ -> fail (Message msg) reader
 
     /// Matches Token.Identifier, Token.BacktickedIdentifier, or Token.UnterminatedBacktickedIdentifier.
     /// Emits a diagnostic for unterminated backticked identifiers.

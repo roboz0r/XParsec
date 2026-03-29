@@ -17,49 +17,52 @@ FunctionOrValue:
                             'System'          Identifier          tok=  19  pos=  49
                             'Obsolete'        Identifier          tok=  21  pos=  56
   ParenBlock                '('               KWLParen            tok=  22  pos=  64
-    Const                   '"Use newFu...'   StringLiteral       tok=  23  pos=  65
-                            ')'               KWRParen            tok=  24  pos=  78
-  >]                        '>]'              KWRAttrBracket      tok=  25  pos=  79
-  let                       'let'             KWLet               tok=  27  pos=  82
-    Pat.NamedSimple         'oldFunc'         Identifier          tok=  29  pos=  86
+    StringLiteral           '"'               StringOpen          tok=  23  pos=  65
+    Parts:
+      Text                  'Use newFun...'   StringFragment      tok=  24  pos=  66
+                            '"'               StringClose         tok=  25  pos=  77
+                            ')'               KWRParen            tok=  26  pos=  78
+  >]                        '>]'              KWRAttrBracket      tok=  27  pos=  79
+  let                       'let'             KWLet               tok=  29  pos=  82
+    Pat.NamedSimple         'oldFunc'         Identifier          tok=  31  pos=  86
     Pats:
-      Pat.NamedSimple       'x'               Identifier          tok=  31  pos=  94
-    =                       '='               OpEquality          tok=  33  pos=  96
-      InfixApp              '+'               op_Addition         tok=  37  pos= 100
-        Ident               'x'               Identifier          tok=  35  pos=  98
-        Const               '1'               NumInt32            tok=  39  pos= 102
+      Pat.NamedSimple       'x'               Identifier          tok=  33  pos=  94
+    =                       '='               OpEquality          tok=  35  pos=  96
+      InfixApp              '+'               op_Addition         tok=  39  pos= 100
+        Ident               'x'               Identifier          tok=  37  pos=  98
+        Const               '1'               NumInt32            tok=  41  pos= 102
 FunctionOrValue:
-  [<                        '[<'              KWLAttrBracket      tok=  42  pos= 105
+  [<                        '[<'              KWLAttrBracket      tok=  44  pos= 105
   NamedType:
     LongIdent:
-                            'System'          Identifier          tok=  43  pos= 107
-                            'Obsolete'        Identifier          tok=  45  pos= 114
-  >]                        '>]'              KWRAttrBracket      tok=  46  pos= 122
-  let                       'let'             KWLet               tok=  48  pos= 125
-  rec                       'rec'             KWRec               tok=  50  pos= 129
-    Pat.NamedSimple         'factorial'       Identifier          tok=  52  pos= 133
+                            'System'          Identifier          tok=  45  pos= 107
+                            'Obsolete'        Identifier          tok=  47  pos= 114
+  >]                        '>]'              KWRAttrBracket      tok=  48  pos= 122
+  let                       'let'             KWLet               tok=  50  pos= 125
+  rec                       'rec'             KWRec               tok=  52  pos= 129
+    Pat.NamedSimple         'factorial'       Identifier          tok=  54  pos= 133
     Pats:
-      Pat.NamedSimple       'n'               Identifier          tok=  54  pos= 143
-    =                       '='               OpEquality          tok=  56  pos= 145
+      Pat.NamedSimple       'n'               Identifier          tok=  56  pos= 143
+    =                       '='               OpEquality          tok=  58  pos= 145
       IfThenElse:
-        IfToken             'if'              KWIf                tok=  59  pos= 151
+        IfToken             'if'              KWIf                tok=  61  pos= 151
         Condition:
-          InfixApp          '<='              op_LessThanOrEqual  tok=  63  pos= 156
-            Ident           'n'               Identifier          tok=  61  pos= 154
-            Const           '1'               NumInt32            tok=  65  pos= 159
-        ThenToken           'then'            KWThen              tok=  67  pos= 161
+          InfixApp          '<='              op_LessThanOrEqual  tok=  65  pos= 156
+            Ident           'n'               Identifier          tok=  63  pos= 154
+            Const           '1'               NumInt32            tok=  67  pos= 159
+        ThenToken           'then'            KWThen              tok=  69  pos= 161
         ThenExpr:
-          Const             '1'               NumInt32            tok=  69  pos= 166
-        ElseToken           'else'            KWElse              tok=  72  pos= 172
+          Const             '1'               NumInt32            tok=  71  pos= 166
+        ElseToken           'else'            KWElse              tok=  74  pos= 172
         ElseExpr:
-          InfixApp          '*'               OpMultiply          tok=  76  pos= 179
-            Ident           'n'               Identifier          tok=  74  pos= 177
+          InfixApp          '*'               OpMultiply          tok=  78  pos= 179
+            Ident           'n'               Identifier          tok=  76  pos= 177
             App:
               Func:
-                Ident       'factorial'       Identifier          tok=  78  pos= 181
+                Ident       'factorial'       Identifier          tok=  80  pos= 181
               Args:
-                ParenBlock  '('               KWLParen            tok=  80  pos= 191
-                  InfixApp  '-'               op_Subtraction      tok=  83  pos= 194
-                    Ident   'n'               Identifier          tok=  81  pos= 192
-                    Const   '1'               NumInt32            tok=  85  pos= 196
-                            ')'               KWRParen            tok=  86  pos= 197
+                ParenBlock  '('               KWLParen            tok=  82  pos= 191
+                  InfixApp  '-'               op_Subtraction      tok=  85  pos= 194
+                    Ident   'n'               Identifier          tok=  83  pos= 192
+                    Const   '1'               NumInt32            tok=  87  pos= 196
+                            ')'               KWRParen            tok=  88  pos= 197

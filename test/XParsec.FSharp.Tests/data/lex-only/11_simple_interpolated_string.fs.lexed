@@ -6,7 +6,9 @@
 52, Whitespace
 53, OpEquality
 54, Whitespace
-55, StringLiteral
+55, StringOpen
+56, StringFragment
+61, StringClose
 62, Newline
 63, KWLet
 66, Whitespace
@@ -24,7 +26,9 @@
 88, Newline
 89, Identifier
 96, Whitespace
-97, StringLiteral
+97, StringOpen
+98, FormatPlaceholder
+100, StringClose
 101, Whitespace
 102, Identifier
 103, Newline
@@ -81,7 +85,9 @@
 203, KWRBrace
 204, Whitespace
 205, KWRBrace
-206, StringLiteral
+206, StringOpen
+207, StringFragment
+448, StringClose
 449, Identifier
 452, Whitespace
 453, Identifier
@@ -99,6 +105,8 @@
 475, OpColon
 476, Identifier
 478, KWRBrace
-479, UnterminatedStringLiteral
+479, StringOpen
+480, StringFragment
+509, UnterminatedStringLiteral
 509, UnterminatedInterpolatedString
 509, EOF

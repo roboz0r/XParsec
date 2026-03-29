@@ -87,6 +87,8 @@
 213, Whitespace
 214, Identifier
 219, Whitespace
-220, StringLiteral
+220, StringOpen
+221, StringFragment
+228, StringClose
 229, Newline
 230, EOF

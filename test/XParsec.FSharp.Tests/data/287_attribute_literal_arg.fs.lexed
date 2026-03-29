@@ -8,7 +8,9 @@
 21, OpDot
 22, Identifier
 30, Whitespace
-31, StringLiteral
+31, StringOpen
+32, StringFragment
+53, StringClose
 54, KWRAttrBracket
 56, Newline
 57, KWLet
@@ -29,7 +31,9 @@
 98, OpDot
 99, Identifier
 114, Whitespace
-115, StringLiteral
+115, StringOpen
+116, StringFragment
+131, StringClose
 132, KWRAttrBracket
 134, Newline
 135, KWType

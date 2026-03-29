@@ -25,7 +25,14 @@ FunctionOrValue:
                 Func:
                   Ident            'printfn'         Identifier          tok=  23  pos=  57
                 Args:
-                  Const            '"Entry (%O...'   StringLiteral       tok=  25  pos=  65
-                  Ident            'c'               Identifier          tok=  27  pos=  81
-                  Ident            'v'               Identifier          tok=  29  pos=  83
-                                   ')'               KWRParen            tok=  30  pos=  84
+                  StringLiteral    '"'               StringOpen          tok=  25  pos=  65
+                  Parts:
+                    Text           'Entry ('         StringFragment      tok=  26  pos=  66
+                    FormatSpec     '%O'              FormatPlaceholder   tok=  27  pos=  73
+                    Text           ','               StringFragment      tok=  28  pos=  75
+                    FormatSpec     '%O'              FormatPlaceholder   tok=  29  pos=  76
+                    Text           ')'               StringFragment      tok=  30  pos=  78
+                                   '"'               StringClose         tok=  31  pos=  79
+                  Ident            'c'               Identifier          tok=  33  pos=  81
+                  Ident            'v'               Identifier          tok=  35  pos=  83
+                                   ')'               KWRParen            tok=  36  pos=  84

@@ -149,7 +149,9 @@
 517, Identifier
 520, KWRParen
 521, Whitespace
-522, StringLiteral
+522, StringOpen
+523, StringFragment
+526, StringClose
 527, Newline
 528, Indent
 532, KWRBrace

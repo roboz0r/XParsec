@@ -46,12 +46,15 @@ ExceptionDefn.Full:
             Pat.Wildcard             '_'               Wildcard            tok=  59  pos= 199
           Arrow                      '->'              OpArrowRight        tok=  61  pos= 201
           Expr:
-            Const                    '"unknown"'       StringLiteral       tok=  63  pos= 204
+            StringLiteral            '"'               StringOpen          tok=  63  pos= 204
+            Parts:
+              Text                   'unknown'         StringFragment      tok=  64  pos= 205
+                                     '"'               StringClose         tok=  65  pos= 212
   end                                <virt>            KWEnd               tok=virt  pos= 255
 ExceptionDefn.Full:
-  exception                          'exception'       KWException         tok=  68  pos= 255
-  ident                              'SimpleErro...'   Identifier          tok=  70  pos= 265
-  of                                 'of'              KWOf                tok=  72  pos= 277
+  exception                          'exception'       KWException         tok=  70  pos= 255
+  ident                              'SimpleErro...'   Identifier          tok=  72  pos= 265
+  of                                 'of'              KWOf                tok=  74  pos= 277
   NamedType:
     LongIdent:
-                                     'string'          Identifier          tok=  74  pos= 280
+                                     'string'          Identifier          tok=  76  pos= 280

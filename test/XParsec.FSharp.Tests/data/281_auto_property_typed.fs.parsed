@@ -10,31 +10,32 @@ TypeDefn.Anon:
     val              'val'             KWVal               tok=  16  pos=  37
     ident            'Items'           Identifier          tok=  18  pos=  41
     =                '='               OpEquality          tok=  20  pos=  47
-    TypeAnnotation:
-      Expr:
-        Array        '[|'              KWLArrayBracket     tok=  22  pos=  49
+      TypeAnnotation:
+        Expr:
+          Array      '[|'              KWLArrayBracket     tok=  22  pos=  49
                      '|]'              KWRArrayBracket     tok=  23  pos=  51
-      Colon          ':'               OpColon             tok=  24  pos=  53
-      ArrayType:
-        NamedType:
-          LongIdent:
+        Colon        ':'               OpColon             tok=  24  pos=  53
+        ArrayType:
+          NamedType:
+            LongIdent:
                      'int'             Identifier          tok=  26  pos=  55
                      '['               KWLBracket          tok=  27  pos=  58
                      ']'               KWRBracket          tok=  28  pos=  59
-    with             'with'            KWWith              tok=  30  pos=  61
-    accessor         'get'             Identifier          tok=  32  pos=  66
-    accessor         'set'             Identifier          tok=  35  pos=  71
+      with           'with'            KWWith              tok=  30  pos=  61
+      accessor       'get'             Identifier          tok=  32  pos=  66
+      accessor       'set'             Identifier          tok=  35  pos=  71
     member           'member'          KWMember            tok=  38  pos=  79
     val              'val'             KWVal               tok=  40  pos=  86
     ident            'Name'            Identifier          tok=  42  pos=  90
     =                '='               OpEquality          tok=  44  pos=  95
-    Const            '""'              StringLiteral       tok=  46  pos=  97
-    with             'with'            KWWith              tok=  48  pos= 100
-    accessor         'get'             Identifier          tok=  50  pos= 105
-    accessor         'set'             Identifier          tok=  53  pos= 110
-    member           'member'          KWMember            tok=  56  pos= 118
-    self             '_'               Wildcard            tok=  58  pos= 125
-    Pat.NamedSimple  'Bar'             Identifier          tok=  60  pos= 127
-    =                '='               OpEquality          tok=  62  pos= 131
-      Const          '42'              NumInt32            tok=  64  pos= 133
+      StringLiteral  '"'               StringOpen          tok=  46  pos=  97
+                     '"'               StringClose         tok=  47  pos=  98
+      with           'with'            KWWith              tok=  49  pos= 100
+      accessor       'get'             Identifier          tok=  51  pos= 105
+      accessor       'set'             Identifier          tok=  54  pos= 110
+    member           'member'          KWMember            tok=  57  pos= 118
+    self             '_'               Wildcard            tok=  59  pos= 125
+    Pat.NamedSimple  'Bar'             Identifier          tok=  61  pos= 127
+    =                '='               OpEquality          tok=  63  pos= 131
+      Const          '42'              NumInt32            tok=  65  pos= 133
   end                <virt>            KWEnd               tok=virt  pos= 136

@@ -951,21 +951,6 @@ module TokenRepresentation =
         let CharLiteral = 1us
 
         [<Literal>]
-        let StringLiteral = 2us
-
-        [<Literal>]
-        let ByteArrayLiteral = 3us
-
-        [<Literal>]
-        let VerbatimStringLiteral = 4us
-
-        [<Literal>]
-        let VerbatimByteArrayLiteral = 5us
-
-        [<Literal>]
-        let String3Literal = 6us
-
-        [<Literal>]
         let InterpolatedStringOpen = 7us
 
         [<Literal>]
@@ -1015,6 +1000,37 @@ module TokenRepresentation =
 
         [<Literal>]
         let InterpolatedFormatClause = 23us
+
+        // Plain string fragment tokens (paralleling interpolated string fragments)
+        [<Literal>]
+        let StringOpen = 24us
+
+        [<Literal>]
+        let StringClose = 25us
+
+        [<Literal>]
+        let ByteArrayClose = 26us
+
+        [<Literal>]
+        let VerbatimStringOpen = 27us
+
+        [<Literal>]
+        let VerbatimStringClose = 28us
+
+        [<Literal>]
+        let VerbatimByteArrayClose = 29us
+
+        [<Literal>]
+        let String3Open = 30us
+
+        [<Literal>]
+        let String3Close = 31us
+
+        [<Literal>]
+        let StringFragment = 32us
+
+        [<Literal>]
+        let EscapeSequence = 33us
 
     module internal Numeric =
 
@@ -1661,11 +1677,6 @@ type Token =
 
     // 3.5 Strings and Characters
     | CharLiteral = (KindTextLiteral ||| Text.CharLiteral)
-    | StringLiteral = (KindTextLiteral ||| Text.StringLiteral)
-    | ByteArrayLiteral = (KindTextLiteral ||| Text.ByteArrayLiteral) // e.g. "abc"B
-    | VerbatimStringLiteral = (KindTextLiteral ||| Text.VerbatimStringLiteral)
-    | VerbatimByteArrayLiteral = (KindTextLiteral ||| Text.VerbatimByteArrayLiteral) // e.g. @"abc"B
-    | String3Literal = (KindTextLiteral ||| Text.String3Literal) // Triple-quoted string
     | InterpolatedStringOpen = (KindTextLiteral ||| Text.InterpolatedStringOpen) // $"
     | InterpolatedStringClose = (KindTextLiteral ||| Text.InterpolatedStringClose)
     | VerbatimInterpolatedStringOpen = (KindTextLiteral ||| Text.VerbatimInterpolatedStringOpen)
@@ -1683,6 +1694,17 @@ type Token =
     | EscapeRBrace = (KindTextLiteral ||| Text.EscapeRBrace)
     | VerbatimEscapeQuote = (KindTextLiteral ||| Text.VerbatimEscapeQuote) // "" inside a verbatim string
     | InterpolatedFormatClause = (KindTextLiteral ||| Text.InterpolatedFormatClause) // :format in {expr:format}
+    // Plain string fragment tokens
+    | StringOpen = (KindTextLiteral ||| Text.StringOpen) // opening " of a regular string
+    | StringClose = (KindTextLiteral ||| Text.StringClose) // closing " of a regular string
+    | ByteArrayClose = (KindTextLiteral ||| Text.ByteArrayClose) // closing "B of a byte array string
+    | VerbatimStringOpen = (KindTextLiteral ||| Text.VerbatimStringOpen) // opening @" of a verbatim string
+    | VerbatimStringClose = (KindTextLiteral ||| Text.VerbatimStringClose) // closing " of a verbatim string
+    | VerbatimByteArrayClose = (KindTextLiteral ||| Text.VerbatimByteArrayClose) // closing "B of a verbatim byte array
+    | String3Open = (KindTextLiteral ||| Text.String3Open) // opening """ of a triple-quoted string
+    | String3Close = (KindTextLiteral ||| Text.String3Close) // closing """ of a triple-quoted string
+    | StringFragment = (KindTextLiteral ||| Text.StringFragment) // plain text fragment inside any string
+    | EscapeSequence = (KindTextLiteral ||| Text.EscapeSequence) // escape sequence (\n, \xHH, etc.)
 
 
     // ==============================================================================
@@ -1812,7 +1834,18 @@ module internal TokenInfo =
             | Token.EscapePercent
             | Token.EscapeLBrace
             | Token.EscapeRBrace
-            | Token.VerbatimEscapeQuote -> false
+            | Token.VerbatimEscapeQuote
+            // Plain string fragment tokens (not standalone literals)
+            | Token.StringOpen
+            | Token.StringClose
+            | Token.ByteArrayClose
+            | Token.VerbatimStringOpen
+            | Token.VerbatimStringClose
+            | Token.VerbatimByteArrayClose
+            | Token.String3Open
+            | Token.String3Close
+            | Token.StringFragment
+            | Token.EscapeSequence -> false
             | _ -> true
         else
             false
@@ -1898,6 +1931,10 @@ module internal TokenInfo =
         | Token.InterpolatedStringOpen
         | Token.VerbatimInterpolatedStringOpen
         | Token.Interpolated3StringOpen
+        // Plain string opens
+        | Token.StringOpen
+        | Token.VerbatimStringOpen
+        | Token.String3Open
         // ? for optional argument expressions (e.g., f(?x=value))
         | Token.OpDynamic -> true
         // Literals (numeric and text kinds cover all number/string/char/byte-array tokens)

@@ -98,6 +98,7 @@ FunctionOrValue:
           Expr:
             ParenBlock             '('               KWLParen            tok= 129  pos= 271
               Tuple:
-                Const              '""'              StringLiteral       tok= 130  pos= 272
-                Const              '0'               NumInt32            tok= 133  pos= 276
-                                   ')'               KWRParen            tok= 134  pos= 277
+                StringLiteral      '"'               StringOpen          tok= 130  pos= 272
+                                   '"'               StringClose         tok= 131  pos= 273
+                Const              '0'               NumInt32            tok= 134  pos= 276
+                                   ')'               KWRParen            tok= 135  pos= 277

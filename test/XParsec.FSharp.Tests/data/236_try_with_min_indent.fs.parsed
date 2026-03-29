@@ -98,193 +98,217 @@ FunctionOrValue:
           Func:
             Ident            'failwith'        Identifier          tok= 185  pos=1371
           Args:
-            Const            '"x"'             StringLiteral       tok= 187  pos=1380
-      WithToken              'with'            KWWith              tok= 190  pos=1388
+            StringLiteral    '"'               StringOpen          tok= 187  pos=1380
+            Parts:
+              Text           'x'               StringFragment      tok= 188  pos=1381
+                             '"'               StringClose         tok= 189  pos=1382
+      WithToken              'with'            KWWith              tok= 192  pos=1388
       Rule:
         Pat:
-          Pat.Wildcard       '_'               Wildcard            tok= 192  pos=1393
-        Arrow                '->'              OpArrowRight        tok= 194  pos=1395
+          Pat.Wildcard       '_'               Wildcard            tok= 194  pos=1393
+        Arrow                '->'              OpArrowRight        tok= 196  pos=1395
         Expr:
-          Const              '0'               NumInt32            tok= 196  pos=1398
+          Const              '0'               NumInt32            tok= 198  pos=1398
 FunctionOrValue:
-  let                        'let'             KWLet               tok= 201  pos=1445
-    Pat.NamedSimple          'patternWit...'   Identifier          tok= 203  pos=1449
+  let                        'let'             KWLet               tok= 203  pos=1445
+    Pat.NamedSimple          'patternWit...'   Identifier          tok= 205  pos=1449
     Pats:
-      ParenBlock             '('               KWLParen            tok= 205  pos=1464
-                             ')'               KWRParen            tok= 206  pos=1465
-    =                        '='               OpEquality          tok= 208  pos=1467
-      TryWith                'try'             KWTry               tok= 211  pos=1473
+      ParenBlock             '('               KWLParen            tok= 207  pos=1464
+                             ')'               KWRParen            tok= 208  pos=1465
+    =                        '='               OpEquality          tok= 210  pos=1467
+      TryWith                'try'             KWTry               tok= 213  pos=1473
       TryExpr:
         App:
           Func:
-            Ident            'failwith'        Identifier          tok= 214  pos=1485
+            Ident            'failwith'        Identifier          tok= 216  pos=1485
           Args:
-            Const            '"x"'             StringLiteral       tok= 216  pos=1494
-      WithToken              'with'            KWWith              tok= 219  pos=1502
+            StringLiteral    '"'               StringOpen          tok= 218  pos=1494
+            Parts:
+              Text           'x'               StringFragment      tok= 219  pos=1495
+                             '"'               StringClose         tok= 220  pos=1496
+      WithToken              'with'            KWWith              tok= 223  pos=1502
       Rule:
-        Bar                  '|'               OpBar               tok= 222  pos=1511
+        Bar                  '|'               OpBar               tok= 226  pos=1511
         Pat:
-          Pat.Wildcard       '_'               Wildcard            tok= 224  pos=1513
-        Arrow                '->'              OpArrowRight        tok= 226  pos=1515
+          Pat.Wildcard       '_'               Wildcard            tok= 228  pos=1513
+        Arrow                '->'              OpArrowRight        tok= 230  pos=1515
         Expr:
-          Const              '0'               NumInt32            tok= 228  pos=1518
+          Const              '0'               NumInt32            tok= 232  pos=1518
 FunctionOrValue:
-  let                        'let'             KWLet               tok= 248  pos=1964
-    Pat.NamedSimple          'clauseBody...'   Identifier          tok= 250  pos=1968
+  let                        'let'             KWLet               tok= 252  pos=1964
+    Pat.NamedSimple          'clauseBody...'   Identifier          tok= 254  pos=1968
     Pats:
-      ParenBlock             '('               KWLParen            tok= 252  pos=1987
-                             ')'               KWRParen            tok= 253  pos=1988
-    =                        '='               OpEquality          tok= 255  pos=1990
-      TryWith                'try'             KWTry               tok= 258  pos=1996
+      ParenBlock             '('               KWLParen            tok= 256  pos=1987
+                             ')'               KWRParen            tok= 257  pos=1988
+    =                        '='               OpEquality          tok= 259  pos=1990
+      TryWith                'try'             KWTry               tok= 262  pos=1996
       TryExpr:
         App:
           Func:
-            Ident            'failwith'        Identifier          tok= 261  pos=2008
+            Ident            'failwith'        Identifier          tok= 265  pos=2008
           Args:
-            Const            '"x"'             StringLiteral       tok= 263  pos=2017
-      WithToken              'with'            KWWith              tok= 266  pos=2025
+            StringLiteral    '"'               StringOpen          tok= 267  pos=2017
+            Parts:
+              Text           'x'               StringFragment      tok= 268  pos=2018
+                             '"'               StringClose         tok= 269  pos=2019
+      WithToken              'with'            KWWith              tok= 272  pos=2025
       Rule:
         Pat:
-          Pat.Wildcard       '_'               Wildcard            tok= 268  pos=2030
-        Arrow                '->'              OpArrowRight        tok= 270  pos=2032
+          Pat.Wildcard       '_'               Wildcard            tok= 274  pos=2030
+        Arrow                '->'              OpArrowRight        tok= 276  pos=2032
         Expr:
-          Const              '0'               NumInt32            tok= 273  pos=2039
+          Const              '0'               NumInt32            tok= 279  pos=2039
 FunctionOrValue:
-  let                        'let'             KWLet               tok= 280  pos=2143
-    Pat.NamedSimple          'clauseBody...'   Identifier          tok= 282  pos=2147
+  let                        'let'             KWLet               tok= 286  pos=2143
+    Pat.NamedSimple          'clauseBody...'   Identifier          tok= 288  pos=2147
     Pats:
-      ParenBlock             '('               KWLParen            tok= 284  pos=2166
-                             ')'               KWRParen            tok= 285  pos=2167
-    =                        '='               OpEquality          tok= 287  pos=2169
-      TryWith                'try'             KWTry               tok= 290  pos=2175
+      ParenBlock             '('               KWLParen            tok= 290  pos=2166
+                             ')'               KWRParen            tok= 291  pos=2167
+    =                        '='               OpEquality          tok= 293  pos=2169
+      TryWith                'try'             KWTry               tok= 296  pos=2175
       TryExpr:
         App:
           Func:
-            Ident            'failwith'        Identifier          tok= 293  pos=2187
+            Ident            'failwith'        Identifier          tok= 299  pos=2187
           Args:
-            Const            '"x"'             StringLiteral       tok= 295  pos=2196
-      WithToken              'with'            KWWith              tok= 298  pos=2204
+            StringLiteral    '"'               StringOpen          tok= 301  pos=2196
+            Parts:
+              Text           'x'               StringFragment      tok= 302  pos=2197
+                             '"'               StringClose         tok= 303  pos=2198
+      WithToken              'with'            KWWith              tok= 306  pos=2204
       Rule:
         Pat:
-          Pat.Wildcard       '_'               Wildcard            tok= 300  pos=2209
-        Arrow                '->'              OpArrowRight        tok= 302  pos=2211
+          Pat.Wildcard       '_'               Wildcard            tok= 308  pos=2209
+        Arrow                '->'              OpArrowRight        tok= 310  pos=2211
         Expr:
-          Const              '0'               NumInt32            tok= 305  pos=2222
+          Const              '0'               NumInt32            tok= 313  pos=2222
 FunctionOrValue:
-  let                        'let'             KWLet               tok= 312  pos=2327
-    Pat.NamedSimple          'patOnWithL...'   Identifier          tok= 314  pos=2331
+  let                        'let'             KWLet               tok= 320  pos=2327
+    Pat.NamedSimple          'patOnWithL...'   Identifier          tok= 322  pos=2331
     Pats:
-      ParenBlock             '('               KWLParen            tok= 316  pos=2357
-                             ')'               KWRParen            tok= 317  pos=2358
-    =                        '='               OpEquality          tok= 319  pos=2360
-      TryWith                'try'             KWTry               tok= 322  pos=2366
+      ParenBlock             '('               KWLParen            tok= 324  pos=2357
+                             ')'               KWRParen            tok= 325  pos=2358
+    =                        '='               OpEquality          tok= 327  pos=2360
+      TryWith                'try'             KWTry               tok= 330  pos=2366
       TryExpr:
         App:
           Func:
-            Ident            'failwith'        Identifier          tok= 325  pos=2378
+            Ident            'failwith'        Identifier          tok= 333  pos=2378
           Args:
-            Const            '"x"'             StringLiteral       tok= 327  pos=2387
-      WithToken              'with'            KWWith              tok= 330  pos=2395
+            StringLiteral    '"'               StringOpen          tok= 335  pos=2387
+            Parts:
+              Text           'x'               StringFragment      tok= 336  pos=2388
+                             '"'               StringClose         tok= 337  pos=2389
+      WithToken              'with'            KWWith              tok= 340  pos=2395
       Rule:
         Pat:
-          Pat.Wildcard       '_'               Wildcard            tok= 332  pos=2400
-        Arrow                '->'              OpArrowRight        tok= 334  pos=2402
+          Pat.Wildcard       '_'               Wildcard            tok= 342  pos=2400
+        Arrow                '->'              OpArrowRight        tok= 344  pos=2402
         Expr:
-          Const              '0'               NumInt32            tok= 337  pos=2409
+          Const              '0'               NumInt32            tok= 347  pos=2409
 FunctionOrValue:
-  let                        'let'             KWLet               tok= 344  pos=2487
-    Pat.NamedSimple          'multiLineB...'   Identifier          tok= 346  pos=2491
+  let                        'let'             KWLet               tok= 354  pos=2487
+    Pat.NamedSimple          'multiLineB...'   Identifier          tok= 356  pos=2491
     Pats:
-      ParenBlock             '('               KWLParen            tok= 348  pos=2505
-                             ')'               KWRParen            tok= 349  pos=2506
-    =                        '='               OpEquality          tok= 351  pos=2508
-      TryWith                'try'             KWTry               tok= 354  pos=2514
+      ParenBlock             '('               KWLParen            tok= 358  pos=2505
+                             ')'               KWRParen            tok= 359  pos=2506
+    =                        '='               OpEquality          tok= 361  pos=2508
+      TryWith                'try'             KWTry               tok= 364  pos=2514
       TryExpr:
         App:
           Func:
-            Ident            'failwith'        Identifier          tok= 357  pos=2526
+            Ident            'failwith'        Identifier          tok= 367  pos=2526
           Args:
-            Const            '"x"'             StringLiteral       tok= 359  pos=2535
-      WithToken              'with'            KWWith              tok= 362  pos=2543
+            StringLiteral    '"'               StringOpen          tok= 369  pos=2535
+            Parts:
+              Text           'x'               StringFragment      tok= 370  pos=2536
+                             '"'               StringClose         tok= 371  pos=2537
+      WithToken              'with'            KWWith              tok= 374  pos=2543
       Rule:
         Pat:
-          Pat.Wildcard       '_'               Wildcard            tok= 364  pos=2548
-        Arrow                '->'              OpArrowRight        tok= 366  pos=2550
+          Pat.Wildcard       '_'               Wildcard            tok= 376  pos=2548
+        Arrow                '->'              OpArrowRight        tok= 378  pos=2550
         Expr:
-          Let                'let'             KWLet               tok= 369  pos=2557
-            Pat.NamedSimple  'r'               Identifier          tok= 371  pos=2561
-            =                '='               OpEquality          tok= 373  pos=2563
-              Const          '0'               NumInt32            tok= 375  pos=2565
+          Let                'let'             KWLet               tok= 381  pos=2557
+            Pat.NamedSimple  'r'               Identifier          tok= 383  pos=2561
+            =                '='               OpEquality          tok= 385  pos=2563
+              Const          '0'               NumInt32            tok= 387  pos=2565
           in                 <virt>            KWIn                tok=virt  pos=2571
           Body:
-            InfixApp         '+'               op_Addition         tok= 380  pos=2573
-              Ident          'r'               Identifier          tok= 378  pos=2571
-              Const          '1'               NumInt32            tok= 382  pos=2575
+            InfixApp         '+'               op_Addition         tok= 392  pos=2573
+              Ident          'r'               Identifier          tok= 390  pos=2571
+              Const          '1'               NumInt32            tok= 394  pos=2575
 FunctionOrValue:
-  let                        'let'             KWLet               tok= 396  pos=2835
-    Pat.NamedSimple          'multipleCl...'   Identifier          tok= 398  pos=2839
+  let                        'let'             KWLet               tok= 408  pos=2835
+    Pat.NamedSimple          'multipleCl...'   Identifier          tok= 410  pos=2839
     Pats:
-      ParenBlock             '('               KWLParen            tok= 400  pos=2855
-                             ')'               KWRParen            tok= 401  pos=2856
-    =                        '='               OpEquality          tok= 403  pos=2858
-      TryWith                'try'             KWTry               tok= 406  pos=2864
+      ParenBlock             '('               KWLParen            tok= 412  pos=2855
+                             ')'               KWRParen            tok= 413  pos=2856
+    =                        '='               OpEquality          tok= 415  pos=2858
+      TryWith                'try'             KWTry               tok= 418  pos=2864
       TryExpr:
         App:
           Func:
-            Ident            'failwith'        Identifier          tok= 409  pos=2876
+            Ident            'failwith'        Identifier          tok= 421  pos=2876
           Args:
-            Const            '"x"'             StringLiteral       tok= 411  pos=2885
-      WithToken              'with'            KWWith              tok= 414  pos=2893
+            StringLiteral    '"'               StringOpen          tok= 423  pos=2885
+            Parts:
+              Text           'x'               StringFragment      tok= 424  pos=2886
+                             '"'               StringClose         tok= 425  pos=2887
+      WithToken              'with'            KWWith              tok= 428  pos=2893
       Rule:
-        Bar                  '|'               OpBar               tok= 417  pos=2902
+        Bar                  '|'               OpBar               tok= 431  pos=2902
         Pat:
           Pat.TypeTest:
-            ColonQuestion    ':?'              OpTypeTest          tok= 419  pos=2904
+            ColonQuestion    ':?'              OpTypeTest          tok= 433  pos=2904
             NamedType:
               LongIdent:
-                             'System'          Identifier          tok= 421  pos=2907
-                             'ArgumentEx...'   Identifier          tok= 423  pos=2914
-        Arrow                '->'              OpArrowRight        tok= 425  pos=2932
+                             'System'          Identifier          tok= 435  pos=2907
+                             'ArgumentEx...'   Identifier          tok= 437  pos=2914
+        Arrow                '->'              OpArrowRight        tok= 439  pos=2932
         Expr:
-          Const              '-1'              NumInt32            tok= 428  pos=2940
+          Const              '-1'              NumInt32            tok= 442  pos=2940
       Rule:
-        Bar                  '|'               OpBar               tok= 433  pos=3010
+        Bar                  '|'               OpBar               tok= 447  pos=3010
         Pat:
-          Pat.Wildcard       '_'               Wildcard            tok= 435  pos=3012
-        Arrow                '->'              OpArrowRight        tok= 437  pos=3014
+          Pat.Wildcard       '_'               Wildcard            tok= 449  pos=3012
+        Arrow                '->'              OpArrowRight        tok= 451  pos=3014
         Expr:
-          Const              '0'               NumInt32            tok= 440  pos=3022
+          Const              '0'               NumInt32            tok= 454  pos=3022
 FunctionOrValue:
-  let                        'let'             KWLet               tok= 451  pos=3304
-    Pat.NamedSimple          'multipleCl...'   Identifier          tok= 453  pos=3308
+  let                        'let'             KWLet               tok= 465  pos=3304
+    Pat.NamedSimple          'multipleCl...'   Identifier          tok= 467  pos=3308
     Pats:
-      ParenBlock             '('               KWLParen            tok= 455  pos=3331
-                             ')'               KWRParen            tok= 456  pos=3332
-    =                        '='               OpEquality          tok= 458  pos=3334
-      TryWith                'try'             KWTry               tok= 461  pos=3340
+      ParenBlock             '('               KWLParen            tok= 469  pos=3331
+                             ')'               KWRParen            tok= 470  pos=3332
+    =                        '='               OpEquality          tok= 472  pos=3334
+      TryWith                'try'             KWTry               tok= 475  pos=3340
       TryExpr:
         App:
           Func:
-            Ident            'failwith'        Identifier          tok= 464  pos=3352
+            Ident            'failwith'        Identifier          tok= 478  pos=3352
           Args:
-            Const            '"x"'             StringLiteral       tok= 466  pos=3361
-      WithToken              'with'            KWWith              tok= 469  pos=3369
+            StringLiteral    '"'               StringOpen          tok= 480  pos=3361
+            Parts:
+              Text           'x'               StringFragment      tok= 481  pos=3362
+                             '"'               StringClose         tok= 482  pos=3363
+      WithToken              'with'            KWWith              tok= 485  pos=3369
       Rule:
-        Bar                  '|'               OpBar               tok= 472  pos=3378
+        Bar                  '|'               OpBar               tok= 488  pos=3378
         Pat:
           Pat.TypeTest:
-            ColonQuestion    ':?'              OpTypeTest          tok= 474  pos=3380
+            ColonQuestion    ':?'              OpTypeTest          tok= 490  pos=3380
             NamedType:
               LongIdent:
-                             'System'          Identifier          tok= 476  pos=3383
-                             'ArgumentEx...'   Identifier          tok= 478  pos=3390
-        Arrow                '->'              OpArrowRight        tok= 480  pos=3408
+                             'System'          Identifier          tok= 492  pos=3383
+                             'ArgumentEx...'   Identifier          tok= 494  pos=3390
+        Arrow                '->'              OpArrowRight        tok= 496  pos=3408
         Expr:
-          Const              '99'              NumInt32            tok= 483  pos=3416
+          Const              '99'              NumInt32            tok= 499  pos=3416
       Rule:
-        Bar                  '|'               OpBar               tok= 488  pos=3485
+        Bar                  '|'               OpBar               tok= 504  pos=3485
         Pat:
-          Pat.Wildcard       '_'               Wildcard            tok= 490  pos=3487
-        Arrow                '->'              OpArrowRight        tok= 492  pos=3489
+          Pat.Wildcard       '_'               Wildcard            tok= 506  pos=3487
+        Arrow                '->'              OpArrowRight        tok= 508  pos=3489
         Expr:
-          Const              '0'               NumInt32            tok= 495  pos=3497
+          Const              '0'               NumInt32            tok= 511  pos=3497

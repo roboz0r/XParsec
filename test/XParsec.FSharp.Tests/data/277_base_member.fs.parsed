@@ -25,46 +25,52 @@ TypeDefn.Anon:
         Pat.NamedSimple  'name'            Identifier          tok=  34  pos=  91
                          ')'               KWRParen            tok=  35  pos=  95
     =                    '='               OpEquality          tok=  37  pos=  97
-      InfixApp           '+'               op_Addition         tok=  41  pos= 109
-        Const            '"Hello, "'       StringLiteral       tok=  39  pos=  99
-        Ident            'name'            Identifier          tok=  43  pos= 111
+      InfixApp           '+'               op_Addition         tok=  43  pos= 109
+        StringLiteral    '"'               StringOpen          tok=  39  pos=  99
+        Parts:
+          Text           'Hello, '         StringFragment      tok=  40  pos= 100
+                         '"'               StringClose         tok=  41  pos= 107
+        Ident            'name'            Identifier          tok=  45  pos= 111
   end                    <virt>            KWEnd               tok=virt  pos= 117
 TypeDefn.Anon:
-  TypeName               'Derived'         Identifier          tok=  48  pos= 122
-  (                      '('               KWLParen            tok=  49  pos= 129
-  )                      ')'               KWRParen            tok=  50  pos= 130
-  =                      '='               OpEquality          tok=  52  pos= 132
+  TypeName               'Derived'         Identifier          tok=  50  pos= 122
+  (                      '('               KWLParen            tok=  51  pos= 129
+  )                      ')'               KWRParen            tok=  52  pos= 130
+  =                      '='               OpEquality          tok=  54  pos= 132
   begin                  <virt>            KWBegin             tok=virt  pos= 138
-    inherit              'inherit'         KWInherit           tok=  55  pos= 138
+    inherit              'inherit'         KWInherit           tok=  57  pos= 138
     NamedType:
       LongIdent:
-                         'Base'            Identifier          tok=  57  pos= 146
-    ParenBlock           '('               KWLParen            tok=  58  pos= 150
-                         ')'               KWRParen            tok=  59  pos= 151
-    override             'override'        KWOverride          tok=  63  pos= 158
-    self                 '_'               Wildcard            tok=  65  pos= 167
-    Pat.NamedSimple      'Greet'           Identifier          tok=  67  pos= 169
+                         'Base'            Identifier          tok=  59  pos= 146
+    ParenBlock           '('               KWLParen            tok=  60  pos= 150
+                         ')'               KWRParen            tok=  61  pos= 151
+    override             'override'        KWOverride          tok=  65  pos= 158
+    self                 '_'               Wildcard            tok=  67  pos= 167
+    Pat.NamedSimple      'Greet'           Identifier          tok=  69  pos= 169
     Pats:
-      ParenBlock         '('               KWLParen            tok=  68  pos= 174
-        Pat.NamedSimple  'name'            Identifier          tok=  69  pos= 175
-                         ')'               KWRParen            tok=  70  pos= 179
-    =                    '='               OpEquality          tok=  72  pos= 181
-      Let                'let'             KWLet               tok=  75  pos= 191
-        Pat.NamedSimple  'baseResult'      Identifier          tok=  77  pos= 195
-        =                '='               OpEquality          tok=  79  pos= 206
+      ParenBlock         '('               KWLParen            tok=  70  pos= 174
+        Pat.NamedSimple  'name'            Identifier          tok=  71  pos= 175
+                         ')'               KWRParen            tok=  72  pos= 179
+    =                    '='               OpEquality          tok=  74  pos= 181
+      Let                'let'             KWLet               tok=  77  pos= 191
+        Pat.NamedSimple  'baseResult'      Identifier          tok=  79  pos= 195
+        =                '='               OpEquality          tok=  81  pos= 206
           HighPrecedenceApp:
             Func:
               LongIdentOrOp:
                 LongIdent:
-                         'base'            KWBase              tok=  81  pos= 208
-                         'Greet'           Identifier          tok=  83  pos= 213
-            (            '('               KWLParen            tok=  84  pos= 218
+                         'base'            KWBase              tok=  83  pos= 208
+                         'Greet'           Identifier          tok=  85  pos= 213
+            (            '('               KWLParen            tok=  86  pos= 218
             Arg:
-              Ident      'name'            Identifier          tok=  85  pos= 219
-                         ')'               KWRParen            tok=  86  pos= 223
+              Ident      'name'            Identifier          tok=  87  pos= 219
+                         ')'               KWRParen            tok=  88  pos= 223
       in                 <virt>            KWIn                tok=virt  pos= 233
       Body:
-        InfixApp         '+'               op_Addition         tok=  91  pos= 244
-          Ident          'baseResult'      Identifier          tok=  89  pos= 233
-          Const          '"!"'             StringLiteral       tok=  93  pos= 246
+        InfixApp         '+'               op_Addition         tok=  93  pos= 244
+          Ident          'baseResult'      Identifier          tok=  91  pos= 233
+          StringLiteral  '"'               StringOpen          tok=  95  pos= 246
+          Parts:
+            Text         '!'               StringFragment      tok=  96  pos= 247
+                         '"'               StringClose         tok=  97  pos= 248
   end                    <virt>            KWEnd               tok=virt  pos= 250

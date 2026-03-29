@@ -18,11 +18,6 @@ module Constant =
         || t = Token.KWFalse
         || t = Token.KWNull
         || t = Token.CharLiteral
-        || t = Token.StringLiteral
-        || t = Token.String3Literal
-        || t = Token.VerbatimStringLiteral
-        || t = Token.ByteArrayLiteral
-        || t = Token.VerbatimByteArrayLiteral
 
     let private pLiteral: Parser<_, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         nextNonTriviaTokenSatisfiesL

@@ -24,7 +24,9 @@
 125, Newline
 126, Identifier
 133, Whitespace
-134, StringLiteral
+134, StringOpen
+135, FormatPlaceholder
+137, StringClose
 138, Whitespace
 139, Identifier
 140, Newline

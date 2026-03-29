@@ -25,7 +25,9 @@
 70, Whitespace
 71, OpArrowRight
 73, Whitespace
-74, StringLiteral
+74, StringOpen
+75, StringFragment
+84, StringClose
 85, Newline
 86, Indent
 90, OpBar
@@ -34,7 +36,9 @@
 93, Whitespace
 94, OpArrowRight
 96, Whitespace
-97, StringLiteral
+97, StringOpen
+98, StringFragment
+102, StringClose
 103, Newline
 104, Indent
 108, OpBar
@@ -43,7 +47,9 @@
 111, Whitespace
 112, OpArrowRight
 114, Whitespace
-115, StringLiteral
+115, StringOpen
+116, StringFragment
+119, StringClose
 120, Newline
 121, Indent
 125, OpBar
@@ -52,7 +58,9 @@
 131, Whitespace
 132, OpArrowRight
 134, Whitespace
-135, StringLiteral
+135, StringOpen
+136, StringFragment
+149, StringClose
 150, Newline
 151, Indent
 155, OpBar
@@ -61,7 +69,9 @@
 158, Whitespace
 159, OpArrowRight
 161, Whitespace
-162, StringLiteral
+162, StringOpen
+163, StringFragment
+168, StringClose
 169, Newline
 170, Newline
 171, KWLet
@@ -86,7 +96,9 @@
 208, Whitespace
 209, OpArrowRight
 211, Whitespace
-212, StringLiteral
+212, StringOpen
+213, StringFragment
+220, StringClose
 221, Newline
 222, Indent
 226, OpBar
@@ -95,7 +107,9 @@
 231, Whitespace
 232, OpArrowRight
 234, Whitespace
-235, StringLiteral
+235, StringOpen
+236, StringFragment
+240, StringClose
 241, Newline
 242, Indent
 246, OpBar
@@ -104,6 +118,8 @@
 249, Whitespace
 250, OpArrowRight
 252, Whitespace
-253, StringLiteral
+253, StringOpen
+254, StringFragment
+259, StringClose
 260, Newline
 261, EOF

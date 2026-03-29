@@ -88,7 +88,9 @@
 178, Whitespace
 179, OpArrowRight
 181, Whitespace
-182, StringLiteral
+182, StringOpen
+183, StringFragment
+187, StringClose
 188, Newline
 189, Indent
 193, OpBar
@@ -97,6 +99,8 @@
 196, Whitespace
 197, OpArrowRight
 199, Whitespace
-200, StringLiteral
+200, StringOpen
+201, StringFragment
+206, StringClose
 207, Newline
 208, EOF

@@ -263,7 +263,9 @@
 790, Whitespace
 791, Identifier
 798, Whitespace
-799, StringLiteral
+799, StringOpen
+800, StringFragment
+808, StringClose
 809, Newline
 810, Indent
 818, KWReturn

@@ -37,7 +37,9 @@
 93, Whitespace
 94, Operator 0b1000000001010011 InfixAdd (can be prefix)
 95, Whitespace
-96, StringLiteral
+96, StringOpen
+97, StringFragment
+100, StringClose
 101, Newline
 102, Indent
 106, KWElse

@@ -26,16 +26,19 @@ FunctionOrValue:
                     Ident   'charPos'         Identifier          tok=  30  pos=  81
                     Const   '9'               NumInt32            tok=  34  pos=  91
                             ']'               KWRBracket          tok=  35  pos=  92
-            Const           '"..."'           StringLiteral       tok=  39  pos=  96
-        ElseToken           'else'            KWElse              tok=  42  pos= 106
+            StringLiteral   '"'               StringOpen          tok=  39  pos=  96
+            Parts:
+              Text          '...'             StringFragment      tok=  40  pos=  97
+                            '"'               StringClose         tok=  41  pos= 100
+        ElseToken           'else'            KWElse              tok=  44  pos= 106
         ElseExpr:
           IndexedLookup:
             Expr:
-              Ident         'input'           Identifier          tok=  45  pos= 119
-            [               '['               KWLBracket          tok=  46  pos= 124
+              Ident         'input'           Identifier          tok=  47  pos= 119
+            [               '['               KWLBracket          tok=  48  pos= 124
             Index:
               Range:
-                Ident       'charPos'         Identifier          tok=  47  pos= 125
-                ..          '..'              OpRange             tok=  48  pos= 132
-                Ident       'charEnd'         Identifier          tok=  49  pos= 134
-                            ']'               KWRBracket          tok=  50  pos= 141
+                Ident       'charPos'         Identifier          tok=  49  pos= 125
+                ..          '..'              OpRange             tok=  50  pos= 132
+                Ident       'charEnd'         Identifier          tok=  51  pos= 134
+                            ']'               KWRBracket          tok=  52  pos= 141

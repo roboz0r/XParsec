@@ -4,7 +4,9 @@
 10, OpDot
 11, Identifier
 20, KWLParen
-21, StringLiteral
+21, StringOpen
+22, StringFragment
+27, StringClose
 28, KWRParen
 29, Newline
 30, EOF

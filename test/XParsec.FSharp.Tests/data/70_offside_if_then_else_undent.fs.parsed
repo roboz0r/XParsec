@@ -1,17 +1,20 @@
 AnonymousModule:
 IfThenElse:
-  IfToken      'if'              KWIf                tok=   0  pos=   0
+  IfToken              'if'              KWIf                tok=   0  pos=   0
   Condition:
-    InfixApp   '<'               op_LessThan         tok=   4  pos=   5
-      Ident    'x'               Identifier          tok=   2  pos=   3
-      Const    '2'               NumInt32            tok=   6  pos=   7
-  ThenToken    'then'            KWThen              tok=   8  pos=   9
+    InfixApp           '<'               op_LessThan         tok=   4  pos=   5
+      Ident            'x'               Identifier          tok=   2  pos=   3
+      Const            '2'               NumInt32            tok=   6  pos=   7
+  ThenToken            'then'            KWThen              tok=   8  pos=   9
   ThenExpr:
     App:
       Func:
-        Ident  'invalidOp'       Identifier          tok=  10  pos=  14
+        Ident          'invalidOp'       Identifier          tok=  10  pos=  14
       Args:
-        Const  '"error"'         StringLiteral       tok=  12  pos=  24
-  ElseToken    'else'            KWElse              tok=  14  pos=  32
+        StringLiteral  '"'               StringOpen          tok=  12  pos=  24
+        Parts:
+          Text         'error'           StringFragment      tok=  13  pos=  25
+                       '"'               StringClose         tok=  14  pos=  30
+  ElseToken            'else'            KWElse              tok=  16  pos=  32
   ElseExpr:
-    Ident      'x'               Identifier          tok=  16  pos=  37
+    Ident              'x'               Identifier          tok=  18  pos=  37

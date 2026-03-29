@@ -32,11 +32,15 @@
 38, Whitespace
 39, KWThen
 43, Whitespace
-44, StringLiteral
+44, StringOpen
+45, StringFragment
+48, StringClose
 49, Whitespace
 50, KWElse
 54, Whitespace
-55, StringLiteral
+55, StringOpen
+56, StringFragment
+59, StringClose
 60, InterpolatedExpressionClose
 61, InterpolatedStringClose
 62, Newline

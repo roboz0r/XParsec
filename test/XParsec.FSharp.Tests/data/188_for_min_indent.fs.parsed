@@ -37,41 +37,52 @@ FunctionOrValue:
                   Func:
                     Ident            'printfn'         Identifier          tok=  60  pos= 345
                   Args:
-                    Const            '"Got %A"'        StringLiteral       tok=  62  pos= 353
-                    Ident            'y'               Identifier          tok=  64  pos= 362
+                    StringLiteral    '"'               StringOpen          tok=  62  pos= 353
+                    Parts:
+                      Text           'Got '            StringFragment      tok=  63  pos= 354
+                      FormatSpec     '%A'              FormatPlaceholder   tok=  64  pos= 358
+                                     '"'               StringClose         tok=  65  pos= 360
+                    Ident            'y'               Identifier          tok=  67  pos= 362
             Rule:
-              Bar                    '|'               OpBar               tok=  67  pos= 372
+              Bar                    '|'               OpBar               tok=  70  pos= 372
               Pat:
-                Pat.NamedSimple      'None'            Identifier          tok=  69  pos= 374
-              Arrow                  '->'              OpArrowRight        tok=  71  pos= 379
+                Pat.NamedSimple      'None'            Identifier          tok=  72  pos= 374
+              Arrow                  '->'              OpArrowRight        tok=  74  pos= 379
               Expr:
                 App:
                   Func:
-                    Ident            'printfn'         Identifier          tok=  73  pos= 382
+                    Ident            'printfn'         Identifier          tok=  76  pos= 382
                   Args:
-                    Const            '"Got nothi...'   StringLiteral       tok=  75  pos= 390
+                    StringLiteral    '"'               StringOpen          tok=  78  pos= 390
+                    Parts:
+                      Text           'Got nothin...'   StringFragment      tok=  79  pos= 391
+                                     '"'               StringClose         tok=  80  pos= 402
       DoneToken                      <virt>            KWDone              tok=virt  pos= 405
 FunctionOrValue:
-  let                                'let'             KWLet               tok=  78  pos= 405
-    Pat.NamedSimple                  'g'               Identifier          tok=  80  pos= 409
+  let                                'let'             KWLet               tok=  83  pos= 405
+    Pat.NamedSimple                  'g'               Identifier          tok=  85  pos= 409
     Pats:
-      ParenBlock                     '('               KWLParen            tok=  82  pos= 411
-                                     ')'               KWRParen            tok=  83  pos= 412
-    =                                '='               OpEquality          tok=  85  pos= 414
-      ForTo                          'for'             KWFor               tok=  88  pos= 420
-      Ident                          'i'               Identifier          tok=  91  pos= 429
-      Equals                         '='               OpEquality          tok=  96  pos= 468
+      ParenBlock                     '('               KWLParen            tok=  87  pos= 411
+                                     ')'               KWRParen            tok=  88  pos= 412
+    =                                '='               OpEquality          tok=  90  pos= 414
+      ForTo                          'for'             KWFor               tok=  93  pos= 420
+      Ident                          'i'               Identifier          tok=  96  pos= 429
+      Equals                         '='               OpEquality          tok= 101  pos= 468
       Start:
-        Const                        '1'               NumInt32            tok= 101  pos= 507
-      ToToken                        'to'              KWTo                tok= 106  pos= 546
+        Const                        '1'               NumInt32            tok= 106  pos= 507
+      ToToken                        'to'              KWTo                tok= 111  pos= 546
       End:
-        Const                        '10'              NumInt32            tok= 111  pos= 585
-      DoToken                        'do'              KWDo                tok= 116  pos= 624
+        Const                        '10'              NumInt32            tok= 116  pos= 585
+      DoToken                        'do'              KWDo                tok= 121  pos= 624
       Body:
         App:
           Func:
-            Ident                    'printfn'         Identifier          tok= 121  pos= 662
+            Ident                    'printfn'         Identifier          tok= 126  pos= 662
           Args:
-            Const                    '"i = %d"'        StringLiteral       tok= 123  pos= 670
-            Ident                    'i'               Identifier          tok= 125  pos= 679
+            StringLiteral            '"'               StringOpen          tok= 128  pos= 670
+            Parts:
+              Text                   'i = '            StringFragment      tok= 129  pos= 671
+              FormatSpec             '%d'              FormatPlaceholder   tok= 130  pos= 675
+                                     '"'               StringClose         tok= 131  pos= 677
+            Ident                    'i'               Identifier          tok= 133  pos= 679
       DoneToken                      <virt>            KWDone              tok=virt  pos= 774

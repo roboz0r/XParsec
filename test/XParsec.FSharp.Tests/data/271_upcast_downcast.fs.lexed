@@ -14,7 +14,9 @@
 25, Whitespace
 26, KWUpcast
 32, Whitespace
-33, StringLiteral
+33, StringOpen
+34, StringFragment
+39, StringClose
 40, Newline
 41, KWLet
 44, Whitespace

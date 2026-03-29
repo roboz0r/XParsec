@@ -37,7 +37,9 @@
 96, Whitespace
 97, OpEquality
 98, Whitespace
-99, StringLiteral
+99, StringOpen
+100, StringFragment
+107, StringClose
 108, Whitespace
 109, Operator 0b1000000001010011 InfixAdd (can be prefix)
 110, Whitespace
@@ -91,6 +93,8 @@
 243, Whitespace
 244, Operator 0b1000000001010011 InfixAdd (can be prefix)
 245, Whitespace
-246, StringLiteral
+246, StringOpen
+247, StringFragment
+248, StringClose
 249, Newline
 250, EOF

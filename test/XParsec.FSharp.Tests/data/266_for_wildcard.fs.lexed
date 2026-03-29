@@ -30,7 +30,9 @@
 58, Indent
 66, Identifier
 73, Whitespace
-74, StringLiteral
+74, StringOpen
+75, StringFragment
+80, StringClose
 81, Newline
 82, Newline
 83, KWLet

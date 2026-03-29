@@ -60,7 +60,10 @@
 344, Whitespace
 345, Identifier
 352, Whitespace
-353, StringLiteral
+353, StringOpen
+354, StringFragment
+358, FormatPlaceholder
+360, StringClose
 361, Whitespace
 362, Identifier
 363, Newline
@@ -73,7 +76,9 @@
 381, Whitespace
 382, Identifier
 389, Whitespace
-390, StringLiteral
+390, StringOpen
+391, StringFragment
+402, StringClose
 403, Newline
 404, Newline
 405, KWLet
@@ -121,7 +126,10 @@
 658, Indent
 662, Identifier
 669, Whitespace
-670, StringLiteral
+670, StringOpen
+671, StringFragment
+675, FormatPlaceholder
+677, StringClose
 678, Whitespace
 679, Identifier
 680, Whitespace

@@ -9,67 +9,82 @@ FunctionOrValue:
           ParenBlock          '('               KWLParen            tok=  13  pos=  27
             Tuple:
               Const           '1'               NumInt32            tok=  14  pos=  28
-              Const           '"a"'             StringLiteral       tok=  17  pos=  31
-                              ')'               KWRParen            tok=  18  pos=  34
-          ParenBlock          '('               KWLParen            tok=  21  pos=  37
+              StringLiteral   '"'               StringOpen          tok=  17  pos=  31
+              Parts:
+                Text          'a'               StringFragment      tok=  18  pos=  32
+                              '"'               StringClose         tok=  19  pos=  33
+                              ')'               KWRParen            tok=  20  pos=  34
+          ParenBlock          '('               KWLParen            tok=  23  pos=  37
             Tuple:
-              Const           '2'               NumInt32            tok=  22  pos=  38
-              Const           '"b"'             StringLiteral       tok=  25  pos=  41
-                              ')'               KWRParen            tok=  26  pos=  44
-          ParenBlock          '('               KWLParen            tok=  29  pos=  47
+              Const           '2'               NumInt32            tok=  24  pos=  38
+              StringLiteral   '"'               StringOpen          tok=  27  pos=  41
+              Parts:
+                Text          'b'               StringFragment      tok=  28  pos=  42
+                              '"'               StringClose         tok=  29  pos=  43
+                              ')'               KWRParen            tok=  30  pos=  44
+          ParenBlock          '('               KWLParen            tok=  33  pos=  47
             Tuple:
-              Const           '3'               NumInt32            tok=  30  pos=  48
-              Const           '"c"'             StringLiteral       tok=  33  pos=  51
-                              ')'               KWRParen            tok=  34  pos=  54
-                              ']'               KWRBracket          tok=  36  pos=  56
+              Const           '3'               NumInt32            tok=  34  pos=  48
+              StringLiteral   '"'               StringOpen          tok=  37  pos=  51
+              Parts:
+                Text          'c'               StringFragment      tok=  38  pos=  52
+                              '"'               StringClose         tok=  39  pos=  53
+                              ')'               KWRParen            tok=  40  pos=  54
+                              ']'               KWRBracket          tok=  42  pos=  56
 FunctionOrValue:
-  let                         'let'             KWLet               tok=  41  pos= 101
-    Pat.NamedSimple           'names'           Identifier          tok=  43  pos= 105
-    =                         '='               OpEquality          tok=  45  pos= 111
-      InfixApp                '|>'              op_PipeRight        tok=  49  pos= 119
-        Ident                 'items'           Identifier          tok=  47  pos= 113
+  let                         'let'             KWLet               tok=  47  pos= 101
+    Pat.NamedSimple           'names'           Identifier          tok=  49  pos= 105
+    =                         '='               OpEquality          tok=  51  pos= 111
+      InfixApp                '|>'              op_PipeRight        tok=  55  pos= 119
+        Ident                 'items'           Identifier          tok=  53  pos= 113
         App:
           Func:
             LongIdentOrOp:
               LongIdent:
-                              'List'            Identifier          tok=  51  pos= 122
-                              'map'             Identifier          tok=  53  pos= 127
+                              'List'            Identifier          tok=  57  pos= 122
+                              'map'             Identifier          tok=  59  pos= 127
           Args:
             HighPrecedenceApp:
               Func:
                 DotLookup:
                   Expr:
-                    Wildcard  '_'               Wildcard            tok=  55  pos= 131
-                  Dot         '.'               OpDot               tok=  56  pos= 132
+                    Wildcard  '_'               Wildcard            tok=  61  pos= 131
+                  Dot         '.'               OpDot               tok=  62  pos= 132
                   LongIdentOrOp:
                     LongIdent:
-                              'ToString'        Identifier          tok=  57  pos= 133
-              (               '('               KWLParen            tok=  58  pos= 141
+                              'ToString'        Identifier          tok=  63  pos= 133
+              (               '('               KWLParen            tok=  64  pos= 141
               Arg:
-                ParenBlock    '('               KWLParen            tok=  58  pos= 141
-                              ')'               KWRParen            tok=  59  pos= 142
-                              ')'               KWRParen            tok=  59  pos= 142
+                ParenBlock    '('               KWLParen            tok=  64  pos= 141
+                              ')'               KWRParen            tok=  65  pos= 142
+                              ')'               KWRParen            tok=  65  pos= 142
 FunctionOrValue:
-  let                         'let'             KWLet               tok=  61  pos= 144
-    Pat.NamedSimple           'lengths'         Identifier          tok=  63  pos= 148
-    =                         '='               OpEquality          tok=  65  pos= 156
-      InfixApp                '|>'              op_PipeRight        tok=  76  pos= 179
-        List                  '['               KWLBracket          tok=  67  pos= 158
+  let                         'let'             KWLet               tok=  67  pos= 144
+    Pat.NamedSimple           'lengths'         Identifier          tok=  69  pos= 148
+    =                         '='               OpEquality          tok=  71  pos= 156
+      InfixApp                '|>'              op_PipeRight        tok=  86  pos= 179
+        List                  '['               KWLBracket          tok=  73  pos= 158
           Sequential:
-            Const             '"hello"'         StringLiteral       tok=  69  pos= 160
-            Const             '"world"'         StringLiteral       tok=  72  pos= 169
-                              ']'               KWRBracket          tok=  74  pos= 177
+            StringLiteral     '"'               StringOpen          tok=  75  pos= 160
+            Parts:
+              Text            'hello'           StringFragment      tok=  76  pos= 161
+                              '"'               StringClose         tok=  77  pos= 166
+            StringLiteral     '"'               StringOpen          tok=  80  pos= 169
+            Parts:
+              Text            'world'           StringFragment      tok=  81  pos= 170
+                              '"'               StringClose         tok=  82  pos= 175
+                              ']'               KWRBracket          tok=  84  pos= 177
         App:
           Func:
             LongIdentOrOp:
               LongIdent:
-                              'List'            Identifier          tok=  78  pos= 182
-                              'map'             Identifier          tok=  80  pos= 187
+                              'List'            Identifier          tok=  88  pos= 182
+                              'map'             Identifier          tok=  90  pos= 187
           Args:
             DotLookup:
               Expr:
-                Wildcard      '_'               Wildcard            tok=  82  pos= 191
-              Dot             '.'               OpDot               tok=  83  pos= 192
+                Wildcard      '_'               Wildcard            tok=  92  pos= 191
+              Dot             '.'               OpDot               tok=  93  pos= 192
               LongIdentOrOp:
                 LongIdent:
-                              'Length'          Identifier          tok=  84  pos= 193
+                              'Length'          Identifier          tok=  94  pos= 193

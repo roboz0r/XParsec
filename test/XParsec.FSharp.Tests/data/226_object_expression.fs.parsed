@@ -127,47 +127,50 @@ FunctionOrValue:
             ParenBlock           '('               KWLParen            tok= 188  pos= 629
                                  ')'               KWRParen            tok= 189  pos= 630
           =                      '='               OpEquality          tok= 191  pos= 632
-            Const                '"hello"'         StringLiteral       tok= 193  pos= 634
+            StringLiteral        '"'               StringOpen          tok= 193  pos= 634
+            Parts:
+              Text               'hello'           StringFragment      tok= 194  pos= 635
+                                 '"'               StringClose         tok= 195  pos= 640
         end                      <virt>            KWEnd               tok=virt  pos= 642
-        }                        '}'               KWRBrace            tok= 195  pos= 642
+        }                        '}'               KWRBrace            tok= 197  pos= 642
 FunctionOrValue:
-  let                            'let'             KWLet               tok= 200  pos= 690
-    Pat.NamedSimple              'f'               Identifier          tok= 202  pos= 694
+  let                            'let'             KWLet               tok= 202  pos= 690
+    Pat.NamedSimple              'f'               Identifier          tok= 204  pos= 694
     Pats:
-      ParenBlock                 '('               KWLParen            tok= 204  pos= 696
+      ParenBlock                 '('               KWLParen            tok= 206  pos= 696
         Pat.Typed:
-          Pat.NamedSimple        'd'               Identifier          tok= 205  pos= 697
-          Colon                  ':'               OpColon             tok= 206  pos= 698
+          Pat.NamedSimple        'd'               Identifier          tok= 207  pos= 697
+          Colon                  ':'               OpColon             tok= 208  pos= 698
           NamedType:
             LongIdent:
-                                 'IDisposabl...'   Identifier          tok= 208  pos= 700
-                                 ')'               KWRParen            tok= 209  pos= 711
-    =                            '='               OpEquality          tok= 211  pos= 713
-      ParenBlock                 '('               KWLParen            tok= 213  pos= 715
-                                 ')'               KWRParen            tok= 214  pos= 716
+                                 'IDisposabl...'   Identifier          tok= 210  pos= 700
+                                 ')'               KWRParen            tok= 211  pos= 711
+    =                            '='               OpEquality          tok= 213  pos= 713
+      ParenBlock                 '('               KWLParen            tok= 215  pos= 715
+                                 ')'               KWRParen            tok= 216  pos= 716
 FunctionOrValue:
-  let                            'let'             KWLet               tok= 216  pos= 718
-    Pat.NamedSimple              'test'            Identifier          tok= 218  pos= 722
-    =                            '='               OpEquality          tok= 220  pos= 727
+  let                            'let'             KWLet               tok= 218  pos= 718
+    Pat.NamedSimple              'test'            Identifier          tok= 220  pos= 722
+    =                            '='               OpEquality          tok= 222  pos= 727
       App:
         Func:
-          Ident                  'f'               Identifier          tok= 222  pos= 729
+          Ident                  'f'               Identifier          tok= 224  pos= 729
         Args:
           ObjectExpr:
-            {                    '{'               KWLBrace            tok= 224  pos= 731
-            new                  'new'             KWNew               tok= 226  pos= 733
+            {                    '{'               KWLBrace            tok= 226  pos= 731
+            new                  'new'             KWNew               tok= 228  pos= 733
             NamedType:
               LongIdent:
-                                 'IDisposabl...'   Identifier          tok= 228  pos= 737
-            with                 'with'            KWWith              tok= 230  pos= 749
-              member             'member'          KWMember            tok= 232  pos= 754
-              self               '_'               Wildcard            tok= 234  pos= 761
-              Pat.NamedSimple    'Dispose'         Identifier          tok= 236  pos= 763
+                                 'IDisposabl...'   Identifier          tok= 230  pos= 737
+            with                 'with'            KWWith              tok= 232  pos= 749
+              member             'member'          KWMember            tok= 234  pos= 754
+              self               '_'               Wildcard            tok= 236  pos= 761
+              Pat.NamedSimple    'Dispose'         Identifier          tok= 238  pos= 763
               Pats:
-                ParenBlock       '('               KWLParen            tok= 237  pos= 770
-                                 ')'               KWRParen            tok= 238  pos= 771
-              =                  '='               OpEquality          tok= 240  pos= 773
-                ParenBlock       '('               KWLParen            tok= 242  pos= 775
-                                 ')'               KWRParen            tok= 243  pos= 776
+                ParenBlock       '('               KWLParen            tok= 239  pos= 770
+                                 ')'               KWRParen            tok= 240  pos= 771
+              =                  '='               OpEquality          tok= 242  pos= 773
+                ParenBlock       '('               KWLParen            tok= 244  pos= 775
+                                 ')'               KWRParen            tok= 245  pos= 776
             end                  <virt>            KWEnd               tok=virt  pos= 778
-            }                    '}'               KWRBrace            tok= 245  pos= 778
+            }                    '}'               KWRBrace            tok= 247  pos= 778

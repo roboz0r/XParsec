@@ -9,24 +9,27 @@ FunctionOrValue:
   let                     'let'             KWLet               tok=  13  pos=  26
     Pat.NamedSimple       'name'            Identifier          tok=  15  pos=  30
     =                     '='               OpEquality          tok=  17  pos=  35
-      Const               '"hello"'         StringLiteral       tok=  19  pos=  37
-FunctionOrValue:
-  let                     'let'             KWLet               tok=  24  pos= 110
-    Pat.NamedSimple       'c'               Identifier          tok=  26  pos= 114
-    =                     '='               OpEquality          tok=  28  pos= 116
-      InterpolatedString  '$"'              InterpolatedStringOpen  tok=  30  pos= 118
+      StringLiteral       '"'               StringOpen          tok=  19  pos=  37
       Parts:
-        Text              '    '            InterpolatedStringFragment  tok=  31  pos= 120
-        FormatSpec        '%i'              FormatPlaceholder   tok=  32  pos= 124
-        {                 '{'               InterpolatedExpressionOpen  tok=  33  pos= 126
+        Text              'hello'           StringFragment      tok=  20  pos=  38
+                          '"'               StringClose         tok=  21  pos=  43
+FunctionOrValue:
+  let                     'let'             KWLet               tok=  26  pos= 110
+    Pat.NamedSimple       'c'               Identifier          tok=  28  pos= 114
+    =                     '='               OpEquality          tok=  30  pos= 116
+      InterpolatedString  '$"'              InterpolatedStringOpen  tok=  32  pos= 118
+      Parts:
+        Text              '    '            InterpolatedStringFragment  tok=  33  pos= 120
+        FormatSpec        '%i'              FormatPlaceholder   tok=  34  pos= 124
+        {                 '{'               InterpolatedExpressionOpen  tok=  35  pos= 126
         Expr:
-          Ident           'idx'             Identifier          tok=  34  pos= 127
-        }                 '}'               InterpolatedExpressionClose  tok=  35  pos= 130
-        Text              '[\"'             InterpolatedStringFragment  tok=  36  pos= 131
-        FormatSpec        '%s'              FormatPlaceholder   tok=  37  pos= 134
-        {                 '{'               InterpolatedExpressionOpen  tok=  38  pos= 136
+          Ident           'idx'             Identifier          tok=  36  pos= 127
+        }                 '}'               InterpolatedExpressionClose  tok=  37  pos= 130
+        Text              '[\"'             InterpolatedStringFragment  tok=  38  pos= 131
+        FormatSpec        '%s'              FormatPlaceholder   tok=  39  pos= 134
+        {                 '{'               InterpolatedExpressionOpen  tok=  40  pos= 136
         Expr:
-          Ident           'name'            Identifier          tok=  39  pos= 137
-        }                 '}'               InterpolatedExpressionClose  tok=  40  pos= 141
-        Text              '\"]'             InterpolatedStringFragment  tok=  41  pos= 142
-                          '"'               InterpolatedStringClose  tok=  42  pos= 145
+          Ident           'name'            Identifier          tok=  41  pos= 137
+        }                 '}'               InterpolatedExpressionClose  tok=  42  pos= 141
+        Text              '\"]'             InterpolatedStringFragment  tok=  43  pos= 142
+                          '"'               InterpolatedStringClose  tok=  44  pos= 145

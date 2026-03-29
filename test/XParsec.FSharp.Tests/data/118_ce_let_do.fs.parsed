@@ -202,108 +202,111 @@ FunctionOrValue:
                   Func:
                     Ident               'printfn'         Identifier          tok= 263  pos= 791
                   Args:
-                    Const               '"starting"'      StringLiteral       tok= 265  pos= 799
-              return                    'return'          KWReturn            tok= 268  pos= 818
+                    StringLiteral       '"'               StringOpen          tok= 265  pos= 799
+                    Parts:
+                      Text              'starting'        StringFragment      tok= 266  pos= 800
+                                        '"'               StringClose         tok= 267  pos= 808
+              return                    'return'          KWReturn            tok= 270  pos= 818
               Return:
-                Const                   '0'               NumInt32            tok= 270  pos= 825
-                                        '}'               KWRBrace            tok= 273  pos= 831
+                Const                   '0'               NumInt32            tok= 272  pos= 825
+                                        '}'               KWRBrace            tok= 275  pos= 831
 FunctionOrValue:
-  let                                   'let'             KWLet               tok= 278  pos= 855
-    Pat.NamedSimple                     'h'               Identifier          tok= 280  pos= 859
-    =                                   '='               OpEquality          tok= 282  pos= 861
+  let                                   'let'             KWLet               tok= 280  pos= 855
+    Pat.NamedSimple                     'h'               Identifier          tok= 282  pos= 859
+    =                                   '='               OpEquality          tok= 284  pos= 861
       App:
         Func:
-          Ident                         'async'           Identifier          tok= 285  pos= 867
+          Ident                         'async'           Identifier          tok= 287  pos= 867
         Args:
-          ComputationBlock              '{'               KWLBrace            tok= 287  pos= 873
-            UseBang                     'use!'            KWUseBang           tok= 290  pos= 883
-              Pat.NamedSimple           'resource'        Identifier          tok= 292  pos= 888
-              =                         '='               OpEquality          tok= 294  pos= 897
+          ComputationBlock              '{'               KWLBrace            tok= 289  pos= 873
+            UseBang                     'use!'            KWUseBang           tok= 292  pos= 883
+              Pat.NamedSimple           'resource'        Identifier          tok= 294  pos= 888
+              =                         '='               OpEquality          tok= 296  pos= 897
                 App:
                   Func:
-                    Ident               'acquire'         Identifier          tok= 296  pos= 899
+                    Ident               'acquire'         Identifier          tok= 298  pos= 899
                   Args:
-                    ParenBlock          '('               KWLParen            tok= 298  pos= 907
-                                        ')'               KWRParen            tok= 299  pos= 908
+                    ParenBlock          '('               KWLParen            tok= 300  pos= 907
+                                        ')'               KWRParen            tok= 301  pos= 908
             in                          <virt>            KWIn                tok=virt  pos= 918
             Body:
-              return!                   'return!'         KWReturnBang        tok= 302  pos= 918
+              return!                   'return!'         KWReturnBang        tok= 304  pos= 918
               ReturnBang:
                 App:
                   Func:
                     LongIdentOrOp:
                       LongIdent:
-                                        'resource'        Identifier          tok= 304  pos= 926
-                                        'DoWork'          Identifier          tok= 306  pos= 935
+                                        'resource'        Identifier          tok= 306  pos= 926
+                                        'DoWork'          Identifier          tok= 308  pos= 935
                   Args:
-                    ParenBlock          '('               KWLParen            tok= 308  pos= 942
-                                        ')'               KWRParen            tok= 309  pos= 943
-                                        '}'               KWRBrace            tok= 312  pos= 949
+                    ParenBlock          '('               KWLParen            tok= 310  pos= 942
+                                        ')'               KWRParen            tok= 311  pos= 943
+                                        '}'               KWRBrace            tok= 314  pos= 949
 FunctionOrValue:
-  let                                   'let'             KWLet               tok= 317  pos= 982
-    Pat.NamedSimple                     'i'               Identifier          tok= 319  pos= 986
-    =                                   '='               OpEquality          tok= 321  pos= 988
+  let                                   'let'             KWLet               tok= 319  pos= 982
+    Pat.NamedSimple                     'i'               Identifier          tok= 321  pos= 986
+    =                                   '='               OpEquality          tok= 323  pos= 988
       App:
         Func:
-          Ident                         'async'           Identifier          tok= 324  pos= 994
+          Ident                         'async'           Identifier          tok= 326  pos= 994
         Args:
-          ComputationBlock              '{'               KWLBrace            tok= 326  pos=1000
-            Use                         'use'             KWUse               tok= 329  pos=1010
-              Pat.NamedSimple           'conn'            Identifier          tok= 331  pos=1014
-              =                         '='               OpEquality          tok= 333  pos=1019
+          ComputationBlock              '{'               KWLBrace            tok= 328  pos=1000
+            Use                         'use'             KWUse               tok= 331  pos=1010
+              Pat.NamedSimple           'conn'            Identifier          tok= 333  pos=1014
+              =                         '='               OpEquality          tok= 335  pos=1019
                 App:
                   Func:
-                    Ident               'openConnec...'   Identifier          tok= 335  pos=1021
+                    Ident               'openConnec...'   Identifier          tok= 337  pos=1021
                   Args:
-                    ParenBlock          '('               KWLParen            tok= 337  pos=1036
-                                        ')'               KWRParen            tok= 338  pos=1037
+                    ParenBlock          '('               KWLParen            tok= 339  pos=1036
+                                        ')'               KWRParen            tok= 340  pos=1037
             in                          <virt>            KWIn                tok=virt  pos=1047
             Body:
-              return                    'return'          KWReturn            tok= 341  pos=1047
+              return                    'return'          KWReturn            tok= 343  pos=1047
               Return:
                 App:
                   Func:
                     LongIdentOrOp:
                       LongIdent:
-                                        'conn'            Identifier          tok= 343  pos=1054
-                                        'Query'           Identifier          tok= 345  pos=1059
+                                        'conn'            Identifier          tok= 345  pos=1054
+                                        'Query'           Identifier          tok= 347  pos=1059
                   Args:
-                    ParenBlock          '('               KWLParen            tok= 347  pos=1065
-                                        ')'               KWRParen            tok= 348  pos=1066
-                                        '}'               KWRBrace            tok= 351  pos=1072
+                    ParenBlock          '('               KWLParen            tok= 349  pos=1065
+                                        ')'               KWRParen            tok= 350  pos=1066
+                                        '}'               KWRBrace            tok= 353  pos=1072
 FunctionOrValue:
-  let                                   'let'             KWLet               tok= 356  pos=1107
-    Pat.NamedSimple                     'j'               Identifier          tok= 358  pos=1111
-    =                                   '='               OpEquality          tok= 360  pos=1113
+  let                                   'let'             KWLet               tok= 358  pos=1107
+    Pat.NamedSimple                     'j'               Identifier          tok= 360  pos=1111
+    =                                   '='               OpEquality          tok= 362  pos=1113
       App:
         Func:
-          Ident                         'async'           Identifier          tok= 363  pos=1119
+          Ident                         'async'           Identifier          tok= 365  pos=1119
         Args:
-          ComputationBlock              '{'               KWLBrace            tok= 365  pos=1125
-            LetBang                     'let!'            KWLetBang           tok= 368  pos=1135
-              Pat.NamedSimple           'result'          Identifier          tok= 370  pos=1140
-              =                         '='               OpEquality          tok= 372  pos=1147
+          ComputationBlock              '{'               KWLBrace            tok= 367  pos=1125
+            LetBang                     'let!'            KWLetBang           tok= 370  pos=1135
+              Pat.NamedSimple           'result'          Identifier          tok= 372  pos=1140
+              =                         '='               OpEquality          tok= 374  pos=1147
                 App:
                   Func:
-                    Ident               'run'             Identifier          tok= 374  pos=1149
+                    Ident               'run'             Identifier          tok= 376  pos=1149
                   Args:
-                    ParenBlock          '('               KWLParen            tok= 376  pos=1153
-                      Fun               'fun'             KWFun               tok= 377  pos=1154
+                    ParenBlock          '('               KWLParen            tok= 378  pos=1153
+                      Fun               'fun'             KWFun               tok= 379  pos=1154
                       Pats:
-                        ParenBlock      '('               KWLParen            tok= 379  pos=1158
-                                        ')'               KWRParen            tok= 380  pos=1159
-                      Arrow             '->'              OpArrowRight        tok= 382  pos=1161
+                        ParenBlock      '('               KWLParen            tok= 381  pos=1158
+                                        ')'               KWRParen            tok= 382  pos=1159
+                      Arrow             '->'              OpArrowRight        tok= 384  pos=1161
                       Body:
                         App:
                           Func:
-                            Ident       'computeExp...'   Identifier          tok= 384  pos=1164
+                            Ident       'computeExp...'   Identifier          tok= 386  pos=1164
                           Args:
-                            ParenBlock  '('               KWLParen            tok= 386  pos=1181
-                                        ')'               KWRParen            tok= 387  pos=1182
-                                        ')'               KWRParen            tok= 388  pos=1183
+                            ParenBlock  '('               KWLParen            tok= 388  pos=1181
+                                        ')'               KWRParen            tok= 389  pos=1182
+                                        ')'               KWRParen            tok= 390  pos=1183
             in                          <virt>            KWIn                tok=virt  pos=1193
             Body:
-              return                    'return'          KWReturn            tok= 391  pos=1193
+              return                    'return'          KWReturn            tok= 393  pos=1193
               Return:
-                Ident                   'result'          Identifier          tok= 393  pos=1200
-                                        '}'               KWRBrace            tok= 396  pos=1211
+                Ident                   'result'          Identifier          tok= 395  pos=1200
+                                        '}'               KWRBrace            tok= 398  pos=1211

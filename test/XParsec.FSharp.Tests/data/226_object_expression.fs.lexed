@@ -191,7 +191,9 @@
 631, Whitespace
 632, OpEquality
 633, Whitespace
-634, StringLiteral
+634, StringOpen
+635, StringFragment
+640, StringClose
 641, Whitespace
 642, KWRBrace
 643, Newline
