@@ -6,6 +6,7 @@ open System.Collections.Immutable
 open XParsec
 open XParsec.Parsers
 open XParsec.OperatorParsing
+open XParsec.FSharp
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser.SyntaxToken
 
@@ -38,7 +39,7 @@ module Pat =
             | _ -> failwithf "Unexpected infix pattern operator: %A" op
 
         static let completeTuple (elements: ResizeArray<Pat<SyntaxToken>>) (ops: ResizeArray<SyntaxToken>) =
-            Pat.Tuple(List.ofSeq elements, List.ofSeq ops)
+            Pat.Tuple(ImmutableArray.CreateRange(elements), ImmutableArray.CreateRange(ops))
 
         static let completeTyped (l: Pat<SyntaxToken>) (op: SyntaxToken) (aux: PatAux) =
             match aux with
@@ -63,7 +64,7 @@ module Pat =
 
 
         static let completeElems (exprs: ResizeArray<Pat<_>>) ops =
-            Pat.Elems(List.ofSeq exprs, List.ofSeq ops)
+            Pat.Elems(ImmutableArray.CreateRange(exprs), ImmutableArray.CreateRange(ops))
 
         // --- Aux Parsers ---
 
@@ -218,7 +219,7 @@ module Pat =
                     parser {
                         let! fields, _ = withContext OffsideContext.SeqBlock (sepEndBy1 pFieldPat pRecordFieldSep)
                         let! r = pRBrace
-                        return Pat.Record(l, List.ofSeq fields, r)
+                        return Pat.Record(l, fields, r)
                     }
 
                 match innerParser reader with
@@ -288,7 +289,7 @@ module Pat =
                 withContext OffsideContext.SeqBlock (sepBy1 pUnionFieldPat (pComma <|> pRecordFieldSep))
 
             let! rParen = pRParen
-            return Pat.NamedFieldPats(lid, lParen, List.ofSeq fields, List.ofSeq commas, rParen)
+            return Pat.NamedFieldPats(lid, lParen, fields, commas, rParen)
         }
 
     let pNamed =
@@ -302,10 +303,10 @@ module Pat =
                     let! param = opt refPatAtomic.Parser
                     let! arg = opt refPat.Parser
 
-                    match lid, param, arg with
-                    | [ name ], ValueNone, ValueNone ->
+                    match lid.Length, param, arg with
+                    | 1, ValueNone, ValueNone ->
                         // Simple named pattern (variable)
-                        return Pat.NamedSimple(name)
+                        return Pat.NamedSimple(lid[0])
                     | _ ->
                         // Full named pattern
                         return Pat.Named(lid, param, arg)
@@ -419,7 +420,7 @@ module Pat =
 
             let! closing = nextNonTriviaTokenSatisfiesL (fun t -> isStringClose t.Token) "Expected string close"
 
-            return Pat.String(kind, Seq.toList parts, closing)
+            return Pat.String(kind, ImmutableArray.CreateRange(parts), closing)
         }
 
     let pWildcardPat = pWildcard |>> Pat.Wildcard
@@ -498,10 +499,15 @@ module Pat =
                 if extraPats.IsEmpty then
                     firstPat
                 else
-                    Pat.Tuple(
-                        firstPat :: (extraPats |> Seq.map snd |> List.ofSeq),
-                        extraPats |> Seq.map fst |> List.ofSeq
-                    )
+                    let elems = ImmutableArray.CreateBuilder(extraPats.Length + 1)
+                    let commas = ImmutableArray.CreateBuilder(extraPats.Length)
+                    elems.Add(firstPat)
+
+                    for (comma, p) in extraPats.AsSpan() do
+                        commas.Add(comma)
+                        elems.Add(p)
+
+                    Pat.Tuple(elems.ToImmutable(), commas.ToImmutable())
 
             return pat
         }
@@ -585,5 +591,5 @@ module Rules =
         parser {
             let! firstBar = opt pBar
             let! rules, bars = sepBy1 pRule pBar
-            return Rules(firstBar, List.ofSeq rules, List.ofSeq bars)
+            return Rules(firstBar, rules, bars)
         }

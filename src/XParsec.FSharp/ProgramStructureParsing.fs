@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.Parser
 
+open System.Collections.Immutable
 open XParsec
 open XParsec.Parsers
 open XParsec.FSharp.Lexer
@@ -30,7 +31,7 @@ module ImplementationFile =
     let parse =
         dispatchNextNonTriviaTokenFallback
             [
-                Token.KWNamespace, many1 NamespaceDeclGroup.parse |>> (List.ofSeq >> ImplementationFile.Namespaces)
+                Token.KWNamespace, many1 NamespaceDeclGroup.parse |>> ImplementationFile.Namespaces
                 Token.KWModule,
                 // Try named module first (module LongIdent <elems>),
                 // fall back to anonymous module (e.g. module abbreviation as first elem)
@@ -60,7 +61,11 @@ module FSharpAst =
             [
                 ImplementationFile.parse .>> pEof |>> FSharpAst.ImplementationFile
                 Expr.parse .>> pEof
-                |>> (fun e -> FSharpAst.ScriptFragment(ScriptFragment.ScriptFragment [ ModuleElem.Expression e ]))
+                |>> (fun e ->
+                    FSharpAst.ScriptFragment(
+                        ScriptFragment.ScriptFragment(ImmutableArray.Create(ModuleElem.Expression e))
+                    )
+                )
             ]
             "FSharpAst"
 
@@ -80,7 +85,7 @@ module FSharpAst =
                     | Ok t -> skipped.Add(t)
                     | Error _ -> keepGoing <- false
 
-        List.ofSeq skipped
+        ImmutableArray.CreateRange(skipped)
 
     /// Infallible top-level parser. Always returns Ok with errors captured as diagnostics.
     let parse: Parser<FSharpAst<SyntaxToken>, PositionedToken, ParseState, _, _> =
@@ -100,7 +105,7 @@ module FSharpAst =
                     let skipped = skipToEof reader
 
                     if not skipped.IsEmpty then
-                        let startTok = skipped.Head
+                        let startTok = skipped.[0]
 
                         reader.State <-
                             addDiagnostic
@@ -123,7 +128,7 @@ module FSharpAst =
                         let skipped = skipToEof reader
 
                         if not skipped.IsEmpty then
-                            let startTok = skipped.Head
+                            let startTok = skipped.[0]
 
                             reader.State <-
                                 addDiagnostic
@@ -134,7 +139,11 @@ module FSharpAst =
                                     (Some topErr)
                                     reader.State
 
-                        Ok(FSharpAst.ScriptFragment(ScriptFragment.ScriptFragment [ ModuleElem.Expression expr ]))
+                        Ok(
+                            FSharpAst.ScriptFragment(
+                                ScriptFragment.ScriptFragment(ImmutableArray.Create(ModuleElem.Expression expr))
+                            )
+                        )
 
                     | Error _ ->
                         // Nothing parseable at all. Skip all tokens and return empty module.
@@ -143,7 +152,7 @@ module FSharpAst =
 
                         let elems =
                             if not skipped.IsEmpty then
-                                let startTok = skipped.Head
+                                let startTok = skipped.[0]
 
                                 reader.State <-
                                     addDiagnostic
@@ -154,8 +163,8 @@ module FSharpAst =
                                         (Some topErr)
                                         reader.State
 
-                                [ ModuleElem.SkipsTokens(skipped) ]
+                                ImmutableArray.Create(ModuleElem.SkipsTokens(skipped))
                             else
-                                []
+                                ImmutableArray.Empty
 
                         Ok(FSharpAst.ImplementationFile(ImplementationFile.AnonymousModule elems))

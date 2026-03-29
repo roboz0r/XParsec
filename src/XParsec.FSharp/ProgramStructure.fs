@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.Parser
 
+open XParsec.FSharp
+
 // Represents: named-module := [attributes] module [access] [rec] long-ident module-elems
 type NamedModule<'T> =
     | NamedModule of
@@ -24,13 +26,13 @@ type AnonymousModuleSignature<'T> = ModuleSignatureElements<'T>
 
 // Represents: implementation-file
 type ImplementationFile<'T> =
-    | Namespaces of declarations: NamespaceDeclGroup<'T> list
+    | Namespaces of declarations: ImArr<NamespaceDeclGroup<'T>>
     | NamedModule of moduleDefn: NamedModule<'T>
     | AnonymousModule of elements: AnonymousModule<'T>
 
 // Represents: signature-file
 type SignatureFile<'T> =
-    | Namespaces of declarations: NamespaceDeclGroupSignature<'T> list
+    | Namespaces of declarations: ImArr<NamespaceDeclGroupSignature<'T>>
     | NamedModule of moduleSig: NamedModuleSignature<'T>
     | AnonymousModule of elements: AnonymousModuleSignature<'T>
 

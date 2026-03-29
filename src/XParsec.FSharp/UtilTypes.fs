@@ -1,6 +1,8 @@
-namespace XParsec.FSharp.Lexer
+namespace XParsec.FSharp
 
 open System.Collections.Immutable
+
+type ImArr<'T> = ImmutableArray<'T>
 
 [<Struct>]
 type ImmutableArrayM<'T, [<Measure>] 'M>(arr: ImmutableArray<'T>) =

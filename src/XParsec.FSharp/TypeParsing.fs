@@ -74,7 +74,7 @@ module StaticTypars =
             // This is slightly loose (allows trailing 'or'), strict grammar might require sepBy but AST implies tuple structure
             let! items = many1 pItem
             let! rParen = pRParen
-            return StaticTypars.OrList(lParen, List.ofSeq items, rParen)
+            return StaticTypars.OrList(lParen, items, rParen)
         }
 
     let parse = choiceL [ pOrList; pSingle ] "Static Type Parameters"
@@ -190,13 +190,13 @@ module TyparDefns =
 
                         let! constrs, _ = sepBy1 Constraint.parse pAnd
 
-                        return TyparConstraints.TyparConstraints(whenTok, List.ofSeq constrs)
+                        return TyparConstraints.TyparConstraints(whenTok, constrs)
                     }
                 )
 
             let! rAngle = pCloseTypeParams
 
-            return TyparDefns.TyparDefns(lAngle, List.ofSeq defns, constraints, rAngle)
+            return TyparDefns.TyparDefns(lAngle, defns, constraints, rAngle)
         }
 
 [<RequireQualifiedAccess>]
@@ -224,7 +224,7 @@ module Type =
                     let! ts, _ = sepBy refType.Parser pOpMultiply
 
                     let! r = pRParen
-                    return Type.StructTupleType(s, l, List.ofSeq ts, r)
+                    return Type.StructTupleType(s, l, ts, r)
                 }
                 // #Type
                 parser {
@@ -253,7 +253,7 @@ module Type =
                                 let! l = pLessThan
                                 let! args, _ = sepBy pTypeArg pComma
                                 let! r = pCloseTypeParams
-                                return (l, List.ofSeq args, r)
+                                return (l, args, r)
                             }
                         )
 
@@ -288,7 +288,7 @@ module Type =
                                     (fun t -> t.Token = Token.KWRArrayBracket || t.Token = Token.KWRBracket)
                                     "]"
 
-                            let newAcc = Type.ArrayType(acc, l, List.ofSeq commas, r)
+                            let newAcc = Type.ArrayType(acc, l, commas, r)
                             return! loop newAcc
                         }
                         // Dotted nested type: Foo<int>.Builder
@@ -382,12 +382,10 @@ module Type =
                     }
                 )
 
-            let restList = List.ofSeq rest
-
-            if restList.IsEmpty then
+            if rest.IsEmpty then
                 return first
             else
-                return Type.TupleType(first :: restList)
+                return Type.TupleType(rest.Insert(0, first))
         }
 
     // Function: T -> T -> T (Right Associative)
@@ -421,7 +419,7 @@ module Type =
         parser {
             let! whenTok = pWhen
             let! constrs, _ = sepBy1 Constraint.parse pAnd
-            return TyparConstraints.TyparConstraints(whenTok, List.ofSeq constrs)
+            return TyparConstraints.TyparConstraints(whenTok, constrs)
         }
 
     // Entry point for simple types

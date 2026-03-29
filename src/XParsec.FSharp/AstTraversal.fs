@@ -1,5 +1,6 @@
 module XParsec.FSharp.AstTraversal
 
+open XParsec.FSharp
 open XParsec.FSharp.Parser
 
 /// Callbacks invoked by AST walk functions in source order.
@@ -723,7 +724,7 @@ and walkRules (visitor: AstVisitor<'T>) (rules: Rules<'T>) : unit =
 and walkStringKindAndParts
     (visitor: AstVisitor<'T>)
     (kind: StringKind<'T>)
-    (parts: StringPart<'T> list)
+    (parts: ImArr<StringPart<'T>>)
     (closing: 'T)
     : unit =
     let label, opening =

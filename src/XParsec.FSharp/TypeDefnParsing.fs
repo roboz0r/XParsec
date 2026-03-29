@@ -6,6 +6,7 @@ open System.Collections.Immutable
 open XParsec
 open XParsec.Parsers
 open XParsec.OperatorParsing
+open XParsec.FSharp
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser.SyntaxToken
 open XParsec.FSharp.Parser.ParseState
@@ -34,7 +35,7 @@ module TypeName =
                     let! lParen = pLParen
                     let! typars, _ = sepBy1 Typar.parse pComma
                     let! rParen = pRParen
-                    return PrefixTypars.Multiple(lParen, List.ofSeq typars, rParen)
+                    return PrefixTypars.Multiple(lParen, typars, rParen)
                 }
                 // 'T — single prefix typar
                 Typar.parse |>> PrefixTypars.Single
@@ -56,7 +57,7 @@ module TypeName =
                     parser {
                         let! whenTok = pWhen
                         let! constrs, _ = sepBy1 Constraint.parse pAnd
-                        return TyparConstraints.TyparConstraints(whenTok, List.ofSeq constrs)
+                        return TyparConstraints.TyparConstraints(whenTok, constrs)
                     }
                 )
 
@@ -107,8 +108,7 @@ module ArgSpec =
 
 [<RequireQualifiedAccess>]
 module ArgsSpec =
-    let parse =
-        sepBy1 ArgSpec.parse pOpMultiply |>> fun struct (args, _) -> List.ofSeq args
+    let parse = sepBy1 ArgSpec.parse pOpMultiply |>> fun struct (args, _) -> args
 
 [<RequireQualifiedAccess>]
 module CurriedSig =
@@ -122,7 +122,7 @@ module CurriedSig =
             // The remaining is the return type.
             let! args = many pArgsSpec
             let! ret = Type.parse
-            return CurriedSig(List.ofSeq args, ret)
+            return CurriedSig(args, ret)
         }
 
 [<RequireQualifiedAccess>]
@@ -306,7 +306,7 @@ module MethodOrPropDefn =
                                 access = ValueNone
                                 headPat = Pat.NamedSimple ident
                                 typarDefns = ValueNone
-                                argumentPats = []
+                                argumentPats = ImmutableArray.Empty
                                 returnType = ValueNone
                                 equals = eq
                                 expr = expr
@@ -329,7 +329,7 @@ module MethodOrPropDefn =
                                 access = ValueNone
                                 headPat = Pat.NamedSimple ident
                                 typarDefns = ValueNone
-                                argumentPats = []
+                                argumentPats = ImmutableArray.Empty
                                 returnType = ValueSome returnType
                                 equals = equals
                                 expr = expr
@@ -366,7 +366,7 @@ module MethodOrPropDefn =
                                                 access = ValueNone
                                                 headPat = Pat.NamedSimple ident
                                                 typarDefns = typarDefns
-                                                argumentPats = List.ofSeq argumentPats
+                                                argumentPats = argumentPats
                                                 returnType = returnType
                                                 equals = equals
                                                 expr = expr
@@ -414,7 +414,7 @@ module AdditionalConstrExpr =
 
                     let! inits = many FieldInitializer.parse
                     let! rBrace = pRBrace
-                    return AdditionalConstrInitExpr.Explicit(lBrace, inherits, List.ofSeq inits, rBrace)
+                    return AdditionalConstrInitExpr.Explicit(lBrace, inherits, inits, rBrace)
                 }
                 parser {
                     let! newTok = pNew
@@ -830,7 +830,7 @@ module TypeDefnElement =
                                 Index = TokenIndex.Virtual
                             }
 
-                        let objMembers = ObjectMembers.ObjectMembers(wTok, List.ofSeq members, virtualEnd)
+                        let objMembers = ObjectMembers.ObjectMembers(wTok, members, virtualEnd)
 
                         return TypeDefnElement.InterfaceImpl(InterfaceImpl.InterfaceImpl(intf, t, ValueSome objMembers))
                     | ValueNone -> return TypeDefnElement.InterfaceSpec(InterfaceSpec.InterfaceSpec(intf, t))
@@ -922,8 +922,8 @@ module ClassTypeBody =
                 Ok(
                     {
                         inherits = inh
-                        classPreamble = List.ofSeq preamble
-                        elements = List.ofSeq elems
+                        classPreamble = ImmutableArray.CreateRange(preamble)
+                        elements = ImmutableArray.CreateRange(elems)
                     },
                     endTok
                 )
@@ -956,8 +956,8 @@ module ClassTypeBody =
             Ok
                 {
                     inherits = inh
-                    classPreamble = List.ofSeq preamble
-                    elements = List.ofSeq elems
+                    classPreamble = ImmutableArray.CreateRange(preamble)
+                    elements = ImmutableArray.CreateRange(elems)
                 }
 
 /// Parses the body of a struct definition (no inherits or class preamble).
@@ -971,8 +971,8 @@ module StructTypeBody =
             let body =
                 {
                     inherits = ValueNone
-                    classPreamble = []
-                    elements = List.ofSeq elems
+                    classPreamble = ImmutableArray.Empty
+                    elements = elems
                 }
 
             return (body, endTok)
@@ -989,8 +989,8 @@ module InterfaceTypeBody =
             let body =
                 {
                     inherits = ValueNone
-                    classPreamble = []
-                    elements = List.ofSeq elems
+                    classPreamble = ImmutableArray.Empty
+                    elements = elems
                 }
 
             return (body, endTok)
@@ -1020,9 +1020,8 @@ module UnionTypeField =
 
 [<RequireQualifiedAccess>]
 module UnionTypeCaseData =
-    let parseFields: Parser<UnionTypeField<SyntaxToken> list, _, _, _, _> =
-        sepBy1 UnionTypeField.parse pOpMultiply
-        |>> fun struct (fields, _) -> List.ofSeq fields
+    let parseFields: Parser<ImArr<UnionTypeField<SyntaxToken>>, _, _, _, _> =
+        sepBy1 UnionTypeField.parse pOpMultiply |>> fun struct (fields, _) -> fields
 
     let parseNary: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _, _> =
         parser {
@@ -1071,7 +1070,7 @@ module UnionTypeCases =
         parser {
             let! firstBar = opt pBar
             let! cases, _ = sepBy1 UnionTypeCase.parse pBar
-            return List.ofSeq cases
+            return cases
         }
 
 // --- Record ---
@@ -1107,7 +1106,7 @@ module EnumTypeCases =
         parser {
             let! firstBar = opt pBar
             let! cases, _ = sepBy1 EnumTypeCase.parse pBar
-            return List.ofSeq cases
+            return cases
         }
 
 // --- Type Extensions ---
@@ -1119,7 +1118,7 @@ module TypeExtensionElements =
             let! withTok = pWith
             let! elems = withContext OffsideContext.WithAugment TypeDefnElements.parseMany
             let! endTok = nextNonTriviaTokenVirtualIfNot Token.KWEnd
-            return TypeExtensionElements.TypeExtensionElements(withTok, List.ofSeq elems, endTok)
+            return TypeExtensionElements.TypeExtensionElements(withTok, elems, endTok)
         }
 
     /// Light-syntax variant: synthesizes a virtual 'with' when member tokens follow
@@ -1129,7 +1128,7 @@ module TypeExtensionElements =
             let! withTok = nextNonTriviaTokenVirtualIfNot Token.KWWith
             let! elems = withContext OffsideContext.WithAugment (many1 TypeDefnElement.parse)
             let! endTok = nextNonTriviaTokenVirtualIfNot Token.KWEnd
-            return TypeExtensionElements.TypeExtensionElements(withTok, List.ofSeq elems, endTok)
+            return TypeExtensionElements.TypeExtensionElements(withTok, elems, endTok)
         }
 
 [<RequireQualifiedAccess>]
@@ -1293,7 +1292,7 @@ module TypeDefn =
                     let! ext =
                         opt (choiceL [ TypeExtensionElements.parse; TypeExtensionElements.parseLight ] "Type Extension")
 
-                    return TypeDefn.Record(typeName, equals, lBrace, List.ofSeq fields, rBrace, ext)
+                    return TypeDefn.Record(typeName, equals, lBrace, fields, rBrace, ext)
 
                 | Token.OpBar ->
                     // Try Enum first (each case has '= <value>'), then Union
@@ -1328,8 +1327,12 @@ module TypeDefn =
                                 parser {
                                     let! cases = UnionTypeCases.parse
 
-                                    match cases with
-                                    | [ UnionTypeCase.UnionTypeCase(_, UnionTypeCaseData.Nullary _) ] ->
+                                    match cases.Length with
+                                    | 1 when
+                                        (match cases[0] with
+                                         | UnionTypeCase.UnionTypeCase(_, UnionTypeCaseData.Nullary _) -> true
+                                         | _ -> false)
+                                        ->
                                         // Single nullary case without '|' is a type abbreviation, not a DU
                                         return! fail (Message "Single nullary union case is a type abbreviation")
                                     | _ ->
@@ -1360,7 +1363,7 @@ module TypeDefn =
                 | ValueNone, ValueNone -> ValueNone
                 | ValueSome a, ValueNone -> ValueSome a
                 | ValueNone, ValueSome a -> ValueSome a
-                | ValueSome list1, ValueSome list2 -> ValueSome(list1 @ list2)
+                | ValueSome a1, ValueSome a2 -> ValueSome(a1.AddRange(a2))
 
             return! parseBody mergedAttrs
         }

@@ -48,7 +48,7 @@ module CompilerDirectiveDecl =
                     (nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "Directive identifier")
 
             let! strings = many (nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsText) "String argument")
-            return CompilerDirectiveDecl(hash, ident, List.ofSeq strings)
+            return CompilerDirectiveDecl(hash, ident, strings)
         }
 
 [<RequireQualifiedAccess>]
@@ -64,7 +64,7 @@ module ModuleFunctionOrValueDefn =
                 return ModuleFunctionOrValueDefn.Let(attrs, letTok, ValueSome recTok, bindings)
             | ValueNone ->
                 let! binding = Binding.parse attrs
-                return ModuleFunctionOrValueDefn.Let(attrs, letTok, ValueNone, [ binding ])
+                return ModuleFunctionOrValueDefn.Let(attrs, letTok, ValueNone, ImmutableArray.Create(binding))
         }
 
     let parse =
@@ -143,7 +143,7 @@ module ModuleElem =
 
     // Forward reference setup to handle: ModuleElem -> ModuleDefn -> ModuleElem
     /// Plain parseElems: no recovery. Used in AnonymousModule where backtracking must remain possible.
-    let parseElems = many refModuleElem.Parser |>> List.ofSeq
+    let parseElems = many refModuleElem.Parser
 
     /// parseElems with recovery: after `many` stops on failure, skips tokens to the next
     /// module-elem boundary and resumes. Only safe in committed contexts (after namespace/module keyword).
@@ -201,12 +201,12 @@ module ModuleElem =
                                     (Some parseErr)
                                     reader.State
 
-                            result.Add(ModuleElem.SkipsTokens(List.ofSeq skipped))
+                            result.Add(ModuleElem.SkipsTokens(ImmutableArray.CreateRange(skipped)))
                         else
                             // Can't skip anything and can't parse — avoid infinite loop
                             keepGoing <- false
 
-            Ok(List.ofSeq result)
+            Ok(ImmutableArray.CreateRange(result))
 
     let parse =
         dispatchNextNonTriviaTokenFallback
@@ -222,7 +222,10 @@ module ModuleElem =
                     parser {
                         let! first = TypeDefn.parse
                         let! rest = many TypeDefn.parseAndContinuation
-                        return ModuleElem.Type(first :: List.ofSeq rest)
+                        let builder = ImmutableArray.CreateBuilder(rest.Length + 1)
+                        builder.Add(first)
+                        builder.AddRange(rest)
+                        return ModuleElem.Type(builder.ToImmutable())
                     }
 
                     // Exception Definitions

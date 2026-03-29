@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.Parser
 
+open XParsec.FSharp
+
 // Represents: access := private | internal | public
 [<RequireQualifiedAccess>]
 type Access<'T> =
@@ -16,17 +18,17 @@ type ImportDecl<'T> =
 type ModuleAbbrev<'T> = | ModuleAbbrev of moduleToken: 'T * ident: 'T * equals: 'T * longIdent: LongIdent<'T>
 
 // Represents: compiler-directive-decl := # ident string ... string
-type CompilerDirectiveDecl<'T> = | CompilerDirectiveDecl of hash: 'T * ident: 'T * strings: 'T list
+type CompilerDirectiveDecl<'T> = | CompilerDirectiveDecl of hash: 'T * ident: 'T * strings: ImArr<'T>
 
 // Represents: module-function-or-value-defn
 type ModuleFunctionOrValueDefn<'T> =
-    | Let of attributes: Attributes<'T> voption * letToken: 'T * isRec: 'T voption * bindings: Binding<'T> list
+    | Let of attributes: Attributes<'T> voption * letToken: 'T * isRec: 'T voption * bindings: ImArr<Binding<'T>>
     | Do of attributes: Attributes<'T> voption * doToken: 'T * expr: Expr<'T>
 
 // Represents: module-elem
 type ModuleElem<'T> =
     | FunctionOrValue of ModuleFunctionOrValueDefn<'T>
-    | Type of TypeDefn<'T> list
+    | Type of ImArr<TypeDefn<'T>>
     | Exception of ExceptionDefn<'T>
     | Module of ModuleDefn<'T>
     | ModuleAbbrev of ModuleAbbrev<'T>
@@ -34,10 +36,10 @@ type ModuleElem<'T> =
     | CompilerDirective of CompilerDirectiveDecl<'T>
     | Expression of Expr<'T>
     | Missing
-    | SkipsTokens of skippedTokens: 'T list
+    | SkipsTokens of skippedTokens: ImArr<'T>
 
 // Represents: module-elems := module-elem ... module-elem
-and ModuleElems<'T> = ModuleElem<'T> list
+and ModuleElems<'T> = ImArr<ModuleElem<'T>>
 
 // Represents: module-defn-body := begin module-elemsopt end
 and ModuleDefnBody<'T> = | ModuleDefnBody of beginToken: 'T * elements: ModuleElems<'T> voption * endToken: 'T

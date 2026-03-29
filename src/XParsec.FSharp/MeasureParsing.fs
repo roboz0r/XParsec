@@ -39,7 +39,7 @@ module Measure =
             | MeasureAux.PowerOperand exponentToken -> Measure.Power(l, op, exponentToken)
 
         static let completeJuxtaposition (elements: ResizeArray<Measure<SyntaxToken>>) (ops: ResizeArray<SyntaxToken>) =
-            Measure.Juxtaposition(List.ofSeq elements, List.ofSeq ops)
+            Measure.Juxtaposition(ImmutableArray.CreateRange(elements), ImmutableArray.CreateRange(ops))
 
         static let completeParen (l: SyntaxToken) (m: Measure<SyntaxToken>) (r: SyntaxToken) = Measure.Paren(l, m, r)
 

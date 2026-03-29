@@ -6,6 +6,7 @@ open System.Collections.Immutable
 open XParsec
 open XParsec.Parsers
 open XParsec.OperatorParsing
+open XParsec.FSharp
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser.SyntaxToken
 open XParsec.FSharp.Parser.ParseState
@@ -69,10 +70,10 @@ module ElifBranches =
 
         | Ok(ElIfTok.Else elseTok) ->
             match pElseExpr reader with
-            | Ok expr -> Ok struct (List.ofSeq acc, ValueSome(ElseBranch.ElseBranch(elseTok, expr)))
+            | Ok expr -> Ok struct (ImmutableArray.CreateRange acc, ValueSome(ElseBranch.ElseBranch(elseTok, expr)))
             | Error e -> Error e
 
-        | Error e -> Ok struct (List.ofSeq acc, ValueNone)
+        | Error e -> Ok struct (ImmutableArray.CreateRange acc, ValueNone)
 
     let parse: Parser<_, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         fun reader -> parseBranches (ResizeArray()) reader
@@ -120,7 +121,7 @@ module Binding =
                     access = access
                     headPat = headPatOfIdentOrOp identOrOp
                     typarDefns = typarDefns
-                    argumentPats = List.ofSeq argumentPats
+                    argumentPats = argumentPats
                     returnType = returnType
                     equals = equals
                     expr = expr
@@ -149,7 +150,7 @@ module Binding =
                     access = access
                     headPat = pat
                     typarDefns = typarDefns
-                    argumentPats = []
+                    argumentPats = ImmutableArray.Empty
                     returnType = returnType
                     equals = equals
                     expr = expr
@@ -161,7 +162,7 @@ module Binding =
         choiceL [ parseFunction attrs; parseValue attrs ] "Binding"
 
     let parseSepByAnd1 attrs =
-        sepBy1 (parse attrs) pAnd |>> fun struct (bindings, _) -> List.ofSeq bindings
+        sepBy1 (parse attrs) pAnd |>> fun struct (bindings, _) -> bindings
 
 [<AutoOpen>]
 module private MemberHelpers =
@@ -251,7 +252,7 @@ module ObjectMembers =
             // We use `many` combined with a check for the `end` token to terminate
             let! members, endTok = manyTill refMemberDefn.Parser pEnd
 
-            return ObjectMembers.ObjectMembers(withTok, List.ofSeq members, endTok)
+            return ObjectMembers.ObjectMembers(withTok, members, endTok)
         }
 
 [<RequireQualifiedAccess>]
@@ -268,7 +269,7 @@ module InterfaceImpl =
 [<RequireQualifiedAccess>]
 type ExprAux =
     | Ident of SyntaxToken
-    | TypeApp of SyntaxToken * Type<SyntaxToken> list * SyntaxToken
+    | TypeApp of SyntaxToken * ImArr<Type<SyntaxToken>> * SyntaxToken
     | DotIndex of SyntaxToken * Expr<SyntaxToken> * SyntaxToken // .[ expr ]
     | DotParenOp of IdentOrOp<SyntaxToken> // .( op ) — qualified operator access
     | PostfixDynamic of SyntaxToken * Type<SyntaxToken> // :? Type (DynamicTypeTest)
@@ -308,7 +309,7 @@ module Expr =
             | _ -> failwith "Unexpected Aux type for For expression completion"
 
         let completeSequence (exprs: ResizeArray<Expr<_>>) ops =
-            Expr.Sequential(List.ofSeq exprs, List.ofSeq ops)
+            Expr.Sequential(ImmutableArray.CreateRange exprs, ImmutableArray.CreateRange ops)
 
         let completeAssignment (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) = Expr.Assignment(l, op, r)
         let completePrefix (op: SyntaxToken) (e: Expr<_>) = Expr.PrefixApp(op, e)
@@ -317,10 +318,17 @@ module Expr =
         let completeUpcast (op: SyntaxToken) (e: Expr<_>) = Expr.Upcast(op, e)
         let completeDowncast (op: SyntaxToken) (e: Expr<_>) = Expr.Downcast(op, e)
         let completeSliceTo (op: SyntaxToken) (e: Expr<_>) = Expr.SliceTo(op, e)
-        let completeTuple (elements: ResizeArray<Expr<_>>) ops = Expr.Tuple(List.ofSeq elements)
+
+        let completeTuple (elements: ResizeArray<Expr<_>>) ops =
+            Expr.Tuple(ImmutableArray.CreateRange elements)
 
         let completeApp (elements: ResizeArray<Expr<_>>) ops =
-            Expr.App(elements[0], elements |> Seq.skip 1 |> List.ofSeq)
+            let args = ImmutableArray.CreateBuilder(elements.Count - 1)
+
+            for i in 1 .. elements.Count - 1 do
+                args.Add(elements[i])
+
+            Expr.App(elements[0], args.ToImmutable())
 
         let completeSliceAll (op: SyntaxToken) (x: ExprAux) =
             match x with
@@ -369,18 +377,15 @@ module Expr =
             match aux with
             | ExprAux.Ident ident ->
                 match expr with
-                | Expr.Ident firstIdent -> Expr.LongIdentOrOp(LongIdentOrOp.LongIdent [ firstIdent; ident ])
+                | Expr.Ident firstIdent ->
+                    Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ImmutableArray.Create(firstIdent, ident)))
                 | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent longIdentOrOp) ->
-                    let newLongIdent =
-                        match longIdentOrOp with
-                        | [] -> [ ident ]
-                        | _ -> longIdentOrOp @ [ ident ]
-
-                    Expr.LongIdentOrOp(LongIdentOrOp.LongIdent newLongIdent)
-                | _ -> Expr.DotLookup(expr, op, LongIdentOrOp.LongIdent [ ident ])
+                    Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(longIdentOrOp.Add(ident)))
+                | _ -> Expr.DotLookup(expr, op, LongIdentOrOp.LongIdent(ImmutableArray.Create(ident)))
             | ExprAux.DotParenOp identOrOp ->
                 match expr with
-                | Expr.Ident firstIdent -> Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp([ firstIdent ], op, identOrOp))
+                | Expr.Ident firstIdent ->
+                    Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(ImmutableArray.Create(firstIdent), op, identOrOp))
                 | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent longIdent) ->
                     Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(longIdent, op, identOrOp))
                 | _ -> Expr.DotLookup(expr, op, LongIdentOrOp.Op identOrOp)
@@ -398,7 +403,7 @@ module Expr =
 
                 let! rAngle = pCloseTypeParams
 
-                return ExprAux.TypeApp(lAngle, List.ofSeq types, rAngle)
+                return ExprAux.TypeApp(lAngle, types, rAngle)
             }
 
         let completeTypeApp (expr: Expr<_>) (op: SyntaxToken) (aux: ExprAux) =
@@ -825,7 +830,7 @@ module Expr =
 
                 let! elifs, elseBranch = ElifBranches.parse
 
-                return ExprAux.ForExpr(Expr.IfThenElse(ifTok, cond, thenTok, thenExpr, List.ofSeq elifs, elseBranch))
+                return ExprAux.ForExpr(Expr.IfThenElse(ifTok, cond, thenTok, thenExpr, elifs, elseBranch))
             }
 
         let pMatchRules =
@@ -844,7 +849,7 @@ module Expr =
                         )
 
                     if toks.IsEmpty then
-                        Rules(ValueNone, [ missing ], [])
+                        Rules(ValueNone, ImmutableArray.Create(missing), ImmutableArray.Empty)
                     else
                         let missingWithSkips =
                             Rule.Rule(
@@ -854,7 +859,7 @@ module Expr =
                                 Expr.Missing
                             )
 
-                        Rules(ValueNone, [ missingWithSkips ], [])
+                        Rules(ValueNone, ImmutableArray.Create(missingWithSkips), ImmutableArray.Empty)
                 )
 
         let pMatchExpr =
@@ -965,7 +970,7 @@ module Expr =
                                     pArrowRight
 
                             let! expr = recoverExprMissing pBody
-                            return Expr.Fun(funTok, List.ofSeq pats, arrow, expr)
+                            return Expr.Fun(funTok, pats, arrow, expr)
                         })
 
                 return ExprAux.ForExpr result
@@ -1001,7 +1006,7 @@ module Expr =
                             )
 
                         if toks.IsEmpty then
-                            Rules(ValueNone, [ missing ], [])
+                            Rules(ValueNone, ImmutableArray.Create(missing), ImmutableArray.Empty)
                         else
                             let missingWithSkips =
                                 Rule.Rule(
@@ -1011,7 +1016,7 @@ module Expr =
                                     Expr.Missing
                                 )
 
-                            Rules(ValueNone, [ missingWithSkips ], [])
+                            Rules(ValueNone, ImmutableArray.Create(missingWithSkips), ImmutableArray.Empty)
                     )
 
             // Manually manage the Try context so it stays active through with/finally parsing,
@@ -1702,7 +1707,7 @@ module Expr =
 
             let! closing = nextNonTriviaTokenSatisfiesL (fun t -> isStringClose t.Token) "Expected string close"
 
-            return Expr.String(kind, Seq.toList parts, closing)
+            return Expr.String(kind, ImmutableArray.CreateRange parts, closing)
         }
 
     let pIdentExpr = nextNonTriviaIdentifierL "Expected identifier" |>> Expr.Ident
@@ -1804,7 +1809,7 @@ module Expr =
             let e =
                 match e with
                 | Expr.Tuple(es) -> es
-                | e -> [ e ]
+                | e -> ImmutableArray.Create(e)
 
             return Expr.StructTuple(kw, l, e, r)
         }
@@ -1922,11 +1927,7 @@ module Expr =
                                                     }
 
                                                 let objMembers =
-                                                    ObjectMembers.ObjectMembers(
-                                                        wTok,
-                                                        List.ofSeq intfMembers,
-                                                        intfVirtualEnd
-                                                    )
+                                                    ObjectMembers.ObjectMembers(wTok, intfMembers, intfVirtualEnd)
 
                                                 return
                                                     InterfaceImpl.InterfaceImpl(interfaceTok, typ, ValueSome objMembers)
@@ -1950,20 +1951,12 @@ module Expr =
                                         Index = TokenIndex.Virtual
                                     }
 
-                                let objMembers =
-                                    ObjectMembers.ObjectMembers(withTok, List.ofSeq members, virtualEnd)
+                                let objMembers = ObjectMembers.ObjectMembers(withTok, members, virtualEnd)
 
                                 let! rBrace = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome lBrace) Token.KWRBrace
 
                                 return
-                                    Expr.Object(
-                                        lBrace,
-                                        ValueSome newTok,
-                                        baseCall,
-                                        objMembers,
-                                        List.ofSeq interfaceImpls,
-                                        rBrace
-                                    )
+                                    Expr.Object(lBrace, ValueSome newTok, baseCall, objMembers, interfaceImpls, rBrace)
                             }
                             // { expr with Field = val; ... } — record clone/update
                             parser {
@@ -1974,7 +1967,7 @@ module Expr =
                                     withContext OffsideContext.SeqBlock (sepBy1 FieldInitializer.parse pRecordFieldSep)
 
                                 let! rBrace = pRBrace
-                                return Expr.RecordClone(lBrace, baseExpr, withTok, List.ofSeq fields, rBrace)
+                                return Expr.RecordClone(lBrace, baseExpr, withTok, fields, rBrace)
                             }
                             // { Field = val; ... } — record literal
                             parser {
@@ -1982,7 +1975,7 @@ module Expr =
                                     withContext OffsideContext.SeqBlock (sepBy1 FieldInitializer.parse pRecordFieldSep)
 
                                 let! rBrace = pRBrace
-                                return Expr.Record(lBrace, List.ofSeq fields, rBrace)
+                                return Expr.Record(lBrace, fields, rBrace)
                             }
                             // Fallback: { expr-seq } — computation expression body without leading CE keyword
                             // (e.g., seq { someExpr }, task { callAsync() })
@@ -2040,7 +2033,10 @@ module Expr =
 
                         match error with
                         | ValueSome e -> Error e
-                        | ValueNone -> preturn (ValueSome(ILTypeArg(typeKw, lParen, List.ofSeq tokens, rParen))) reader
+                        | ValueNone ->
+                            preturn
+                                (ValueSome(ILTypeArg(typeKw, lParen, ImmutableArray.CreateRange tokens, rParen)))
+                                reader
             | _ -> preturn ValueNone reader
 
         fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
@@ -2089,7 +2085,7 @@ module Expr =
                                             instrParts,
                                             instrClose,
                                             typeArg,
-                                            List.ofSeq args,
+                                            ImmutableArray.CreateRange args,
                                             returnType,
                                             rHashParen
                                         ))
