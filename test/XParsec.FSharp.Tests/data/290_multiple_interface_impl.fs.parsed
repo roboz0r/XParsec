@@ -1,0 +1,116 @@
+module                              'module'          KWModule            tok=   0  pos=   0
+                                    'Test'            Identifier          tok=   2  pos=   7
+Import:
+  open                              'open'            KWOpen              tok=   5  pos=  13
+                                    'System'          Identifier          tok=   7  pos=  18
+                                    'Collection...'   Identifier          tok=   9  pos=  25
+                                    'Generic'         Identifier          tok=  11  pos=  37
+TypeDefn.Anon:
+  TypeName                          'Foo'             Identifier          tok=  16  pos=  51
+  (                                 '('               KWLParen            tok=  17  pos=  54
+  )                                 ')'               KWRParen            tok=  18  pos=  55
+  =                                 '='               OpEquality          tok=  20  pos=  57
+  begin                             <virt>            KWBegin             tok=virt  pos=  63
+    InterfaceImpl:
+      interface                     'interface'       KWInterface         tok=  23  pos=  63
+      GenericType:
+        LongIdent:
+                                    'IEnumerabl...'   Identifier          tok=  25  pos=  73
+        <                           '<'               op_LessThan         tok=  26  pos=  84
+        TypeArg.Type:
+          NamedType:
+            LongIdent:
+                                    'int'             Identifier          tok=  27  pos=  85
+        >                           '>'               op_GreaterThan      tok=  28  pos=  88
+      with                          'with'            KWWith              tok=  30  pos=  90
+        member                      'member'          KWMember            tok=  33  pos= 103
+        self                        '_'               Wildcard            tok=  35  pos= 110
+        Pat.NamedSimple             'GetEnumera...'   Identifier          tok=  37  pos= 112
+        Pats:
+          ParenBlock                '('               KWLParen            tok=  38  pos= 125
+                                    ')'               KWRParen            tok=  39  pos= 126
+        =                           '='               OpEquality          tok=  41  pos= 128
+          Let                       'let'             KWLet               tok=  44  pos= 142
+            Pat.NamedSimple         'elems'           Identifier          tok=  46  pos= 146
+            =                       '='               OpEquality          tok=  48  pos= 152
+              HighPrecedenceApp:
+                Func:
+                  TypeApp:
+                    Expr:
+                      Ident         'List'            Identifier          tok=  50  pos= 154
+                    Types:
+                      NamedType:
+                        LongIdent:
+                                    'int'             Identifier          tok=  52  pos= 159
+                (                   '('               KWLParen            tok=  54  pos= 163
+                Arg:
+                  ParenBlock        '('               KWLParen            tok=  54  pos= 163
+                                    ')'               KWRParen            tok=  55  pos= 164
+                                    ')'               KWRParen            tok=  55  pos= 164
+          in                        <virt>            KWIn                tok=virt  pos= 178
+          Body:
+            HighPrecedenceApp:
+              Func:
+                LongIdentOrOp:
+                  LongIdent:
+                                    'elems'           Identifier          tok=  58  pos= 178
+                                    'GetEnumera...'   Identifier          tok=  60  pos= 184
+              (                     '('               KWLParen            tok=  61  pos= 197
+              Arg:
+                ParenBlock          '('               KWLParen            tok=  61  pos= 197
+                                    ')'               KWRParen            tok=  62  pos= 198
+                                    ')'               KWRParen            tok=  62  pos= 198
+      end                           <virt>            KWEnd               tok=virt  pos= 205
+    InterfaceImpl:
+      interface                     'interface'       KWInterface         tok=  66  pos= 205
+      NamedType:
+        LongIdent:
+                                    'System'          Identifier          tok=  68  pos= 215
+                                    'Collection...'   Identifier          tok=  70  pos= 222
+                                    'IEnumerabl...'   Identifier          tok=  72  pos= 234
+      with                          'with'            KWWith              tok=  74  pos= 246
+        member                      'member'          KWMember            tok=  77  pos= 259
+        self                        'this'            Identifier          tok=  79  pos= 266
+        Pat.NamedSimple             'GetEnumera...'   Identifier          tok=  81  pos= 271
+        Pats:
+          ParenBlock                '('               KWLParen            tok=  82  pos= 284
+                                    ')'               KWRParen            tok=  83  pos= 285
+        =                           '='               OpEquality          tok=  85  pos= 287
+          StaticUpcast:
+            Expr:
+              HighPrecedenceApp:
+                Func:
+                  DotLookup:
+                    Expr:
+                      ParenBlock    '('               KWLParen            tok=  88  pos= 301
+                        StaticUpcast:
+                          Expr:
+                            Ident   'this'            Identifier          tok=  89  pos= 302
+                          :>        ':>'              OpUpcast            tok=  91  pos= 307
+                          GenericType:
+                            LongIdent:
+                                    'IEnumerabl...'   Identifier          tok=  93  pos= 310
+                            <       '<'               op_LessThan         tok=  94  pos= 321
+                            TypeArg.Type:
+                              NamedType:
+                                LongIdent:
+                                    'int'             Identifier          tok=  95  pos= 322
+                            >       '>'               op_GreaterThan      tok=  96  pos= 325
+                                    ')'               KWRParen            tok=  97  pos= 326
+                    Dot             '.'               OpDot               tok=  98  pos= 327
+                    LongIdentOrOp:
+                      LongIdent:
+                                    'GetEnumera...'   Identifier          tok=  99  pos= 328
+                (                   '('               KWLParen            tok= 100  pos= 341
+                Arg:
+                  ParenBlock        '('               KWLParen            tok= 100  pos= 341
+                                    ')'               KWRParen            tok= 101  pos= 342
+                                    ')'               KWRParen            tok= 101  pos= 342
+            :>                      ':>'              OpUpcast            tok= 103  pos= 344
+            NamedType:
+              LongIdent:
+                                    'System'          Identifier          tok= 105  pos= 347
+                                    'Collection...'   Identifier          tok= 107  pos= 354
+                                    'IEnumerato...'   Identifier          tok= 109  pos= 366
+      end                           <virt>            KWEnd               tok=virt  pos=   0
+  end                               <virt>            KWEnd               tok=virt  pos= 378

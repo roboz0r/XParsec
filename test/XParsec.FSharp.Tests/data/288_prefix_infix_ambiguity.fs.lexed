@@ -1,0 +1,57 @@
+0, KWModule
+6, Whitespace
+7, Identifier
+11, Newline
+12, Newline
+13, KWLet
+16, Whitespace
+17, Identifier
+18, Whitespace
+19, OpEquality
+20, Whitespace
+21, KWIf
+23, Whitespace
+24, Identifier
+25, Whitespace
+26, Operator 0b1000000000001111 ComparisonAndBitwise
+27, Whitespace
+28, NumInt32
+29, Whitespace
+30, KWThen
+34, Whitespace
+35, Operator 0b1000000001010011 InfixAdd (can be prefix)
+36, Identifier
+37, Whitespace
+38, Operator 0b1000000001010011 InfixAdd (can be prefix)
+39, Whitespace
+40, NumInt32
+41, Whitespace
+42, KWElse
+46, Whitespace
+47, Identifier
+48, Newline
+49, KWLet
+52, Whitespace
+53, Identifier
+54, Whitespace
+55, OpEquality
+56, Whitespace
+57, Operator 0b1000000001010011 InfixAdd (can be prefix)
+58, Identifier
+59, Whitespace
+60, Operator 0b1000000001010011 InfixAdd (can be prefix)
+61, Whitespace
+62, Identifier
+63, Newline
+64, KWLet
+67, Whitespace
+68, Identifier
+69, Whitespace
+70, OpEquality
+71, Whitespace
+72, Operator 0b1000000001010011 InfixAdd (can be prefix)
+73, Identifier
+74, Whitespace
+75, Identifier
+76, Newline
+77, EOF

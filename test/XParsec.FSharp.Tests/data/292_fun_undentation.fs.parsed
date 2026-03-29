@@ -1,0 +1,71 @@
+module                               'module'          KWModule            tok=   0  pos=   0
+                                     'Test'            Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                                'let'             KWLet               tok=   5  pos=  13
+    Pat.NamedSimple                  'f'               Identifier          tok=   7  pos=  17
+    Pats:
+      Pat.NamedSimple                'items'           Identifier          tok=   9  pos=  19
+    =                                '='               OpEquality          tok=  11  pos=  25
+      InfixApp                       '||>'             op_PipeRight2       tok=  22  pos=  46
+        ParenBlock                   '('               KWLParen            tok=  14  pos=  31
+          Tuple:
+            Const                    '0'               NumInt32            tok=  15  pos=  32
+            Ident                    'items'           Identifier          tok=  18  pos=  35
+                                     ')'               KWRParen            tok=  19  pos=  40
+        App:
+          Func:
+            LongIdentOrOp:
+              LongIdent:
+                                     'List'            Identifier          tok=  24  pos=  50
+                                     'fold'            Identifier          tok=  26  pos=  55
+          Args:
+            ParenBlock               '('               KWLParen            tok=  28  pos=  60
+              Fun                    'fun'             KWFun               tok=  29  pos=  61
+              Pats:
+                Pat.Named:
+                  Ident              'acc'             Identifier          tok=  31  pos=  65
+                  Param:
+                    Pat.NamedSimple  'item'            Identifier          tok=  33  pos=  69
+              Arrow                  '->'              OpArrowRight        tok=  35  pos=  74
+              Body:
+                Let                  'let'             KWLet               tok=  38  pos=  85
+                  Pat.NamedSimple    'result'          Identifier          tok=  40  pos=  89
+                  =                  '='               OpEquality          tok=  42  pos=  96
+                    InfixApp         '+'               op_Addition         tok=  46  pos= 102
+                      Ident          'acc'             Identifier          tok=  44  pos=  98
+                      Ident          'item'            Identifier          tok=  48  pos= 104
+                in                   <virt>            KWIn                tok=virt  pos= 117
+                Body:
+                  Ident              'result'          Identifier          tok=  51  pos= 117
+                                     ')'               KWRParen            tok=  52  pos= 123
+FunctionOrValue:
+  let                                'let'             KWLet               tok=  55  pos= 126
+    Pat.NamedSimple                  'g'               Identifier          tok=  57  pos= 130
+    Pats:
+      Pat.NamedSimple                'items'           Identifier          tok=  59  pos= 132
+    =                                '='               OpEquality          tok=  61  pos= 138
+      InfixApp                       '|>'              op_PipeRight        tok=  67  pos= 154
+        Ident                        'items'           Identifier          tok=  64  pos= 144
+        App:
+          Func:
+            LongIdentOrOp:
+              LongIdent:
+                                     'List'            Identifier          tok=  69  pos= 157
+                                     'map'             Identifier          tok=  71  pos= 162
+          Args:
+            ParenBlock               '('               KWLParen            tok=  73  pos= 166
+              Fun                    'fun'             KWFun               tok=  74  pos= 167
+              Pats:
+                Pat.NamedSimple      'x'               Identifier          tok=  76  pos= 171
+              Arrow                  '->'              OpArrowRight        tok=  78  pos= 173
+              Body:
+                Let                  'let'             KWLet               tok=  81  pos= 184
+                  Pat.NamedSimple    'y'               Identifier          tok=  83  pos= 188
+                  =                  '='               OpEquality          tok=  85  pos= 190
+                    InfixApp         '+'               op_Addition         tok=  89  pos= 194
+                      Ident          'x'               Identifier          tok=  87  pos= 192
+                      Const          '1'               NumInt32            tok=  91  pos= 196
+                in                   <virt>            KWIn                tok=virt  pos= 206
+                Body:
+                  Ident              'y'               Identifier          tok=  94  pos= 206
+                                     ')'               KWRParen            tok=  95  pos= 207

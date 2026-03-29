@@ -40,7 +40,7 @@ FunctionOrValue:
                 Ident                'info'            Identifier          tok=  53  pos= 124
                 =                    '='               OpEquality          tok=  55  pos= 129
                 Pat:
-                  Pat.Cons           '::'              OpCons              tok=  59  pos= 133
+                  Pat.Cons           '::'              KWColonColon        tok=  59  pos= 133
                     Pat.NamedSimple  'x'               Identifier          tok=  57  pos= 131
                     Pat.Wildcard     '_'               Wildcard            tok=  61  pos= 136
               FieldPat:

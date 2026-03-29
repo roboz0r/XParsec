@@ -376,7 +376,7 @@ and [<RequireQualifiedAccess>] Pat<'T> =
     | StructTuple of structToken: 'T * lParen: 'T * patterns: Pat<'T> list * commas: 'T list * rParen: 'T
     | Record of lBrace: 'T * fieldPats: FieldPat<'T> list * rBrace: 'T
     | TypeTest of colonQuestion: 'T * typ: Type<'T>
-    | TypeTestAs of colonQuestion: 'T * typ: Type<'T> * asToken: 'T * ident: 'T
+    | TypeTestAs of colonQuestion: 'T * typ: Type<'T> * asToken: 'T * pat: Pat<'T>
     | Null of nullToken: 'T
     | Attributed of attributes: Attributes<'T> * pat: Pat<'T>
     | Struct of structToken: 'T * pat: Pat<'T> // For error recovery
@@ -688,8 +688,9 @@ type Constant<'T> =
 and [<RequireQualifiedAccess>] InterpolatedStringPart<'T> =
     /// A literal text fragment, escaped brace, or format specifier between expression holes.
     | Text of 'T
-    /// An expression hole: {expr}, optionally preceded by a format specifier like %4i.
-    | Expr of formatSpecifier: 'T voption * lBrace: 'T * expr: Expr<'T> * rBrace: 'T
+    /// An expression hole: {expr}, optionally preceded by a format specifier like %4i
+    /// and optionally followed by a format clause like :P2.
+    | Expr of formatSpecifier: 'T voption * lBrace: 'T * expr: Expr<'T> * formatClause: 'T voption * rBrace: 'T
     /// A format specifier (e.g. %d) not immediately followed by an expression hole.
     | OrphanFormatSpecifier of 'T
     /// A lexer error token inside the string (e.g. UnmatchedInterpolatedRBrace, InvalidFormatPlaceholder).

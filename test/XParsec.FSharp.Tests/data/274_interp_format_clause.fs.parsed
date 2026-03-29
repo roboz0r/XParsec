@@ -1,0 +1,70 @@
+module                    'module'          KWModule            tok=   0  pos=   0
+                          'Test'            Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                     'let'             KWLet               tok=   5  pos=  13
+    Pat.NamedSimple       'ratio'           Identifier          tok=   7  pos=  17
+    =                     '='               OpEquality          tok=   9  pos=  23
+      Const               '0.5'             NumIEEE64           tok=  11  pos=  25
+FunctionOrValue:
+  let                     'let'             KWLet               tok=  13  pos=  29
+    Pat.NamedSimple       's1'              Identifier          tok=  15  pos=  33
+    =                     '='               OpEquality          tok=  17  pos=  36
+      InterpolatedString  '$"'              InterpolatedStringOpen  tok=  19  pos=  38
+      Parts:
+        Text              'hit-ratio='      InterpolatedStringFragment  tok=  20  pos=  40
+        {                 '{'               InterpolatedExpressionOpen  tok=  21  pos=  50
+        Expr:
+          Ident           'ratio'           Identifier          tok=  22  pos=  51
+        FormatClause      ':P2'             InterpolatedFormatClause  tok=  23  pos=  56
+        }                 '}'               InterpolatedExpressionClose  tok=  24  pos=  59
+                          '"'               InterpolatedStringClose  tok=  25  pos=  60
+FunctionOrValue:
+  let                     'let'             KWLet               tok=  27  pos=  62
+    Pat.NamedSimple       's2'              Identifier          tok=  29  pos=  66
+    =                     '='               OpEquality          tok=  31  pos=  69
+      InterpolatedString  '$"'              InterpolatedStringOpen  tok=  33  pos=  71
+      Parts:
+        Text              'value='          InterpolatedStringFragment  tok=  34  pos=  73
+        {                 '{'               InterpolatedExpressionOpen  tok=  35  pos=  79
+        Expr:
+          Const           '42'              NumInt32            tok=  36  pos=  80
+        FormatClause      ':X8'             InterpolatedFormatClause  tok=  37  pos=  82
+        }                 '}'               InterpolatedExpressionClose  tok=  38  pos=  85
+                          '"'               InterpolatedStringClose  tok=  39  pos=  86
+FunctionOrValue:
+  let                     'let'             KWLet               tok=  41  pos=  88
+    Pat.NamedSimple       's3'              Identifier          tok=  43  pos=  92
+    =                     '='               OpEquality          tok=  45  pos=  95
+      InterpolatedString  '$"'              InterpolatedStringOpen  tok=  47  pos=  97
+      Parts:
+        Text              'date='           InterpolatedStringFragment  tok=  48  pos=  99
+        {                 '{'               InterpolatedExpressionOpen  tok=  49  pos= 104
+        Expr:
+          LongIdentOrOp:
+            LongIdent:
+                          'System'          Identifier          tok=  50  pos= 105
+                          'DateTime'        Identifier          tok=  52  pos= 112
+                          'Now'             Identifier          tok=  54  pos= 121
+        FormatClause      ':yyyy-MM-d...'   InterpolatedFormatClause  tok=  55  pos= 124
+        }                 '}'               InterpolatedExpressionClose  tok=  56  pos= 135
+                          '"'               InterpolatedStringClose  tok=  57  pos= 136
+FunctionOrValue:
+  let                     'let'             KWLet               tok=  59  pos= 138
+    Pat.NamedSimple       's4'              Identifier          tok=  61  pos= 142
+    =                     '='               OpEquality          tok=  63  pos= 145
+      InterpolatedString  '$"'              InterpolatedStringOpen  tok=  65  pos= 147
+      Parts:
+        Text              'multi '          InterpolatedStringFragment  tok=  66  pos= 149
+        {                 '{'               InterpolatedExpressionOpen  tok=  67  pos= 155
+        Expr:
+          Const           '1'               NumInt32            tok=  68  pos= 156
+        FormatClause      ':D3'             InterpolatedFormatClause  tok=  69  pos= 157
+        }                 '}'               InterpolatedExpressionClose  tok=  70  pos= 160
+        Text              ' and '           InterpolatedStringFragment  tok=  71  pos= 161
+        {                 '{'               InterpolatedExpressionOpen  tok=  72  pos= 166
+        Expr:
+          Const           '2.0'             NumIEEE64           tok=  73  pos= 167
+        FormatClause      ':F2'             InterpolatedFormatClause  tok=  74  pos= 170
+        }                 '}'               InterpolatedExpressionClose  tok=  75  pos= 173
+        Text              ' done'           InterpolatedStringFragment  tok=  76  pos= 174
+                          '"'               InterpolatedStringClose  tok=  77  pos= 179

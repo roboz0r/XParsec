@@ -7,11 +7,6 @@ FunctionOrValue:
                             'Literal'         Identifier          tok=   6  pos=  18
   >]                        '>]'              KWRAttrBracket      tok=   7  pos=  25
   let                       'let'             KWLet               tok=   9  pos=  28
-    [<                      '[<'              KWLAttrBracket      tok=   5  pos=  16
-    NamedType:
-      LongIdent:
-                            'Literal'         Identifier          tok=   6  pos=  18
-    >]                      '>]'              KWRAttrBracket      tok=   7  pos=  25
     Pat.NamedSimple         'MaxSize'         Identifier          tok=  11  pos=  32
     =                       '='               OpEquality          tok=  13  pos=  40
       Const                 '100'             NumInt32            tok=  15  pos=  42
@@ -26,15 +21,6 @@ FunctionOrValue:
                             ')'               KWRParen            tok=  24  pos=  78
   >]                        '>]'              KWRAttrBracket      tok=  25  pos=  79
   let                       'let'             KWLet               tok=  27  pos=  82
-    [<                      '[<'              KWLAttrBracket      tok=  18  pos=  47
-    NamedType:
-      LongIdent:
-                            'System'          Identifier          tok=  19  pos=  49
-                            'Obsolete'        Identifier          tok=  21  pos=  56
-    ParenBlock              '('               KWLParen            tok=  22  pos=  64
-      Const                 '"Use newFu...'   StringLiteral       tok=  23  pos=  65
-                            ')'               KWRParen            tok=  24  pos=  78
-    >]                      '>]'              KWRAttrBracket      tok=  25  pos=  79
     Pat.NamedSimple         'oldFunc'         Identifier          tok=  29  pos=  86
     Pats:
       Pat.NamedSimple       'x'               Identifier          tok=  31  pos=  94
@@ -51,12 +37,6 @@ FunctionOrValue:
   >]                        '>]'              KWRAttrBracket      tok=  46  pos= 122
   let                       'let'             KWLet               tok=  48  pos= 125
   rec                       'rec'             KWRec               tok=  50  pos= 129
-    [<                      '[<'              KWLAttrBracket      tok=  42  pos= 105
-    NamedType:
-      LongIdent:
-                            'System'          Identifier          tok=  43  pos= 107
-                            'Obsolete'        Identifier          tok=  45  pos= 114
-    >]                      '>]'              KWRAttrBracket      tok=  46  pos= 122
     Pat.NamedSimple         'factorial'       Identifier          tok=  52  pos= 133
     Pats:
       Pat.NamedSimple       'n'               Identifier          tok=  54  pos= 143

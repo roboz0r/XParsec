@@ -7,7 +7,7 @@ Match:
   Rule:
     Bar                  '|'               OpBar               tok=   6  pos=  14
     Pat:
-      Pat.Cons           '::'              OpCons              tok=  10  pos=  18
+      Pat.Cons           '::'              KWColonColon        tok=  10  pos=  18
         Pat.NamedSimple  'x'               Identifier          tok=   8  pos=  16
         Pat.NamedSimple  'rest'            Identifier          tok=  12  pos=  21
     Arrow                '->'              OpArrowRight        tok=  14  pos=  26

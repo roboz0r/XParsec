@@ -230,21 +230,63 @@ module Pat =
                     fail (Message "Record pattern") reader
 
     /// Parse a single field in a named union case pattern: fieldName = pat (excludes comma)
+    /// The Pratt parser for union fields excludes 'as' and '|' (below Comma+1 cutoff), so we handle them here.
     let private pUnionFieldPat =
+        let pBarToken = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpBar) "'|'"
+
         parser {
             let! lid = LongIdent.parse
             let! eq = pEquals
             let! p = withContext OffsideContext.SeqBlock refUnionFieldPat.Parser
+
+            // Handle '|' (Or) patterns: pat1 | pat2 | pat3
+            let! orAlts =
+                many (
+                    parser {
+                        let! barTok = pBarToken
+                        let! altPat = refUnionFieldPat.Parser
+                        return struct (barTok, altPat)
+                    }
+                )
+
+            let p =
+                if orAlts.IsEmpty then
+                    p
+                else
+                    orAlts
+                    |> Seq.fold (fun acc struct (barTok, altPat) -> Pat.Or(acc, barTok, altPat)) p
+
+            // Handle 'as' binding: pat as ident
+            let! asClause =
+                opt (
+                    parser {
+                        let! asTok = pAs
+
+                        let! ident =
+                            nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "identifier after 'as'"
+
+                        return struct (asTok, ident)
+                    }
+                )
+
+            let p =
+                match asClause with
+                | ValueSome(asTok, ident) -> Pat.As(p, asTok, ident)
+                | ValueNone -> p
+
             return FieldPat(lid, eq, p)
         }
 
     /// Parse named field patterns: UnionCase(field1 = pat1, field2 = pat2)
-    /// Accepts both commas and semicolons as separators (F# allows both).
+    /// Accepts commas, semicolons, or newline-at-indent as separators (F# allows all three).
     let private pNamedFieldPats =
         parser {
             let! lid = LongIdent.parse
             let! lParen = pLParen
-            let! fields, commas = sepBy1 pUnionFieldPat (pComma <|> pSemi)
+
+            let! fields, commas =
+                withContext OffsideContext.SeqBlock (sepBy1 pUnionFieldPat (pComma <|> pRecordFieldSep))
+
             let! rParen = pRParen
             return Pat.NamedFieldPats(lid, lParen, List.ofSeq fields, List.ofSeq commas, rParen)
         }
@@ -275,18 +317,18 @@ module Pat =
         parser {
             let! op = pTypeTest
             let! t = Type.parseAtomic
-            // Check optional 'as ident'
+            // Check optional 'as pat' — accepts any pattern, not just an identifier
             let! asClause =
                 opt (
                     parser {
                         let! asTok = pAs
-                        let! id = nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "identifier"
-                        return struct (asTok, id)
+                        let! pat = pNamed
+                        return struct (asTok, pat)
                     }
                 )
 
             match asClause with
-            | ValueSome(asTok, id) -> return Pat.TypeTestAs(op, t, asTok, id)
+            | ValueSome(asTok, pat) -> return Pat.TypeTestAs(op, t, asTok, pat)
             | ValueNone -> return Pat.TypeTest(op, t)
         }
 

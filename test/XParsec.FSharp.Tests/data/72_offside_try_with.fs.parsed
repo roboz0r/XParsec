@@ -26,7 +26,7 @@ Rule:
                        'System'          Identifier          tok=  27  pos=  47
                        'Exception'       Identifier          tok=  29  pos=  54
       As               'as'              KWAs                tok=  31  pos=  64
-      Ident            'ex'              Identifier          tok=  33  pos=  67
+      Pat.NamedSimple  'ex'              Identifier          tok=  33  pos=  67
   Arrow                '->'              OpArrowRight        tok=  35  pos=  70
   Expr:
     Let                'let'             KWLet               tok=  38  pos=  77

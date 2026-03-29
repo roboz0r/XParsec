@@ -1,0 +1,27 @@
+0, KWModule
+6, Whitespace
+7, Identifier
+11, Newline
+12, Newline
+13, KWLet
+16, Whitespace
+17, Identifier
+21, Whitespace
+22, Identifier
+24, Whitespace
+25, OpEquality
+26, Newline
+27, Indent
+31, Identifier
+33, Whitespace
+34, Operator 0b1000000000001111 ComparisonAndBitwise
+36, Whitespace
+37, Identifier
+42, OpDot
+43, Identifier
+46, Whitespace
+47, Wildcard
+48, OpDot
+49, Identifier
+55, Newline
+56, EOF

@@ -314,6 +314,36 @@ module MethodOrPropDefn =
 
                         return MethodOrPropDefn.Property(ValueNone, binding)
 
+                    | t when t.Token = Token.OpColon ->
+                        // Property with explicit return type (e.g., static member Empty : Foo = expr)
+                        let! returnType = ReturnType.parse
+                        let! equals = pEquals
+                        let! expr = refExprSeqBlock.Parser
+
+                        let binding =
+                            {
+                                attributes = ValueNone
+                                inlineToken = ValueNone
+                                mutableToken = ValueNone
+                                fixedToken = ValueNone
+                                access = ValueNone
+                                headPat = Pat.NamedSimple ident
+                                typarDefns = ValueNone
+                                argumentPats = []
+                                returnType = ValueSome returnType
+                                equals = equals
+                                expr = expr
+                            }
+
+                        return MethodOrPropDefn.Property(ValueNone, binding)
+
+                    | t when t.Token = Token.KWWith ->
+                        // Property with explicit accessors (e.g., static member BuildPhase with get () = ... and set v = ...)
+                        // The property ident was already consumed above.
+                        let! w = consumePeeked t
+                        let! bindings = Binding.parseSepByAnd1 ValueNone
+                        return MethodOrPropDefn.PropertyWithGetSet(ValueNone, ident, w, bindings)
+
                     | _ ->
                         // No self-identifier prefix (e.g., static member Create(args) = body)
                         // The ident we consumed is the method/property name itself.
@@ -441,6 +471,21 @@ module AutoPropDefn =
 
             let! eq = pEquals
             let! expr = Expr.parse
+
+            // Handle post-expression type annotation: `val X = expr : Type with get, set`
+            // The expression parser doesn't consume `:` at top level, so we handle it here.
+            let! colonOpt = opt peekNextNonTriviaToken
+
+            let! expr =
+                match colonOpt with
+                | ValueSome t when t.Token = Token.OpColon ->
+                    parser {
+                        let! colon = consumePeeked t
+                        let! typ = Type.parse
+                        return Expr.TypeAnnotation(expr, colon, typ)
+                    }
+                | _ -> preturn expr
+
             let! withClause = opt MemberSig.pWithClause
 
             return
@@ -828,7 +873,7 @@ module ClassFunctionOrValueDefn =
                     let! attrs = opt Attributes.parse
                     let! stat = opt pStatic
                     let! d = pDo
-                    let! e = Expr.parse
+                    let! e = refExprSeqBlock.Parser
                     return ClassFunctionOrValueDefn.Do(attrs, stat, d, e)
                 }
                 parser {
@@ -846,36 +891,74 @@ module ClassFunctionOrValueDefn =
 [<RequireQualifiedAccess>]
 module ClassTypeBody =
     // Returns the body AND the consumed end token (from manyTill's terminator)
+    // F# allows let/do bindings to appear after member definitions, so we interleave parsing.
     let parse terminator : Parser<ObjectModelBody<SyntaxToken> * SyntaxToken, _, _, _, _> =
-        parser {
-            let! inh = opt ClassInheritsDecl.parse
-            let! preamble = many ClassFunctionOrValueDefn.parse
-            let! elems, endTok = TypeDefnElements.parseTill terminator
+        fun reader ->
+            let inh =
+                match (opt ClassInheritsDecl.parse) reader with
+                | Ok v -> v
+                | Error _ -> ValueNone
 
-            let body =
-                {
-                    inherits = inh
-                    classPreamble = List.ofSeq preamble
-                    elements = List.ofSeq elems
-                }
+            let preamble = ResizeArray<_>()
+            let elems = ResizeArray<_>()
+            let mutable keepGoing = true
+            let mutable endResult = ValueNone
 
-            return (body, endTok)
-        }
+            while keepGoing do
+                match terminator reader with
+                | Ok endTok ->
+                    endResult <- ValueSome endTok
+                    keepGoing <- false
+                | Error _ ->
+                    match ClassFunctionOrValueDefn.parse reader with
+                    | Ok p -> preamble.Add(p)
+                    | Error _ ->
+                        match TypeDefnElement.parse reader with
+                        | Ok e -> elems.Add(e)
+                        | Error _ -> keepGoing <- false
+
+            match endResult with
+            | ValueSome endTok ->
+                Ok(
+                    {
+                        inherits = inh
+                        classPreamble = List.ofSeq preamble
+                        elements = List.ofSeq elems
+                    },
+                    endTok
+                )
+            | ValueNone ->
+                // Terminator not found — fail with a descriptive error
+                fail (Message "Expected end of type body") reader
 
     /// Parses class body using offside rule. Use inside a withContext block.
+    /// F# allows let/do bindings to appear after member definitions (e.g., instance lets after static members),
+    /// so we interleave preamble and element parsing in a single loop.
     let parseOffside: Parser<ObjectModelBody<SyntaxToken>, _, _, _, _> =
-        parser {
-            let! inh = opt ClassInheritsDecl.parse
-            let! preamble = many ClassFunctionOrValueDefn.parse
-            let! elems = TypeDefnElements.parseMany
+        fun reader ->
+            let inh =
+                match (opt ClassInheritsDecl.parse) reader with
+                | Ok v -> v
+                | Error _ -> ValueNone
 
-            return
+            let preamble = ResizeArray<_>()
+            let elems = ResizeArray<_>()
+            let mutable keepGoing = true
+
+            while keepGoing do
+                match ClassFunctionOrValueDefn.parse reader with
+                | Ok p -> preamble.Add(p)
+                | Error _ ->
+                    match TypeDefnElement.parse reader with
+                    | Ok e -> elems.Add(e)
+                    | Error _ -> keepGoing <- false
+
+            Ok
                 {
                     inherits = inh
                     classPreamble = List.ofSeq preamble
                     elements = List.ofSeq elems
                 }
-        }
 
 /// Parses the body of a struct definition (no inherits or class preamble).
 [<RequireQualifiedAccess>]

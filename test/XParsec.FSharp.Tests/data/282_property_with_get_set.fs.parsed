@@ -1,0 +1,46 @@
+module                     'module'          KWModule            tok=   0  pos=   0
+                           'Test'            Identifier          tok=   2  pos=   7
+TypeDefn.Anon:
+  TypeName                 'Diagnostic...'   Identifier          tok=   7  pos=  18
+  =                        '='               OpEquality          tok=   9  pos=  43
+  begin                    <virt>            KWBegin             tok=virt  pos=  49
+    static                 'static'          KWStatic            tok=  12  pos=  49
+    member                 'member'          KWMember            tok=  14  pos=  56
+    ident                  'BuildPhase'      Identifier          tok=  16  pos=  63
+    with                   'with'            KWWith              tok=  19  pos=  82
+    Pat.NamedSimple        'get'             Identifier          tok=  21  pos=  87
+    Pats:
+      ParenBlock           '('               KWLParen            tok=  23  pos=  91
+                           ')'               KWRParen            tok=  24  pos=  92
+    =                      '='               OpEquality          tok=  26  pos=  94
+      Const                '42'              NumInt32            tok=  28  pos=  96
+    Pat.NamedSimple        'set'             Identifier          tok=  33  pos= 111
+    Pats:
+      Pat.NamedSimple      'v'               Identifier          tok=  35  pos= 115
+    =                      '='               OpEquality          tok=  37  pos= 117
+      ParenBlock           '('               KWLParen            tok=  39  pos= 119
+                           ')'               KWRParen            tok=  40  pos= 120
+    static                 'static'          KWStatic            tok=  44  pos= 127
+    member                 'member'          KWMember            tok=  46  pos= 134
+    ident                  'Name'            Identifier          tok=  48  pos= 141
+    with                   'with'            KWWith              tok=  51  pos= 154
+    Pat.NamedSimple        'get'             Identifier          tok=  53  pos= 159
+    Pats:
+      ParenBlock           '('               KWLParen            tok=  55  pos= 163
+                           ')'               KWRParen            tok=  56  pos= 164
+    =                      '='               OpEquality          tok=  58  pos= 166
+      Const                '"hello"'         StringLiteral       tok=  60  pos= 168
+    Pat.NamedSimple        'set'             Identifier          tok=  65  pos= 188
+    Pats:
+      ParenBlock           '('               KWLParen            tok=  67  pos= 192
+        Pat.Typed:
+          Pat.NamedSimple  'v'               Identifier          tok=  68  pos= 193
+          Colon            ':'               OpColon             tok=  69  pos= 194
+          NamedType:
+            LongIdent:
+                           'string'          Identifier          tok=  71  pos= 196
+                           ')'               KWRParen            tok=  72  pos= 202
+    =                      '='               OpEquality          tok=  74  pos= 204
+      ParenBlock           '('               KWLParen            tok=  76  pos= 206
+                           ')'               KWRParen            tok=  77  pos= 207
+  end                      <virt>            KWEnd               tok=virt  pos= 209

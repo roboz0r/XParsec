@@ -1,0 +1,81 @@
+module                                 'module'          KWModule            tok=   0  pos=   0
+                                       'Test'            Identifier          tok=   2  pos=   7
+TypeDefn.Union:
+  TypeName                             'Wrapper'         Identifier          tok=   7  pos=  18
+  =                                    '='               OpEquality          tok=   9  pos=  26
+    Case:
+      ident                            'Wrapper'         Identifier          tok=  11  pos=  28
+      of                               'of'              KWOf                tok=  13  pos=  36
+      NamedType:
+        LongIdent:
+                                       'string'          Identifier          tok=  15  pos=  39
+FunctionOrValue:
+  let                                  'let'             KWLet               tok=  18  pos=  47
+    Pat.NamedSimple                    'test'            Identifier          tok=  20  pos=  51
+    Pats:
+      ParenBlock                       '('               KWLParen            tok=  22  pos=  56
+        Pat.Tuple:
+          Pat.Typed:
+            Pat.NamedSimple            'x'               Identifier          tok=  23  pos=  57
+            Colon                      ':'               OpColon             tok=  24  pos=  58
+            NamedType:
+              LongIdent:
+                                       'obj'             Identifier          tok=  26  pos=  60
+          Pat.Typed:
+            Pat.NamedSimple            'y'               Identifier          tok=  29  pos=  65
+            Colon                      ':'               OpColon             tok=  30  pos=  66
+            NamedType:
+              LongIdent:
+                                       'obj'             Identifier          tok=  32  pos=  68
+                                       ')'               KWRParen            tok=  33  pos=  71
+    =                                  '='               OpEquality          tok=  35  pos=  73
+      Match:
+        MatchToken                     'match'           KWMatch             tok=  38  pos=  79
+        MatchExpr:
+          Tuple:
+            Ident                      'x'               Identifier          tok=  40  pos=  85
+            Ident                      'y'               Identifier          tok=  43  pos=  88
+        WithToken                      'with'            KWWith              tok=  45  pos=  90
+        Rule:
+          Bar                          '|'               OpBar               tok=  48  pos=  99
+          Pat:
+            Pat.Tuple:
+              Pat.Named:
+                Ident                  'Wrapper'         Identifier          tok=  50  pos= 101
+                Param:
+                  Pat.NamedSimple      'this'            Identifier          tok=  52  pos= 109
+              ParenBlock               '('               KWLParen            tok=  55  pos= 115
+                Pat.TypeTestAs:
+                  ColonQuestion        ':?'              OpTypeTest          tok=  56  pos= 116
+                  NamedType:
+                    LongIdent:
+                                       'Wrapper'         Identifier          tok=  58  pos= 119
+                  As                   'as'              KWAs                tok=  60  pos= 127
+                  Pat.Named:
+                    Ident              'Wrapper'         Identifier          tok=  62  pos= 130
+                    Param:
+                      Pat.NamedSimple  'other'           Identifier          tok=  64  pos= 138
+                                       ')'               KWRParen            tok=  65  pos= 143
+          Arrow                        '->'              OpArrowRight        tok=  67  pos= 145
+          Expr:
+            Const                      'true'            KWTrue              tok=  69  pos= 148
+        Rule:
+          Bar                          '|'               OpBar               tok=  72  pos= 157
+          Pat:
+            Pat.TypeTestAs:
+              ColonQuestion            ':?'              OpTypeTest          tok=  74  pos= 159
+              NamedType:
+                LongIdent:
+                                       'string'          Identifier          tok=  76  pos= 162
+              As                       'as'              KWAs                tok=  78  pos= 169
+              Pat.NamedSimple          's'               Identifier          tok=  80  pos= 172
+          Arrow                        '->'              OpArrowRight        tok=  82  pos= 174
+          Expr:
+            Const                      'false'           KWFalse             tok=  84  pos= 177
+        Rule:
+          Bar                          '|'               OpBar               tok=  87  pos= 187
+          Pat:
+            Pat.Wildcard               '_'               Wildcard            tok=  89  pos= 189
+          Arrow                        '->'              OpArrowRight        tok=  91  pos= 191
+          Expr:
+            Const                      'false'           KWFalse             tok=  93  pos= 194

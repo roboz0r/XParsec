@@ -7,11 +7,6 @@ FunctionOrValue:
                          'Literal'         Identifier          tok=   6  pos=  15
   >]                     '>]'              KWRAttrBracket      tok=   7  pos=  22
   let                    'let'             KWLet               tok=   9  pos=  25
-    [<                   '[<'              KWLAttrBracket      tok=   5  pos=  13
-    NamedType:
-      LongIdent:
-                         'Literal'         Identifier          tok=   6  pos=  15
-    >]                   '>]'              KWRAttrBracket      tok=   7  pos=  22
     Pat.NamedSimple      'KindSpecia...'   Identifier          tok=  11  pos=  29
     =                    '='               OpEquality          tok=  13  pos=  41
       Const              '0xE000us'        NumUInt16Hex        tok=  15  pos=  43
@@ -27,11 +22,6 @@ Module:
                          'Literal'         Identifier          tok=  26  pos=  76
       >]                 '>]'              KWRAttrBracket      tok=  27  pos=  83
       let                'let'             KWLet               tok=  30  pos=  90
-        [<               '[<'              KWLAttrBracket      tok=  25  pos=  74
-        NamedType:
-          LongIdent:
-                         'Literal'         Identifier          tok=  26  pos=  76
-        >]               '>]'              KWRAttrBracket      tok=  27  pos=  83
         Pat.NamedSimple  'EOF'             Identifier          tok=  32  pos=  94
         =                '='               OpEquality          tok=  34  pos=  98
           Const          '1us'             NumUInt16           tok=  36  pos= 100

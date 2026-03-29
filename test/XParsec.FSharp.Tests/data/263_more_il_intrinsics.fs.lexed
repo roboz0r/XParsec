@@ -160,7 +160,7 @@
 420, Whitespace
 421, Identifier
 422, Whitespace
-423, OpCons
+423, KWColonColon
 425, Whitespace
 426, KWLHashParen
 428, Whitespace
