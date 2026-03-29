@@ -161,8 +161,7 @@ module Binding =
     let parse attrs : Parser<Binding<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         choiceL [ parseFunction attrs; parseValue attrs ] "Binding"
 
-    let parseSepByAnd1 attrs =
-        sepBy1 (parse attrs) pAnd |>> fun struct (bindings, _) -> bindings
+    let parseSepByAnd1 attrs = sepBy1 (parse attrs) pAnd
 
 [<AutoOpen>]
 module private MemberHelpers =
@@ -269,7 +268,7 @@ module InterfaceImpl =
 [<RequireQualifiedAccess>]
 type ExprAux =
     | Ident of SyntaxToken
-    | TypeApp of SyntaxToken * ImArr<Type<SyntaxToken>> * SyntaxToken
+    | TypeApp of SyntaxToken * ImArr<Type<SyntaxToken>> * ImArr<SyntaxToken> * SyntaxToken
     | DotIndex of SyntaxToken * Expr<SyntaxToken> * SyntaxToken // .[ expr ]
     | DotParenOp of IdentOrOp<SyntaxToken> // .( op ) — qualified operator access
     | PostfixDynamic of SyntaxToken * Type<SyntaxToken> // :? Type (DynamicTypeTest)
@@ -319,8 +318,8 @@ module Expr =
         let completeDowncast (op: SyntaxToken) (e: Expr<_>) = Expr.Downcast(op, e)
         let completeSliceTo (op: SyntaxToken) (e: Expr<_>) = Expr.SliceTo(op, e)
 
-        let completeTuple (elements: ResizeArray<Expr<_>>) ops =
-            Expr.Tuple(ImmutableArray.CreateRange elements)
+        let completeTuple (elements: ResizeArray<Expr<_>>) (ops: ResizeArray<SyntaxToken>) =
+            Expr.Tuple(ImmutableArray.CreateRange elements, ImmutableArray.CreateRange ops)
 
         let completeApp (elements: ResizeArray<Expr<_>>) ops =
             let args = ImmutableArray.CreateBuilder(elements.Count - 1)
@@ -397,18 +396,18 @@ module Expr =
         let pTypeAppRhs =
             parser {
                 let! lAngle = nextNonTriviaTokenIsL Token.OpLessThan "Expected '<' for type application"
-                let! types, _ = sepBy Type.parse pComma
+                let! types, commas = sepBy Type.parse pComma
 
                 let! state = getUserState
 
                 let! rAngle = pCloseTypeParams
 
-                return ExprAux.TypeApp(lAngle, types, rAngle)
+                return ExprAux.TypeApp(lAngle, types, commas, rAngle)
             }
 
         let completeTypeApp (expr: Expr<_>) (op: SyntaxToken) (aux: ExprAux) =
             match aux with
-            | ExprAux.TypeApp(lAngle, types, rAngle) -> Expr.TypeApp(expr, lAngle, types, rAngle)
+            | ExprAux.TypeApp(lAngle, types, commas, rAngle) -> Expr.TypeApp(expr, lAngle, types, commas, rAngle)
             | _ -> failwith "Unexpected Aux type for type application completion"
 
         let pHighPrecLParen =
@@ -1244,20 +1243,20 @@ module Expr =
                 token
                 (parser {
                     let! recTok = opt pRec
-                    let! bindings = Binding.parseSepByAnd1 ValueNone
-                    return struct (recTok, bindings)
+                    let! bindings, ands = Binding.parseSepByAnd1 ValueNone
+                    return struct (recTok, bindings, ands)
                 })
 
         /// Build nested `Expr.LetOrUse` from an accumulated list of bindings (innermost last)
         /// and a body expression. The fold runs backwards so that the first binding wraps the outermost scope.
         let buildNestedLetOrUse
-            (bindings: ResizeArray<struct (SyntaxToken * SyntaxToken voption * _ * SyntaxToken)>)
+            (bindings: ResizeArray<struct (SyntaxToken * SyntaxToken voption * _ * _ * SyntaxToken)>)
             (body: Expr<SyntaxToken> voption)
             =
             let mutable result = body
 
             for i in bindings.Count - 1 .. -1 .. 0 do
-                let struct (kwTok, recTok, defs, inTok) = bindings[i]
+                let struct (kwTok, recTok, defs, ands, inTok) = bindings[i]
 
                 let kw =
                     match kwTok.Token with
@@ -1267,7 +1266,7 @@ module Expr =
                     | Token.KWUseBang -> LetOrUseKeyword.UseBang kwTok
                     | t -> failwith $"Unexpected keyword token for let/use body {t}"
 
-                result <- ValueSome(Expr.LetOrUse(kw, recTok, defs, ValueSome inTok, result))
+                result <- ValueSome(Expr.LetOrUse(kw, recTok, defs, ands, ValueSome inTok, result))
 
             match result with
             | ValueSome expr -> expr
@@ -1313,12 +1312,12 @@ module Expr =
                                 | Error e ->
                                     error <- Error e
                                     cont <- false
-                                | Ok(recTok, defs) ->
+                                | Ok(recTok, defs, ands) ->
                                     match pLetOrUseIn indent reader with
                                     | Error e ->
                                         error <- Error e
                                         cont <- false
-                                    | Ok inTok -> bindings.Add(struct (kwTok, recTok, defs, inTok))
+                                    | Ok inTok -> bindings.Add(struct (kwTok, recTok, defs, ands, inTok))
                         | _ ->
                             if bindings.Count = 0 then
                                 error <-
@@ -1334,7 +1333,7 @@ module Expr =
                         match refExprSeqBlock.Parser reader with
                         | Ok body -> ValueSome body
                         | Error err ->
-                            let struct (lastKw, _, _, _) = bindings[bindings.Count - 1]
+                            let struct (lastKw, _, _, _, _) = bindings[bindings.Count - 1]
 
                             match lastKw.Token with
                             | Token.KWUse
@@ -1806,12 +1805,12 @@ module Expr =
             let! e = refExpr.Parser
             let! r = pRParen
 
-            let e =
+            let struct (es, commas) =
                 match e with
-                | Expr.Tuple(es) -> es
-                | e -> ImmutableArray.Create(e)
+                | Expr.Tuple(es, commas) -> struct (es, commas)
+                | e -> struct (ImmutableArray.Create(e), ImmutableArray.Empty)
 
-            return Expr.StructTuple(kw, l, e, r)
+            return Expr.StructTuple(kw, l, es, commas, r)
         }
 
     let pNewExpr =
@@ -1963,19 +1962,19 @@ module Expr =
                                 let! baseExpr = refExprInRecords.Parser
                                 let! withTok = pWith
 
-                                let! fields, _ =
+                                let! fields, seps =
                                     withContext OffsideContext.SeqBlock (sepBy1 FieldInitializer.parse pRecordFieldSep)
 
                                 let! rBrace = pRBrace
-                                return Expr.RecordClone(lBrace, baseExpr, withTok, fields, rBrace)
+                                return Expr.RecordClone(lBrace, baseExpr, withTok, fields, seps, rBrace)
                             }
                             // { Field = val; ... } — record literal
                             parser {
-                                let! fields, _ =
+                                let! fields, seps =
                                     withContext OffsideContext.SeqBlock (sepBy1 FieldInitializer.parse pRecordFieldSep)
 
                                 let! rBrace = pRBrace
-                                return Expr.Record(lBrace, fields, rBrace)
+                                return Expr.Record(lBrace, fields, seps, rBrace)
                             }
                             // Fallback: { expr-seq } — computation expression body without leading CE keyword
                             // (e.g., seq { someExpr }, task { callAsync() })

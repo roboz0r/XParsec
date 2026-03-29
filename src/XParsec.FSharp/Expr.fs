@@ -63,11 +63,16 @@ type LongIdentOrOp<'T> =
 type Type<'T> =
     | ParenType of lParen: 'T * typ: Type<'T> * rParen: 'T
     | FunctionType of fromType: Type<'T> * arrow: 'T * toType: Type<'T>
-    | TupleType of types: ImArr<Type<'T>>
-    | StructTupleType of structToken: 'T * lParen: 'T * types: ImArr<Type<'T>> * rParen: 'T
+    | TupleType of types: ImArr<Type<'T>> * asterisks: ImArr<'T>
+    | StructTupleType of structToken: 'T * lParen: 'T * types: ImArr<Type<'T>> * asterisks: ImArr<'T> * rParen: 'T
     | VarType of typar: Typar<'T>
     | NamedType of longIdent: LongIdent<'T>
-    | GenericType of longIdent: LongIdent<'T> * lAngle: 'T * typeArgs: ImArr<TypeArg<'T>> * rAngle: 'T
+    | GenericType of
+        longIdent: LongIdent<'T> *
+        lAngle: 'T *
+        typeArgs: ImArr<TypeArg<'T>> *
+        commas: ImArr<'T> *
+        rAngle: 'T
     | IncompleteGenericType of longIdent: LongIdent<'T> * lAngle: 'T * rAngle: 'T
     | SuffixedType of baseType: Type<'T> * longIdent: LongIdent<'T>
     | DottedType of baseType: Type<'T> * dot: 'T * longIdent: LongIdent<'T>
@@ -101,7 +106,7 @@ and TyparDefns<'T> =
     | TyparDefns of lAngle: 'T * defns: ImArr<TyparDefn<'T>> * constraints: TyparConstraints<'T> voption * rAngle: 'T
 
 and TyparDefn<'T> = | TyparDefn of attributes: Attributes<'T> voption * typar: Typar<'T>
-and TyparConstraints<'T> = | TyparConstraints of whenToken: 'T * constraints: ImArr<Constraint<'T>>
+and TyparConstraints<'T> = | TyparConstraints of whenToken: 'T * constraints: ImArr<Constraint<'T>> * ands: ImArr<'T>
 
 and [<RequireQualifiedAccess>] Constraint<'T> =
     | Coercion of typar: Typar<'T> * colonGreaterThan: 'T * typ: Type<'T>
@@ -236,15 +241,15 @@ type Expr<'T> =
     // Note: This is an optimization for multiple arguments; individual applications interspersed with type applications will be represented as multiple App nodes or as HighPrecedenceApp nodes.
     | App of funcExpr: Expr<'T> * argExprs: ImArr<Expr<'T>>
     | HighPrecedenceApp of funcExpr: Expr<'T> * lParen: 'T * argExpr: Expr<'T> * rParen: 'T
-    | TypeApp of expr: Expr<'T> * lAngle: 'T * types: ImArr<Type<'T>> * rAngle: 'T
+    | TypeApp of expr: Expr<'T> * lAngle: 'T * types: ImArr<Type<'T>> * commas: ImArr<'T> * rAngle: 'T
     | InfixApp of leftExpr: Expr<'T> * infixOp: 'T * rightExpr: Expr<'T>
     | PrefixApp of prefixOp: 'T * expr: Expr<'T>
     | OptionalArgExpr of questionMark: 'T * ident: 'T
     | IndexedLookup of expr: Expr<'T> * dot: 'T voption * lBracket: 'T * indexExpr: Expr<'T> * rBracket: 'T
     // Data Structures
     | Assignment of leftExpr: Expr<'T> * arrow: 'T * rightExpr: Expr<'T>
-    | Tuple of exprs: ImArr<Expr<'T>>
-    | StructTuple of structToken: 'T * lParen: 'T * exprs: ImArr<Expr<'T>> * rParen: 'T
+    | Tuple of exprs: ImArr<Expr<'T>> * commas: ImArr<'T>
+    | StructTuple of structToken: 'T * lParen: 'T * exprs: ImArr<Expr<'T>> * commas: ImArr<'T> * rParen: 'T
     // Objects and Records
     | New of newToken: 'T * typ: Type<'T> * expr: Expr<'T>
     | Object of
@@ -254,12 +259,13 @@ type Expr<'T> =
         members: ObjectMembers<'T> *
         interfaceImpls: ImArr<InterfaceImpl<'T>> *
         rBrace: 'T
-    | Record of lBrace: 'T * fieldInitializers: ImArr<FieldInitializer<'T>> * rBrace: 'T
+    | Record of lBrace: 'T * fieldInitializers: ImArr<FieldInitializer<'T>> * separators: ImArr<'T> * rBrace: 'T
     | RecordClone of
         lBrace: 'T *
         expr: Expr<'T> *
         withToken: 'T *
         fieldInitializers: ImArr<FieldInitializer<'T>> *
+        separators: ImArr<'T> *
         rBrace: 'T
     // Computation Expressions
     | ControlFlow of keyword: ControlFlowKeyword<'T> * expr: Expr<'T>
@@ -277,6 +283,7 @@ type Expr<'T> =
         keyword: LetOrUseKeyword<'T> *
         isRec: 'T voption *
         bindings: ImArr<Binding<'T>> *
+        ands: ImArr<'T> *
         inToken: 'T voption *  // ValueNone for UseFixed (no body follows)
         body: Expr<'T> voption
     // Functions and Matching
@@ -383,7 +390,7 @@ and [<RequireQualifiedAccess>] Pat<'T> =
     | Typed of pat: Pat<'T> * colon: 'T * typ: Type<'T>
     | Tuple of patterns: ImArr<Pat<'T>> * commas: ImArr<'T>
     | StructTuple of structToken: 'T * lParen: 'T * patterns: ImArr<Pat<'T>> * commas: ImArr<'T> * rParen: 'T
-    | Record of lBrace: 'T * fieldPats: ImArr<FieldPat<'T>> * rBrace: 'T
+    | Record of lBrace: 'T * fieldPats: ImArr<FieldPat<'T>> * separators: ImArr<'T> * rBrace: 'T
     | TypeTest of colonQuestion: 'T * typ: Type<'T>
     | TypeTestAs of colonQuestion: 'T * typ: Type<'T> * asToken: 'T * pat: Pat<'T>
     | Null of nullToken: 'T
@@ -427,7 +434,7 @@ type PrimaryConstrArgs<'T> =
 [<RequireQualifiedAccess>]
 type PrefixTypars<'T> =
     | Single of typar: Typar<'T>
-    | Multiple of lParen: 'T * typars: ImArr<Typar<'T>> * rParen: 'T
+    | Multiple of lParen: 'T * typars: ImArr<Typar<'T>> * commas: ImArr<'T> * rParen: 'T
 
 type TypeName<'T> =
     | TypeName of
@@ -453,7 +460,7 @@ and ArgNameSpec<'T> = | ArgNameSpec of optional: 'T voption * ident: 'T * colon:
 
 and ArgSpec<'T> = | ArgSpec of attributes: Attributes<'T> voption * name: ArgNameSpec<'T> voption * typ: Type<'T>
 
-and ArgsSpec<'T> = ImArr<ArgSpec<'T>>
+and ArgsSpec<'T> = | ArgsSpec of args: ImArr<ArgSpec<'T>> * asterisks: ImArr<'T>
 
 and CurriedSig<'T> = | CurriedSig of args: ImArr<struct (ArgsSpec<'T> * 'T)> * returnType: Type<'T>
 
@@ -477,7 +484,8 @@ and [<RequireQualifiedAccess>] MethodOrPropDefn<'T> =
         identPrefix: struct ('T * 'T) voption *
         ident: 'T *
         withToken: 'T *
-        defns: ImArr<Binding<'T>>
+        defns: ImArr<Binding<'T>> *
+        ands: ImArr<'T>
     | AutoProperty of
         valToken: 'T *
         access: 'T voption *
@@ -555,7 +563,8 @@ and ClassFunctionOrValueDefn<'T> =
         staticToken: 'T voption *
         letToken: 'T *
         isRec: 'T voption *
-        bindings: ImArr<Binding<'T>>
+        bindings: ImArr<Binding<'T>> *
+        ands: ImArr<'T>
     | Do of attributes: Attributes<'T> voption * staticToken: 'T voption * doToken: 'T * expr: Expr<'T>
 
 // Unified body type for class, struct, and interface definitions.
@@ -574,7 +583,7 @@ and [<RequireQualifiedAccess>] UnionTypeField<'T> =
 
 and [<RequireQualifiedAccess>] UnionTypeCaseData<'T> =
     | Nullary of ident: 'T
-    | Nary of ident: 'T * ofToken: 'T * fields: ImArr<UnionTypeField<'T>>
+    | Nary of ident: 'T * ofToken: 'T * fields: ImArr<UnionTypeField<'T>> * asterisks: ImArr<'T>
     | NaryUncurried of ident: 'T * colon: 'T * sign: UncurriedSig<'T>
 
 and UnionTypeCase<'T> = | UnionTypeCase of attributes: Attributes<'T> voption * data: UnionTypeCaseData<'T>
@@ -632,6 +641,7 @@ and [<RequireQualifiedAccess>] TypeDefn<'T> =
         typeName: TypeName<'T> *
         equals: 'T *
         cases: UnionTypeCases<'T> *
+        bars: ImArr<'T> *
         extensions: TypeExtensionElements<'T> voption
     | Anon of
         typeName: TypeName<'T> *
@@ -658,7 +668,7 @@ and [<RequireQualifiedAccess>] TypeDefn<'T> =
         body: ObjectModelBody<'T> *
         endToken: 'T
     | Interface of typeName: TypeName<'T> * equals: 'T * interfaceToken: 'T * body: ObjectModelBody<'T> * endToken: 'T
-    | Enum of typeName: TypeName<'T> * equals: 'T * cases: EnumTypeCases<'T>
+    | Enum of typeName: TypeName<'T> * equals: 'T * cases: EnumTypeCases<'T> * bars: ImArr<'T>
     | Delegate of typeName: TypeName<'T> * equals: 'T * sign: DelegateSig<'T>
     | TypeExtension of typeName: TypeName<'T> * elements: TypeExtensionElements<'T>
     | AbstractType of typeName: TypeName<'T>

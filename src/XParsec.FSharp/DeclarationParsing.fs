@@ -60,11 +60,19 @@ module ModuleFunctionOrValueDefn =
 
             match isRec with
             | ValueSome recTok ->
-                let! bindings = Binding.parseSepByAnd1 attrs
-                return ModuleFunctionOrValueDefn.Let(attrs, letTok, ValueSome recTok, bindings)
+                let! bindings, ands = Binding.parseSepByAnd1 attrs
+                return ModuleFunctionOrValueDefn.Let(attrs, letTok, ValueSome recTok, bindings, ands)
             | ValueNone ->
                 let! binding = Binding.parse attrs
-                return ModuleFunctionOrValueDefn.Let(attrs, letTok, ValueNone, ImmutableArray.Create(binding))
+
+                return
+                    ModuleFunctionOrValueDefn.Let(
+                        attrs,
+                        letTok,
+                        ValueNone,
+                        ImmutableArray.Create(binding),
+                        ImmutableArray.Empty
+                    )
         }
 
     let parse =

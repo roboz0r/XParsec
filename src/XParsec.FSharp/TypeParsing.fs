@@ -188,9 +188,9 @@ module TyparDefns =
                     parser {
                         let! whenTok = pWhen
 
-                        let! constrs, _ = sepBy1 Constraint.parse pAnd
+                        let! constrs, ands = sepBy1 Constraint.parse pAnd
 
-                        return TyparConstraints.TyparConstraints(whenTok, constrs)
+                        return TyparConstraints.TyparConstraints(whenTok, constrs, ands)
                     }
                 )
 
@@ -221,10 +221,10 @@ module Type =
                     let! s = pStruct
                     let! l = pLParen
 
-                    let! ts, _ = sepBy refType.Parser pOpMultiply
+                    let! ts, asterisks = sepBy refType.Parser pOpMultiply
 
                     let! r = pRParen
-                    return Type.StructTupleType(s, l, ts, r)
+                    return Type.StructTupleType(s, l, ts, asterisks, r)
                 }
                 // #Type
                 parser {
@@ -251,14 +251,14 @@ module Type =
                         opt (
                             parser {
                                 let! l = pLessThan
-                                let! args, _ = sepBy pTypeArg pComma
+                                let! args, commas = sepBy pTypeArg pComma
                                 let! r = pCloseTypeParams
-                                return (l, args, r)
+                                return (l, args, commas, r)
                             }
                         )
 
                     match genericPart with
-                    | ValueSome(l, args, r) -> return Type.GenericType(lid, l, args, r)
+                    | ValueSome(l, args, commas, r) -> return Type.GenericType(lid, l, args, commas, r)
                     | ValueNone -> return Type.NamedType(lid)
                 }
             ]
@@ -372,20 +372,12 @@ module Type =
     // Tuple: T * T * T
     let private pTupleType =
         parser {
-            let! first = pUnionType
+            let! types, asterisks = sepBy1 pUnionType pOpMultiply
 
-            let! rest =
-                many (
-                    parser {
-                        let! _ = pOpMultiply
-                        return! pUnionType
-                    }
-                )
-
-            if rest.IsEmpty then
-                return first
+            if types.Length = 1 then
+                return types[0]
             else
-                return Type.TupleType(rest.Insert(0, first))
+                return Type.TupleType(types, asterisks)
         }
 
     // Function: T -> T -> T (Right Associative)
@@ -418,8 +410,8 @@ module Type =
     let private pWhenConstraints =
         parser {
             let! whenTok = pWhen
-            let! constrs, _ = sepBy1 Constraint.parse pAnd
-            return TyparConstraints.TyparConstraints(whenTok, constrs)
+            let! constrs, ands = sepBy1 Constraint.parse pAnd
+            return TyparConstraints.TyparConstraints(whenTok, constrs, ands)
         }
 
     // Entry point for simple types

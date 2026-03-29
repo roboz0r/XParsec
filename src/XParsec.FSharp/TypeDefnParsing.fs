@@ -33,9 +33,9 @@ module TypeName =
                 // ('a, 'b) — multiple prefix typars
                 parser {
                     let! lParen = pLParen
-                    let! typars, _ = sepBy1 Typar.parse pComma
+                    let! typars, commas = sepBy1 Typar.parse pComma
                     let! rParen = pRParen
-                    return PrefixTypars.Multiple(lParen, typars, rParen)
+                    return PrefixTypars.Multiple(lParen, typars, commas, rParen)
                 }
                 // 'T — single prefix typar
                 Typar.parse |>> PrefixTypars.Single
@@ -56,8 +56,8 @@ module TypeName =
                 opt (
                     parser {
                         let! whenTok = pWhen
-                        let! constrs, _ = sepBy1 Constraint.parse pAnd
-                        return TyparConstraints.TyparConstraints(whenTok, constrs)
+                        let! constrs, ands = sepBy1 Constraint.parse pAnd
+                        return TyparConstraints.TyparConstraints(whenTok, constrs, ands)
                     }
                 )
 
@@ -108,7 +108,9 @@ module ArgSpec =
 
 [<RequireQualifiedAccess>]
 module ArgsSpec =
-    let parse = sepBy1 ArgSpec.parse pOpMultiply |>> fun struct (args, _) -> args
+    let parse =
+        sepBy1 ArgSpec.parse pOpMultiply
+        |>> fun struct (args, asterisks) -> ArgsSpec.ArgsSpec(args, asterisks)
 
 [<RequireQualifiedAccess>]
 module CurriedSig =
@@ -244,8 +246,8 @@ module MethodOrPropDefn =
         parser {
             let! ident = pIdent
             let! w = pWith
-            let! bindings = Binding.parseSepByAnd1 ValueNone
-            return fun thisIdent -> MethodOrPropDefn.PropertyWithGetSet(thisIdent, ident, w, bindings)
+            let! bindings, ands = Binding.parseSepByAnd1 ValueNone
+            return fun thisIdent -> MethodOrPropDefn.PropertyWithGetSet(thisIdent, ident, w, bindings, ands)
         }
 
     let parse: Parser<MethodOrPropDefn<SyntaxToken>, _, _, _, _> =
@@ -341,8 +343,8 @@ module MethodOrPropDefn =
                         // Property with explicit accessors (e.g., static member BuildPhase with get () = ... and set v = ...)
                         // The property ident was already consumed above.
                         let! w = consumePeeked t
-                        let! bindings = Binding.parseSepByAnd1 ValueNone
-                        return MethodOrPropDefn.PropertyWithGetSet(ValueNone, ident, w, bindings)
+                        let! bindings, ands = Binding.parseSepByAnd1 ValueNone
+                        return MethodOrPropDefn.PropertyWithGetSet(ValueNone, ident, w, bindings, ands)
 
                     | _ ->
                         // No self-identifier prefix (e.g., static member Create(args) = body)
@@ -881,8 +883,8 @@ module ClassFunctionOrValueDefn =
                     let! stat = opt pStatic
                     let! l = pLet
                     let! r = opt pRec
-                    let! bindings = Binding.parseSepByAnd1 attrs
-                    return ClassFunctionOrValueDefn.LetBindings(attrs, stat, l, r, bindings)
+                    let! bindings, ands = Binding.parseSepByAnd1 attrs
+                    return ClassFunctionOrValueDefn.LetBindings(attrs, stat, l, r, bindings, ands)
                 }
             ]
             "Class Let/Do"
@@ -1020,8 +1022,7 @@ module UnionTypeField =
 
 [<RequireQualifiedAccess>]
 module UnionTypeCaseData =
-    let parseFields: Parser<ImArr<UnionTypeField<SyntaxToken>>, _, _, _, _> =
-        sepBy1 UnionTypeField.parse pOpMultiply |>> fun struct (fields, _) -> fields
+    let parseFields = sepBy1 UnionTypeField.parse pOpMultiply
 
     let parseNary: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _, _> =
         parser {
@@ -1039,8 +1040,8 @@ module UnionTypeCaseData =
                 return UnionTypeCaseData.NaryUncurried(ident, colon, sign)
             | _ ->
                 // Field list
-                let! fields = parseFields
-                return UnionTypeCaseData.Nary(ident, ofTok, fields)
+                let! fields, asterisks = parseFields
+                return UnionTypeCaseData.Nary(ident, ofTok, fields, asterisks)
         }
 
     let parse: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _, _> =
@@ -1069,8 +1070,14 @@ module UnionTypeCases =
     let parse =
         parser {
             let! firstBar = opt pBar
-            let! cases, _ = sepBy1 UnionTypeCase.parse pBar
-            return cases
+            let! cases, sepBars = sepBy1 UnionTypeCase.parse pBar
+
+            let bars =
+                match firstBar with
+                | ValueSome b -> sepBars.Insert(0, b)
+                | ValueNone -> sepBars
+
+            return struct (cases, bars)
         }
 
 // --- Record ---
@@ -1105,8 +1112,14 @@ module EnumTypeCases =
     let parse =
         parser {
             let! firstBar = opt pBar
-            let! cases, _ = sepBy1 EnumTypeCase.parse pBar
-            return cases
+            let! cases, sepBars = sepBy1 EnumTypeCase.parse pBar
+
+            let bars =
+                match firstBar with
+                | ValueSome b -> sepBars.Insert(0, b)
+                | ValueNone -> sepBars
+
+            return struct (cases, bars)
         }
 
 // --- Type Extensions ---
@@ -1300,11 +1313,11 @@ module TypeDefn =
                         choiceL
                             [
                                 parser {
-                                    let! cases = EnumTypeCases.parse
-                                    return TypeDefn.Enum(typeName, equals, cases)
+                                    let! cases, bars = EnumTypeCases.parse
+                                    return TypeDefn.Enum(typeName, equals, cases, bars)
                                 }
                                 parser {
-                                    let! cases = UnionTypeCases.parse
+                                    let! cases, bars = UnionTypeCases.parse
 
                                     let! ext =
                                         opt (
@@ -1313,7 +1326,7 @@ module TypeDefn =
                                                 "Type Extension"
                                         )
 
-                                    return TypeDefn.Union(typeName, equals, cases, ext)
+                                    return TypeDefn.Union(typeName, equals, cases, bars, ext)
                                 }
                             ]
                             "Union or Enum"
@@ -1325,7 +1338,7 @@ module TypeDefn =
                         choiceL
                             [
                                 parser {
-                                    let! cases = UnionTypeCases.parse
+                                    let! cases, bars = UnionTypeCases.parse
 
                                     match cases.Length with
                                     | 1 when
@@ -1343,7 +1356,7 @@ module TypeDefn =
                                                     "Type Extension"
                                             )
 
-                                        return TypeDefn.Union(typeName, equals, cases, ext)
+                                        return TypeDefn.Union(typeName, equals, cases, bars, ext)
                                 }
                                 parseAbbrevOrImplicitClass typeName primaryConstr asDefn equals
                             ]
