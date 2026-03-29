@@ -4,6 +4,7 @@ open System
 open System.Globalization
 open System.Collections.Generic
 open System.Collections.Immutable
+open XParsec.FSharp
 
 [<Measure>]
 type token

@@ -1,5 +1,7 @@
 namespace rec XParsec.FSharp.Parser
 
+open XParsec.FSharp
+
 // 13. Custom Attributes and Reflection
 // Represents: attribute-target
 [<RequireQualifiedAccess>]
@@ -22,11 +24,11 @@ type Attribute<'T> =
 and AttributeSet<'T> =
     | AttributeSet of
         lBracket: 'T *  // Represents the [< token
-        attributes: (Attribute<'T> * 'T (* semicolon *) voption) list *
+        attributes: ImArr<Attribute<'T> * 'T (* semicolon *) voption> *
         rBracket: 'T // Represents the >] token
 
 // Represents: attributes := attribute-set ... attribute-set
-and Attributes<'T> = AttributeSet<'T> list
+and Attributes<'T> = ImArr<AttributeSet<'T>>
 
 // Represents: ident-or-op
 [<RequireQualifiedAccess>]
@@ -45,10 +47,10 @@ and [<RequireQualifiedAccess>] RangeOpName<'T> =
     | DotDot of 'T
     | DotDotDotDot of 'T
 
-and ActivePatternOpName<'T> = | ActivePatternOp of lBar: 'T * idents: 'T list * finalUnderscore: 'T voption * rBar: 'T
+and ActivePatternOpName<'T> = | ActivePatternOp of lBar: 'T * idents: ImArr<'T> * finalUnderscore: 'T voption * rBar: 'T
 
 // Represents: long-ident and long-ident-or-op
-type LongIdent<'T> = 'T list
+type LongIdent<'T> = ImArr<'T>
 
 [<RequireQualifiedAccess>]
 type LongIdentOrOp<'T> =
@@ -61,15 +63,15 @@ type LongIdentOrOp<'T> =
 type Type<'T> =
     | ParenType of lParen: 'T * typ: Type<'T> * rParen: 'T
     | FunctionType of fromType: Type<'T> * arrow: 'T * toType: Type<'T>
-    | TupleType of types: Type<'T> list
-    | StructTupleType of structToken: 'T * lParen: 'T * types: Type<'T> list * rParen: 'T
+    | TupleType of types: ImArr<Type<'T>>
+    | StructTupleType of structToken: 'T * lParen: 'T * types: ImArr<Type<'T>> * rParen: 'T
     | VarType of typar: Typar<'T>
     | NamedType of longIdent: LongIdent<'T>
-    | GenericType of longIdent: LongIdent<'T> * lAngle: 'T * typeArgs: TypeArg<'T> list * rAngle: 'T
+    | GenericType of longIdent: LongIdent<'T> * lAngle: 'T * typeArgs: ImArr<TypeArg<'T>> * rAngle: 'T
     | IncompleteGenericType of longIdent: LongIdent<'T> * lAngle: 'T * rAngle: 'T
     | SuffixedType of baseType: Type<'T> * longIdent: LongIdent<'T>
     | DottedType of baseType: Type<'T> * dot: 'T * longIdent: LongIdent<'T>
-    | ArrayType of baseType: Type<'T> * lBracket: 'T * commas: 'T list * rBracket: 'T
+    | ArrayType of baseType: Type<'T> * lBracket: 'T * commas: ImArr<'T> * rBracket: 'T
     | ConstrainedType of typ: Type<'T> * constraints: TyparDefns<'T>
     | WhenConstrainedType of typ: Type<'T> * constraints: TyparConstraints<'T>
     | SubtypeConstraint of typar: Typar<'T> * colonGreaterThan: 'T * typ: Type<'T>
@@ -79,11 +81,11 @@ type Type<'T> =
     | ILIntrinsic of
         lHashParen: 'T *
         instruction: StringKind<'T> *
-        instrParts: StringPart<'T> list *
+        instrParts: ImArr<StringPart<'T>> *
         instrClose: 'T *
         rHashParen: 'T
     | Missing
-    | SkipsTokens of skippedTokens: 'T list
+    | SkipsTokens of skippedTokens: ImArr<'T>
 
 and [<RequireQualifiedAccess>] TypeArg<'T> =
     | Type of Type<'T>
@@ -96,10 +98,10 @@ and [<RequireQualifiedAccess>] Typar<'T> =
     | Static of caret: 'T * ident: 'T
 
 and TyparDefns<'T> =
-    | TyparDefns of lAngle: 'T * defns: TyparDefn<'T> list * constraints: TyparConstraints<'T> voption * rAngle: 'T
+    | TyparDefns of lAngle: 'T * defns: ImArr<TyparDefn<'T>> * constraints: TyparConstraints<'T> voption * rAngle: 'T
 
 and TyparDefn<'T> = | TyparDefn of attributes: Attributes<'T> voption * typar: Typar<'T>
-and TyparConstraints<'T> = | TyparConstraints of whenToken: 'T * constraints: Constraint<'T> list
+and TyparConstraints<'T> = | TyparConstraints of whenToken: 'T * constraints: ImArr<Constraint<'T>>
 
 and [<RequireQualifiedAccess>] Constraint<'T> =
     | Coercion of typar: Typar<'T> * colonGreaterThan: 'T * typ: Type<'T>
@@ -133,7 +135,7 @@ and [<RequireQualifiedAccess>] Constraint<'T> =
 
 and [<RequireQualifiedAccess>] StaticTypars<'T> =
     | Single of caret: 'T * ident: 'T
-    | OrList of lParen: 'T * typars: (Typar<'T> * 'T (* or *) ) list * rParen: 'T
+    | OrList of lParen: 'T * typars: ImArr<Typar<'T> * 'T (* or *) > * rParen: 'T
 
 // Represents: elif-branch and else-branch
 // Note: The spec doesn't mention 'else if' branches, but they are present
@@ -161,7 +163,7 @@ type Binding<'T> =
         headPat: Pat<'T>
         typarDefns: TyparDefns<'T> voption
         /// Non-empty for function-style bindings; empty for value bindings
-        argumentPats: Pat<'T> list
+        argumentPats: ImArr<Pat<'T>>
         returnType: ReturnType<'T> voption
         equals: 'T
         expr: Expr<'T>
@@ -185,7 +187,7 @@ type BaseCall<'T> =
     | AnonBaseCall of construction: ObjectConstruction<'T>
     | NamedBaseCall of construction: ObjectConstruction<'T> * asToken: 'T * ident: 'T
 
-type ObjectMembers<'T> = | ObjectMembers of withToken: 'T * memberDefns: MemberDefn<'T> list * endToken: 'T
+type ObjectMembers<'T> = | ObjectMembers of withToken: 'T * memberDefns: ImArr<MemberDefn<'T>> * endToken: 'T
 
 type InterfaceImpl<'T> =
     | InterfaceImpl of interfaceToken: 'T * typ: Type<'T> * objectMembers: ObjectMembers<'T> voption
@@ -219,7 +221,7 @@ type ParenKind<'T> =
 
 // IL intrinsic sub-structures
 /// Type argument in IL intrinsic: type('T) or type ('T)
-type ILTypeArg<'T> = | ILTypeArg of typeKw: 'T * lParen: 'T * typeTokens: 'T list * rParen: 'T
+type ILTypeArg<'T> = | ILTypeArg of typeKw: 'T * lParen: 'T * typeTokens: ImArr<'T> * rParen: 'T
 
 // The complete expression type
 [<RequireQualifiedAccess>]
@@ -232,17 +234,17 @@ type Expr<'T> =
     | LongIdentOrOp of longIdentOrOp: LongIdentOrOp<'T>
     | DotLookup of expr: Expr<'T> * dot: 'T * longIdentOrOp: LongIdentOrOp<'T>
     // Note: This is an optimization for multiple arguments; individual applications interspersed with type applications will be represented as multiple App nodes or as HighPrecedenceApp nodes.
-    | App of funcExpr: Expr<'T> * argExprs: Expr<'T> list
+    | App of funcExpr: Expr<'T> * argExprs: ImArr<Expr<'T>>
     | HighPrecedenceApp of funcExpr: Expr<'T> * lParen: 'T * argExpr: Expr<'T> * rParen: 'T
-    | TypeApp of expr: Expr<'T> * lAngle: 'T * types: Type<'T> list * rAngle: 'T
+    | TypeApp of expr: Expr<'T> * lAngle: 'T * types: ImArr<Type<'T>> * rAngle: 'T
     | InfixApp of leftExpr: Expr<'T> * infixOp: 'T * rightExpr: Expr<'T>
     | PrefixApp of prefixOp: 'T * expr: Expr<'T>
     | OptionalArgExpr of questionMark: 'T * ident: 'T
     | IndexedLookup of expr: Expr<'T> * dot: 'T voption * lBracket: 'T * indexExpr: Expr<'T> * rBracket: 'T
     // Data Structures
     | Assignment of leftExpr: Expr<'T> * arrow: 'T * rightExpr: Expr<'T>
-    | Tuple of exprs: Expr<'T> list
-    | StructTuple of structToken: 'T * lParen: 'T * exprs: Expr<'T> list * rParen: 'T
+    | Tuple of exprs: ImArr<Expr<'T>>
+    | StructTuple of structToken: 'T * lParen: 'T * exprs: ImArr<Expr<'T>> * rParen: 'T
     // Objects and Records
     | New of newToken: 'T * typ: Type<'T> * expr: Expr<'T>
     | Object of
@@ -250,14 +252,14 @@ type Expr<'T> =
         newKeyword: 'T voption *
         baseCall: BaseCall<'T> *
         members: ObjectMembers<'T> *
-        interfaceImpls: InterfaceImpl<'T> list *
+        interfaceImpls: ImArr<InterfaceImpl<'T>> *
         rBrace: 'T
-    | Record of lBrace: 'T * fieldInitializers: FieldInitializer<'T> list * rBrace: 'T
+    | Record of lBrace: 'T * fieldInitializers: ImArr<FieldInitializer<'T>> * rBrace: 'T
     | RecordClone of
         lBrace: 'T *
         expr: Expr<'T> *
         withToken: 'T *
-        fieldInitializers: FieldInitializer<'T> list *
+        fieldInitializers: ImArr<FieldInitializer<'T>> *
         rBrace: 'T
     // Computation Expressions
     | ControlFlow of keyword: ControlFlowKeyword<'T> * expr: Expr<'T>
@@ -274,13 +276,13 @@ type Expr<'T> =
     | LetOrUse of
         keyword: LetOrUseKeyword<'T> *
         isRec: 'T voption *
-        bindings: Binding<'T> list *
+        bindings: ImArr<Binding<'T>> *
         inToken: 'T voption *  // ValueNone for UseFixed (no body follows)
         body: Expr<'T> voption
     // Functions and Matching
-    | Fun of funToken: 'T * argumentPats: Pat<'T> list * arrow: 'T * expr: Expr<'T>
+    | Fun of funToken: 'T * argumentPats: ImArr<Pat<'T>> * arrow: 'T * expr: Expr<'T>
     | Function of functionToken: 'T * rules: Rules<'T>
-    | Sequential of exprs: Expr<'T> list * semicolons: 'T list
+    | Sequential of exprs: ImArr<Expr<'T>> * semicolons: ImArr<'T>
     | Match of matchToken: 'T * matchExpr: Expr<'T> * withToken: 'T * rules: Rules<'T>
     | TryWith of tryToken: 'T * expr: Expr<'T> * withToken: 'T * rules: Rules<'T>
     | TryFinally of tryToken: 'T * tryExpr: Expr<'T> * finallyToken: 'T * finallyExpr: Expr<'T>
@@ -290,7 +292,7 @@ type Expr<'T> =
         condition: Expr<'T> *
         thenToken: 'T *
         thenExpr: Expr<'T> *
-        elifBranches: ElifBranch<'T> list *
+        elifBranches: ImArr<ElifBranch<'T>> *
         elseBranch: ElseBranch<'T> voption
     | While of whileToken: 'T * condition: Expr<'T> * doToken: 'T * body: Expr<'T> * doneToken: 'T
     | ForTo of
@@ -324,22 +326,22 @@ type Expr<'T> =
         rParenMember: 'T *
         expr: Expr<'T> *
         rParen: 'T
-    | String of kind: StringKind<'T> * parts: StringPart<'T> list * closing: 'T
+    | String of kind: StringKind<'T> * parts: ImArr<StringPart<'T>> * closing: 'T
     // IL intrinsic literal: (# "il" type('T) args : returnType #)
     | ILIntrinsic of
         lHashParen: 'T *
         instruction: StringKind<'T> *
-        instrParts: StringPart<'T> list *
+        instrParts: ImArr<StringPart<'T>> *
         instrClose: 'T *
         typeArg: ILTypeArg<'T> voption *
-        args: Expr<'T> list *
+        args: ImArr<Expr<'T>> *
         returnType: ReturnType<'T> voption *
         rHashParen: 'T
     // Shorthand member access lambda: _.Member (F# 8+)
     | Wildcard of underscore: 'T
     // Incomplete or Placeholder
     | Missing // Placeholder for missing expression
-    | SkipsTokens of skippedTokens: 'T list // Placeholder for skipped tokens
+    | SkipsTokens of skippedTokens: ImArr<'T> // Placeholder for skipped tokens
     // Added to make things work
     | Ident of ident: 'T
     | Pat of pattern: Pat<'T>
@@ -364,14 +366,14 @@ and [<RequireQualifiedAccess>] Pat<'T> =
     | EnclosedBlock of lParen: ParenKind<'T> * pat: Pat<'T> * rParen: 'T
     | EmptyBlock of lParen: ParenKind<'T> * rParen: 'T
     /// Only valid in List and Array patterns; a compiler error will be raised if this appears in a different context
-    | Elems of pats: Pat<'T> list * separators: 'T list
+    | Elems of pats: ImArr<Pat<'T>> * separators: ImArr<'T>
     | NamedSimple of ident: 'T
     | Named of longIdent: LongIdent<'T> * param: Pat<'T> voption * pat: Pat<'T> voption
     | NamedFieldPats of
         longIdent: LongIdent<'T> *
         lParen: 'T *
-        fieldPats: FieldPat<'T> list *
-        commas: 'T list *
+        fieldPats: ImArr<FieldPat<'T>> *
+        commas: ImArr<'T> *
         rParen: 'T
     | Wildcard of underscore: 'T
     | As of pat: Pat<'T> * asToken: 'T * ident: 'T
@@ -379,9 +381,9 @@ and [<RequireQualifiedAccess>] Pat<'T> =
     | And of left: Pat<'T> * ampersand: 'T * right: Pat<'T>
     | Cons of head: Pat<'T> * consToken: 'T * tail: Pat<'T>
     | Typed of pat: Pat<'T> * colon: 'T * typ: Type<'T>
-    | Tuple of patterns: Pat<'T> list * commas: 'T list
-    | StructTuple of structToken: 'T * lParen: 'T * patterns: Pat<'T> list * commas: 'T list * rParen: 'T
-    | Record of lBrace: 'T * fieldPats: FieldPat<'T> list * rBrace: 'T
+    | Tuple of patterns: ImArr<Pat<'T>> * commas: ImArr<'T>
+    | StructTuple of structToken: 'T * lParen: 'T * patterns: ImArr<Pat<'T>> * commas: ImArr<'T> * rParen: 'T
+    | Record of lBrace: 'T * fieldPats: ImArr<FieldPat<'T>> * rBrace: 'T
     | TypeTest of colonQuestion: 'T * typ: Type<'T>
     | TypeTestAs of colonQuestion: 'T * typ: Type<'T> * asToken: 'T * pat: Pat<'T>
     | Null of nullToken: 'T
@@ -389,9 +391,9 @@ and [<RequireQualifiedAccess>] Pat<'T> =
     | Struct of structToken: 'T * pat: Pat<'T> // For error recovery
     | Optional of questionMark: 'T * pat: Pat<'T>
     | Op of IdentOrOp<'T> // For operator/active-pattern names in function binding heads
-    | String of kind: StringKind<'T> * parts: StringPart<'T> list * closing: 'T
+    | String of kind: StringKind<'T> * parts: ImArr<StringPart<'T>> * closing: 'T
     | Missing
-    | SkipsTokens of skippedTokens: 'T list
+    | SkipsTokens of skippedTokens: ImArr<'T>
 
 // Represents: pattern-guard := when expr
 and PatternGuard<'T> = | PatternGuard of whenToken: 'T * expr: Expr<'T>
@@ -400,10 +402,10 @@ and PatternGuard<'T> = | PatternGuard of whenToken: 'T * expr: Expr<'T>
 and [<RequireQualifiedAccess>] Rule<'T> =
     | Rule of pat: Pat<'T> * guard: PatternGuard<'T> voption * arrow: 'T * expr: Expr<'T>
     | Missing
-    | SkipsTokens of skippedTokens: 'T list
+    | SkipsTokens of skippedTokens: ImArr<'T>
 
 // Represents: rules := '|'~opt rule '|' ... '|' rule
-and Rules<'T> = | Rules of leadingBar: 'T voption * rules: Rule<'T> list * bars: 'T list
+and Rules<'T> = | Rules of leadingBar: 'T voption * rules: ImArr<Rule<'T>> * bars: ImArr<'T>
 
 
 // 8 Type Definitions
@@ -425,7 +427,7 @@ type PrimaryConstrArgs<'T> =
 [<RequireQualifiedAccess>]
 type PrefixTypars<'T> =
     | Single of typar: Typar<'T>
-    | Multiple of lParen: 'T * typars: Typar<'T> list * rParen: 'T
+    | Multiple of lParen: 'T * typars: ImArr<Typar<'T>> * rParen: 'T
 
 type TypeName<'T> =
     | TypeName of
@@ -444,16 +446,16 @@ type TypeDefnElement<'T> =
 
 and InterfaceSpec<'T> = | InterfaceSpec of interfaceToken: 'T * typ: Type<'T>
 
-and TypeDefnElements<'T> = TypeDefnElement<'T> list
+and TypeDefnElements<'T> = ImArr<TypeDefnElement<'T>>
 
 // Represents: member-sig and related signature constructs
 and ArgNameSpec<'T> = | ArgNameSpec of optional: 'T voption * ident: 'T * colon: 'T
 
 and ArgSpec<'T> = | ArgSpec of attributes: Attributes<'T> voption * name: ArgNameSpec<'T> voption * typ: Type<'T>
 
-and ArgsSpec<'T> = ArgSpec<'T> list
+and ArgsSpec<'T> = ImArr<ArgSpec<'T>>
 
-and CurriedSig<'T> = | CurriedSig of args: (struct (ArgsSpec<'T> * 'T)) list * returnType: Type<'T>
+and CurriedSig<'T> = | CurriedSig of args: ImArr<struct (ArgsSpec<'T> * 'T)> * returnType: Type<'T>
 
 and UncurriedSig<'T> = | UncurriedSig of args: ArgsSpec<'T> * arrow: 'T * returnType: Type<'T>
 
@@ -471,7 +473,11 @@ and [<RequireQualifiedAccess>] MemberSig<'T> =
 and [<RequireQualifiedAccess>] MethodOrPropDefn<'T> =
     | Method of ident: struct ('T * 'T) voption * defn: Binding<'T>
     | Property of ident: struct ('T * 'T) voption * defn: Binding<'T>
-    | PropertyWithGetSet of identPrefix: struct ('T * 'T) voption * ident: 'T * withToken: 'T * defns: Binding<'T> list
+    | PropertyWithGetSet of
+        identPrefix: struct ('T * 'T) voption *
+        ident: 'T *
+        withToken: 'T *
+        defns: ImArr<Binding<'T>>
     | AutoProperty of
         valToken: 'T *
         access: 'T voption *
@@ -506,7 +512,7 @@ and AdditionalConstrInitExpr<'T> =
     | Explicit of
         lBrace: 'T *
         inherits: ClassInheritsDecl<'T> voption *
-        initializers: FieldInitializer<'T> list *
+        initializers: ImArr<FieldInitializer<'T>> *
         rBrace: 'T
     | Delegated of newToken: 'T * typ: Type<'T> * expr: Expr<'T>
     | Expression of expr: Expr<'T>
@@ -549,7 +555,7 @@ and ClassFunctionOrValueDefn<'T> =
         staticToken: 'T voption *
         letToken: 'T *
         isRec: 'T voption *
-        bindings: Binding<'T> list
+        bindings: ImArr<Binding<'T>>
     | Do of attributes: Attributes<'T> voption * staticToken: 'T voption * doToken: 'T * expr: Expr<'T>
 
 // Unified body type for class, struct, and interface definitions.
@@ -557,8 +563,8 @@ and ClassFunctionOrValueDefn<'T> =
 and ObjectModelBody<'T> =
     {
         inherits: ClassInheritsDecl<'T> voption
-        classPreamble: ClassFunctionOrValueDefn<'T> list
-        elements: TypeDefnElement<'T> list
+        classPreamble: ImArr<ClassFunctionOrValueDefn<'T>>
+        elements: ImArr<TypeDefnElement<'T>>
     }
 
 // Represents: union-type-defn and its cases
@@ -568,12 +574,12 @@ and [<RequireQualifiedAccess>] UnionTypeField<'T> =
 
 and [<RequireQualifiedAccess>] UnionTypeCaseData<'T> =
     | Nullary of ident: 'T
-    | Nary of ident: 'T * ofToken: 'T * fields: UnionTypeField<'T> list
+    | Nary of ident: 'T * ofToken: 'T * fields: ImArr<UnionTypeField<'T>>
     | NaryUncurried of ident: 'T * colon: 'T * sign: UncurriedSig<'T>
 
 and UnionTypeCase<'T> = | UnionTypeCase of attributes: Attributes<'T> voption * data: UnionTypeCaseData<'T>
 
-and UnionTypeCases<'T> = UnionTypeCase<'T> list
+and UnionTypeCases<'T> = ImArr<UnionTypeCase<'T>>
 
 // Represents: record-type-defn and its fields
 and RecordField<'T> =
@@ -585,12 +591,12 @@ and RecordField<'T> =
         colon: 'T *
         typ: Type<'T>
 
-and RecordFields<'T> = RecordField<'T> list
+and RecordFields<'T> = ImArr<RecordField<'T>>
 
 // Represents: enum-type-defn and its cases
 and EnumTypeCase<'T> = | EnumTypeCase of ident: 'T * equals: 'T * constValue: Expr<'T>
 
-and EnumTypeCases<'T> = EnumTypeCase<'T> list
+and EnumTypeCases<'T> = ImArr<EnumTypeCase<'T>>
 
 // Represents: type-extension
 and TypeExtensionElements<'T> = | TypeExtensionElements of withToken: 'T * elements: TypeDefnElements<'T> * endToken: 'T
@@ -657,7 +663,7 @@ and [<RequireQualifiedAccess>] TypeDefn<'T> =
     | TypeExtension of typeName: TypeName<'T> * elements: TypeExtensionElements<'T>
     | AbstractType of typeName: TypeName<'T>
     | Missing
-    | SkipsTokens of skippedTokens: 'T list
+    | SkipsTokens of skippedTokens: ImArr<'T>
 
 
 // 9 Units of Measure
@@ -674,7 +680,7 @@ type Measure<'T> =
     | Typar of Typar<'T> // e.g., 'u
 
     // Recursive operations
-    | Juxtaposition of Measure<'T> list * ops: 'T list // e.g., m s (implicit multiplication)
+    | Juxtaposition of ImArr<Measure<'T>> * ops: ImArr<'T> // e.g., m s (implicit multiplication)
     | Power of Measure<'T> * power: 'T * int: 'T // e.g., m^2
     | Product of Measure<'T> * prod: 'T * Measure<'T> // e.g., m * s
     | Quotient of Measure<'T> * div: 'T * Measure<'T> // e.g., m / s

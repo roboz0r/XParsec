@@ -80,13 +80,13 @@ module AttributeSet =
 
             let! rBracket = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWRAttrBracket) "Expected '>]'"
 
-            return AttributeSet(lBracket, List.ofSeq attributes, rBracket)
+            return AttributeSet(lBracket, attributes, rBracket)
         }
 
 [<RequireQualifiedAccess>]
 module Attributes =
     let parse: Parser<Attributes<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        many1 AttributeSet.parse |>> List.ofSeq
+        many1 AttributeSet.parse
 
 [<RequireQualifiedAccess>]
 module RangeOpName =
@@ -109,9 +109,10 @@ module RangeOpName =
 module ActivePatternOpName =
     let parse: Parser<ActivePatternOpName<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         // Recursive helper to parse segments: ident | ...
-        let rec parseSegments acc =
+        let rec parseSegments (builder: ImmutableArray<_>.Builder) =
             parser {
                 let! ident = nextNonTriviaIdentifierL "Expected identifier"
+                builder.Add(ident)
 
                 let! bar = pBar
 
@@ -119,17 +120,17 @@ module ActivePatternOpName =
                 match! opt (lookAhead pRParen) with
                 | ValueSome _ ->
                     // Found ')', so 'bar' is the rBar
-                    return (List.rev (ident :: acc), ValueNone, bar)
+                    return (builder.ToImmutable(), ValueNone, bar)
                 | ValueNone ->
                     // Check for wildcard '_'
                     match! opt (lookAhead pWildcard) with
                     | ValueSome _ ->
                         let! underscore = nextNonTriviaToken // Consume '_'
                         let! finalBar = pBar
-                        return (List.rev (ident :: acc), ValueSome underscore, finalBar)
+                        return (builder.ToImmutable(), ValueSome underscore, finalBar)
                     | ValueNone ->
                         // Must be another identifier, loop
-                        return! parseSegments (ident :: acc)
+                        return! parseSegments builder
             }
 
         parser {
@@ -137,7 +138,7 @@ module ActivePatternOpName =
             // Starts with '|'
             let! lBar = pBar
 
-            let! idents, underscore, rBar = parseSegments []
+            let! idents, underscore, rBar = parseSegments (ImmutableArray.CreateBuilder())
 
             return ActivePatternOp(lBar, idents, underscore, rBar)
         }
@@ -215,7 +216,7 @@ module IdentOrOp =
 [<RequireQualifiedAccess>]
 module LongIdentOrOp =
     // Could be LongIdent or QualifiedOp
-    let rec private parseRest ident acc =
+    let rec private parseRest ident (builder: ImmutableArray<_>.Builder) =
         parser {
             // Look ahead for a dot
             match! opt (lookAhead pDot) with
@@ -229,14 +230,15 @@ module LongIdentOrOp =
                 match nextIdentOrOp with
                 | IdentOrOp.Ident identNext ->
                     // Continue parsing the LongIdent
-                    return! parseRest ident (identNext :: acc)
+                    builder.Add(identNext)
+                    return! parseRest ident builder
                 | _ ->
                     // Found an operator, return QualifiedOp
-                    let longIdent = List.rev (ident :: acc)
+                    let longIdent = builder.ToImmutable()
                     return LongIdentOrOp.QualifiedOp(longIdent, dotConsumed, nextIdentOrOp)
             | ValueNone ->
                 // No more dots, return LongIdent
-                let longIdent = List.rev (ident :: acc)
+                let longIdent = builder.ToImmutable()
                 return LongIdentOrOp.LongIdent longIdent
         }
 
@@ -245,7 +247,10 @@ module LongIdentOrOp =
             let! first = IdentOrOp.parse
 
             match first with
-            | IdentOrOp.Ident ident -> return! parseRest ident []
+            | IdentOrOp.Ident ident ->
+                let builder = ImmutableArray.CreateBuilder()
+                builder.Add(ident)
+                return! parseRest ident builder
             | _ ->
                 // Just an operator
                 return LongIdentOrOp.Op first
@@ -256,7 +261,7 @@ module LongIdentOrOp =
 module LongIdent =
     // Simple parser for A.B.C
     let private pIdent = nextNonTriviaIdentifierL "Expected Identifier"
-    let parse = sepBy1 pIdent pDot |>> fun struct (xs, dots) -> List.ofSeq xs
+    let parse = sepBy1 pIdent pDot |>> fun struct (xs, dots) -> xs
 
 
 [<RequireQualifiedAccess>]

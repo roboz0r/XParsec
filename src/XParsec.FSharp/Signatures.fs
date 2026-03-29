@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.Parser
 
+open XParsec.FSharp
+
 // Represents: val mutable~opt curried-sig -- value signature
 type ValSig<'T> =
     | ValSig of
@@ -39,7 +41,7 @@ type TypeSignatureElement<'T> =
     | Interface of spec: InterfaceSpec<'T>
 
 // Represents the body of a type signature: begin type-elements-signature end
-type TypeElementsSignature<'T> = TypeSignatureElement<'T> list
+type TypeElementsSignature<'T> = ImArr<TypeSignatureElement<'T>>
 
 // Represents: with type-elements-signature end
 type TypeExtensionElementsSignature<'T> =
@@ -79,7 +81,7 @@ type TypeSignature<'T> =
     | TypeExtension of typeName: TypeName<'T> * elements: TypeExtensionElementsSignature<'T>
 
 // Represents: type-signatures := type-signature ... and ... type-signature
-type TypeSignatures<'T> = (TypeSignature<'T> * 'T (* 'and' token *) ) list
+type TypeSignatures<'T> = ImArr<TypeSignature<'T> * 'T (* 'and' token *) >
 
 // Represents: module-signature-element
 type ModuleSignatureElement<'T> =
@@ -92,7 +94,7 @@ type ModuleSignatureElement<'T> =
     | Import of importDecl: ImportDecl<'T>
 
 // Represents: module-signature-elements := module-signature-element ...
-and ModuleSignatureElements<'T> = ModuleSignatureElement<'T> list
+and ModuleSignatureElements<'T> = ImArr<ModuleSignatureElement<'T>>
 
 // Represents: module-signature-body := begin module-signature-elements end
 and ModuleSignatureBody<'T> =

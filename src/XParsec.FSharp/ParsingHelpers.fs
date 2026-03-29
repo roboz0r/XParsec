@@ -5,6 +5,7 @@ open System.Collections.Generic
 open System.Collections.Immutable
 open XParsec
 open XParsec.Parsers
+open XParsec.FSharp
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser.SyntaxToken
 open XParsec.FSharp.Parser.ParseState
@@ -714,7 +715,7 @@ module Parsing =
 
                 match error with
                 | ValueSome e -> Error e
-                | ValueNone -> preturn (kind, Seq.toList parts, closing) reader
+                | ValueNone -> preturn (kind, parts.ToImmutableArray(), closing) reader
         | _ -> fail (Message msg) reader
 
     /// Matches Token.Identifier, Token.BacktickedIdentifier, or Token.UnterminatedBacktickedIdentifier.
@@ -900,7 +901,7 @@ module Parsing =
                             Index = TokenIndex.Virtual
                         }
 
-                    preturn ([ virtualIdent ]: LongIdent<SyntaxToken>) reader
+                    preturn (ImmutableArray.Create(virtualIdent): LongIdent<SyntaxToken>) reader
 
     module StoppingTokens =
         let afterType (tok: SyntaxToken) =
@@ -1002,7 +1003,7 @@ module Parsing =
         (stopping: SyntaxToken -> bool)
         (severity: DiagnosticSeverity)
         (code: DiagnosticCode)
-        (placeholder: SyntaxToken list -> 'Parsed)
+        (placeholder: ImArr<SyntaxToken> -> 'Parsed)
         (p: Parser<'Parsed, PositionedToken, ParseState, _, _>)
         : Parser<'Parsed, PositionedToken, ParseState, _, _> =
         fun reader ->
@@ -1032,7 +1033,7 @@ module Parsing =
                     reader.State <-
                         ParseState.addDiagnostic code severity startTok.PositionedToken None (Some err) reader.State
 
-                    Ok(placeholder (List.ofSeq skipped))
+                    Ok(placeholder (skipped.ToImmutableArray()))
 
     /// Wraps a parser with an offside context. Peeks the first token the inner parser will see
     /// to establish the offside column, pushes an Offside entry onto ParseState.Context, runs
@@ -1289,15 +1290,14 @@ module Parsing =
                             DiagnosticSeverity.Error
                             diagCode
                             (fun toks ->
-                                match toks with
-                                | [] ->
+                                if toks.IsEmpty then
                                     let endTok =
                                         virtualToken (PositionedToken.Create(expectedRightTok, l.StartIndex + 1))
 
                                     completeEnclosed (parenKindConstructor l) missing endTok
-                                | _ ->
+                                else
                                     let endTok =
-                                        let t = toks |> List.last
+                                        let t = toks[toks.Length - 1]
                                         virtualToken (PositionedToken.Create(expectedRightTok, t.StartIndex))
 
                                     completeEnclosed (parenKindConstructor l) (skipsTokens toks) endTok
