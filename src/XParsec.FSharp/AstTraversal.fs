@@ -346,7 +346,7 @@ and walkPat (visitor: AstVisitor<'T>) (pat: Pat<'T>) : unit =
             walkPat visitor p
 
         visitor.ExitSection "Pat.Elems"
-    | Pat.Record(lBrace, fieldPats, rBrace) ->
+    | Pat.Record(lBrace, fieldPats, _, rBrace) ->
         visitor.VisitToken "Pat.Record" lBrace
         visitor.EnterSection ""
 
@@ -489,7 +489,7 @@ and walkTyparDefns (visitor: AstVisitor<'T>) (typars: TyparDefns<'T>) : unit =
         walkTypar visitor typar
 
     match constraints with
-    | ValueSome(TyparConstraints(whenToken, constraintList)) ->
+    | ValueSome(TyparConstraints(whenToken, constraintList, _)) ->
         visitor.VisitToken "when" whenToken
 
         for c in constraintList do
@@ -527,7 +527,7 @@ and walkType (visitor: AstVisitor<'T>) (ty: Type<'T>) : unit =
         visitor.EnterSection "NamedType"
         walkLongIdentOrOp visitor (LongIdentOrOp.LongIdent longIdent)
         visitor.ExitSection "NamedType"
-    | Type.GenericType(longIdent, lAngle, typeArgs, rAngle) ->
+    | Type.GenericType(longIdent, lAngle, typeArgs, _, rAngle) ->
         visitor.EnterSection "GenericType"
         walkLongIdentOrOp visitor (LongIdentOrOp.LongIdent longIdent)
         visitor.VisitToken "<" lAngle
@@ -543,14 +543,14 @@ and walkType (visitor: AstVisitor<'T>) (ty: Type<'T>) : unit =
         visitor.VisitToken "->" arrow
         walkType visitor toType
         visitor.ExitSection "FunctionType"
-    | Type.TupleType types ->
+    | Type.TupleType(types, _) ->
         visitor.EnterSection "TupleType"
 
         for t in types do
             walkType visitor t
 
         visitor.ExitSection "TupleType"
-    | Type.StructTupleType(structToken, _lParen, types, _rParen) ->
+    | Type.StructTupleType(structToken, _lParen, types, _, _rParen) ->
         visitor.EnterSection "StructTupleType"
         visitor.VisitToken "" structToken
 
@@ -590,7 +590,7 @@ and walkType (visitor: AstVisitor<'T>) (ty: Type<'T>) : unit =
         walkType visitor typ
         walkTyparDefns visitor constraints
         visitor.ExitSection "ConstrainedType"
-    | Type.WhenConstrainedType(typ, TyparConstraints.TyparConstraints(whenTok, constraints)) ->
+    | Type.WhenConstrainedType(typ, TyparConstraints.TyparConstraints(whenTok, constraints, _)) ->
         visitor.EnterSection "WhenConstrainedType"
         walkType visitor typ
         visitor.VisitToken "when" whenTok
@@ -767,7 +767,7 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
     match expr with
     | Expr.Const value -> walkConstant visitor "Const" value
     | Expr.Ident ident -> visitor.VisitToken "Ident" ident
-    | Expr.LetOrUse(keyword, isRec, bindings, inToken, body) ->
+    | Expr.LetOrUse(keyword, isRec, bindings, _, inToken, body) ->
         let kwLabel =
             match keyword with
             | LetOrUseKeyword.Let t ->
@@ -823,14 +823,14 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
             walkExpr visitor e
 
         visitor.ExitSection "Sequential"
-    | Expr.Tuple elements ->
+    | Expr.Tuple(elements, _) ->
         visitor.EnterSection "Tuple"
 
         for elem in elements do
             walkExpr visitor elem
 
         visitor.ExitSection "Tuple"
-    | Expr.StructTuple(_kw, _lParen, elements, _rParen) ->
+    | Expr.StructTuple(_kw, _lParen, elements, _, _rParen) ->
         visitor.EnterSection "StructTuple"
 
         for elem in elements do
@@ -853,7 +853,7 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         visitor.EnterSection "LongIdentOrOp"
         walkLongIdentOrOp visitor longIdentOrOp
         visitor.ExitSection "LongIdentOrOp"
-    | Expr.TypeApp(expr, lAngle, types, rAngle) ->
+    | Expr.TypeApp(expr, lAngle, types, _, rAngle) ->
         visitor.EnterSection "TypeApp"
         visitor.EnterSection "Expr"
         walkExpr visitor expr
@@ -1058,7 +1058,7 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         walkExpr visitor leftExpr
         walkExpr visitor rightExpr
         visitor.ExitSection ""
-    | Expr.Record(lBrace, fieldInitializers, rBrace) ->
+    | Expr.Record(lBrace, fieldInitializers, _, rBrace) ->
         visitor.VisitToken "Record" lBrace
         visitor.EnterSection ""
 
@@ -1067,7 +1067,7 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
 
         visitor.ExitSection ""
         visitor.VisitToken "" rBrace
-    | Expr.RecordClone(lBrace, baseExpr, withToken, fieldInitializers, rBrace) ->
+    | Expr.RecordClone(lBrace, baseExpr, withToken, fieldInitializers, _, rBrace) ->
         visitor.VisitToken "RecordClone" lBrace
         visitor.EnterSection ""
         visitor.EnterSection "Base"
@@ -1316,7 +1316,8 @@ and walkArgSpec (visitor: AstVisitor<'T>) (argSpec: ArgSpec<'T>) : unit =
     walkType visitor typ
 
 and walkUncurriedSig (visitor: AstVisitor<'T>) (sign: UncurriedSig<'T>) : unit =
-    let (UncurriedSig(args, arrow, retType)) = sign
+    let (UncurriedSig(argsSpec, arrow, retType)) = sign
+    let (ArgsSpec.ArgsSpec(args, _)) = argsSpec
 
     for arg in args do
         walkArgSpec visitor arg
@@ -1328,7 +1329,9 @@ and walkCurriedSig (visitor: AstVisitor<'T>) (sign: CurriedSig<'T>) : unit =
     let (CurriedSig(argGroups, ret)) = sign
 
     for struct (argsSpec, arrowTok) in argGroups do
-        for arg in argsSpec do
+        let (ArgsSpec.ArgsSpec(args, _)) = argsSpec
+
+        for arg in args do
             walkArgSpec visitor arg
 
         visitor.VisitToken "->" arrowTok
@@ -1364,7 +1367,7 @@ and walkMethodOrPropDefn (visitor: AstVisitor<'T>) (defn: MethodOrPropDefn<'T>) 
         | ValueNone -> ()
 
         walkBinding visitor binding
-    | MethodOrPropDefn.PropertyWithGetSet(_, ident, withTok, bindings) ->
+    | MethodOrPropDefn.PropertyWithGetSet(_, ident, withTok, bindings, _) ->
         visitor.VisitToken "ident" ident
         visitor.VisitToken "with" withTok
 
@@ -1504,7 +1507,7 @@ and walkTypeName (visitor: AstVisitor<'T>) (typeName: TypeName<'T>) : unit =
         visitor.EnterSection "PrefixTypar"
         walkTypar visitor typar
         visitor.ExitSection "PrefixTypar"
-    | ValueSome(PrefixTypars.Multiple(lParen, typars, rParen)) ->
+    | ValueSome(PrefixTypars.Multiple(lParen, typars, _, rParen)) ->
         visitor.EnterSection "PrefixTypars"
         visitor.VisitToken "(" lParen
 
@@ -1523,7 +1526,7 @@ and walkTypeName (visitor: AstVisitor<'T>) (typeName: TypeName<'T>) : unit =
     | ValueNone -> ()
 
     match postfixConstraints with
-    | ValueSome(TyparConstraints(whenTok, constrs)) ->
+    | ValueSome(TyparConstraints(whenTok, constrs, _)) ->
         visitor.VisitToken "when" whenTok
 
         for c in constrs do
@@ -1543,7 +1546,7 @@ and walkPrimaryConstrArgs (visitor: AstVisitor<'T>) (args: PrimaryConstrArgs<'T>
 and walkUnionCaseData (visitor: AstVisitor<'T>) (data: UnionTypeCaseData<'T>) : unit =
     match data with
     | UnionTypeCaseData.Nullary ident -> visitor.VisitToken "ident" ident
-    | UnionTypeCaseData.Nary(ident, ofTok, fields) ->
+    | UnionTypeCaseData.Nary(ident, ofTok, fields, _) ->
         visitor.VisitToken "ident" ident
         visitor.VisitToken "of" ofTok
 
@@ -1605,7 +1608,7 @@ and walkObjectModelBody (visitor: AstVisitor<'T>) (body: ObjectModelBody<'T>) : 
 
     for preamble in body.classPreamble do
         match preamble with
-        | ClassFunctionOrValueDefn.LetBindings(attrs, staticTok, letTok, isRec, bindings) ->
+        | ClassFunctionOrValueDefn.LetBindings(attrs, staticTok, letTok, isRec, bindings, _) ->
             walkAttributesOpt visitor attrs
             visitTokenOpt visitor "static" staticTok
             visitor.VisitToken "let" letTok
@@ -1633,7 +1636,7 @@ and walkTypeDefn (visitor: AstVisitor<'T>) (typeDefn: TypeDefn<'T>) : unit =
         walkType visitor typ
         visitor.ExitSection ""
         visitor.ExitSection "TypeDefn.Abbrev"
-    | TypeDefn.Union(typeName, equals, cases, _ext) ->
+    | TypeDefn.Union(typeName, equals, cases, _, _ext) ->
         visitor.EnterSection "TypeDefn.Union"
         walkTypeName visitor typeName
         visitor.VisitToken "=" equals
@@ -1645,7 +1648,7 @@ and walkTypeDefn (visitor: AstVisitor<'T>) (typeDefn: TypeDefn<'T>) : unit =
 
             match data with
             | UnionTypeCaseData.Nullary ident -> visitor.VisitToken "ident" ident
-            | UnionTypeCaseData.Nary(ident, ofTok, fields) ->
+            | UnionTypeCaseData.Nary(ident, ofTok, fields, _) ->
                 visitor.VisitToken "ident" ident
                 visitor.VisitToken "of" ofTok
 
@@ -1698,7 +1701,7 @@ and walkTypeDefn (visitor: AstVisitor<'T>) (typeDefn: TypeDefn<'T>) : unit =
         | ValueNone -> ()
 
         visitor.ExitSection "TypeDefn.Record"
-    | TypeDefn.Enum(typeName, equals, cases) ->
+    | TypeDefn.Enum(typeName, equals, cases, _) ->
         visitor.EnterSection "TypeDefn.Enum"
         walkTypeName visitor typeName
         visitor.VisitToken "=" equals
@@ -1795,7 +1798,7 @@ and walkTypeDefn (visitor: AstVisitor<'T>) (typeDefn: TypeDefn<'T>) : unit =
 
 and walkModuleFunctionOrValueDefn (visitor: AstVisitor<'T>) (defn: ModuleFunctionOrValueDefn<'T>) : unit =
     match defn with
-    | ModuleFunctionOrValueDefn.Let(attrs, letToken, isRec, bindings) ->
+    | ModuleFunctionOrValueDefn.Let(attrs, letToken, isRec, bindings, _) ->
         walkAttributesOpt visitor attrs
         visitor.VisitToken "let" letToken
         visitTokenOpt visitor "rec" isRec

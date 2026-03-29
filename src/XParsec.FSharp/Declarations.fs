@@ -22,7 +22,12 @@ type CompilerDirectiveDecl<'T> = | CompilerDirectiveDecl of hash: 'T * ident: 'T
 
 // Represents: module-function-or-value-defn
 type ModuleFunctionOrValueDefn<'T> =
-    | Let of attributes: Attributes<'T> voption * letToken: 'T * isRec: 'T voption * bindings: ImArr<Binding<'T>>
+    | Let of
+        attributes: Attributes<'T> voption *
+        letToken: 'T *
+        isRec: 'T voption *
+        bindings: ImArr<Binding<'T>> *
+        ands: ImArr<'T>
     | Do of attributes: Attributes<'T> voption * doToken: 'T * expr: Expr<'T>
 
 // Represents: module-elem

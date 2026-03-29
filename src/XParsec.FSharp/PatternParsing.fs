@@ -217,9 +217,9 @@ module Pat =
 
                 let innerParser =
                     parser {
-                        let! fields, _ = withContext OffsideContext.SeqBlock (sepEndBy1 pFieldPat pRecordFieldSep)
+                        let! fields, seps = withContext OffsideContext.SeqBlock (sepEndBy1 pFieldPat pRecordFieldSep)
                         let! r = pRBrace
-                        return Pat.Record(l, fields, r)
+                        return Pat.Record(l, fields, seps, r)
                     }
 
                 match innerParser reader with
