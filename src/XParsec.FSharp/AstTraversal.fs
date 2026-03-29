@@ -368,12 +368,12 @@ and walkPat (visitor: AstVisitor<'T>) (pat: Pat<'T>) : unit =
         visitor.VisitToken "ColonQuestion" colonQuestion
         walkType visitor typ
         visitor.ExitSection "Pat.TypeTest"
-    | Pat.TypeTestAs(colonQuestion, typ, asToken, ident) ->
+    | Pat.TypeTestAs(colonQuestion, typ, asToken, pat) ->
         visitor.EnterSection "Pat.TypeTestAs"
         visitor.VisitToken "ColonQuestion" colonQuestion
         walkType visitor typ
         visitor.VisitToken "As" asToken
-        visitor.VisitToken "Ident" ident
+        walkPat visitor pat
         visitor.ExitSection "Pat.TypeTestAs"
     | Pat.Null nullToken -> visitor.VisitToken "Pat.Null" nullToken
     | Pat.Attributed(attributes, innerPat) ->
@@ -631,7 +631,10 @@ and walkType (visitor: AstVisitor<'T>) (ty: Type<'T>) : unit =
         visitor.ExitSection "SkipsTokens"
 
 and walkBinding (visitor: AstVisitor<'T>) (binding: Binding<'T>) : unit =
-    walkAttributesOpt visitor binding.attributes
+    // Note: attributes are NOT visited here — they are visited by the caller
+    // (ModuleFunctionOrValueDefn, ClassFunctionOrValueDefn, MemberDefn, etc.)
+    // to avoid duplication, since the same attrs value is stored both on the
+    // declaration wrapper and on the binding record.
     visitTokenOpt visitor "inline" binding.inlineToken
     visitTokenOpt visitor "mutable" binding.mutableToken
     visitTokenOpt visitor "fixed" binding.fixedToken
@@ -1179,13 +1182,14 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         for part in parts do
             match part with
             | InterpolatedStringPart.Text t -> visitor.VisitToken "Text" t
-            | InterpolatedStringPart.Expr(formatSpec, lBrace, expr, rBrace) ->
+            | InterpolatedStringPart.Expr(formatSpec, lBrace, expr, formatClause, rBrace) ->
                 visitTokenOpt visitor "FormatSpec" formatSpec
 
                 visitor.VisitToken "{" lBrace
                 visitor.EnterSection "Expr"
                 walkExpr visitor expr
                 visitor.ExitSection "Expr"
+                visitTokenOpt visitor "FormatClause" formatClause
                 visitor.VisitToken "}" rBrace
             | InterpolatedStringPart.OrphanFormatSpecifier fs -> visitor.VisitToken "OrphanFormatSpec" fs
             | InterpolatedStringPart.InvalidText t -> visitor.VisitToken "InvalidText" t

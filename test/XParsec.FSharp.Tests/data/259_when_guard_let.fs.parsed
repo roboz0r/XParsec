@@ -1,94 +1,94 @@
-module                       'module'          KWModule            tok=   0  pos=   0
-                             'Test'            Identifier          tok=   2  pos=   7
+module                         'module'          KWModule            tok=   0  pos=   0
+                               'Test'            Identifier          tok=   2  pos=   7
 FunctionOrValue:
-  let                        'let'             KWLet               tok=   7  pos=  34
-    Pat.NamedSimple          'test1'           Identifier          tok=   9  pos=  38
+  let                          'let'             KWLet               tok=   7  pos=  34
+    Pat.NamedSimple            'test1'           Identifier          tok=   9  pos=  38
     Pats:
-      ParenBlock             '('               KWLParen            tok=  11  pos=  44
+      ParenBlock               '('               KWLParen            tok=  11  pos=  44
         Pat.Typed:
-          Pat.NamedSimple    'x'               Identifier          tok=  12  pos=  45
-          Colon              ':'               OpColon             tok=  13  pos=  46
+          Pat.NamedSimple      'x'               Identifier          tok=  12  pos=  45
+          Colon                ':'               OpColon             tok=  13  pos=  46
           NamedType:
             LongIdent:
-                             'obj'             Identifier          tok=  15  pos=  48
-                             ')'               KWRParen            tok=  16  pos=  51
-    =                        '='               OpEquality          tok=  18  pos=  53
+                               'obj'             Identifier          tok=  15  pos=  48
+                               ')'               KWRParen            tok=  16  pos=  51
+    =                          '='               OpEquality          tok=  18  pos=  53
       Match:
-        MatchToken           'match'           KWMatch             tok=  21  pos=  59
+        MatchToken             'match'           KWMatch             tok=  21  pos=  59
         MatchExpr:
-          Ident              'x'               Identifier          tok=  23  pos=  65
-        WithToken            'with'            KWWith              tok=  25  pos=  67
+          Ident                'x'               Identifier          tok=  23  pos=  65
+        WithToken              'with'            KWWith              tok=  25  pos=  67
         Rule:
-          Bar                '|'               OpBar               tok=  28  pos=  76
+          Bar                  '|'               OpBar               tok=  28  pos=  76
           Pat:
             Pat.TypeTestAs:
-              ColonQuestion  ':?'              OpTypeTest          tok=  30  pos=  78
+              ColonQuestion    ':?'              OpTypeTest          tok=  30  pos=  78
               NamedType:
                 LongIdent:
-                             'string'          Identifier          tok=  32  pos=  81
-              As             'as'              KWAs                tok=  34  pos=  88
-              Ident          's'               Identifier          tok=  36  pos=  91
-          When               'when'            KWWhen              tok=  38  pos=  93
+                               'string'          Identifier          tok=  32  pos=  81
+              As               'as'              KWAs                tok=  34  pos=  88
+              Pat.NamedSimple  's'               Identifier          tok=  36  pos=  91
+          When                 'when'            KWWhen              tok=  38  pos=  93
           Guard:
-            InfixApp         '>'               op_GreaterThan      tok=  44  pos= 107
+            InfixApp           '>'               op_GreaterThan      tok=  44  pos= 107
               LongIdentOrOp:
                 LongIdent:
-                             's'               Identifier          tok=  40  pos=  98
-                             'Length'          Identifier          tok=  42  pos= 100
-              Const          '0'               NumInt32            tok=  46  pos= 109
-          Arrow              '->'              OpArrowRight        tok=  48  pos= 111
+                               's'               Identifier          tok=  40  pos=  98
+                               'Length'          Identifier          tok=  42  pos= 100
+              Const            '0'               NumInt32            tok=  46  pos= 109
+          Arrow                '->'              OpArrowRight        tok=  48  pos= 111
           Expr:
-            Ident            's'               Identifier          tok=  50  pos= 114
+            Ident              's'               Identifier          tok=  50  pos= 114
         Rule:
-          Bar                '|'               OpBar               tok=  53  pos= 120
+          Bar                  '|'               OpBar               tok=  53  pos= 120
           Pat:
-            Pat.Wildcard     '_'               Wildcard            tok=  55  pos= 122
-          Arrow              '->'              OpArrowRight        tok=  57  pos= 124
+            Pat.Wildcard       '_'               Wildcard            tok=  55  pos= 122
+          Arrow                '->'              OpArrowRight        tok=  57  pos= 124
           Expr:
-            Const            '"other"'         StringLiteral       tok=  59  pos= 127
+            Const              '"other"'         StringLiteral       tok=  59  pos= 127
 FunctionOrValue:
-  let                        'let'             KWLet               tok=  64  pos= 160
-    Pat.NamedSimple          'test2'           Identifier          tok=  66  pos= 164
+  let                          'let'             KWLet               tok=  64  pos= 160
+    Pat.NamedSimple            'test2'           Identifier          tok=  66  pos= 164
     Pats:
-      ParenBlock             '('               KWLParen            tok=  68  pos= 170
+      ParenBlock               '('               KWLParen            tok=  68  pos= 170
         Pat.Typed:
-          Pat.NamedSimple    'x'               Identifier          tok=  69  pos= 171
-          Colon              ':'               OpColon             tok=  70  pos= 172
+          Pat.NamedSimple      'x'               Identifier          tok=  69  pos= 171
+          Colon                ':'               OpColon             tok=  70  pos= 172
           NamedType:
             LongIdent:
-                             'obj'             Identifier          tok=  72  pos= 174
-                             ')'               KWRParen            tok=  73  pos= 177
-    =                        '='               OpEquality          tok=  75  pos= 179
+                               'obj'             Identifier          tok=  72  pos= 174
+                               ')'               KWRParen            tok=  73  pos= 177
+    =                          '='               OpEquality          tok=  75  pos= 179
       Match:
-        MatchToken           'match'           KWMatch             tok=  78  pos= 185
+        MatchToken             'match'           KWMatch             tok=  78  pos= 185
         MatchExpr:
-          Ident              'x'               Identifier          tok=  80  pos= 191
-        WithToken            'with'            KWWith              tok=  82  pos= 193
+          Ident                'x'               Identifier          tok=  80  pos= 191
+        WithToken              'with'            KWWith              tok=  82  pos= 193
         Rule:
-          Bar                '|'               OpBar               tok=  85  pos= 202
+          Bar                  '|'               OpBar               tok=  85  pos= 202
           Pat:
             Pat.TypeTestAs:
-              ColonQuestion  ':?'              OpTypeTest          tok=  87  pos= 204
+              ColonQuestion    ':?'              OpTypeTest          tok=  87  pos= 204
               NamedType:
                 LongIdent:
-                             'string'          Identifier          tok=  89  pos= 207
-              As             'as'              KWAs                tok=  91  pos= 214
-              Ident          's'               Identifier          tok=  93  pos= 217
-          When               'when'            KWWhen              tok=  95  pos= 219
+                               'string'          Identifier          tok=  89  pos= 207
+              As               'as'              KWAs                tok=  91  pos= 214
+              Pat.NamedSimple  's'               Identifier          tok=  93  pos= 217
+          When                 'when'            KWWhen              tok=  95  pos= 219
           Guard:
-            InfixApp         '>'               op_GreaterThan      tok= 102  pos= 241
+            InfixApp           '>'               op_GreaterThan      tok= 102  pos= 241
               LongIdentOrOp:
                 LongIdent:
-                             's'               Identifier          tok=  98  pos= 232
-                             'Length'          Identifier          tok= 100  pos= 234
-              Const          '0'               NumInt32            tok= 104  pos= 243
-          Arrow              '->'              OpArrowRight        tok= 107  pos= 253
+                               's'               Identifier          tok=  98  pos= 232
+                               'Length'          Identifier          tok= 100  pos= 234
+              Const            '0'               NumInt32            tok= 104  pos= 243
+          Arrow                '->'              OpArrowRight        tok= 107  pos= 253
           Expr:
-            Ident            's'               Identifier          tok= 110  pos= 264
+            Ident              's'               Identifier          tok= 110  pos= 264
         Rule:
-          Bar                '|'               OpBar               tok= 113  pos= 270
+          Bar                  '|'               OpBar               tok= 113  pos= 270
           Pat:
-            Pat.Wildcard     '_'               Wildcard            tok= 115  pos= 272
-          Arrow              '->'              OpArrowRight        tok= 117  pos= 274
+            Pat.Wildcard       '_'               Wildcard            tok= 115  pos= 272
+          Arrow                '->'              OpArrowRight        tok= 117  pos= 274
           Expr:
-            Const            '"other"'         StringLiteral       tok= 119  pos= 277
+            Const              '"other"'         StringLiteral       tok= 119  pos= 277

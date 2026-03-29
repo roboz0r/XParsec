@@ -1,0 +1,48 @@
+module                      'module'          KWModule            tok=   0  pos=   0
+                            'Test'            Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                       'let'             KWLet               tok=   5  pos=  13
+    Pat.NamedSimple         'xs'              Identifier          tok=   7  pos=  17
+    =                       '='               OpEquality          tok=   9  pos=  20
+      App:
+        Func:
+          Ident             'seq'             Identifier          tok=  12  pos=  26
+        Args:
+          ComputationBlock  '{'               KWLBrace            tok=  14  pos=  30
+            Sequential:
+              HighPrecedenceApp:
+                Func:
+                  LongIdentOrOp:
+                    LongIdent:
+                            'System'          Identifier          tok=  17  pos=  40
+                            'Console'         Identifier          tok=  19  pos=  47
+                            'WriteLine'       Identifier          tok=  21  pos=  55
+                (           '('               KWLParen            tok=  22  pos=  64
+                Arg:
+                  Const     '"hello"'         StringLiteral       tok=  23  pos=  65
+                            ')'               KWRParen            tok=  24  pos=  72
+              yield         'yield'           KWYield             tok=  27  pos=  82
+              Yield:
+                Const       '1'               NumInt32            tok=  29  pos=  88
+              yield!        'yield!'          KWYieldBang         tok=  32  pos=  98
+              YieldBang:
+                List        '['               KWLBracket          tok=  34  pos= 105
+                  Sequential:
+                    Const   '2'               NumInt32            tok=  36  pos= 107
+                    Const   '3'               NumInt32            tok=  39  pos= 110
+                            ']'               KWRBracket          tok=  41  pos= 112
+                            '}'               KWRBrace            tok=  44  pos= 118
+FunctionOrValue:
+  let                       'let'             KWLet               tok=  47  pos= 121
+    Pat.NamedSimple         'ys'              Identifier          tok=  49  pos= 125
+    =                       '='               OpEquality          tok=  51  pos= 128
+      App:
+        Func:
+          Ident             'seq'             Identifier          tok=  54  pos= 134
+        Args:
+          ComputationBlock  '{'               KWLBrace            tok=  56  pos= 138
+            Sequential:
+              Const         '1'               NumInt32            tok=  59  pos= 148
+              Const         '2'               NumInt32            tok=  62  pos= 158
+              Const         '3'               NumInt32            tok=  65  pos= 168
+                            '}'               KWRBrace            tok=  68  pos= 174

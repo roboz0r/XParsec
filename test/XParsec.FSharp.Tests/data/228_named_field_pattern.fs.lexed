@@ -57,7 +57,7 @@
 130, Whitespace
 131, Identifier
 132, Whitespace
-133, OpCons
+133, KWColonColon
 135, Whitespace
 136, Wildcard
 137, OpComma

@@ -14,14 +14,6 @@ Module:
                                       ')'               KWRParen            tok=  11  pos=  46
       >]                              '>]'              KWRAttrBracket      tok=  12  pos=  47
       let                             'let'             KWLet               tok=  15  pos=  54
-        [<                            '[<'              KWLAttrBracket      tok=   7  pos=  22
-        NamedType:
-          LongIdent:
-                                      'CompiledNa...'   Identifier          tok=   8  pos=  24
-        ParenBlock                    '('               KWLParen            tok=   9  pos=  36
-          Const                       '"Length1"'       StringLiteral       tok=  10  pos=  37
-                                      ')'               KWRParen            tok=  11  pos=  46
-        >]                            '>]'              KWRAttrBracket      tok=  12  pos=  47
         Pat.NamedSimple               'length1'         Identifier          tok=  17  pos=  58
         Pats:
           ParenBlock                  '('               KWLParen            tok=  19  pos=  66
@@ -58,14 +50,6 @@ Module:
                                       ')'               KWRParen            tok=  51  pos= 151
       >]                              '>]'              KWRAttrBracket      tok=  52  pos= 152
       let                             'let'             KWLet               tok=  55  pos= 159
-        [<                            '[<'              KWLAttrBracket      tok=  47  pos= 131
-        NamedType:
-          LongIdent:
-                                      'CompiledNa...'   Identifier          tok=  48  pos= 133
-        ParenBlock                    '('               KWLParen            tok=  49  pos= 145
-          Const                       '"Set"'           StringLiteral       tok=  50  pos= 146
-                                      ')'               KWRParen            tok=  51  pos= 151
-        >]                            '>]'              KWRAttrBracket      tok=  52  pos= 152
         Pat.NamedSimple               'set'             Identifier          tok=  57  pos= 163
         Pats:
           ParenBlock                  '('               KWLParen            tok=  59  pos= 167
@@ -162,7 +146,7 @@ Module:
         Pats:
           Pat.NamedSimple             'h'               Identifier          tok= 156  pos= 417
         =                             '='               OpEquality          tok= 158  pos= 419
-          InfixApp                    '::'              OpCons              tok= 162  pos= 423
+          InfixApp                    '::'              KWColonColon        tok= 162  pos= 423
             Ident                     'h'               Identifier          tok= 160  pos= 421
             ILIntrinsic:
               (#                      '(#'              KWLHashParen        tok= 164  pos= 426
@@ -322,19 +306,6 @@ Module:
                                       ')'               KWRParen            tok= 322  pos= 942
       >]                              '>]'              KWRAttrBracket      tok= 323  pos= 943
       let                             'let'             KWLet               tok= 326  pos= 950
-        [<                            '[<'              KWLAttrBracket      tok= 313  pos= 884
-        NamedType:
-          LongIdent:
-                                      'NoDynamicI...'   Identifier          tok= 314  pos= 886
-        >]                            '>]'              KWRAttrBracket      tok= 315  pos= 905
-        [<                            '[<'              KWLAttrBracket      tok= 318  pos= 912
-        NamedType:
-          LongIdent:
-                                      'CompiledNa...'   Identifier          tok= 319  pos= 914
-        ParenBlock                    '('               KWLParen            tok= 320  pos= 926
-          Const                       '"StackAllo...'   StringLiteral       tok= 321  pos= 927
-                                      ')'               KWRParen            tok= 322  pos= 942
-        >]                            '>]'              KWRAttrBracket      tok= 323  pos= 943
         inline                        'inline'          KWInline            tok= 328  pos= 954
         Pat.NamedSimple               'stackalloc'      Identifier          tok= 330  pos= 961
         Pats:

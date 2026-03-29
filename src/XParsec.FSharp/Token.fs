@@ -1013,6 +1013,9 @@ module TokenRepresentation =
         [<Literal>]
         let VerbatimEscapeQuote = 22us
 
+        [<Literal>]
+        let InterpolatedFormatClause = 23us
+
     module internal Numeric =
 
         [<Literal>]
@@ -1679,6 +1682,7 @@ type Token =
     | EscapeLBrace = (KindTextLiteral ||| Text.EscapeLBrace)
     | EscapeRBrace = (KindTextLiteral ||| Text.EscapeRBrace)
     | VerbatimEscapeQuote = (KindTextLiteral ||| Text.VerbatimEscapeQuote) // "" inside a verbatim string
+    | InterpolatedFormatClause = (KindTextLiteral ||| Text.InterpolatedFormatClause) // :format in {expr:format}
 
 
     // ==============================================================================
@@ -1752,33 +1756,32 @@ module internal Token =
             | '|' -> ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise)
             | '~' ->
                 if
-                    trimIgnored.Length = 1 // ~ alone is not a valid operator
+                    trimIgnored.Length = 1 // ~ alone is not a valid operator (reserved)
                     || trimIgnored.Length < span.Length // prefix operators cannot start with ignored chars
                 then
-                    if span.Length > 3 && span.Trim('~').Length = 0 then
-                        // any number of ~ is a valid prefix operator
-                        ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.Prefix)
-                    else
-                        let s = span.ToString()
-                        // 4.4.1 Categorization of Symbolic Operators
-                        // Only these prefix operators are valid, the spec doesn't list ~%% ~?+ ~?- but they will compile
-                        // TODO: Use SearchValues?
-                        match s with
-                        | "~+"
-                        | "~-"
-                        | "~%"
-                        | "~&"
-                        | "~~"
-                        | "~?+"
-                        | "~?-"
-                        | "~+."
-                        | "~-."
-                        | "~~~"
-                        | "~%%"
-                        | "~&&" -> ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.Prefix)
-                        | _ -> Token.InvalidPrefixOperator
-                else
                     Token.InvalidPrefixOperator
+                else if span.Length > 3 && span.Trim('~').Length = 0 then
+                    // any number of ~ (4+) is a valid prefix operator
+                    ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.Prefix)
+                else
+                    let s = span.ToString()
+                    // 4.4.1 Categorization of Symbolic Operators
+                    // Only these prefix operators are valid, the spec doesn't list ~%% ~?+ ~?- but they will compile
+                    // TODO: Use SearchValues?
+                    match s with
+                    | "~+"
+                    | "~-"
+                    | "~%"
+                    | "~&"
+                    | "~~"
+                    | "~?+"
+                    | "~?-"
+                    | "~+."
+                    | "~-."
+                    | "~~~"
+                    | "~%%"
+                    | "~&&" -> ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.Prefix)
+                    | _ -> Token.InvalidPrefixOperator
 
             | _ -> invalidArg "span" (sprintf "Invalid custom operator: %s" (span.ToString()))
 
@@ -1793,7 +1796,26 @@ module internal TokenInfo =
 
     let isLiteral (token: Token) =
         let tKind = kind token
-        tKind = TokenKind.NumericLiteral || tKind = TokenKind.TextLiteral
+
+        if tKind = TokenKind.NumericLiteral then
+            true
+        elif tKind = TokenKind.TextLiteral then
+            // Exclude interpolated-string-internal tokens that aren't standalone literals
+            match token with
+            | Token.InterpolatedFormatClause
+            | Token.InterpolatedExpressionOpen
+            | Token.InterpolatedExpressionClose
+            | Token.InterpolatedStringFragment
+            | Token.Interpolated3StringFragment
+            | Token.VerbatimInterpolatedStringFragment
+            | Token.FormatPlaceholder
+            | Token.EscapePercent
+            | Token.EscapeLBrace
+            | Token.EscapeRBrace
+            | Token.VerbatimEscapeQuote -> false
+            | _ -> true
+        else
+            false
 
     let isNumeric (token: Token) =
         token |> kind = TokenKind.NumericLiteral
@@ -1830,20 +1852,18 @@ module internal TokenInfo =
         // Identifiers
         | Token.Identifier
         | Token.BacktickedIdentifier
-        | Token.UnterminatedBacktickedIdentifier -> true
-        // Literals (numeric and text kinds cover all number/string/char/byte-array tokens)
-        | _ when isLiteral token -> true
+        | Token.UnterminatedBacktickedIdentifier
         // Boolean and null keywords (classified as keywords, not literals)
         | Token.KWTrue
         | Token.KWFalse
-        | Token.KWNull -> true
+        | Token.KWNull
         // Opening delimiters
         | Token.KWLParen
         | Token.KWLBracket
         | Token.KWLArrayBracket
         | Token.KWLBrace
         | Token.KWBegin
-        | Token.KWStruct -> true
+        | Token.KWStruct
         // Keyword expression starters (control flow, binding, computation)
         | Token.KWIf
         | Token.KWMatch
@@ -1865,16 +1885,23 @@ module internal TokenInfo =
         | Token.KWYield
         | Token.KWYieldBang
         | Token.KWLazy
-        | Token.KWAssert -> true
+        | Token.KWAssert
+        | Token.KWUpcast
+        | Token.KWDowncast
+        | Token.KWBase
+        // Wildcard for shorthand lambda: _.Property
+        | Token.Wildcard
         // Quotation markers
         | Token.OpQuotationTypedLeft
-        | Token.OpQuotationUntypedLeft -> true
+        | Token.OpQuotationUntypedLeft
         // Interpolated string opens
         | Token.InterpolatedStringOpen
         | Token.VerbatimInterpolatedStringOpen
-        | Token.Interpolated3StringOpen -> true
+        | Token.Interpolated3StringOpen
         // ? for optional argument expressions (e.g., f(?x=value))
         | Token.OpDynamic -> true
+        // Literals (numeric and text kinds cover all number/string/char/byte-array tokens)
+        | _ when isLiteral token -> true
         // Prefix operators (-, +, !, ~, &, &&, .., *, not, etc.)
         | _ when isOperator token && canBePrefix token -> true
         | _ -> false

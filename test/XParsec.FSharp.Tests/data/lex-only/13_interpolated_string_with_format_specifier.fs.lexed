@@ -18,8 +18,7 @@
 91, InterpolatedStringFragment
 111, InterpolatedExpressionOpen
 112, Identifier
-114, OpColon
-115, Identifier
+114, InterpolatedFormatClause
 117, InterpolatedExpressionClose
 118, InterpolatedStringFragment
 119, InterpolatedStringClose

@@ -335,17 +335,34 @@ module Type =
             return! loop atom
         }
 
+    // Subtype constraint: 'T :> IDisposable (flexible type annotation)
+    let private pSubtypeType =
+        parser {
+            let! lhs = pPostfixType
+
+            match lhs with
+            | Type.VarType typar ->
+                let! colonGreater = opt (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpUpcast) ":>")
+
+                match colonGreater with
+                | ValueSome op ->
+                    let! rhs = pPostfixType
+                    return Type.SubtypeConstraint(typar, op, rhs)
+                | ValueNone -> return lhs
+            | _ -> return lhs
+        }
+
     // Union: T | T (for nullable reference types: string | null)
     let private pBarType =
         parser {
             let! bar = pBar
-            let! rhs = pPostfixType
+            let! rhs = pSubtypeType
             return (bar, rhs)
         }
 
     let private pUnionType =
         parser {
-            let! lhs = pPostfixType
+            let! lhs = pSubtypeType
 
             match! opt pBarType with
             | ValueSome(bar, rhs) -> return Type.UnionType(lhs, bar, rhs)

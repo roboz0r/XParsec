@@ -191,19 +191,14 @@ module ObjectConstruction =
         parser {
             let! typ = Type.parse
 
-            // Heuristic: If followed by '(', it's likely a constructor call (ObjectConstruction).
-            // If not, it might be an Interface construction (inherit IMyInterface).
-            // F# optional () logic is subtle, but for AST parsing:
-
-            // Check for explicit unit '()' or paren '(' start
+            // Check for constructor arguments: parens, literals, or other expression starters.
+            // Attributes can use `[<Attr "str">]` or `[<Attr(args)>]` syntax.
             let! argExpr =
                 opt (
-                    // Logic to detect if the next token starts an expression argument
-                    // Usually looks for '(' or 'unit'
                     parser {
                         let! token = lookAhead nextNonTriviaToken
 
-                        if token.Token = Token.KWLParen then
+                        if token.Token = Token.KWLParen || TokenInfo.isLiteral token.Token then
                             return! refExpr.Parser
                         else
                             return! fail (Message "No constructor arguments")
@@ -313,6 +308,8 @@ module Expr =
         let completePrefix (op: SyntaxToken) (e: Expr<_>) = Expr.PrefixApp(op, e)
         let completeLazy (op: SyntaxToken) (e: Expr<_>) = Expr.Lazy(op, e)
         let completeAssert (op: SyntaxToken) (e: Expr<_>) = Expr.Assert(op, e)
+        let completeUpcast (op: SyntaxToken) (e: Expr<_>) = Expr.Upcast(op, e)
+        let completeDowncast (op: SyntaxToken) (e: Expr<_>) = Expr.Downcast(op, e)
         let completeSliceTo (op: SyntaxToken) (e: Expr<_>) = Expr.SliceTo(op, e)
         let completeTuple (elements: ResizeArray<Expr<_>>) ops = Expr.Tuple(List.ofSeq elements)
 
@@ -633,7 +630,8 @@ module Expr =
                 | Token.OpDereference
                 | Token.InterpolatedStringOpen
                 | Token.VerbatimInterpolatedStringOpen
-                | Token.Interpolated3StringOpen -> true
+                | Token.Interpolated3StringOpen
+                | Token.Wildcard -> true
                 | _ ->
                     if Constant.isLiteralToken t.Token then
                         true
@@ -1183,7 +1181,7 @@ module Expr =
                 return ExprAux.ForExpr(forBuilder forTok body doneTok)
             }
 
-        let pLetOrUseIn (reader: Reader<PositionedToken, ParseState, _, _>) =
+        let pLetOrUseIn letIndent (reader: Reader<PositionedToken, ParseState, _, _>) =
             match peekNextNonTriviaToken reader with
             | Ok t when t.Token = Token.KWIn -> consumePeeked t reader
             | Ok t ->
@@ -1194,8 +1192,11 @@ module Expr =
 
                 let atContextIndent =
                     match state.Context with
-                    | { Indent = ctxIndent } :: _ -> indent = ctxIndent
-                    | [] -> indent = 0
+                    // Inside paren-like contexts (Indent = 0), the offside rule is relaxed.
+                    // Always emit virtual 'in' since the paren delimiter governs scope, not indentation.
+                    | { Indent = 0 } :: _ -> true
+                    | { Indent = ctxIndent } :: _ -> indent = ctxIndent || indent = letIndent
+                    | [] -> indent = 0 || indent = letIndent
 
                 if atContextIndent then
                     Ok(virtualToken (PositionedToken.Create(Token.VirtualIn, t.StartIndex)))
@@ -1299,7 +1300,7 @@ module Expr =
                                     error <- Error e
                                     cont <- false
                                 | Ok(recTok, defs) ->
-                                    match pLetOrUseIn reader with
+                                    match pLetOrUseIn indent reader with
                                     | Error e ->
                                         error <- Error e
                                         cont <- false
@@ -1397,12 +1398,48 @@ module Expr =
                 // so they are parsed as prefix operators with the same precedence level.
                 | ValueSome opInfo when opInfo.Token = Token.KWLazy ->
                     let! tok = consumePeeked token
-                    let power = BindingPower.fromLevel (int opInfo.Precedence)
-                    return Prefix(tok, preturn tok, power, completeLazy)
+
+                    return
+                        PrefixMapped(
+                            tok,
+                            preturn tok,
+                            (refExprSeqBlock.Parser
+                             |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Lazy(kwTok, e))),
+                            completeKeyword
+                        )
                 | ValueSome opInfo when opInfo.Token = Token.KWAssert ->
                     let! tok = consumePeeked token
-                    let power = BindingPower.fromLevel (int opInfo.Precedence)
-                    return Prefix(tok, preturn tok, power, completeAssert)
+
+                    return
+                        PrefixMapped(
+                            tok,
+                            preturn tok,
+                            (refExprSeqBlock.Parser
+                             |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Assert(kwTok, e))),
+                            completeKeyword
+                        )
+                | ValueSome opInfo when opInfo.Token = Token.KWUpcast ->
+                    let! tok = consumePeeked token
+
+                    return
+                        PrefixMapped(
+                            tok,
+                            preturn tok,
+                            (refExprSeqBlock.Parser
+                             |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Upcast(kwTok, e))),
+                            completeKeyword
+                        )
+                | ValueSome opInfo when opInfo.Token = Token.KWDowncast ->
+                    let! tok = consumePeeked token
+
+                    return
+                        PrefixMapped(
+                            tok,
+                            preturn tok,
+                            (refExprSeqBlock.Parser
+                             |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Downcast(kwTok, e))),
+                            completeKeyword
+                        )
                 | ValueSome opInfo when opInfo.Token = Token.OpRange ->
                     let! tok = consumePeeked token
                     let power = BindingPower.fromLevel (int opInfo.Precedence)
@@ -1422,7 +1459,14 @@ module Expr =
                     return Prefix(tok, preturn tok, power, completePrefix)
                 | ValueSome opInfo when opInfo.CanBePrefix ->
                     let! tok = consumePeeked token
-                    let power = BindingPower.fromLevel (int opInfo.Precedence)
+                    // TODO: PrecedenceLevel.Prefix has higher precedence than function application, which means `-f x` parses as `(-f) x` instead of `-(f x)`.
+                    // The F# parser treats `-f x` as `-(f x)`, so we add 1 to the precedence to allow prefix operators to bind tighter than infix operators of the same precedence, while still being below application.
+                    // This doesn't seem right. Prefix precedence may need to be revised as a whole, but for now this is a pragmatic solution to allow existing code to parse without ambiguity errors.
+                    // Dual-use operators (e.g., `-`, `+`) use their infix precedence + 1 for prefix.
+                    // This avoids "Ambiguous operator associativity" when the same operator follows
+                    // (e.g., `-x - 1` must parse as `(-x) - 1`), while staying below Application
+                    // so `-f x` still parses as `-(f x)`.
+                    let power = BindingPower.fromLevel (int opInfo.Precedence) + 1uy<bp>
                     return Prefix(tok, preturn tok, power, completePrefix)
                 | _ -> return! fail (Message "Not a prefix operator")
             }
@@ -1541,10 +1585,27 @@ module Expr =
                             match refExpr.Parser reader with
                             | Error e -> Error e
                             | Ok expr ->
+                                // Optionally consume format clause (:format) before closing }
+                                let formatClause =
+                                    match peekNextNonTriviaToken reader with
+                                    | Ok fc when fc.Token = Token.InterpolatedFormatClause ->
+                                        consumePeeked fc reader |> ignore
+                                        ValueSome fc
+                                    | _ -> ValueNone
+
                                 match nextNonTriviaTokenIsL Token.InterpolatedExpressionClose "Expected }" reader with
                                 | Error e -> Error e
                                 | Ok rBrace ->
-                                    parts.Add(InterpolatedStringPart.Expr(ValueSome formatSpec, lBrace, expr, rBrace))
+                                    parts.Add(
+                                        InterpolatedStringPart.Expr(
+                                            ValueSome formatSpec,
+                                            lBrace,
+                                            expr,
+                                            formatClause,
+                                            rBrace
+                                        )
+                                    )
+
                                     loop parts reader
                     | _ ->
                         parts.Add(InterpolatedStringPart.OrphanFormatSpecifier formatSpec)
@@ -1556,10 +1617,18 @@ module Expr =
                     match refExpr.Parser reader with
                     | Error e -> Error e
                     | Ok expr ->
+                        // Optionally consume format clause (:format) before closing }
+                        let formatClause =
+                            match peekNextNonTriviaToken reader with
+                            | Ok fc when fc.Token = Token.InterpolatedFormatClause ->
+                                consumePeeked fc reader |> ignore
+                                ValueSome fc
+                            | _ -> ValueNone
+
                         match nextNonTriviaTokenIsL Token.InterpolatedExpressionClose "Expected }" reader with
                         | Error e -> Error e
                         | Ok rBrace ->
-                            parts.Add(InterpolatedStringPart.Expr(ValueNone, lBrace, expr, rBrace))
+                            parts.Add(InterpolatedStringPart.Expr(ValueNone, lBrace, expr, formatClause, rBrace))
                             loop parts reader
             | Ok t when isInterpolatedInvalidText t.Token ->
                 match consumePeeked t reader with
@@ -1868,6 +1937,15 @@ module Expr =
                                 let! rBrace = pRBrace
                                 return Expr.Record(lBrace, List.ofSeq fields, rBrace)
                             }
+                            // Fallback: { expr-seq } — computation expression body without leading CE keyword
+                            // (e.g., seq { someExpr }, task { callAsync() })
+                            parser {
+                                let! body = refExprSeqBlock.Parser
+
+                                let! rBrace = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome lBrace) Token.KWRBrace
+
+                                return Expr.EnclosedBlock(ParenKind.Brace lBrace, body, rBrace)
+                            }
                         ]
                         "Record or RecordClone"
 
@@ -2015,6 +2093,7 @@ module Expr =
                 Token.VerbatimInterpolatedStringOpen, pInterpolatedString
                 Token.Interpolated3StringOpen, pInterpolatedString
                 Token.KWLHashParen, pILIntrinsic
+                Token.KWBase, (nextNonTriviaTokenIsL Token.KWBase "base" |>> Expr.Ident)
                 Token.Wildcard, (nextNonTriviaTokenIsL Token.Wildcard "_" |>> Expr.Wildcard)
                 Token.OpDynamic, pOptionalArgExpr
             ]

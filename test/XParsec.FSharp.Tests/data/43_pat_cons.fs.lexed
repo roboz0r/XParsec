@@ -8,7 +8,7 @@
 15, Whitespace
 16, Identifier
 17, Whitespace
-18, OpCons
+18, KWColonColon
 20, Whitespace
 21, Identifier
 25, Whitespace

@@ -1,0 +1,36 @@
+module                 'module'          KWModule            tok=   0  pos=   0
+                       'Test'            Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  [<                   '[<'              KWLAttrBracket      tok=   5  pos=  13
+  NamedType:
+    LongIdent:
+                       'System'          Identifier          tok=   6  pos=  15
+                       'Obsolete'        Identifier          tok=   8  pos=  22
+  Const                '"Use newMe...'   StringLiteral       tok=  10  pos=  31
+  >]                   '>]'              KWRAttrBracket      tok=  11  pos=  54
+  let                  'let'             KWLet               tok=  13  pos=  57
+    Pat.NamedSimple    'oldMethod'       Identifier          tok=  15  pos=  61
+    Pats:
+      Pat.NamedSimple  'x'               Identifier          tok=  17  pos=  71
+    =                  '='               OpEquality          tok=  19  pos=  73
+      Ident            'x'               Identifier          tok=  21  pos=  75
+TypeDefn.Anon:
+  [<                   '[<'              KWLAttrBracket      tok=  24  pos=  78
+  NamedType:
+    LongIdent:
+                       'System'          Identifier          tok=  25  pos=  80
+                       'Diagnostic...'   Identifier          tok=  27  pos=  87
+                       'DebuggerDi...'   Identifier          tok=  29  pos=  99
+  Const                '"Count = {...'   StringLiteral       tok=  31  pos= 115
+  >]                   '>]'              KWRAttrBracket      tok=  32  pos= 132
+  TypeName             'Foo'             Identifier          tok=  36  pos= 140
+  (                    '('               KWLParen            tok=  37  pos= 143
+  )                    ')'               KWRParen            tok=  38  pos= 144
+  =                    '='               OpEquality          tok=  40  pos= 146
+  begin                <virt>            KWBegin             tok=virt  pos= 152
+    member             'member'          KWMember            tok=  43  pos= 152
+    self               '_'               Wildcard            tok=  45  pos= 159
+    Pat.NamedSimple    'Count'           Identifier          tok=  47  pos= 161
+    =                  '='               OpEquality          tok=  49  pos= 167
+      Const            '1'               NumInt32            tok=  51  pos= 169
+  end                  <virt>            KWEnd               tok=virt  pos= 171

@@ -36,7 +36,7 @@ FunctionOrValue:
                                           'System'          Identifier          tok=  46  pos= 189
                                           'Exception'       Identifier          tok=  48  pos= 196
                   As                      'as'              KWAs                tok=  50  pos= 206
-                  Ident                   'ex'              Identifier          tok=  52  pos= 209
+                  Pat.NamedSimple         'ex'              Identifier          tok=  52  pos= 209
               Arrow                       '->'              OpArrowRight        tok=  54  pos= 212
               Expr:
                 Ident                     'defaultVal...'   Identifier          tok=  56  pos= 215

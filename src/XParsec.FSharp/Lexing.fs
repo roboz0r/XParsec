@@ -1108,6 +1108,20 @@ module Lexing =
                     | false, _ -> fail (Unexpected '\\') reader
                 else
                     fail (Unexpected '\\') reader
+            | '\\', 'x' ->
+                // hex escape \xHH
+                let span = reader.PeekN(4)
+
+                if span.Length = 4 then
+                    let hex = span.Slice(2, 2)
+
+                    match Byte.TryParse(hex, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) with
+                    | true, code ->
+                        reader.SkipN(4)
+                        preturn (CharChar.Escaped(char code)) reader
+                    | false, _ -> fail (Unexpected '\\') reader
+                else
+                    fail (Unexpected '\\') reader
             | '\\', c ->
                 if isDigit c then
                     // trigraph
@@ -1191,6 +1205,23 @@ module Lexing =
                     match UInt16.TryParse(hex, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) with
                     | true, code ->
                         reader.SkipN(6)
+                        preturn (char code) reader
+                    | false, _ ->
+                        reader.Skip()
+                        preturn '\\' reader
+                else
+                    reader.Skip()
+                    preturn '\\' reader
+            | '\\', 'x' ->
+                // hex escape \xHH
+                let span = reader.PeekN(4)
+
+                if span.Length = 4 then
+                    let hex = span.Slice(2, 2)
+
+                    match Byte.TryParse(hex, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) with
+                    | true, code ->
+                        reader.SkipN(4)
                         preturn (char code) reader
                     | false, _ ->
                         reader.Skip()
@@ -1461,6 +1492,17 @@ module Lexing =
                 )
         }
 
+
+    /// When inside an interpolated expression ({expr:format}), ':' starts a .NET format clause.
+    /// Consumes ':' and everything up to (but not including) '}'.
+    let pInterpolatedFormatClause =
+        parser {
+            let! pos = getPosition
+            do! skip // consume ':'
+            do! skipMany (noneOf "}" >>% ())
+
+            do! updateUserState (LexBuilder.append Token.InterpolatedFormatClause pos CtxOp.NoOp)
+        }
 
     let pOpenBraceExpressionContext =
         pTokenPushCtx (pchar '{') Token.KWLBrace LexContext.BracedExpression
@@ -2513,6 +2555,7 @@ module Lexing =
                 | _, LexContext.InterpolatedString -> pInterpolatedStringFragmentToken
                 | _, LexContext.VerbatimInterpolatedString -> pVerbatimInterpolatedStringFragmentToken
                 | _, LexContext.Interpolated3String _ -> pInterpolated3StringFragmentToken
+                | ':', LexContext.InterpolatedExpression -> pInterpolatedFormatClause
                 | ';', ExpressionCtx -> pSemicolonToken
                 | '.', ExpressionCtx -> pDotToken
                 | '#', ExpressionCtx -> pHashToken

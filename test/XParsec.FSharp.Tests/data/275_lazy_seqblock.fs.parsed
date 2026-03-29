@@ -1,0 +1,61 @@
+module                     'module'          KWModule            tok=   0  pos=   0
+                           'Test'            Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                      'let'             KWLet               tok=   5  pos=  13
+    Pat.NamedSimple        'x'               Identifier          tok=   7  pos=  17
+    =                      '='               OpEquality          tok=   9  pos=  19
+      Lazy                 'lazy'            KWLazy              tok=  12  pos=  25
+        Let                'let'             KWLet               tok=  15  pos=  38
+          Pat.NamedSimple  'y'               Identifier          tok=  17  pos=  42
+          =                '='               OpEquality          tok=  19  pos=  44
+            Const          '1'               NumInt32            tok=  21  pos=  46
+        in                 <virt>            KWIn                tok=virt  pos=  56
+        Body:
+          InfixApp         '+'               op_Addition         tok=  26  pos=  58
+            Ident          'y'               Identifier          tok=  24  pos=  56
+            Const          '1'               NumInt32            tok=  28  pos=  60
+FunctionOrValue:
+  let                      'let'             KWLet               tok=  31  pos=  63
+    Pat.NamedSimple        'z'               Identifier          tok=  33  pos=  67
+    ReturnColon            ':'               OpColon             tok=  34  pos=  68
+    GenericType:
+      LongIdent:
+                           'seq'             Identifier          tok=  36  pos=  70
+      <                    '<'               op_LessThan         tok=  37  pos=  73
+      TypeArg.Type:
+        NamedType:
+          LongIdent:
+                           'int'             Identifier          tok=  38  pos=  74
+      >                    '>'               op_GreaterThan      tok=  39  pos=  77
+    =                      '='               OpEquality          tok=  41  pos=  79
+      Upcast               'upcast'          KWUpcast            tok=  44  pos=  85
+        Array              '[|'              KWLArrayBracket     tok=  47  pos= 100
+          Sequential:
+            Const          '1'               NumInt32            tok=  49  pos= 103
+            Const          '2'               NumInt32            tok=  52  pos= 106
+            Const          '3'               NumInt32            tok=  55  pos= 109
+                           '|]'              KWRArrayBracket     tok=  57  pos= 111
+FunctionOrValue:
+  let                      'let'             KWLet               tok=  60  pos= 115
+    Pat.NamedSimple        'w'               Identifier          tok=  62  pos= 119
+    ReturnColon            ':'               OpColon             tok=  63  pos= 120
+    NamedType:
+      LongIdent:
+                           'obj'             Identifier          tok=  65  pos= 122
+    =                      '='               OpEquality          tok=  67  pos= 126
+      Downcast             'downcast'        KWDowncast          tok=  70  pos= 132
+        App:
+          Func:
+            Ident          'box'             Identifier          tok=  73  pos= 149
+          Args:
+            Const          '42'              NumInt32            tok=  75  pos= 153
+FunctionOrValue:
+  let                      'let'             KWLet               tok=  78  pos= 157
+    Pat.NamedSimple        'a'               Identifier          tok=  80  pos= 161
+    =                      '='               OpEquality          tok=  82  pos= 163
+      Lazy                 'lazy'            KWLazy              tok=  84  pos= 165
+        ParenBlock         '('               KWLParen            tok=  86  pos= 170
+          InfixApp         '+'               op_Addition         tok=  89  pos= 173
+            Const          '1'               NumInt32            tok=  87  pos= 171
+            Const          '2'               NumInt32            tok=  91  pos= 175
+                           ')'               KWRParen            tok=  92  pos= 176
