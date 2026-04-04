@@ -13,6 +13,7 @@ TypeDefn.Anon:
                                    'byte'            Identifier          tok=  12  pos=  35
                                    '['               KWLBracket          tok=  13  pos=  39
                                    ']'               KWRBracket          tok=  14  pos=  40
+    ,                              ','               OpComma             tok=  15  pos=  41
     Pat.NamedSimple                'length'          Identifier          tok=  17  pos=  43
   )                                ')'               KWRParen            tok=  18  pos=  49
   =                                '='               OpEquality          tok=  20  pos=  51

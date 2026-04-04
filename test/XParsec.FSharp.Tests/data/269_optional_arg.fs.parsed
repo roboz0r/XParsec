@@ -62,6 +62,7 @@ TypeDefn.Anon:
             NamedType:
               LongIdent:
                                'string'          Identifier          tok=  72  pos= 172
+          ,                    ','               OpComma             tok=  73  pos= 178
           Pat.Typed:
             Pat.Optional:
               ?                '?'               OpDynamic           tok=  75  pos= 180

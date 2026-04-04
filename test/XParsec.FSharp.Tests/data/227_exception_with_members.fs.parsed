@@ -35,6 +35,7 @@ ExceptionDefn.Full:
                 ParenBlock           '('               KWLParen            tok=  45  pos= 173
                   Pat.Tuple:
                     Pat.Wildcard     '_'               Wildcard            tok=  46  pos= 174
+                    ,                ','               OpComma             tok=  47  pos= 175
                     Pat.NamedSimple  'msg'             Identifier          tok=  49  pos= 177
                                      ')'               KWRParen            tok=  50  pos= 180
           Arrow                      '->'              OpArrowRight        tok=  52  pos= 182

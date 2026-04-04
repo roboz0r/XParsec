@@ -369,6 +369,13 @@ module Expr =
                         let! ident = pIdentAfterDot
                         return ExprAux.Ident ident
                     }
+                    // .N — positional DU field access (e.g. cons.( :: ).1)
+                    parser {
+                        let! intTok =
+                            nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.NumInt32) "integer field index"
+
+                        return ExprAux.Ident intTok
+                    }
                 ]
                 "Dot RHS (identifier or index)"
 
@@ -435,9 +442,15 @@ module Expr =
                 let! pos = getPosition
                 let! lBracket = pHighPrecLBracket
                 let lBracket = syntaxToken lBracket pos.Index
-                let! argExpr = refExpr.Parser
-                let! rBracket = pRBracket
-                return ExprAux.HighPrecIndex(lBracket, argExpr, rBracket)
+                // Special case: f[] with empty brackets → treat as f [] (application to empty list)
+                match! peekNextNonTriviaToken with
+                | t when t.Token = Token.KWRBracket ->
+                    let! rBracket = consumePeeked t
+                    return ExprAux.HighPrecApp(lBracket, Expr.EmptyBlock(ParenKind.List lBracket, rBracket), rBracket)
+                | _ ->
+                    let! argExpr = refExpr.Parser
+                    let! rBracket = pRBracket
+                    return ExprAux.HighPrecIndex(lBracket, argExpr, rBracket)
             }
 
         let parseHighPrecApp: Parser<ExprAux, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, _> =
@@ -2050,7 +2063,20 @@ module Expr =
                     match pTypeArg reader with
                     | Error e -> Error e
                     | Ok typeArg ->
-                        // Collect args as atomic expressions, stopping at ':' or '#)'
+                        // Collect args as atomic expressions (with optional type application suffix), stopping at ':' or '#)'
+                        let pILArg (atomicExpr: Expr<SyntaxToken>) (r: Reader<PositionedToken, ParseState, _, _>) =
+                            // After parsing an atomic expression, check for a type application suffix: ident<T>
+                            match peekNextNonTriviaToken r with
+                            | Ok tok when tok.Token = Token.OpLessThan ->
+                                (parser {
+                                    let! lAngle = nextNonTriviaTokenIsL Token.OpLessThan "<"
+                                    let! types, commas = sepBy Type.parse pComma
+                                    let! rAngle = pCloseTypeParams
+                                    return Expr.TypeApp(atomicExpr, lAngle, types, commas, rAngle)
+                                })
+                                    r
+                            | _ -> preturn atomicExpr r
+
                         let args = ResizeArray()
                         let mutable finished = false
                         let mutable error = ValueNone
@@ -2065,7 +2091,10 @@ module Expr =
                                 | _ ->
                                     match refExprAtomic.Parser reader with
                                     | Error e -> error <- ValueSome e
-                                    | Ok arg -> args.Add(arg)
+                                    | Ok arg ->
+                                        match pILArg arg reader with
+                                        | Error e -> error <- ValueSome e
+                                        | Ok a -> args.Add(a)
 
                         match error with
                         | ValueSome e -> Error e

@@ -1,0 +1,100 @@
+module                          'module'          KWModule            tok=   0  pos=   0
+                                'Test'            Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                           'let'             KWLet               tok=  10  pos= 109
+    Pat.NamedSimple             'classify'        Identifier          tok=  12  pos= 113
+    Pats:
+      ParenBlock                '('               KWLParen            tok=  14  pos= 122
+        Pat.Typed:
+          Pat.NamedSimple       'arg'             Identifier          tok=  15  pos= 123
+          Colon                 ':'               OpColon             tok=  16  pos= 126
+          NamedType:
+            LongIdent:
+                                'obj'             Identifier          tok=  18  pos= 128
+                                ')'               KWRParen            tok=  19  pos= 131
+    =                           '='               OpEquality          tok=  21  pos= 133
+      Match:
+        MatchToken              'match'           KWMatch             tok=  24  pos= 139
+        MatchExpr:
+          Ident                 'arg'             Identifier          tok=  26  pos= 145
+        WithToken               'with'            KWWith              tok=  28  pos= 149
+        Rule:
+          Bar                   '|'               OpBar               tok=  31  pos= 158
+          Pat:
+            Pat.TypeTestAs:
+              ColonQuestion     ':?'              OpTypeTest          tok=  33  pos= 160
+              NamedType:
+                LongIdent:
+                                'int32'           Identifier          tok=  35  pos= 163
+              As                'as'              KWAs                tok=  37  pos= 169
+              Pat.NamedSimple   'arg'             Identifier          tok=  39  pos= 172
+          When                  'when'            KWWhen              tok=  41  pos= 176
+          Guard:
+            InfixApp            '='               OpEquality          tok=  45  pos= 185
+              Ident             'arg'             Identifier          tok=  43  pos= 181
+              App:
+                Func:
+                  Ident         'int'             Identifier          tok=  47  pos= 187
+                Args:
+                  LongIdentOrOp:
+                    LongIdent:
+                                'System'          Identifier          tok=  49  pos= 191
+                                'Int32'           Identifier          tok=  51  pos= 198
+                                'MaxValue'        Identifier          tok=  53  pos= 204
+          Arrow                 '->'              OpArrowRight        tok=  55  pos= 213
+          Expr:
+            App:
+              Func:
+                Ident           'Some'            Identifier          tok=  58  pos= 224
+              Args:
+                StringLiteral   '"'               StringOpen          tok=  60  pos= 229
+                Parts:
+                  Text          'max int'         StringFragment      tok=  61  pos= 230
+                                '"'               StringClose         tok=  62  pos= 237
+        Rule:
+          Bar                   '|'               OpBar               tok=  65  pos= 243
+          Pat:
+            Pat.TypeTestAs:
+              ColonQuestion     ':?'              OpTypeTest          tok=  67  pos= 245
+              NamedType:
+                LongIdent:
+                                'System'          Identifier          tok=  69  pos= 248
+                                'Enum'            Identifier          tok=  71  pos= 255
+              As                'as'              KWAs                tok=  73  pos= 260
+              Pat.NamedSimple   'arg'             Identifier          tok=  75  pos= 263
+          When                  'when'            KWWhen              tok=  77  pos= 267
+          Guard:
+            DotLookup:
+              Expr:
+                HighPrecedenceApp:
+                  Func:
+                    LongIdentOrOp:
+                      LongIdent:
+                                'arg'             Identifier          tok=  79  pos= 272
+                                'GetType'         Identifier          tok=  81  pos= 276
+                  (             '('               KWLParen            tok=  82  pos= 283
+                  Arg:
+                    ParenBlock  '('               KWLParen            tok=  82  pos= 283
+                                ')'               KWRParen            tok=  83  pos= 284
+                                ')'               KWRParen            tok=  83  pos= 284
+              Dot               '.'               OpDot               tok=  84  pos= 285
+              LongIdentOrOp:
+                LongIdent:
+                                'IsPublic'        Identifier          tok=  85  pos= 286
+          Arrow                 '->'              OpArrowRight        tok=  87  pos= 295
+          Expr:
+            App:
+              Func:
+                Ident           'Some'            Identifier          tok=  90  pos= 306
+              Args:
+                StringLiteral   '"'               StringOpen          tok=  92  pos= 311
+                Parts:
+                  Text          'public enu...'   StringFragment      tok=  93  pos= 312
+                                '"'               StringClose         tok=  94  pos= 323
+        Rule:
+          Bar                   '|'               OpBar               tok=  97  pos= 329
+          Pat:
+            Pat.Wildcard        '_'               Wildcard            tok=  99  pos= 331
+          Arrow                 '->'              OpArrowRight        tok= 101  pos= 333
+          Expr:
+            Ident               'None'            Identifier          tok= 104  pos= 344

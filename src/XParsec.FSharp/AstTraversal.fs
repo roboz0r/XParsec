@@ -311,11 +311,14 @@ and walkPat (visitor: AstVisitor<'T>) (pat: Pat<'T>) : unit =
         visitor.VisitToken "Colon" colon
         walkType visitor typ
         visitor.ExitSection "Pat.Typed"
-    | Pat.Tuple(patterns, _commas) ->
+    | Pat.Tuple(patterns, commas) ->
         visitor.EnterSection "Pat.Tuple"
 
-        for p in patterns do
-            walkPat visitor p
+        for i in 0 .. patterns.Length - 1 do
+            walkPat visitor patterns[i]
+
+            if i < commas.Length then
+                visitor.VisitToken "," commas[i]
 
         visitor.ExitSection "Pat.Tuple"
     | Pat.StructTuple(structToken, _lParen, patterns, _commas, _rParen) ->
@@ -423,6 +426,13 @@ and walkTypar (visitor: AstVisitor<'T>) (typar: Typar<'T>) : unit =
         visitor.VisitToken "" ident
         visitor.ExitSection "Typar.Static"
 
+and walkStaticTypars (visitor: AstVisitor<'T>) (staticTypars: StaticTypars<'T>) : unit =
+    match staticTypars with
+    | StaticTypars.Single typar -> walkTypar visitor typar
+    | StaticTypars.OrList(_lParen, typars, _ors, _rParen) ->
+        for typar in typars do
+            walkTypar visitor typar
+
 and walkConstraint (visitor: AstVisitor<'T>) (c: Constraint<'T>) : unit =
     match c with
     | Constraint.Coercion(typar, colonGT, typ) ->
@@ -431,22 +441,38 @@ and walkConstraint (visitor: AstVisitor<'T>) (c: Constraint<'T>) : unit =
         visitor.VisitToken ":>" colonGT
         walkType visitor typ
         visitor.ExitSection "Constraint.Coercion"
-    | Constraint.Nullness(typar, _colon, _nullToken) ->
+    | Constraint.Nullness(typar, colon, nullToken) ->
         visitor.EnterSection "Constraint.Nullness"
         walkTypar visitor typar
+        visitor.VisitToken ":" colon
+        visitor.VisitToken "null" nullToken
         visitor.ExitSection "Constraint.Nullness"
-    | Constraint.MemberTrait _ -> visitor.WriteLine "Constraint.MemberTrait: (not fully printed)"
+    | Constraint.MemberTrait(staticTypars, colon, lParen, staticToken, memberToken, membersign, rParen) ->
+        visitor.EnterSection "Constraint.MemberTrait"
+        walkStaticTypars visitor staticTypars
+        visitor.VisitToken ":" colon
+        visitor.VisitToken "(" lParen
+        visitTokenOpt visitor "static" staticToken
+        visitor.VisitToken "member" memberToken
+        walkMemberSig visitor membersign
+        visitor.VisitToken ")" rParen
+        visitor.ExitSection "Constraint.MemberTrait"
     | Constraint.DefaultConstructor(typar, _colon, _lParen, _newToken, _colonUnit, _arrow, _quoteT, _rParen) ->
         visitor.EnterSection "Constraint.DefaultConstructor"
         walkTypar visitor typar
         visitor.ExitSection "Constraint.DefaultConstructor"
-    | Constraint.Struct(typar, _colon, _structToken) ->
+    | Constraint.Struct(typar, colon, structToken) ->
         visitor.EnterSection "Constraint.Struct"
         walkTypar visitor typar
+        visitor.VisitToken ":" colon
+        visitor.VisitToken "struct" structToken
         visitor.ExitSection "Constraint.Struct"
-    | Constraint.ReferenceType(typar, _colon, _notToken, _structToken) ->
+    | Constraint.ReferenceType(typar, colon, notToken, structToken) ->
         visitor.EnterSection "Constraint.ReferenceType"
         walkTypar visitor typar
+        visitor.VisitToken ":" colon
+        visitor.VisitToken "not" notToken
+        visitor.VisitToken "struct" structToken
         visitor.ExitSection "Constraint.ReferenceType"
     | Constraint.NotNull(typar, colon, notToken, nullToken) ->
         visitor.EnterSection "Constraint.NotNull"
@@ -460,9 +486,11 @@ and walkConstraint (visitor: AstVisitor<'T>) (c: Constraint<'T>) : unit =
         walkTypar visitor typar
         walkType visitor typ
         visitor.ExitSection "Constraint.Enum"
-    | Constraint.Unmanaged(typar, _colon, _unmanagedToken) ->
+    | Constraint.Unmanaged(typar, colon, unmanagedToken) ->
         visitor.EnterSection "Constraint.Unmanaged"
         walkTypar visitor typar
+        visitor.VisitToken ":" colon
+        visitor.VisitToken "unmanaged" unmanagedToken
         visitor.ExitSection "Constraint.Unmanaged"
     | Constraint.Delegate(typar, _colon, _delegateToken, _lAngle, type1, _comma, type2, _rAngle) ->
         visitor.EnterSection "Constraint.Delegate"
@@ -470,13 +498,17 @@ and walkConstraint (visitor: AstVisitor<'T>) (c: Constraint<'T>) : unit =
         walkType visitor type1
         walkType visitor type2
         visitor.ExitSection "Constraint.Delegate"
-    | Constraint.Equality(typar, _colon, _equalityToken) ->
+    | Constraint.Equality(typar, colon, equalityToken) ->
         visitor.EnterSection "Constraint.Equality"
         walkTypar visitor typar
+        visitor.VisitToken ":" colon
+        visitor.VisitToken "equality" equalityToken
         visitor.ExitSection "Constraint.Equality"
-    | Constraint.Comparison(typar, _colon, _comparisonToken) ->
+    | Constraint.Comparison(typar, colon, comparisonToken) ->
         visitor.EnterSection "Constraint.Comparison"
         walkTypar visitor typar
+        visitor.VisitToken ":" colon
+        visitor.VisitToken "comparison" comparisonToken
         visitor.ExitSection "Constraint.Comparison"
 
 and walkTyparDefns (visitor: AstVisitor<'T>) (typars: TyparDefns<'T>) : unit =
@@ -489,11 +521,14 @@ and walkTyparDefns (visitor: AstVisitor<'T>) (typars: TyparDefns<'T>) : unit =
         walkTypar visitor typar
 
     match constraints with
-    | ValueSome(TyparConstraints(whenToken, constraintList, _)) ->
+    | ValueSome(TyparConstraints(whenToken, constraintList, ands)) ->
         visitor.VisitToken "when" whenToken
 
-        for c in constraintList do
-            walkConstraint visitor c
+        for i in 0 .. constraintList.Length - 1 do
+            walkConstraint visitor constraintList[i]
+
+            if i < ands.Length then
+                visitor.VisitToken "and" ands[i]
     | ValueNone -> ()
 
     visitor.VisitToken "" rAngle
@@ -543,11 +578,14 @@ and walkType (visitor: AstVisitor<'T>) (ty: Type<'T>) : unit =
         visitor.VisitToken "->" arrow
         walkType visitor toType
         visitor.ExitSection "FunctionType"
-    | Type.TupleType(types, _) ->
+    | Type.TupleType(types, asterisks) ->
         visitor.EnterSection "TupleType"
 
-        for t in types do
-            walkType visitor t
+        for i in 0 .. types.Length - 1 do
+            walkType visitor types[i]
+
+            if i < asterisks.Length then
+                visitor.VisitToken "*" asterisks[i]
 
         visitor.ExitSection "TupleType"
     | Type.StructTupleType(structToken, _lParen, types, _, _rParen) ->
@@ -590,13 +628,16 @@ and walkType (visitor: AstVisitor<'T>) (ty: Type<'T>) : unit =
         walkType visitor typ
         walkTyparDefns visitor constraints
         visitor.ExitSection "ConstrainedType"
-    | Type.WhenConstrainedType(typ, TyparConstraints.TyparConstraints(whenTok, constraints, _)) ->
+    | Type.WhenConstrainedType(typ, TyparConstraints.TyparConstraints(whenTok, constraints, ands)) ->
         visitor.EnterSection "WhenConstrainedType"
         walkType visitor typ
         visitor.VisitToken "when" whenTok
 
-        for c in constraints do
-            walkConstraint visitor c
+        for i in 0 .. constraints.Length - 1 do
+            walkConstraint visitor constraints[i]
+
+            if i < ands.Length then
+                visitor.VisitToken "and" ands[i]
 
         visitor.ExitSection "WhenConstrainedType"
     | Type.SubtypeConstraint(typar, colonGreaterThan, typ) ->
@@ -1526,11 +1567,14 @@ and walkTypeName (visitor: AstVisitor<'T>) (typeName: TypeName<'T>) : unit =
     | ValueNone -> ()
 
     match postfixConstraints with
-    | ValueSome(TyparConstraints(whenTok, constrs, _)) ->
+    | ValueSome(TyparConstraints(whenTok, constrs, ands)) ->
         visitor.VisitToken "when" whenTok
 
-        for c in constrs do
-            walkConstraint visitor c
+        for i in 0 .. constrs.Length - 1 do
+            walkConstraint visitor constrs[i]
+
+            if i < ands.Length then
+                visitor.VisitToken "and" ands[i]
     | ValueNone -> ()
 
 and walkPrimaryConstrArgs (visitor: AstVisitor<'T>) (args: PrimaryConstrArgs<'T>) : unit =

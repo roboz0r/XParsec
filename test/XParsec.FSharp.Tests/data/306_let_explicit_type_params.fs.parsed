@@ -1,0 +1,90 @@
+module                     'module'          KWModule            tok=   0  pos=   0
+                           'Test'            Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                      'let'             KWLet               tok=  12  pos= 201
+    Pat.NamedSimple        'myNullValu...'   Identifier          tok=  14  pos= 205
+    TyparDefns:
+                           '<'               op_LessThan         tok=  15  pos= 216
+      Typar.Named:
+                           ''T'              TypeParameter       tok=  16  pos= 217
+                           '>'               op_GreaterThan      tok=  17  pos= 219
+    ReturnColon            ':'               OpColon             tok=  19  pos= 221
+    SuffixedType:
+      VarType:
+        Typar.Named:
+                           ''T'              TypeParameter       tok=  21  pos= 223
+      LongIdent:
+                           'option'          Identifier          tok=  23  pos= 226
+    =                      '='               OpEquality          tok=  25  pos= 233
+      Ident                'None'            Identifier          tok=  27  pos= 235
+FunctionOrValue:
+  let                      'let'             KWLet               tok=  32  pos= 260
+    inline                 'inline'          KWInline            tok=  34  pos= 264
+    Pat.NamedSimple        'myDefault'       Identifier          tok=  36  pos= 271
+    TyparDefns:
+                           '<'               op_LessThan         tok=  37  pos= 280
+      Typar.Named:
+                           ''T'              TypeParameter       tok=  38  pos= 281
+      when                 'when'            KWWhen              tok=  40  pos= 284
+      Constraint.Struct:
+        Typar.Named:
+                           ''T'              TypeParameter       tok=  42  pos= 289
+        :                  ':'               OpColon             tok=  44  pos= 292
+        struct             'struct'          KWStruct            tok=  46  pos= 294
+                           '>'               op_GreaterThan      tok=  47  pos= 300
+    ReturnColon            ':'               OpColon             tok=  49  pos= 302
+    VarType:
+      Typar.Named:
+                           ''T'              TypeParameter       tok=  51  pos= 304
+    =                      '='               OpEquality          tok=  53  pos= 307
+      TypeApp:
+        Expr:
+          LongIdentOrOp:
+            LongIdent:
+                           'Unchecked'       Identifier          tok=  55  pos= 309
+                           'defaultof'       Identifier          tok=  57  pos= 319
+        Types:
+          VarType:
+            Typar.Named:
+                           ''T'              TypeParameter       tok=  59  pos= 329
+FunctionOrValue:
+  let                      'let'             KWLet               tok=  67  pos= 452
+    Pat.NamedSimple        'getValue'        Identifier          tok=  69  pos= 456
+    TyparDefns:
+                           '<'               op_LessThan         tok=  70  pos= 464
+      Typar.Named:
+                           ''T'              TypeParameter       tok=  71  pos= 465
+                           '>'               op_GreaterThan      tok=  72  pos= 467
+    Pats:
+      ParenBlock           '('               KWLParen            tok=  74  pos= 469
+        Pat.Typed:
+          Pat.NamedSimple  'arr'             Identifier          tok=  75  pos= 470
+          Colon            ':'               OpColon             tok=  76  pos= 473
+          ArrayType:
+            VarType:
+              Typar.Named:
+                           ''T'              TypeParameter       tok=  78  pos= 475
+                           '['               KWLBracket          tok=  79  pos= 477
+                           ']'               KWRBracket          tok=  80  pos= 478
+                           ')'               KWRParen            tok=  81  pos= 479
+      ParenBlock           '('               KWLParen            tok=  83  pos= 481
+        Pat.Typed:
+          Pat.NamedSimple  'i'               Identifier          tok=  84  pos= 482
+          Colon            ':'               OpColon             tok=  85  pos= 483
+          NamedType:
+            LongIdent:
+                           'int'             Identifier          tok=  87  pos= 485
+                           ')'               KWRParen            tok=  88  pos= 488
+    ReturnColon            ':'               OpColon             tok=  90  pos= 490
+    VarType:
+      Typar.Named:
+                           ''T'              TypeParameter       tok=  92  pos= 492
+    =                      '='               OpEquality          tok=  94  pos= 495
+      IndexedLookup:
+        Expr:
+          Ident            'arr'             Identifier          tok=  96  pos= 497
+        .                  '.'               OpDot               tok=  97  pos= 500
+        [                  '['               KWLBracket          tok=  98  pos= 501
+        Index:
+          Ident            'i'               Identifier          tok=  99  pos= 502
+                           ']'               KWRBracket          tok= 100  pos= 503

@@ -40,6 +40,7 @@ FunctionOrValue:
                   NamedType:
                     LongIdent:
                               'string'          Identifier          tok=  30  pos=  40
+                  *           '*'               OpMultiply          tok=  32  pos=  47
                   AnonymousSubtype:
                               '#'               KWHash              tok=  34  pos=  49
                     GenericType:

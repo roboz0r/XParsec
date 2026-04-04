@@ -54,6 +54,7 @@ FunctionOrValue:
             ParenBlock           '('               KWLParen            tok=  78  pos= 276
               Pat.Tuple:
                 Pat.NamedSimple  'x'               Identifier          tok=  79  pos= 277
+                ,                ','               OpComma             tok=  80  pos= 278
                 Pat.NamedSimple  'y'               Identifier          tok=  82  pos= 280
                                  ')'               KWRParen            tok=  83  pos= 281
           =                      '='               OpEquality          tok=  85  pos= 283

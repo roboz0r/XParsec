@@ -1,0 +1,50 @@
+module          'module'          KWModule            tok=   0  pos=   0
+                'Test'            Identifier          tok=   2  pos=   7
+Import:
+  open          'open'            KWOpen              tok=   5  pos=  13
+                'Microsoft'       Identifier          tok=   7  pos=  18
+                'Build'           Identifier          tok=   9  pos=  28
+                'Framework'       Identifier          tok=  11  pos=  34
+TypeDefn.Anon:
+  TypeName      'MyTask'          Identifier          tok=  21  pos= 138
+  (             '('               KWLParen            tok=  22  pos= 144
+  )             ')'               KWRParen            tok=  23  pos= 145
+  =             '='               OpEquality          tok=  25  pos= 147
+  begin         <virt>            KWBegin             tok=virt  pos= 153
+    inherit     'inherit'         KWInherit           tok=  28  pos= 153
+    NamedType:
+      LongIdent:
+                'System'          Identifier          tok=  30  pos= 161
+                'Object'          Identifier          tok=  32  pos= 168
+    ParenBlock  '('               KWLParen            tok=  33  pos= 174
+                ')'               KWRParen            tok=  34  pos= 175
+    [<          '[<'              KWLAttrBracket      tok=  38  pos= 182
+    NamedType:
+      LongIdent:
+                'Required'        Identifier          tok=  39  pos= 184
+    >]          '>]'              KWRAttrBracket      tok=  40  pos= 192
+    member      'member'          KWMember            tok=  43  pos= 199
+    val         'val'             KWVal               tok=  45  pos= 206
+    ident       'SourceRoot...'   Identifier          tok=  47  pos= 210
+    :           ':'               OpColon             tok=  48  pos= 221
+    ArrayType:
+      NamedType:
+        LongIdent:
+                'int'             Identifier          tok=  50  pos= 223
+                '['               KWLBracket          tok=  51  pos= 226
+                ']'               KWRBracket          tok=  52  pos= 227
+    =           '='               OpEquality          tok=  54  pos= 229
+      Array     '[|'              KWLArrayBracket     tok=  56  pos= 231
+                '|]'              KWRArrayBracket     tok=  57  pos= 233
+      with      'with'            KWWith              tok=  59  pos= 236
+      accessor  'get'             Identifier          tok=  61  pos= 241
+      accessor  'set'             Identifier          tok=  64  pos= 246
+    member      'member'          KWMember            tok=  68  pos= 255
+    val         'val'             KWVal               tok=  70  pos= 262
+    ident       'Determinis...'   Identifier          tok=  72  pos= 266
+    =           '='               OpEquality          tok=  74  pos= 280
+      Const     'false'           KWFalse             tok=  76  pos= 282
+      with      'with'            KWWith              tok=  78  pos= 288
+      accessor  'get'             Identifier          tok=  80  pos= 293
+      accessor  'set'             Identifier          tok=  83  pos= 298
+  end           <virt>            KWEnd               tok=virt  pos= 302

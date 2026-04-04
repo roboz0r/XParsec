@@ -111,7 +111,14 @@ and TyparConstraints<'T> = | TyparConstraints of whenToken: 'T * constraints: Im
 and [<RequireQualifiedAccess>] Constraint<'T> =
     | Coercion of typar: Typar<'T> * colonGreaterThan: 'T * typ: Type<'T>
     | Nullness of typar: Typar<'T> * colon: 'T * nullToken: 'T
-    | MemberTrait of staticTypars: StaticTypars<'T> * colon: 'T * lParen: 'T * membersign: MemberSig<'T> * rParen: 'T
+    | MemberTrait of
+        staticTypars: StaticTypars<'T> *
+        colon: 'T *
+        lParen: 'T *
+        staticToken: 'T voption *
+        memberToken: 'T *
+        membersign: MemberSig<'T> *
+        rParen: 'T
     | DefaultConstructor of
         typar: Typar<'T> *
         colon: 'T *
@@ -139,8 +146,8 @@ and [<RequireQualifiedAccess>] Constraint<'T> =
     | Comparison of typar: Typar<'T> * colon: 'T * comparisonToken: 'T
 
 and [<RequireQualifiedAccess>] StaticTypars<'T> =
-    | Single of caret: 'T * ident: 'T
-    | OrList of lParen: 'T * typars: ImArr<Typar<'T> * 'T (* or *) > * rParen: 'T
+    | Single of typar: Typar<'T>
+    | OrList of lParen: 'T * typars: ImArr<Typar<'T>> * ors: ImArr<'T> * rParen: 'T
 
 // Represents: elif-branch and else-branch
 // Note: The spec doesn't mention 'else if' branches, but they are present

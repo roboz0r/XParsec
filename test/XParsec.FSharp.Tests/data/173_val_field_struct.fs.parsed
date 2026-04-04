@@ -44,6 +44,7 @@ TypeDefn.Anon:
             NamedType:
               LongIdent:
                              'int'             Identifier          tok=  54  pos= 141
+          ,                  ','               OpComma             tok=  55  pos= 144
           Pat.Typed:
             Pat.NamedSimple  'startIndex'      Identifier          tok=  57  pos= 146
             Colon            ':'               OpColon             tok=  58  pos= 156
