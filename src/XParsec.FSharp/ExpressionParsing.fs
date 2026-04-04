@@ -533,8 +533,8 @@ module Expr =
                     | PrecedenceLevel.Semicolon ->
                         // (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeSemicolon))
                         (fun op -> InfixNary(op, preturn op, power, true, completeSequence))
-                    | PrecedenceLevel.RArrow ->
-                        (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
+                    // | PrecedenceLevel.RArrow -> `->` is listed in the operator precedence table but never used as an operator in expressions
+                    //     (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
                     // LHS keywords
                     // | PrecedenceLevel.Let -> (fun op -> InfixNonAssociative(op, preturn op, power, completeInfix))
                     // | PrecedenceLevel.Function -> (fun op -> InfixNonAssociative(op, preturn op, power, completeInfix))
@@ -747,6 +747,7 @@ module Expr =
                     match opInfo.Token with
                     | Token.OpBar -> fail (Message "Unexpected '|' operator in expression context")
                     | Token.OpDereference -> fail (Message "Unexpected dereference operator '!' in infix context")
+                    | Token.OpArrowRight -> fail (Message "Unexpected arrow operator '->' in infix context")
                     | Token.KWLet
                     | Token.KWLetBang
                     | Token.KWUse

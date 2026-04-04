@@ -1,0 +1,76 @@
+module                         'module'          KWModule            tok=   0  pos=   0
+                               'Test'            Identifier          tok=   2  pos=   7
+Import:
+  open                         'open'            KWOpen              tok=  10  pos= 103
+                               'System'          Identifier          tok=  12  pos= 108
+                               'Reflection'      Identifier          tok=  14  pos= 115
+FunctionOrValue:
+  let                          'let'             KWLet               tok=  17  pos= 127
+    Pat.Op:
+      ParenOp:
+                               '('               KWLParen            tok=  19  pos= 131
+        ActivePatternOp:
+          ActivePatternOp:
+                               '|'               OpBar               tok=  20  pos= 132
+                               'NewAnonymo...'   Identifier          tok=  21  pos= 133
+                               '_'               Wildcard            tok=  23  pos= 152
+                               '|'               OpBar               tok=  24  pos= 153
+                               ')'               KWRParen            tok=  25  pos= 154
+    Pats:
+      ParenBlock               '('               KWLParen            tok=  27  pos= 156
+        Pat.Typed:
+          Pat.NamedSimple      'e'               Identifier          tok=  28  pos= 157
+          Colon                ':'               OpColon             tok=  29  pos= 158
+          NamedType:
+            LongIdent:
+                               'obj'             Identifier          tok=  31  pos= 160
+                               ')'               KWRParen            tok=  32  pos= 163
+    =                          '='               OpEquality          tok=  34  pos= 165
+      Match:
+        MatchToken             'match'           KWMatch             tok=  37  pos= 171
+        MatchExpr:
+          Ident                'e'               Identifier          tok=  39  pos= 177
+        WithToken              'with'            KWWith              tok=  41  pos= 179
+        Rule:
+          Bar                  '|'               OpBar               tok=  44  pos= 188
+          Pat:
+            Pat.TypeTestAs:
+              ColonQuestion    ':?'              OpTypeTest          tok=  46  pos= 190
+              NamedType:
+                LongIdent:
+                               'MethodInfo'      Identifier          tok=  48  pos= 193
+              As               'as'              KWAs                tok=  50  pos= 204
+              Pat.NamedSimple  'ctor'            Identifier          tok=  52  pos= 207
+          When                 'when'            KWWhen              tok=  54  pos= 212
+          Guard:
+            Let                'let'             KWLet               tok=  57  pos= 225
+              Pat.NamedSimple  'dty'             Identifier          tok=  59  pos= 229
+              =                '='               OpEquality          tok=  61  pos= 233
+                LongIdentOrOp:
+                  LongIdent:
+                               'ctor'            Identifier          tok=  63  pos= 235
+                               'DeclaringT...'   Identifier          tok=  65  pos= 240
+            in                 <virt>            KWIn                tok=virt  pos= 262
+            Body:
+              InfixApp         '&&'              OpAmpAmp            tok=  74  pos= 274
+                InfixApp       '<>'              op_Inequality       tok=  70  pos= 266
+                  Ident        'dty'             Identifier          tok=  68  pos= 262
+                  Const        'null'            KWNull              tok=  72  pos= 269
+                LongIdentOrOp:
+                  LongIdent:
+                               'dty'             Identifier          tok=  76  pos= 277
+                               'IsGenericT...'   Identifier          tok=  78  pos= 281
+          Arrow                '->'              OpArrowRight        tok=  81  pos= 303
+          Expr:
+            App:
+              Func:
+                Ident          'Some'            Identifier          tok=  84  pos= 314
+              Args:
+                Ident          'ctor'            Identifier          tok=  86  pos= 319
+        Rule:
+          Bar                  '|'               OpBar               tok=  89  pos= 328
+          Pat:
+            Pat.Wildcard       '_'               Wildcard            tok=  91  pos= 330
+          Arrow                '->'              OpArrowRight        tok=  93  pos= 332
+          Expr:
+            Ident              'None'            Identifier          tok=  96  pos= 343
