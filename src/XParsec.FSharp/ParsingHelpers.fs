@@ -430,6 +430,25 @@ module Parsing =
                 else
                     ValueNone
 
+            // 15.1.10.4 extended: SeqBlock inside paren-like context
+            // withContext pushes a SeqBlock on top of the Paren context from pEnclosed.
+            // When content undents past that SeqBlock but is still within the enclosing
+            // expression's offside line, delegate to the collection undentation rule.
+            elif head.Context = OffsideContext.SeqBlock then
+                match rest with
+                | ctx :: deeper when
+                    ctx.Context = OffsideContext.Paren
+                    || ctx.Context = OffsideContext.Bracket
+                    || ctx.Context = OffsideContext.BracketBar
+                    || ctx.Context = OffsideContext.Brace
+                    || ctx.Context = OffsideContext.Begin
+                    ->
+                    if checkCollectionUndent tokenCol deeper then
+                        ValueSome "15.1.10.4 SeqBlockParen"
+                    else
+                        ValueNone
+                | _ -> ValueNone
+
             else
                 ValueNone
 
@@ -437,7 +456,7 @@ module Parsing =
     /// expression's offside line for collection/CE undentation (F# spec 15.1.10.4).
     and private checkCollectionUndent (tokenCol: int) (stack: Offside list) : bool =
         match stack with
-        | [] -> false
+        | [] -> true // Walked past all paren-like/SeqBlock contexts; no enclosing offside line to violate
         | ctx :: deeper ->
             match (ctx: Offside).Context with
             | OffsideContext.SeqBlock ->
