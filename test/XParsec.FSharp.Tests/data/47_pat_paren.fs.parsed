@@ -10,6 +10,7 @@ Match:
       ParenBlock           '('               KWLParen            tok=   8  pos=  15
         Pat.Tuple:
           Pat.NamedSimple  'a'               Identifier          tok=   9  pos=  16
+          ,                ','               OpComma             tok=  10  pos=  17
           Pat.NamedSimple  'b'               Identifier          tok=  12  pos=  19
                            ')'               KWRParen            tok=  13  pos=  20
     Arrow                  '->'              OpArrowRight        tok=  15  pos=  22

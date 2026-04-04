@@ -1,0 +1,54 @@
+module                 'module'          KWModule            tok=   0  pos=   0
+                       'Test'            Identifier          tok=   2  pos=   7
+TypeDefn.Anon:
+  TypeName             'Logger'          Identifier          tok=  12  pos= 158
+  (                    '('               KWLParen            tok=  13  pos= 164
+  )                    ')'               KWRParen            tok=  14  pos= 165
+  =                    '='               OpEquality          tok=  16  pos= 167
+  begin                <virt>            KWBegin             tok=virt  pos= 173
+    let                'let'             KWLet               tok=  19  pos= 173
+    mutable            'mutable'         KWMutable           tok=  21  pos= 177
+    Pat.NamedSimple    'options'         Identifier          tok=  23  pos= 185
+    =                  '='               OpEquality          tok=  25  pos= 193
+      Const            '0'               NumInt32            tok=  27  pos= 195
+    let                'let'             KWLet               tok=  30  pos= 201
+    mutable            'mutable'         KWMutable           tok=  32  pos= 205
+    Pat.NamedSimple    'buildPhase'      Identifier          tok=  34  pos= 213
+    =                  '='               OpEquality          tok=  36  pos= 224
+      Const            '0'               NumInt32            tok=  38  pos= 226
+    member             'member'          KWMember            tok=  45  pos= 278
+    ident              'Diagnostic...'   Identifier          tok=  49  pos= 287
+    with               'with'            KWWith              tok=  52  pos= 313
+    Pat.NamedSimple    'set'             Identifier          tok=  54  pos= 318
+    Pats:
+      Pat.NamedSimple  'opts'            Identifier          tok=  56  pos= 322
+    =                  '='               OpEquality          tok=  58  pos= 327
+      Assignment       '<-'              OpArrowLeft         tok=  62  pos= 337
+        Ident          'options'         Identifier          tok=  60  pos= 329
+        Ident          'opts'            Identifier          tok=  64  pos= 340
+    member             'member'          KWMember            tok=  71  pos= 395
+    ident              'BuildPhase'      Identifier          tok=  75  pos= 404
+    with               'with'            KWWith              tok=  78  pos= 423
+    Pat.NamedSimple    'get'             Identifier          tok=  80  pos= 428
+    Pats:
+      ParenBlock       '('               KWLParen            tok=  82  pos= 432
+                       ')'               KWRParen            tok=  83  pos= 433
+    =                  '='               OpEquality          tok=  85  pos= 435
+      Ident            'buildPhase'      Identifier          tok=  87  pos= 437
+    member             'member'          KWMember            tok=  94  pos= 500
+    ident              'Value'           Identifier          tok=  98  pos= 509
+    with               'with'            KWWith              tok= 101  pos= 523
+    Pat.NamedSimple    'get'             Identifier          tok= 103  pos= 528
+    Pats:
+      ParenBlock       '('               KWLParen            tok= 105  pos= 532
+                       ')'               KWRParen            tok= 106  pos= 533
+    =                  '='               OpEquality          tok= 108  pos= 535
+      Ident            'options'         Identifier          tok= 110  pos= 537
+    Pat.NamedSimple    'set'             Identifier          tok= 115  pos= 557
+    Pats:
+      Pat.NamedSimple  'v'               Identifier          tok= 117  pos= 561
+    =                  '='               OpEquality          tok= 119  pos= 563
+      Assignment       '<-'              OpArrowLeft         tok= 123  pos= 573
+        Ident          'options'         Identifier          tok= 121  pos= 565
+        Ident          'v'               Identifier          tok= 125  pos= 576
+  end                  <virt>            KWEnd               tok=virt  pos= 578

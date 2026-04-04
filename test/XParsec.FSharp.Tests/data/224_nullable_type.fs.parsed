@@ -22,6 +22,7 @@ FunctionOrValue:
       NamedType:
         LongIdent:
                       'int'             Identifier          tok=  34  pos= 177
+      *               '*'               OpMultiply          tok=  36  pos= 181
       UnionType:
         NamedType:
           LongIdent:

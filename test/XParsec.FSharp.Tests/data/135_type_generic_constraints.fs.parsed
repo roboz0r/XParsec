@@ -25,6 +25,7 @@ TypeDefn.Anon:
             Typar.Named:
                      ''InputSlic...'   TypeParameter       tok=  21  pos=  63
         >            '>'               op_GreaterThan      tok=  22  pos=  74
+    and              'and'             KWAnd               tok=  25  pos=  80
     Constraint.Coercion:
       Typar.Named:
                      ''InputSlic...'   TypeParameter       tok=  27  pos=  84

@@ -50,53 +50,82 @@ module Typar =
 
 [<RequireQualifiedAccess>]
 module StaticTypars =
-    // ^T
-    let pSingle =
-        parser {
-            let! state = getUserState
-            let! caret = nextNonTriviaTokenSatisfiesL (fun t -> tokenStringIs "^" t state) "Expected '^'"
-            let! ident = nextNonTriviaIdentifierL "Expected identifier"
-            return StaticTypars.Single(caret, ident)
-        }
-
-    // (^T or ^U)
+    // '(' typar or typar or ... typar ')' — multiple typars joined by 'or'.
+    // Requires at least one 'or' to distinguish from other '(...)' forms.
     let pOrList =
         parser {
             let! lParen = pLParen
-
-            let pItem =
-                parser {
-                    let! tp = Typar.parse
-                    let! orTok = pOr
-                    return (tp, orTok)
-                }
-
-            // This is slightly loose (allows trailing 'or'), strict grammar might require sepBy but AST implies tuple structure
-            let! items = many1 pItem
+            let! firstTypar = Typar.parse
+            let! firstOr = pOr // at least one 'or' required
+            let! restTypars, moreOrs = sepBy Typar.parse pOr
             let! rParen = pRParen
-            return StaticTypars.OrList(lParen, items, rParen)
+
+            let allTypars =
+                ImmutableArray.CreateRange(
+                    seq {
+                        yield firstTypar
+                        yield! restTypars
+                    }
+                )
+
+            let allOrs =
+                ImmutableArray.CreateRange(
+                    seq {
+                        yield firstOr
+                        yield! moreOrs
+                    }
+                )
+
+            return StaticTypars.OrList(lParen, allTypars, allOrs, rParen)
         }
+
+    // typar — single typar; accepts both 'T (Named) and ^T (Static) since they are interchangeable in modern F#
+    let pSingle = Typar.parse |>> StaticTypars.Single
 
     let parse = choiceL [ pOrList; pSingle ] "Static Type Parameters"
 
 [<RequireQualifiedAccess>]
 module Constraint =
 
-    // MemberSig is complex, using placeholder for now to satisfy type signature
-    let private pMemberSig: Parser<MemberSig<SyntaxToken>, _, _, _, _> =
-        // Consumes tokens until matching paren? Placeholder implementation.
-        // In real impl, this parses property/method signatures.
-        nextNonTriviaIdentifierL "MemberSig Placeholder"
-        |>> fun _ -> failwith "MemberSig parsing not implemented"
+    // Parses the member name inside a constraint member sig: plain ident or parenthesized operator.
+    // For operators like (=), we consume '(' op ')' and return the op token as the ident,
+    // since MemberSig.ident is a single token and the structural parens are not stored.
+    let private pConstraintMemberName =
+        choiceL
+            [
+                pIdent
+                parser {
+                    let! _lParen = pLParen
+                    let! op = nextNonTriviaToken
+                    let! _rParen = pRParen
+                    return op
+                }
+            ]
+            "member name (identifier or parenthesized operator)"
 
+    // Parses the signature inside a constraint member: ident-or-(op) ':' Type
+    // We parse a plain Type (not a CurriedSig) so that 'T * 'T -> bool is represented
+    // as FunctionType(TupleType(...), bool) rather than a flattened CurriedSig arg-group.
+    // The result is wrapped in a CurriedSig with no arg groups.
+    let private pConstraintMemberSig =
+        parser {
+            let! ident = pConstraintMemberName
+            let! colon = pColon
+            let! sigType = refType.Parser
+            return MemberSig.MethodOrPropSig(ident, ValueNone, colon, CurriedSig(ImmutableArray.Empty, sigType))
+        }
+
+    // static-typars ':' '(' ['static'] 'member' member-sig ')'
     let private pMemberTrait =
         parser {
             let! staticTypars = StaticTypars.parse
             let! colon = pColon
             let! lParen = pLParen
-            let! sigs = pMemberSig
+            let! staticToken = opt (nextNonTriviaTokenIsL Token.KWStatic "static")
+            let! memberToken = nextNonTriviaTokenIsL Token.KWMember "member"
+            let! membersig = pConstraintMemberSig
             let! rParen = pRParen
-            return Constraint.MemberTrait(staticTypars, colon, lParen, sigs, rParen)
+            return Constraint.MemberTrait(staticTypars, colon, lParen, staticToken, memberToken, membersig, rParen)
         }
 
     let private pDefaultConstructor (typar: Typar<_>) colon lParen (tokenNew: SyntaxToken) =

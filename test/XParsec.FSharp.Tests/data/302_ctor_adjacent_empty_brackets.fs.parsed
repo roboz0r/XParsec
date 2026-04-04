@@ -1,0 +1,60 @@
+module                 'module'          KWModule            tok=   0  pos=   0
+                       'Test'            Identifier          tok=   2  pos=   7
+TypeDefn.Union:
+  TypeName             'Tree'            Identifier          tok=  12  pos= 155
+  TyparDefns:
+                       '<'               op_LessThan         tok=  13  pos= 159
+    Typar.Named:
+                       ''T'              TypeParameter       tok=  14  pos= 160
+                       '>'               op_GreaterThan      tok=  15  pos= 162
+  =                    '='               OpEquality          tok=  17  pos= 164
+    Case:
+      ident            'TreeNode'        Identifier          tok=  22  pos= 172
+      of               'of'              KWOf                tok=  24  pos= 181
+      SuffixedType:
+        GenericType:
+          LongIdent:
+                       'Tree'            Identifier          tok=  26  pos= 184
+          <            '<'               op_LessThan         tok=  27  pos= 188
+          TypeArg.Type:
+            VarType:
+              Typar.Named:
+                       ''T'              TypeParameter       tok=  28  pos= 189
+          >            '>'               op_GreaterThan      tok=  29  pos= 191
+        LongIdent:
+                       'list'            Identifier          tok=  31  pos= 193
+    Case:
+      ident            'LeafNode'        Identifier          tok=  36  pos= 204
+      of               'of'              KWOf                tok=  38  pos= 213
+      VarType:
+        Typar.Named:
+                       ''T'              TypeParameter       tok=  40  pos= 216
+FunctionOrValue:
+  let                  'let'             KWLet               tok=  43  pos= 220
+    Pat.NamedSimple    'emptyTR'         Identifier          tok=  45  pos= 224
+    =                  '='               OpEquality          tok=  47  pos= 232
+      HighPrecedenceApp:
+        Func:
+          Ident        'TreeNode'        Identifier          tok=  49  pos= 234
+        (              '['               KWLBracket          tok=  50  pos= 242
+        Arg:
+          List         '['               KWLBracket          tok=  50  pos= 242
+                       ']'               KWRBracket          tok=  51  pos= 243
+                       ']'               KWRBracket          tok=  51  pos= 243
+FunctionOrValue:
+  let                  'let'             KWLet               tok=  54  pos= 246
+    Pat.NamedSimple    'singleLeaf'      Identifier          tok=  56  pos= 250
+    Pats:
+      Pat.NamedSimple  'x'               Identifier          tok=  58  pos= 261
+    =                  '='               OpEquality          tok=  60  pos= 263
+      IndexedLookup:
+        Expr:
+          Ident        'TreeNode'        Identifier          tok=  62  pos= 265
+        [              '['               KWLBracket          tok=  63  pos= 273
+        Index:
+          App:
+            Func:
+              Ident    'LeafNode'        Identifier          tok=  65  pos= 275
+            Args:
+              Ident    'x'               Identifier          tok=  67  pos= 284
+                       ']'               KWRBracket          tok=  69  pos= 286

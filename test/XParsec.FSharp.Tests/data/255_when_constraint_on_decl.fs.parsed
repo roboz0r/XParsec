@@ -62,6 +62,8 @@ FunctionOrValue:
       Constraint.Equality:
         Typar.Named:
                      ''T'              TypeParameter       tok=  72  pos= 273
+        :            ':'               OpColon             tok=  73  pos= 275
+        equality     'equality'        Identifier          tok=  75  pos= 277
                      '>'               op_GreaterThan      tok=  76  pos= 285
     ReturnColon      ':'               OpColon             tok=  78  pos= 287
     GenericType:

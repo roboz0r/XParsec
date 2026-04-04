@@ -38,6 +38,8 @@ FunctionOrValue:
             Constraint.Nullness:
               Typar.Named:
                            ''a'              TypeParameter       tok=  46  pos= 110
+              :            ':'               OpColon             tok=  47  pos= 112
+              null         'null'            KWNull              tok=  49  pos= 114
                            ')'               KWRParen            tok=  50  pos= 118
     =                      '='               OpEquality          tok=  52  pos= 120
       Ident                'x'               Identifier          tok=  54  pos= 122
@@ -57,6 +59,8 @@ FunctionOrValue:
             Constraint.Struct:
               Typar.Named:
                            ''a'              TypeParameter       tok=  71  pos= 164
+              :            ':'               OpColon             tok=  72  pos= 166
+              struct       'struct'          KWStruct            tok=  74  pos= 168
                            ')'               KWRParen            tok=  75  pos= 174
     =                      '='               OpEquality          tok=  77  pos= 176
       Ident                'x'               Identifier          tok=  79  pos= 178
@@ -79,9 +83,12 @@ FunctionOrValue:
               :            ':'               OpColon             tok=  97  pos= 236
               not          'not'             Identifier          tok=  99  pos= 238
               null         'null'            KWNull              tok= 101  pos= 242
+            and            'and'             KWAnd               tok= 103  pos= 247
             Constraint.Comparison:
               Typar.Named:
                            ''a'              TypeParameter       tok= 105  pos= 251
+              :            ':'               OpColon             tok= 106  pos= 253
+              comparison   'comparison'      Identifier          tok= 108  pos= 255
                            ')'               KWRParen            tok= 109  pos= 265
     =                      '='               OpEquality          tok= 111  pos= 267
       Ident                'x'               Identifier          tok= 113  pos= 269

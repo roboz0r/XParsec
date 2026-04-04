@@ -41,12 +41,14 @@ TypeDefn.Anon:
       NamedType:
         LongIdent:
                        'int'             Identifier          tok=  63  pos= 199
+    ,                  ','               OpComma             tok=  64  pos= 202
     Pat.Typed:
       Pat.NamedSimple  'y'               Identifier          tok=  66  pos= 204
       Colon            ':'               OpColon             tok=  67  pos= 205
       NamedType:
         LongIdent:
                        'float'           Identifier          tok=  69  pos= 207
+    ,                  ','               OpComma             tok=  70  pos= 212
     Pat.NamedSimple    'z'               Identifier          tok=  72  pos= 214
   )                    ')'               KWRParen            tok=  73  pos= 215
   =                    '='               OpEquality          tok=  75  pos= 217

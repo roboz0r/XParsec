@@ -39,6 +39,7 @@ TypeDefn.Anon:
             NamedType:
               LongIdent:
                              'int'             Identifier          tok=  59  pos= 180
+          ,                  ','               OpComma             tok=  60  pos= 183
           Pat.Typed:
             Pat.NamedSimple  'y'               Identifier          tok=  62  pos= 185
             Colon            ':'               OpColon             tok=  63  pos= 186

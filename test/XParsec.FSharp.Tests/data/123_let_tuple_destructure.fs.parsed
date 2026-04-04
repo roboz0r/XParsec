@@ -11,6 +11,7 @@ FunctionOrValue:
         ParenBlock           '('               KWLParen            tok=  17  pos=  29
           Pat.Tuple:
             Pat.NamedSimple  'a'               Identifier          tok=  18  pos=  30
+            ,                ','               OpComma             tok=  19  pos=  31
             Pat.NamedSimple  'b'               Identifier          tok=  21  pos=  33
                              ')'               KWRParen            tok=  22  pos=  34
         =                    '='               OpEquality          tok=  24  pos=  36
@@ -32,6 +33,7 @@ FunctionOrValue:
       Let                    'let'             KWLet               tok=  49  pos=  69
         Pat.Tuple:
           Pat.NamedSimple    'c'               Identifier          tok=  51  pos=  73
+          ,                  ','               OpComma             tok=  52  pos=  74
           Pat.NamedSimple    'd'               Identifier          tok=  54  pos=  76
         =                    '='               OpEquality          tok=  56  pos=  78
           Tuple:

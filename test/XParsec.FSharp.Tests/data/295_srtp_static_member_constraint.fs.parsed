@@ -1,0 +1,128 @@
+module                       'module'          KWModule            tok=   0  pos=   0
+                             'Test'            Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                        'let'             KWLet               tok=  10  pos=  93
+    inline                   'inline'          KWInline            tok=  12  pos=  97
+    Pat.NamedSimple          'eq'              Identifier          tok=  14  pos= 104
+    TyparDefns:
+                             '<'               op_LessThan         tok=  15  pos= 106
+      Typar.Named:
+                             ''T'              TypeParameter       tok=  16  pos= 107
+      when                   'when'            KWWhen              tok=  18  pos= 110
+      Constraint.Equality:
+        Typar.Named:
+                             ''T'              TypeParameter       tok=  20  pos= 115
+        :                    ':'               OpColon             tok=  21  pos= 117
+        equality             'equality'        Identifier          tok=  23  pos= 119
+      and                    'and'             KWAnd               tok=  25  pos= 128
+      Constraint.MemberTrait:
+        Typar.Named:
+                             ''T'              TypeParameter       tok=  27  pos= 132
+        :                    ':'               OpColon             tok=  28  pos= 134
+        (                    '('               KWLParen            tok=  30  pos= 136
+        static               'static'          KWStatic            tok=  31  pos= 137
+        member               'member'          KWMember            tok=  33  pos= 144
+        ident                '='               OpEquality          tok=  36  pos= 152
+        :                    ':'               OpColon             tok=  38  pos= 154
+        FunctionType:
+          TupleType:
+            VarType:
+              Typar.Named:
+                             ''T'              TypeParameter       tok=  40  pos= 156
+            *                '*'               OpMultiply          tok=  42  pos= 159
+            VarType:
+              Typar.Named:
+                             ''T'              TypeParameter       tok=  44  pos= 161
+          ->                 '->'              OpArrowRight        tok=  46  pos= 164
+          NamedType:
+            LongIdent:
+                             'bool'            Identifier          tok=  48  pos= 167
+        )                    ')'               KWRParen            tok=  49  pos= 171
+                             '>'               op_GreaterThan      tok=  50  pos= 172
+    Pats:
+      ParenBlock             '('               KWLParen            tok=  52  pos= 174
+        Pat.Typed:
+          Pat.NamedSimple    'x'               Identifier          tok=  53  pos= 175
+          Colon              ':'               OpColon             tok=  54  pos= 176
+          VarType:
+            Typar.Named:
+                             ''T'              TypeParameter       tok=  56  pos= 178
+                             ')'               KWRParen            tok=  57  pos= 180
+      ParenBlock             '('               KWLParen            tok=  59  pos= 182
+        Pat.Typed:
+          Pat.NamedSimple    'y'               Identifier          tok=  60  pos= 183
+          Colon              ':'               OpColon             tok=  61  pos= 184
+          VarType:
+            Typar.Named:
+                             ''T'              TypeParameter       tok=  63  pos= 186
+                             ')'               KWRParen            tok=  64  pos= 188
+    =                        '='               OpEquality          tok=  66  pos= 190
+      App:
+        Func:
+          LongIdentOrOp:
+            LongIdent:
+                             'LanguagePr...'   Identifier          tok=  69  pos= 196
+                             'GenericEqu...'   Identifier          tok=  71  pos= 215
+        Args:
+          Ident              'x'               Identifier          tok=  73  pos= 231
+          Ident              'y'               Identifier          tok=  75  pos= 233
+TypeDefn.Anon:
+  TypeName                   'Comparer'        Identifier          tok=  80  pos= 241
+  TyparDefns:
+                             '<'               op_LessThan         tok=  81  pos= 249
+    Typar.Named:
+                             ''T'              TypeParameter       tok=  82  pos= 250
+    when                     'when'            KWWhen              tok=  84  pos= 253
+    Constraint.MemberTrait:
+      Typar.Named:
+                             ''T'              TypeParameter       tok=  86  pos= 258
+      :                      ':'               OpColon             tok=  87  pos= 260
+      (                      '('               KWLParen            tok=  89  pos= 262
+      static                 'static'          KWStatic            tok=  90  pos= 263
+      member                 'member'          KWMember            tok=  92  pos= 270
+      ident                  '='               OpEquality          tok=  95  pos= 278
+      :                      ':'               OpColon             tok=  97  pos= 280
+      FunctionType:
+        TupleType:
+          VarType:
+            Typar.Named:
+                             ''T'              TypeParameter       tok=  99  pos= 282
+          *                  '*'               OpMultiply          tok= 101  pos= 285
+          VarType:
+            Typar.Named:
+                             ''T'              TypeParameter       tok= 103  pos= 287
+        ->                   '->'              OpArrowRight        tok= 105  pos= 290
+        NamedType:
+          LongIdent:
+                             'bool'            Identifier          tok= 107  pos= 293
+      )                      ')'               KWRParen            tok= 108  pos= 297
+                             '>'               op_GreaterThan      tok= 109  pos= 298
+  (                          '('               KWLParen            tok= 110  pos= 299
+  )                          ')'               KWRParen            tok= 111  pos= 300
+  =                          '='               OpEquality          tok= 113  pos= 302
+  begin                      <virt>            KWBegin             tok=virt  pos= 308
+    member                   'member'          KWMember            tok= 116  pos= 308
+    self                     '_'               Wildcard            tok= 118  pos= 315
+    Pat.NamedSimple          'Equals'          Identifier          tok= 120  pos= 317
+    Pats:
+      ParenBlock             '('               KWLParen            tok= 121  pos= 323
+        Pat.Tuple:
+          Pat.Typed:
+            Pat.NamedSimple  'x'               Identifier          tok= 122  pos= 324
+            Colon            ':'               OpColon             tok= 123  pos= 325
+            VarType:
+              Typar.Named:
+                             ''T'              TypeParameter       tok= 125  pos= 327
+          ,                  ','               OpComma             tok= 126  pos= 329
+          Pat.Typed:
+            Pat.NamedSimple  'y'               Identifier          tok= 128  pos= 331
+            Colon            ':'               OpColon             tok= 129  pos= 332
+            VarType:
+              Typar.Named:
+                             ''T'              TypeParameter       tok= 131  pos= 334
+                             ')'               KWRParen            tok= 132  pos= 336
+    =                        '='               OpEquality          tok= 134  pos= 338
+      InfixApp               '='               OpEquality          tok= 138  pos= 342
+        Ident                'x'               Identifier          tok= 136  pos= 340
+        Ident                'y'               Identifier          tok= 140  pos= 344
+  end                        <virt>            KWEnd               tok=virt  pos= 346

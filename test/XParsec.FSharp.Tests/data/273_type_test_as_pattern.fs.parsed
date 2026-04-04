@@ -21,6 +21,7 @@ FunctionOrValue:
             NamedType:
               LongIdent:
                                        'obj'             Identifier          tok=  26  pos=  60
+          ,                            ','               OpComma             tok=  27  pos=  63
           Pat.Typed:
             Pat.NamedSimple            'y'               Identifier          tok=  29  pos=  65
             Colon                      ':'               OpColon             tok=  30  pos=  66
@@ -44,6 +45,7 @@ FunctionOrValue:
                 Ident                  'Wrapper'         Identifier          tok=  50  pos= 101
                 Param:
                   Pat.NamedSimple      'this'            Identifier          tok=  52  pos= 109
+              ,                        ','               OpComma             tok=  53  pos= 113
               ParenBlock               '('               KWLParen            tok=  55  pos= 115
                 Pat.TypeTestAs:
                   ColonQuestion        ':?'              OpTypeTest          tok=  56  pos= 116

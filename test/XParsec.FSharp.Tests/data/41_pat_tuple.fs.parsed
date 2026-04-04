@@ -9,6 +9,7 @@ Match:
     Pat:
       Pat.Tuple:
         Pat.NamedSimple  'a'               Identifier          tok=   8  pos=  15
+        ,                ','               OpComma             tok=   9  pos=  16
         Pat.NamedSimple  'b'               Identifier          tok=  11  pos=  18
     Arrow                '->'              OpArrowRight        tok=  13  pos=  20
     Expr:

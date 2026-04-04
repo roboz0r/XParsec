@@ -11,6 +11,7 @@ Function                   'function'        KWFunction          tok=   0  pos= 
             NamedType:
               LongIdent:
                            'int'             Identifier          tok=   9  pos=  16
+            *              '*'               OpMultiply          tok=  11  pos=  20
             NamedType:
               LongIdent:
                            'string'          Identifier          tok=  13  pos=  22

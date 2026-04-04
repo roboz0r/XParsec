@@ -1,0 +1,150 @@
+module                     'module'          KWModule            tok=   0  pos=   0
+                           'Test'            Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                      'let'             KWLet               tok=   7  pos=  59
+    inline                 'inline'          KWInline            tok=   9  pos=  63
+    Pat.NamedSimple        'zero'            Identifier          tok=  11  pos=  70
+    Pats:
+      ParenBlock           '('               KWLParen            tok=  13  pos=  75
+                           ')'               KWRParen            tok=  14  pos=  76
+    ReturnColon            ':'               OpColon             tok=  16  pos=  78
+    NamedType:
+      LongIdent:
+                           'int'             Identifier          tok=  18  pos=  80
+    =                      '='               OpEquality          tok=  20  pos=  84
+      ILIntrinsic:
+        (#                 '(#'              KWLHashParen        tok=  22  pos=  86
+        StringLiteral      '"'               StringOpen          tok=  24  pos=  89
+        Parts:
+          Text             'ldc.i4.0'        StringFragment      tok=  25  pos=  90
+                           '"'               StringClose         tok=  26  pos=  98
+        ILReturnType:
+          :                ':'               OpColon             tok=  28  pos= 100
+          NamedType:
+            LongIdent:
+                           'int'             Identifier          tok=  30  pos= 102
+        #)                 '#)'              KWRHashParen        tok=  32  pos= 106
+FunctionOrValue:
+  let                      'let'             KWLet               tok=  34  pos= 109
+    inline                 'inline'          KWInline            tok=  36  pos= 113
+    Pat.NamedSimple        'isNullBasi...'   Identifier          tok=  38  pos= 120
+    Pats:
+      ParenBlock           '('               KWLParen            tok=  40  pos= 132
+        Pat.Typed:
+          Pat.NamedSimple  'p'               Identifier          tok=  41  pos= 133
+          Colon            ':'               OpColon             tok=  42  pos= 134
+          NamedType:
+            LongIdent:
+                           'nativeint'       Identifier          tok=  44  pos= 136
+                           ')'               KWRParen            tok=  45  pos= 145
+    ReturnColon            ':'               OpColon             tok=  47  pos= 147
+    NamedType:
+      LongIdent:
+                           'bool'            Identifier          tok=  49  pos= 149
+    =                      '='               OpEquality          tok=  51  pos= 154
+      ILIntrinsic:
+        (#                 '(#'              KWLHashParen        tok=  53  pos= 156
+        StringLiteral      '"'               StringOpen          tok=  55  pos= 159
+        Parts:
+          Text             'ceq'             StringFragment      tok=  56  pos= 160
+                           '"'               StringClose         tok=  57  pos= 163
+        Arg:
+          Const            '0n'              NumNativeInt        tok=  59  pos= 165
+        Arg:
+          Ident            'p'               Identifier          tok=  61  pos= 168
+        ILReturnType:
+          :                ':'               OpColon             tok=  63  pos= 170
+          NamedType:
+            LongIdent:
+                           'bool'            Identifier          tok=  65  pos= 172
+        #)                 '#)'              KWRHashParen        tok=  67  pos= 177
+FunctionOrValue:
+  let                      'let'             KWLet               tok=  69  pos= 180
+    inline                 'inline'          KWInline            tok=  71  pos= 184
+    Pat.NamedSimple        'initObj'         Identifier          tok=  73  pos= 191
+    Pats:
+      ParenBlock           '('               KWLParen            tok=  75  pos= 199
+        Pat.Typed:
+          Pat.NamedSimple  'address'         Identifier          tok=  76  pos= 200
+          Colon            ':'               OpColon             tok=  77  pos= 207
+          NamedType:
+            LongIdent:
+                           'nativeint'       Identifier          tok=  79  pos= 209
+                           ')'               KWRParen            tok=  80  pos= 218
+    =                      '='               OpEquality          tok=  82  pos= 220
+      ILIntrinsic:
+        (#                 '(#'              KWLHashParen        tok=  84  pos= 222
+        StringLiteral      '"'               StringOpen          tok=  86  pos= 225
+        Parts:
+          Text             'initobj !0'      StringFragment      tok=  87  pos= 226
+                           '"'               StringClose         tok=  88  pos= 236
+        ILTypeArg:
+          type             'type'            KWType              tok=  90  pos= 238
+          (                '('               KWLParen            tok=  91  pos= 242
+          typeToken        'int'             Identifier          tok=  92  pos= 243
+          )                ')'               KWRParen            tok=  93  pos= 246
+        Arg:
+          Ident            'address'         Identifier          tok=  95  pos= 248
+        #)                 '#)'              KWRHashParen        tok=  97  pos= 256
+FunctionOrValue:
+  let                      'let'             KWLet               tok= 106  pos= 477
+    inline                 'inline'          KWInline            tok= 108  pos= 481
+    Pat.NamedSimple        'myNullPtr'       Identifier          tok= 110  pos= 488
+    TyparDefns:
+                           '<'               op_LessThan         tok= 111  pos= 497
+      Typar.Named:
+                           ''T'              TypeParameter       tok= 112  pos= 498
+                           '>'               op_GreaterThan      tok= 113  pos= 500
+    ReturnColon            ':'               OpColon             tok= 115  pos= 502
+    NamedType:
+      LongIdent:
+                           'nativeint'       Identifier          tok= 117  pos= 504
+    =                      '='               OpEquality          tok= 119  pos= 514
+      ILIntrinsic:
+        (#                 '(#'              KWLHashParen        tok= 121  pos= 516
+        StringLiteral      '"'               StringOpen          tok= 123  pos= 519
+                           '"'               StringClose         tok= 124  pos= 520
+        Arg:
+          Const            '0n'              NumNativeInt        tok= 126  pos= 522
+        ILReturnType:
+          :                ':'               OpColon             tok= 128  pos= 525
+          NamedType:
+            LongIdent:
+                           'nativeint'       Identifier          tok= 130  pos= 527
+        #)                 '#)'              KWRHashParen        tok= 132  pos= 537
+FunctionOrValue:
+  let                      'let'             KWLet               tok= 134  pos= 540
+    inline                 'inline'          KWInline            tok= 136  pos= 544
+    Pat.NamedSimple        'isNullPtr'       Identifier          tok= 138  pos= 551
+    Pats:
+      ParenBlock           '('               KWLParen            tok= 140  pos= 561
+        Pat.Typed:
+          Pat.NamedSimple  'address'         Identifier          tok= 141  pos= 562
+          Colon            ':'               OpColon             tok= 142  pos= 569
+          NamedType:
+            LongIdent:
+                           'nativeint'       Identifier          tok= 144  pos= 571
+                           ')'               KWRParen            tok= 145  pos= 580
+    =                      '='               OpEquality          tok= 147  pos= 582
+      ILIntrinsic:
+        (#                 '(#'              KWLHashParen        tok= 149  pos= 584
+        StringLiteral      '"'               StringOpen          tok= 151  pos= 587
+        Parts:
+          Text             'ceq'             StringFragment      tok= 152  pos= 588
+                           '"'               StringClose         tok= 153  pos= 591
+        Arg:
+          TypeApp:
+            Expr:
+              Ident        'myNullPtr'       Identifier          tok= 155  pos= 593
+            Types:
+              NamedType:
+                LongIdent:
+                           'int'             Identifier          tok= 157  pos= 603
+        Arg:
+          Ident            'address'         Identifier          tok= 160  pos= 608
+        ILReturnType:
+          :                ':'               OpColon             tok= 162  pos= 616
+          NamedType:
+            LongIdent:
+                           'bool'            Identifier          tok= 164  pos= 618
+        #)                 '#)'              KWRHashParen        tok= 166  pos= 623
