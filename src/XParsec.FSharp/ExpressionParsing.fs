@@ -1979,6 +1979,14 @@ module Expr =
                                 let! fields, seps =
                                     withContext OffsideContext.SeqBlock (sepBy1 FieldInitializer.parse pRecordFieldSep)
 
+                                // Allow optional trailing semicolon before '}'
+                                let! trailingSep = opt (nextNonTriviaTokenIsL Token.OpSemicolon ";")
+
+                                let seps =
+                                    match trailingSep with
+                                    | ValueSome sep -> seps.Add(sep)
+                                    | ValueNone -> seps
+
                                 let! rBrace = pRBrace
                                 return Expr.RecordClone(lBrace, baseExpr, withTok, fields, seps, rBrace)
                             }
@@ -1986,6 +1994,14 @@ module Expr =
                             parser {
                                 let! fields, seps =
                                     withContext OffsideContext.SeqBlock (sepBy1 FieldInitializer.parse pRecordFieldSep)
+
+                                // Allow optional trailing semicolon before '}'
+                                let! trailingSep = opt (nextNonTriviaTokenIsL Token.OpSemicolon ";")
+
+                                let seps =
+                                    match trailingSep with
+                                    | ValueSome sep -> seps.Add(sep)
+                                    | ValueNone -> seps
 
                                 let! rBrace = pRBrace
                                 return Expr.Record(lBrace, fields, seps, rBrace)
