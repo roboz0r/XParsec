@@ -92,6 +92,25 @@ module FSharpAst =
         fun reader ->
             let startPos = reader.Position
 
+            // Push a file-level SeqBlock context so that collection/CE undentation rules
+            // (checkCollectionUndent) always find a base offside line at the outermost level.
+            let fileIndent =
+                match peekNextNonTriviaToken reader with
+                | Ok tok ->
+                    match tok.Index with
+                    | TokenIndex.Regular iT -> ParseState.getIndent reader.State iT
+                    | TokenIndex.Virtual -> 0
+                | Error _ -> 0
+
+            let entry: Offside =
+                {
+                    Context = OffsideContext.SeqBlock
+                    Indent = fileIndent
+                    Token = PositionedToken.Create(Token.EOF, 0)
+                }
+
+            reader.State <- ParseState.pushOffside entry reader.State
+
             match pNormal reader with
             | Ok result -> Ok result
             | Error topErr ->

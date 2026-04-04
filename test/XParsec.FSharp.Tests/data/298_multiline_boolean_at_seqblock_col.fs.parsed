@@ -1,0 +1,120 @@
+module                             'module'          KWModule            tok=   0  pos=   0
+                                   'Test'            Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                              'let'             KWLet               tok=  12  pos= 194
+    Pat.NamedSimple                'isInfixOp1'      Identifier          tok=  14  pos= 198
+    Pats:
+      ParenBlock                   '('               KWLParen            tok=  16  pos= 209
+        Pat.Typed:
+          Pat.NamedSimple          's'               Identifier          tok=  17  pos= 210
+          Colon                    ':'               OpColon             tok=  18  pos= 211
+          NamedType:
+            LongIdent:
+                                   'string'          Identifier          tok=  20  pos= 213
+                                   ')'               KWRParen            tok=  21  pos= 219
+    =                              '='               OpEquality          tok=  23  pos= 221
+      Let                          'let'             KWLet               tok=  26  pos= 227
+        Pat.NamedSimple            'trimmed'         Identifier          tok=  28  pos= 231
+        =                          '='               OpEquality          tok=  30  pos= 239
+          HighPrecedenceApp:
+            Func:
+              LongIdentOrOp:
+                LongIdent:
+                                   's'               Identifier          tok=  32  pos= 241
+                                   'TrimStart'       Identifier          tok=  34  pos= 243
+            (                      '('               KWLParen            tok=  35  pos= 252
+            Arg:
+              Const                '' ''             CharLiteral         tok=  36  pos= 253
+                                   ')'               KWRParen            tok=  37  pos= 256
+      in                           <virt>            KWIn                tok=virt  pos= 262
+      Body:
+        InfixApp                   '&&'              OpAmpAmp            tok=  47  pos= 279
+          InfixApp                 '<>'              op_Inequality       tok=  42  pos= 264
+            Ident                  's'               Identifier          tok=  40  pos= 262
+            Ident                  'trimmed'         Identifier          tok=  44  pos= 267
+          ParenBlock               '('               KWLParen            tok=  49  pos= 282
+            InfixApp               '||'              op_BooleanOr        tok=  59  pos= 300
+              InfixApp             '='               OpEquality          tok=  52  pos= 285
+                Ident              's'               Identifier          tok=  50  pos= 283
+                StringLiteral      '"'               StringOpen          tok=  54  pos= 287
+                Parts:
+                  Text             ':='              StringFragment      tok=  55  pos= 288
+                                   '"'               StringClose         tok=  56  pos= 290
+              App:
+                Func:
+                  LongIdentOrOp:
+                    LongIdent:
+                                   's'               Identifier          tok=  61  pos= 303
+                                   'StartsWith'      Identifier          tok=  63  pos= 305
+                Args:
+                  StringLiteral    '"'               StringOpen          tok=  65  pos= 316
+                  Parts:
+                    Text           '|'               StringFragment      tok=  66  pos= 317
+                                   '"'               StringClose         tok=  67  pos= 318
+                                   ')'               KWRParen            tok=  68  pos= 319
+FunctionOrValue:
+  let                              'let'             KWLet               tok=  79  pos= 508
+    Pat.NamedSimple                'isInfixOp2'      Identifier          tok=  81  pos= 512
+    Pats:
+      ParenBlock                   '('               KWLParen            tok=  83  pos= 523
+        Pat.Typed:
+          Pat.NamedSimple          's'               Identifier          tok=  84  pos= 524
+          Colon                    ':'               OpColon             tok=  85  pos= 525
+          NamedType:
+            LongIdent:
+                                   'string'          Identifier          tok=  87  pos= 527
+                                   ')'               KWRParen            tok=  88  pos= 533
+    =                              '='               OpEquality          tok=  90  pos= 535
+      Let                          'let'             KWLet               tok=  93  pos= 541
+        Pat.NamedSimple            'trimmed'         Identifier          tok=  95  pos= 545
+        =                          '='               OpEquality          tok=  97  pos= 553
+          HighPrecedenceApp:
+            Func:
+              LongIdentOrOp:
+                LongIdent:
+                                   's'               Identifier          tok=  99  pos= 555
+                                   'TrimStart'       Identifier          tok= 101  pos= 557
+            (                      '('               KWLParen            tok= 102  pos= 566
+            Arg:
+              Const                '' ''             CharLiteral         tok= 103  pos= 567
+                                   ')'               KWRParen            tok= 104  pos= 570
+      in                           <virt>            KWIn                tok=virt  pos= 576
+      Body:
+        InfixApp                   '&&'              OpAmpAmp            tok= 114  pos= 593
+          InfixApp                 '<>'              op_Inequality       tok= 109  pos= 578
+            Ident                  's'               Identifier          tok= 107  pos= 576
+            Ident                  'trimmed'         Identifier          tok= 111  pos= 581
+          ParenBlock               '('               KWLParen            tok= 116  pos= 596
+            InfixApp               '||'              op_BooleanOr        tok= 142  pos= 668
+              InfixApp             '||'              op_BooleanOr        tok= 131  pos= 640
+                ParenBlock         '('               KWLParen            tok= 117  pos= 597
+                  InfixApp         '='               OpEquality          tok= 120  pos= 600
+                    Ident          's'               Identifier          tok= 118  pos= 598
+                    StringLiteral  '"'               StringOpen          tok= 125  pos= 626
+                    Parts:
+                      Text         ':='              StringFragment      tok= 126  pos= 627
+                                   '"'               StringClose         tok= 127  pos= 629
+                                   ')'               KWRParen            tok= 128  pos= 630
+                App:
+                  Func:
+                    LongIdentOrOp:
+                      LongIdent:
+                                   's'               Identifier          tok= 133  pos= 643
+                                   'StartsWith'      Identifier          tok= 135  pos= 645
+                  Args:
+                    StringLiteral  '"'               StringOpen          tok= 137  pos= 656
+                    Parts:
+                      Text         '|'               StringFragment      tok= 138  pos= 657
+                                   '"'               StringClose         tok= 139  pos= 658
+              App:
+                Func:
+                  LongIdentOrOp:
+                    LongIdent:
+                                   's'               Identifier          tok= 144  pos= 671
+                                   'StartsWith'      Identifier          tok= 146  pos= 673
+                Args:
+                  StringLiteral    '"'               StringOpen          tok= 148  pos= 684
+                  Parts:
+                    Text           '&'               StringFragment      tok= 149  pos= 685
+                                   '"'               StringClose         tok= 150  pos= 686
+                                   ')'               KWRParen            tok= 151  pos= 687
