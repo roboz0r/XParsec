@@ -776,6 +776,14 @@ module Parsing =
     let dispatchNextNonTriviaTokenL (routes: (Token * Parser<_, _, _, _, _>) list) fallbackMsg =
         dispatchNextNonTriviaTokenFallback routes (fail (Message fallbackMsg))
 
+    /// Checks that the raw token immediately before the current reader position is not trivia.
+    /// Used by adjacency-based parsers (high-precedence application, type application, measures)
+    /// to confirm the upcoming token is truly adjacent to the preceding expression token,
+    /// not just adjacent because peekNextNonTriviaToken consumed intervening trivia.
+    let isPrevTokenNonTrivia (reader: Reader<PositionedToken, ParseState, _, _>) =
+        let idx = reader.Index
+        idx > 0 && not (ParseState.isTriviaToken reader.State reader.Input[idx - 1])
+
     let currentIndent (reader: Reader<PositionedToken, ParseState, 'a, 'b>) =
         let state = reader.State
         let index = int reader.Index * 1<token>
