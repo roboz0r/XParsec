@@ -362,7 +362,9 @@ module Parsing =
                         | OffsideContext.Bracket
                         | OffsideContext.BracketBar
                         | OffsideContext.Brace
-                        | OffsideContext.Begin -> findEnclosingIndent deeper
+                        | OffsideContext.Begin
+                        | OffsideContext.Fun
+                        | OffsideContext.Function -> findEnclosingIndent deeper
                         | _ -> tokenCol >= ctx.Indent
 
                 if findEnclosingIndent rest then
