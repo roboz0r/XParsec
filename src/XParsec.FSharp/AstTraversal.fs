@@ -1091,6 +1091,11 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         visitor.EnterSection ""
         walkExpr visitor innerExpr
         visitor.ExitSection ""
+    | Expr.Fixed(fixedToken, innerExpr) ->
+        visitor.VisitToken "Fixed" fixedToken
+        visitor.EnterSection ""
+        walkExpr visitor innerExpr
+        visitor.ExitSection ""
     | Expr.Null nullToken -> visitor.VisitToken "Null" nullToken
     | Expr.Function(functionToken, rules) ->
         visitor.VisitToken "Function" functionToken

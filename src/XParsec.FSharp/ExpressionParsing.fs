@@ -1461,6 +1461,17 @@ module Expr =
                              |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Assert(kwTok, e))),
                             completeKeyword
                         )
+                | ValueSome opInfo when opInfo.Token = Token.KWFixed ->
+                    let! tok = consumePeeked token
+
+                    return
+                        PrefixMapped(
+                            tok,
+                            preturn tok,
+                            (refExprSeqBlock.Parser
+                             |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Fixed(kwTok, e))),
+                            completeKeyword
+                        )
                 | ValueSome opInfo when opInfo.Token = Token.KWUpcast ->
                     let! tok = consumePeeked token
 
