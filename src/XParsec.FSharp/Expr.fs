@@ -89,8 +89,11 @@ type Type<'T> =
         instrParts: ImArr<StringPart<'T>> *
         instrClose: 'T *
         rHashParen: 'T
+    | AnonRecordType of lBraceBar: 'T * fields: ImArr<AnonRecordField<'T>> * separators: ImArr<'T> * rBraceBar: 'T
     | Missing
     | SkipsTokens of skippedTokens: ImArr<'T>
+
+and AnonRecordField<'T> = | AnonRecordField of ident: 'T * colon: 'T * typ: Type<'T>
 
 and [<RequireQualifiedAccess>] TypeArg<'T> =
     | Type of Type<'T>
@@ -226,6 +229,8 @@ type ParenKind<'T> =
     | Array of 'T
     /// { ... }  (Used for Computation Expressions)
     | Brace of 'T
+    /// {| ... |}  (Used for Anonymous Records)
+    | BraceBar of 'T
     /// &lt;@ ... @&gt; (Used for Quotations)
     | Quoted of 'T
     /// &lt;@@ ... @@&gt; (Used for Untyped Quotations)
@@ -266,9 +271,13 @@ type Expr<'T> =
         members: ObjectMembers<'T> *
         interfaceImpls: ImArr<InterfaceImpl<'T>> *
         rBrace: 'T
-    | Record of lBrace: 'T * fieldInitializers: ImArr<FieldInitializer<'T>> * separators: ImArr<'T> * rBrace: 'T
+    | Record of
+        lBrace: ParenKind<'T> *
+        fieldInitializers: ImArr<FieldInitializer<'T>> *
+        separators: ImArr<'T> *
+        rBrace: 'T
     | RecordClone of
-        lBrace: 'T *
+        lBrace: ParenKind<'T> *
         expr: Expr<'T> *
         withToken: 'T *
         fieldInitializers: ImArr<FieldInitializer<'T>> *

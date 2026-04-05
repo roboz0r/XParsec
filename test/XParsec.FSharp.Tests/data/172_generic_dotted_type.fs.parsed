@@ -18,7 +18,7 @@ TypeDefn.Record:
             NamedType:
               LongIdent:
                          'int'             Identifier          tok=  21  pos=  76
-          >              <virt>            OpPipeLeft2         tok=virt  pos=  79
+          >              <virt>            OpPipeLeft          tok=virt  pos=  79
         .                '.'               OpDot               tok=  22  pos=  80
         LongIdent:
                          'Builder'         Identifier          tok=  23  pos=  81
@@ -38,7 +38,7 @@ TypeDefn.Record:
             NamedType:
               LongIdent:
                          'string'          Identifier          tok=  34  pos= 115
-          >              <virt>            OpPipeLeft2         tok=virt  pos= 121
+          >              <virt>            OpPipeLeft          tok=virt  pos= 121
         .                '.'               OpDot               tok=  35  pos= 122
         LongIdent:
                          'Ok'              Identifier          tok=  36  pos= 123
@@ -56,7 +56,7 @@ FunctionOrValue:
           NamedType:
             LongIdent:
                          'int'             Identifier          tok=  49  pos= 155
-        >                <virt>            OpPipeLeft2         tok=virt  pos= 158
+        >                <virt>            OpPipeLeft          tok=virt  pos= 158
       .                  '.'               OpDot               tok=  50  pos= 159
       LongIdent:
                          'Builder'         Identifier          tok=  51  pos= 160

@@ -48,6 +48,7 @@ let parenKind lParen =
     | ParenKind.List t -> "List", t
     | ParenKind.Array t -> "Array", t
     | ParenKind.Brace t -> "ComputationBlock", t
+    | ParenKind.BraceBar t -> "AnonRecordBlock", t
     | ParenKind.Quoted t -> "<@", t
     | ParenKind.DoubleQuoted t -> "<@@", t
 
@@ -664,6 +665,17 @@ and walkType (visitor: AstVisitor<'T>) (ty: Type<'T>) : unit =
         walkStringKindAndParts visitor instrKind instrParts instrClose
         visitor.VisitToken "#)" rHashParen
         visitor.ExitSection "ILIntrinsic"
+    | Type.AnonRecordType(lBraceBar, fields, _, rBraceBar) ->
+        visitor.EnterSection "AnonRecordType"
+        visitor.VisitToken "{|" lBraceBar
+
+        for (AnonRecordField(ident, colon, typ)) in fields do
+            visitor.VisitToken "" ident
+            visitor.VisitToken ":" colon
+            walkType visitor typ
+
+        visitor.VisitToken "|}" rBraceBar
+        visitor.ExitSection "AnonRecordType"
     | Type.Missing -> visitor.WriteLine "Missing"
     | Type.SkipsTokens(skippedTokens) ->
         visitor.EnterSection "SkipsTokens"
@@ -1100,7 +1112,13 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         walkExpr visitor rightExpr
         visitor.ExitSection ""
     | Expr.Record(lBrace, fieldInitializers, _, rBrace) ->
-        visitor.VisitToken "Record" lBrace
+        let label, lTok =
+            match lBrace with
+            | ParenKind.BraceBar t -> "AnonRecord", t
+            | ParenKind.Brace t -> "Record", t
+            | _ -> parenKind lBrace
+
+        visitor.VisitToken label lTok
         visitor.EnterSection ""
 
         for fi in fieldInitializers do
@@ -1109,7 +1127,13 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         visitor.ExitSection ""
         visitor.VisitToken "" rBrace
     | Expr.RecordClone(lBrace, baseExpr, withToken, fieldInitializers, _, rBrace) ->
-        visitor.VisitToken "RecordClone" lBrace
+        let label, lTok =
+            match lBrace with
+            | ParenKind.BraceBar t -> "AnonRecordClone", t
+            | ParenKind.Brace t -> "RecordClone", t
+            | _ -> parenKind lBrace
+
+        visitor.VisitToken label lTok
         visitor.EnterSection ""
         visitor.EnterSection "Base"
         walkExpr visitor baseExpr

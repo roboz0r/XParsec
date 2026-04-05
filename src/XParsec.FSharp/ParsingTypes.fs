@@ -76,6 +76,7 @@ type OffsideContext =
     | Bracket
     | Brace
     | BracketBar
+    | BraceBar
     | Begin
     | Struct
     | Sig
@@ -119,6 +120,7 @@ type DiagnosticCode =
     | ExpectedRParen
     | ExpectedRBracket
     | ExpectedRArrayBracket
+    | ExpectedRBraceBar
     | ExpectedQuotationTypedRight
     | ExpectedQuotationUntypedRight
     | UnclosedDelimiter of opened: SyntaxToken * expected: Token

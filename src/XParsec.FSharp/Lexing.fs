@@ -165,6 +165,7 @@ type LexContext =
     | Interpolated3String of level: int
     | InterpolatedExpression
     | BracedExpression // used for computation expressions
+    | BraceBarExpression // used for anonymous records {| ... |}
     | ParenthesExpression
     | BracketedExpression
     | QuotedExpression
@@ -1459,6 +1460,12 @@ module Lexing =
     let pCloseBraceExpressionContext =
         pTokenPopCtx (pchar '}') Token.KWRBrace LexContext.BracedExpression
 
+    let pOpenBraceBarExpressionContext =
+        pTokenPushCtx (pstring "{|") Token.KWLBraceBar LexContext.BraceBarExpression
+
+    let pCloseBraceBarExpressionContext =
+        pTokenPopCtx (pstring "|}") Token.KWRBraceBar LexContext.BraceBarExpression
+
     let pOpenParenExpressionContext =
         pTokenPushCtx (pchar '(') Token.KWLParen LexContext.ParenthesExpression
 
@@ -2229,6 +2236,7 @@ module Lexing =
         match ctx with
         | LexContext.Normal
         | LexContext.BracedExpression
+        | LexContext.BraceBarExpression
         | LexContext.ParenthesExpression
         | LexContext.BracketedExpression
         | LexContext.QuotedExpression
@@ -2240,6 +2248,7 @@ module Lexing =
         match ctx with
         | LexContext.Normal
         | LexContext.BracedExpression
+        | LexContext.BraceBarExpression
         | LexContext.ParenthesExpression
         | LexContext.BracketedExpression
         | LexContext.QuotedExpression
@@ -2320,6 +2329,7 @@ module Lexing =
         choiceL
             [
                 pToken pRArrayBrack Token.KWRArrayBracket
+                pCloseBraceBarExpressionContext
                 // 3.2 Comments
                 pToken (pstring "*)") Token.BlockCommentEnd
                 pOperatorToken
@@ -2468,7 +2478,8 @@ module Lexing =
                 | '{', LexContext.Interpolated3String level ->
                     // In a triple-quoted interpolated string, { * level starts an expression or is escaped as {{
                     pInterpolated3ExpressionStartToken
-                | '{', ExpressionCtx -> pOpenBraceExpressionContext
+                | '{', ExpressionCtx ->
+                    choiceL [ pOpenBraceBarExpressionContext; pOpenBraceExpressionContext ] "Left brace"
                 | '}', LexContext.InterpolatedString ->
                     // In an interpolated string, } is escaped as }}
                     pInterpolatedStringFragmentRBraces

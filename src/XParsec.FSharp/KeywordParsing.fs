@@ -169,4 +169,6 @@ module internal Keywords =
     //let pNil: KWParser = nextNonTriviaTokenIsL Token.OpNil "[]"
     let pLArrayBracket: KWParser = nextNonTriviaTokenIsL Token.KWLArrayBracket "[|"
     let pRArrayBracket: KWParser = nextNonTriviaTokenIsL Token.KWRArrayBracket "|]"
+    let pLBraceBar: KWParser = nextNonTriviaTokenIsL Token.KWLBraceBar "{|"
+    let pRBraceBar: KWParser = nextNonTriviaTokenIsL Token.KWRBraceBar "|}"
     let pTypeTest: KWParser = nextNonTriviaTokenIsL Token.OpTypeTest ":?"
