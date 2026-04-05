@@ -1928,6 +1928,7 @@ module internal TokenInfo =
         | Token.KWYieldBang
         | Token.KWLazy
         | Token.KWAssert
+        | Token.KWFixed
         | Token.KWUpcast
         | Token.KWDowncast
         | Token.KWBase
@@ -1983,6 +1984,7 @@ module internal TokenInfo =
             | Token.OpRange
             | Token.KWLazy
             | Token.KWAssert
+            | Token.KWFixed
             | Token.VirtualApp
             | Token.VirtualTyApp
             | Token.VirtualSep
@@ -2052,7 +2054,8 @@ module internal TokenInfo =
             | Token.OpCons -> PrecedenceLevel.Cons
             | Token.OpTypeTest -> PrecedenceLevel.TypeTest
             | Token.KWLazy
-            | Token.KWAssert -> PrecedenceLevel.Function // same as function application
+            | Token.KWAssert
+            | Token.KWFixed -> PrecedenceLevel.Function // same as function application
             | Token.OpBar -> PrecedenceLevel.PatternMatchBar // pattern match bar
             | Token.OpDot -> PrecedenceLevel.Dot
             | Token.OpAmp

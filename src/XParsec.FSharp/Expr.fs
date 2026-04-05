@@ -338,6 +338,7 @@ type Expr<'T> =
         doneToken: 'T
     // Other
     | Assert of assertToken: 'T * expr: Expr<'T>
+    | Fixed of fixedToken: 'T * expr: Expr<'T>
     | ExpressionSplice of percent: 'T * expr: Expr<'T>
     | WeaklyTypedExpressionSplice of percentPercent: 'T * expr: Expr<'T>
     | StaticMemberInvocation of
