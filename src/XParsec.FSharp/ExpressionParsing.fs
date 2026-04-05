@@ -417,15 +417,27 @@ module Expr =
             | ExprAux.TypeApp(lAngle, types, commas, rAngle) -> Expr.TypeApp(expr, lAngle, types, commas, rAngle)
             | _ -> failwith "Unexpected Aux type for type application completion"
 
-        let pHighPrecLParen =
-            // Use satisfy instead of nextNonTriviaToken to ensure we only match '(' if
-            // it's immediately after the function expression with no trivia in between.
-            satisfyL (fun (t: PositionedToken) -> t.Token = Token.KWLParen) "'(' high precedence application"
+        let pHighPrec token char =
+            // Use satisfy to check the raw token is '(' AND the previous raw token is not trivia,
+            // confirming true adjacency (e.g. f(x), not f (x) or a newline-separated expression).
+            let pSatisfy =
+                satisfyL (fun (t: PositionedToken) -> t.Token = token) $"Expected '{char}' for high precedence"
 
-        let pHighPrecLBracket =
-            // Use satisfy instead of nextNonTriviaToken to ensure we only match '[' if
-            // it's immediately after the expression with no trivia in between (F# 6+ dot-less indexing).
-            satisfyL (fun (t: PositionedToken) -> t.Token = Token.KWLBracket) "'[' high precedence indexing"
+            let pFail = fail (Message $"Expected '{char}' for high precedence")
+
+            parser {
+                let! canBeHighPrec = isPrevTokenNonTrivia >> Ok
+
+                if canBeHighPrec then
+
+                    return! pSatisfy
+                else
+                    return! pFail
+            }
+
+        let pHighPrecLParen = pHighPrec Token.KWLParen '('
+
+        let pHighPrecLBracket = pHighPrec Token.KWLBracket '['
 
         let peekHighPrecApp =
             lookAhead (choiceL [ pHighPrecLParen; pHighPrecLBracket ] "( or [ for high-precedence")
@@ -700,36 +712,40 @@ module Expr =
             }
 
         let pTypeApplication =
-            // Treat '<' followed by a type and '>' as type application
+            // Treat '<' followed by a type and '>' as type application.
+            // Like high-prec app, '<' must be truly adjacent (no trivia before it in the raw stream).
             parser {
+                let! canBeTyApp = isPrevTokenNonTrivia >> Ok
 
-                let! state = getUserState
-                let! pos = getPosition
+                if canBeTyApp then
+                    let! state = getUserState
+                    let! pos = getPosition
 
-                let! lAngle =
-                    satisfyL
-                        (fun (t: PositionedToken) ->
-                            match t.Token with
-                            | Token.OpLessThan -> true
-                            | _ -> false
-                        )
-                        "Expected '<' for type application"
-                    |> lookAhead
-                    >>= fun t ->
-                        let st = syntaxToken t pos.Index
+                    let! lAngle =
+                        satisfyL
+                            (fun (t: PositionedToken) ->
+                                match t.Token with
+                                | Token.OpLessThan -> true
+                                | _ -> false
+                            )
+                            "Expected '<' for type application"
+                        |> lookAhead
+                        >>= fun t ->
+                            let st = syntaxToken t pos.Index
 
-                        if tokenStringIs "<" st state then
-                            preturn st
-                        else
-                            fail (Message "Expected '<' for type application")
+                            if tokenStringIs "<" st state then
+                                preturn st
+                            else
+                                fail (Message "Expected '<' for type application")
 
+                    let typeAngle =
+                        { lAngle with
+                            PositionedToken = PositionedToken.Create(Token.VirtualTyApp, lAngle.StartIndex)
+                        }
 
-                let typeAngle =
-                    { lAngle with
-                        PositionedToken = PositionedToken.Create(Token.VirtualTyApp, lAngle.StartIndex)
-                    }
-
-                return typeAngle
+                    return typeAngle
+                else
+                    return! fail (Message "Expected '<' for type application")
             }
 
         let getRhsOperatorHandler (opInfo: OperatorInfo) token =
