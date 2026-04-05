@@ -1,0 +1,131 @@
+module                                             'module'          KWModule            tok=   0  pos=   0
+                                                   'Test'            Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                                              'let'             KWLet               tok=  10  pos= 126
+    Pat.NamedSimple                                'processEnt...'   Identifier          tok=  12  pos= 130
+    Pats:
+      Pat.Named:
+        Ident                                      'trie'            Identifier          tok=  14  pos= 145
+        Param:
+          ParenBlock                               '('               KWLParen            tok=  16  pos= 150
+            Pat.Typed:
+              Pat.NamedSimple                      'state'           Identifier          tok=  17  pos= 151
+              Colon                                ':'               OpColon             tok=  18  pos= 156
+              NamedType:
+                LongIdent:
+                                                   'int'             Identifier          tok=  20  pos= 158
+                                                   ')'               KWRParen            tok=  21  pos= 161
+        Pat:
+          ParenBlock                               '('               KWLParen            tok=  23  pos= 163
+            Pat.Typed:
+              Pat.NamedSimple                      'path'            Identifier          tok=  24  pos= 164
+              Colon                                ':'               OpColon             tok=  25  pos= 168
+              SuffixedType:
+                NamedType:
+                  LongIdent:
+                                                   'string'          Identifier          tok=  27  pos= 170
+                LongIdent:
+                                                   'list'            Identifier          tok=  29  pos= 177
+                                                   ')'               KWRParen            tok=  30  pos= 181
+    =                                              '='               OpEquality          tok=  32  pos= 183
+      InfixApp                                     '||>'             op_PipeRight2       tok=  53  pos= 225
+        ParenBlock                                 '('               KWLParen            tok=  35  pos= 189
+          Tuple:
+            Ident                                  'state'           Identifier          tok=  36  pos= 190
+            Array                                  '[|'              KWLArrayBracket     tok=  39  pos= 197
+              Range:
+                Const                              '1'               NumInt32            tok=  41  pos= 200
+                ..                                 '..'              OpRange             tok=  43  pos= 202
+                LongIdentOrOp:
+                  LongIdent:
+                                                   'path'            Identifier          tok=  45  pos= 205
+                                                   'Length'          Identifier          tok=  47  pos= 210
+                                                   '|]'              KWRArrayBracket     tok=  49  pos= 217
+                                                   ')'               KWRParen            tok=  50  pos= 219
+        App:
+          Func:
+            LongIdentOrOp:
+              LongIdent:
+                                                   'Array'           Identifier          tok=  55  pos= 229
+                                                   'fold'            Identifier          tok=  57  pos= 235
+          Args:
+            ParenBlock                             '('               KWLParen            tok=  59  pos= 240
+              Fun                                  'fun'             KWFun               tok=  60  pos= 241
+              Pats:
+                Pat.Named:
+                  Ident                            'acc'             Identifier          tok=  62  pos= 245
+                  Param:
+                    Pat.NamedSimple                'takeParts'       Identifier          tok=  64  pos= 249
+              Arrow                                '->'              OpArrowRight        tok=  66  pos= 259
+              Body:
+                Let                                'let'             KWLet               tok=  69  pos= 270
+                  Pat.NamedSimple                  'partialPat...'   Identifier          tok=  71  pos= 274
+                  =                                '='               OpEquality          tok=  73  pos= 286
+                    App:
+                      Func:
+                        LongIdentOrOp:
+                          LongIdent:
+                                                   'List'            Identifier          tok=  75  pos= 288
+                                                   'take'            Identifier          tok=  77  pos= 293
+                      Args:
+                        Ident                      'takeParts'       Identifier          tok=  79  pos= 298
+                        Ident                      'path'            Identifier          tok=  81  pos= 308
+                in                                 <virt>            KWIn                tok=virt  pos= 321
+                Body:
+                  Let                              'let'             KWLet               tok=  84  pos= 321
+                    Pat.NamedSimple                'stateAfter...'   Identifier          tok=  86  pos= 325
+                    =                              '='               OpEquality          tok=  88  pos= 340
+                      InfixApp                     '+'               op_Addition         tok=  92  pos= 346
+                        Ident                      'acc'             Identifier          tok=  90  pos= 342
+                        LongIdentOrOp:
+                          LongIdent:
+                                                   'partialPat...'   Identifier          tok=  94  pos= 348
+                                                   'Length'          Identifier          tok=  96  pos= 360
+                  in                               <virt>            KWIn                tok=virt  pos= 499
+                  Body:
+                    InfixApp                       '||>'             op_PipeRight2       tok= 125  pos= 540
+                      ParenBlock                   '('               KWLParen            tok= 106  pos= 499
+                        Tuple:
+                          Ident                    'stateAfter...'   Identifier          tok= 107  pos= 500
+                          Array                    '[|'              KWLArrayBracket     tok= 110  pos= 516
+                            Sequential:
+                              StringLiteral        '"'               StringOpen          tok= 112  pos= 519
+                              Parts:
+                                Text               'a'               StringFragment      tok= 113  pos= 520
+                                                   '"'               StringClose         tok= 114  pos= 521
+                              StringLiteral        '"'               StringOpen          tok= 117  pos= 524
+                              Parts:
+                                Text               'b'               StringFragment      tok= 118  pos= 525
+                                                   '"'               StringClose         tok= 119  pos= 526
+                                                   '|]'              KWRArrayBracket     tok= 121  pos= 528
+                                                   ')'               KWRParen            tok= 122  pos= 530
+                      App:
+                        Func:
+                          LongIdentOrOp:
+                            LongIdent:
+                                                   'Array'           Identifier          tok= 127  pos= 544
+                                                   'fold'            Identifier          tok= 129  pos= 550
+                        Args:
+                          ParenBlock               '('               KWLParen            tok= 131  pos= 555
+                            Fun                    'fun'             KWFun               tok= 132  pos= 556
+                            Pats:
+                              Pat.Named:
+                                Ident              'innerAcc'        Identifier          tok= 134  pos= 560
+                                Param:
+                                  Pat.NamedSimple  'ns'              Identifier          tok= 136  pos= 569
+                            Arrow                  '->'              OpArrowRight        tok= 138  pos= 572
+                            Body:
+                              Let                  'let'             KWLet               tok= 141  pos= 587
+                                Pat.NamedSimple    'queryResul...'   Identifier          tok= 143  pos= 591
+                                =                  '='               OpEquality          tok= 145  pos= 603
+                                  LongIdentOrOp:
+                                    LongIdent:
+                                                   'ns'              Identifier          tok= 147  pos= 605
+                                                   'Length'          Identifier          tok= 149  pos= 608
+                              in                   <virt>            KWIn                tok=virt  pos= 627
+                              Body:
+                                InfixApp           '+'               op_Addition         tok= 154  pos= 636
+                                  Ident            'innerAcc'        Identifier          tok= 152  pos= 627
+                                  Ident            'queryResul...'   Identifier          tok= 156  pos= 638
+                                                   ')'               KWRParen            tok= 157  pos= 649
+                                                   ')'               KWRParen            tok= 158  pos= 650
