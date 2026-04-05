@@ -296,6 +296,7 @@ module Parsing =
         | OffsideContext.Paren, Token.KWRParen -> true
         | OffsideContext.Bracket, Token.KWRBracket -> true
         | OffsideContext.BracketBar, Token.KWRArrayBracket -> true
+        | OffsideContext.BraceBar, Token.KWRBraceBar -> true
         | OffsideContext.Brace, Token.KWRBrace -> true
         | OffsideContext.Begin, Token.KWEnd -> true
         | OffsideContext.Quote, (Token.OpQuotationTypedRight | Token.OpQuotationUntypedRight) -> true
@@ -361,6 +362,7 @@ module Parsing =
                         | OffsideContext.Paren
                         | OffsideContext.Bracket
                         | OffsideContext.BracketBar
+                        | OffsideContext.BraceBar
                         | OffsideContext.Brace
                         | OffsideContext.Begin
                         | OffsideContext.Fun
@@ -425,6 +427,7 @@ module Parsing =
             elif
                 head.Context = OffsideContext.Bracket
                 || head.Context = OffsideContext.BracketBar
+                || head.Context = OffsideContext.BraceBar
                 || head.Context = OffsideContext.Brace
             then
                 if checkCollectionUndent tokenCol rest then
@@ -442,6 +445,7 @@ module Parsing =
                     ctx.Context = OffsideContext.Paren
                     || ctx.Context = OffsideContext.Bracket
                     || ctx.Context = OffsideContext.BracketBar
+                    || ctx.Context = OffsideContext.BraceBar
                     || ctx.Context = OffsideContext.Brace
                     || ctx.Context = OffsideContext.Begin
                     ->
@@ -467,6 +471,7 @@ module Parsing =
             | OffsideContext.Paren
             | OffsideContext.Bracket
             | OffsideContext.BracketBar
+            | OffsideContext.BraceBar
             | OffsideContext.Brace
             | OffsideContext.Begin ->
                 // Skip paren-like context (and its associated SeqBlock) and keep looking
@@ -939,6 +944,7 @@ module Parsing =
             | Token.KWRParen
             | Token.KWRBracket
             | Token.KWRBrace
+            | Token.KWRBraceBar
             | Token.OpEquality
             | Token.KWWith
             | Token.KWIn
@@ -967,6 +973,7 @@ module Parsing =
             | Token.KWRParen
             | Token.KWRBracket
             | Token.KWRBrace
+            | Token.KWRBraceBar
             | Token.KWThen
             | Token.KWElse
             | Token.KWElif
@@ -983,6 +990,7 @@ module Parsing =
             | Token.KWRParen
             | Token.KWRBracket
             | Token.KWRBrace
+            | Token.KWRBraceBar
             | Token.KWEnd
             | Token.KWRArrayBracket
             | Token.OpQuotationTypedRight
@@ -1133,7 +1141,7 @@ module Parsing =
         parser {
             match! peekNextNonTriviaToken with
             | t when t.Token = Token.OpSemicolon -> return! consumePeeked t
-            | t when t.Token = Token.KWRBrace -> return! failSep
+            | t when t.Token = Token.KWRBrace || t.Token = Token.KWRBraceBar -> return! failSep
             | t ->
                 let! indent = currentIndent
                 let! state = getUserState

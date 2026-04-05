@@ -601,6 +601,12 @@ module TokenRepresentation =
         let RAttrBracket = 146us
 
         [<Literal>]
+        let LBraceBar = 147us
+
+        [<Literal>]
+        let RBraceBar = 148us
+
+        [<Literal>]
         let LArrayBracket = 149us
 
         [<Literal>]
@@ -1439,6 +1445,8 @@ type Token =
     | KWRAttrBracket = (KindKeyword ||| KW.RAttrBracket)
     | KWLArrayBracket = (KindKeyword ||| KW.LArrayBracket)
     | KWRArrayBracket = (KindKeyword ||| KW.RArrayBracket)
+    | KWLBraceBar = (KindKeyword ||| KW.LBraceBar)
+    | KWRBraceBar = (KindKeyword ||| KW.RBraceBar)
     | KWLBrace = (KindKeyword ||| KW.LBrace)
     | KWRBrace = (KindKeyword ||| KW.RBrace)
     | KWSingleQuote = (KindKeyword ||| KW.SingleQuote)
@@ -1894,6 +1902,7 @@ module internal TokenInfo =
         | Token.KWLParen
         | Token.KWLBracket
         | Token.KWLArrayBracket
+        | Token.KWLBraceBar
         | Token.KWLBrace
         | Token.KWBegin
         | Token.KWStruct
@@ -2061,6 +2070,8 @@ module internal TokenInfo =
             | Token.KWRAttrBracket
             | Token.KWLArrayBracket
             | Token.KWRArrayBracket
+            | Token.KWLBraceBar
+            | Token.KWRBraceBar
             | Token.KWLBrace
             | Token.KWRBrace -> PrecedenceLevel.Parens
             | Token.VirtualApp -> PrecedenceLevel.Application

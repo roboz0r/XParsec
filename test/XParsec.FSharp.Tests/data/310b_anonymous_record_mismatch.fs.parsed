@@ -1,0 +1,30 @@
+module               'module'          KWModule            tok=   0  pos=   0
+                     'Test'            Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                'let'             KWLet               tok=   7  pos=  45
+    Pat.NamedSimple  'x'               Identifier          tok=   9  pos=  49
+    =                '='               OpEquality          tok=  11  pos=  51
+      AnonRecord     '{|'              KWLBraceBar         tok=  13  pos=  53
+        Field:
+          LongIdent:
+                     'a'               Identifier          tok=  15  pos=  56
+          =          '='               OpEquality          tok=  17  pos=  58
+          Expr:
+            Const    '1'               NumInt32            tok=  19  pos=  60
+                     '}'               KWRBrace            tok=  21  pos=  62
+FunctionOrValue:
+  let                'let'             KWLet               tok=  26  pos=  97
+    Pat.NamedSimple  'y'               Identifier          tok=  28  pos= 101
+    =                '='               OpEquality          tok=  30  pos= 103
+      Record         '{'               KWLBrace            tok=  32  pos= 105
+        Field:
+          LongIdent:
+                     'a'               Identifier          tok=  34  pos= 107
+          =          '='               OpEquality          tok=  36  pos= 109
+          Expr:
+            Const    '1'               NumInt32            tok=  38  pos= 111
+                     '|}'              KWRBraceBar         tok=  40  pos= 113
+---
+Diagnostics:
+  [error] UnclosedDelimiter(KWLBraceBar, KWRBraceBar) at 62 (Ln 4, Col 18)
+  [error] UnclosedDelimiter(KWLBrace, KWRBrace) at 113 (Ln 7, Col 17)

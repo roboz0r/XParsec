@@ -322,6 +322,7 @@ let sprintDiagnosticCode (code: DiagnosticCode) : string =
     | DiagnosticCode.ExpectedRParen -> "ExpectedRParen"
     | DiagnosticCode.ExpectedRBracket -> "ExpectedRBracket"
     | DiagnosticCode.ExpectedRArrayBracket -> "ExpectedRArrayBracket"
+    | DiagnosticCode.ExpectedRBraceBar -> "ExpectedRBraceBar"
     | DiagnosticCode.ExpectedQuotationTypedRight -> "ExpectedQuotationTypedRight"
     | DiagnosticCode.ExpectedQuotationUntypedRight -> "ExpectedQuotationUntypedRight"
 

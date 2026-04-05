@@ -272,6 +272,22 @@ module Type =
                     let! r = nextNonTriviaTokenIsL Token.KWRHashParen "#)"
                     return Type.ILIntrinsic(l, kind, parts, instrClose, r)
                 }
+                // {| field: Type; ... |} — Anonymous record type
+                parser {
+                    let! lBraceBar = pLBraceBar
+
+                    let pField =
+                        parser {
+                            let! ident = nextNonTriviaIdentifierL "field name"
+                            let! colon = nextNonTriviaTokenIsL Token.OpColon ":"
+                            let! typ = refType.Parser
+                            return AnonRecordField(ident, colon, typ)
+                        }
+
+                    let! fields, seps = sepBy1 pField (nextNonTriviaTokenIsL Token.OpSemicolon ";")
+                    let! rBraceBar = pRBraceBar
+                    return Type.AnonRecordType(lBraceBar, fields, seps, rBraceBar)
+                }
                 // LongIdent or LongIdent<Types>
                 parser {
                     let! lid = LongIdent.parse

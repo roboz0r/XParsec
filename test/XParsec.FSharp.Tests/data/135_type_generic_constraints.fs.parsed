@@ -42,7 +42,7 @@ TypeDefn.Anon:
           VarType:
             Typar.Named:
                      ''InputSlic...'   TypeParameter       tok=  36  pos= 114
-        >            <virt>            OpPipeLeft2         tok=virt  pos= 125
+        >            <virt>            OpPipeLeft          tok=virt  pos= 125
                      '>>'              op_ComposeRight     tok=  37  pos= 125
   (                  '('               KWLParen            tok=  38  pos= 127
   )                  ')'               KWRParen            tok=  39  pos= 128

@@ -1852,195 +1852,244 @@ module Expr =
             return Expr.New(newTok, typ, argExpr)
         }
 
-    let pRecordOrObjectExpr: Parser<_, PositionedToken, ParseState, _, _> =
+    /// Consumes the closing delimiter for a record/anonymous record expression.
+    /// Accepts the matching close token, or the mismatched one with a diagnostic.
+    /// `expectedClose` is the correct close token; `mismatchedClose` is the wrong one.
+    let private pRecordClose
+        (openTok: SyntaxToken)
+        (expectedClose: Token)
+        (mismatchedClose: Token)
+        : Parser<SyntaxToken, PositionedToken, ParseState, _, _> =
         fun reader ->
-            match pLBrace reader with
-            | Error e -> Error e
-            | Ok lBrace ->
+            match peekNextNonTriviaToken reader with
+            | Ok tok when tok.Token = expectedClose -> consumePeeked tok reader
+            | Ok tok when tok.Token = mismatchedClose ->
+                reader.State <-
+                    ParseState.addDiagnostic
+                        (DiagnosticCode.UnclosedDelimiter(openTok, expectedClose))
+                        DiagnosticSeverity.Error
+                        tok.PositionedToken
+                        None
+                        None
+                        reader.State
 
-                // Push Brace offside context so collection/CE undentation rules can find it
+                consumePeeked tok reader
+            | _ -> fail (Message $"Expected closing delimiter") reader
+
+    /// Parses record field initializers with optional trailing semicolon,
+    /// then consumes the close delimiter (with mismatch recovery).
+    let private pRecordFieldsAndClose (openTok: SyntaxToken) (expectedClose: Token) (mismatchedClose: Token) =
+        parser {
+            let! fields, seps = withContext OffsideContext.SeqBlock (sepBy1 FieldInitializer.parse pRecordFieldSep)
+
+            let! trailingSep = opt (nextNonTriviaTokenIsL Token.OpSemicolon ";")
+
+            let seps =
+                match trailingSep with
+                | ValueSome sep -> seps.Add(sep)
+                | ValueNone -> seps
+
+            let! rClose = pRecordClose openTok expectedClose mismatchedClose
+            return struct (fields, seps, rClose)
+        }
+
+    /// Parses the inner content of a record or anonymous record expression,
+    /// given the opening token and its ParenKind.
+    let private pRecordInner
+        (lParen: ParenKind<SyntaxToken>)
+        (openTok: SyntaxToken)
+        (expectedClose: Token)
+        (mismatchedClose: Token)
+        =
+        choiceL
+            [
+                // { expr with Field = val; ... } — record clone/update
+                parser {
+                    let! baseExpr = refExprInRecords.Parser
+                    let! withTok = pWith
+
+                    let! struct (fields, seps, rClose) = pRecordFieldsAndClose openTok expectedClose mismatchedClose
+
+                    return Expr.RecordClone(lParen, baseExpr, withTok, fields, seps, rClose)
+                }
+                // { Field = val; ... } — record literal
+                parser {
+                    let! struct (fields, seps, rClose) = pRecordFieldsAndClose openTok expectedClose mismatchedClose
+
+                    return Expr.Record(lParen, fields, seps, rClose)
+                }
+            ]
+            "Record fields"
+
+    /// Shared boilerplate: consume open delimiter, push offside context, run inner parser,
+    /// pop context, and handle failure/restore.
+    let private pBracedExpr
+        (pOpen: Parser<SyntaxToken, PositionedToken, ParseState, _, _>)
+        (offsideCtx: OffsideContext)
+        (innerParser: SyntaxToken -> Parser<Expr<SyntaxToken>, PositionedToken, ParseState, _, _>)
+        (label: string)
+        : Parser<_, PositionedToken, ParseState, _, _> =
+        fun reader ->
+            match pOpen reader with
+            | Error e -> Error e
+            | Ok openTok ->
                 let savedState = reader.State
 
                 let entry: Offside =
                     {
-                        Context = OffsideContext.Brace
+                        Context = offsideCtx
                         Indent = 0
-                        Token = lBrace.PositionedToken
+                        Token = openTok.PositionedToken
                     }
 
                 reader.State <- ParseState.pushOffside entry reader.State
 
-                let innerParser =
-                    choiceL
-                        [
-                            // { CE keywords... } — computation expression body
-                            // Detected by first token being a CE-specific keyword (not a valid record field name)
-                            parser {
-                                let! peekTok = peekNextNonTriviaToken
-
-                                match peekTok.Token with
-                                | Token.KWLet
-                                | Token.KWLetBang
-                                | Token.KWUse
-                                | Token.KWUseBang
-                                | Token.KWDo
-                                | Token.KWDoBang
-                                | Token.KWYield
-                                | Token.KWYieldBang
-                                | Token.KWReturn
-                                | Token.KWReturnBang
-                                | Token.KWMatch
-                                | Token.KWMatchBang
-                                | Token.KWIf
-                                | Token.KWTry
-                                | Token.KWWhile
-                                | Token.KWFor ->
-                                    let! body = refExprSeqBlock.Parser
-
-                                    let! rBrace =
-                                        nextNonTriviaTokenVirtualWithDiagnostic (ValueSome lBrace) Token.KWRBrace
-
-                                    return Expr.EnclosedBlock(ParenKind.Brace lBrace, body, rBrace)
-                                | _ -> return! fail (Message "Not a computation expression body")
-                            }
-                            // '{' new base-call object-members interface-impls '}' -- object expression
-                            parser {
-                                let! newTok = pNew
-                                let! construction = ObjectConstruction.parse
-
-                                let! baseCall =
-                                    opt (
-                                        parser {
-                                            let! asTok = pAs
-                                            let! ident = nextNonTriviaIdentifierL "identifier"
-                                            return struct (asTok, ident)
-                                        }
-                                    )
-
-                                let baseCall =
-                                    match baseCall with
-                                    | ValueSome struct (asTok, ident) ->
-                                        BaseCall.NamedBaseCall(construction, asTok, ident)
-                                    | ValueNone -> BaseCall.AnonBaseCall(construction)
-
-                                let! withTok = pWith
-                                let! members = withContext OffsideContext.WithAugment (many refMemberDefn.Parser)
-
-                                // Parse additional interface implementations
-                                let! interfaceImpls =
-                                    many (
-                                        parser {
-                                            let! interfaceTok = pInterface
-                                            let! typ = Type.parse
-                                            let! intfWithTok = opt pWith
-
-                                            match intfWithTok with
-                                            | ValueSome wTok ->
-                                                let! intfMembers =
-                                                    withContext OffsideContext.WithAugment (many refMemberDefn.Parser)
-
-                                                let! intfNextTokOpt = opt peekNextNonTriviaToken
-
-                                                let intfVirtualEnd =
-                                                    {
-                                                        PositionedToken =
-                                                            PositionedToken.Create(
-                                                                Token.ofUInt16 (
-                                                                    uint16 Token.KWEnd ||| TokenRepresentation.IsVirtual
-                                                                ),
-                                                                match intfNextTokOpt with
-                                                                | ValueSome tok -> tok.StartIndex
-                                                                | ValueNone -> 0
-                                                            )
-                                                        Index = TokenIndex.Virtual
-                                                    }
-
-                                                let objMembers =
-                                                    ObjectMembers.ObjectMembers(wTok, intfMembers, intfVirtualEnd)
-
-                                                return
-                                                    InterfaceImpl.InterfaceImpl(interfaceTok, typ, ValueSome objMembers)
-                                            | ValueNone ->
-                                                return InterfaceImpl.InterfaceImpl(interfaceTok, typ, ValueNone)
-                                        }
-                                    )
-
-                                // Synthesize virtual end for the main ObjectMembers
-                                let! nextTokOpt = opt peekNextNonTriviaToken
-
-                                let virtualEnd =
-                                    {
-                                        PositionedToken =
-                                            PositionedToken.Create(
-                                                Token.ofUInt16 (uint16 Token.KWEnd ||| TokenRepresentation.IsVirtual),
-                                                match nextTokOpt with
-                                                | ValueSome tok -> tok.StartIndex
-                                                | ValueNone -> 0
-                                            )
-                                        Index = TokenIndex.Virtual
-                                    }
-
-                                let objMembers = ObjectMembers.ObjectMembers(withTok, members, virtualEnd)
-
-                                let! rBrace = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome lBrace) Token.KWRBrace
-
-                                return
-                                    Expr.Object(lBrace, ValueSome newTok, baseCall, objMembers, interfaceImpls, rBrace)
-                            }
-                            // { expr with Field = val; ... } — record clone/update
-                            parser {
-                                let! baseExpr = refExprInRecords.Parser
-                                let! withTok = pWith
-
-                                let! fields, seps =
-                                    withContext OffsideContext.SeqBlock (sepBy1 FieldInitializer.parse pRecordFieldSep)
-
-                                // Allow optional trailing semicolon before '}'
-                                let! trailingSep = opt (nextNonTriviaTokenIsL Token.OpSemicolon ";")
-
-                                let seps =
-                                    match trailingSep with
-                                    | ValueSome sep -> seps.Add(sep)
-                                    | ValueNone -> seps
-
-                                let! rBrace = pRBrace
-                                return Expr.RecordClone(lBrace, baseExpr, withTok, fields, seps, rBrace)
-                            }
-                            // { Field = val; ... } — record literal
-                            parser {
-                                let! fields, seps =
-                                    withContext OffsideContext.SeqBlock (sepBy1 FieldInitializer.parse pRecordFieldSep)
-
-                                // Allow optional trailing semicolon before '}'
-                                let! trailingSep = opt (nextNonTriviaTokenIsL Token.OpSemicolon ";")
-
-                                let seps =
-                                    match trailingSep with
-                                    | ValueSome sep -> seps.Add(sep)
-                                    | ValueNone -> seps
-
-                                let! rBrace = pRBrace
-                                return Expr.Record(lBrace, fields, seps, rBrace)
-                            }
-                            // Fallback: { expr-seq } — computation expression body without leading CE keyword
-                            // (e.g., seq { someExpr }, task { callAsync() })
-                            parser {
-                                let! body = refExprSeqBlock.Parser
-
-                                let! rBrace = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome lBrace) Token.KWRBrace
-
-                                return Expr.EnclosedBlock(ParenKind.Brace lBrace, body, rBrace)
-                            }
-                        ]
-                        "Record or RecordClone"
-
-                match innerParser reader with
+                match (innerParser openTok) reader with
                 | Ok result ->
                     reader.State <- ParseState.popOffside entry reader.State
                     Ok result
                 | Error _ ->
                     reader.State <- savedState
-                    fail (Message "Record or RecordClone") reader
+                    fail (Message label) reader
+
+    let pRecordOrObjectExpr: Parser<_, PositionedToken, ParseState, _, _> =
+        pBracedExpr
+            pLBrace
+            OffsideContext.Brace
+            (fun lBrace ->
+                choiceL
+                    [
+                        // { CE keywords... } — computation expression body
+                        // Detected by first token being a CE-specific keyword (not a valid record field name)
+                        parser {
+                            let! peekTok = peekNextNonTriviaToken
+
+                            match peekTok.Token with
+                            | Token.KWLet
+                            | Token.KWLetBang
+                            | Token.KWUse
+                            | Token.KWUseBang
+                            | Token.KWDo
+                            | Token.KWDoBang
+                            | Token.KWYield
+                            | Token.KWYieldBang
+                            | Token.KWReturn
+                            | Token.KWReturnBang
+                            | Token.KWMatch
+                            | Token.KWMatchBang
+                            | Token.KWIf
+                            | Token.KWTry
+                            | Token.KWWhile
+                            | Token.KWFor ->
+                                let! body = refExprSeqBlock.Parser
+
+                                let! rBrace = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome lBrace) Token.KWRBrace
+
+                                return Expr.EnclosedBlock(ParenKind.Brace lBrace, body, rBrace)
+                            | _ -> return! fail (Message "Not a computation expression body")
+                        }
+                        // '{' new base-call object-members interface-impls '}' -- object expression
+                        parser {
+                            let! newTok = pNew
+                            let! construction = ObjectConstruction.parse
+
+                            let! baseCall =
+                                opt (
+                                    parser {
+                                        let! asTok = pAs
+                                        let! ident = nextNonTriviaIdentifierL "identifier"
+                                        return struct (asTok, ident)
+                                    }
+                                )
+
+                            let baseCall =
+                                match baseCall with
+                                | ValueSome struct (asTok, ident) -> BaseCall.NamedBaseCall(construction, asTok, ident)
+                                | ValueNone -> BaseCall.AnonBaseCall(construction)
+
+                            let! withTok = pWith
+                            let! members = withContext OffsideContext.WithAugment (many refMemberDefn.Parser)
+
+                            // Parse additional interface implementations
+                            let! interfaceImpls =
+                                many (
+                                    parser {
+                                        let! interfaceTok = pInterface
+                                        let! typ = Type.parse
+                                        let! intfWithTok = opt pWith
+
+                                        match intfWithTok with
+                                        | ValueSome wTok ->
+                                            let! intfMembers =
+                                                withContext OffsideContext.WithAugment (many refMemberDefn.Parser)
+
+                                            let! intfNextTokOpt = opt peekNextNonTriviaToken
+
+                                            let intfVirtualEnd =
+                                                {
+                                                    PositionedToken =
+                                                        PositionedToken.Create(
+                                                            Token.ofUInt16 (
+                                                                uint16 Token.KWEnd ||| TokenRepresentation.IsVirtual
+                                                            ),
+                                                            match intfNextTokOpt with
+                                                            | ValueSome tok -> tok.StartIndex
+                                                            | ValueNone -> 0
+                                                        )
+                                                    Index = TokenIndex.Virtual
+                                                }
+
+                                            let objMembers =
+                                                ObjectMembers.ObjectMembers(wTok, intfMembers, intfVirtualEnd)
+
+                                            return InterfaceImpl.InterfaceImpl(interfaceTok, typ, ValueSome objMembers)
+                                        | ValueNone -> return InterfaceImpl.InterfaceImpl(interfaceTok, typ, ValueNone)
+                                    }
+                                )
+
+                            // Synthesize virtual end for the main ObjectMembers
+                            let! nextTokOpt = opt peekNextNonTriviaToken
+
+                            let virtualEnd =
+                                {
+                                    PositionedToken =
+                                        PositionedToken.Create(
+                                            Token.ofUInt16 (uint16 Token.KWEnd ||| TokenRepresentation.IsVirtual),
+                                            match nextTokOpt with
+                                            | ValueSome tok -> tok.StartIndex
+                                            | ValueNone -> 0
+                                        )
+                                    Index = TokenIndex.Virtual
+                                }
+
+                            let objMembers = ObjectMembers.ObjectMembers(withTok, members, virtualEnd)
+
+                            let! rBrace = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome lBrace) Token.KWRBrace
+
+                            return Expr.Object(lBrace, ValueSome newTok, baseCall, objMembers, interfaceImpls, rBrace)
+                        }
+                        // Record literal or clone
+                        pRecordInner (ParenKind.Brace lBrace) lBrace Token.KWRBrace Token.KWRBraceBar
+                        // Fallback: { expr-seq } — computation expression body without leading CE keyword
+                        // (e.g., seq { someExpr }, task { callAsync() })
+                        parser {
+                            let! body = refExprSeqBlock.Parser
+
+                            let! rBrace = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome lBrace) Token.KWRBrace
+
+                            return Expr.EnclosedBlock(ParenKind.Brace lBrace, body, rBrace)
+                        }
+                    ]
+                    "Record or RecordClone"
+            )
+            "Record or RecordClone"
+
+    let pAnonRecordExpr: Parser<_, PositionedToken, ParseState, _, _> =
+        pBracedExpr
+            pLBraceBar
+            OffsideContext.BraceBar
+            (fun lBraceBar -> pRecordInner (ParenKind.BraceBar lBraceBar) lBraceBar Token.KWRBraceBar Token.KWRBrace)
+            "Anonymous record"
 
     let private pILIntrinsic =
         // Structured IL intrinsic parser: (# "instr" type('T) args : retType #)
@@ -2193,6 +2242,7 @@ module Expr =
                 Token.KWStruct, recoverExpr pStructTuple
                 Token.KWNew, recoverExpr pNewExpr
                 Token.KWLBrace, recoverExpr pRecordOrObjectExpr
+                Token.KWLBraceBar, recoverExpr pAnonRecordExpr
                 Token.OpQuotationTypedLeft, recoverExpr pQuoteTyped
                 Token.OpQuotationUntypedLeft, recoverExpr pQuoteUntyped
                 Token.InterpolatedStringOpen, pString
