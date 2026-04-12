@@ -1361,6 +1361,7 @@ module Expr =
                 // Grammar: FOR _ IN _ DO typedSeqExprBlock (and FOR _ = _ TO _ DO typedSeqExprBlock)
                 let! body =
                     withContextAt OffsideContext.Do bodyMinIndent forTok.PositionedToken refTypedSeqExprBlock.Parser
+
                 let! doneTok = pDoneVirt
                 return ExprAux.ForExpr(forBuilder forTok body doneTok)
             }
@@ -1529,6 +1530,7 @@ module Expr =
                     preturn (ExprAux.KeywordExpr(fun _opTok -> result)) reader
 
         let pYieldReturnDoBody =
+            // Grammar: YIELD|RETURN typedSeqExprBlock (and DO typedSeqExprBlock in CE context)
             let pBody =
                 recoverWith
                     StoppingTokens.afterExpr
@@ -1540,7 +1542,7 @@ module Expr =
                         else
                             Expr.SkipsTokens(toks)
                     )
-                    refExprSeqBlock.Parser
+                    refTypedSeqExprBlock.Parser
 
             parser {
                 // Committed after do/return/yield keyword
