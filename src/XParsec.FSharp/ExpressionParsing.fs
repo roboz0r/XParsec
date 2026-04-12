@@ -160,9 +160,36 @@ module Binding =
         choice [ pClause; preturn baseExpr ]
 
     let private pBindingBody =
+        // Captures the colon's column before consumption so the following type
+        // can be parsed inside a stricter offside context (col_of_colon + 1).
+        // Without this, Type.parse would greedily slurp suffix identifiers from
+        // following lines as type suffixes (`'T array` + `res` -> `res<'T array>`).
+        let pColonPeek (reader: Reader<PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, _>) =
+            match peekNextNonTriviaToken reader with
+            | Ok t when t.Token = Token.OpColon ->
+                let col = ParseState.getIndent reader.State (reader.Index * 1<token>)
+
+                match consumePeeked t reader with
+                | Ok colon -> Ok(struct (colon, col))
+                | Error e -> Error e
+            | Ok _ -> fail (Message "no trailing type annotation") reader
+            | Error e -> Error e
+
         parser {
             let! expr = refExprSeqBlock.Parser
-            return! pChainStaticOptimizations expr
+            let! maybeColon = opt pColonPeek
+
+            let! annotated =
+                parser {
+                    match maybeColon with
+                    | ValueSome(colon, colonCol) ->
+                        let! typ = withContextAt OffsideContext.Let (colonCol + 1) colon.PositionedToken Type.parse
+
+                        return Expr.TypeAnnotation(expr, colon, typ)
+                    | ValueNone -> return expr
+                }
+
+            return! pChainStaticOptimizations annotated
         }
 
     /// Parse a function-style binding: [inline] [access] identOrOp [typar-defns] pat+ [: returnType] = expr
