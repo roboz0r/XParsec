@@ -1501,8 +1501,9 @@ module Expr =
                     error
                 else
                     // Committed after consuming let/use bindings — recover body expression if it fails
+                    // Grammar: LET bindings IN typedSeqExprBlock
                     let body =
-                        match refExprSeqBlock.Parser reader with
+                        match refTypedSeqExprBlock.Parser reader with
                         | Ok body -> ValueSome body
                         | Error err ->
                             let struct (lastKw, _, _, _, _) = bindings[bindings.Count - 1]

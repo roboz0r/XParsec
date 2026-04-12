@@ -1,0 +1,40 @@
+module                     'module'          KWModule            tok=   0  pos=   0
+                           'Test'            Identifier          tok=   2  pos=   7
+TypeDefn.Anon:
+  TypeName                 'Foo'             Identifier          tok=  12  pos= 149
+  (                        '('               KWLParen            tok=  13  pos= 152
+  )                        ')'               KWRParen            tok=  14  pos= 153
+  =                        '='               OpEquality          tok=  16  pos= 155
+  begin                    <virt>            KWBegin             tok=virt  pos= 161
+    do                     'do'              KWDo                tok=  19  pos= 161
+    TypeAnnotation:
+      Expr:
+        App:
+          Func:
+            Ident          'printfn'         Identifier          tok=  21  pos= 164
+          Args:
+            StringLiteral  '"'               StringOpen          tok=  23  pos= 172
+            Parts:
+              Text         'init'            StringFragment      tok=  24  pos= 173
+                           '"'               StringClose         tok=  25  pos= 177
+      Colon                ':'               OpColon             tok=  27  pos= 179
+      NamedType:
+        LongIdent:
+                           'unit'            Identifier          tok=  29  pos= 181
+    static                 'static'          KWStatic            tok=  33  pos= 191
+    do                     'do'              KWDo                tok=  35  pos= 198
+    TypeAnnotation:
+      Expr:
+        App:
+          Func:
+            Ident          'printfn'         Identifier          tok=  37  pos= 201
+          Args:
+            StringLiteral  '"'               StringOpen          tok=  39  pos= 209
+            Parts:
+              Text         'static ini...'   StringFragment      tok=  40  pos= 210
+                           '"'               StringClose         tok=  41  pos= 221
+      Colon                ':'               OpColon             tok=  43  pos= 223
+      NamedType:
+        LongIdent:
+                           'unit'            Identifier          tok=  45  pos= 225
+  end                      <virt>            KWEnd               tok=virt  pos= 230
