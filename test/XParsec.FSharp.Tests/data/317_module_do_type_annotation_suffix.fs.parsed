@@ -1,0 +1,18 @@
+module                     'module'          KWModule            tok=   0  pos=   0
+                           'Test'            Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  do                       'do'              KWDo                tok=  10  pos= 142
+    TypeAnnotation:
+      Expr:
+        App:
+          Func:
+            Ident          'printfn'         Identifier          tok=  12  pos= 145
+          Args:
+            StringLiteral  '"'               StringOpen          tok=  14  pos= 153
+            Parts:
+              Text         'hi'              StringFragment      tok=  15  pos= 154
+                           '"'               StringClose         tok=  16  pos= 156
+      Colon                ':'               OpColon             tok=  18  pos= 158
+      NamedType:
+        LongIdent:
+                           'unit'            Identifier          tok=  20  pos= 160

@@ -83,7 +83,8 @@ module ModuleFunctionOrValueDefn =
 
             match token.Token with
             | Token.KWDo ->
-                // Committed after 'do' — recover with Expr.Missing if expression fails
+                // Committed after 'do' — recover with Expr.Missing if expression fails.
+                // Grammar: moduleDoBinding: opt_attributes DO typedSeqExprBlock
                 let! expr =
                     recoverWith
                         StoppingTokens.afterExpr
@@ -95,7 +96,7 @@ module ModuleFunctionOrValueDefn =
                             else
                                 Expr.SkipsTokens(toks)
                         )
-                        Expr.parse
+                        Expr.pTypedSeqExprBlock
 
                 return ModuleFunctionOrValueDefn.Do(attrs, token, expr)
 
