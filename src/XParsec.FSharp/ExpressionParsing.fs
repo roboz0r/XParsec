@@ -395,6 +395,34 @@ module Expr =
 
     let private refExprRange = FSRefParser<Expr<SyntaxToken>>()
 
+    // Grammar: typedSeqExprBlock = seqExpr [':' type]
+    // Captures the colon's column before consumption so the following type
+    // parses inside a stricter offside context (colonCol + 1), preventing
+    // Type.parse from greedily slurping suffix identifiers on following lines.
+    let pTypedSeqExprBlock =
+        let pColonPeek (reader: Reader<PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, _>) =
+            match peekNextNonTriviaToken reader with
+            | Ok t when t.Token = Token.OpColon ->
+                let col = ParseState.getIndent reader.State (reader.Index * 1<token>)
+
+                match consumePeeked t reader with
+                | Ok colon -> Ok(struct (colon, col))
+                | Error e -> Error e
+            | Ok _ -> fail (Message "no trailing type annotation") reader
+            | Error e -> Error e
+
+        parser {
+            let! expr = refExprSeqBlock.Parser
+            let! maybeColon = opt pColonPeek
+
+            match maybeColon with
+            | ValueSome(colon, colonCol) ->
+                let! typ = withContextAt OffsideContext.Let (colonCol + 1) colon.PositionedToken Type.parse
+
+                return Expr.TypeAnnotation(expr, colon, typ)
+            | ValueNone -> return expr
+        }
+
     type ExprOperatorParser() =
         let completeInfix (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) = Expr.InfixApp(l, op, r)
 
@@ -1070,7 +1098,8 @@ module Expr =
             }
 
         let pFunExpr =
-            let pBody = refExprSeqBlock.Parser
+            // Grammar: FUN atomicPatterns RARROW typedSeqExprBlock
+            let pBody = pTypedSeqExprBlock
 
             let recoverExprMissing p =
                 recoverWith
@@ -1945,34 +1974,6 @@ module Expr =
                     pExprOrTypedPat
             ]
             "pParen"
-
-    // Grammar: typedSeqExprBlock = seqExpr [':' type]
-    // Captures the colon's column before consumption so the following type
-    // parses inside a stricter offside context (colonCol + 1), preventing
-    // Type.parse from greedily slurping suffix identifiers on following lines.
-    let pTypedSeqExprBlock =
-        let pColonPeek (reader: Reader<PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, _>) =
-            match peekNextNonTriviaToken reader with
-            | Ok t when t.Token = Token.OpColon ->
-                let col = ParseState.getIndent reader.State (reader.Index * 1<token>)
-
-                match consumePeeked t reader with
-                | Ok colon -> Ok(struct (colon, col))
-                | Error e -> Error e
-            | Ok _ -> fail (Message "no trailing type annotation") reader
-            | Error e -> Error e
-
-        parser {
-            let! expr = refExprSeqBlock.Parser
-            let! maybeColon = opt pColonPeek
-
-            match maybeColon with
-            | ValueSome(colon, colonCol) ->
-                let! typ = withContextAt OffsideContext.Let (colonCol + 1) colon.PositionedToken Type.parse
-
-                return Expr.TypeAnnotation(expr, colon, typ)
-            | ValueNone -> return expr
-        }
 
     let pBeginEnd =
         pEnclosed
