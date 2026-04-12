@@ -1946,6 +1946,34 @@ module Expr =
             ]
             "pParen"
 
+    // Grammar: typedSeqExprBlock = seqExpr [':' type]
+    // Captures the colon's column before consumption so the following type
+    // parses inside a stricter offside context (colonCol + 1), preventing
+    // Type.parse from greedily slurping suffix identifiers on following lines.
+    let private pTypedSeqExprBlock =
+        let pColonPeek (reader: Reader<PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, _>) =
+            match peekNextNonTriviaToken reader with
+            | Ok t when t.Token = Token.OpColon ->
+                let col = ParseState.getIndent reader.State (reader.Index * 1<token>)
+
+                match consumePeeked t reader with
+                | Ok colon -> Ok(struct (colon, col))
+                | Error e -> Error e
+            | Ok _ -> fail (Message "no trailing type annotation") reader
+            | Error e -> Error e
+
+        parser {
+            let! expr = refExprSeqBlock.Parser
+            let! maybeColon = opt pColonPeek
+
+            match maybeColon with
+            | ValueSome(colon, colonCol) ->
+                let! typ = withContextAt OffsideContext.Let (colonCol + 1) colon.PositionedToken Type.parse
+
+                return Expr.TypeAnnotation(expr, colon, typ)
+            | ValueNone -> return expr
+        }
+
     let pBeginEnd =
         pEnclosed
             pBegin
@@ -1953,7 +1981,7 @@ module Expr =
             ParenKind.BeginEnd
             OffsideContext.Begin
             DiagnosticCode.ExpectedEnd
-            refExprSeqBlock.Parser
+            pTypedSeqExprBlock
 
     let pList =
         pEnclosed
