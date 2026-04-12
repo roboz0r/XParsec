@@ -19,6 +19,7 @@ module internal ParserRefs =
 
     let refObjectConstruction = FSRefParser<ObjectConstruction<SyntaxToken>>()
     let refType = FSRefParser<Type<SyntaxToken>>()
+    let refMeasure = FSRefParser<Measure<SyntaxToken>>()
     let refExpr = FSRefParser<Expr<SyntaxToken>>()
     let refExprSeqBlock = FSRefParser<Expr<SyntaxToken>>()
 

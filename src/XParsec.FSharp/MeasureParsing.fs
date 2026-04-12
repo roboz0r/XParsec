@@ -158,3 +158,5 @@ module Measure =
 
     let parse: Parser<Measure<SyntaxToken>, _, _, _, _> =
         Operator.parser atomMeasureParser measureOperatorParser
+
+    do refMeasure.Set parse

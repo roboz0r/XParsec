@@ -90,6 +90,7 @@ type Type<'T> =
         instrClose: 'T *
         rHashParen: 'T
     | AnonRecordType of lBraceBar: 'T * fields: ImArr<AnonRecordField<'T>> * separators: ImArr<'T> * rBraceBar: 'T
+    | MeasureType of measure: Measure<'T>
     | Missing
     | SkipsTokens of skippedTokens: ImArr<'T>
 
