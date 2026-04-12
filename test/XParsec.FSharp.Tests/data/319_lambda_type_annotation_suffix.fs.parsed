@@ -1,0 +1,46 @@
+module                         'module'          KWModule            tok=   0  pos=   0
+                               'Test'            Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                          'let'             KWLet               tok=  10  pos= 114
+    Pat.NamedSimple            'f'               Identifier          tok=  12  pos= 118
+    =                          '='               OpEquality          tok=  14  pos= 120
+      Fun                      'fun'             KWFun               tok=  16  pos= 122
+      Pats:
+        Pat.NamedSimple        'x'               Identifier          tok=  18  pos= 126
+      Arrow                    '->'              OpArrowRight        tok=  20  pos= 128
+      Body:
+        TypeAnnotation:
+          Expr:
+            InfixApp           '+'               op_Addition         tok=  24  pos= 133
+              Ident            'x'               Identifier          tok=  22  pos= 131
+              Const            '1'               NumInt32            tok=  26  pos= 135
+          Colon                ':'               OpColon             tok=  28  pos= 137
+          NamedType:
+            LongIdent:
+                               'int'             Identifier          tok=  30  pos= 139
+FunctionOrValue:
+  let                          'let'             KWLet               tok=  33  pos= 144
+    Pat.NamedSimple            'g'               Identifier          tok=  35  pos= 148
+    =                          '='               OpEquality          tok=  37  pos= 150
+      Fun                      'fun'             KWFun               tok=  40  pos= 156
+      Pats:
+        Pat.NamedSimple        'x'               Identifier          tok=  42  pos= 160
+      Arrow                    '->'              OpArrowRight        tok=  44  pos= 162
+      Body:
+        TypeAnnotation:
+          Expr:
+            Let                'let'             KWLet               tok=  47  pos= 173
+              Pat.NamedSimple  'y'               Identifier          tok=  49  pos= 177
+              =                '='               OpEquality          tok=  51  pos= 179
+                InfixApp       '+'               op_Addition         tok=  55  pos= 183
+                  Ident        'x'               Identifier          tok=  53  pos= 181
+                  Const        '1'               NumInt32            tok=  57  pos= 185
+            in                 <virt>            KWIn                tok=virt  pos= 195
+            Body:
+              InfixApp         '*'               OpMultiply          tok=  62  pos= 197
+                Ident          'y'               Identifier          tok=  60  pos= 195
+                Const          '2'               NumInt32            tok=  64  pos= 199
+          Colon                ':'               OpColon             tok=  66  pos= 201
+          NamedType:
+            LongIdent:
+                               'int'             Identifier          tok=  68  pos= 203
