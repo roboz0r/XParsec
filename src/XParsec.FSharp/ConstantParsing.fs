@@ -92,7 +92,7 @@ module Constant =
             // Unary recursive cases
             | Measure.Paren(_, inner, _)
             | Measure.Reciprocal(_, inner)
-            | Measure.Power(inner, _, _) -> visit inner
+            | Measure.Power(inner, _, _, _) -> visit inner
 
             // Binary recursive cases
             | Measure.Product(l, _, r)

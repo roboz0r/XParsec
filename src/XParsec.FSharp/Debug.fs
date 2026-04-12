@@ -101,13 +101,20 @@ let printSection (ctx: PrintContext) (header: string) (f: unit -> unit) =
     indent ctx f
 
 let tokenKindString (input: string) (lexed: Lexed) (token: PositionedToken) (i: int<token>) =
-    let s = lexed.GetTokenString(i, input)
+    let rawToken = lexed.Tokens.[i]
 
-    match OperatorInfo.TryCreate token with
-    | ValueSome opInfo -> opInfo.GetName(s)
-    | ValueNone ->
-        let token = lexed.Tokens.[i]
+    // If this token has been rewritten by a split (kind or start index differs from the
+    // raw lexer token at this index, e.g. `>]` split into `>` and `]`, or `^-` split into
+    // `^` and `-`), use the rewritten kind name directly instead of deriving an operator
+    // name from the original raw literal.
+    if rawToken.Token <> token.Token || rawToken.StartIndex <> token.StartIndex then
         $"{TokenInfo.withoutFlags token.Token}"
+    else
+        let s = lexed.GetTokenString(i, input)
+
+        match OperatorInfo.TryCreate token with
+        | ValueSome opInfo -> opInfo.GetName(s)
+        | ValueNone -> $"{TokenInfo.withoutFlags rawToken.Token}"
 
 /// Adds a single token row to the print buffer.
 let printTokenRow (label: string) (ctx: PrintContext) (input: string) (lexed: Lexed) (token: SyntaxToken) =

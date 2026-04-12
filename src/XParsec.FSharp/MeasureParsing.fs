@@ -12,7 +12,7 @@ open XParsec.FSharp.Parser.ParseState
 
 module Measure =
     [<RequireQualifiedAccess>]
-    type MeasureAux = | PowerOperand of SyntaxToken
+    type MeasureAux = | PowerOperand of neg: SyntaxToken voption * intTok: SyntaxToken
 
     type MeasureOperatorParser() =
         static let productPrecedence = BindingPower.fromLevel 1 // * and /
@@ -36,7 +36,7 @@ module Measure =
 
         static let completePower (l: Measure<SyntaxToken>) (op: SyntaxToken) (aux: MeasureAux) =
             match aux with
-            | MeasureAux.PowerOperand exponentToken -> Measure.Power(l, op, exponentToken)
+            | MeasureAux.PowerOperand(neg, exponentToken) -> Measure.Power(l, op, neg, exponentToken)
 
         static let completeJuxtaposition (elements: ResizeArray<Measure<SyntaxToken>>) (ops: ResizeArray<SyntaxToken>) =
             Measure.Juxtaposition(ImmutableArray.CreateRange(elements), ImmutableArray.CreateRange(ops))
@@ -47,8 +47,20 @@ module Measure =
 
         static let pPowerRhs =
             parser {
-                let! intToken = nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsNumeric) "Expected integer exponent"
-                return MeasureAux.PowerOperand intToken
+                // First token may be `-` (from a split `^-N` operator) or the numeric exponent.
+                let! firstTok = nextNonTriviaToken
+
+                if firstTok.Token = Token.OpSubtraction then
+                    let! intToken =
+                        nextNonTriviaTokenSatisfiesL
+                            (fun t -> t.Token.IsNumeric)
+                            "Expected integer exponent after '-'"
+
+                    return MeasureAux.PowerOperand(ValueSome firstTok, intToken)
+                elif firstTok.Token.IsNumeric then
+                    return MeasureAux.PowerOperand(ValueNone, firstTok)
+                else
+                    return! fail (Message "Expected integer exponent")
             }
 
         static let pJuxtapositionOp =
@@ -94,9 +106,33 @@ module Measure =
                     preturn op
                 | _ -> fail (Message "Not a prefix measure operator")
 
+        /// Detects a fused `^-` operator token (the lexer merges `^-` into a single custom
+        /// operator at Append precedence when there is no whitespace between them). Sets
+        /// SplitPowerMinus so the `-` half is presented as OpSubtraction on the next read,
+        /// and returns a virtual `^` token so the enclosing rhsParser dispatches normally
+        /// to the power operator path. The underlying `^-` token is not consumed here; it
+        /// is rewritten and advanced past by the subsequent `pPowerRhs` read.
+        static let pSplitPowerOp =
+            parser {
+                let! peeked = peekNextNonTriviaToken
+                let! state = getUserState
+
+                if ParseState.tokenStringIs "^-" peeked state then
+                    do!
+                        updateUserState (fun s ->
+                            s.Trace.Invoke(TraceEvent.SplitPowerMinusSet peeked.StartIndex)
+                            { s with SplitPowerMinus = true }
+                        )
+
+                    return virtualToken (PositionedToken.Create(Token.OpConcatenate, peeked.StartIndex))
+                else
+                    return! fail (Message "Not a split ^- power operator")
+            }
+
         static let rhsParser =
-            // Try whitespace (juxtaposition) first, then standard tokens
-            (pJuxtapositionOp <|> nextNonTriviaToken)
+            // Try the fused `^-` operator split first, then whitespace (juxtaposition),
+            // then standard operator tokens.
+            (pSplitPowerOp <|> pJuxtapositionOp <|> nextNonTriviaToken)
             >>= fun token ->
                 match token.Token with
                 | Token.OpMultiply

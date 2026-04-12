@@ -506,10 +506,22 @@ module Parsing =
         | ValueSome token ->
             // SplitRAttrBracket: when the measure parser consumed the `>` half of `>]`,
             // it sets this flag so the remaining `]` half is presented as KWRBracket.
+            // SplitPowerMinus: when the measure parser consumed the `^` half of a fused
+            // `^-N` operator, it sets this flag so the remaining `-` half is presented
+            // as OpSubtraction at StartIndex+1 (the numeric `N` follows as its own token).
             let token =
                 if reader.State.SplitRAttrBracket && token.Token = Token.KWRAttrBracket then
                     reader.State.Trace.Invoke(TraceEvent.SplitRAttrBracketConsumed(token.StartIndex))
                     PositionedToken.Create(Token.KWRBracket, token.StartIndex + 1)
+                elif reader.State.SplitPowerMinus then
+                    let span =
+                        reader.State.Lexed.GetTokenSpan(reader.Index * 1<token>, reader.State.Input)
+
+                    if span.Length >= 2 && span.[0] = '^' && span.[1] = '-' then
+                        reader.State.Trace.Invoke(TraceEvent.SplitPowerMinusConsumed(token.StartIndex))
+                        PositionedToken.Create(Token.OpSubtraction, token.StartIndex + 1)
+                    else
+                        token
                 else
                     token
 
@@ -559,6 +571,12 @@ module Parsing =
                         reader.State <-
                             { reader.State with
                                 SplitRAttrBracket = false
+                            }
+
+                    if reader.State.SplitPowerMinus then
+                        reader.State <-
+                            { reader.State with
+                                SplitPowerMinus = false
                             }
 
                     reader.Skip()

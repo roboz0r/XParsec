@@ -726,7 +726,7 @@ type Measure<'T> =
 
     // Recursive operations
     | Juxtaposition of ImArr<Measure<'T>> * ops: ImArr<'T> // e.g., m s (implicit multiplication)
-    | Power of Measure<'T> * power: 'T * int: 'T // e.g., m^2
+    | Power of Measure<'T> * power: 'T * neg: 'T voption * int: 'T // e.g., m^2 or s^-1
     | Product of Measure<'T> * prod: 'T * Measure<'T> // e.g., m * s
     | Quotient of Measure<'T> * div: 'T * Measure<'T> // e.g., m / s
     | Reciprocal of div: 'T * Measure<'T> // e.g., / s
