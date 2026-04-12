@@ -1205,7 +1205,8 @@ module Expr =
 
                     // Try body — SeqBlock set by refExprSeqBlock at first expression's indent.
                     // The Try context below it permits with/finally undentation to try_col.
-                    match recoverExprMissing refExprSeqBlock.Parser reader with
+                    // Grammar: TRY typedSeqExprBlock WITH|FINALLY ...
+                    match recoverExprMissing refTypedSeqExprBlock.Parser reader with
                     | Error e ->
                         reader.State <- savedState
                         Error e
@@ -1224,7 +1225,8 @@ module Expr =
                         let pFinally' =
                             parser {
                                 let! finTok = pFinally
-                                let! finExpr = refExprSeqBlock.Parser
+                                // Grammar: FINALLY typedSeqExprBlock
+                                let! finExpr = refTypedSeqExprBlock.Parser
                                 return Expr.TryFinally(tryTok, tryExpr, finTok, finExpr)
                             }
 
