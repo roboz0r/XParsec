@@ -23,6 +23,10 @@ module internal ParserRefs =
     let refExpr = FSRefParser<Expr<SyntaxToken>>()
     let refExprSeqBlock = FSRefParser<Expr<SyntaxToken>>()
 
+    /// Seq-block expression body with optional trailing type annotation (F# `typedSeqExprBlock`).
+    /// Used for grammar productions like match-clause RHS, lambda body, if/then/else branches, etc.
+    let refTypedSeqExprBlock = FSRefParser<Expr<SyntaxToken>>()
+
     /// Expression parser bounded to stop before Arrow-level operators (->).
     /// Used in pattern guard context (when <expr> ->) so that '->' is not consumed
     /// as part of the guard expression and remains available for Rule.parse.

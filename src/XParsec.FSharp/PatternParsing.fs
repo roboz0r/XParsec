@@ -583,8 +583,9 @@ module Rule =
             let! guard = opt PatternGuard.parse
             let! arrow = pArrowRight
 
+            // Grammar: patternAndGuard RARROW typedSeqExprBlock
             let! expr =
-                refExprSeqBlock.Parser
+                refTypedSeqExprBlock.Parser
                 |> recoverWith
                     StoppingTokens.afterRule
                     DiagnosticSeverity.Error

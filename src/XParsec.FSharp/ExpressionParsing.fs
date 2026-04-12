@@ -2471,6 +2471,7 @@ module Expr =
         refExprAtomic.Set parseAtomic
         refExpr.Set parse
         refExprSeqBlock.Set parseSeqBlock
+        refTypedSeqExprBlock.Set pTypedSeqExprBlock
 
         // Single expression without sequential composition — used for while conditions
         // and other contexts where the next keyword (e.g. `do`) must not be consumed as
