@@ -1246,8 +1246,7 @@ module TypeDefn =
                                 // Also treat fused `^-` / `^+` operators (lexer merges
                                 // `^-N` into a single custom operator at Append precedence)
                                 // as a signal to retry as measure type.
-                                let startsWithCaret =
-                                    ParseState.tokenStringStartsWith "^" peekAfter state
+                                let startsWithCaret = ParseState.tokenStringStartsWith "^" peekAfter state
 
                                 if
                                     peekAfter.Token = Token.OpDivision

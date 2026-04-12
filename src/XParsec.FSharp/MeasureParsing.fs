@@ -52,9 +52,7 @@ module Measure =
 
                 if firstTok.Token = Token.OpSubtraction then
                     let! intToken =
-                        nextNonTriviaTokenSatisfiesL
-                            (fun t -> t.Token.IsNumeric)
-                            "Expected integer exponent after '-'"
+                        nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsNumeric) "Expected integer exponent after '-'"
 
                     return MeasureAux.PowerOperand(ValueSome firstTok, intToken)
                 elif firstTok.Token.IsNumeric then

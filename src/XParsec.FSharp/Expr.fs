@@ -402,6 +402,12 @@ type Expr<'T> =
 // Represents: field-pat := long-ident = pat
 and FieldPat<'T> = | FieldPat of longIdent: LongIdent<'T> * equals: 'T * pat: Pat<'T>
 
+// Represents a single argument in a union/ctor application pattern.
+// Can be either a named field (`ident = pat`) or a positional pattern.
+and [<RequireQualifiedAccess>] UnionArgPat<'T> =
+    | Named of longIdent: LongIdent<'T> * equals: 'T * pat: Pat<'T>
+    | Positional of pat: Pat<'T>
+
 // Represents: pat and its variations
 and [<RequireQualifiedAccess>] Pat<'T> =
     | Const of value: Constant<'T>
@@ -414,7 +420,7 @@ and [<RequireQualifiedAccess>] Pat<'T> =
     | NamedFieldPats of
         longIdent: LongIdent<'T> *
         lParen: 'T *
-        fieldPats: ImArr<FieldPat<'T>> *
+        args: ImArr<UnionArgPat<'T>> *
         commas: ImArr<'T> *
         rParen: 'T
     | Wildcard of underscore: 'T

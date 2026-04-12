@@ -265,7 +265,7 @@ and walkPat (visitor: AstVisitor<'T>) (pat: Pat<'T>) : unit =
         | ValueNone -> ()
 
         visitor.ExitSection "Pat.Named"
-    | Pat.NamedFieldPats(longIdent, lParen, fieldPats, _commas, rParen) ->
+    | Pat.NamedFieldPats(longIdent, lParen, args, _commas, rParen) ->
         visitor.EnterSection "Pat.NamedFieldPats"
 
         for ident in longIdent do
@@ -273,17 +273,25 @@ and walkPat (visitor: AstVisitor<'T>) (pat: Pat<'T>) : unit =
 
         visitor.VisitToken "(" lParen
 
-        for FieldPat(fieldLongIdent, equals, innerPat) in fieldPats do
-            visitor.EnterSection "FieldPat"
+        for arg in args do
+            match arg with
+            | UnionArgPat.Named(fieldLongIdent, equals, innerPat) ->
+                visitor.EnterSection "UnionArgPat.Named"
 
-            for ident in fieldLongIdent do
-                visitor.VisitToken "Ident" ident
+                for ident in fieldLongIdent do
+                    visitor.VisitToken "Ident" ident
 
-            visitor.VisitToken "=" equals
-            visitor.EnterSection "Pat"
-            walkPat visitor innerPat
-            visitor.ExitSection "Pat"
-            visitor.ExitSection "FieldPat"
+                visitor.VisitToken "=" equals
+                visitor.EnterSection "Pat"
+                walkPat visitor innerPat
+                visitor.ExitSection "Pat"
+                visitor.ExitSection "UnionArgPat.Named"
+            | UnionArgPat.Positional innerPat ->
+                visitor.EnterSection "UnionArgPat.Positional"
+                visitor.EnterSection "Pat"
+                walkPat visitor innerPat
+                visitor.ExitSection "Pat"
+                visitor.ExitSection "UnionArgPat.Positional"
 
         visitor.VisitToken ")" rParen
         visitor.ExitSection "Pat.NamedFieldPats"

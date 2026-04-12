@@ -36,14 +36,14 @@ FunctionOrValue:
             Pat.NamedFieldPats:
               Ident                  'Property'        Identifier          tok=  51  pos= 115
               (                      '('               KWLParen            tok=  52  pos= 123
-              FieldPat:
+              UnionArgPat.Named:
                 Ident                'info'            Identifier          tok=  53  pos= 124
                 =                    '='               OpEquality          tok=  55  pos= 129
                 Pat:
                   Pat.Cons           '::'              KWColonColon        tok=  59  pos= 133
                     Pat.NamedSimple  'x'               Identifier          tok=  57  pos= 131
                     Pat.Wildcard     '_'               Wildcard            tok=  61  pos= 136
-              FieldPat:
+              UnionArgPat.Named:
                 Ident                'tag'             Identifier          tok=  64  pos= 139
                 =                    '='               OpEquality          tok=  66  pos= 143
                 Pat:
@@ -58,7 +58,7 @@ FunctionOrValue:
             Pat.NamedFieldPats:
               Ident                  'Property'        Identifier          tok=  78  pos= 159
               (                      '('               KWLParen            tok=  79  pos= 167
-              FieldPat:
+              UnionArgPat.Named:
                 Ident                'info'            Identifier          tok=  80  pos= 168
                 =                    '='               OpEquality          tok=  82  pos= 173
                 Pat:

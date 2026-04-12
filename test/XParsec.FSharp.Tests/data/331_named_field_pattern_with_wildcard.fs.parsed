@@ -1,0 +1,124 @@
+AnonymousModule:
+TypeDefn.Union:
+  TypeName                               'Ctor'            Identifier          tok=   9  pos= 182
+  =                                      '='               OpEquality          tok=  11  pos= 187
+    Case:
+      ident                              'Ctor'            Identifier          tok=  13  pos= 189
+      of                                 'of'              KWOf                tok=  15  pos= 194
+      ident                              'a'               Identifier          tok=  17  pos= 197
+      :                                  ':'               OpColon             tok=  18  pos= 198
+      NamedType:
+        LongIdent:
+                                         'int'             Identifier          tok=  20  pos= 200
+      ident                              'b'               Identifier          tok=  24  pos= 206
+      :                                  ':'               OpColon             tok=  25  pos= 207
+      NamedType:
+        LongIdent:
+                                         'string'          Identifier          tok=  27  pos= 209
+      ident                              'c'               Identifier          tok=  31  pos= 218
+      :                                  ':'               OpColon             tok=  32  pos= 219
+      NamedType:
+        LongIdent:
+                                         'bool'            Identifier          tok=  34  pos= 221
+FunctionOrValue:
+  let                                    'let'             KWLet               tok=  37  pos= 227
+    Pat.NamedSimple                      'f'               Identifier          tok=  39  pos= 231
+    Pats:
+      Pat.NamedSimple                    'x'               Identifier          tok=  41  pos= 233
+    =                                    '='               OpEquality          tok=  43  pos= 235
+      Match:
+        MatchToken                       'match'           KWMatch             tok=  46  pos= 241
+        MatchExpr:
+          Ident                          'x'               Identifier          tok=  48  pos= 247
+        WithToken                        'with'            KWWith              tok=  50  pos= 249
+        Rule:
+          Bar                            '|'               OpBar               tok=  53  pos= 258
+          Pat:
+            Pat.NamedFieldPats:
+              Ident                      'Ctor'            Identifier          tok=  55  pos= 260
+              (                          '('               KWLParen            tok=  56  pos= 264
+              UnionArgPat.Named:
+                Ident                    'a'               Identifier          tok=  57  pos= 265
+                =                        '='               OpEquality          tok=  59  pos= 267
+                Pat:
+                  Pat.NamedSimple        'value'           Identifier          tok=  61  pos= 269
+              UnionArgPat.Positional:
+                Pat:
+                  Pat.Wildcard           '_'               Wildcard            tok=  64  pos= 276
+              UnionArgPat.Positional:
+                Pat:
+                  Pat.Wildcard           '_'               Wildcard            tok=  67  pos= 279
+              )                          ')'               KWRParen            tok=  68  pos= 280
+          Arrow                          '->'              OpArrowRight        tok=  70  pos= 282
+          Expr:
+            Ident                        'value'           Identifier          tok=  72  pos= 285
+        Rule:
+          Bar                            '|'               OpBar               tok=  75  pos= 295
+          Pat:
+            Pat.Wildcard                 '_'               Wildcard            tok=  77  pos= 297
+          Arrow                          '->'              OpArrowRight        tok=  79  pos= 299
+          Expr:
+            Const                        '0'               NumInt32            tok=  81  pos= 302
+TypeDefn.Union:
+  TypeName                               'Wrap'            Identifier          tok=  88  pos= 371
+  =                                      '='               OpEquality          tok=  90  pos= 376
+    Case:
+      ident                              'W'               Identifier          tok=  92  pos= 378
+      of                                 'of'              KWOf                tok=  94  pos= 380
+      ident                              'field'           Identifier          tok=  96  pos= 383
+      :                                  ':'               OpColon             tok=  97  pos= 388
+      NamedType:
+        LongIdent:
+                                         'Ctor'            Identifier          tok=  99  pos= 390
+      ident                              'rest'            Identifier          tok= 103  pos= 397
+      :                                  ':'               OpColon             tok= 104  pos= 401
+      NamedType:
+        LongIdent:
+                                         'int'             Identifier          tok= 106  pos= 403
+FunctionOrValue:
+  let                                    'let'             KWLet               tok= 109  pos= 408
+    Pat.NamedSimple                      'g'               Identifier          tok= 111  pos= 412
+    Pats:
+      Pat.NamedSimple                    'y'               Identifier          tok= 113  pos= 414
+    =                                    '='               OpEquality          tok= 115  pos= 416
+      Match:
+        MatchToken                       'match'           KWMatch             tok= 118  pos= 422
+        MatchExpr:
+          Ident                          'y'               Identifier          tok= 120  pos= 428
+        WithToken                        'with'            KWWith              tok= 122  pos= 430
+        Rule:
+          Bar                            '|'               OpBar               tok= 125  pos= 439
+          Pat:
+            Pat.NamedFieldPats:
+              Ident                      'W'               Identifier          tok= 127  pos= 441
+              (                          '('               KWLParen            tok= 128  pos= 442
+              UnionArgPat.Named:
+                Ident                    'field'           Identifier          tok= 129  pos= 443
+                =                        '='               OpEquality          tok= 131  pos= 449
+                Pat:
+                  Pat.NamedFieldPats:
+                    Ident                'Ctor'            Identifier          tok= 133  pos= 451
+                    (                    '('               KWLParen            tok= 134  pos= 455
+                    UnionArgPat.Named:
+                      Ident              'a'               Identifier          tok= 135  pos= 456
+                      =                  '='               OpEquality          tok= 137  pos= 458
+                      Pat:
+                        Pat.NamedSimple  'av'              Identifier          tok= 139  pos= 460
+                    UnionArgPat.Positional:
+                      Pat:
+                        Pat.Wildcard     '_'               Wildcard            tok= 142  pos= 464
+                    UnionArgPat.Positional:
+                      Pat:
+                        Pat.Wildcard     '_'               Wildcard            tok= 145  pos= 467
+                    )                    ')'               KWRParen            tok= 146  pos= 468
+              UnionArgPat.Named:
+                Ident                    'rest'            Identifier          tok= 149  pos= 471
+                =                        '='               OpEquality          tok= 151  pos= 476
+                Pat:
+                  Pat.NamedSimple        'r'               Identifier          tok= 153  pos= 478
+              )                          ')'               KWRParen            tok= 154  pos= 479
+          Arrow                          '->'              OpArrowRight        tok= 156  pos= 481
+          Expr:
+            InfixApp                     '+'               op_Addition         tok= 160  pos= 487
+              Ident                      'av'              Identifier          tok= 158  pos= 484
+              Ident                      'r'               Identifier          tok= 162  pos= 489
