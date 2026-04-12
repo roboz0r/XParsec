@@ -1251,7 +1251,7 @@ module TypeDefn =
                                 else
                                     return tNormal
                             }
-                            (refMeasure.Parser |>> Type.MeasureType)
+                            (Measure.parse |>> Type.MeasureType)
                         ]
                     |> recoverWith
                         StoppingTokens.afterTypeDefn
