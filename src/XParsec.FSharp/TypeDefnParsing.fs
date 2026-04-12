@@ -1224,9 +1224,31 @@ module TypeDefn =
                 let! endTok = nextNonTriviaTokenVirtualIfNot Token.KWEnd
                 return TypeDefn.Anon(typeName, primaryConstr, asDefn, equals, beginTok, body, endTok)
             | ValueNone ->
-                // Abbreviation
+                // Abbreviation — try normal type parsing first. If it leaves dangling
+                // measure operators ('/', '^', or '*'), backtrack and try measure parsing.
+                // Leading '/' (reciprocal) also falls through here: normal Type.parse
+                // fails immediately and choice backtracks to the measure parser. A
+                // dangling '*' only appears when tuple parsing partially succeeded then
+                // backtracked mid-element (e.g. 'kg * (meter / ...)'), since a completed
+                // tuple consumes the '*' separators.
                 let! t =
-                    Type.parse
+                    choice
+                        [
+                            parser {
+                                let! tNormal = Type.parse
+                                let! peekAfter = peekNextNonTriviaToken
+
+                                if
+                                    peekAfter.Token = Token.OpDivision
+                                    || peekAfter.Token = Token.OpConcatenate
+                                    || peekAfter.Token = Token.OpMultiply
+                                then
+                                    return! fail (Message "Retry as measure type")
+                                else
+                                    return tNormal
+                            }
+                            (refMeasure.Parser |>> Type.MeasureType)
+                        ]
                     |> recoverWith
                         StoppingTokens.afterTypeDefn
                         DiagnosticSeverity.Error

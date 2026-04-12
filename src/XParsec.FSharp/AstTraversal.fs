@@ -676,6 +676,10 @@ and walkType (visitor: AstVisitor<'T>) (ty: Type<'T>) : unit =
 
         visitor.VisitToken "|}" rBraceBar
         visitor.ExitSection "AnonRecordType"
+    | Type.MeasureType measure ->
+        visitor.EnterSection "MeasureType"
+        walkMeasure visitor measure
+        visitor.ExitSection "MeasureType"
     | Type.Missing -> visitor.WriteLine "Missing"
     | Type.SkipsTokens(skippedTokens) ->
         visitor.EnterSection "SkipsTokens"

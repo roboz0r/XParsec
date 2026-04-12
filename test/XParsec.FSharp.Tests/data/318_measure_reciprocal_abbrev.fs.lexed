@@ -1,0 +1,52 @@
+0, KWModule
+6, Whitespace
+7, Identifier
+11, Newline
+12, Newline
+13, LineComment
+62, Newline
+63, LineComment
+76, Newline
+77, Newline
+78, KWLAttrBracket
+80, Identifier
+87, KWRAttrBracket
+89, Newline
+90, KWType
+94, Whitespace
+95, Identifier
+101, Newline
+102, Newline
+103, KWLAttrBracket
+105, Identifier
+112, KWRAttrBracket
+114, Newline
+115, KWType
+119, Whitespace
+120, Identifier
+125, Whitespace
+126, OpEquality
+127, Whitespace
+128, OpDivision
+129, Whitespace
+130, Identifier
+136, Newline
+137, Newline
+138, KWLet
+141, Whitespace
+142, Identifier
+146, OpColon
+147, Whitespace
+148, Identifier
+153, Operator 0b1000000000001111 ComparisonAndBitwise
+154, Identifier
+159, Operator 0b1000000000001111 ComparisonAndBitwise
+160, Whitespace
+161, OpEquality
+162, Whitespace
+163, NumIEEE64
+168, Operator 0b1000000000001111 ComparisonAndBitwise
+169, Identifier
+174, Operator 0b1000000000001111 ComparisonAndBitwise
+175, Newline
+176, EOF
