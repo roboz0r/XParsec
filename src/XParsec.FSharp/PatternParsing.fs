@@ -17,89 +17,92 @@ module Pat =
         | Type of Type<SyntaxToken>
         | AsIdent of SyntaxToken
 
+    // --- Shared Precedence / Helpers for pattern Pratt parsing ---
+    // These are referenced by both `PatOperatorParser` (which models F#'s
+    // `parenPattern` grammar, including `:` as a type-annotation operator) and
+    // `PatHeadOperatorParser` (which models `headBindingPattern`, where `:` is
+    // not part of the pattern and belongs to the binding's `optReturnType`).
+
+    let private tuplePrecedence = BindingPower.fromLevel (int PrecedenceLevel.Comma)
+    let private asPrecedence = BindingPower.fromLevel (int PrecedenceLevel.As)
+    let private semiPrecedence = BindingPower.fromLevel (int PrecedenceLevel.Semicolon)
+    let private pipePrecedence = BindingPower.fromLevel (int PrecedenceLevel.Pipe)
+    let private andPrecedence = BindingPower.fromLevel (int PrecedenceLevel.LogicalAnd)
+    let private colonPrecedence = BindingPower.fromLevel (int PrecedenceLevel.TypeTest)
+    let private consPrecedence = BindingPower.fromLevel (int PrecedenceLevel.Cons)
+    let private parenPrecedence = BindingPower.fromLevel (int PrecedenceLevel.Parens)
+
+    let private structPrecedence =
+        BindingPower.fromLevel (int PrecedenceLevel.HighApplication)
+
+    let private completeInfix (l: Pat<SyntaxToken>) (op: SyntaxToken) (r: Pat<SyntaxToken>) =
+        match op.Token with
+        | Token.OpBar -> Pat.Or(l, op, r)
+        | Token.OpAmp -> Pat.And(l, op, r)
+        | Token.KWColonColon -> Pat.Cons(l, op, r)
+        | _ -> failwithf "Unexpected infix pattern operator: %A" op
+
+    let private completeTuple (elements: ResizeArray<Pat<SyntaxToken>>) (ops: ResizeArray<SyntaxToken>) =
+        Pat.Tuple(ImmutableArray.CreateRange(elements), ImmutableArray.CreateRange(ops))
+
+    let private completeTyped (l: Pat<SyntaxToken>) (op: SyntaxToken) (aux: PatAux) =
+        match aux with
+        | PatAux.Type t -> Pat.Typed(l, op, t)
+        | _ -> failwith "Expected Type aux for Typed pattern"
+
+    let private completeAs (l: Pat<SyntaxToken>) (op: SyntaxToken) (aux: PatAux) =
+        match aux with
+        | PatAux.AsIdent ident -> Pat.As(l, op, ident)
+        | _ -> failwith "Expected Ident aux for As pattern"
+
+    let private completeParen (l: SyntaxToken) (p: Pat<SyntaxToken>) (r: SyntaxToken) =
+        Pat.EnclosedBlock(ParenKind.Paren l, p, r)
+
+    let private completeStruct (op: SyntaxToken) (r: Pat<SyntaxToken>) =
+        match r with
+        | Pat.EnclosedBlock(ParenKind.Paren l, Pat.Tuple(elements, ops), r) -> Pat.StructTuple(op, l, elements, ops, r)
+        | _ ->
+            // TODO: Error - struct must be followed by tuple in parens
+            Pat.Struct(op, r)
+
+    let private completeElems (exprs: ResizeArray<Pat<_>>) ops =
+        Pat.Elems(ImmutableArray.CreateRange(exprs), ImmutableArray.CreateRange(ops))
+
+    let private pTypeRhs = Type.parse |>> PatAux.Type
+
+    let private pAsRhs =
+        parser {
+            // NOTE: the 'as' token was already consumed by rhsParser's nextNonTriviaToken.
+            // We only need to consume the identifier that follows.
+            let! ident = nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "identifier after 'as'"
+            return PatAux.AsIdent ident
+        }
+
+    let private patLhsParser =
+        parser {
+            let! token = nextNonTriviaToken
+
+            match token.Token with
+            | Token.KWLParen ->
+                // Start of tuple pattern ( ... )
+                // This is a Prefix Operator on a pattern
+                let p = preturn token
+                let rParen = virtualToken (PositionedToken.Create(Token.KWRParen, 0))
+                let op = Enclosed(token, p, parenPrecedence, rParen, pRParen, completeParen)
+                return op
+            | Token.KWStruct ->
+                let p = preturn token
+                // Create Prefix operator
+                // This will parse the immediate next pattern (e.g. Paren, or erroneously Literal/List)
+                let op = Prefix(token, p, structPrecedence, completeStruct)
+                return op
+            | _ -> return! fail (Message "Not a prefix pattern operator")
+        }
+
+    /// Matches F#'s `parenPattern` grammar rule: includes `:` as a type-annotation
+    /// operator so that `(x : int)`, `(x : int, y : float)`, etc. parse as
+    /// per-element `Pat.Typed` inside the paren.
     type PatOperatorParser() =
-        // --- Precedence Definitions ---
-        static let tuplePrecedence = BindingPower.fromLevel (int PrecedenceLevel.Comma)
-        static let asPrecedence = BindingPower.fromLevel (int PrecedenceLevel.As)
-        static let semiPrecedence = BindingPower.fromLevel (int PrecedenceLevel.Semicolon)
-        static let pipePrecedence = BindingPower.fromLevel (int PrecedenceLevel.Pipe)
-        static let andPrecedence = BindingPower.fromLevel (int PrecedenceLevel.LogicalAnd)
-        static let colonPrecedence = BindingPower.fromLevel (int PrecedenceLevel.TypeTest)
-        static let consPrecedence = BindingPower.fromLevel (int PrecedenceLevel.Cons)
-        static let parenPrecedence = BindingPower.fromLevel (int PrecedenceLevel.Parens)
-        static let structPrecedence = BindingPower.fromLevel (int PrecedenceLevel.HighApplication)
-
-        // --- Completion Functions ---
-
-        static let completeInfix (l: Pat<SyntaxToken>) (op: SyntaxToken) (r: Pat<SyntaxToken>) =
-            match op.Token with
-            | Token.OpBar -> Pat.Or(l, op, r)
-            | Token.OpAmp -> Pat.And(l, op, r)
-            | Token.KWColonColon -> Pat.Cons(l, op, r)
-            | _ -> failwithf "Unexpected infix pattern operator: %A" op
-
-        static let completeTuple (elements: ResizeArray<Pat<SyntaxToken>>) (ops: ResizeArray<SyntaxToken>) =
-            Pat.Tuple(ImmutableArray.CreateRange(elements), ImmutableArray.CreateRange(ops))
-
-        static let completeTyped (l: Pat<SyntaxToken>) (op: SyntaxToken) (aux: PatAux) =
-            match aux with
-            | PatAux.Type t -> Pat.Typed(l, op, t)
-            | _ -> failwith "Expected Type aux for Typed pattern"
-
-        static let completeAs (l: Pat<SyntaxToken>) (op: SyntaxToken) (aux: PatAux) =
-            match aux with
-            | PatAux.AsIdent ident -> Pat.As(l, op, ident)
-            | _ -> failwith "Expected Ident aux for As pattern"
-
-        static let completeParen (l: SyntaxToken) (p: Pat<SyntaxToken>) (r: SyntaxToken) =
-            Pat.EnclosedBlock(ParenKind.Paren l, p, r)
-
-        static let completeStruct (op: SyntaxToken) (r: Pat<SyntaxToken>) =
-            match r with
-            | Pat.EnclosedBlock(ParenKind.Paren l, Pat.Tuple(elements, ops), r) ->
-                Pat.StructTuple(op, l, elements, ops, r)
-            | _ ->
-                // TODO: Error - struct must be followed by tuple in parens
-                Pat.Struct(op, r)
-
-
-        static let completeElems (exprs: ResizeArray<Pat<_>>) ops =
-            Pat.Elems(ImmutableArray.CreateRange(exprs), ImmutableArray.CreateRange(ops))
-
-        // --- Aux Parsers ---
-
-        static let pTypeRhs = Type.parse |>> PatAux.Type
-
-        static let pAsRhs =
-            parser {
-                // NOTE: the 'as' token was already consumed by rhsParser's nextNonTriviaToken.
-                // We only need to consume the identifier that follows.
-                let! ident = nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "identifier after 'as'"
-                return PatAux.AsIdent ident
-            }
-
-        // --- Main Parsers ---
-        static let lhsParser =
-            parser {
-                let! token = nextNonTriviaToken
-
-                match token.Token with
-                | Token.KWLParen ->
-                    // Start of tuple pattern ( ... )
-                    // This is a Prefix Operator on a pattern
-                    let p = preturn token
-                    let rParen = virtualToken (PositionedToken.Create(Token.KWRParen, 0))
-                    let op = Enclosed(token, p, parenPrecedence, rParen, pRParen, completeParen)
-                    return op
-                | Token.KWStruct ->
-                    let p = preturn token
-                    // Create Prefix operator
-                    // This will parse the immediate next pattern (e.g. Paren, or erroneously Literal/List)
-                    let op = Prefix(token, p, structPrecedence, completeStruct)
-                    return op
-                | _ -> return! fail (Message "Not a prefix pattern operator")
-            }
-
         static let rhsParser =
             nextNonTriviaToken
             >>= fun token ->
@@ -148,7 +151,57 @@ module Pat =
             ReadableImmutableArray<PositionedToken>,
             ReadableImmutableArraySlice<PositionedToken>
          > with
-            member _.LhsParser = lhsParser
+            member _.LhsParser = patLhsParser
+            member _.RhsParser = rhsParser
+            member _.OpComparer = opComparer
+
+    /// Matches F#'s `headBindingPattern` grammar rule: same operators as
+    /// `PatOperatorParser` except `:` is not consumed. In the F# grammar `:`
+    /// is a production of `parenPattern` (and `simplePat` for primary-ctor
+    /// arg lists), not of `headBindingPattern`; a top-level `let x : int = 5`
+    /// puts the `: int` into the binding's `optReturnType`, not the head
+    /// pattern. Used by `Pat.parseHead` for let-value binding heads.
+    type PatHeadOperatorParser() =
+        static let rhsParser =
+            nextNonTriviaToken
+            >>= fun token ->
+                match token.Token with
+                | Token.OpBar ->
+                    let op = InfixLeft(token, preturn token, pipePrecedence, completeInfix)
+                    preturn op
+
+                | Token.OpAmp ->
+                    let op = InfixLeft(token, preturn token, andPrecedence, completeInfix)
+                    preturn op
+
+                | Token.KWColonColon ->
+                    let op = InfixRight(token, preturn token, consPrecedence, completeInfix)
+                    preturn op
+
+                | Token.KWAs ->
+                    let op = InfixMapped(token, preturn token, asPrecedence, pAsRhs, completeAs)
+                    preturn op
+
+                | Token.OpComma ->
+                    let op = InfixNary(token, preturn token, tuplePrecedence, false, completeTuple)
+                    preturn op
+
+                | Token.OpSemicolon ->
+                    let op = InfixNary(token, preturn token, semiPrecedence, false, completeElems)
+                    preturn op
+
+                | _ -> fail (Message "Not a valid RHS pattern operator")
+
+        interface Operators<
+            SyntaxToken,
+            PatAux,
+            Pat<SyntaxToken>,
+            PositionedToken,
+            ParseState,
+            ReadableImmutableArray<PositionedToken>,
+            ReadableImmutableArraySlice<PositionedToken>
+         > with
+            member _.LhsParser = patLhsParser
             member _.RhsParser = rhsParser
             member _.OpComparer = opComparer
 
@@ -469,6 +522,13 @@ module Pat =
     do refPatAtomic.Set parseAtomic
 
     let parse = Operator.parser parseAtomic (PatOperatorParser())
+
+    /// Matches F#'s `headBindingPattern` grammar rule. Same operators as `parse`
+    /// except `:` is not consumed (the surrounding binding's `optReturnType`
+    /// owns any trailing `: type`). Used by `Binding.parseValue` for let-value
+    /// binding heads.
+    let parseHead = Operator.parser parseAtomic (PatHeadOperatorParser())
+
     // For record field patterns, we want to allow the same operators as the top-level, but not semicolon since that separates fields.
     let private parseFieldPat =
         Operator.parserAt (BindingPower.fromLevel (int PrecedenceLevel.Semicolon + 1)) parseAtomic (PatOperatorParser())
@@ -479,38 +539,6 @@ module Pat =
 
     let parseMany1 = many1 parse
     let parseAtomicMany1 = many1 parseAtomic
-
-    let parseAtomicOrTuple =
-        parser {
-            let! firstPat = parseAtomic
-
-            // Support unparenthesized tuple patterns: let a, b = expr
-            let! extraPats =
-                many (
-                    parser {
-                        let! comma = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpComma) "Expected ','"
-
-                        let! pat = parseAtomic
-                        return (comma, pat)
-                    }
-                )
-
-            let pat =
-                if extraPats.IsEmpty then
-                    firstPat
-                else
-                    let elems = ImmutableArray.CreateBuilder(extraPats.Length + 1)
-                    let commas = ImmutableArray.CreateBuilder(extraPats.Length)
-                    elems.Add(firstPat)
-
-                    for (comma, p) in extraPats.AsSpan() do
-                        commas.Add(comma)
-                        elems.Add(p)
-
-                    Pat.Tuple(elems.ToImmutable(), commas.ToImmutable())
-
-            return pat
-        }
 
     do refPat.Set parse
     do refFieldPat.Set parseFieldPat

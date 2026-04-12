@@ -212,7 +212,7 @@ module Binding =
         parser {
             let! mut = opt pMutableTok
             let! access = opt pAccessModifier
-            let! pat = Pat.parseAtomicOrTuple
+            let! pat = Pat.parseHead
             let! typarDefns = opt TyparDefns.parse
             let! returnType = opt ReturnType.parse
             let! equals = pEquals
