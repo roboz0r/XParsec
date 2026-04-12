@@ -1,0 +1,75 @@
+module                       'module'          KWModule            tok=   0  pos=   0
+                             'Test'            Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                        'let'             KWLet               tok=  12  pos= 154
+    Pat.NamedSimple          'f'               Identifier          tok=  14  pos= 158
+    Pats:
+      ParenBlock             '('               KWLParen            tok=  16  pos= 160
+                             ')'               KWRParen            tok=  17  pos= 161
+    =                        '='               OpEquality          tok=  19  pos= 163
+      Let                    'let'             KWLet               tok=  22  pos= 169
+        mutable              'mutable'         KWMutable           tok=  24  pos= 173
+        Pat.NamedSimple      'acc'             Identifier          tok=  26  pos= 181
+        =                    '='               OpEquality          tok=  28  pos= 185
+          Const              '0'               NumInt32            tok=  30  pos= 187
+      in                     <virt>            KWIn                tok=virt  pos= 193
+      Body:
+        Sequential:
+          ForIn              'for'             KWFor               tok=  33  pos= 193
+          Pat:
+            Pat.NamedSimple  'i'               Identifier          tok=  35  pos= 197
+          InToken            'in'              KWIn                tok=  37  pos= 199
+          Range:
+            Const            '1'               NumInt32            tok=  39  pos= 202
+            ..               '..'              OpRange             tok=  40  pos= 203
+            Const            '3'               NumInt32            tok=  41  pos= 205
+          DoToken            'do'              KWDo                tok=  43  pos= 207
+          Body:
+            TypeAnnotation:
+              Expr:
+                Assignment   '<-'              OpArrowLeft         tok=  48  pos= 222
+                  Ident      'acc'             Identifier          tok=  46  pos= 218
+                  InfixApp   '+'               op_Addition         tok=  52  pos= 229
+                    Ident    'acc'             Identifier          tok=  50  pos= 225
+                    Ident    'i'               Identifier          tok=  54  pos= 231
+              Colon          ':'               OpColon             tok=  56  pos= 233
+              NamedType:
+                LongIdent:
+                             'unit'            Identifier          tok=  58  pos= 235
+          DoneToken          <virt>            KWDone              tok=virt  pos= 244
+          Ident              'acc'             Identifier          tok=  61  pos= 244
+FunctionOrValue:
+  let                        'let'             KWLet               tok=  64  pos= 249
+    Pat.NamedSimple          'g'               Identifier          tok=  66  pos= 253
+    Pats:
+      ParenBlock             '('               KWLParen            tok=  68  pos= 255
+                             ')'               KWRParen            tok=  69  pos= 256
+    =                        '='               OpEquality          tok=  71  pos= 258
+      Let                    'let'             KWLet               tok=  74  pos= 264
+        mutable              'mutable'         KWMutable           tok=  76  pos= 268
+        Pat.NamedSimple      'n'               Identifier          tok=  78  pos= 276
+        =                    '='               OpEquality          tok=  80  pos= 278
+          Const              '0'               NumInt32            tok=  82  pos= 280
+      in                     <virt>            KWIn                tok=virt  pos= 286
+      Body:
+        Sequential:
+          While              'while'           KWWhile             tok=  85  pos= 286
+          Cond:
+            InfixApp         '<'               op_LessThan         tok=  89  pos= 294
+              Ident          'n'               Identifier          tok=  87  pos= 292
+              Const          '3'               NumInt32            tok=  91  pos= 296
+          DoToken            'do'              KWDo                tok=  93  pos= 298
+          Body:
+            TypeAnnotation:
+              Expr:
+                Assignment   '<-'              OpArrowLeft         tok=  98  pos= 311
+                  Ident      'n'               Identifier          tok=  96  pos= 309
+                  InfixApp   '+'               op_Addition         tok= 102  pos= 316
+                    Ident    'n'               Identifier          tok= 100  pos= 314
+                    Const    '1'               NumInt32            tok= 104  pos= 318
+              Colon          ':'               OpColon             tok= 106  pos= 320
+              NamedType:
+                LongIdent:
+                             'unit'            Identifier          tok= 108  pos= 322
+          DoneToken          <virt>            KWDone              tok=virt  pos= 331
+          Ident              'n'               Identifier          tok= 111  pos= 331
