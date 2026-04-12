@@ -434,6 +434,21 @@ and walkStaticTypars (visitor: AstVisitor<'T>) (staticTypars: StaticTypars<'T>) 
         for typar in typars do
             walkTypar visitor typar
 
+and walkStaticOptimizationConstraint (visitor: AstVisitor<'T>) (c: StaticOptimizationConstraint<'T>) : unit =
+    match c with
+    | StaticOptimizationConstraint.WhenTyparTyconEqualsTycon(typar, colon, rhsType) ->
+        visitor.EnterSection "WhenTyparTyconEqualsTycon"
+        walkTypar visitor typar
+        visitor.VisitToken ":" colon
+        walkType visitor rhsType
+        visitor.ExitSection "WhenTyparTyconEqualsTycon"
+    | StaticOptimizationConstraint.WhenTyparIsStruct(typar, colon, structToken) ->
+        visitor.EnterSection "WhenTyparIsStruct"
+        walkTypar visitor typar
+        visitor.VisitToken ":" colon
+        visitor.VisitToken "struct" structToken
+        visitor.ExitSection "WhenTyparIsStruct"
+
 and walkConstraint (visitor: AstVisitor<'T>) (c: Constraint<'T>) : unit =
     match c with
     | Constraint.Coercion(typar, colonGT, typ) ->
@@ -1305,6 +1320,21 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         walkExpr visitor expr
         visitor.VisitToken ")" rParen
         visitor.ExitSection "StaticMemberInvocation"
+    | Expr.LibraryOnlyStaticOptimization(expr, whenToken, constraints, ands, equalsToken, optimizedExpr) ->
+        visitor.EnterSection "LibraryOnlyStaticOptimization"
+        walkExpr visitor expr
+        visitor.VisitToken "when" whenToken
+
+        if constraints.Length > 0 then
+            walkStaticOptimizationConstraint visitor constraints.[0]
+
+            for i in 0 .. ands.Length - 1 do
+                visitor.VisitToken "and" ands.[i]
+                walkStaticOptimizationConstraint visitor constraints.[i + 1]
+
+        visitor.VisitToken "=" equalsToken
+        walkExpr visitor optimizedExpr
+        visitor.ExitSection "LibraryOnlyStaticOptimization"
     | Expr.String(kind, parts, closing) -> walkStringKindAndParts visitor kind parts closing
     | Expr.Object(lBrace, newKeyword, baseCall, members, interfaceImpls, rBrace) ->
         visitor.EnterSection "ObjectExpr"

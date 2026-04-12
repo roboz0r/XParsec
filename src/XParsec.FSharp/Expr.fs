@@ -153,6 +153,12 @@ and [<RequireQualifiedAccess>] StaticTypars<'T> =
     | Single of typar: Typar<'T>
     | OrList of lParen: 'T * typars: ImArr<Typar<'T>> * ors: ImArr<'T> * rParen: 'T
 
+// Represents: static-optimization-constraint — library-only, used in FSharp.Core for
+// type-specialized dispatch. See F# compiler's SynStaticOptimizationConstraint.
+and [<RequireQualifiedAccess>] StaticOptimizationConstraint<'T> =
+    | WhenTyparTyconEqualsTycon of typar: Typar<'T> * colon: 'T * rhsType: Type<'T>
+    | WhenTyparIsStruct of typar: Typar<'T> * colon: 'T * structToken: 'T
+
 // Represents: elif-branch and else-branch
 // Note: The spec doesn't mention 'else if' branches, but they are present
 // in the language in that 'else if' can be interleaved with 'elif' at the same indentation level.
@@ -353,6 +359,15 @@ type Expr<'T> =
         rParenMember: 'T *
         expr: Expr<'T> *
         rParen: 'T
+    // Library-only static optimization: expr when 'T: Type [and 'T: Type]* = optimizedExpr
+    // Chained clauses nest left-fold: outermost = last `when` clause in source order.
+    | LibraryOnlyStaticOptimization of
+        expr: Expr<'T> *
+        whenToken: 'T *
+        constraints: ImArr<StaticOptimizationConstraint<'T>> *
+        ands: ImArr<'T> *
+        equalsToken: 'T *
+        optimizedExpr: Expr<'T>
     | String of kind: StringKind<'T> * parts: ImArr<StringPart<'T>> * closing: 'T
     // IL intrinsic literal: (# "il" type('T) args : returnType #)
     | ILIntrinsic of
