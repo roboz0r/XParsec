@@ -297,7 +297,8 @@ module MethodOrPropDefn =
 
                     | t when t.Token = Token.OpEquality ->
                         let! eq = consumePeeked t
-                        let! expr = refExprSeqBlock.Parser
+                        // Grammar: member body is typedSeqExprBlock
+                        let! expr = refTypedSeqExprBlock.Parser
 
                         let binding =
                             {
@@ -320,7 +321,8 @@ module MethodOrPropDefn =
                         // Property with explicit return type (e.g., static member Empty : Foo = expr)
                         let! returnType = ReturnType.parse
                         let! equals = pEquals
-                        let! expr = refExprSeqBlock.Parser
+                        // Grammar: member body is typedSeqExprBlock
+                        let! expr = refTypedSeqExprBlock.Parser
 
                         let binding =
                             {
@@ -357,7 +359,8 @@ module MethodOrPropDefn =
                                         let! argumentPats = Pat.parseAtomicMany1
                                         let! returnType = opt ReturnType.parse
                                         let! equals = pEquals
-                                        let! expr = refExprSeqBlock.Parser
+                                        // Grammar: member body is typedSeqExprBlock
+                                        let! expr = refTypedSeqExprBlock.Parser
 
                                         let binding =
                                             {
@@ -875,7 +878,8 @@ module ClassFunctionOrValueDefn =
                     let! attrs = opt Attributes.parse
                     let! stat = opt pStatic
                     let! d = pDo
-                    let! e = refExprSeqBlock.Parser
+                    // Grammar: DO typedSeqExprBlock
+                    let! e = refTypedSeqExprBlock.Parser
                     return ClassFunctionOrValueDefn.Do(attrs, stat, d, e)
                 }
                 parser {
