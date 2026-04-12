@@ -38,17 +38,17 @@ FunctionOrValue:
             Pat.NamedFieldPats:
               Ident                'App'             Identifier          tok=  53  pos= 116
               (                    '('               KWLParen            tok=  54  pos= 119
-              FieldPat:
+              UnionArgPat.Named:
                 Ident              'isInfix'         Identifier          tok=  57  pos= 129
                 =                  '='               OpEquality          tok=  59  pos= 137
                 Pat:
                   Pat.Const        'false'           KWFalse             tok=  61  pos= 139
-              FieldPat:
+              UnionArgPat.Named:
                 Ident              'funcExpr'        Identifier          tok=  64  pos= 153
                 =                  '='               OpEquality          tok=  66  pos= 162
                 Pat:
                   Pat.NamedSimple  'f'               Identifier          tok=  68  pos= 164
-              FieldPat:
+              UnionArgPat.Named:
                 Ident              'argExpr'         Identifier          tok=  71  pos= 174
                 =                  '='               OpEquality          tok=  73  pos= 182
                 Pat:
@@ -67,17 +67,17 @@ FunctionOrValue:
             Pat.NamedFieldPats:
               Ident                'App'             Identifier          tok=  90  pos= 203
               (                    '('               KWLParen            tok=  91  pos= 206
-              FieldPat:
+              UnionArgPat.Named:
                 Ident              'isInfix'         Identifier          tok=  92  pos= 207
                 =                  '='               OpEquality          tok=  94  pos= 215
                 Pat:
                   Pat.Const        'true'            KWTrue              tok=  96  pos= 217
-              FieldPat:
+              UnionArgPat.Named:
                 Ident              'funcExpr'        Identifier          tok=  99  pos= 223
                 =                  '='               OpEquality          tok= 101  pos= 232
                 Pat:
                   Pat.NamedSimple  'f'               Identifier          tok= 103  pos= 234
-              FieldPat:
+              UnionArgPat.Named:
                 Ident              'argExpr'         Identifier          tok= 106  pos= 237
                 =                  '='               OpEquality          tok= 108  pos= 245
                 Pat:

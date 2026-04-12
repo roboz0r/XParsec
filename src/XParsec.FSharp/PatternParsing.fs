@@ -283,17 +283,14 @@ module Pat =
                     reader.State <- savedState
                     fail (Message "Record pattern") reader
 
-    /// Parse a single field in a named union case pattern: fieldName = pat (excludes comma)
-    /// The Pratt parser for union fields excludes 'as' and '|' (below Comma+1 cutoff), so we handle them here.
-    let private pUnionFieldPat =
-        let pBarToken = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpBar) "'|'"
+    // Shared '|' / 'as' chain handling for union case arg patterns.
+    // The Pratt parser for union fields excludes 'as' and '|' (below Comma+1 cutoff),
+    // so we reapply them manually here around a parsed base pattern.
+    let private pBarToken =
+        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpBar) "'|'"
 
+    let private pOrAsChain (basePat: Pat<SyntaxToken>) =
         parser {
-            let! lid = LongIdent.parse
-            let! eq = pEquals
-            let! p = withContext OffsideContext.SeqBlock refUnionFieldPat.Parser
-
-            // Handle '|' (Or) patterns: pat1 | pat2 | pat3
             let! orAlts =
                 many (
                     parser {
@@ -305,12 +302,11 @@ module Pat =
 
             let p =
                 if orAlts.IsEmpty then
-                    p
+                    basePat
                 else
                     orAlts
-                    |> Seq.fold (fun acc struct (barTok, altPat) -> Pat.Or(acc, barTok, altPat)) p
+                    |> Seq.fold (fun acc struct (barTok, altPat) -> Pat.Or(acc, barTok, altPat)) basePat
 
-            // Handle 'as' binding: pat as ident
             let! asClause =
                 opt (
                     parser {
@@ -323,26 +319,59 @@ module Pat =
                     }
                 )
 
-            let p =
+            return
                 match asClause with
                 | ValueSome(asTok, ident) -> Pat.As(p, asTok, ident)
                 | ValueNone -> p
-
-            return FieldPat(lid, eq, p)
         }
 
-    /// Parse named field patterns: UnionCase(field1 = pat1, field2 = pat2)
-    /// Accepts commas, semicolons, or newline-at-indent as separators (F# allows all three).
+    /// Parse a single named field in a union case pattern: fieldName = pat (excludes comma).
+    let private pUnionNamedArgPat =
+        parser {
+            let! lid = LongIdent.parse
+            let! eq = pEquals
+            let! basePat = withContext OffsideContext.SeqBlock refUnionFieldPat.Parser
+            let! p = pOrAsChain basePat
+            return UnionArgPat.Named(lid, eq, p)
+        }
+
+    /// Parse a single positional argument in a union case pattern: pat (excludes comma).
+    let private pUnionPositionalArgPat =
+        parser {
+            let! basePat = withContext OffsideContext.SeqBlock refUnionFieldPat.Parser
+            let! p = pOrAsChain basePat
+            return UnionArgPat.Positional p
+        }
+
+    /// Parse a union case argument: either a named field (tried first) or a positional pattern.
+    let private pUnionArgPat = pUnionNamedArgPat <|> pUnionPositionalArgPat
+
+    /// Parse named field patterns: UnionCase(field1 = pat1, _, field2 = pat2, ...).
+    /// Accepts an arbitrary mix of named and positional args in any order, separated by
+    /// commas, semicolons, or newline-at-indent. Commits to this AST shape only when at
+    /// least one argument is a named field; otherwise fails so `pNamed`'s fallback can
+    /// handle the positional-only case with the standard `Pat.Named(lid, param, arg)`.
     let private pNamedFieldPats =
         parser {
             let! lid = LongIdent.parse
             let! lParen = pLParen
 
-            let! fields, commas =
-                withContext OffsideContext.SeqBlock (sepBy1 pUnionFieldPat (pComma <|> pRecordFieldSep))
+            let! args, seps = withContext OffsideContext.SeqBlock (sepBy1 pUnionArgPat (pComma <|> pRecordFieldSep))
 
             let! rParen = pRParen
-            return Pat.NamedFieldPats(lid, lParen, fields, commas, rParen)
+
+            let hasNamed =
+                args
+                |> Seq.exists (
+                    function
+                    | UnionArgPat.Named _ -> true
+                    | _ -> false
+                )
+
+            if hasNamed then
+                return Pat.NamedFieldPats(lid, lParen, args, seps, rParen)
+            else
+                return! fail (Message "positional-only ctor pattern")
         }
 
     let pNamed =

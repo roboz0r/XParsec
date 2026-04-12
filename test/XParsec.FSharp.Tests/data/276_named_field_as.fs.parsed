@@ -39,12 +39,12 @@ FunctionOrValue:
             Pat.NamedFieldPats:
               Ident                     'Sequential'      Identifier          tok=  58  pos= 129
               (                         '('               KWLParen            tok=  59  pos= 139
-              FieldPat:
+              UnionArgPat.Named:
                 Ident                   'expr1'           Identifier          tok=  60  pos= 140
                 =                       '='               OpEquality          tok=  62  pos= 146
                 Pat:
                   Pat.NamedSimple       'e1'              Identifier          tok=  64  pos= 148
-              FieldPat:
+              UnionArgPat.Named:
                 Ident                   'expr2'           Identifier          tok=  67  pos= 152
                 =                       '='               OpEquality          tok=  69  pos= 158
                 Pat:
@@ -91,7 +91,7 @@ FunctionOrValue:
             Pat.NamedFieldPats:
               Ident                     'Sequential'      Identifier          tok= 118  pos= 250
               (                         '('               KWLParen            tok= 119  pos= 260
-              FieldPat:
+              UnionArgPat.Named:
                 Ident                   'expr1'           Identifier          tok= 120  pos= 261
                 =                       '='               OpEquality          tok= 122  pos= 267
                 Pat:
@@ -104,7 +104,7 @@ FunctionOrValue:
                       Ident             'Literal'         Identifier          tok= 130  pos= 281
                       Param:
                         Pat.Const       '2'               NumInt32            tok= 132  pos= 289
-              FieldPat:
+              UnionArgPat.Named:
                 Ident                   'expr2'           Identifier          tok= 135  pos= 292
                 =                       '='               OpEquality          tok= 137  pos= 298
                 Pat:
@@ -123,7 +123,7 @@ FunctionOrValue:
             Pat.NamedFieldPats:
               Ident                     'Sequential'      Identifier          tok= 151  pos= 321
               (                         '('               KWLParen            tok= 152  pos= 331
-              FieldPat:
+              UnionArgPat.Named:
                 Ident                   'expr1'           Identifier          tok= 153  pos= 332
                 =                       '='               OpEquality          tok= 155  pos= 338
                 Pat:
@@ -139,7 +139,7 @@ FunctionOrValue:
                           Pat.Wildcard  '_'               Wildcard            tok= 165  pos= 363
                     As                  'as'              KWAs                tok= 167  pos= 365
                     Ident               'e1'              Identifier          tok= 169  pos= 368
-              FieldPat:
+              UnionArgPat.Named:
                 Ident                   'expr2'           Identifier          tok= 172  pos= 372
                 =                       '='               OpEquality          tok= 174  pos= 378
                 Pat:

@@ -49,12 +49,12 @@ FunctionOrValue:
             Pat.NamedFieldPats:
               Ident                'Foo'             Identifier          tok=  70  pos= 176
               (                    '('               KWLParen            tok=  71  pos= 179
-              FieldPat:
+              UnionArgPat.Named:
                 Ident              'isStruct'        Identifier          tok=  72  pos= 180
                 =                  '='               OpEquality          tok=  74  pos= 189
                 Pat:
                   Pat.Const        'false'           KWFalse             tok=  76  pos= 191
-              FieldPat:
+              UnionArgPat.Named:
                 Ident              'elementPat...'   Identifier          tok=  79  pos= 198
                 =                  '='               OpEquality          tok=  81  pos= 210
                 Pat:
@@ -69,12 +69,12 @@ FunctionOrValue:
             Pat.NamedFieldPats:
               Ident                'Foo'             Identifier          tok=  93  pos= 232
               (                    '('               KWLParen            tok=  94  pos= 235
-              FieldPat:
+              UnionArgPat.Named:
                 Ident              'isStruct'        Identifier          tok=  95  pos= 236
                 =                  '='               OpEquality          tok=  97  pos= 245
                 Pat:
                   Pat.Const        'true'            KWTrue              tok=  99  pos= 247
-              FieldPat:
+              UnionArgPat.Named:
                 Ident              'elementPat...'   Identifier          tok= 102  pos= 253
                 =                  '='               OpEquality          tok= 104  pos= 265
                 Pat:
@@ -89,12 +89,12 @@ FunctionOrValue:
             Pat.NamedFieldPats:
               Ident                'Bar'             Identifier          tok= 116  pos= 287
               (                    '('               KWLParen            tok= 117  pos= 290
-              FieldPat:
+              UnionArgPat.Named:
                 Ident              'name'            Identifier          tok= 118  pos= 291
                 =                  '='               OpEquality          tok= 120  pos= 296
                 Pat:
                   Pat.NamedSimple  'n'               Identifier          tok= 122  pos= 298
-              FieldPat:
+              UnionArgPat.Named:
                 Ident              'value'           Identifier          tok= 125  pos= 301
                 =                  '='               OpEquality          tok= 127  pos= 307
                 Pat:
