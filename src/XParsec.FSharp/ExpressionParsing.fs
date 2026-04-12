@@ -1290,9 +1290,10 @@ module Expr =
                         "Expected 'do' after while condition"
                         (withContextAt OffsideContext.While (indent + 1) whileTok.PositionedToken pDo)
                 // Body at while_col
+                // Grammar: WHILE _ DO typedSeqExprBlock
                 let! body =
                     recoverExprMissing (
-                        withContextAt OffsideContext.Do indent whileTok.PositionedToken refExprSeqBlock.Parser
+                        withContextAt OffsideContext.Do indent whileTok.PositionedToken refTypedSeqExprBlock.Parser
                     )
 
                 let! doneTok = pDoneVirt
@@ -1357,7 +1358,9 @@ module Expr =
                 let headerMinIndent = indent + 1
                 let bodyMinIndent = indent
                 let! forBuilder = withContextAt OffsideContext.For headerMinIndent forTok.PositionedToken pForHeader
-                let! body = withContextAt OffsideContext.Do bodyMinIndent forTok.PositionedToken refExprSeqBlock.Parser
+                // Grammar: FOR _ IN _ DO typedSeqExprBlock (and FOR _ = _ TO _ DO typedSeqExprBlock)
+                let! body =
+                    withContextAt OffsideContext.Do bodyMinIndent forTok.PositionedToken refTypedSeqExprBlock.Parser
                 let! doneTok = pDoneVirt
                 return ExprAux.ForExpr(forBuilder forTok body doneTok)
             }
