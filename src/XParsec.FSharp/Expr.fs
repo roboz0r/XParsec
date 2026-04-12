@@ -347,6 +347,8 @@ type Expr<'T> =
         staticTypars: StaticTypars<'T> *
         colon: 'T *
         lParenMember: 'T *
+        staticToken: 'T voption *
+        memberToken: 'T *
         membersign: MemberSig<'T> *
         rParenMember: 'T *
         expr: Expr<'T> *

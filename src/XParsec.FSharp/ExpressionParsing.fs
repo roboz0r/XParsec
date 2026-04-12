@@ -1780,9 +1780,57 @@ module Expr =
             return Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(l, op, r)))
         }
 
+    // SRTP trait call: (^T : (member Name : sig) expr)
+    let private pStaticMemberInvocation =
+        parser {
+            let! lParen = pLParen
+
+            let pBody =
+                parser {
+                    let! staticTypars = StaticTypars.parse
+                    let! colon = pColon
+                    let! lParenMember = pLParen
+                    let! staticTok = opt (nextNonTriviaTokenIsL Token.KWStatic "static")
+                    let! memberTok = nextNonTriviaTokenIsL Token.KWMember "member"
+                    let! membersig = Constraint.pConstraintMemberSig
+                    let! rParenMember = pRParen
+                    let! expr = refExprSeqBlock.Parser
+                    let! rParen = pRParen
+
+                    return
+                        struct (staticTypars,
+                                colon,
+                                lParenMember,
+                                staticTok,
+                                memberTok,
+                                membersig,
+                                rParenMember,
+                                expr,
+                                rParen)
+                }
+
+            let! struct (staticTypars, colon, lParenMember, staticTok, memberTok, membersig, rParenMember, expr, rParen) =
+                withContextAt OffsideContext.Paren 0 lParen.PositionedToken pBody
+
+            return
+                Expr.StaticMemberInvocation(
+                    lParen,
+                    staticTypars,
+                    colon,
+                    lParenMember,
+                    staticTok,
+                    memberTok,
+                    membersig,
+                    rParenMember,
+                    expr,
+                    rParen
+                )
+        }
+
     let pParen =
         choiceL
             [
+                pStaticMemberInvocation
                 pParenOpExpr
                 pEnclosed
                     pLParen

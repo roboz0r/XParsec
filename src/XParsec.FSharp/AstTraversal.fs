@@ -1283,11 +1283,23 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
         visitor.EnterSection ""
         walkExpr visitor expr
         visitor.ExitSection ""
-    | Expr.StaticMemberInvocation(lParen, _staticTypars, colon, lParenMember, membersign, rParenMember, expr, rParen) ->
+    | Expr.StaticMemberInvocation(lParen,
+                                  staticTypars,
+                                  colon,
+                                  lParenMember,
+                                  staticToken,
+                                  memberToken,
+                                  membersign,
+                                  rParenMember,
+                                  expr,
+                                  rParen) ->
         visitor.EnterSection "StaticMemberInvocation"
         visitor.VisitToken "(" lParen
+        walkStaticTypars visitor staticTypars
         visitor.VisitToken ":" colon
         visitor.VisitToken "(" lParenMember
+        visitTokenOpt visitor "static" staticToken
+        visitor.VisitToken "member" memberToken
         walkMemberSig visitor membersign
         visitor.VisitToken ")" rParenMember
         walkExpr visitor expr

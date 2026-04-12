@@ -107,7 +107,7 @@ module Constraint =
     // We parse a plain Type (not a CurriedSig) so that 'T * 'T -> bool is represented
     // as FunctionType(TupleType(...), bool) rather than a flattened CurriedSig arg-group.
     // The result is wrapped in a CurriedSig with no arg groups.
-    let private pConstraintMemberSig =
+    let pConstraintMemberSig =
         parser {
             let! ident = pConstraintMemberName
             let! colon = pColon
