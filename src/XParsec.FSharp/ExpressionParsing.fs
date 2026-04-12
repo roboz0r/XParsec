@@ -88,9 +88,86 @@ module Binding =
         | IdentOrOp.Ident t -> Pat.NamedSimple t
         | _ -> Pat.Op identOrOp
 
+    // Parses a single static-optimization constraint: `^T : Type` or `^T : struct`.
+    // Distinct from general type-parameter constraints (Constraint.pTyparConstraints)
+    // because the RHS is an arbitrary named type, not a keyword like 'equality'.
+    let private pStaticOptimizationConstraint =
+        parser {
+            let! typar = Typar.parse
+            let! colon = pColon
+
+            match! peekNextNonTriviaToken with
+            | t when t.Token = Token.KWStruct ->
+                let! structTok = consumePeeked t
+                return StaticOptimizationConstraint.WhenTyparIsStruct(typar, colon, structTok)
+            | _ ->
+                let! rhsType = Type.parse
+                return StaticOptimizationConstraint.WhenTyparTyconEqualsTycon(typar, colon, rhsType)
+        }
+
+    // Parses one `when c1 and c2 ... = optimizedExpr` clause, wrapping the given baseExpr.
+    let private pStaticOptimizationClause (baseExpr: Expr<SyntaxToken>) =
+        parser {
+            let! whenTok = pWhen
+            let! firstC = pStaticOptimizationConstraint
+
+            let pAndConstraint =
+                parser {
+                    let! andTok = pAnd
+                    let! c = pStaticOptimizationConstraint
+                    return struct (andTok, c)
+                }
+
+            let! restPairs = many pAndConstraint
+
+            let constraints =
+                ImmutableArray.CreateRange(
+                    seq {
+                        yield firstC
+
+                        for struct (_, c) in restPairs do
+                            yield c
+                    }
+                )
+
+            let ands =
+                ImmutableArray.CreateRange(
+                    seq {
+                        for struct (a, _) in restPairs do
+                            yield a
+                    }
+                )
+
+            let! equalsTok = pEquals
+            let! optExpr = refExprSeqBlock.Parser
+
+            return Expr.LibraryOnlyStaticOptimization(baseExpr, whenTok, constraints, ands, equalsTok, optExpr)
+        }
+
+    // Left-fold any trailing `when` clauses onto the binding body. Outermost node
+    // ends up holding the last `when` clause in source order, matching F# compiler semantics.
+    // Uses `choice` so that a peek failure (EndOfInput / offside) after the body cleanly
+    // falls back to returning the base expression unchanged. Without the fallback, every
+    // binding body would need to guarantee a following token, which is not true at
+    // end-of-file or at the tail of a member list inside a type definition.
+    let rec private pChainStaticOptimizations (baseExpr: Expr<SyntaxToken>) =
+        let pClause =
+            parser {
+                let! wrapped = pStaticOptimizationClause baseExpr
+                return! pChainStaticOptimizations wrapped
+            }
+
+        choice [ pClause; preturn baseExpr ]
+
+    let private pBindingBody =
+        parser {
+            let! expr = refExprSeqBlock.Parser
+            return! pChainStaticOptimizations expr
+        }
+
     /// Parse a function-style binding: [inline] [access] identOrOp [typar-defns] pat+ [: returnType] = expr
     let parseFunction attrs =
-        let pBody = refExprSeqBlock.Parser
+        let pBody = pBindingBody
 
         parser {
             let! inlineTok = opt pInline
@@ -130,7 +207,7 @@ module Binding =
 
     /// Parse a value-style binding: [mutable] [access] pat [typar-defns] [: returnType] = expr
     let parseValue attrs =
-        let pBody = refExprSeqBlock.Parser
+        let pBody = pBindingBody
 
         parser {
             let! mut = opt pMutableTok
