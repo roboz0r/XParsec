@@ -41,7 +41,8 @@ module ElifBranches =
 
     let pConditionThen =
         let pCond = withContext OffsideContext.If refExpr.Parser
-        let pThenExpr = withContext OffsideContext.Then refExprSeqBlock.Parser
+        // Grammar: THEN typedSeqExprBlock
+        let pThenExpr = withContext OffsideContext.Then refTypedSeqExprBlock.Parser
 
         parser {
             let! condition = pCond
@@ -50,7 +51,8 @@ module ElifBranches =
             return (condition, thenTok, expr)
         }
 
-    let private pElseExpr = withContext OffsideContext.Else refExprSeqBlock.Parser
+    // Grammar: ELSE typedSeqExprBlock
+    let private pElseExpr = withContext OffsideContext.Else refTypedSeqExprBlock.Parser
 
     let rec private parseBranches (acc: ResizeArray<_>) (reader: Reader<PositionedToken, ParseState, _, _>) =
         match pElifOrElseIf reader with
@@ -984,9 +986,10 @@ module Expr =
                 // then permitted undentation at if_col via contextPermitsToken
                 let! thenTok = recoverWithVirtualToken Token.KWThen "Expected 'then' after condition" pThen
                 // Body anchored to if_col + 1, NOT then_col + 1
+                // Grammar: THEN typedSeqExprBlock
                 let! thenExpr =
                     recoverExprMissing (
-                        withContextAt OffsideContext.Then (indent + 1) ifTok.PositionedToken refExprSeqBlock.Parser
+                        withContextAt OffsideContext.Then (indent + 1) ifTok.PositionedToken refTypedSeqExprBlock.Parser
                     )
 
                 let! elifs, elseBranch = ElifBranches.parse
