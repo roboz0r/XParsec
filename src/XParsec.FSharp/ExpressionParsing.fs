@@ -1950,7 +1950,7 @@ module Expr =
     // Captures the colon's column before consumption so the following type
     // parses inside a stricter offside context (colonCol + 1), preventing
     // Type.parse from greedily slurping suffix identifiers on following lines.
-    let private pTypedSeqExprBlock =
+    let pTypedSeqExprBlock =
         let pColonPeek (reader: Reader<PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, _>) =
             match peekNextNonTriviaToken reader with
             | Ok t when t.Token = Token.OpColon ->
