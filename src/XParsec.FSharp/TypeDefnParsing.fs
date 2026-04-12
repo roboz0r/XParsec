@@ -1241,11 +1241,19 @@ module TypeDefn =
                             parser {
                                 let! tNormal = Type.parse
                                 let! peekAfter = peekNextNonTriviaToken
+                                let! state = getUserState
+
+                                // Also treat fused `^-` / `^+` operators (lexer merges
+                                // `^-N` into a single custom operator at Append precedence)
+                                // as a signal to retry as measure type.
+                                let startsWithCaret =
+                                    ParseState.tokenStringStartsWith "^" peekAfter state
 
                                 if
                                     peekAfter.Token = Token.OpDivision
                                     || peekAfter.Token = Token.OpConcatenate
                                     || peekAfter.Token = Token.OpMultiply
+                                    || startsWithCaret
                                 then
                                     return! fail (Message "Retry as measure type")
                                 else

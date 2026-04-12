@@ -88,10 +88,15 @@ and walkMeasure (visitor: AstVisitor<'T>) (measure: Measure<'T>) : unit =
             walkMeasure visitor m
 
         visitor.ExitSection "Measure.Juxtaposition"
-    | Measure.Power(baseMeasure, powerToken, exponent) ->
+    | Measure.Power(baseMeasure, powerToken, neg, exponent) ->
         visitor.EnterSection "Measure.Power"
         walkMeasure visitor baseMeasure
         visitor.VisitToken "" powerToken
+
+        match neg with
+        | ValueSome n -> visitor.VisitToken "" n
+        | ValueNone -> ()
+
         visitor.VisitToken "" exponent
         visitor.ExitSection "Measure.Power"
     | Measure.Product(left, mulToken, right) ->

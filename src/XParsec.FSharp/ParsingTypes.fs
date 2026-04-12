@@ -150,6 +150,8 @@ and [<RequireQualifiedAccess>] TraceEvent =
     | DiagnosticEmitted of code: DiagnosticCode * severity: DiagnosticSeverity * token: PositionedToken
     | SplitRAttrBracketSet of atStartIndex: int
     | SplitRAttrBracketConsumed of atStartIndex: int
+    | SplitPowerMinusSet of atStartIndex: int
+    | SplitPowerMinusConsumed of atStartIndex: int
     | Message of message: string
 
 /// Holds the trace callback. A reference type so it doesn't affect ParseState equality
@@ -185,6 +187,11 @@ and ParseState =
         /// is rewritten to `KWRBracket`. Set by the measure parser when it splits `>]` into
         /// a virtual `>` (for the measure close) and a real `]` (for the enclosing indexer).
         SplitRAttrBracket: bool
+        /// When true, the next custom operator token starting with `^-` (which the lexer fuses
+        /// as a single operator at Append precedence) is rewritten to `OpSubtraction` at
+        /// `StartIndex + 1`. Set by the measure parser when it splits `^-N` into a virtual `^`
+        /// (for the power operator) and a real `-` followed by the numeric exponent.
+        SplitPowerMinus: bool
         /// Accumulated #nowarn / #warnon directives (most recent first).
         WarnDirectives: WarnDirective list
         /// Callback for structured parse tracing. Default is no-op.
@@ -227,6 +234,7 @@ module ParseState =
             CharsConsumedAfterTypeParams = 0
             ConditionalCompilationStack = []
             SplitRAttrBracket = false
+            SplitPowerMinus = false
             WarnDirectives = []
             Trace = trace
         }
@@ -434,6 +442,8 @@ module TraceEvent =
         | TraceEvent.DiagnosticEmitted(code, severity, token) -> $"DIAGNOSTIC {severity} {code} @{token.StartIndex}"
         | TraceEvent.SplitRAttrBracketSet(startIndex) -> $"SPLIT_RATTR_SET @{startIndex}"
         | TraceEvent.SplitRAttrBracketConsumed(startIndex) -> $"SPLIT_RATTR_CONSUMED @{startIndex}"
+        | TraceEvent.SplitPowerMinusSet(startIndex) -> $"SPLIT_POW_MINUS_SET @{startIndex}"
+        | TraceEvent.SplitPowerMinusConsumed(startIndex) -> $"SPLIT_POW_MINUS_CONSUMED @{startIndex}"
         | TraceEvent.Message(msg) -> $"MSG: {msg}"
 
 [<RequireQualifiedAccess>]
