@@ -1,0 +1,142 @@
+AnonymousModule:
+FunctionOrValue:
+  let                     'let'             KWLet               tok=   7  pos= 190
+    Pat.Op:
+      ParenOp:
+                          '('               KWLParen            tok=   9  pos= 194
+        ActivePatternOp:
+          ActivePatternOp:
+                          '|'               OpBar               tok=  10  pos= 195
+                          'IsZero'          Identifier          tok=  11  pos= 196
+                          '_'               Wildcard            tok=  13  pos= 203
+                          '|'               OpBar               tok=  14  pos= 204
+                          ')'               KWRParen            tok=  15  pos= 205
+    Pats:
+      Pat.NamedSimple     'x'               Identifier          tok=  17  pos= 207
+    =                     '='               OpEquality          tok=  19  pos= 209
+      IfThenElse:
+        IfToken           'if'              KWIf                tok=  22  pos= 215
+        Condition:
+          InfixApp        '='               OpEquality          tok=  26  pos= 220
+            Ident         'x'               Identifier          tok=  24  pos= 218
+            Const         '0'               NumInt32            tok=  28  pos= 222
+        ThenToken         'then'            KWThen              tok=  30  pos= 224
+        ThenExpr:
+          HighPrecedenceApp:
+            Func:
+              Ident       'Some'            Identifier          tok=  32  pos= 229
+            (             '('               KWLParen            tok=  33  pos= 233
+            Arg:
+              ParenBlock  '('               KWLParen            tok=  33  pos= 233
+                          ')'               KWRParen            tok=  34  pos= 234
+                          ')'               KWRParen            tok=  34  pos= 234
+        ElseToken         'else'            KWElse              tok=  36  pos= 236
+        ElseExpr:
+          Ident           'None'            Identifier          tok=  38  pos= 241
+FunctionOrValue:
+  [<                      '[<'              KWLAttrBracket      tok=  41  pos= 247
+  target                  'return'          KWReturn            tok=  42  pos= 249
+  :                       ':'               OpColon             tok=  43  pos= 255
+  NamedType:
+    LongIdent:
+                          'Struct'          Identifier          tok=  45  pos= 257
+  >]                      '>]'              KWRAttrBracket      tok=  46  pos= 263
+  let                     'let'             KWLet               tok=  48  pos= 266
+    Pat.Op:
+      ParenOp:
+                          '('               KWLParen            tok=  50  pos= 270
+        ActivePatternOp:
+          ActivePatternOp:
+                          '|'               OpBar               tok=  51  pos= 271
+                          'IsZeroStru...'   Identifier          tok=  52  pos= 272
+                          '_'               Wildcard            tok=  54  pos= 285
+                          '|'               OpBar               tok=  55  pos= 286
+                          ')'               KWRParen            tok=  56  pos= 287
+    Pats:
+      Pat.NamedSimple     'x'               Identifier          tok=  58  pos= 289
+    =                     '='               OpEquality          tok=  60  pos= 291
+      IfThenElse:
+        IfToken           'if'              KWIf                tok=  63  pos= 297
+        Condition:
+          InfixApp        '='               OpEquality          tok=  67  pos= 302
+            Ident         'x'               Identifier          tok=  65  pos= 300
+            Const         '0'               NumInt32            tok=  69  pos= 304
+        ThenToken         'then'            KWThen              tok=  71  pos= 306
+        ThenExpr:
+          HighPrecedenceApp:
+            Func:
+              Ident       'ValueSome'       Identifier          tok=  73  pos= 311
+            (             '('               KWLParen            tok=  74  pos= 320
+            Arg:
+              ParenBlock  '('               KWLParen            tok=  74  pos= 320
+                          ')'               KWRParen            tok=  75  pos= 321
+                          ')'               KWRParen            tok=  75  pos= 321
+        ElseToken         'else'            KWElse              tok=  77  pos= 323
+        ElseExpr:
+          Ident           'ValueNone'       Identifier          tok=  79  pos= 328
+FunctionOrValue:
+  let                     'let'             KWLet               tok=  84  pos= 419
+  rec                     'rec'             KWRec               tok=  86  pos= 423
+    Pat.NamedSimple       'foo'             Identifier          tok=  88  pos= 427
+    Pats:
+      Pat.NamedSimple     'x'               Identifier          tok=  90  pos= 431
+    =                     '='               OpEquality          tok=  92  pos= 433
+      App:
+        Func:
+          Ident           'bar'             Identifier          tok=  94  pos= 435
+        Args:
+          Ident           'x'               Identifier          tok=  96  pos= 439
+    [<                    '[<'              KWLAttrBracket      tok= 100  pos= 445
+    target                'return'          KWReturn            tok= 101  pos= 447
+    :                     ':'               OpColon             tok= 102  pos= 453
+    NamedType:
+      LongIdent:
+                          'Struct'          Identifier          tok= 104  pos= 455
+    >]                    '>]'              KWRAttrBracket      tok= 105  pos= 461
+    Pat.Op:
+      ParenOp:
+                          '('               KWLParen            tok= 107  pos= 464
+        ActivePatternOp:
+          ActivePatternOp:
+                          '|'               OpBar               tok= 108  pos= 465
+                          'BoolExpr'        Identifier          tok= 109  pos= 466
+                          '_'               Wildcard            tok= 111  pos= 475
+                          '|'               OpBar               tok= 112  pos= 476
+                          ')'               KWRParen            tok= 113  pos= 477
+    Pats:
+      Pat.NamedSimple     'expr'            Identifier          tok= 115  pos= 479
+    =                     '='               OpEquality          tok= 117  pos= 484
+      Match:
+        MatchToken        'match'           KWMatch             tok= 120  pos= 490
+        MatchExpr:
+          Ident           'expr'            Identifier          tok= 122  pos= 496
+        WithToken         'with'            KWWith              tok= 124  pos= 501
+        Rule:
+          Bar             '|'               OpBar               tok= 127  pos= 510
+          Pat:
+            Pat.Const     'true'            KWTrue              tok= 129  pos= 512
+          Arrow           '->'              OpArrowRight        tok= 131  pos= 517
+          Expr:
+            App:
+              Func:
+                Ident     'ValueSome'       Identifier          tok= 133  pos= 520
+              Args:
+                Const     'true'            KWTrue              tok= 135  pos= 530
+        Rule:
+          Bar             '|'               OpBar               tok= 138  pos= 539
+          Pat:
+            Pat.Const     'false'           KWFalse             tok= 140  pos= 541
+          Arrow           '->'              OpArrowRight        tok= 142  pos= 547
+          Expr:
+            App:
+              Func:
+                Ident     'ValueSome'       Identifier          tok= 144  pos= 550
+              Args:
+                Const     'false'           KWFalse             tok= 146  pos= 560
+    Pat.NamedSimple       'bar'             Identifier          tok= 150  pos= 570
+    Pats:
+      Pat.NamedSimple     'x'               Identifier          tok= 152  pos= 574
+    =                     '='               OpEquality          tok= 154  pos= 576
+      InfixApp            '+'               op_Addition         tok= 158  pos= 580
+        Ident             'x'               Identifier          tok= 156  pos= 578
+        Const             '1'               NumInt32            tok= 160  pos= 582

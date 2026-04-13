@@ -275,7 +275,32 @@ module Binding =
     let parse attrs : Parser<Binding<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         choiceL [ parseFunction attrs; parseValue attrs ] "Binding"
 
-    let parseSepByAnd1 attrs = sepBy1 (parse attrs) pAnd
+    let parseSepByAnd1 attrs =
+        let pAndBinding =
+            parser {
+                let! andTok = pAnd
+                let! andAttrs = opt Attributes.parse
+                let! binding = parse andAttrs
+                return struct (andTok, binding)
+            }
+
+        fun (reader: Reader<_, _, _, _>) ->
+            match parse attrs reader with
+            | Error e -> Error e
+            | Ok first ->
+                match many pAndBinding reader with
+                | Error e -> Error e
+                | Ok rest ->
+                    let bindings = ImmutableArray.CreateBuilder(1 + rest.Length)
+                    let ands = ImmutableArray.CreateBuilder(rest.Length)
+                    bindings.Add(first)
+
+                    for i = 0 to rest.Length - 1 do
+                        let struct (andTok, b) = rest.[i]
+                        ands.Add(andTok)
+                        bindings.Add(b)
+
+                    preturn (struct (bindings.ToImmutable(), ands.ToImmutable())) reader
 
 [<AutoOpen>]
 module private MemberHelpers =
