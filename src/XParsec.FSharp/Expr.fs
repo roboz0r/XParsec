@@ -417,6 +417,7 @@ and [<RequireQualifiedAccess>] Pat<'T> =
     | Elems of pats: ImArr<Pat<'T>> * separators: ImArr<'T>
     | NamedSimple of ident: 'T
     | Named of longIdent: LongIdent<'T> * param: Pat<'T> voption * pat: Pat<'T> voption
+    | OpNamed of head: IdentOrOp<'T> * param: Pat<'T> voption * pat: Pat<'T> voption
     | NamedFieldPats of
         longIdent: LongIdent<'T> *
         lParen: 'T *

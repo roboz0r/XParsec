@@ -265,6 +265,25 @@ and walkPat (visitor: AstVisitor<'T>) (pat: Pat<'T>) : unit =
         | ValueNone -> ()
 
         visitor.ExitSection "Pat.Named"
+    | Pat.OpNamed(head, param, innerPat) ->
+        visitor.EnterSection "Pat.OpNamed"
+        walkIdentOrOp visitor head
+
+        match param with
+        | ValueSome p ->
+            visitor.EnterSection "Param"
+            walkPat visitor p
+            visitor.ExitSection "Param"
+        | ValueNone -> ()
+
+        match innerPat with
+        | ValueSome p ->
+            visitor.EnterSection "Pat"
+            walkPat visitor p
+            visitor.ExitSection "Pat"
+        | ValueNone -> ()
+
+        visitor.ExitSection "Pat.OpNamed"
     | Pat.NamedFieldPats(longIdent, lParen, args, _commas, rParen) ->
         visitor.EnterSection "Pat.NamedFieldPats"
 
