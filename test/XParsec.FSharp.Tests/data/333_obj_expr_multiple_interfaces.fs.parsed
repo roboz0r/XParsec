@@ -1,0 +1,207 @@
+AnonymousModule:
+Import:
+  open                                         'open'            KWOpen              tok=   7  pos= 201
+                                               'System'          Identifier          tok=   9  pos= 206
+Import:
+  open                                         'open'            KWOpen              tok=  11  pos= 213
+                                               'System'          Identifier          tok=  13  pos= 218
+                                               'Collection...'   Identifier          tok=  15  pos= 225
+Import:
+  open                                         'open'            KWOpen              tok=  17  pos= 237
+                                               'System'          Identifier          tok=  19  pos= 242
+                                               'Collection...'   Identifier          tok=  21  pos= 249
+                                               'Generic'         Identifier          tok=  23  pos= 261
+FunctionOrValue:
+  let                                          'let'             KWLet               tok=  26  pos= 270
+    Pat.NamedSimple                            'makeEnumer...'   Identifier          tok=  28  pos= 274
+    TyparDefns:
+                                               '<'               op_LessThan         tok=  29  pos= 288
+      Typar.Named:
+                                               ''U'              TypeParameter       tok=  30  pos= 289
+                                               '>'               op_GreaterThan      tok=  31  pos= 291
+    Pats:
+      ParenBlock                               '('               KWLParen            tok=  33  pos= 293
+        Pat.Typed:
+          Pat.NamedSimple                      'items'           Identifier          tok=  34  pos= 294
+          Colon                                ':'               OpColon             tok=  35  pos= 299
+          SuffixedType:
+            VarType:
+              Typar.Named:
+                                               ''U'              TypeParameter       tok=  37  pos= 301
+            LongIdent:
+                                               'array'           Identifier          tok=  39  pos= 304
+                                               ')'               KWRParen            tok=  40  pos= 309
+    ReturnColon                                ':'               OpColon             tok=  42  pos= 311
+    GenericType:
+      LongIdent:
+                                               'IEnumerato...'   Identifier          tok=  44  pos= 313
+      <                                        '<'               op_LessThan         tok=  45  pos= 324
+      TypeArg.Type:
+        VarType:
+          Typar.Named:
+                                               ''U'              TypeParameter       tok=  46  pos= 325
+      >                                        '>'               op_GreaterThan      tok=  47  pos= 327
+    =                                          '='               OpEquality          tok=  49  pos= 329
+      Let                                      'let'             KWLet               tok=  52  pos= 335
+        mutable                                'mutable'         KWMutable           tok=  54  pos= 339
+        Pat.NamedSimple                        'index'           Identifier          tok=  56  pos= 347
+        =                                      '='               OpEquality          tok=  58  pos= 353
+          Const                                '-1'              NumInt32            tok=  60  pos= 355
+      in                                       <virt>            KWIn                tok=virt  pos= 362
+      Body:
+        Let                                    'let'             KWLet               tok=  63  pos= 362
+          Pat.NamedSimple                      'finalIndex'      Identifier          tok=  65  pos= 366
+          =                                    '='               OpEquality          tok=  67  pos= 377
+            InfixApp                           '-'               op_Subtraction      tok=  73  pos= 392
+              LongIdentOrOp:
+                LongIdent:
+                                               'items'           Identifier          tok=  69  pos= 379
+                                               'Length'          Identifier          tok=  71  pos= 385
+              Const                            '1'               NumInt32            tok=  75  pos= 394
+        in                                     <virt>            KWIn                tok=virt  pos= 401
+        Body:
+          ObjectExpr:
+            {                                  '{'               KWLBrace            tok=  79  pos= 401
+            new                                'new'             KWNew               tok=  81  pos= 403
+            GenericType:
+              LongIdent:
+                                               'IEnumerato...'   Identifier          tok=  83  pos= 407
+              <                                '<'               op_LessThan         tok=  84  pos= 418
+              TypeArg.Type:
+                VarType:
+                  Typar.Named:
+                                               ''U'              TypeParameter       tok=  85  pos= 419
+              >                                '>'               op_GreaterThan      tok=  86  pos= 421
+            with                               'with'            KWWith              tok=  88  pos= 423
+              member                           'member'          KWMember            tok=  91  pos= 436
+              self                             '_'               Wildcard            tok=  93  pos= 443
+              Pat.NamedSimple                  'Current'         Identifier          tok=  95  pos= 445
+              =                                '='               OpEquality          tok=  97  pos= 453
+                IndexedLookup:
+                  Expr:
+                    Ident                      'items'           Identifier          tok=  99  pos= 455
+                  .                            '.'               OpDot               tok= 100  pos= 460
+                  [                            '['               KWLBracket          tok= 101  pos= 461
+                  Index:
+                    Ident                      'index'           Identifier          tok= 102  pos= 462
+                                               ']'               KWRBracket          tok= 103  pos= 467
+            end                                <virt>            KWEnd               tok=virt  pos=1143
+            InterfaceImpl:
+              interface                        'interface'       KWInterface         tok= 106  pos= 475
+              NamedType:
+                LongIdent:
+                                               'IEnumerato...'   Identifier          tok= 108  pos= 485
+              with                             'with'            KWWith              tok= 110  pos= 497
+                member                         'member'          KWMember            tok= 113  pos= 512
+                self                           '_'               Wildcard            tok= 115  pos= 519
+                Pat.NamedSimple                'Current'         Identifier          tok= 117  pos= 521
+                =                              '='               OpEquality          tok= 119  pos= 529
+                  App:
+                    Func:
+                      Ident                    'box'             Identifier          tok= 121  pos= 531
+                    Args:
+                      IndexedLookup:
+                        Expr:
+                          Ident                'items'           Identifier          tok= 123  pos= 535
+                        .                      '.'               OpDot               tok= 124  pos= 540
+                        [                      '['               KWLBracket          tok= 125  pos= 541
+                        Index:
+                          Ident                'index'           Identifier          tok= 126  pos= 542
+                                               ']'               KWRBracket          tok= 127  pos= 547
+                member                         'member'          KWMember            tok= 131  pos= 560
+                self                           '_'               Wildcard            tok= 133  pos= 567
+                Pat.NamedSimple                'MoveNext'        Identifier          tok= 135  pos= 569
+                Pats:
+                  ParenBlock                   '('               KWLParen            tok= 136  pos= 577
+                                               ')'               KWRParen            tok= 137  pos= 578
+                =                              '='               OpEquality          tok= 139  pos= 580
+                  IfThenElse:
+                    IfToken                    'if'              KWIf                tok= 142  pos= 596
+                    Condition:
+                      InfixApp                 '='               OpEquality          tok= 146  pos= 605
+                        Ident                  'index'           Identifier          tok= 144  pos= 599
+                        Const                  '-2'              NumInt32            tok= 148  pos= 607
+                    ThenToken                  'then'            KWThen              tok= 150  pos= 610
+                    ThenExpr:
+                      Const                    'false'           KWFalse             tok= 153  pos= 633
+                    ElifBranch:
+                      ElifToken                'elif'            KWElif              tok= 156  pos= 653
+                      ElifCondition:
+                        InfixApp               '='               OpEquality          tok= 160  pos= 664
+                          Ident                'index'           Identifier          tok= 158  pos= 658
+                          Const                '-1'              NumInt32            tok= 162  pos= 666
+                      ThenToken                'then'            KWThen              tok= 164  pos= 669
+                      ElifExpr:
+                        Sequential:
+                          Assignment           '<-'              OpArrowLeft         tok= 169  pos= 698
+                            Ident              'index'           Identifier          tok= 167  pos= 692
+                            Const              '0'               NumInt32            tok= 171  pos= 701
+                          Const                'true'            KWTrue              tok= 174  pos= 721
+                    ElseToken                  'else'            KWElse              tok= 177  pos= 740
+                    ElseExpr:
+                      Sequential:
+                        IfThenElse:
+                          IfToken              'if'              KWIf                tok= 180  pos= 763
+                          Condition:
+                            InfixApp           '='               OpEquality          tok= 184  pos= 772
+                              Ident            'index'           Identifier          tok= 182  pos= 766
+                              LongIdentOrOp:
+                                LongIdent:
+                                               'Int32'           Identifier          tok= 186  pos= 774
+                                               'MaxValue'        Identifier          tok= 188  pos= 780
+                          ThenToken            'then'            KWThen              tok= 190  pos= 789
+                          ThenExpr:
+                            App:
+                              Func:
+                                Ident          'invalidOp'       Identifier          tok= 193  pos= 816
+                              Args:
+                                StringLiteral  '"'               StringOpen          tok= 195  pos= 826
+                                Parts:
+                                  Text         'overflow'        StringFragment      tok= 196  pos= 827
+                                               '"'               StringClose         tok= 197  pos= 835
+                        IfThenElse:
+                          IfToken              'if'              KWIf                tok= 201  pos= 856
+                          Condition:
+                            InfixApp           '='               OpEquality          tok= 205  pos= 865
+                              Ident            'index'           Identifier          tok= 203  pos= 859
+                              Ident            'finalIndex'      Identifier          tok= 207  pos= 867
+                          ThenToken            'then'            KWThen              tok= 209  pos= 878
+                          ThenExpr:
+                            Const              'false'           KWFalse             tok= 212  pos= 905
+                          ElseToken            'else'            KWElse              tok= 215  pos= 929
+                          ElseExpr:
+                            Sequential:
+                              Assignment       '<-'              OpArrowLeft         tok= 220  pos= 962
+                                Ident          'index'           Identifier          tok= 218  pos= 956
+                                InfixApp       '+'               op_Addition         tok= 224  pos= 971
+                                  Ident        'index'           Identifier          tok= 222  pos= 965
+                                  Const        '1'               NumInt32            tok= 226  pos= 973
+                              Const            'true'            KWTrue              tok= 229  pos= 997
+                member                         'member'          KWMember            tok= 233  pos=1013
+                self                           '_'               Wildcard            tok= 235  pos=1020
+                Pat.NamedSimple                'Reset'           Identifier          tok= 237  pos=1022
+                Pats:
+                  ParenBlock                   '('               KWLParen            tok= 238  pos=1027
+                                               ')'               KWRParen            tok= 239  pos=1028
+                =                              '='               OpEquality          tok= 241  pos=1030
+                  Assignment                   '<-'              OpArrowLeft         tok= 246  pos=1052
+                    Ident                      'index'           Identifier          tok= 244  pos=1046
+                    Const                      '-1'              NumInt32            tok= 248  pos=1055
+              end                              <virt>            KWEnd               tok=virt  pos=1064
+            InterfaceImpl:
+              interface                        'interface'       KWInterface         tok= 251  pos=1064
+              NamedType:
+                LongIdent:
+                                               'IDisposabl...'   Identifier          tok= 253  pos=1074
+              with                             'with'            KWWith              tok= 255  pos=1086
+                member                         'member'          KWMember            tok= 258  pos=1101
+                self                           '_'               Wildcard            tok= 260  pos=1108
+                Pat.NamedSimple                'Dispose'         Identifier          tok= 262  pos=1110
+                Pats:
+                  ParenBlock                   '('               KWLParen            tok= 263  pos=1117
+                                               ')'               KWRParen            tok= 264  pos=1118
+                =                              '='               OpEquality          tok= 266  pos=1120
+                  ParenBlock                   '('               KWLParen            tok= 269  pos=1136
+                                               ')'               KWRParen            tok= 270  pos=1137
+              end                              <virt>            KWEnd               tok=virt  pos=1143
+            }                                  '}'               KWRBrace            tok= 273  pos=1143
