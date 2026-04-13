@@ -1746,7 +1746,12 @@ and walkObjectModelBody (visitor: AstVisitor<'T>) (body: ObjectModelBody<'T>) : 
             visitor.VisitToken "let" letTok
             visitTokenOpt visitor "rec" isRec
 
-            for binding in bindings do
+            for i = 0 to bindings.Length - 1 do
+                let binding = bindings.[i]
+
+                if i > 0 then
+                    walkAttributesOpt visitor binding.attributes
+
                 walkBinding visitor binding
         | ClassFunctionOrValueDefn.Do(attrs, staticTok, doTok, expr) ->
             walkAttributesOpt visitor attrs
@@ -1937,7 +1942,12 @@ and walkModuleFunctionOrValueDefn (visitor: AstVisitor<'T>) (defn: ModuleFunctio
 
         visitor.EnterSection ""
 
-        for binding in bindings do
+        for i = 0 to bindings.Length - 1 do
+            let binding = bindings.[i]
+
+            if i > 0 then
+                walkAttributesOpt visitor binding.attributes
+
             walkBinding visitor binding
 
         visitor.ExitSection ""
