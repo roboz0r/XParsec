@@ -1,0 +1,78 @@
+AnonymousModule:
+TypeDefn.Record:
+  TypeName                             'Item'            Identifier          tok=   7  pos= 160
+  =                                    '='               OpEquality          tok=   9  pos= 165
+  {                                    '{'               KWLBrace            tok=  11  pos= 167
+    Field:
+      ident                            'Kind'            Identifier          tok=  13  pos= 169
+      :                                ':'               OpColon             tok=  14  pos= 173
+      NamedType:
+        LongIdent:
+                                       'string'          Identifier          tok=  16  pos= 175
+  }                                    '}'               KWRBrace            tok=  18  pos= 182
+FunctionOrValue:
+  let                                  'let'             KWLet               tok=  21  pos= 185
+    Pat.NamedSimple                    'classify'        Identifier          tok=  23  pos= 189
+    Pats:
+      Pat.NamedSimple                  'items'           Identifier          tok=  25  pos= 198
+    =                                  '='               OpEquality          tok=  27  pos= 204
+      Match:
+        MatchToken                     'match'           KWMatch             tok=  30  pos= 210
+        MatchExpr:
+          Ident                        'items'           Identifier          tok=  32  pos= 216
+        WithToken                      'with'            KWWith              tok=  34  pos= 222
+        Rule:
+          Bar                          '|'               OpBar               tok=  37  pos= 231
+          Pat:
+            Array                      '[|'              KWLArrayBracket     tok=  39  pos= 233
+              Pat.Elems:
+                Pat.As:
+                  Pat.Record           '{'               KWLBrace            tok=  41  pos= 236
+                    FieldPat:
+                      Ident            'Kind'            Identifier          tok=  43  pos= 238
+                      =                '='               OpEquality          tok=  45  pos= 243
+                      Pat:
+                        StringLiteral  '"'               StringOpen          tok=  47  pos= 245
+                        Parts:
+                          Text         'Property'        StringFragment      tok=  48  pos= 246
+                                       '"'               StringClose         tok=  49  pos= 254
+                                       '}'               KWRBrace            tok=  51  pos= 256
+                  As                   'as'              KWAs                tok=  53  pos= 258
+                  Ident                'prop'            Identifier          tok=  55  pos= 261
+                Pat.Record             '{'               KWLBrace            tok=  58  pos= 275
+                  FieldPat:
+                    Ident              'Kind'            Identifier          tok=  60  pos= 277
+                    =                  '='               OpEquality          tok=  62  pos= 282
+                    Pat:
+                      StringLiteral    '"'               StringOpen          tok=  64  pos= 284
+                      Parts:
+                        Text           'Field'           StringFragment      tok=  65  pos= 285
+                                       '"'               StringClose         tok=  66  pos= 290
+                                       '}'               KWRBrace            tok=  68  pos= 292
+                Pat.Record             '{'               KWLBrace            tok=  71  pos= 303
+                  FieldPat:
+                    Ident              'Kind'            Identifier          tok=  73  pos= 305
+                    =                  '='               OpEquality          tok=  75  pos= 310
+                    Pat:
+                      StringLiteral    '"'               StringOpen          tok=  77  pos= 312
+                      Parts:
+                        Text           'Field'           StringFragment      tok=  78  pos= 313
+                                       '"'               StringClose         tok=  79  pos= 318
+                                       '}'               KWRBrace            tok=  81  pos= 320
+                                       '|]'              KWRArrayBracket     tok=  83  pos= 322
+          Arrow                        '->'              OpArrowRight        tok=  85  pos= 325
+          Expr:
+            LongIdentOrOp:
+              LongIdent:
+                                       'prop'            Identifier          tok=  87  pos= 328
+                                       'Kind'            Identifier          tok=  89  pos= 333
+        Rule:
+          Bar                          '|'               OpBar               tok=  92  pos= 342
+          Pat:
+            Pat.Wildcard               '_'               Wildcard            tok=  94  pos= 344
+          Arrow                        '->'              OpArrowRight        tok=  96  pos= 346
+          Expr:
+            StringLiteral              '"'               StringOpen          tok=  98  pos= 349
+            Parts:
+              Text                     'other'           StringFragment      tok=  99  pos= 350
+                                       '"'               StringClose         tok= 100  pos= 355
