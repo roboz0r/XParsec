@@ -646,6 +646,17 @@ module Expr =
                     return ExprAux.HighPrecApp(lParen, Expr.EmptyBlock(ParenKind.Paren lParen, rParen), rParen)
                 | _ ->
                     let! argExpr = refExpr.Parser
+
+                    let! argExpr =
+                        parser {
+                            match! peekNextNonTriviaToken with
+                            | t when t.Token = Token.OpColon ->
+                                let! colon = consumePeeked t
+                                let! typ = Type.parse
+                                return Expr.TypeAnnotation(argExpr, colon, typ)
+                            | _ -> return argExpr
+                        }
+
                     let! rParen = pRParen
                     return ExprAux.HighPrecApp(lParen, argExpr, rParen)
             }
