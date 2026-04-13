@@ -1,0 +1,69 @@
+AnonymousModule:
+TypeDefn.Record:
+  TypeName                             'Info'            Identifier          tok=   9  pos= 216
+  =                                    '='               OpEquality          tok=  11  pos= 221
+  {                                    '{'               KWLBrace            tok=  13  pos= 223
+    Field:
+      ident                            'Flag'            Identifier          tok=  15  pos= 225
+      :                                ':'               OpColon             tok=  16  pos= 229
+      NamedType:
+        LongIdent:
+                                       'bool'            Identifier          tok=  18  pos= 231
+    Field:
+      ident                            'Name'            Identifier          tok=  21  pos= 237
+      :                                ':'               OpColon             tok=  22  pos= 241
+      NamedType:
+        LongIdent:
+                                       'string'          Identifier          tok=  24  pos= 243
+  }                                    '}'               KWRBrace            tok=  26  pos= 250
+FunctionOrValue:
+  let                                  'let'             KWLet               tok=  29  pos= 253
+    Pat.NamedSimple                    'isEmpty'         Identifier          tok=  31  pos= 257
+    Pats:
+      Pat.NamedSimple                  'g'               Identifier          tok=  33  pos= 265
+    =                                  '='               OpEquality          tok=  35  pos= 267
+      InfixApp                         '|>'              op_PipeRight        tok=  41  pos= 279
+        Ident                          'g'               Identifier          tok=  38  pos= 273
+        ParenBlock                     '('               KWLParen            tok=  43  pos= 282
+          Function                     'function'        KWFunction          tok=  44  pos= 283
+            Rule:
+              Pat:
+                Pat.Record             '{'               KWLBrace            tok=  46  pos= 292
+                  FieldPat:
+                    Ident              'Flag'            Identifier          tok=  48  pos= 294
+                    =                  '='               OpEquality          tok=  50  pos= 299
+                    Pat:
+                      Pat.NamedSimple  'flag'            Identifier          tok=  52  pos= 301
+                  FieldPat:
+                    Ident              'Name'            Identifier          tok=  55  pos= 307
+                    =                  '='               OpEquality          tok=  57  pos= 312
+                    Pat:
+                      Pat.NamedSimple  'name'            Identifier          tok=  59  pos= 314
+                                       '}'               KWRBrace            tok=  61  pos= 319
+              When                     'when'            KWWhen              tok=  63  pos= 321
+              Guard:
+                InfixApp               '||'              op_BooleanOr        tok=  71  pos= 337
+                  ParenBlock           '('               KWLParen            tok=  65  pos= 326
+                    App:
+                      Func:
+                        Ident          'not'             Identifier          tok=  66  pos= 327
+                      Args:
+                        Ident          'flag'            Identifier          tok=  68  pos= 331
+                                       ')'               KWRParen            tok=  69  pos= 335
+                  ParenBlock           '('               KWLParen            tok=  73  pos= 340
+                    InfixApp           '='               OpEquality          tok=  76  pos= 346
+                      Ident            'name'            Identifier          tok=  74  pos= 341
+                      StringLiteral    '"'               StringOpen          tok=  78  pos= 348
+                                       '"'               StringClose         tok=  79  pos= 349
+                                       ')'               KWRParen            tok=  80  pos= 350
+              Arrow                    '->'              OpArrowRight        tok=  83  pos= 368
+              Expr:
+                Const                  'true'            KWTrue              tok=  85  pos= 371
+            Rule:
+              Bar                      '|'               OpBar               tok=  87  pos= 376
+              Pat:
+                Pat.Wildcard           '_'               Wildcard            tok=  89  pos= 378
+              Arrow                    '->'              OpArrowRight        tok=  91  pos= 380
+              Expr:
+                Const                  'false'           KWFalse             tok=  93  pos= 383
+                                       ')'               KWRParen            tok=  94  pos= 388
