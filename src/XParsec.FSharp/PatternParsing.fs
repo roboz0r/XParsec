@@ -428,6 +428,27 @@ module Pat =
             ]
             "Named pattern"
 
+    // Parses `(op) [atomicArg] [fullArg]` in pattern position. Enables parameterized
+    // active pattern calls whose parameter is an expression-shaped pattern, e.g.
+    // `| NLambdas ((-) n 1) (vs, b) -> ...`. F# parses the expression argument as a
+    // pattern and the type checker reinterprets it as an expression in active-pattern
+    // parameter positions (matching pars.fsy's `atomicPatternLongIdent` handling).
+    let private pParenOpHeadPat =
+        parser {
+            let! l = pLParen
+            let! op = OpName.parse
+            let! r = pRParen
+            let head = IdentOrOp.ParenOp(l, op, r)
+            let! param = opt refPatAtomic.Parser
+            let! arg = opt refPat.Parser
+
+            match param, arg with
+            | ValueNone, ValueNone -> return Pat.Op head
+            | _ -> return Pat.OpNamed(head, param, arg)
+        }
+
+    let private pParenOrOpHeadPat = pParenOpHeadPat <|> pParenPat
+
     let pTypeTestPat =
         parser {
             let! op = pTypeTest
@@ -568,7 +589,7 @@ module Pat =
                 Token.Identifier, pNamed
                 Token.BacktickedIdentifier, pNamed
                 Token.UnterminatedBacktickedIdentifier, pNamed
-                Token.KWLParen, pParenPat
+                Token.KWLParen, pParenOrOpHeadPat
                 Token.KWLBracket, pListPat
                 Token.KWLArrayBracket, pArrayPat
                 Token.KWLBrace, pRecordPat
