@@ -29,7 +29,38 @@ module ElifBranches =
                 Token.KWElse,
                 parser {
                     let! elseTok = pElse
-                    return ElIfTok.Else elseTok
+
+                    match! peekNextNonTriviaToken with
+                    | t when t.Token = Token.KWIf ->
+                        // `else if` is collapsed into a single chain arm (matching
+                        // F#'s LexFilter: `ELSE` immediately followed by `IF` becomes
+                        // `ELIF`) only when it's clearly sugar for flat chaining:
+                        //   (a) same source line (classic inline `else if`), or
+                        //   (b) `if` at or left of the `else` column (multi-line form
+                        //       where the `if` is undentated to align with `else`).
+                        // When the `if` is strictly to the right of `else`, the user
+                        // has written a nested `if` inside the else body — let the
+                        // else branch parse the whole body as an expression so
+                        // subsequent sibling statements at the inner col join via
+                        // the else body's own SeqBlock.
+                        let! state = getUserState
+
+                        let collapse =
+                            match elseTok.Index, t.Index with
+                            | TokenIndex.Regular elseIdx, TokenIndex.Regular ifIdx ->
+                                let elseCol = ParseState.getIndent state elseIdx
+                                let ifCol = ParseState.getIndent state ifIdx
+                                let elseLine = ParseState.findLineNumber state elseIdx
+                                let ifLine = ParseState.findLineNumber state ifIdx
+                                elseLine = ifLine || ifCol <= elseCol
+                            | _ -> true
+
+                        if collapse then
+                            let! ifTok = consumePeeked t
+                            return ElIfTok.ElseIf(elseTok, ifTok)
+                        else
+                            return ElIfTok.Else elseTok
+                    | _ -> return ElIfTok.Else elseTok
                 }
             ]
             "Expected 'elif' or 'else'"
@@ -58,29 +89,16 @@ module ElifBranches =
                 parseBranches acc reader
             | Error e -> Error e
 
-        | Ok(ElIfTok.ElseIf _) ->
-            // pElifOrElseIf no longer produces ElseIf. The `else if` flat-chain form
-            // is reconstructed from the Else branch below when the body is a single
-            // IfThenElse expression.
-            Ok struct (ImmutableArray.CreateRange acc, ValueNone)
+        | Ok(ElIfTok.ElseIf(elseTok, ifTok)) ->
+            match pConditionThen reader with
+            | Ok(condition, thenTok, expr) ->
+                acc.Add(ElifBranch.ElseIf(elseTok, ifTok, condition, thenTok, expr))
+                parseBranches acc reader
+            | Error e -> Error e
 
         | Ok(ElIfTok.Else elseTok) ->
             match pElseExpr reader with
-            | Ok expr ->
-                // If the else body is a lone `if ... then ... [elif ...]* [else ...]`
-                // expression (F#'s `else if` sugar — often written across lines),
-                // flatten it into the outer chain so the AST reflects a single flat
-                // if/elif/else chain. A Sequential (multiple statements) or anything
-                // other than a bare IfThenElse stays as a plain Else branch.
-                match expr with
-                | Expr.IfThenElse(ifTok, condition, thenTok, thenExpr, innerElifs, innerElse) ->
-                    acc.Add(ElifBranch.ElseIf(elseTok, ifTok, condition, thenTok, thenExpr))
-
-                    for b in innerElifs do
-                        acc.Add(b)
-
-                    Ok struct (ImmutableArray.CreateRange acc, innerElse)
-                | _ -> Ok struct (ImmutableArray.CreateRange acc, ValueSome(ElseBranch.ElseBranch(elseTok, expr)))
+            | Ok expr -> Ok struct (ImmutableArray.CreateRange acc, ValueSome(ElseBranch.ElseBranch(elseTok, expr)))
             | Error e -> Error e
 
         | Error e -> Ok struct (ImmutableArray.CreateRange acc, ValueNone)
