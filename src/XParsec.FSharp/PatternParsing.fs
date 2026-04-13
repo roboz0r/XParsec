@@ -275,11 +275,59 @@ module Pat =
             DiagnosticCode.ExpectedRArrayBracket
             refPatSeqBlock.Parser
 
+    // Shared '|' / 'as' chain handling for field-like patterns (record fields,
+    // union case args). The Pratt parsers for those contexts exclude '|' and
+    // 'as' via their min-binding-power cutoff, so we reapply them manually
+    // here around a parsed base pattern.
+    let private pBarToken =
+        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpBar) "'|'"
+
+    let private pOrAsChain
+        (altParser:
+            Parser<Pat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, ReadableImmutableArraySlice<PositionedToken>>)
+        (basePat: Pat<SyntaxToken>)
+        =
+        parser {
+            let! orAlts =
+                many (
+                    parser {
+                        let! barTok = pBarToken
+                        let! altPat = altParser
+                        return struct (barTok, altPat)
+                    }
+                )
+
+            let p =
+                if orAlts.IsEmpty then
+                    basePat
+                else
+                    orAlts
+                    |> Seq.fold (fun acc struct (barTok, altPat) -> Pat.Or(acc, barTok, altPat)) basePat
+
+            let! asClause =
+                opt (
+                    parser {
+                        let! asTok = pAs
+
+                        let! ident =
+                            nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "identifier after 'as'"
+
+                        return struct (asTok, ident)
+                    }
+                )
+
+            return
+                match asClause with
+                | ValueSome(asTok, ident) -> Pat.As(p, asTok, ident)
+                | ValueNone -> p
+        }
+
     let pFieldPat =
         parser {
             let! lid = LongIdent.parse
             let! eq = pEquals
-            let! p = withContext OffsideContext.SeqBlock refFieldPat.Parser
+            let! basePat = withContext OffsideContext.SeqBlock refFieldPat.Parser
+            let! p = pOrAsChain refFieldPat.Parser basePat
             return FieldPat(lid, eq, p)
         }
 
@@ -315,55 +363,13 @@ module Pat =
                     reader.State <- savedState
                     fail (Message "Record pattern") reader
 
-    // Shared '|' / 'as' chain handling for union case arg patterns.
-    // The Pratt parser for union fields excludes 'as' and '|' (below Comma+1 cutoff),
-    // so we reapply them manually here around a parsed base pattern.
-    let private pBarToken =
-        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpBar) "'|'"
-
-    let private pOrAsChain (basePat: Pat<SyntaxToken>) =
-        parser {
-            let! orAlts =
-                many (
-                    parser {
-                        let! barTok = pBarToken
-                        let! altPat = refUnionFieldPat.Parser
-                        return struct (barTok, altPat)
-                    }
-                )
-
-            let p =
-                if orAlts.IsEmpty then
-                    basePat
-                else
-                    orAlts
-                    |> Seq.fold (fun acc struct (barTok, altPat) -> Pat.Or(acc, barTok, altPat)) basePat
-
-            let! asClause =
-                opt (
-                    parser {
-                        let! asTok = pAs
-
-                        let! ident =
-                            nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "identifier after 'as'"
-
-                        return struct (asTok, ident)
-                    }
-                )
-
-            return
-                match asClause with
-                | ValueSome(asTok, ident) -> Pat.As(p, asTok, ident)
-                | ValueNone -> p
-        }
-
     /// Parse a single named field in a union case pattern: fieldName = pat (excludes comma).
     let private pUnionNamedArgPat =
         parser {
             let! lid = LongIdent.parse
             let! eq = pEquals
             let! basePat = withContext OffsideContext.SeqBlock refUnionFieldPat.Parser
-            let! p = pOrAsChain basePat
+            let! p = pOrAsChain refUnionFieldPat.Parser basePat
             return UnionArgPat.Named(lid, eq, p)
         }
 
@@ -371,7 +377,7 @@ module Pat =
     let private pUnionPositionalArgPat =
         parser {
             let! basePat = withContext OffsideContext.SeqBlock refUnionFieldPat.Parser
-            let! p = pOrAsChain basePat
+            let! p = pOrAsChain refUnionFieldPat.Parser basePat
             return UnionArgPat.Positional p
         }
 
