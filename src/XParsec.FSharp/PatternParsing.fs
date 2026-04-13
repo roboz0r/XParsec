@@ -68,6 +68,35 @@ module Pat =
     let private completeElems (exprs: ResizeArray<Pat<_>>) ops =
         Pat.Elems(ImmutableArray.CreateRange(exprs), ImmutableArray.CreateRange(ops))
 
+    /// Emits a virtual `;` in pattern SeqBlock contexts when the next non-trivia token
+    /// is at the current offside indent and can start a pattern. Mirrors `pSepVirt` in
+    /// ExpressionParsing.fs so list/array patterns accept newline-separated elements.
+    let private pSepVirtPat: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+        let failSep =
+            fail (Message "Expected ';' or newline at the same indent for pattern sequencing")
+
+        parser {
+            match! peekNextNonTriviaToken with
+            | t when t.Token = Token.EOF -> return! failSep
+            | t when t.Token = Token.OpSemicolon -> return! failSep
+            | t ->
+                if TokenInfo.canStartPattern t.Token then
+                    let! indent = currentIndent
+                    let! state = getUserState
+
+                    let atContextIndent =
+                        match state.Context with
+                        | { Indent = ctxIndent } :: _ -> indent = ctxIndent
+                        | [] -> indent = 0
+
+                    if atContextIndent then
+                        return virtualToken (PositionedToken.Create(Token.OpSemicolon, t.StartIndex))
+                    else
+                        return! failSep
+                else
+                    return! failSep
+        }
+
     let private pTypeRhs = Type.parse |>> PatAux.Type
 
     let private pAsRhs =
@@ -103,44 +132,45 @@ module Pat =
     /// operator so that `(x : int)`, `(x : int, y : float)`, etc. parse as
     /// per-element `Pat.Typed` inside the paren.
     type PatOperatorParser() =
+        static let tokenToOp (token: SyntaxToken) =
+            match token.Token with
+            // Infix Left: | (Or), & (And)
+            | Token.OpBar ->
+                let op = InfixLeft(token, preturn token, pipePrecedence, completeInfix)
+                preturn op
+
+            | Token.OpAmp ->
+                let op = InfixLeft(token, preturn token, andPrecedence, completeInfix)
+                preturn op
+
+            // Infix Right: :: (Cons)
+            | Token.KWColonColon ->
+                let op = InfixRight(token, preturn token, consPrecedence, completeInfix)
+                preturn op
+
+            // Infix Mapped: : (Typed)
+            | Token.OpColon ->
+                let op = InfixMapped(token, preturn token, colonPrecedence, pTypeRhs, completeTyped)
+                preturn op
+
+            // Infix Mapped: as (As)
+            | Token.KWAs ->
+                let op = InfixMapped(token, preturn token, asPrecedence, pAsRhs, completeAs)
+                preturn op
+
+            // Infix N-ary: , (Tuple)
+            | Token.OpComma ->
+                let op = InfixNary(token, preturn token, tuplePrecedence, false, completeTuple)
+                preturn op
+
+            | Token.OpSemicolon ->
+                let op = InfixNary(token, preturn token, semiPrecedence, false, completeElems)
+                preturn op
+
+            | _ -> fail (Message "Not a valid RHS pattern operator")
+
         static let rhsParser =
-            nextNonTriviaToken
-            >>= fun token ->
-                match token.Token with
-                // Infix Left: | (Or), & (And)
-                | Token.OpBar ->
-                    let op = InfixLeft(token, preturn token, pipePrecedence, completeInfix)
-                    preturn op
-
-                | Token.OpAmp ->
-                    let op = InfixLeft(token, preturn token, andPrecedence, completeInfix)
-                    preturn op
-
-                // Infix Right: :: (Cons)
-                | Token.KWColonColon ->
-                    let op = InfixRight(token, preturn token, consPrecedence, completeInfix)
-                    preturn op
-
-                // Infix Mapped: : (Typed)
-                | Token.OpColon ->
-                    let op = InfixMapped(token, preturn token, colonPrecedence, pTypeRhs, completeTyped)
-                    preturn op
-
-                // Infix Mapped: as (As)
-                | Token.KWAs ->
-                    let op = InfixMapped(token, preturn token, asPrecedence, pAsRhs, completeAs)
-                    preturn op
-
-                // Infix N-ary: , (Tuple)
-                | Token.OpComma ->
-                    let op = InfixNary(token, preturn token, tuplePrecedence, false, completeTuple)
-                    preturn op
-
-                | Token.OpSemicolon ->
-                    let op = InfixNary(token, preturn token, semiPrecedence, false, completeElems)
-                    preturn op
-
-                | _ -> fail (Message "Not a valid RHS pattern operator")
+            choiceL [ pSepVirtPat >>= tokenToOp; nextNonTriviaToken >>= tokenToOp ] "RHS pattern operator"
 
         interface Operators<
             SyntaxToken,
@@ -162,35 +192,36 @@ module Pat =
     /// puts the `: int` into the binding's `optReturnType`, not the head
     /// pattern. Used by `Pat.parseHead` for let-value binding heads.
     type PatHeadOperatorParser() =
+        static let tokenToOp (token: SyntaxToken) =
+            match token.Token with
+            | Token.OpBar ->
+                let op = InfixLeft(token, preturn token, pipePrecedence, completeInfix)
+                preturn op
+
+            | Token.OpAmp ->
+                let op = InfixLeft(token, preturn token, andPrecedence, completeInfix)
+                preturn op
+
+            | Token.KWColonColon ->
+                let op = InfixRight(token, preturn token, consPrecedence, completeInfix)
+                preturn op
+
+            | Token.KWAs ->
+                let op = InfixMapped(token, preturn token, asPrecedence, pAsRhs, completeAs)
+                preturn op
+
+            | Token.OpComma ->
+                let op = InfixNary(token, preturn token, tuplePrecedence, false, completeTuple)
+                preturn op
+
+            | Token.OpSemicolon ->
+                let op = InfixNary(token, preturn token, semiPrecedence, false, completeElems)
+                preturn op
+
+            | _ -> fail (Message "Not a valid RHS pattern operator")
+
         static let rhsParser =
-            nextNonTriviaToken
-            >>= fun token ->
-                match token.Token with
-                | Token.OpBar ->
-                    let op = InfixLeft(token, preturn token, pipePrecedence, completeInfix)
-                    preturn op
-
-                | Token.OpAmp ->
-                    let op = InfixLeft(token, preturn token, andPrecedence, completeInfix)
-                    preturn op
-
-                | Token.KWColonColon ->
-                    let op = InfixRight(token, preturn token, consPrecedence, completeInfix)
-                    preturn op
-
-                | Token.KWAs ->
-                    let op = InfixMapped(token, preturn token, asPrecedence, pAsRhs, completeAs)
-                    preturn op
-
-                | Token.OpComma ->
-                    let op = InfixNary(token, preturn token, tuplePrecedence, false, completeTuple)
-                    preturn op
-
-                | Token.OpSemicolon ->
-                    let op = InfixNary(token, preturn token, semiPrecedence, false, completeElems)
-                    preturn op
-
-                | _ -> fail (Message "Not a valid RHS pattern operator")
+            choiceL [ pSepVirtPat >>= tokenToOp; nextNonTriviaToken >>= tokenToOp ] "RHS pattern operator"
 
         interface Operators<
             SyntaxToken,
@@ -206,6 +237,7 @@ module Pat =
             member _.OpComparer = opComparer
 
     let private refPat = FSRefParser<Pat<SyntaxToken>>()
+    let private refPatSeqBlock = FSRefParser<Pat<SyntaxToken>>()
     let private refFieldPat = FSRefParser<Pat<SyntaxToken>>()
     let private refUnionFieldPat = FSRefParser<Pat<SyntaxToken>>()
     let private refPatAtomic = FSRefParser<Pat<SyntaxToken>>()
@@ -232,7 +264,7 @@ module Pat =
             ParenKind.List
             OffsideContext.Bracket
             DiagnosticCode.ExpectedRBracket
-            refPat.Parser
+            refPatSeqBlock.Parser
 
     let pArrayPat =
         pEnclosed
@@ -241,7 +273,7 @@ module Pat =
             ParenKind.Array
             OffsideContext.BracketBar
             DiagnosticCode.ExpectedRArrayBracket
-            refPat.Parser
+            refPatSeqBlock.Parser
 
     let pFieldPat =
         parser {
@@ -552,6 +584,8 @@ module Pat =
 
     let parse = Operator.parser parseAtomic (PatOperatorParser())
 
+    let parseSeqBlock = withContext OffsideContext.SeqBlock parse
+
     /// Matches F#'s `headBindingPattern` grammar rule. Same operators as `parse`
     /// except `:` is not consumed (the surrounding binding's `optReturnType`
     /// owns any trailing `: type`). Used by `Binding.parseValue` for let-value
@@ -570,6 +604,7 @@ module Pat =
     let parseAtomicMany1 = many1 parseAtomic
 
     do refPat.Set parse
+    do refPatSeqBlock.Set parseSeqBlock
     do refFieldPat.Set parseFieldPat
     do refUnionFieldPat.Set parseUnionFieldPat
 

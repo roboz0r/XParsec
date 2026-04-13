@@ -1953,6 +1953,36 @@ module internal TokenInfo =
         | _ when isOperator token && canBePrefix token -> true
         | _ -> false
 
+    /// Can this token appear as the first token of a pattern?
+    /// Used to guard virtual separator emission in pattern SeqBlock contexts — only tokens
+    /// that can actually start a pattern should trigger a virtual `;`. This is narrower than
+    /// `canStartExpression` because pattern atoms are a subset (no `if`/`match`/`fun`/etc.).
+    let canStartPattern (token: Token) =
+        match token with
+        | Token.Identifier
+        | Token.BacktickedIdentifier
+        | Token.UnterminatedBacktickedIdentifier
+        | Token.Wildcard
+        | Token.KWNull
+        | Token.KWTrue
+        | Token.KWFalse
+        | Token.KWLParen
+        | Token.KWLBracket
+        | Token.KWLArrayBracket
+        | Token.KWLBrace
+        | Token.KWLAttrBracket
+        | Token.KWStruct
+        | Token.OpTypeTest
+        | Token.OpDynamic
+        | Token.StringOpen
+        | Token.VerbatimStringOpen
+        | Token.String3Open -> true
+        // Literals (numeric and text kinds cover all number/string/char/byte-array tokens)
+        | _ when isLiteral token -> true
+        // `-` and `+` prefixing a numeric literal inside a const pattern
+        | _ when isOperator token && canBePrefix token -> true
+        | _ -> false
+
     // https://learn.microsoft.com/en-us/dotnet/fsharp/language-reference/symbol-and-operator-reference/#operator-precedence
     // 4.4.2 Precedence of Symbolic Operators and Pattern/Expression Constructs
 
