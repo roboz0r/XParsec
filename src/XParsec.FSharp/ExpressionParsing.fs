@@ -29,12 +29,7 @@ module ElifBranches =
                 Token.KWElse,
                 parser {
                     let! elseTok = pElse
-
-                    match! peekNextNonTriviaToken with
-                    | t when t.Token = Token.KWIf ->
-                        let! ifTok = consumePeeked t
-                        return ElIfTok.ElseIf(elseTok, ifTok)
-                    | _ -> return ElIfTok.Else elseTok
+                    return ElIfTok.Else elseTok
                 }
             ]
             "Expected 'elif' or 'else'"
@@ -63,16 +58,29 @@ module ElifBranches =
                 parseBranches acc reader
             | Error e -> Error e
 
-        | Ok(ElIfTok.ElseIf(elseTok, ifTok)) ->
-            match pConditionThen reader with
-            | Ok(condition, thenTok, expr) ->
-                acc.Add(ElifBranch.ElseIf(elseTok, ifTok, condition, thenTok, expr))
-                parseBranches acc reader
-            | Error e -> Error e
+        | Ok(ElIfTok.ElseIf _) ->
+            // pElifOrElseIf no longer produces ElseIf. The `else if` flat-chain form
+            // is reconstructed from the Else branch below when the body is a single
+            // IfThenElse expression.
+            Ok struct (ImmutableArray.CreateRange acc, ValueNone)
 
         | Ok(ElIfTok.Else elseTok) ->
             match pElseExpr reader with
-            | Ok expr -> Ok struct (ImmutableArray.CreateRange acc, ValueSome(ElseBranch.ElseBranch(elseTok, expr)))
+            | Ok expr ->
+                // If the else body is a lone `if ... then ... [elif ...]* [else ...]`
+                // expression (F#'s `else if` sugar — often written across lines),
+                // flatten it into the outer chain so the AST reflects a single flat
+                // if/elif/else chain. A Sequential (multiple statements) or anything
+                // other than a bare IfThenElse stays as a plain Else branch.
+                match expr with
+                | Expr.IfThenElse(ifTok, condition, thenTok, thenExpr, innerElifs, innerElse) ->
+                    acc.Add(ElifBranch.ElseIf(elseTok, ifTok, condition, thenTok, thenExpr))
+
+                    for b in innerElifs do
+                        acc.Add(b)
+
+                    Ok struct (ImmutableArray.CreateRange acc, innerElse)
+                | _ -> Ok struct (ImmutableArray.CreateRange acc, ValueSome(ElseBranch.ElseBranch(elseTok, expr)))
             | Error e -> Error e
 
         | Error e -> Ok struct (ImmutableArray.CreateRange acc, ValueNone)
