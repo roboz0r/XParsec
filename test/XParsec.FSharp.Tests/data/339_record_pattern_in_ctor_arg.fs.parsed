@@ -1,0 +1,106 @@
+AnonymousModule:
+TypeDefn.Union:
+  TypeName                                     'Kind'            Identifier          tok=   6  pos= 139
+  =                                            '='               OpEquality          tok=   8  pos= 144
+    Case:
+      ident                                    'Ctor'            Identifier          tok=  10  pos= 146
+    Case:
+      ident                                    'Getter'          Identifier          tok=  14  pos= 153
+    Case:
+      ident                                    'Setter'          Identifier          tok=  18  pos= 162
+TypeDefn.Record:
+  TypeName                                     'Flags'           Identifier          tok=  22  pos= 174
+  =                                            '='               OpEquality          tok=  24  pos= 180
+  {                                            '{'               KWLBrace            tok=  26  pos= 182
+    Field:
+      ident                                    'MemberKind'      Identifier          tok=  28  pos= 184
+      :                                        ':'               OpColon             tok=  29  pos= 194
+      NamedType:
+        LongIdent:
+                                               'Kind'            Identifier          tok=  31  pos= 196
+  }                                            '}'               KWRBrace            tok=  33  pos= 201
+TypeDefn.Record:
+  TypeName                                     'Data'            Identifier          tok=  37  pos= 208
+  =                                            '='               OpEquality          tok=  39  pos= 213
+  {                                            '{'               KWLBrace            tok=  41  pos= 215
+    Field:
+      ident                                    'Flags'           Identifier          tok=  43  pos= 217
+      :                                        ':'               OpColon             tok=  44  pos= 222
+      SuffixedType:
+        NamedType:
+          LongIdent:
+                                               'Flags'           Identifier          tok=  46  pos= 224
+        LongIdent:
+                                               'option'          Identifier          tok=  48  pos= 230
+  }                                            '}'               KWRBrace            tok=  50  pos= 237
+FunctionOrValue:
+  let                                          'let'             KWLet               tok=  53  pos= 240
+    Pat.NamedSimple                            'test'            Identifier          tok=  55  pos= 244
+    Pats:
+      ParenBlock                               '('               KWLParen            tok=  57  pos= 249
+        Pat.Typed:
+          Pat.NamedSimple                      'd'               Identifier          tok=  58  pos= 250
+          Colon                                ':'               OpColon             tok=  59  pos= 251
+          NamedType:
+            LongIdent:
+                                               'Data'            Identifier          tok=  61  pos= 253
+                                               ')'               KWRParen            tok=  62  pos= 257
+    =                                          '='               OpEquality          tok=  64  pos= 259
+      Match:
+        MatchToken                             'match'           KWMatch             tok=  67  pos= 265
+        MatchExpr:
+          Ident                                'd'               Identifier          tok=  69  pos= 271
+        WithToken                              'with'            KWWith              tok=  71  pos= 273
+        Rule:
+          Bar                                  '|'               OpBar               tok=  74  pos= 282
+          Pat:
+            Pat.Record                         '{'               KWLBrace            tok=  76  pos= 284
+              FieldPat:
+                Ident                          'Flags'           Identifier          tok=  78  pos= 286
+                =                              '='               OpEquality          tok=  80  pos= 292
+                Pat:
+                  Pat.Named:
+                    Ident                      'Some'            Identifier          tok=  82  pos= 294
+                    Param:
+                      Pat.Record               '{'               KWLBrace            tok=  84  pos= 299
+                        FieldPat:
+                          Ident                'MemberKind'      Identifier          tok=  86  pos= 301
+                          =                    '='               OpEquality          tok=  88  pos= 312
+                          Pat:
+                            Pat.NamedSimple    'Ctor'            Identifier          tok=  90  pos= 314
+                                               '}'               KWRBrace            tok=  92  pos= 319
+                                               '}'               KWRBrace            tok=  94  pos= 321
+          Arrow                                '->'              OpArrowRight        tok=  96  pos= 323
+          Expr:
+            Const                              '1'               NumInt32            tok=  98  pos= 326
+        Rule:
+          Bar                                  '|'               OpBar               tok= 101  pos= 332
+          Pat:
+            Pat.Record                         '{'               KWLBrace            tok= 103  pos= 334
+              FieldPat:
+                Ident                          'Flags'           Identifier          tok= 105  pos= 336
+                =                              '='               OpEquality          tok= 107  pos= 342
+                Pat:
+                  Pat.Named:
+                    Ident                      'Some'            Identifier          tok= 109  pos= 344
+                    Param:
+                      Pat.Record               '{'               KWLBrace            tok= 111  pos= 349
+                        FieldPat:
+                          Ident                'MemberKind'      Identifier          tok= 113  pos= 351
+                          =                    '='               OpEquality          tok= 115  pos= 362
+                          Pat:
+                            Pat.Or             '|'               OpBar               tok= 119  pos= 371
+                              Pat.NamedSimple  'Getter'          Identifier          tok= 117  pos= 364
+                              Pat.NamedSimple  'Setter'          Identifier          tok= 121  pos= 373
+                                               '}'               KWRBrace            tok= 123  pos= 380
+                                               '}'               KWRBrace            tok= 125  pos= 382
+          Arrow                                '->'              OpArrowRight        tok= 127  pos= 384
+          Expr:
+            Const                              '2'               NumInt32            tok= 129  pos= 387
+        Rule:
+          Bar                                  '|'               OpBar               tok= 132  pos= 393
+          Pat:
+            Pat.Wildcard                       '_'               Wildcard            tok= 134  pos= 395
+          Arrow                                '->'              OpArrowRight        tok= 136  pos= 397
+          Expr:
+            Const                              '0'               NumInt32            tok= 138  pos= 400
