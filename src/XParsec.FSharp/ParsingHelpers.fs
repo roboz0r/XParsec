@@ -374,6 +374,35 @@ module Parsing =
                 else
                     ValueNone
 
+            // 15.1.10.1 extended: MatchClauses body undentation
+            // MatchClauses governs only `|` bar alignment; non-`|` tokens inside
+            // a rule (guard continuations, ->, etc.) should be bounded by the
+            // enclosing Function/Match context, not the pattern column. Apply the
+            // same skip-past-containers rule as FunBody.
+            elif head.Context = OffsideContext.MatchClauses && token <> Token.OpBar then
+                let rec findEnclosingIndent (stack: Offside list) =
+                    match stack with
+                    | [] -> true
+                    | ctx :: deeper ->
+                        match ctx.Context with
+                        | OffsideContext.SeqBlock
+                        | OffsideContext.Paren
+                        | OffsideContext.Bracket
+                        | OffsideContext.BracketBar
+                        | OffsideContext.BraceBar
+                        | OffsideContext.Brace
+                        | OffsideContext.Begin
+                        | OffsideContext.Fun
+                        | OffsideContext.Function
+                        | OffsideContext.Match
+                        | OffsideContext.MatchClauses -> findEnclosingIndent deeper
+                        | _ -> tokenCol >= ctx.Indent
+
+                if findEnclosingIndent rest then
+                    ValueSome "15.1.10.1 MatchBody"
+                else
+                    ValueNone
+
             // 15.1.10.2: If/Then/Else + Paren/Begin undentation
             // Inside ( ) or begin/end following then/else, content may undent but not past if.
             elif head.Context = OffsideContext.Paren || head.Context = OffsideContext.Begin then
