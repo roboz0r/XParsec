@@ -23,14 +23,14 @@ TypeDefn.Anon:
       IfThenElse:
         IfToken                    'if'              KWIf                tok=  26  pos=  68
         Condition:
-          InfixApp                 '>'               op_GreaterThan      tok=  38  pos=  92
-            InfixApp               '||'              op_BooleanOr        tok=  34  pos=  82
-              InfixApp             '<'               op_LessThan         tok=  30  pos=  78
-                Ident              'length'          Identifier          tok=  28  pos=  71
-                Const              '0'               NumInt32            tok=  32  pos=  80
+          InfixApp                 '||'              OpBarBar            tok=  34  pos=  82
+            InfixApp               '<'               op_LessThan         tok=  30  pos=  78
+              Ident                'length'          Identifier          tok=  28  pos=  71
+              Const                '0'               NumInt32            tok=  32  pos=  80
+            InfixApp               '>'               op_GreaterThan      tok=  38  pos=  92
               Ident                'length'          Identifier          tok=  36  pos=  85
-            LongIdentOrOp:
-              LongIdent:
+              LongIdentOrOp:
+                LongIdent:
                                    'bytes'           Identifier          tok=  40  pos=  94
                                    'Length'          Identifier          tok=  42  pos= 100
         ThenToken                  'then'            KWThen              tok=  44  pos= 107

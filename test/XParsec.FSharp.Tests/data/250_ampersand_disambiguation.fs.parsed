@@ -1,37 +1,33 @@
-module                     'module'          KWModule            tok=   0  pos=   0
-                           'AmpersandD...'   Identifier          tok=   2  pos=   7
+module                 'module'          KWModule            tok=   0  pos=   0
+                       'AmpersandD...'   Identifier          tok=   2  pos=   7
 FunctionOrValue:
-  let                      'let'             KWLet               tok=  12  pos= 236
-    Pat.NamedSimple        'f'               Identifier          tok=  14  pos= 240
+  let                  'let'             KWLet               tok=  12  pos= 236
+    Pat.NamedSimple    'f'               Identifier          tok=  14  pos= 240
     Pats:
-      Pat.Named:
-        Ident              'a'               Identifier          tok=  16  pos= 242
-        Param:
-          Pat.NamedSimple  'b'               Identifier          tok=  18  pos= 244
-    =                      '='               OpEquality          tok=  20  pos= 246
-      InfixApp             '&&'              OpAmpAmp            tok=  24  pos= 250
-        Ident              'a'               Identifier          tok=  22  pos= 248
-        Ident              'b'               Identifier          tok=  26  pos= 253
+      Pat.NamedSimple  'a'               Identifier          tok=  16  pos= 242
+      Pat.NamedSimple  'b'               Identifier          tok=  18  pos= 244
+    =                  '='               OpEquality          tok=  20  pos= 246
+      InfixApp         '&&'              OpAmpAmp            tok=  24  pos= 250
+        Ident          'a'               Identifier          tok=  22  pos= 248
+        Ident          'b'               Identifier          tok=  26  pos= 253
 FunctionOrValue:
-  let                      'let'             KWLet               tok=  30  pos= 282
-    Pat.NamedSimple        'g'               Identifier          tok=  32  pos= 286
+  let                  'let'             KWLet               tok=  30  pos= 282
+    Pat.NamedSimple    'g'               Identifier          tok=  32  pos= 286
     Pats:
-      Pat.Named:
-        Ident              'a'               Identifier          tok=  34  pos= 288
-        Param:
-          Pat.NamedSimple  'b'               Identifier          tok=  36  pos= 290
-    =                      '='               OpEquality          tok=  38  pos= 292
+      Pat.NamedSimple  'a'               Identifier          tok=  34  pos= 288
+      Pat.NamedSimple  'b'               Identifier          tok=  36  pos= 290
+    =                  '='               OpEquality          tok=  38  pos= 292
       App:
         Func:
-          Ident            'a'               Identifier          tok=  40  pos= 294
+          Ident        'a'               Identifier          tok=  40  pos= 294
         Args:
-          PrefixApp        '&&'              OpAmpAmp            tok=  42  pos= 296
-            Ident          'b'               Identifier          tok=  43  pos= 298
+          PrefixApp    '&&'              OpAmpAmp            tok=  42  pos= 296
+            Ident      'b'               Identifier          tok=  43  pos= 298
 FunctionOrValue:
-  let                      'let'             KWLet               tok=  47  pos= 354
-    Pat.NamedSimple        'h'               Identifier          tok=  49  pos= 358
+  let                  'let'             KWLet               tok=  47  pos= 354
+    Pat.NamedSimple    'h'               Identifier          tok=  49  pos= 358
     Pats:
-      Pat.NamedSimple      'a'               Identifier          tok=  51  pos= 360
-    =                      '='               OpEquality          tok=  53  pos= 362
-      PrefixApp            '&&'              OpAmpAmp            tok=  55  pos= 364
-        Ident              'a'               Identifier          tok=  57  pos= 367
+      Pat.NamedSimple  'a'               Identifier          tok=  51  pos= 360
+    =                  '='               OpEquality          tok=  53  pos= 362
+      PrefixApp        '&&'              OpAmpAmp            tok=  55  pos= 364
+        Ident          'a'               Identifier          tok=  57  pos= 367

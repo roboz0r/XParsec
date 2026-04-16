@@ -1,48 +1,44 @@
-module                             'module'          KWModule            tok=   0  pos=   0
-                                   'Test'            Identifier          tok=   2  pos=   7
+module                     'module'          KWModule            tok=   0  pos=   0
+                           'Test'            Identifier          tok=   2  pos=   7
 FunctionOrValue:
-  let                              'let'             KWLet               tok=  10  pos= 115
-    inline                         'inline'          KWInline            tok=  12  pos= 119
-    Pat.NamedSimple                'sub'             Identifier          tok=  14  pos= 126
+  let                      'let'             KWLet               tok=  10  pos= 115
+    inline                 'inline'          KWInline            tok=  12  pos= 119
+    Pat.NamedSimple        'sub'             Identifier          tok=  14  pos= 126
     Pats:
-      Pat.Named:
-        Ident                      'startIndex'      Identifier          tok=  16  pos= 130
-        Param:
-          Pat.Named:
-            Ident                  'count'           Identifier          tok=  18  pos= 141
-            Param:
-              ParenBlock           '('               KWLParen            tok=  20  pos= 147
-                Pat.Typed:
-                  Pat.NamedSimple  'array'           Identifier          tok=  21  pos= 148
-                  Colon            ':'               OpColon             tok=  22  pos= 153
-                  SuffixedType:
-                    VarType:
-                      Typar.Named:
-                                   ''T'              TypeParameter       tok=  24  pos= 155
-                    LongIdent:
-                                   'array'           Identifier          tok=  26  pos= 158
-                                   ')'               KWRParen            tok=  27  pos= 163
-    =                              '='               OpEquality          tok=  29  pos= 165
-      Let                          'let'             KWLet               tok=  32  pos= 171
-        Pat.NamedSimple            'res'             Identifier          tok=  34  pos= 175
-        =                          '='               OpEquality          tok=  36  pos= 179
+      Pat.NamedSimple      'startIndex'      Identifier          tok=  16  pos= 130
+      Pat.NamedSimple      'count'           Identifier          tok=  18  pos= 141
+      ParenBlock           '('               KWLParen            tok=  20  pos= 147
+        Pat.Typed:
+          Pat.NamedSimple  'array'           Identifier          tok=  21  pos= 148
+          Colon            ':'               OpColon             tok=  22  pos= 153
+          SuffixedType:
+            VarType:
+              Typar.Named:
+                           ''T'              TypeParameter       tok=  24  pos= 155
+            LongIdent:
+                           'array'           Identifier          tok=  26  pos= 158
+                           ')'               KWRParen            tok=  27  pos= 163
+    =                      '='               OpEquality          tok=  29  pos= 165
+      Let                  'let'             KWLet               tok=  32  pos= 171
+        Pat.NamedSimple    'res'             Identifier          tok=  34  pos= 175
+        =                  '='               OpEquality          tok=  36  pos= 179
           TypeAnnotation:
             Expr:
               App:
                 Func:
                   LongIdentOrOp:
                     LongIdent:
-                                   'Array'           Identifier          tok=  38  pos= 181
-                                   'zeroCreate'      Identifier          tok=  40  pos= 187
+                           'Array'           Identifier          tok=  38  pos= 181
+                           'zeroCreate'      Identifier          tok=  40  pos= 187
                 Args:
-                  Ident            'count'           Identifier          tok=  42  pos= 198
-            Colon                  ':'               OpColon             tok=  44  pos= 204
+                  Ident    'count'           Identifier          tok=  42  pos= 198
+            Colon          ':'               OpColon             tok=  44  pos= 204
             SuffixedType:
               VarType:
                 Typar.Named:
-                                   ''T'              TypeParameter       tok=  46  pos= 206
+                           ''T'              TypeParameter       tok=  46  pos= 206
               LongIdent:
-                                   'array'           Identifier          tok=  48  pos= 209
-      in                           <virt>            KWIn                tok=virt  pos= 219
+                           'array'           Identifier          tok=  48  pos= 209
+      in                   <virt>            KWIn                tok=virt  pos= 219
       Body:
-        Ident                      'res'             Identifier          tok=  51  pos= 219
+        Ident              'res'             Identifier          tok=  51  pos= 219

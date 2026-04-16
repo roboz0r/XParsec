@@ -32,7 +32,7 @@
 79, Whitespace
 80, NumInt32
 81, Whitespace
-82, Operator 0b1000000000001111 ComparisonAndBitwise
+82, OpBarBar
 84, Whitespace
 85, Identifier
 91, Whitespace

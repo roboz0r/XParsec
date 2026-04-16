@@ -1,0 +1,253 @@
+AnonymousModule:
+FunctionOrValue:
+  let                                          'let'             KWLet               tok=  10  pos= 309
+    Pat.NamedSimple                            'isInt'           Identifier          tok=  12  pos= 313
+    Pats:
+      Pat.NamedSimple                          'x'               Identifier          tok=  14  pos= 319
+    =                                          '='               OpEquality          tok=  16  pos= 321
+      InfixApp                                 '>'               op_GreaterThan      tok=  20  pos= 325
+        Ident                                  'x'               Identifier          tok=  18  pos= 323
+        Const                                  '0'               NumInt32            tok=  22  pos= 327
+FunctionOrValue:
+  let                                          'let'             KWLet               tok=  24  pos= 329
+    Pat.NamedSimple                            'isBin'           Identifier          tok=  26  pos= 333
+    Pats:
+      Pat.NamedSimple                          'x'               Identifier          tok=  28  pos= 339
+      Pat.NamedSimple                          'y'               Identifier          tok=  30  pos= 341
+    =                                          '='               OpEquality          tok=  32  pos= 343
+      InfixApp                                 '>'               op_GreaterThan      tok=  40  pos= 351
+        InfixApp                               '+'               op_Addition         tok=  36  pos= 347
+          Ident                                'x'               Identifier          tok=  34  pos= 345
+          Ident                                'y'               Identifier          tok=  38  pos= 349
+        Const                                  '0'               NumInt32            tok=  42  pos= 353
+FunctionOrValue:
+  let                                          'let'             KWLet               tok=  44  pos= 355
+    Pat.NamedSimple                            'permitWeak...'   Identifier          tok=  46  pos= 359
+    =                                          '='               OpEquality          tok=  48  pos= 380
+      Const                                    'true'            KWTrue              tok=  50  pos= 382
+FunctionOrValue:
+  let                                          'let'             KWLet               tok=  53  pos= 388
+    Pat.NamedSimple                            'test'            Identifier          tok=  55  pos= 392
+    Pats:
+      Pat.NamedSimple                          'nm'              Identifier          tok=  57  pos= 397
+      Pat.NamedSimple                          'minfos'          Identifier          tok=  59  pos= 400
+      Pat.NamedSimple                          'a'               Identifier          tok=  61  pos= 407
+      Pat.NamedSimple                          'b'               Identifier          tok=  63  pos= 409
+    =                                          '='               OpEquality          tok=  65  pos= 411
+      Match:
+        MatchToken                             'match'           KWMatch             tok=  68  pos= 417
+        MatchExpr:
+          Tuple:
+            StringLiteral                      '"'               StringOpen          tok=  70  pos= 423
+            Parts:
+              Text                             '_'               StringFragment      tok=  71  pos= 424
+                                               '"'               StringClose         tok=  72  pos= 425
+            StringLiteral                      '"'               StringOpen          tok=  75  pos= 428
+            Parts:
+              Text                             '_'               StringFragment      tok=  76  pos= 429
+                                               '"'               StringClose         tok=  77  pos= 430
+            Const                              'false'           KWFalse             tok=  80  pos= 433
+            Ident                              'nm'              Identifier          tok=  83  pos= 440
+            List                               '['               KWLBracket          tok=  86  pos= 444
+              Sequential:
+                Ident                          'a'               Identifier          tok=  87  pos= 445
+                Ident                          'b'               Identifier          tok=  90  pos= 448
+                                               ']'               KWRBracket          tok=  91  pos= 449
+        WithToken                              'with'            KWWith              tok=  93  pos= 451
+        Rule:
+          Bar                                  '|'               OpBar               tok=  96  pos= 460
+          Pat:
+            Pat.Tuple:
+              Pat.Wildcard                     '_'               Wildcard            tok=  98  pos= 462
+              ,                                ','               OpComma             tok=  99  pos= 463
+              Pat.Wildcard                     '_'               Wildcard            tok= 101  pos= 465
+              ,                                ','               OpComma             tok= 102  pos= 466
+              Pat.Const                        'false'           KWFalse             tok= 104  pos= 468
+              ,                                ','               OpComma             tok= 105  pos= 473
+              ParenBlock                       '('               KWLParen            tok= 107  pos= 475
+                Pat.Or                         '|'               OpBar               tok= 118  pos= 509
+                  Pat.Or                       '|'               OpBar               tok= 112  pos= 490
+                    StringLiteral              '"'               StringOpen          tok= 108  pos= 476
+                    Parts:
+                      Text                     'op_Additio...'   StringFragment      tok= 109  pos= 477
+                                               '"'               StringClose         tok= 110  pos= 488
+                    StringLiteral              '"'               StringOpen          tok= 114  pos= 492
+                    Parts:
+                      Text                     'op_Subtrac...'   StringFragment      tok= 115  pos= 493
+                                               '"'               StringClose         tok= 116  pos= 507
+                  StringLiteral                '"'               StringOpen          tok= 120  pos= 511
+                  Parts:
+                    Text                       'op_Modulus'      StringFragment      tok= 121  pos= 512
+                                               '"'               StringClose         tok= 122  pos= 522
+                                               ')'               KWRParen            tok= 123  pos= 523
+              ,                                ','               OpComma             tok= 124  pos= 524
+              List                             '['               KWLBracket          tok= 126  pos= 526
+                Pat.Elems:
+                  Pat.NamedSimple              'argTy1'          Identifier          tok= 127  pos= 527
+                  Pat.NamedSimple              'argTy2'          Identifier          tok= 130  pos= 535
+                                               ']'               KWRBracket          tok= 131  pos= 541
+          When                                 'when'            KWWhen              tok= 134  pos= 551
+          Guard:
+            ParenBlock                         '('               KWLParen            tok= 139  pos= 635
+              InfixApp                         '&&'              OpAmpAmp            tok= 165  pos= 690
+                InfixApp                       '|>'              op_PipeRight        tok= 142  pos= 643
+                  Ident                        'minfos'          Identifier          tok= 140  pos= 636
+                  App:
+                    Func:
+                      LongIdentOrOp:
+                        LongIdent:
+                                               'List'            Identifier          tok= 144  pos= 646
+                                               'forall'          Identifier          tok= 146  pos= 651
+                    Args:
+                      ParenBlock               '('               KWLParen            tok= 148  pos= 658
+                        Fun                    'fun'             KWFun               tok= 149  pos= 659
+                        Pats:
+                          ParenBlock           '('               KWLParen            tok= 151  pos= 663
+                            Pat.Tuple:
+                              Pat.Wildcard     '_'               Wildcard            tok= 152  pos= 664
+                              ,                ','               OpComma             tok= 153  pos= 665
+                              Pat.NamedSimple  'minfo'           Identifier          tok= 155  pos= 667
+                                               ')'               KWRParen            tok= 156  pos= 672
+                        Arrow                  '->'              OpArrowRight        tok= 158  pos= 674
+                        Body:
+                          App:
+                            Func:
+                              Ident            'isInt'           Identifier          tok= 160  pos= 677
+                            Args:
+                              Ident            'minfo'           Identifier          tok= 162  pos= 683
+                                               ')'               KWRParen            tok= 163  pos= 688
+                ParenBlock                     '('               KWLParen            tok= 168  pos= 709
+                  InfixApp                     '||'              OpBarBar            tok= 185  pos= 772
+                    InfixApp                   '&&'              OpAmpAmp            tok= 176  pos= 733
+                      App:
+                        Func:
+                          Ident                'isBin'           Identifier          tok= 170  pos= 713
+                        Args:
+                          Ident                'argTy1'          Identifier          tok= 172  pos= 719
+                          Ident                'argTy2'          Identifier          tok= 174  pos= 726
+                      App:
+                        Func:
+                          Ident                'isBin'           Identifier          tok= 178  pos= 736
+                        Args:
+                          Ident                'argTy2'          Identifier          tok= 180  pos= 742
+                          Ident                'argTy1'          Identifier          tok= 182  pos= 749
+                    InfixApp                   '&&'              OpAmpAmp            tok= 193  pos= 796
+                      App:
+                        Func:
+                          Ident                'isBin'           Identifier          tok= 187  pos= 776
+                        Args:
+                          Ident                'argTy1'          Identifier          tok= 189  pos= 782
+                          Ident                'argTy1'          Identifier          tok= 191  pos= 789
+                      App:
+                        Func:
+                          Ident                'isBin'           Identifier          tok= 195  pos= 799
+                        Args:
+                          Ident                'argTy2'          Identifier          tok= 197  pos= 805
+                          Ident                'argTy2'          Identifier          tok= 199  pos= 812
+                                               ')'               KWRParen            tok= 200  pos= 818
+                                               ')'               KWRParen            tok= 201  pos= 819
+          Arrow                                '->'              OpArrowRight        tok= 203  pos= 821
+          Expr:
+            Const                              '1'               NumInt32            tok= 206  pos= 832
+        Rule:
+          Bar                                  '|'               OpBar               tok= 209  pos= 838
+          Pat:
+            Pat.Tuple:
+              Pat.Wildcard                     '_'               Wildcard            tok= 211  pos= 840
+              ,                                ','               OpComma             tok= 212  pos= 841
+              Pat.Wildcard                     '_'               Wildcard            tok= 214  pos= 843
+              ,                                ','               OpComma             tok= 215  pos= 844
+              Pat.Const                        'false'           KWFalse             tok= 217  pos= 846
+              ,                                ','               OpComma             tok= 218  pos= 851
+              ParenBlock                       '('               KWLParen            tok= 220  pos= 853
+                Pat.Or                         '|'               OpBar               tok= 231  pos= 884
+                  Pat.Or                       '|'               OpBar               tok= 225  pos= 868
+                    StringLiteral              '"'               StringOpen          tok= 221  pos= 854
+                    Parts:
+                      Text                     'op_LessTha...'   StringFragment      tok= 222  pos= 855
+                                               '"'               StringClose         tok= 223  pos= 866
+                    StringLiteral              '"'               StringOpen          tok= 227  pos= 870
+                    Parts:
+                      Text                     'op_Equalit...'   StringFragment      tok= 228  pos= 871
+                                               '"'               StringClose         tok= 229  pos= 882
+                  StringLiteral                '"'               StringOpen          tok= 233  pos= 886
+                  Parts:
+                    Text                       'op_Inequal...'   StringFragment      tok= 234  pos= 887
+                                               '"'               StringClose         tok= 235  pos= 900
+                                               ')'               KWRParen            tok= 236  pos= 901
+              ,                                ','               OpComma             tok= 237  pos= 902
+              List                             '['               KWLBracket          tok= 239  pos= 904
+                Pat.Elems:
+                  Pat.NamedSimple              'argTy1'          Identifier          tok= 240  pos= 905
+                  Pat.NamedSimple              'argTy2'          Identifier          tok= 243  pos= 913
+                                               ']'               KWRBracket          tok= 244  pos= 919
+          When                                 'when'            KWWhen              tok= 247  pos= 929
+          Guard:
+            ParenBlock                         '('               KWLParen            tok= 249  pos= 934
+              InfixApp                         '&&'              OpAmpAmp            tok= 275  pos= 989
+                InfixApp                       '|>'              op_PipeRight        tok= 252  pos= 942
+                  Ident                        'minfos'          Identifier          tok= 250  pos= 935
+                  App:
+                    Func:
+                      LongIdentOrOp:
+                        LongIdent:
+                                               'List'            Identifier          tok= 254  pos= 945
+                                               'forall'          Identifier          tok= 256  pos= 950
+                    Args:
+                      ParenBlock               '('               KWLParen            tok= 258  pos= 957
+                        Fun                    'fun'             KWFun               tok= 259  pos= 958
+                        Pats:
+                          ParenBlock           '('               KWLParen            tok= 261  pos= 962
+                            Pat.Tuple:
+                              Pat.Wildcard     '_'               Wildcard            tok= 262  pos= 963
+                              ,                ','               OpComma             tok= 263  pos= 964
+                              Pat.NamedSimple  'minfo'           Identifier          tok= 265  pos= 966
+                                               ')'               KWRParen            tok= 266  pos= 971
+                        Arrow                  '->'              OpArrowRight        tok= 268  pos= 973
+                        Body:
+                          App:
+                            Func:
+                              Ident            'isInt'           Identifier          tok= 270  pos= 976
+                            Args:
+                              Ident            'minfo'           Identifier          tok= 272  pos= 982
+                                               ')'               KWRParen            tok= 273  pos= 987
+                ParenBlock                     '('               KWLParen            tok= 278  pos=1008
+                  InfixApp                     '||'              OpBarBar            tok= 295  pos=1071
+                    InfixApp                   '&&'              OpAmpAmp            tok= 286  pos=1032
+                      App:
+                        Func:
+                          Ident                'isBin'           Identifier          tok= 280  pos=1012
+                        Args:
+                          Ident                'argTy1'          Identifier          tok= 282  pos=1018
+                          Ident                'argTy2'          Identifier          tok= 284  pos=1025
+                      App:
+                        Func:
+                          Ident                'isBin'           Identifier          tok= 288  pos=1035
+                        Args:
+                          Ident                'argTy2'          Identifier          tok= 290  pos=1041
+                          Ident                'argTy1'          Identifier          tok= 292  pos=1048
+                    InfixApp                   '&&'              OpAmpAmp            tok= 303  pos=1095
+                      App:
+                        Func:
+                          Ident                'isBin'           Identifier          tok= 297  pos=1075
+                        Args:
+                          Ident                'argTy1'          Identifier          tok= 299  pos=1081
+                          Ident                'argTy1'          Identifier          tok= 301  pos=1088
+                      App:
+                        Func:
+                          Ident                'isBin'           Identifier          tok= 305  pos=1098
+                        Args:
+                          Ident                'argTy2'          Identifier          tok= 307  pos=1104
+                          Ident                'argTy2'          Identifier          tok= 309  pos=1111
+                                               ')'               KWRParen            tok= 310  pos=1117
+                                               ')'               KWRParen            tok= 311  pos=1118
+          Arrow                                '->'              OpArrowRight        tok= 313  pos=1120
+          Expr:
+            Const                              '2'               NumInt32            tok= 316  pos=1131
+        Rule:
+          Bar                                  '|'               OpBar               tok= 319  pos=1137
+          Pat:
+            Pat.Wildcard                       '_'               Wildcard            tok= 321  pos=1139
+          Arrow                                '->'              OpArrowRight        tok= 323  pos=1141
+          Expr:
+            Const                              '0'               NumInt32            tok= 325  pos=1144

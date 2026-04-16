@@ -4,27 +4,24 @@ FunctionOrValue:
   let                                              'let'             KWLet               tok=  10  pos= 126
     Pat.NamedSimple                                'processEnt...'   Identifier          tok=  12  pos= 130
     Pats:
-      Pat.Named:
-        Ident                                      'trie'            Identifier          tok=  14  pos= 145
-        Param:
-          ParenBlock                               '('               KWLParen            tok=  16  pos= 150
-            Pat.Typed:
-              Pat.NamedSimple                      'state'           Identifier          tok=  17  pos= 151
-              Colon                                ':'               OpColon             tok=  18  pos= 156
-              NamedType:
-                LongIdent:
+      Pat.NamedSimple                              'trie'            Identifier          tok=  14  pos= 145
+      ParenBlock                                   '('               KWLParen            tok=  16  pos= 150
+        Pat.Typed:
+          Pat.NamedSimple                          'state'           Identifier          tok=  17  pos= 151
+          Colon                                    ':'               OpColon             tok=  18  pos= 156
+          NamedType:
+            LongIdent:
                                                    'int'             Identifier          tok=  20  pos= 158
                                                    ')'               KWRParen            tok=  21  pos= 161
-        Pat:
-          ParenBlock                               '('               KWLParen            tok=  23  pos= 163
-            Pat.Typed:
-              Pat.NamedSimple                      'path'            Identifier          tok=  24  pos= 164
-              Colon                                ':'               OpColon             tok=  25  pos= 168
-              SuffixedType:
-                NamedType:
-                  LongIdent:
+      ParenBlock                                   '('               KWLParen            tok=  23  pos= 163
+        Pat.Typed:
+          Pat.NamedSimple                          'path'            Identifier          tok=  24  pos= 164
+          Colon                                    ':'               OpColon             tok=  25  pos= 168
+          SuffixedType:
+            NamedType:
+              LongIdent:
                                                    'string'          Identifier          tok=  27  pos= 170
-                LongIdent:
+            LongIdent:
                                                    'list'            Identifier          tok=  29  pos= 177
                                                    ')'               KWRParen            tok=  30  pos= 181
     =                                              '='               OpEquality          tok=  32  pos= 183

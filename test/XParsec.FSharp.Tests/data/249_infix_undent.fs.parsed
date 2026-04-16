@@ -1,98 +1,92 @@
-module                             'module'          KWModule            tok=   0  pos=   0
-                                   'InfixUnden...'   Identifier          tok=   2  pos=   7
+module                     'module'          KWModule            tok=   0  pos=   0
+                           'InfixUnden...'   Identifier          tok=   2  pos=   7
 Module:
-  module                           'module'          KWModule            tok=  20  pos= 412
-  ident                            'PipeOps'         Identifier          tok=  22  pos= 419
-  =                                '='               OpEquality          tok=  24  pos= 427
-  begin                            <virt>            KWBegin             tok=virt  pos= 434
+  module                   'module'          KWModule            tok=  20  pos= 412
+  ident                    'PipeOps'         Identifier          tok=  22  pos= 419
+  =                        '='               OpEquality          tok=  24  pos= 427
+  begin                    <virt>            KWBegin             tok=virt  pos= 434
     FunctionOrValue:
-      let                          'let'             KWLet               tok=  28  pos= 434
-        Pat.NamedSimple            'pipeForwar...'   Identifier          tok=  30  pos= 438
-        =                          '='               OpEquality          tok=  32  pos= 450
-          InfixApp                 '|>'              op_PipeRight        tok=  38  pos= 467
-            Const                  '1'               NumInt32            tok=  35  pos= 460
-            Ident                  'string'          Identifier          tok=  40  pos= 470
+      let                  'let'             KWLet               tok=  28  pos= 434
+        Pat.NamedSimple    'pipeForwar...'   Identifier          tok=  30  pos= 438
+        =                  '='               OpEquality          tok=  32  pos= 450
+          InfixApp         '|>'              op_PipeRight        tok=  38  pos= 467
+            Const          '1'               NumInt32            tok=  35  pos= 460
+            Ident          'string'          Identifier          tok=  40  pos= 470
     FunctionOrValue:
-      let                          'let'             KWLet               tok=  46  pos= 536
-        Pat.NamedSimple            'pipeBackwa...'   Identifier          tok=  48  pos= 540
-        =                          '='               OpEquality          tok=  50  pos= 553
-          InfixApp                 '<|'              op_PipeLeft         tok=  56  pos= 575
-            Ident                  'string'          Identifier          tok=  53  pos= 563
-            Const                  '1'               NumInt32            tok=  58  pos= 578
+      let                  'let'             KWLet               tok=  46  pos= 536
+        Pat.NamedSimple    'pipeBackwa...'   Identifier          tok=  48  pos= 540
+        =                  '='               OpEquality          tok=  50  pos= 553
+          InfixApp         '<|'              op_PipeLeft         tok=  56  pos= 575
+            Ident          'string'          Identifier          tok=  53  pos= 563
+            Const          '1'               NumInt32            tok=  58  pos= 578
     FunctionOrValue:
-      let                          'let'             KWLet               tok=  64  pos= 649
-        Pat.NamedSimple            'boolOr'          Identifier          tok=  66  pos= 653
-        =                          '='               OpEquality          tok=  68  pos= 660
-          InfixApp                 '||'              op_BooleanOr        tok=  74  pos= 680
-            Const                  'true'            KWTrue              tok=  71  pos= 670
-            Const                  'false'           KWFalse             tok=  76  pos= 683
+      let                  'let'             KWLet               tok=  64  pos= 649
+        Pat.NamedSimple    'boolOr'          Identifier          tok=  66  pos= 653
+        =                  '='               OpEquality          tok=  68  pos= 660
+          InfixApp         '||'              OpBarBar            tok=  74  pos= 680
+            Const          'true'            KWTrue              tok=  71  pos= 670
+            Const          'false'           KWFalse             tok=  76  pos= 683
     FunctionOrValue:
-      let                          'let'             KWLet               tok=  82  pos= 752
-        Pat.NamedSimple            'boolAnd'         Identifier          tok=  84  pos= 756
-        =                          '='               OpEquality          tok=  86  pos= 764
-          InfixApp                 '&&'              OpAmpAmp            tok=  92  pos= 784
-            Const                  'true'            KWTrue              tok=  89  pos= 774
-            Const                  'false'           KWFalse             tok=  94  pos= 787
+      let                  'let'             KWLet               tok=  82  pos= 752
+        Pat.NamedSimple    'boolAnd'         Identifier          tok=  84  pos= 756
+        =                  '='               OpEquality          tok=  86  pos= 764
+          InfixApp         '&&'              OpAmpAmp            tok=  92  pos= 784
+            Const          'true'            KWTrue              tok=  89  pos= 774
+            Const          'false'           KWFalse             tok=  94  pos= 787
     FunctionOrValue:
-      let                          'let'             KWLet               tok= 100  pos= 856
-        Pat.NamedSimple            'triplePipe'      Identifier          tok= 102  pos= 860
+      let                  'let'             KWLet               tok= 100  pos= 856
+        Pat.NamedSimple    'triplePipe'      Identifier          tok= 102  pos= 860
         Pats:
-          Pat.Named:
-            Ident                  'f'               Identifier          tok= 104  pos= 871
-            Param:
-              Pat.NamedSimple      'x'               Identifier          tok= 106  pos= 873
-        =                          '='               OpEquality          tok= 108  pos= 875
-          InfixApp                 '|||>'            op_PipeRight3       tok= 113  pos= 884
-            Ident                  'x'               Identifier          tok= 111  pos= 882
-            Ident                  'f'               Identifier          tok= 115  pos= 889
-  end                              <virt>            KWEnd               tok=virt  pos=1225
+          Pat.NamedSimple  'f'               Identifier          tok= 104  pos= 871
+          Pat.NamedSimple  'x'               Identifier          tok= 106  pos= 873
+        =                  '='               OpEquality          tok= 108  pos= 875
+          InfixApp         '|||>'            op_PipeRight3       tok= 113  pos= 884
+            Ident          'x'               Identifier          tok= 111  pos= 882
+            Ident          'f'               Identifier          tok= 115  pos= 889
+  end                      <virt>            KWEnd               tok=virt  pos=1225
 Module:
-  module                           'module'          KWModule            tok= 131  pos=1225
-  ident                            'ArithOps'        Identifier          tok= 133  pos=1232
-  =                                '='               OpEquality          tok= 135  pos=1241
-  begin                            <virt>            KWBegin             tok=virt  pos=1248
+  module                   'module'          KWModule            tok= 131  pos=1225
+  ident                    'ArithOps'        Identifier          tok= 133  pos=1232
+  =                        '='               OpEquality          tok= 135  pos=1241
+  begin                    <virt>            KWBegin             tok=virt  pos=1248
     FunctionOrValue:
-      let                          'let'             KWLet               tok= 139  pos=1248
-        Pat.NamedSimple            'add'             Identifier          tok= 141  pos=1252
-        =                          '='               OpEquality          tok= 143  pos=1256
-          InfixApp                 '+'               op_Addition         tok= 149  pos=1268
-            Const                  '1'               NumInt32            tok= 146  pos=1263
-            Const                  '2'               NumInt32            tok= 151  pos=1270
+      let                  'let'             KWLet               tok= 139  pos=1248
+        Pat.NamedSimple    'add'             Identifier          tok= 141  pos=1252
+        =                  '='               OpEquality          tok= 143  pos=1256
+          InfixApp         '+'               op_Addition         tok= 149  pos=1268
+            Const          '1'               NumInt32            tok= 146  pos=1263
+            Const          '2'               NumInt32            tok= 151  pos=1270
     FunctionOrValue:
-      let                          'let'             KWLet               tok= 157  pos=1338
-        Pat.NamedSimple            'subtract'        Identifier          tok= 159  pos=1342
-        =                          '='               OpEquality          tok= 161  pos=1351
-          InfixApp                 '-'               op_Subtraction      tok= 167  pos=1369
-            Const                  '3'               NumInt32            tok= 164  pos=1361
-            Const                  '1'               NumInt32            tok= 169  pos=1371
+      let                  'let'             KWLet               tok= 157  pos=1338
+        Pat.NamedSimple    'subtract'        Identifier          tok= 159  pos=1342
+        =                  '='               OpEquality          tok= 161  pos=1351
+          InfixApp         '-'               op_Subtraction      tok= 167  pos=1369
+            Const          '3'               NumInt32            tok= 164  pos=1361
+            Const          '1'               NumInt32            tok= 169  pos=1371
     FunctionOrValue:
-      let                          'let'             KWLet               tok= 175  pos=1436
-        Pat.NamedSimple            'multiply'        Identifier          tok= 177  pos=1440
-        =                          '='               OpEquality          tok= 179  pos=1449
-          InfixApp                 '*'               OpMultiply          tok= 185  pos=1467
-            Const                  '2'               NumInt32            tok= 182  pos=1459
-            Const                  '3'               NumInt32            tok= 187  pos=1469
-  end                              <virt>            KWEnd               tok=virt  pos=1531
+      let                  'let'             KWLet               tok= 175  pos=1436
+        Pat.NamedSimple    'multiply'        Identifier          tok= 177  pos=1440
+        =                  '='               OpEquality          tok= 179  pos=1449
+          InfixApp         '*'               OpMultiply          tok= 185  pos=1467
+            Const          '2'               NumInt32            tok= 182  pos=1459
+            Const          '3'               NumInt32            tok= 187  pos=1469
+  end                      <virt>            KWEnd               tok=virt  pos=1531
 Module:
-  module                           'module'          KWModule            tok= 193  pos=1531
-  ident                            'Nonsense'        Identifier          tok= 195  pos=1538
-  =                                '='               OpEquality          tok= 197  pos=1547
-  begin                            <virt>            KWBegin             tok=virt  pos=1555
+  module                   'module'          KWModule            tok= 193  pos=1531
+  ident                    'Nonsense'        Identifier          tok= 195  pos=1538
+  =                        '='               OpEquality          tok= 197  pos=1547
+  begin                    <virt>            KWBegin             tok=virt  pos=1555
     FunctionOrValue:
-      let                          'let'             KWLet               tok= 201  pos=1555
-        Pat.NamedSimple            'nonsense'        Identifier          tok= 203  pos=1559
+      let                  'let'             KWLet               tok= 201  pos=1555
+        Pat.NamedSimple    'nonsense'        Identifier          tok= 203  pos=1559
         Pats:
-          Pat.Named:
-            Ident                  'a'               Identifier          tok= 205  pos=1568
-            Param:
-              Pat.Named:
-                Ident              'b'               Identifier          tok= 207  pos=1570
-                Param:
-                  Pat.NamedSimple  'c'               Identifier          tok= 209  pos=1572
-        =                          '='               OpEquality          tok= 211  pos=1574
-          InfixApp                 '|>'              op_PipeRight        tok= 222  pos=1598
-            InfixApp               '+'               op_Addition         tok= 217  pos=1590
-              Ident                'a'               Identifier          tok= 214  pos=1583
-              Ident                'b'               Identifier          tok= 219  pos=1592
-            Ident                  'c'               Identifier          tok= 224  pos=1601
-  end                              <virt>            KWEnd               tok=virt  pos=1604
+          Pat.NamedSimple  'a'               Identifier          tok= 205  pos=1568
+          Pat.NamedSimple  'b'               Identifier          tok= 207  pos=1570
+          Pat.NamedSimple  'c'               Identifier          tok= 209  pos=1572
+        =                  '='               OpEquality          tok= 211  pos=1574
+          InfixApp         '|>'              op_PipeRight        tok= 222  pos=1598
+            InfixApp       '+'               op_Addition         tok= 217  pos=1590
+              Ident        'a'               Identifier          tok= 214  pos=1583
+              Ident        'b'               Identifier          tok= 219  pos=1592
+            Ident          'c'               Identifier          tok= 224  pos=1601
+  end                      <virt>            KWEnd               tok=virt  pos=1604

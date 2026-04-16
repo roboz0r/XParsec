@@ -33,7 +33,7 @@ FunctionOrValue:
             Ident                  's'               Identifier          tok=  40  pos= 262
             Ident                  'trimmed'         Identifier          tok=  44  pos= 267
           ParenBlock               '('               KWLParen            tok=  49  pos= 282
-            InfixApp               '||'              op_BooleanOr        tok=  59  pos= 300
+            InfixApp               '||'              OpBarBar            tok=  59  pos= 300
               InfixApp             '='               OpEquality          tok=  52  pos= 285
                 Ident              's'               Identifier          tok=  50  pos= 283
                 StringLiteral      '"'               StringOpen          tok=  54  pos= 287
@@ -85,8 +85,8 @@ FunctionOrValue:
             Ident                  's'               Identifier          tok= 107  pos= 576
             Ident                  'trimmed'         Identifier          tok= 111  pos= 581
           ParenBlock               '('               KWLParen            tok= 116  pos= 596
-            InfixApp               '||'              op_BooleanOr        tok= 142  pos= 668
-              InfixApp             '||'              op_BooleanOr        tok= 131  pos= 640
+            InfixApp               '||'              OpBarBar            tok= 142  pos= 668
+              InfixApp             '||'              OpBarBar            tok= 131  pos= 640
                 ParenBlock         '('               KWLParen            tok= 117  pos= 597
                   InfixApp         '='               OpEquality          tok= 120  pos= 600
                     Ident          's'               Identifier          tok= 118  pos= 598
