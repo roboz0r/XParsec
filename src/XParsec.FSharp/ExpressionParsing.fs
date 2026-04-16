@@ -898,7 +898,42 @@ module Expr =
                     else
                         let atAppIndent =
                             match state.Context with
-                            | { Indent = ctxIndent } :: _ -> indent > ctxIndent
+                            | { Indent = ctxIndent } :: _ ->
+                                if indent > ctxIndent then
+                                    true
+                                elif indent < ctxIndent then
+                                    // Token is undented from the SeqBlock but might still be a valid
+                                    // application argument inside a paren-like context (rule 15.1.10.4).
+                                    // Walk past SeqBlock+Paren pairs to find the enclosing non-paren
+                                    // context and check indent > that context's indent (strictly greater
+                                    // to preserve sequential-expression semantics at the same indent).
+                                    match state.Context with
+                                    | { Context = OffsideContext.SeqBlock } :: ctx :: deeper when
+                                        ctx.Context = OffsideContext.Paren
+                                        || ctx.Context = OffsideContext.Bracket
+                                        || ctx.Context = OffsideContext.BracketBar
+                                        || ctx.Context = OffsideContext.BraceBar
+                                        || ctx.Context = OffsideContext.Brace
+                                        || ctx.Context = OffsideContext.Begin
+                                        ->
+                                        let rec walkPastParens stack =
+                                            match stack with
+                                            | [] -> indent > 0
+                                            | (ctx: Offside) :: rest ->
+                                                match ctx.Context with
+                                                | OffsideContext.SeqBlock
+                                                | OffsideContext.Paren
+                                                | OffsideContext.Bracket
+                                                | OffsideContext.BracketBar
+                                                | OffsideContext.BraceBar
+                                                | OffsideContext.Brace
+                                                | OffsideContext.Begin -> walkPastParens rest
+                                                | _ -> indent > ctx.Indent
+
+                                        walkPastParens deeper
+                                    | _ -> false
+                                else
+                                    false // indent = ctxIndent → sequential expression, not application
                             | [] -> indent > 0
 
                         if atAppIndent then
