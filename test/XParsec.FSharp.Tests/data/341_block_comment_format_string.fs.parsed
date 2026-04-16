@@ -1,0 +1,28 @@
+AnonymousModule:
+FunctionOrValue:
+  let                     'let'             KWLet               tok=   4  pos= 113
+    Pat.NamedSimple       'f'               Identifier          tok=   6  pos= 117
+    Pats:
+      Pat.NamedSimple     'x'               Identifier          tok=   8  pos= 119
+    =                     '='               OpEquality          tok=  10  pos= 121
+      Match:
+        MatchToken        'match'           KWMatch             tok=  13  pos= 127
+        MatchExpr:
+          Ident           'x'               Identifier          tok=  15  pos= 133
+        WithToken         'with'            KWWith              tok=  17  pos= 135
+        Rule:
+          Bar             '|'               OpBar               tok=  20  pos= 144
+          Pat:
+            Pat.Const     '1'               NumInt32            tok=  22  pos= 146
+          Arrow           '->'              OpArrowRight        tok=  24  pos= 148
+          Expr:
+            ParenBlock    '('               KWLParen            tok=  26  pos= 151
+                          ')'               KWRParen            tok=  27  pos= 152
+        Rule:
+          Bar             '|'               OpBar               tok=  66  pos= 301
+          Pat:
+            Pat.Wildcard  '_'               Wildcard            tok=  68  pos= 303
+          Arrow           '->'              OpArrowRight        tok=  70  pos= 305
+          Expr:
+            ParenBlock    '('               KWLParen            tok=  72  pos= 308
+                          ')'               KWRParen            tok=  73  pos= 309

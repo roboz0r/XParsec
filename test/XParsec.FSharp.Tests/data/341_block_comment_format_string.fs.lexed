@@ -1,0 +1,76 @@
+0, LineComment
+77, Newline
+78, LineComment
+112, Newline
+113, KWLet
+116, Whitespace
+117, Identifier
+118, Whitespace
+119, Identifier
+120, Whitespace
+121, OpEquality
+122, Newline
+123, Indent
+127, KWMatch
+132, Whitespace
+133, Identifier
+134, Whitespace
+135, KWWith
+139, Newline
+140, Indent
+144, OpBar
+145, Whitespace
+146, NumInt32
+147, Whitespace
+148, OpArrowRight
+150, Whitespace
+151, KWLParen
+152, KWRParen
+153, Newline
+154, Indent
+158, BlockCommentStart
+160, Newline (in comment)
+161, Indent (in comment)
+171, Identifier (in comment)
+177, OpDot (in comment)
+178, Identifier (in comment)
+185, Whitespace (in comment)
+186, Identifier (in comment)
+188, Whitespace (in comment)
+189, StringOpen (in comment)
+190, StringFragment (in comment)
+191, EscapeSequence (in comment)
+193, EscapeSequence (in comment)
+195, StringFragment (in comment)
+207, FormatPlaceholder (in comment)
+209, EscapeSequence (in comment)
+211, StringFragment (in comment)
+223, FormatPlaceholder (in comment)
+225, EscapeSequence (in comment)
+227, StringFragment (in comment)
+238, FormatPlaceholder (in comment)
+240, StringClose (in comment)
+241, Newline (in comment)
+242, Indent (in comment)
+256, Identifier (in comment)
+257, Newline (in comment)
+258, Indent (in comment)
+272, Identifier (in comment)
+273, Newline (in comment)
+274, Indent (in comment)
+288, Identifier (in comment)
+289, Newline (in comment)
+290, Indent (in comment)
+294, BlockCommentEnd
+296, Newline
+297, Indent
+301, OpBar
+302, Whitespace
+303, Wildcard
+304, Whitespace
+305, OpArrowRight
+307, Whitespace
+308, KWLParen
+309, KWRParen
+310, Newline
+311, EOF
