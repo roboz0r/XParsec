@@ -2460,20 +2460,9 @@ module Expr =
                     match pTypeArg reader with
                     | Error e -> Error e
                     | Ok typeArg ->
-                        // Collect args as atomic expressions (with optional type application suffix), stopping at ':' or '#)'
-                        let pILArg (atomicExpr: Expr<SyntaxToken>) (r: Reader<PositionedToken, ParseState, _, _>) =
-                            // After parsing an atomic expression, check for a type application suffix: ident<T>
-                            match peekNextNonTriviaToken r with
-                            | Ok tok when tok.Token = Token.OpLessThan ->
-                                (parser {
-                                    let! lAngle = nextNonTriviaTokenIsL Token.OpLessThan "<"
-                                    let! types, commas = sepBy Type.parse pComma
-                                    let! rAngle = pCloseTypeParams
-                                    return Expr.TypeApp(atomicExpr, lAngle, types, commas, rAngle)
-                                })
-                                    r
-                            | _ -> preturn atomicExpr r
-
+                        // Collect args, stopping at ':' or '#)'. Each arg is parsed at min binding power
+                        // just above Application so dot chains, indexers, and type applications bind in,
+                        // but juxtaposition (whitespace application) stops so each space-separated arg is distinct.
                         let args = ResizeArray()
                         let mutable finished = false
                         let mutable error = ValueNone
@@ -2486,12 +2475,9 @@ module Expr =
                                 | Token.KWRHashParen
                                 | Token.OpColon -> finished <- true
                                 | _ ->
-                                    match refExprAtomic.Parser reader with
+                                    match refExprILArg.Parser reader with
                                     | Error e -> error <- ValueSome e
-                                    | Ok arg ->
-                                        match pILArg arg reader with
-                                        | Error e -> error <- ValueSome e
-                                        | Ok a -> args.Add(a)
+                                    | Ok arg -> args.Add(arg)
 
                         match error with
                         | ValueSome e -> Error e
@@ -2601,6 +2587,13 @@ module Expr =
         // a keyword expression via newline-triggered virtual semicolons.
         refExprNoSeq.Set(
             Operator.parserAt (int PrecedenceLevel.Semicolon + 1 |> BindingPower.fromLevel) parseAtomic operators
+        )
+
+        // IL intrinsic arguments: parse at just above Application so dot chains, indexers,
+        // and type applications bind in, but juxtaposition stops so each whitespace-separated
+        // arg in `(# "op" a.b c : ty #)` is captured as a separate arg.
+        refExprILArg.Set(
+            Operator.parserAt (int PrecedenceLevel.Application + 1 |> BindingPower.fromLevel) parseAtomic operators
         )
 
         // Semicolon has special handling in F# records, and object expressions

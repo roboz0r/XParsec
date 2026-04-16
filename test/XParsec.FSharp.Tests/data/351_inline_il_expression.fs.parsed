@@ -1,0 +1,97 @@
+AnonymousModule:
+TypeDefn.Anon:
+  TypeName                   'Attr'            Identifier          tok=   8  pos= 173
+  (                          '('               KWLParen            tok=   9  pos= 177
+  )                          ')'               KWRParen            tok=  10  pos= 178
+  =                          '='               OpEquality          tok=  12  pos= 180
+  begin                      <virt>            KWBegin             tok=virt  pos= 186
+    member                   'member'          KWMember            tok=  15  pos= 186
+    self                     '_'               Wildcard            tok=  17  pos= 193
+    Pat.NamedSimple          'Flags'           Identifier          tok=  19  pos= 195
+    =                        '='               OpEquality          tok=  21  pos= 201
+      Const                  '0'               NumInt32            tok=  23  pos= 203
+  end                        <virt>            KWEnd               tok=virt  pos= 206
+FunctionOrValue:
+  let                        'let'             KWLet               tok=  26  pos= 206
+    Pat.NamedSimple          'Flag_Permi...'   Identifier          tok=  28  pos= 210
+    =                        '='               OpEquality          tok=  30  pos= 226
+      Const                  '8'               NumInt32            tok=  32  pos= 228
+FunctionOrValue:
+  let                        'let'             KWLet               tok=  35  pos= 231
+    Pat.NamedSimple          'test'            Identifier          tok=  37  pos= 235
+    Pats:
+      ParenBlock             '('               KWLParen            tok=  39  pos= 240
+        Pat.Typed:
+          Pat.NamedSimple    'reprAttr'        Identifier          tok=  40  pos= 241
+          Colon              ':'               OpColon             tok=  41  pos= 249
+          NamedType:
+            LongIdent:
+                             'Attr'            Identifier          tok=  43  pos= 251
+                             ')'               KWRParen            tok=  44  pos= 255
+    =                        '='               OpEquality          tok=  46  pos= 257
+      IfThenElse:
+        IfToken              'if'              KWIf                tok=  49  pos= 263
+        Condition:
+          InfixApp           '='               OpEquality          tok=  69  pos= 315
+            ILIntrinsic:
+              (#             '(#'              KWLHashParen        tok=  51  pos= 266
+              StringLiteral  '"'               StringOpen          tok=  53  pos= 269
+              Parts:
+                Text         'and'             StringFragment      tok=  54  pos= 270
+                             '"'               StringClose         tok=  55  pos= 273
+              Arg:
+                LongIdentOrOp:
+                  LongIdent:
+                             'reprAttr'        Identifier          tok=  57  pos= 275
+                             'Flags'           Identifier          tok=  59  pos= 284
+              Arg:
+                Ident        'Flag_Permi...'   Identifier          tok=  61  pos= 290
+              ILReturnType:
+                :            ':'               OpColon             tok=  63  pos= 306
+                NamedType:
+                  LongIdent:
+                             'int'             Identifier          tok=  65  pos= 308
+              #)             '#)'              KWRHashParen        tok=  67  pos= 312
+            Const            '0'               NumInt32            tok=  71  pos= 317
+        ThenToken            'then'            KWThen              tok=  74  pos= 323
+        ThenExpr:
+          Const              '1'               NumInt32            tok=  76  pos= 328
+        ElseToken            'else'            KWElse              tok=  79  pos= 334
+        ElseExpr:
+          Const              '2'               NumInt32            tok=  81  pos= 339
+FunctionOrValue:
+  let                        'let'             KWLet               tok=  84  pos= 342
+    Pat.NamedSimple          'testUnbox'       Identifier          tok=  86  pos= 346
+    Pats:
+      ParenBlock             '('               KWLParen            tok=  88  pos= 356
+        Pat.Typed:
+          Pat.NamedSimple    'o'               Identifier          tok=  89  pos= 357
+          Colon              ':'               OpColon             tok=  90  pos= 358
+          NamedType:
+            LongIdent:
+                             'obj'             Identifier          tok=  92  pos= 360
+                             ')'               KWRParen            tok=  93  pos= 363
+    ReturnColon              ':'               OpColon             tok=  95  pos= 365
+    NamedType:
+      LongIdent:
+                             'int'             Identifier          tok=  97  pos= 367
+    =                        '='               OpEquality          tok=  99  pos= 371
+      ILIntrinsic:
+        (#                   '(#'              KWLHashParen        tok= 102  pos= 377
+        StringLiteral        '"'               StringOpen          tok= 104  pos= 380
+        Parts:
+          Text               'unbox.any ...'   StringFragment      tok= 105  pos= 381
+                             '"'               StringClose         tok= 106  pos= 393
+        ILTypeArg:
+          type               'type'            KWType              tok= 108  pos= 395
+          (                  '('               KWLParen            tok= 110  pos= 400
+          typeToken          'int'             Identifier          tok= 111  pos= 401
+          )                  ')'               KWRParen            tok= 112  pos= 404
+        Arg:
+          Ident              'o'               Identifier          tok= 114  pos= 406
+        ILReturnType:
+          :                  ':'               OpColon             tok= 116  pos= 408
+          NamedType:
+            LongIdent:
+                             'int'             Identifier          tok= 118  pos= 410
+        #)                   '#)'              KWRHashParen        tok= 120  pos= 414
