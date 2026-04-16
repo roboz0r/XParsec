@@ -399,6 +399,8 @@ module internal rec Pratt =
 
             match parseLhsInternal pExpr ops rightPower reader with // Parse item
             | Error e when allowTrailingOp ->
+                reader.Position <- nextItemPos
+
                 if parsedOps.Count > 0 then
                     parsedOps.RemoveAt(parsedOps.Count - 1)
 
@@ -427,13 +429,22 @@ module internal rec Pratt =
         let parsedOps = ResizeArray()
         items.Add lhs
         parsedOps.Add op
+        let entryPos = reader.Position
 
         match loopNary items parsedOps ValueNone with
         | Ok(items, errOpt) ->
-            match parseRhsInternal pExpr ops minBinding (completeNary items parsedOps) errOpt reader with
-            | Ok { Expr = finalExpr; Error = errFinal } ->
-                preturn (PrattParsed.withError finalExpr (mergeSoftErrors errOpt errFinal)) reader
-            | Error e -> Error(mergeWithError e errOpt)
+            let result = completeNary items parsedOps
+
+            if reader.Position = entryPos then
+                // No progress was made (e.g. trailing separator with no following item).
+                // Return directly to prevent infinite recursion when virtual tokens
+                // can repeatedly fire at the same position.
+                preturn (PrattParsed.withError result errOpt) reader
+            else
+                match parseRhsInternal pExpr ops minBinding result errOpt reader with
+                | Ok { Expr = finalExpr; Error = errFinal } ->
+                    preturn (PrattParsed.withError finalExpr (mergeSoftErrors errOpt errFinal)) reader
+                | Error e -> Error(mergeWithError e errOpt)
         | Error e -> Error e
 
     let private rhsInfixMapped
