@@ -65,32 +65,47 @@ module ElifBranches =
             ]
             "Expected 'elif' or 'else'"
 
-    let pConditionThen =
-        let pCond = withContext OffsideContext.If refExpr.Parser
+    let pConditionThen (indent: int) (keywordTok: SyntaxToken) (reader: Reader<PositionedToken, ParseState, _, _>) =
+        // Anchor condition and body to keyword_col + 1, matching pIfExpr behaviour
+        let pCond =
+            withContextAt OffsideContext.If (indent + 1) keywordTok.PositionedToken refExpr.Parser
         // Grammar: THEN typedSeqExprBlock
-        let pThenExpr = withContext OffsideContext.Then refTypedSeqExprBlock.Parser
+        let pThenExpr =
+            withContextAt OffsideContext.Then (indent + 1) keywordTok.PositionedToken refTypedSeqExprBlock.Parser
 
-        parser {
-            let! condition = pCond
-            let! thenTok = pThen
-            let! expr = pThenExpr
-            return (condition, thenTok, expr)
-        }
+        match pCond reader with
+        | Ok condition ->
+            match pThen reader with
+            | Ok thenTok ->
+                match pThenExpr reader with
+                | Ok expr -> Ok(condition, thenTok, expr)
+                | Error e -> Error e
+            | Error e -> Error e
+        | Error e -> Error e
 
     // Grammar: ELSE typedSeqExprBlock
     let private pElseExpr = withContext OffsideContext.Else refTypedSeqExprBlock.Parser
 
+    let private getIndent (reader: Reader<PositionedToken, ParseState, _, _>) (tok: SyntaxToken) =
+        match tok.Index with
+        | TokenIndex.Regular iT -> ParseState.getIndent reader.State iT
+        | TokenIndex.Virtual -> 0
+
     let rec private parseBranches (acc: ResizeArray<_>) (reader: Reader<PositionedToken, ParseState, _, _>) =
         match pElifOrElseIf reader with
         | Ok(ElIfTok.Elif elifTok) ->
-            match pConditionThen reader with
+            let indent = getIndent reader elifTok
+
+            match pConditionThen indent elifTok reader with
             | Ok(condition, thenTok, expr) ->
                 acc.Add(ElifBranch.Elif(elifTok, condition, thenTok, expr))
                 parseBranches acc reader
             | Error e -> Error e
 
         | Ok(ElIfTok.ElseIf(elseTok, ifTok)) ->
-            match pConditionThen reader with
+            let indent = getIndent reader ifTok
+
+            match pConditionThen indent ifTok reader with
             | Ok(condition, thenTok, expr) ->
                 acc.Add(ElifBranch.ElseIf(elseTok, ifTok, condition, thenTok, expr))
                 parseBranches acc reader
