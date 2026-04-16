@@ -424,7 +424,7 @@ module AdditionalConstrExpr =
                 parser {
                     let! newTok = pNew
                     let! t = Type.parse
-                    let! e = Expr.parse
+                    let! e = Expr.parseSeqBlock
                     return AdditionalConstrInitExpr.Delegated(newTok, t, e)
                 }
                 parser {
