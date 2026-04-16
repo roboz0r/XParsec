@@ -548,6 +548,20 @@ let parseWithStackProbe (stackSize: int) (timeout: System.TimeSpan) (filePath: s
                 lastEvents
 
         traceWriter.Dispose()
+
+        match taskResult with
+        | Error e -> ()
+        | Ok ast ->
+            let parseOutput =
+                let ctx = XParsec.FSharp.Debug.PrintContext(2)
+                XParsec.FSharp.Debug.printFSharpAst ctx input lexed ast
+                XParsec.FSharp.Debug.printDiagnostics ctx input reader.State.Diagnostics
+                XParsec.FSharp.Debug.printWarnDirectives ctx reader.State.WarnDirectives
+                ctx.FlushToString()
+
+            let expectedPath = filePath + ".parsed"
+            File.WriteAllText(expectedPath, parseOutput)
+
         taskResult
 
 /// Returns paths of golden files (`.parsed`, `.lexed`, `.lexedblocks`) in `dataDir` that have
