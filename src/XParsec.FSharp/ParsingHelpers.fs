@@ -337,7 +337,23 @@ module Parsing =
                 then
                     ValueSome "15.1.9 ContextPermits"
                 else
-                    ValueNone
+                    // 15.1.10.4 fallback: infix undentation exceeded, but if the SeqBlock
+                    // sits directly inside a paren-like context, delegate to the collection
+                    // undentation rule (same logic as the SeqBlockParen check below).
+                    match rest with
+                    | ctx :: deeper when
+                        ctx.Context = OffsideContext.Paren
+                        || ctx.Context = OffsideContext.Bracket
+                        || ctx.Context = OffsideContext.BracketBar
+                        || ctx.Context = OffsideContext.BraceBar
+                        || ctx.Context = OffsideContext.Brace
+                        || ctx.Context = OffsideContext.Begin
+                        ->
+                        if checkCollectionUndent tokenCol deeper then
+                            ValueSome "15.1.10.4 SeqBlockParen"
+                        else
+                            ValueNone
+                    | _ -> ValueNone
 
             // Check if the token is permitted at the head context or any enclosing context
             elif contextPermitsToken token tokenCol head then
