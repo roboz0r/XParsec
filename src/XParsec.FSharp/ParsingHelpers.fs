@@ -302,6 +302,19 @@ module Parsing =
         | OffsideContext.Quote, (Token.OpQuotationTypedRight | Token.OpQuotationUntypedRight) -> true
         | _ -> false
 
+    /// Like List.exists contextPermitsToken, but for OpBar tokens, stops at
+    /// MatchClauses boundaries to prevent inner matches from consuming outer bars.
+    let rec private contextPermitsTokenBounded (token: Token) (tokenCol: int) (stack: Offside list) =
+        match stack with
+        | [] -> false
+        | ctx :: rest ->
+            if contextPermitsToken token tokenCol ctx then
+                true
+            elif token = Token.OpBar && ctx.Context = OffsideContext.MatchClauses then
+                false
+            else
+                contextPermitsTokenBounded token tokenCol rest
+
     /// Determines whether a token at column `tokenCol` is permitted despite being
     /// strictly left of the innermost context's offside line.
     /// Implements F# spec sections 15.1.8 (Balancing), 15.1.9 (Exceptions to Offside Rules)
@@ -332,8 +345,8 @@ module Parsing =
                 if tokenCol >= head.Indent - (tokenLength + 1) then
                     ValueSome "15.1.9 InfixUndent"
                 else if
-                    // Still check deeper contexts
-                    rest |> List.exists (contextPermitsToken token tokenCol)
+                    // Still check deeper contexts, but don't let bars pass through MatchClauses
+                    contextPermitsTokenBounded token tokenCol rest
                 then
                     ValueSome "15.1.9 ContextPermits"
                 else
@@ -359,7 +372,7 @@ module Parsing =
             elif contextPermitsToken token tokenCol head then
                 ValueSome "15.1.9 ContextPermits"
 
-            elif rest |> List.exists (contextPermitsToken token tokenCol) then
+            elif contextPermitsTokenBounded token tokenCol rest then
                 ValueSome "15.1.9 ContextPermits"
 
             // --- 15.1.10: Permitted Undentations ---
