@@ -1670,53 +1670,74 @@ module Lexing =
             do! updateUserState (LexBuilder.append Token.Newline pos CtxOp.NoOp)
         }
 
-    let pCombiningOperator = many1Chars (anyOf customOperatorChars)
-
     let pOperatorToken =
-        parser {
-            let! pos = getPosition
-            let! op = pCombiningOperator
+        fun (reader: Reader<char, LexBuilder, ReadableString, _>) ->
+            let state = reader.State
+            let startIdx = reader.Position.Index
+            let inComment = state.IsInBlockComment || state.IsInOCamlBlockComment
 
-            do!
-                updateUserState (fun state ->
-                    let token, ctx =
-                        match op with
-                        | "|" -> Token.OpBar, CtxOp.NoOp
-                        | "->" -> Token.OpArrowRight, CtxOp.NoOp
-                        | "<-" -> Token.OpArrowLeft, CtxOp.NoOp
-                        | ":" -> Token.OpColon, CtxOp.NoOp
-                        | "::" -> Token.OpCons, CtxOp.NoOp
-                        | ":?" -> Token.OpTypeTest, CtxOp.NoOp
-                        | ":>" -> Token.OpUpcast, CtxOp.NoOp
-                        | ":?>" -> Token.OpDowncast, CtxOp.NoOp
-                        | ".." -> Token.OpRange, CtxOp.NoOp
-                        | ".. .." -> Token.OpRangeStep, CtxOp.NoOp
-                        | ":=" -> Token.OpColonEquals, CtxOp.NoOp
-                        | "~" -> Token.KWReservedTwiddle, CtxOp.NoOp
-                        | "<@" -> Token.OpQuotationTypedLeft, (CtxOp.Push LexContext.QuotedExpression)
-                        | "@>" -> Token.OpQuotationTypedRight, (CtxOp.Pop LexContext.QuotedExpression)
-                        | "<@@" -> Token.OpQuotationUntypedLeft, (CtxOp.Push LexContext.TypedQuotedExpression)
-                        | "@@>" -> Token.OpQuotationUntypedRight, (CtxOp.Pop LexContext.TypedQuotedExpression)
-                        | "." -> Token.OpDot, CtxOp.NoOp
-                        | "?" -> Token.OpDynamic, CtxOp.NoOp
-                        | "?<-" -> Token.OpDynamicAssignment, CtxOp.NoOp
-                        | "!" -> Token.OpDereference, CtxOp.NoOp
-                        | "??" -> Token.OpQMarkQMark, CtxOp.NoOp
-                        | "=" -> Token.OpEquality, CtxOp.NoOp
-                        | "&&" -> Token.OpAmpAmp, CtxOp.NoOp
-                        | "&" -> Token.OpAmp, CtxOp.NoOp
-                        | "*" -> Token.OpMultiply, CtxOp.NoOp
-                        | "/" -> Token.OpDivision, CtxOp.NoOp
-                        | "^" -> Token.OpConcatenate, CtxOp.NoOp
-                        | "~~~" -> Token.OpLogicalNot, CtxOp.NoOp
-                        | "||" -> Token.OpBarBar, CtxOp.NoOp
-                        | _ ->
-                            let token = Token.ofCustomOperator (op.AsSpan())
-                            token, CtxOp.NoOp
+            // Imperatively consume operator chars, stopping before `*)` when inside a block comment
+            let mutable cont = true
 
-                    LexBuilder.append token pos ctx state
-                )
-        }
+            while cont do
+                match reader.Peek() with
+                | ValueSome c when customOperatorChars.Contains c ->
+                    if inComment && c = '*' then
+                        let peek2 = reader.PeekN(2)
+
+                        if peek2.Length >= 2 && peek2[1] = ')' then
+                            cont <- false // stop before `*)`
+                        else
+                            reader.Skip()
+                    else
+                        reader.Skip()
+                | _ -> cont <- false
+
+            let endIdx = reader.Position.Index
+
+            if endIdx = startIdx then
+                fail (Message "Expected operator") reader
+            else
+
+                let op = state.Source.Substring(startIdx, endIdx - startIdx)
+
+                let token, ctx =
+                    match op with
+                    | "|" -> Token.OpBar, CtxOp.NoOp
+                    | "->" -> Token.OpArrowRight, CtxOp.NoOp
+                    | "<-" -> Token.OpArrowLeft, CtxOp.NoOp
+                    | ":" -> Token.OpColon, CtxOp.NoOp
+                    | "::" -> Token.OpCons, CtxOp.NoOp
+                    | ":?" -> Token.OpTypeTest, CtxOp.NoOp
+                    | ":>" -> Token.OpUpcast, CtxOp.NoOp
+                    | ":?>" -> Token.OpDowncast, CtxOp.NoOp
+                    | ".." -> Token.OpRange, CtxOp.NoOp
+                    | ".. .." -> Token.OpRangeStep, CtxOp.NoOp
+                    | ":=" -> Token.OpColonEquals, CtxOp.NoOp
+                    | "~" -> Token.KWReservedTwiddle, CtxOp.NoOp
+                    | "<@" -> Token.OpQuotationTypedLeft, (CtxOp.Push LexContext.QuotedExpression)
+                    | "@>" -> Token.OpQuotationTypedRight, (CtxOp.Pop LexContext.QuotedExpression)
+                    | "<@@" -> Token.OpQuotationUntypedLeft, (CtxOp.Push LexContext.TypedQuotedExpression)
+                    | "@@>" -> Token.OpQuotationUntypedRight, (CtxOp.Pop LexContext.TypedQuotedExpression)
+                    | "." -> Token.OpDot, CtxOp.NoOp
+                    | "?" -> Token.OpDynamic, CtxOp.NoOp
+                    | "?<-" -> Token.OpDynamicAssignment, CtxOp.NoOp
+                    | "!" -> Token.OpDereference, CtxOp.NoOp
+                    | "??" -> Token.OpQMarkQMark, CtxOp.NoOp
+                    | "=" -> Token.OpEquality, CtxOp.NoOp
+                    | "&&" -> Token.OpAmpAmp, CtxOp.NoOp
+                    | "&" -> Token.OpAmp, CtxOp.NoOp
+                    | "*" -> Token.OpMultiply, CtxOp.NoOp
+                    | "/" -> Token.OpDivision, CtxOp.NoOp
+                    | "^" -> Token.OpConcatenate, CtxOp.NoOp
+                    | "~~~" -> Token.OpLogicalNot, CtxOp.NoOp
+                    | "||" -> Token.OpBarBar, CtxOp.NoOp
+                    | _ ->
+                        let token = Token.ofCustomOperator (op.AsSpan())
+                        token, CtxOp.NoOp
+
+                reader.State <- LexBuilder.appendI token startIdx ctx state
+                preturn () reader
 
     let pSpecialDotOperatorToken =
         let specialOperators =
