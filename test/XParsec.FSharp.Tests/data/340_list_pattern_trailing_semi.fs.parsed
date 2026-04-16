@@ -1,0 +1,51 @@
+AnonymousModule:
+FunctionOrValue:
+  let                      'let'             KWLet               tok=   4  pos=  96
+    Pat.NamedSimple        'test'            Identifier          tok=   6  pos= 100
+    Pats:
+      Pat.NamedSimple      'xs'              Identifier          tok=   8  pos= 105
+    =                      '='               OpEquality          tok=  10  pos= 108
+      Match:
+        MatchToken         'match'           KWMatch             tok=  13  pos= 114
+        MatchExpr:
+          Ident            'xs'              Identifier          tok=  15  pos= 120
+        WithToken          'with'            KWWith              tok=  17  pos= 123
+        Rule:
+          Bar              '|'               OpBar               tok=  20  pos= 132
+          Pat:
+            List           '['               KWLBracket          tok=  22  pos= 134
+              Pat.Elems:
+                Pat.Const  '1'               NumInt32            tok=  23  pos= 135
+                Pat.Const  '2'               NumInt32            tok=  26  pos= 138
+                           ']'               KWRBracket          tok=  28  pos= 140
+          Arrow            '->'              OpArrowRight        tok=  30  pos= 142
+          Expr:
+            StringLiteral  '"'               StringOpen          tok=  32  pos= 145
+            Parts:
+              Text         'two'             StringFragment      tok=  33  pos= 146
+                           '"'               StringClose         tok=  34  pos= 149
+        Rule:
+          Bar              '|'               OpBar               tok=  37  pos= 155
+          Pat:
+            List           '['               KWLBracket          tok=  39  pos= 157
+              Pat.Elems:
+                Pat.Const  '1'               NumInt32            tok=  40  pos= 158
+                Pat.Const  '2'               NumInt32            tok=  43  pos= 161
+                Pat.Const  '3'               NumInt32            tok=  46  pos= 164
+                           ']'               KWRBracket          tok=  48  pos= 166
+          Arrow            '->'              OpArrowRight        tok=  50  pos= 168
+          Expr:
+            StringLiteral  '"'               StringOpen          tok=  52  pos= 171
+            Parts:
+              Text         'three'           StringFragment      tok=  53  pos= 172
+                           '"'               StringClose         tok=  54  pos= 177
+        Rule:
+          Bar              '|'               OpBar               tok=  57  pos= 183
+          Pat:
+            Pat.Wildcard   '_'               Wildcard            tok=  59  pos= 185
+          Arrow            '->'              OpArrowRight        tok=  61  pos= 187
+          Expr:
+            StringLiteral  '"'               StringOpen          tok=  63  pos= 190
+            Parts:
+              Text         'other'           StringFragment      tok=  64  pos= 191
+                           '"'               StringClose         tok=  65  pos= 196

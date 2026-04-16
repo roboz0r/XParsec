@@ -164,7 +164,7 @@ module Pat =
                 preturn op
 
             | Token.OpSemicolon ->
-                let op = InfixNary(token, preturn token, semiPrecedence, false, completeElems)
+                let op = InfixNary(token, preturn token, semiPrecedence, true, completeElems)
                 preturn op
 
             | _ -> fail (Message "Not a valid RHS pattern operator")
@@ -284,7 +284,13 @@ module Pat =
 
     let private pOrAsChain
         (altParser:
-            Parser<Pat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, ReadableImmutableArraySlice<PositionedToken>>)
+            Parser<
+                Pat<SyntaxToken>,
+                PositionedToken,
+                ParseState,
+                ReadableImmutableArray<PositionedToken>,
+                ReadableImmutableArraySlice<PositionedToken>
+             >)
         (basePat: Pat<SyntaxToken>)
         =
         parser {
