@@ -44,3 +44,8 @@ module internal ParserRefs =
     /// Atomic expression parser for use in IL intrinsics, where each argument
     /// is a standalone atomic expression (identifier, literal, parenthesized expr, etc.)
     let refExprAtomic = FSRefParser<Expr<SyntaxToken>>()
+
+    /// Expression parser for IL intrinsic arguments: accepts dot chains, indexers,
+    /// and type applications, but stops at juxtaposition so each whitespace-separated
+    /// arg in `(# "op" a b c : ty #)` is captured as a distinct arg.
+    let refExprILArg = FSRefParser<Expr<SyntaxToken>>()
