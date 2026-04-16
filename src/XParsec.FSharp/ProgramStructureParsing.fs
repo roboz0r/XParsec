@@ -87,6 +87,29 @@ module FSharpAst =
 
         ImmutableArray.CreateRange(skipped)
 
+    /// Appends skipped tokens as a ModuleElem.SkipsTokens to the appropriate container
+    /// in an ImplementationFile, so leftover tokens are visible in the AST.
+    let private appendSkippedToImpl (skipped: ImmutableArray<SyntaxToken>) (implFile: ImplementationFile<SyntaxToken>) =
+        let skipElem = ModuleElem.SkipsTokens(skipped)
+
+        match implFile with
+        | ImplementationFile.AnonymousModule elems -> ImplementationFile.AnonymousModule(elems.Add(skipElem))
+        | ImplementationFile.NamedModule(NamedModule.NamedModule(attrs, modTok, access, isRec, longIdent, elems)) ->
+            ImplementationFile.NamedModule(
+                NamedModule.NamedModule(attrs, modTok, access, isRec, longIdent, elems.Add(skipElem))
+            )
+        | ImplementationFile.Namespaces decls when decls.Length > 0 ->
+            let lastIdx = decls.Length - 1
+
+            let updatedLast =
+                match decls[lastIdx] with
+                | NamespaceDeclGroup.Named(ns, isRec, ident, elems) ->
+                    NamespaceDeclGroup.Named(ns, isRec, ident, elems.Add(skipElem))
+                | NamespaceDeclGroup.Global(ns, g, elems) -> NamespaceDeclGroup.Global(ns, g, elems.Add(skipElem))
+
+            ImplementationFile.Namespaces(decls.SetItem(lastIdx, updatedLast))
+        | ImplementationFile.Namespaces _ -> ImplementationFile.AnonymousModule(ImmutableArray.Create(skipElem))
+
     /// Infallible top-level parser. Always returns Ok with errors captured as diagnostics.
     let parse: Parser<FSharpAst<SyntaxToken>, PositionedToken, ParseState, _, _> =
         fun reader ->
@@ -123,19 +146,24 @@ module FSharpAst =
                     // Parsed something but didn't reach EOF. Collect leftover tokens.
                     let skipped = skipToEof reader
 
-                    if not skipped.IsEmpty then
-                        let startTok = skipped.[0]
+                    let implFile' =
+                        if skipped.IsEmpty then
+                            implFile
+                        else
+                            let startTok = skipped.[0]
 
-                        reader.State <-
-                            addDiagnostic
-                                DiagnosticCode.UnexpectedTopLevel
-                                DiagnosticSeverity.Error
-                                startTok.PositionedToken
-                                None
-                                (Some topErr)
-                                reader.State
+                            reader.State <-
+                                addDiagnostic
+                                    DiagnosticCode.UnexpectedTopLevel
+                                    DiagnosticSeverity.Error
+                                    startTok.PositionedToken
+                                    None
+                                    (Some topErr)
+                                    reader.State
 
-                    Ok(FSharpAst.ImplementationFile implFile)
+                            appendSkippedToImpl skipped implFile
+
+                    Ok(FSharpAst.ImplementationFile implFile')
 
                 | Error _ ->
                     // Even ImplementationFile.parse failed. Reset and try just Expr.parse.
@@ -145,6 +173,8 @@ module FSharpAst =
                     | Ok expr ->
                         // Parsed an expression. Collect leftover tokens.
                         let skipped = skipToEof reader
+                        let elems = ImmutableArray.CreateBuilder(if skipped.IsEmpty then 1 else 2)
+                        elems.Add(ModuleElem.Expression expr)
 
                         if not skipped.IsEmpty then
                             let startTok = skipped.[0]
@@ -158,11 +188,9 @@ module FSharpAst =
                                     (Some topErr)
                                     reader.State
 
-                        Ok(
-                            FSharpAst.ScriptFragment(
-                                ScriptFragment.ScriptFragment(ImmutableArray.Create(ModuleElem.Expression expr))
-                            )
-                        )
+                            elems.Add(ModuleElem.SkipsTokens(skipped))
+
+                        Ok(FSharpAst.ScriptFragment(ScriptFragment.ScriptFragment(elems.ToImmutable())))
 
                     | Error _ ->
                         // Nothing parseable at all. Skip all tokens and return empty module.
