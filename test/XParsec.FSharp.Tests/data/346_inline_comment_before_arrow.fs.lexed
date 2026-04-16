@@ -1,0 +1,200 @@
+0, LineComment
+77, Newline
+78, LineComment
+150, Newline
+151, LineComment
+189, Newline
+190, KWType
+194, Whitespace
+195, Identifier
+199, Whitespace
+200, OpEquality
+201, Whitespace
+202, KWLBrace
+203, Whitespace
+204, Identifier
+208, OpColon
+209, Whitespace
+210, Identifier
+216, Whitespace
+217, KWRBrace
+218, Newline
+219, Newline
+220, KWLet
+223, Whitespace
+224, Identifier
+229, Whitespace
+230, Identifier
+232, Whitespace
+233, OpEquality
+234, Newline
+235, Indent
+239, Identifier
+241, Newline
+242, Indent
+246, Operator 0b1000000000001111 ComparisonAndBitwise
+248, Whitespace
+249, Identifier
+253, OpDot
+254, Identifier
+257, Newline
+258, Indent
+266, KWLParen
+267, KWFunction
+275, Newline
+276, Indent
+288, OpBar
+289, Whitespace
+290, Wildcard
+291, OpComma
+292, Whitespace
+293, KWLParen
+294, KWLBracket
+295, Wildcard
+296, KWRBracket
+297, Whitespace
+298, KWAs
+300, Whitespace
+301, Identifier
+306, KWRParen
+307, Newline
+308, Indent
+320, OpBar
+321, Whitespace
+322, Wildcard
+323, OpComma
+324, Whitespace
+325, Identifier
+330, Whitespace
+331, KWWhen
+335, Whitespace
+336, Identifier
+340, OpDot
+341, Identifier
+347, Whitespace
+348, Identifier
+353, Whitespace
+354, OpEquality
+355, Whitespace
+356, NumInt32
+357, Whitespace
+358, OpArrowRight
+360, Newline
+361, Indent
+377, KWLet
+380, Whitespace
+381, Identifier
+385, Whitespace
+386, OpEquality
+387, Whitespace
+388, Identifier
+392, OpDot
+393, Identifier
+397, Whitespace
+398, Identifier
+403, Newline
+404, Indent
+420, KWLBracket
+421, Whitespace
+422, Identifier
+426, OpDot
+427, Identifier
+431, OpComma
+432, Whitespace
+433, Identifier
+437, OpDot
+438, Identifier
+442, OpComma
+443, Whitespace
+444, Identifier
+449, Whitespace
+450, KWRBracket
+451, Newline
+452, Indent
+464, OpBar
+465, Whitespace
+466, Wildcard
+467, OpComma
+468, Whitespace
+469, Identifier
+474, Whitespace
+475, BlockCommentStart
+477, Whitespace (in comment)
+478, Identifier (in comment)
+481, Operator 0b1000000001010011 InfixAdd (can be prefix) (in comment)
+482, NumInt32 (in comment)
+486, Whitespace (in comment)
+487, Identifier (in comment)
+489, Whitespace (in comment)
+490, Identifier (in comment)
+494, Whitespace (in comment)
+495, Identifier (in comment)
+499, Whitespace (in comment)
+500, Identifier (in comment)
+508, Whitespace (in comment)
+509, KWAnd (in comment)
+512, Whitespace (in comment)
+513, Identifier (in comment)
+522, Whitespace (in comment)
+523, Identifier (in comment)
+529, Whitespace (in comment)
+530, InvalidOperator (in comment)
+533, BlockCommentEnd
+535, Whitespace
+536, OpArrowRight
+538, Newline
+539, Indent
+555, KWLet
+558, Whitespace
+559, Identifier
+566, OpComma
+567, Whitespace
+568, Identifier
+576, Whitespace
+577, OpEquality
+578, Whitespace
+579, Identifier
+583, OpDot
+584, Identifier
+593, Whitespace
+594, KWLParen
+595, KWFun
+598, Whitespace
+599, Wildcard
+600, Whitespace
+601, OpArrowRight
+603, Whitespace
+604, KWTrue
+608, KWRParen
+609, Whitespace
+610, Identifier
+615, Newline
+616, Indent
+632, KWLBracket
+633, Whitespace
+634, KWFor
+637, Whitespace
+638, Identifier
+642, Whitespace
+643, KWIn
+645, Whitespace
+646, Identifier
+653, Whitespace
+654, OpArrowRight
+656, Whitespace
+657, Identifier
+661, OpDot
+662, Identifier
+666, OpComma
+667, Whitespace
+668, Identifier
+672, OpDot
+673, Identifier
+677, OpComma
+678, Whitespace
+679, Identifier
+687, Whitespace
+688, KWRBracket
+689, KWRParen
+690, Newline
+691, EOF

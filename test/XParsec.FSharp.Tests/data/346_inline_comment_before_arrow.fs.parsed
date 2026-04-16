@@ -1,0 +1,141 @@
+AnonymousModule:
+TypeDefn.Record:
+  TypeName                                    'Item'            Identifier          tok=   8  pos= 195
+  =                                           '='               OpEquality          tok=  10  pos= 200
+  {                                           '{'               KWLBrace            tok=  12  pos= 202
+    Field:
+      ident                                   'Name'            Identifier          tok=  14  pos= 204
+      :                                       ':'               OpColon             tok=  15  pos= 208
+      NamedType:
+        LongIdent:
+                                              'string'          Identifier          tok=  17  pos= 210
+  }                                           '}'               KWRBrace            tok=  19  pos= 217
+FunctionOrValue:
+  let                                         'let'             KWLet               tok=  22  pos= 220
+    Pat.NamedSimple                           'split'           Identifier          tok=  24  pos= 224
+    Pats:
+      Pat.NamedSimple                         'xs'              Identifier          tok=  26  pos= 230
+    =                                         '='               OpEquality          tok=  28  pos= 233
+      InfixApp                                '|>'              op_PipeRight        tok=  34  pos= 246
+        Ident                                 'xs'              Identifier          tok=  31  pos= 239
+        App:
+          Func:
+            LongIdentOrOp:
+              LongIdent:
+                                              'List'            Identifier          tok=  36  pos= 249
+                                              'map'             Identifier          tok=  38  pos= 254
+          Args:
+            ParenBlock                        '('               KWLParen            tok=  41  pos= 266
+              Function                        'function'        KWFunction          tok=  42  pos= 267
+                Rule:
+                  Bar                         '|'               OpBar               tok=  45  pos= 288
+                  Pat:
+                    Pat.Or                    '|'               OpBar               tok=  61  pos= 320
+                      Pat.Tuple:
+                        Pat.Wildcard          '_'               Wildcard            tok=  47  pos= 290
+                        ,                     ','               OpComma             tok=  48  pos= 291
+                        ParenBlock            '('               KWLParen            tok=  50  pos= 293
+                          Pat.As:
+                            List              '['               KWLBracket          tok=  51  pos= 294
+                              Pat.Wildcard    '_'               Wildcard            tok=  52  pos= 295
+                                              ']'               KWRBracket          tok=  53  pos= 296
+                            As                'as'              KWAs                tok=  55  pos= 298
+                            Ident             'items'           Identifier          tok=  57  pos= 301
+                                              ')'               KWRParen            tok=  58  pos= 306
+                      Pat.Tuple:
+                        Pat.Wildcard          '_'               Wildcard            tok=  63  pos= 322
+                        ,                     ','               OpComma             tok=  64  pos= 323
+                        Pat.NamedSimple       'items'           Identifier          tok=  66  pos= 325
+                  When                        'when'            KWWhen              tok=  68  pos= 331
+                  Guard:
+                    InfixApp                  '='               OpEquality          tok=  76  pos= 354
+                      App:
+                        Func:
+                          LongIdentOrOp:
+                            LongIdent:
+                                              'List'            Identifier          tok=  70  pos= 336
+                                              'length'          Identifier          tok=  72  pos= 341
+                        Args:
+                          Ident               'items'           Identifier          tok=  74  pos= 348
+                      Const                   '1'               NumInt32            tok=  78  pos= 356
+                  Arrow                       '->'              OpArrowRight        tok=  80  pos= 358
+                  Expr:
+                    Let                       'let'             KWLet               tok=  83  pos= 377
+                      Pat.NamedSimple         'item'            Identifier          tok=  85  pos= 381
+                      =                       '='               OpEquality          tok=  87  pos= 386
+                        App:
+                          Func:
+                            LongIdentOrOp:
+                              LongIdent:
+                                              'List'            Identifier          tok=  89  pos= 388
+                                              'head'            Identifier          tok=  91  pos= 393
+                          Args:
+                            Ident             'items'           Identifier          tok=  93  pos= 398
+                    in                        <virt>            KWIn                tok=virt  pos= 420
+                    Body:
+                      List                    '['               KWLBracket          tok=  96  pos= 420
+                        Tuple:
+                          LongIdentOrOp:
+                            LongIdent:
+                                              'item'            Identifier          tok=  98  pos= 422
+                                              'Name'            Identifier          tok= 100  pos= 427
+                          LongIdentOrOp:
+                            LongIdent:
+                                              'item'            Identifier          tok= 103  pos= 433
+                                              'Name'            Identifier          tok= 105  pos= 438
+                          Ident               'items'           Identifier          tok= 108  pos= 444
+                                              ']'               KWRBracket          tok= 110  pos= 450
+                Rule:
+                  Bar                         '|'               OpBar               tok= 113  pos= 464
+                  Pat:
+                    Pat.Tuple:
+                      Pat.Wildcard            '_'               Wildcard            tok= 115  pos= 466
+                      ,                       ','               OpComma             tok= 116  pos= 467
+                      Pat.NamedSimple         'items'           Identifier          tok= 118  pos= 469
+                  Arrow                       '->'              OpArrowRight        tok= 143  pos= 536
+                  Expr:
+                    Let                       'let'             KWLet               tok= 146  pos= 555
+                      Pat.Tuple:
+                        Pat.NamedSimple       'toSplit'         Identifier          tok= 148  pos= 559
+                        ,                     ','               OpComma             tok= 149  pos= 566
+                        Pat.NamedSimple       'together'        Identifier          tok= 151  pos= 568
+                      =                       '='               OpEquality          tok= 153  pos= 577
+                        App:
+                          Func:
+                            LongIdentOrOp:
+                              LongIdent:
+                                              'List'            Identifier          tok= 155  pos= 579
+                                              'partition'       Identifier          tok= 157  pos= 584
+                          Args:
+                            ParenBlock        '('               KWLParen            tok= 159  pos= 594
+                              Fun             'fun'             KWFun               tok= 160  pos= 595
+                              Pats:
+                                Pat.Wildcard  '_'               Wildcard            tok= 162  pos= 599
+                              Arrow           '->'              OpArrowRight        tok= 164  pos= 601
+                              Body:
+                                Const         'true'            KWTrue              tok= 166  pos= 604
+                                              ')'               KWRParen            tok= 167  pos= 608
+                            Ident             'items'           Identifier          tok= 169  pos= 610
+                    in                        <virt>            KWIn                tok=virt  pos= 632
+                    Body:
+                      List                    '['               KWLBracket          tok= 172  pos= 632
+                        ForIn                 'for'             KWFor               tok= 174  pos= 634
+                        Pat:
+                          Pat.NamedSimple     'item'            Identifier          tok= 176  pos= 638
+                        InToken               'in'              KWIn                tok= 178  pos= 643
+                        Ident                 'toSplit'         Identifier          tok= 180  pos= 646
+                        DoToken               '->'              OpArrowRight        tok= 182  pos= 654
+                        Body:
+                          Tuple:
+                            LongIdentOrOp:
+                              LongIdent:
+                                              'item'            Identifier          tok= 184  pos= 657
+                                              'Name'            Identifier          tok= 186  pos= 662
+                            LongIdentOrOp:
+                              LongIdent:
+                                              'item'            Identifier          tok= 189  pos= 668
+                                              'Name'            Identifier          tok= 191  pos= 673
+                            Ident             'together'        Identifier          tok= 194  pos= 679
+                        DoneToken             <virt>            KWDone              tok=virt  pos= 688
+                                              ']'               KWRBracket          tok= 196  pos= 688
+                                              ')'               KWRParen            tok= 197  pos= 689
