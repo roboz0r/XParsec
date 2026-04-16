@@ -493,6 +493,7 @@ type TypeDefnElement<'T> =
     | Member of MemberDefn<'T>
     | InterfaceImpl of InterfaceImpl<'T>
     | InterfaceSpec of InterfaceSpec<'T>
+    | Inherit of ClassInheritsDecl<'T>
 
 and InterfaceSpec<'T> = | InterfaceSpec of interfaceToken: 'T * typ: Type<'T>
 
