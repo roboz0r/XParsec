@@ -1,0 +1,104 @@
+AnonymousModule:
+TypeDefn.Union:
+  TypeName                       'Conv'            Identifier          tok=  10  pos= 189
+  =                              '='               OpEquality          tok=  12  pos= 194
+    Case:
+      ident                      'FastCall'        Identifier          tok=  14  pos= 196
+    Case:
+      ident                      'StdCall'         Identifier          tok=  18  pos= 207
+    Case:
+      ident                      'ThisCall'        Identifier          tok=  22  pos= 217
+    Case:
+      ident                      'CDecl'           Identifier          tok=  26  pos= 228
+    Case:
+      ident                      'Default'         Identifier          tok=  30  pos= 236
+    Case:
+      ident                      'VarArg'          Identifier          tok=  34  pos= 246
+FunctionOrValue:
+  let                            'let'             KWLet               tok=  37  pos= 254
+    Pat.NamedSimple              'callconvTo...'   Identifier          tok=  39  pos= 258
+    Pats:
+      Pat.NamedSimple            'ntypars'         Identifier          tok=  41  pos= 273
+      ParenBlock                 '('               KWLParen            tok=  43  pos= 281
+        Pat.Typed:
+          Pat.NamedSimple        'hasthis'         Identifier          tok=  44  pos= 282
+          Colon                  ':'               OpColon             tok=  45  pos= 289
+          NamedType:
+            LongIdent:
+                                 'byte'            Identifier          tok=  47  pos= 291
+                                 ')'               KWRParen            tok=  48  pos= 295
+      ParenBlock                 '('               KWLParen            tok=  50  pos= 297
+        Pat.Typed:
+          Pat.NamedSimple        'bcc'             Identifier          tok=  51  pos= 298
+          Colon                  ':'               OpColon             tok=  52  pos= 301
+          NamedType:
+            LongIdent:
+                                 'Conv'            Identifier          tok=  54  pos= 303
+                                 ')'               KWRParen            tok=  55  pos= 307
+    =                            '='               OpEquality          tok=  57  pos= 309
+      InfixApp                   '|||'             op_BitwiseOr        tok=  83  pos= 372
+        InfixApp                 '|||'             op_BitwiseOr        tok=  62  pos= 323
+          Ident                  'hasthis'         Identifier          tok=  60  pos= 315
+          ParenBlock             '('               KWLParen            tok=  65  pos= 331
+            IfThenElse:
+              IfToken            'if'              KWIf                tok=  66  pos= 332
+              Condition:
+                InfixApp         '>'               op_GreaterThan      tok=  70  pos= 343
+                  Ident          'ntypars'         Identifier          tok=  68  pos= 335
+                  Const          '0'               NumInt32            tok=  72  pos= 345
+              ThenToken          'then'            KWThen              tok=  74  pos= 347
+              ThenExpr:
+                Const            '0x10uy'          NumByteHex          tok=  76  pos= 352
+              ElseToken          'else'            KWElse              tok=  78  pos= 359
+              ElseExpr:
+                Const            '0x00uy'          NumByteHex          tok=  80  pos= 364
+                                 ')'               KWRParen            tok=  81  pos= 370
+        ParenBlock               '('               KWLParen            tok=  86  pos= 380
+          Match:
+            MatchToken           'match'           KWMatch             tok=  87  pos= 381
+            MatchExpr:
+              Ident              'bcc'             Identifier          tok=  89  pos= 387
+            WithToken            'with'            KWWith              tok=  91  pos= 391
+            Rule:
+              Bar                '|'               OpBar               tok=  94  pos= 400
+              Pat:
+                Pat.NamedSimple  'FastCall'        Identifier          tok=  96  pos= 402
+              Arrow              '->'              OpArrowRight        tok=  98  pos= 411
+              Expr:
+                Const            '0x04uy'          NumByteHex          tok= 100  pos= 414
+            Rule:
+              Bar                '|'               OpBar               tok= 103  pos= 425
+              Pat:
+                Pat.NamedSimple  'StdCall'         Identifier          tok= 105  pos= 427
+              Arrow              '->'              OpArrowRight        tok= 107  pos= 435
+              Expr:
+                Const            '0x02uy'          NumByteHex          tok= 109  pos= 438
+            Rule:
+              Bar                '|'               OpBar               tok= 112  pos= 449
+              Pat:
+                Pat.NamedSimple  'ThisCall'        Identifier          tok= 114  pos= 451
+              Arrow              '->'              OpArrowRight        tok= 116  pos= 460
+              Expr:
+                Const            '0x03uy'          NumByteHex          tok= 118  pos= 463
+            Rule:
+              Bar                '|'               OpBar               tok= 121  pos= 474
+              Pat:
+                Pat.NamedSimple  'CDecl'           Identifier          tok= 123  pos= 476
+              Arrow              '->'              OpArrowRight        tok= 125  pos= 482
+              Expr:
+                Const            '0x01uy'          NumByteHex          tok= 127  pos= 485
+            Rule:
+              Bar                '|'               OpBar               tok= 130  pos= 496
+              Pat:
+                Pat.NamedSimple  'Default'         Identifier          tok= 132  pos= 498
+              Arrow              '->'              OpArrowRight        tok= 134  pos= 506
+              Expr:
+                Const            '0x00uy'          NumByteHex          tok= 136  pos= 509
+            Rule:
+              Bar                '|'               OpBar               tok= 139  pos= 520
+              Pat:
+                Pat.NamedSimple  'VarArg'          Identifier          tok= 141  pos= 522
+              Arrow              '->'              OpArrowRight        tok= 143  pos= 529
+              Expr:
+                Const            '0x05uy'          NumByteHex          tok= 145  pos= 532
+                                 ')'               KWRParen            tok= 146  pos= 538
