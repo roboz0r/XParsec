@@ -840,6 +840,12 @@ module TypeDefnElement =
                         return TypeDefnElement.InterfaceImpl(InterfaceImpl.InterfaceImpl(intf, t, ValueSome objMembers))
                     | ValueNone -> return TypeDefnElement.InterfaceSpec(InterfaceSpec.InterfaceSpec(intf, t))
                 }
+                parser {
+                    let! inh = pInherit
+                    let! t = Type.parse
+                    let! e = opt Expr.parseAtomic
+                    return TypeDefnElement.Inherit(ClassInheritsDecl.ClassInheritsDecl(inh, t, e))
+                }
                 MemberDefn.parse |>> TypeDefnElement.Member
             ]
             "Type Definition Element"

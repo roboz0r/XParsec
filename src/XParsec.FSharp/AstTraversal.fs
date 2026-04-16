@@ -1650,6 +1650,13 @@ and walkTypeDefnElement (visitor: AstVisitor<'T>) (elem: TypeDefnElement<'T>) : 
 
         visitor.ExitSection "InterfaceImpl"
     | TypeDefnElement.InterfaceSpec _ -> visitor.WriteLine "<interface spec>"
+    | TypeDefnElement.Inherit(ClassInheritsDecl(inhTok, typ, expr)) ->
+        visitor.VisitToken "inherit" inhTok
+        walkType visitor typ
+
+        match expr with
+        | ValueSome e -> walkExpr visitor e
+        | ValueNone -> ()
 
 and walkTypeName (visitor: AstVisitor<'T>) (typeName: TypeName<'T>) : unit =
     let (TypeName(attrs, access, prefixTypars, ident, typars, postfixConstraints)) =

@@ -1,0 +1,67 @@
+AnonymousModule:
+Import:
+  open                   'open'            KWOpen              tok=   6  pos= 180
+                         'System'          Identifier          tok=   8  pos= 185
+TypeDefn.Anon:
+  TypeName               'ILModuleRe...'   Identifier          tok=  13  pos= 198
+  =                      '='               OpEquality          tok=  15  pos= 213
+  begin                  <virt>            KWBegin             tok=virt  pos= 219
+    abstract             'abstract'        KWAbstract          tok=  18  pos= 219
+    ident                'ILModuleDe...'   Identifier          tok=  20  pos= 228
+    :                    ':'               OpColon             tok=  21  pos= 239
+    NamedType:
+      LongIdent:
+                         'int'             Identifier          tok=  23  pos= 241
+    abstract             'abstract'        KWAbstract          tok=  26  pos= 249
+    ident                'ILAssembly...'   Identifier          tok=  28  pos= 258
+    :                    ':'               OpColon             tok=  29  pos= 272
+    SuffixedType:
+      NamedType:
+        LongIdent:
+                         'int'             Identifier          tok=  31  pos= 274
+      LongIdent:
+                         'list'            Identifier          tok=  33  pos= 278
+    inherit              'inherit'         KWInherit           tok=  43  pos= 419
+    NamedType:
+      LongIdent:
+                         'IDisposabl...'   Identifier          tok=  45  pos= 427
+  end                    <virt>            KWEnd               tok=virt  pos= 440
+TypeDefn.Anon:
+  [<                     '[<'              KWLAttrBracket      tok=  48  pos= 440
+  NamedType:
+    LongIdent:
+                         'Sealed'          Identifier          tok=  49  pos= 442
+  >]                     '>]'              KWRAttrBracket      tok=  50  pos= 448
+  TypeName               'Impl'            Identifier          tok=  54  pos= 456
+  (                      '('               KWLParen            tok=  55  pos= 460
+  )                      ')'               KWRParen            tok=  56  pos= 461
+  =                      '='               OpEquality          tok=  58  pos= 463
+  begin                  <virt>            KWBegin             tok=virt  pos= 469
+    InterfaceImpl:
+      interface          'interface'       KWInterface         tok=  61  pos= 469
+      NamedType:
+        LongIdent:
+                         'ILModuleRe...'   Identifier          tok=  63  pos= 479
+      with               'with'            KWWith              tok=  65  pos= 494
+        member           'member'          KWMember            tok=  68  pos= 507
+        self             '_'               Wildcard            tok=  70  pos= 514
+        Pat.NamedSimple  'ILModuleDe...'   Identifier          tok=  72  pos= 516
+        =                '='               OpEquality          tok=  74  pos= 528
+          Const          '0'               NumInt32            tok=  76  pos= 530
+        member           'member'          KWMember            tok=  79  pos= 540
+        self             '_'               Wildcard            tok=  81  pos= 547
+        Pat.NamedSimple  'ILAssembly...'   Identifier          tok=  83  pos= 549
+        =                '='               OpEquality          tok=  85  pos= 564
+          List           '['               KWLBracket          tok=  87  pos= 566
+                         ']'               KWRBracket          tok=  88  pos= 567
+        member           'member'          KWMember            tok=  91  pos= 577
+        self             '_'               Wildcard            tok=  93  pos= 584
+        Pat.NamedSimple  'Dispose'         Identifier          tok=  95  pos= 586
+        Pats:
+          ParenBlock     '('               KWLParen            tok=  96  pos= 593
+                         ')'               KWRParen            tok=  97  pos= 594
+        =                '='               OpEquality          tok=  99  pos= 596
+          ParenBlock     '('               KWLParen            tok= 101  pos= 598
+                         ')'               KWRParen            tok= 102  pos= 599
+      end                <virt>            KWEnd               tok=virt  pos=   0
+  end                    <virt>            KWEnd               tok=virt  pos= 601
