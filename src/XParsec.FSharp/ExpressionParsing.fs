@@ -236,9 +236,9 @@ module Binding =
             let! argumentPats =
                 match identOrOp with
                 | IdentOrOp.ParenOp _
-                | IdentOrOp.StarOp _ -> many Pat.parseAtomic
-                | IdentOrOp.Ident _ when typarDefns.IsSome -> many Pat.parseAtomic
-                | IdentOrOp.Ident _ -> Pat.parseAtomicMany1
+                | IdentOrOp.StarOp _ -> many Pat.parseAtomicBindingArg
+                | IdentOrOp.Ident _ when typarDefns.IsSome -> many Pat.parseAtomicBindingArg
+                | IdentOrOp.Ident _ -> Pat.parseAtomicBindingArgMany1
 
             let! returnType = opt ReturnType.parse
             let! equals = pEquals

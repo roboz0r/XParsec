@@ -591,6 +591,18 @@ module Pat =
             return Pat.Optional(qmark, pat)
         }
 
+    /// Named pattern parser that does NOT consume trailing arguments.
+    /// Used for function/member binding argument positions where each
+    /// parameter should be an independent atomic pattern.
+    let private pNamedNoArgs =
+        parser {
+            let! lid = LongIdent.parse
+
+            match lid.Length with
+            | 1 -> return Pat.NamedSimple(lid[0])
+            | _ -> return Pat.Named(lid, ValueNone, ValueNone)
+        }
+
     let parseAtomic =
         dispatchNextNonTriviaTokenFallback
             [
@@ -635,6 +647,32 @@ module Pat =
 
     let parseMany1 = many1 parse
     let parseAtomicMany1 = many1 parseAtomic
+
+    /// Atomic pattern parser for function/member binding argument positions.
+    /// Identifiers are parsed as simple names without consuming trailing arguments.
+    let parseAtomicBindingArg =
+        dispatchNextNonTriviaTokenFallback
+            [
+                Token.Wildcard, pWildcardPat
+                Token.KWNull, pNullPat
+                Token.OpTypeTest, pTypeTestPat
+                Token.OpDynamic, pOptionalPat
+                Token.Identifier, pNamedNoArgs
+                Token.BacktickedIdentifier, pNamedNoArgs
+                Token.UnterminatedBacktickedIdentifier, pNamedNoArgs
+                Token.KWLParen, pParenOrOpHeadPat
+                Token.KWLBracket, pListPat
+                Token.KWLArrayBracket, pArrayPat
+                Token.KWLBrace, pRecordPat
+                Token.KWLAttrBracket, pAttributesPat
+                Token.KWStruct, pStructPat
+                Token.StringOpen, pStringPat
+                Token.VerbatimStringOpen, pStringPat
+                Token.String3Open, pStringPat
+            ]
+            pConstPat
+
+    let parseAtomicBindingArgMany1 = many1 parseAtomicBindingArg
 
     do refPat.Set parse
     do refPatSeqBlock.Set parseSeqBlock

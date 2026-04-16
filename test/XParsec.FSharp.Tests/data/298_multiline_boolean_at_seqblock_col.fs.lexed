@@ -57,7 +57,7 @@
 290, StringClose
 291, Newline
 292, Indent
-300, Operator 0b1000000000001111 ComparisonAndBitwise
+300, OpBarBar
 302, Whitespace
 303, Identifier
 304, OpDot
@@ -129,7 +129,7 @@
 630, KWRParen
 631, Newline
 632, Indent
-640, Operator 0b1000000000001111 ComparisonAndBitwise
+640, OpBarBar
 642, Whitespace
 643, Identifier
 644, OpDot
@@ -140,7 +140,7 @@
 658, StringClose
 659, Newline
 660, Indent
-668, Operator 0b1000000000001111 ComparisonAndBitwise
+668, OpBarBar
 670, Whitespace
 671, Identifier
 672, OpDot

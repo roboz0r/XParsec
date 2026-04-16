@@ -4,10 +4,8 @@ FunctionOrValue:
   let                                 'let'             KWLet               tok=   5  pos=  13
     Pat.NamedSimple                   'f'               Identifier          tok=   7  pos=  17
     Pats:
-      Pat.Named:
-        Ident                         'x'               Identifier          tok=   9  pos=  19
-        Param:
-          Pat.NamedSimple             'y'               Identifier          tok=  11  pos=  21
+      Pat.NamedSimple                 'x'               Identifier          tok=   9  pos=  19
+      Pat.NamedSimple                 'y'               Identifier          tok=  11  pos=  21
     =                                 '='               OpEquality          tok=  13  pos=  23
       IfThenElse:
         IfToken                       'if'              KWIf                tok=  16  pos=  29
@@ -50,10 +48,8 @@ FunctionOrValue:
   let                                 'let'             KWLet               tok=  67  pos= 150
     Pat.NamedSimple                   'g'               Identifier          tok=  69  pos= 154
     Pats:
-      Pat.Named:
-        Ident                         'a'               Identifier          tok=  71  pos= 156
-        Param:
-          Pat.NamedSimple             'b'               Identifier          tok=  73  pos= 158
+      Pat.NamedSimple                 'a'               Identifier          tok=  71  pos= 156
+      Pat.NamedSimple                 'b'               Identifier          tok=  73  pos= 158
     =                                 '='               OpEquality          tok=  75  pos= 160
       InfixApp                        '&&'              OpAmpAmp            tok=  84  pos= 172
         InfixApp                      '>'               op_GreaterThan      tok=  80  pos= 168

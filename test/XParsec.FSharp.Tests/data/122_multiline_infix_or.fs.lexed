@@ -22,7 +22,7 @@
 48, Identifier
 57, Newline
 58, Indent
-62, Operator 0b1000000000001111 ComparisonAndBitwise
+62, OpBarBar
 64, Whitespace
 65, Identifier
 66, OpDot

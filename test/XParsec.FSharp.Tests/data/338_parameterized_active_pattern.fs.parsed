@@ -13,15 +13,13 @@ FunctionOrValue:
                                      '|'               OpBar               tok=  13  pos= 136
                                      ')'               KWRParen            tok=  14  pos= 137
     Pats:
-      Pat.Named:
-        Ident                        'n'               Identifier          tok=  16  pos= 139
-        Param:
-          ParenBlock                 '('               KWLParen            tok=  18  pos= 141
-            Pat.Typed:
-              Pat.NamedSimple        'e'               Identifier          tok=  19  pos= 142
-              Colon                  ':'               OpColon             tok=  20  pos= 143
-              NamedType:
-                LongIdent:
+      Pat.NamedSimple                'n'               Identifier          tok=  16  pos= 139
+      ParenBlock                     '('               KWLParen            tok=  18  pos= 141
+        Pat.Typed:
+          Pat.NamedSimple            'e'               Identifier          tok=  19  pos= 142
+          Colon                      ':'               OpColon             tok=  20  pos= 143
+          NamedType:
+            LongIdent:
                                      'obj'             Identifier          tok=  22  pos= 145
                                      ')'               KWRParen            tok=  23  pos= 148
     =                                '='               OpEquality          tok=  25  pos= 150

@@ -13,7 +13,7 @@ FunctionOrValue:
                            'Token'           Identifier          tok=  13  pos=  33
                            ')'               KWRParen            tok=  14  pos=  38
     =                      '='               OpEquality          tok=  16  pos=  40
-      InfixApp             '||'              op_BooleanOr        tok=  24  pos=  62
+      InfixApp             '||'              OpBarBar            tok=  24  pos=  62
         LongIdentOrOp:
           LongIdent:
                            't'               Identifier          tok=  19  pos=  46

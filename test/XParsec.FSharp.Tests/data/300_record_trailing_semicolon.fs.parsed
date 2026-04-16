@@ -1,67 +1,65 @@
-module                     'module'          KWModule            tok=   0  pos=   0
-                           'Test'            Identifier          tok=   2  pos=   7
+module                 'module'          KWModule            tok=   0  pos=   0
+                       'Test'            Identifier          tok=   2  pos=   7
 TypeDefn.Record:
-  TypeName                 'Env'             Identifier          tok=   7  pos=  18
-  =                        '='               OpEquality          tok=   9  pos=  22
-  {                        '{'               KWLBrace            tok=  11  pos=  24
+  TypeName             'Env'             Identifier          tok=   7  pos=  18
+  =                    '='               OpEquality          tok=   9  pos=  22
+  {                    '{'               KWLBrace            tok=  11  pos=  24
     Field:
-      ident                'ShowAll'         Identifier          tok=  13  pos=  26
-      :                    ':'               OpColon             tok=  14  pos=  33
+      ident            'ShowAll'         Identifier          tok=  13  pos=  26
+      :                ':'               OpColon             tok=  14  pos=  33
       NamedType:
         LongIdent:
-                           'bool'            Identifier          tok=  16  pos=  35
+                       'bool'            Identifier          tok=  16  pos=  35
     Field:
-      ident                'Verbose'         Identifier          tok=  19  pos=  41
-      :                    ':'               OpColon             tok=  20  pos=  48
+      ident            'Verbose'         Identifier          tok=  19  pos=  41
+      :                ':'               OpColon             tok=  20  pos=  48
       NamedType:
         LongIdent:
-                           'bool'            Identifier          tok=  22  pos=  50
-  }                        '}'               KWRBrace            tok=  24  pos=  55
+                       'bool'            Identifier          tok=  22  pos=  50
+  }                    '}'               KWRBrace            tok=  24  pos=  55
 FunctionOrValue:
-  let                      'let'             KWLet               tok=  32  pos= 203
-    Pat.NamedSimple        'withAll'         Identifier          tok=  34  pos= 207
+  let                  'let'             KWLet               tok=  32  pos= 203
+    Pat.NamedSimple    'withAll'         Identifier          tok=  34  pos= 207
     Pats:
-      Pat.NamedSimple      'e'               Identifier          tok=  36  pos= 215
-    =                      '='               OpEquality          tok=  38  pos= 217
-      RecordClone          '{'               KWLBrace            tok=  41  pos= 223
+      Pat.NamedSimple  'e'               Identifier          tok=  36  pos= 215
+    =                  '='               OpEquality          tok=  38  pos= 217
+      RecordClone      '{'               KWLBrace            tok=  41  pos= 223
         Base:
-          Ident            'e'               Identifier          tok=  43  pos= 225
-        with               'with'            KWWith              tok=  45  pos= 227
+          Ident        'e'               Identifier          tok=  43  pos= 225
+        with           'with'            KWWith              tok=  45  pos= 227
         Field:
           LongIdent:
-                           'ShowAll'         Identifier          tok=  47  pos= 232
-          =                '='               OpEquality          tok=  49  pos= 240
+                       'ShowAll'         Identifier          tok=  47  pos= 232
+          =            '='               OpEquality          tok=  49  pos= 240
           Expr:
-            Const          'true'            KWTrue              tok=  51  pos= 242
+            Const      'true'            KWTrue              tok=  51  pos= 242
         Field:
           LongIdent:
-                           'Verbose'         Identifier          tok=  54  pos= 248
-          =                '='               OpEquality          tok=  56  pos= 256
+                       'Verbose'         Identifier          tok=  54  pos= 248
+          =            '='               OpEquality          tok=  56  pos= 256
           Expr:
-            Const          'true'            KWTrue              tok=  58  pos= 258
-                           '}'               KWRBrace            tok=  61  pos= 264
+            Const      'true'            KWTrue              tok=  58  pos= 258
+                       '}'               KWRBrace            tok=  61  pos= 264
 FunctionOrValue:
-  let                      'let'             KWLet               tok=  64  pos= 267
-    Pat.NamedSimple        'processEnv'      Identifier          tok=  66  pos= 271
+  let                  'let'             KWLet               tok=  64  pos= 267
+    Pat.NamedSimple    'processEnv'      Identifier          tok=  66  pos= 271
     Pats:
-      Pat.Named:
-        Ident              'denv'            Identifier          tok=  68  pos= 282
-        Param:
-          Pat.NamedSimple  'f'               Identifier          tok=  70  pos= 287
-    =                      '='               OpEquality          tok=  72  pos= 289
+      Pat.NamedSimple  'denv'            Identifier          tok=  68  pos= 282
+      Pat.NamedSimple  'f'               Identifier          tok=  70  pos= 287
+    =                  '='               OpEquality          tok=  72  pos= 289
       App:
         Func:
-          Ident            'f'               Identifier          tok=  75  pos= 295
+          Ident        'f'               Identifier          tok=  75  pos= 295
         Args:
-          RecordClone      '{'               KWLBrace            tok=  77  pos= 297
+          RecordClone  '{'               KWLBrace            tok=  77  pos= 297
             Base:
-              Ident        'denv'            Identifier          tok=  79  pos= 299
-            with           'with'            KWWith              tok=  81  pos= 304
+              Ident    'denv'            Identifier          tok=  79  pos= 299
+            with       'with'            KWWith              tok=  81  pos= 304
             Field:
               LongIdent:
-                           'ShowAll'         Identifier          tok=  83  pos= 309
-              =            '='               OpEquality          tok=  85  pos= 317
+                       'ShowAll'         Identifier          tok=  83  pos= 309
+              =        '='               OpEquality          tok=  85  pos= 317
               Expr:
-                Const      'true'            KWTrue              tok=  87  pos= 319
-                           '}'               KWRBrace            tok=  90  pos= 325
-          Const            '42'              NumInt32            tok=  92  pos= 327
+                Const  'true'            KWTrue              tok=  87  pos= 319
+                       '}'               KWRBrace            tok=  90  pos= 325
+          Const        '42'              NumInt32            tok=  92  pos= 327

@@ -72,7 +72,7 @@
 670, KWTrue
 674, Newline
 675, Indent
-680, Operator 0b1000000000001111 ComparisonAndBitwise
+680, OpBarBar
 682, Whitespace
 683, KWFalse
 688, Whitespace

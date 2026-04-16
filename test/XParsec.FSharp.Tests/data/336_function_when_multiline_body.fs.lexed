@@ -69,7 +69,7 @@
 331, Identifier
 335, KWRParen
 336, Whitespace
-337, Operator 0b1000000000001111 ComparisonAndBitwise
+337, OpBarBar
 339, Whitespace
 340, KWLParen
 341, Identifier

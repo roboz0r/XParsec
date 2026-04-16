@@ -356,7 +356,7 @@ module MethodOrPropDefn =
                                 [
                                     parser {
                                         let! typarDefns = opt TyparDefns.parse
-                                        let! argumentPats = Pat.parseAtomicMany1
+                                        let! argumentPats = Pat.parseAtomicBindingArgMany1
                                         let! returnType = opt ReturnType.parse
                                         let! equals = pEquals
                                         // Grammar: member body is typedSeqExprBlock

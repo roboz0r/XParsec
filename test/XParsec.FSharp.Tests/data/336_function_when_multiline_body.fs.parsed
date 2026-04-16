@@ -42,7 +42,7 @@ FunctionOrValue:
                                        '}'               KWRBrace            tok=  61  pos= 319
               When                     'when'            KWWhen              tok=  63  pos= 321
               Guard:
-                InfixApp               '||'              op_BooleanOr        tok=  71  pos= 337
+                InfixApp               '||'              OpBarBar            tok=  71  pos= 337
                   ParenBlock           '('               KWLParen            tok=  65  pos= 326
                     App:
                       Func:
