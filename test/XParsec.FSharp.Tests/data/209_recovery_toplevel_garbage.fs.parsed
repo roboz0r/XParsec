@@ -1,4 +1,9 @@
 AnonymousModule:
+SkipsTokens:
+  (skipped)  ')'               KWRParen            tok=   0  pos=   0
+  (skipped)  ']'               KWRBracket          tok=   2  pos=   2
+  (skipped)  '}'               KWRBrace            tok=   4  pos=   4
+  (skipped)  'end'             KWEnd               tok=   6  pos=   6
 ---
 Diagnostics:
   [error] UnexpectedTopLevel at 0 (Ln 1, Col 1)
