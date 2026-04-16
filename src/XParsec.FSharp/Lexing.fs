@@ -2174,6 +2174,15 @@ module Lexing =
                 let! state = getUserState
                 let tokens = state.Tokens
 
+                let addToken (token: Token) (idx: int) =
+                    let token =
+                        if state.IsInBlockComment || state.IsInOCamlBlockComment then
+                            uint16 token ||| TokenRepresentation.InComment |> Token.ofUInt16
+                        else
+                            token
+
+                    tokens.Add(PositionedToken.Create(token, idx))
+
                 match LexBuilder.level state with
                 | 1 ->
                     // Level 1 logic
@@ -2183,7 +2192,7 @@ module Lexing =
 
                         while count > 1 do
                             // %% is an escape sequence for '%'
-                            tokens.Add(PositionedToken.Create(Token.EscapePercent, idx))
+                            addToken Token.EscapePercent idx
                             idx <- idx + 2
                             count <- count - 2
 
@@ -2198,7 +2207,7 @@ module Lexing =
                         // reads flags/width/precision/type after the final '%'
                         do! skipN percents.Length
                         let! t = lFormatPlaceholderToken
-                        tokens.Add(PositionedToken.Create(t, idx))
+                        addToken t idx
                         return ()
 
                 | level ->
@@ -2209,26 +2218,26 @@ module Lexing =
                     let idx = pos.Index
 
                     if leading < 0 then
-                        tokens.Add(PositionedToken.Create(Token.InterpolatedStringFragment, idx))
+                        addToken Token.InterpolatedStringFragment idx
                         do! skipN count
                         return ()
                     elif leading = 0 then
                         // Exactly enough to start a FormatPlaceholder
                         do! skipN count
                         let! t = lFormatPlaceholderToken
-                        tokens.Add(PositionedToken.Create(t, idx))
+                        addToken t idx
                         return ()
                     elif leading >= level then
                         // Too many leading '%'
                         do! skipN count
-                        tokens.Add(PositionedToken.Create(Token.InvalidFormatPercents, idx))
+                        addToken Token.InvalidFormatPercents idx
                         return ()
                     else
-                        tokens.Add(PositionedToken.Create(Token.InterpolatedStringFragment, idx))
+                        addToken Token.InterpolatedStringFragment idx
                         do! skipN leading
                         let! pos = getPosition
                         let! t = lFormatPlaceholderToken
-                        tokens.Add(PositionedToken.Create(t, pos.Index))
+                        addToken t pos.Index
                         return ()
             }
 
