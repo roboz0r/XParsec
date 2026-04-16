@@ -513,6 +513,41 @@ module Parsing =
                         ValueNone
                 | _ -> ValueNone
 
+            // 15.1.10 extended: Match/Function/Try aligned tokens (with/|/finally)
+            // may undent when the expression is enclosed in brackets, to the
+            // enclosing expression's offside line. Mirrors SeqBlockParen above.
+            elif
+                (head.Context = OffsideContext.Match
+                 || head.Context = OffsideContext.Function
+                 || head.Context = OffsideContext.Try)
+                && (token = Token.OpBar
+                    || (token = Token.KWWith
+                        && (head.Context = OffsideContext.Match || head.Context = OffsideContext.Try))
+                    || (token = Token.KWFinally && head.Context = OffsideContext.Try))
+            then
+                let rec hasEnclosingParen (stack: Offside list) =
+                    match stack with
+                    | [] -> false
+                    | ctx :: deeper ->
+                        match ctx.Context with
+                        | OffsideContext.SeqBlock
+                        | OffsideContext.Match
+                        | OffsideContext.MatchClauses
+                        | OffsideContext.Function
+                        | OffsideContext.Try -> hasEnclosingParen deeper
+                        | OffsideContext.Paren
+                        | OffsideContext.Bracket
+                        | OffsideContext.BracketBar
+                        | OffsideContext.BraceBar
+                        | OffsideContext.Brace
+                        | OffsideContext.Begin -> true
+                        | _ -> false
+
+                if hasEnclosingParen rest && checkCollectionUndent tokenCol rest then
+                    ValueSome "15.1.10 MatchParen"
+                else
+                    ValueNone
+
             else
                 ValueNone
 
