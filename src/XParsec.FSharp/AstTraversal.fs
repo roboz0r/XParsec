@@ -505,9 +505,17 @@ and walkConstraint (visitor: AstVisitor<'T>) (c: Constraint<'T>) : unit =
         walkMemberSig visitor membersign
         visitor.VisitToken ")" rParen
         visitor.ExitSection "Constraint.MemberTrait"
-    | Constraint.DefaultConstructor(typar, _colon, _lParen, _newToken, _colonUnit, _arrow, _quoteT, _rParen) ->
+    | Constraint.DefaultConstructor(typar, colon, lParen, newToken, colonUnit, unitToken, arrow, resultTypar, rParen) ->
         visitor.EnterSection "Constraint.DefaultConstructor"
         walkTypar visitor typar
+        visitor.VisitToken ":" colon
+        visitor.VisitToken "(" lParen
+        visitor.VisitToken "new" newToken
+        visitor.VisitToken ":" colonUnit
+        visitor.VisitToken "unit" unitToken
+        visitor.VisitToken "->" arrow
+        walkTypar visitor resultTypar
+        visitor.VisitToken ")" rParen
         visitor.ExitSection "Constraint.DefaultConstructor"
     | Constraint.Struct(typar, colon, structToken) ->
         visitor.EnterSection "Constraint.Struct"

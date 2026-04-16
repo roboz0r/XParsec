@@ -129,8 +129,9 @@ and [<RequireQualifiedAccess>] Constraint<'T> =
         lParen: 'T *
         newToken: 'T *
         colonUnit: 'T *
+        unitToken: 'T *
         arrow: 'T *
-        quoteT: 'T *
+        resultTypar: Typar<'T> *
         rParen: 'T
     | Struct of typar: Typar<'T> * colon: 'T * structToken: 'T
     | ReferenceType of typar: Typar<'T> * colon: 'T * notToken: 'T * structToken: 'T
