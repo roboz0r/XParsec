@@ -1,0 +1,148 @@
+AnonymousModule:
+FunctionOrValue:
+  let                                                    'let'             KWLet               tok=  10  pos= 281
+    Pat.NamedSimple                                      'mkInvisibl...'   Identifier          tok=  12  pos= 285
+    Pats:
+      Pat.NamedSimple                                    'a'               Identifier          tok=  14  pos= 300
+      Pat.NamedSimple                                    'b'               Identifier          tok=  16  pos= 302
+      Pat.NamedSimple                                    'c'               Identifier          tok=  18  pos= 304
+      Pat.NamedSimple                                    'd'               Identifier          tok=  20  pos= 306
+    =                                                    '='               OpEquality          tok=  22  pos= 308
+      ParenBlock                                         '('               KWLParen            tok=  24  pos= 310
+        Tuple:
+          Ident                                          'a'               Identifier          tok=  25  pos= 311
+          Ident                                          'b'               Identifier          tok=  28  pos= 314
+          Ident                                          'c'               Identifier          tok=  31  pos= 317
+          Ident                                          'd'               Identifier          tok=  34  pos= 320
+                                                         ')'               KWRParen            tok=  35  pos= 321
+FunctionOrValue:
+  let                                                    'let'             KWLet               tok=  37  pos= 323
+    Pat.NamedSimple                                      'mkTryFinal...'   Identifier          tok=  39  pos= 327
+    Pats:
+      Pat.NamedSimple                                    'a'               Identifier          tok=  41  pos= 340
+      Pat.NamedSimple                                    'b'               Identifier          tok=  43  pos= 342
+      Pat.NamedSimple                                    'c'               Identifier          tok=  45  pos= 344
+      Pat.NamedSimple                                    'd'               Identifier          tok=  47  pos= 346
+      Pat.NamedSimple                                    'e'               Identifier          tok=  49  pos= 348
+      Pat.NamedSimple                                    'f'               Identifier          tok=  51  pos= 350
+    =                                                    '='               OpEquality          tok=  53  pos= 352
+      ParenBlock                                         '('               KWLParen            tok=  55  pos= 354
+        Tuple:
+          Ident                                          'a'               Identifier          tok=  56  pos= 355
+          Ident                                          'b'               Identifier          tok=  59  pos= 358
+          Ident                                          'c'               Identifier          tok=  62  pos= 361
+          Ident                                          'd'               Identifier          tok=  65  pos= 364
+          Ident                                          'e'               Identifier          tok=  68  pos= 367
+          Ident                                          'f'               Identifier          tok=  71  pos= 370
+                                                         ')'               KWRParen            tok=  72  pos= 371
+FunctionOrValue:
+  let                                                    'let'             KWLet               tok=  74  pos= 373
+    Pat.NamedSimple                                      'mkWhile'         Identifier          tok=  76  pos= 377
+    Pats:
+      Pat.NamedSimple                                    'a'               Identifier          tok=  78  pos= 385
+      Pat.NamedSimple                                    'b'               Identifier          tok=  80  pos= 387
+    =                                                    '='               OpEquality          tok=  82  pos= 389
+      ParenBlock                                         '('               KWLParen            tok=  84  pos= 391
+        Tuple:
+          Ident                                          'a'               Identifier          tok=  85  pos= 392
+          Ident                                          'b'               Identifier          tok=  88  pos= 395
+                                                         ')'               KWRParen            tok=  89  pos= 396
+FunctionOrValue:
+  let                                                    'let'             KWLet               tok=  91  pos= 398
+    Pat.NamedSimple                                      'callNon'         Identifier          tok=  93  pos= 402
+    Pats:
+      Pat.NamedSimple                                    'a'               Identifier          tok=  95  pos= 410
+      Pat.NamedSimple                                    'b'               Identifier          tok=  97  pos= 412
+    =                                                    '='               OpEquality          tok=  99  pos= 414
+      ParenBlock                                         '('               KWLParen            tok= 101  pos= 416
+        Tuple:
+          Ident                                          'a'               Identifier          tok= 102  pos= 417
+          Ident                                          'b'               Identifier          tok= 105  pos= 420
+                                                         ')'               KWRParen            tok= 106  pos= 421
+FunctionOrValue:
+  let                                                    'let'             KWLet               tok= 109  pos= 424
+    Pat.NamedSimple                                      'test'            Identifier          tok= 111  pos= 428
+    Pats:
+      Pat.NamedSimple                                    'g'               Identifier          tok= 113  pos= 433
+      Pat.NamedSimple                                    'enumv'           Identifier          tok= 115  pos= 435
+      Pat.NamedSimple                                    'inp'             Identifier          tok= 117  pos= 441
+      Pat.NamedSimple                                    'guardExpr'       Identifier          tok= 119  pos= 445
+      Pat.NamedSimple                                    'bodyExprR'       Identifier          tok= 121  pos= 455
+      Pat.NamedSimple                                    'cleanupE'        Identifier          tok= 123  pos= 465
+      Pat.NamedSimple                                    'mFor'            Identifier          tok= 125  pos= 474
+      Pat.NamedSimple                                    'mIn'             Identifier          tok= 127  pos= 479
+      Pat.NamedSimple                                    'ty1'             Identifier          tok= 129  pos= 483
+      Pat.NamedSimple                                    'ty2'             Identifier          tok= 131  pos= 487
+    =                                                    '='               OpEquality          tok= 133  pos= 491
+      Let                                                'let'             KWLet               tok= 136  pos= 497
+        Pat.NamedSimple                                  'exprR'           Identifier          tok= 138  pos= 501
+        =                                                '='               OpEquality          tok= 140  pos= 507
+          App:
+            Func:
+              Ident                                      'mkInvisibl...'   Identifier          tok= 143  pos= 517
+            Args:
+              Ident                                      'mFor'            Identifier          tok= 145  pos= 532
+              Ident                                      'enumv'           Identifier          tok= 147  pos= 537
+              ParenBlock                                 '('               KWLParen            tok= 149  pos= 543
+                App:
+                  Func:
+                    Ident                                'callNon'         Identifier          tok= 150  pos= 544
+                  Args:
+                    Ident                                'g'               Identifier          tok= 152  pos= 552
+                    Ident                                'inp'             Identifier          tok= 154  pos= 554
+                                                         ')'               KWRParen            tok= 155  pos= 557
+              ParenBlock                                 '('               KWLParen            tok= 158  pos= 571
+                App:
+                  Func:
+                    Ident                                'mkTryFinal...'   Identifier          tok= 159  pos= 572
+                  Args:
+                    Ident                                'g'               Identifier          tok= 161  pos= 585
+                    ParenBlock                           '('               KWLParen            tok= 164  pos= 603
+                      Tuple:
+                        App:
+                          Func:
+                            Ident                        'mkWhile'         Identifier          tok= 165  pos= 604
+                          Args:
+                            Ident                        'g'               Identifier          tok= 167  pos= 612
+                            ParenBlock                   '('               KWLParen            tok= 169  pos= 614
+                              Tuple:
+                                Const                    'true'            KWTrue              tok= 170  pos= 615
+                                StringLiteral            '"'               StringOpen          tok= 173  pos= 621
+                                Parts:
+                                  Text                   'nsl'             StringFragment      tok= 174  pos= 622
+                                                         '"'               StringClose         tok= 175  pos= 625
+                                Ident                    'guardExpr'       Identifier          tok= 178  pos= 628
+                                App:
+                                  Func:
+                                    ParenBlock           '('               KWLParen            tok= 182  pos= 659
+                                      App:
+                                        Func:
+                                          Ident          'mkInvisibl...'   Identifier          tok= 183  pos= 660
+                                        Args:
+                                          Ident          'mIn'             Identifier          tok= 185  pos= 675
+                                          StringLiteral  '"'               StringOpen          tok= 187  pos= 679
+                                          Parts:
+                                            Text         'v'               StringFragment      tok= 188  pos= 680
+                                                         '"'               StringClose         tok= 189  pos= 681
+                                          ParenBlock     '('               KWLParen            tok= 192  pos= 707
+                                            App:
+                                              Func:
+                                                Ident    'callNon'         Identifier          tok= 193  pos= 708
+                                              Args:
+                                                Ident    'g'               Identifier          tok= 195  pos= 716
+                                                Ident    'enumv'           Identifier          tok= 197  pos= 718
+                                                         ')'               KWRParen            tok= 198  pos= 723
+                                                         ')'               KWRParen            tok= 199  pos= 724
+                                  Args:
+                                    Ident                'bodyExprR'       Identifier          tok= 202  pos= 750
+                                Ident                    'mIn'             Identifier          tok= 205  pos= 761
+                                                         ')'               KWRParen            tok= 206  pos= 764
+                        Ident                            'cleanupE'        Identifier          tok= 210  pos= 783
+                        Ident                            'mFor'            Identifier          tok= 214  pos= 809
+                        Ident                            'ty1'             Identifier          tok= 217  pos= 815
+                        Ident                            'ty2'             Identifier          tok= 220  pos= 820
+                                                         ')'               KWRParen            tok= 221  pos= 823
+                                                         ')'               KWRParen            tok= 222  pos= 824
+      in                                                 <virt>            KWIn                tok=virt  pos= 830
+      Body:
+        Ident                                            'exprR'           Identifier          tok= 225  pos= 830
