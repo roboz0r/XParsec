@@ -66,3 +66,4 @@ Used for expressions, patterns, measures, and types. `PrecedenceLevel` converts 
 
 - **Framework**: [Expecto](https://github.com/haf/expecto) (`test/XParsec.FSharp.Tests/`)
 - **Golden File Testing**: Test data lives in `data/` and `data/blocks/`. Source `.fs` files are lexed/parsed and asserted against `.fs.lexed` and `.fs.parsed` golden output files.
+- **Trace Debugging**: Test "Trace Debugging Test" in `test/XParsec.FSharp.Tests/ParserTests.fs` should be set to `ftest` and used to understand challenging parsing issues using the `.fs.trace` and `.fs.stack` output.
