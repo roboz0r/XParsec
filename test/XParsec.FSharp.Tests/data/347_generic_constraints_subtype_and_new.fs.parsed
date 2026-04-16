@@ -1,0 +1,96 @@
+AnonymousModule:
+Import:
+  open                       'open'            KWOpen              tok=   8  pos= 222
+                             'System'          Identifier          tok=  10  pos= 227
+TypeDefn.Anon:
+  TypeName                   'T'               Identifier          tok=  15  pos= 240
+  (                          '('               KWLParen            tok=  16  pos= 241
+  )                          ')'               KWRParen            tok=  17  pos= 242
+  =                          '='               OpEquality          tok=  19  pos= 244
+  begin                      <virt>            KWBegin             tok=virt  pos= 250
+    member                   'member'          KWMember            tok=  22  pos= 250
+    self                     '_'               Wildcard            tok=  24  pos= 257
+    Pat.NamedSimple          'MinByNulla...'   Identifier          tok=  26  pos= 259
+    TyparDefns:
+                             '<'               op_LessThan         tok=  27  pos= 272
+      Typar.Named:
+                             ''T'              TypeParameter       tok=  28  pos= 273
+      Typar.Named:
+                             ''Q'              TypeParameter       tok=  31  pos= 277
+      Typar.Named:
+                             ''Key'            TypeParameter       tok=  34  pos= 281
+      when                   'when'            KWWhen              tok=  37  pos= 314
+      Constraint.Equality:
+        Typar.Named:
+                             ''Key'            TypeParameter       tok=  39  pos= 319
+        :                    ':'               OpColon             tok=  40  pos= 323
+        equality             'equality'        Identifier          tok=  42  pos= 325
+      and                    'and'             KWAnd               tok=  45  pos= 362
+      Constraint.Comparison:
+        Typar.Named:
+                             ''Key'            TypeParameter       tok=  47  pos= 366
+        :                    ':'               OpColon             tok=  48  pos= 370
+        comparison           'comparison'      Identifier          tok=  50  pos= 372
+      and                    'and'             KWAnd               tok=  53  pos= 411
+      Constraint.DefaultConstructor:
+        Typar.Named:
+                             ''Key'            TypeParameter       tok=  55  pos= 415
+        :                    ':'               OpColon             tok=  56  pos= 419
+        (                    '('               KWLParen            tok=  58  pos= 421
+        new                  'new'             KWNew               tok=  59  pos= 422
+        :                    ':'               OpColon             tok=  60  pos= 425
+        unit                 'unit'            Identifier          tok=  62  pos= 427
+        ->                   '->'              OpArrowRight        tok=  64  pos= 432
+        Typar.Named:
+                             ''Key'            TypeParameter       tok=  66  pos= 435
+        )                    ')'               KWRParen            tok=  67  pos= 439
+      and                    'and'             KWAnd               tok=  70  pos= 469
+      Constraint.Struct:
+        Typar.Named:
+                             ''Key'            TypeParameter       tok=  72  pos= 473
+        :                    ':'               OpColon             tok=  73  pos= 477
+        struct               'struct'          KWStruct            tok=  75  pos= 479
+      and                    'and'             KWAnd               tok=  78  pos= 514
+      Constraint.Coercion:
+        Typar.Named:
+                             ''Key'            TypeParameter       tok=  80  pos= 518
+        :>                   ':>'              OpUpcast            tok=  81  pos= 522
+        NamedType:
+          LongIdent:
+                             'ValueType'       Identifier          tok=  83  pos= 525
+                             '>'               op_GreaterThan      tok=  84  pos= 534
+    Pats:
+      ParenBlock             '('               KWLParen            tok=  86  pos= 536
+        Pat.Tuple:
+          Pat.Typed:
+            Pat.NamedSimple  'x'               Identifier          tok=  87  pos= 537
+            Colon            ':'               OpColon             tok=  88  pos= 538
+            VarType:
+              Typar.Named:
+                             ''T'              TypeParameter       tok=  90  pos= 540
+          ,                  ','               OpComma             tok=  91  pos= 542
+          Pat.Typed:
+            Pat.NamedSimple  'selector'        Identifier          tok=  93  pos= 544
+            Colon            ':'               OpColon             tok=  94  pos= 552
+            FunctionType:
+              VarType:
+                Typar.Named:
+                             ''T'              TypeParameter       tok=  96  pos= 554
+              ->             '->'              OpArrowRight        tok=  98  pos= 557
+              GenericType:
+                LongIdent:
+                             'Nullable'        Identifier          tok= 100  pos= 560
+                <            '<'               op_LessThan         tok= 101  pos= 568
+                TypeArg.Type:
+                  VarType:
+                    Typar.Named:
+                             ''Key'            TypeParameter       tok= 102  pos= 569
+                >            '>'               op_GreaterThan      tok= 103  pos= 573
+                             ')'               KWRParen            tok= 104  pos= 574
+    =                        '='               OpEquality          tok= 106  pos= 576
+      App:
+        Func:
+          Ident              'selector'        Identifier          tok= 109  pos= 586
+        Args:
+          Ident              'x'               Identifier          tok= 111  pos= 595
+  end                        <virt>            KWEnd               tok=virt  pos= 597

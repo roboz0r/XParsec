@@ -131,13 +131,23 @@ module Constraint =
     let private pDefaultConstructor (typar: Typar<_>) colon lParen (tokenNew: SyntaxToken) =
         parser {
             let! colonUnit = pColon
-            //let! unitTok = nextNonTriviaTokenIsL Token.Unit "Expected '()'" // Simplified
+            let! unitToken = nextNonTriviaIdentifierL "Expected 'unit'"
             let! arrow = pArrowRight
-            let! quoteT = nextNonTriviaIdentifierL "Expected 'T" // Simplified
+            let! resultTypar = Typar.parse
             let! rParen = pRParen
-            // Re-map unitTok to ensure types align if AST expects specific tokens.
-            // Note: AST asks for 'colonUnit' then 'arrow', logic adjusted to AST structure:
-            return Constraint.DefaultConstructor(typar, colon, lParen, tokenNew, colonUnit, arrow, quoteT, rParen)
+
+            return
+                Constraint.DefaultConstructor(
+                    typar,
+                    colon,
+                    lParen,
+                    tokenNew,
+                    colonUnit,
+                    unitToken,
+                    arrow,
+                    resultTypar,
+                    rParen
+                )
         }
 
     let private pTyparConstraints =
