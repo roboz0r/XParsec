@@ -12,4 +12,4 @@ WarnDirectives:
   #nowarn 6 (Ln 2)
   #nowarn 9 (Ln 2)
   #nowarn 40 (Ln 2)
-  #warnon 40 (Ln 4)
+  #warnon 40 (Ln 3)

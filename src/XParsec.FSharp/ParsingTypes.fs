@@ -299,24 +299,21 @@ module ParseState =
         let lineStarts = lexed.LineStarts
         let lineCount = lineStarts.LengthM
 
-        // A recursive function to perform the binary search
+        // Precondition (maintained through recursion): lineStarts[low] <= index.
+        // This holds initially because every initial range produced below either
+        // already satisfies it (guess or guess+1 paths) or starts at low = 0, and
+        // lineStarts[0] = 0 <= index for any non-negative token index.
+        // Returns the largest i in [low, high] with lineStarts[i] <= index.
         let rec search (low: int<line>) (high: int<line>) =
             if low >= high then
-                // If the range is invalid, return the last known valid line,
-                // which is 'high'. In a search for the floor, this will be the correct result.
-                high
+                low
             else
-                let mid = low + (high - low + 1<line>) / 2 // Using ceiling for mid to prevent infinite loops in some cases
-                let midVal = lineStarts.[mid]
+                let mid = low + (high - low + 1<line>) / 2 // upper-biased to avoid infinite loop when low + 1 = high
 
-                if midVal > index then
-                    // The token is in the lower half
-                    search low (mid - 1<line>)
+                if lineStarts.[mid] <= index then
+                    search mid high
                 else
-                    // The token is in the upper half.
-                    // mid is a potential answer, so we continue searching to the right
-                    // to find the highest line number that is still less than or equal to the index.
-                    search (mid + 1<line>) high
+                    search low (mid - 1<line>)
 
         // Use the guess to narrow the initial search range
         let low, high =

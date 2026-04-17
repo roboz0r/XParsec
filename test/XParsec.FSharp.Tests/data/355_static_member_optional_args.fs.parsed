@@ -1,0 +1,184 @@
+AnonymousModule:
+TypeDefn.Anon:
+  TypeName                               'FsiEvaluat...'   Identifier          tok=  12  pos= 280
+  (                                      '('               KWLParen            tok=  13  pos= 310
+  )                                      ')'               KWRParen            tok=  14  pos= 311
+  =                                      '='               OpEquality          tok=  16  pos= 313
+  begin                                  <virt>            KWBegin             tok=virt  pos= 319
+    abstract                             'abstract'        KWAbstract          tok=  19  pos= 319
+    ident                                'FormatProv...'   Identifier          tok=  21  pos= 328
+    :                                    ':'               OpColon             tok=  22  pos= 342
+    NamedType:
+      LongIdent:
+                                         'obj'             Identifier          tok=  24  pos= 344
+  end                                    <virt>            KWEnd               tok=virt  pos= 349
+TypeDefn.Anon:
+  TypeName                               'FsiEvaluat...'   Identifier          tok=  29  pos= 354
+  (                                      '('               KWLParen            tok=  30  pos= 374
+  Pat.Typed:
+    Pat.NamedSimple                      'cfg'             Identifier          tok=  31  pos= 375
+    Colon                                ':'               OpColon             tok=  32  pos= 378
+    NamedType:
+      LongIdent:
+                                         'int'             Identifier          tok=  34  pos= 380
+  )                                      ')'               KWRParen            tok=  35  pos= 383
+  =                                      '='               OpEquality          tok=  37  pos= 385
+  begin                                  <virt>            KWBegin             tok=virt  pos= 392
+    member                               'member'          KWMember            tok=  41  pos= 392
+    self                                 'x'               Identifier          tok=  43  pos= 399
+    Pat.NamedSimple                      'Run'             Identifier          tok=  45  pos= 401
+    Pats:
+      ParenBlock                         '('               KWLParen            tok=  47  pos= 405
+                                         ')'               KWRParen            tok=  48  pos= 406
+    =                                    '='               OpEquality          tok=  50  pos= 408
+      Let                                'let'             KWLet               tok=  53  pos= 418
+        Pat.NamedSimple                  'interact'        Identifier          tok=  55  pos= 422
+        =                                '='               OpEquality          tok=  57  pos= 431
+          Const                          'true'            KWTrue              tok=  59  pos= 433
+      in                                 <virt>            KWIn                tok=virt  pos= 446
+      Body:
+        Let                              'let'             KWLet               tok=  62  pos= 446
+          Pat.NamedSimple                'progress'        Identifier          tok=  64  pos= 450
+          =                              '='               OpEquality          tok=  66  pos= 459
+            Const                        'true'            KWTrue              tok=  68  pos= 461
+        in                               <virt>            KWIn                tok=virt  pos= 474
+        Body:
+          Sequential:
+            IfThenElse:
+              IfToken                    'if'              KWIf                tok=  71  pos= 474
+              Condition:
+                Ident                    'interact'        Identifier          tok=  73  pos= 477
+              ThenToken                  'then'            KWThen              tok=  75  pos= 486
+              ThenExpr:
+                App:
+                  Func:
+                    Ident                'printfn'         Identifier          tok=  78  pos= 503
+                  Args:
+                    StringLiteral        '"'               StringOpen          tok=  80  pos= 511
+                    Parts:
+                      Text               'interactiv...'   StringFragment      tok=  81  pos= 512
+                                         '"'               StringClose         tok=  82  pos= 523
+              ElseToken                  'else'            KWElse              tok=  85  pos= 533
+              ElseExpr:
+                Sequential:
+                  IfThenElse:
+                    IfToken              'if'              KWIf                tok=  90  pos= 566
+                    Condition:
+                      Ident              'progress'        Identifier          tok=  92  pos= 569
+                    ThenToken            'then'            KWThen              tok=  94  pos= 578
+                    ThenExpr:
+                      App:
+                        Func:
+                          Ident          'printfn'         Identifier          tok=  97  pos= 599
+                        Args:
+                          StringLiteral  '"'               StringOpen          tok=  99  pos= 607
+                          Parts:
+                            Text         'Run: not i...'   StringFragment      tok= 100  pos= 608
+                                         '"'               StringClose         tok= 101  pos= 651
+                  App:
+                    Func:
+                      Ident              'printfn'         Identifier          tok= 105  pos= 666
+                    Args:
+                      StringLiteral      '"'               StringOpen          tok= 107  pos= 674
+                      Parts:
+                        Text             'LoadInitia...'   StringFragment      tok= 108  pos= 675
+                                         '"'               StringClose         tok= 109  pos= 691
+                  IfThenElse:
+                    IfToken              'if'              KWIf                tok= 113  pos= 706
+                    Condition:
+                      Ident              'progress'        Identifier          tok= 115  pos= 709
+                    ThenToken            'then'            KWThen              tok= 117  pos= 718
+                    ThenExpr:
+                      App:
+                        Func:
+                          Ident          'printfn'         Identifier          tok= 120  pos= 739
+                        Args:
+                          StringLiteral  '"'               StringOpen          tok= 122  pos= 747
+                          Parts:
+                            Text         'Run: done....'   StringFragment      tok= 123  pos= 748
+                                         '"'               StringClose         tok= 124  pos= 760
+                  App:
+                    Func:
+                      Ident              'exit'            Identifier          tok= 128  pos= 775
+                    Args:
+                      Const              '1'               NumInt32            tok= 130  pos= 780
+            App:
+              Func:
+                LongIdentOrOp:
+                  LongIdent:
+                                         'System'          Identifier          tok= 140  pos= 908
+                                         'GC'              Identifier          tok= 142  pos= 915
+                                         'KeepAlive'       Identifier          tok= 144  pos= 918
+              Args:
+                Ident                    'cfg'             Identifier          tok= 146  pos= 928
+    static                               'static'          KWStatic            tok= 150  pos= 937
+    member                               'member'          KWMember            tok= 152  pos= 944
+    Pat.NamedSimple                      'Create'          Identifier          tok= 154  pos= 951
+    Pats:
+      ParenBlock                         '('               KWLParen            tok= 155  pos= 957
+        Pat.Tuple:
+          Pat.NamedSimple                'fsiConfig'       Identifier          tok= 156  pos= 958
+          ,                              ','               OpComma             tok= 157  pos= 967
+          Pat.NamedSimple                'argv'            Identifier          tok= 159  pos= 969
+          ,                              ','               OpComma             tok= 160  pos= 973
+          Pat.NamedSimple                'inReader'        Identifier          tok= 162  pos= 975
+          ,                              ','               OpComma             tok= 163  pos= 983
+          Pat.NamedSimple                'outWriter'       Identifier          tok= 165  pos= 985
+          ,                              ','               OpComma             tok= 166  pos= 994
+          Pat.NamedSimple                'errorWrite...'   Identifier          tok= 168  pos= 996
+          ,                              ','               OpComma             tok= 169  pos=1007
+          Pat.Optional:
+            ?                            '?'               OpDynamic           tok= 171  pos=1009
+            Pat.NamedSimple              'collectibl...'   Identifier          tok= 172  pos=1010
+          ,                              ','               OpComma             tok= 173  pos=1021
+          Pat.Optional:
+            ?                            '?'               OpDynamic           tok= 175  pos=1023
+            Pat.NamedSimple              'legacyRefe...'   Identifier          tok= 176  pos=1024
+                                         ')'               KWRParen            tok= 177  pos=1047
+    =                                    '='               OpEquality          tok= 179  pos=1049
+      New                                'new'             KWNew               tok= 182  pos=1059
+        NamedType:
+          LongIdent:
+                                         'FsiEvaluat...'   Identifier          tok= 184  pos=1063
+        Arg:
+          ParenBlock                     '('               KWLParen            tok= 185  pos=1083
+            Ident                        'fsiConfig'       Identifier          tok= 186  pos=1084
+                                         ')'               KWRParen            tok= 187  pos=1093
+    static                               'static'          KWStatic            tok= 191  pos=1100
+    member                               'member'          KWMember            tok= 193  pos=1107
+    Pat.NamedSimple                      'GetDefault...'   Identifier          tok= 195  pos=1114
+    Pats:
+      ParenBlock                         '('               KWLParen            tok= 196  pos=1137
+        Pat.Tuple:
+          Pat.Typed:
+            Pat.NamedSimple              'fsiObj'          Identifier          tok= 197  pos=1138
+            Colon                        ':'               OpColon             tok= 198  pos=1144
+            NamedType:
+              LongIdent:
+                                         'obj'             Identifier          tok= 200  pos=1146
+          ,                              ','               OpComma             tok= 201  pos=1149
+          Pat.Typed:
+            Pat.NamedSimple              'useFsiAuxL...'   Identifier          tok= 203  pos=1151
+            Colon                        ':'               OpColon             tok= 204  pos=1163
+            NamedType:
+              LongIdent:
+                                         'bool'            Identifier          tok= 206  pos=1165
+                                         ')'               KWRParen            tok= 207  pos=1169
+    =                                    '='               OpEquality          tok= 209  pos=1171
+      ObjectExpr:
+        {                                '{'               KWLBrace            tok= 212  pos=1181
+        new                              'new'             KWNew               tok= 214  pos=1183
+        NamedType:
+          LongIdent:
+                                         'FsiEvaluat...'   Identifier          tok= 216  pos=1187
+        ParenBlock                       '('               KWLParen            tok= 217  pos=1217
+                                         ')'               KWRParen            tok= 218  pos=1218
+        with                             'with'            KWWith              tok= 220  pos=1220
+          member                         'member'          KWMember            tok= 223  pos=1237
+          self                           '_'               Wildcard            tok= 225  pos=1244
+          Pat.NamedSimple                'FormatProv...'   Identifier          tok= 227  pos=1246
+          =                              '='               OpEquality          tok= 229  pos=1261
+            Ident                        'fsiObj'          Identifier          tok= 231  pos=1263
+        end                              <virt>            KWEnd               tok=virt  pos=1270
+        }                                '}'               KWRBrace            tok= 233  pos=1270
+  end                                    <virt>            KWEnd               tok=virt  pos=1272
