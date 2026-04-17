@@ -14,6 +14,11 @@ open XParsec.FSharp.Parser.ParseState
 module Parsing =
     let tokenIndex (reader: Reader<PositionedToken, ParseState, _, _>) = reader.Index * 1<token>
 
+    /// Creates a PositionedToken with the IsVirtual flag set, for synthesized tokens
+    /// (virtual delimiters, recovery placeholders, etc.).
+    let mkVirtualPT (tok: Token) (startIndex: int) =
+        PositionedToken.Create(Token.ofUInt16 (uint16 tok ||| TokenRepresentation.IsVirtual), startIndex)
+
     /// Scans forward past tokens in an inactive branch until reaching #else or #endif at depth 0.
     /// Nested #if/#endif pairs are depth-tracked and correctly skipped.
     /// The stop token (#else or #endif) is consumed before returning.
@@ -119,8 +124,7 @@ module Parsing =
             // Invalid #if expression: record a diagnostic and treat the whole block as inactive
             let msg = $"Invalid #if expression: {e}"
 
-            reader.State <-
-                addDiagnostic (DiagnosticCode.Other msg) DiagnosticSeverity.Error ifToken None None reader.State
+            reader.State <- addErrorDiagnostic (DiagnosticCode.Other msg) ifToken reader.State
 
             skipInactiveBranch reader |> ignore
             nextNonTriviaToken reader
@@ -747,8 +751,7 @@ module Parsing =
                     | ValueSome tok -> tok.StartIndex
                     | ValueNone -> 0
 
-            let pt =
-                PositionedToken.Create(Token.ofUInt16 (uint16 t ||| TokenRepresentation.IsVirtual), startIndex)
+            let pt = mkVirtualPT t startIndex
 
             reader.State.Trace.Invoke(TraceEvent.VirtualToken(pt.Token, pt.StartIndex))
 
@@ -866,12 +869,9 @@ module Parsing =
             | Token.BacktickedIdentifier -> consumePeeked token reader
             | Token.UnterminatedBacktickedIdentifier ->
                 reader.State <-
-                    ParseState.addDiagnostic
+                    ParseState.addErrorDiagnostic
                         (DiagnosticCode.Other "Unterminated backticked identifier")
-                        DiagnosticSeverity.Error
                         token.PositionedToken
-                        None
-                        None
                         reader.State
 
                 consumePeeked token reader
@@ -957,10 +957,9 @@ module Parsing =
                 | ValueSome o -> DiagnosticCode.UnclosedDelimiter(o, t)
                 | ValueNone -> DiagnosticCode.Other $"Expected '{t}'"
 
-            reader.State <- ParseState.addDiagnostic code DiagnosticSeverity.Error diagToken None None reader.State
+            reader.State <- ParseState.addErrorDiagnostic code diagToken reader.State
 
-            let pt =
-                PositionedToken.Create(Token.ofUInt16 (uint16 t ||| TokenRepresentation.IsVirtual), startIndex)
+            let pt = mkVirtualPT t startIndex
 
             reader.State.Trace.Invoke(TraceEvent.VirtualToken(pt.Token, pt.StartIndex))
 
@@ -987,19 +986,9 @@ module Parsing =
                 | Error e -> Error e
                 | Ok token ->
                     reader.State <-
-                        ParseState.addDiagnostic
-                            (DiagnosticCode.Other diagMsg)
-                            DiagnosticSeverity.Error
-                            token.PositionedToken
-                            None
-                            None
-                            reader.State
+                        ParseState.addErrorDiagnostic (DiagnosticCode.Other diagMsg) token.PositionedToken reader.State
 
-                    let pt =
-                        PositionedToken.Create(
-                            Token.ofUInt16 (uint16 expectedToken ||| TokenRepresentation.IsVirtual),
-                            token.StartIndex
-                        )
+                    let pt = mkVirtualPT expectedToken token.StartIndex
 
                     reader.State.Trace.Invoke(TraceEvent.VirtualToken(pt.Token, pt.StartIndex))
 
@@ -1024,19 +1013,9 @@ module Parsing =
                 | Error e -> Error e
                 | Ok token ->
                     reader.State <-
-                        ParseState.addDiagnostic
-                            (DiagnosticCode.Other diagMsg)
-                            DiagnosticSeverity.Error
-                            token.PositionedToken
-                            None
-                            None
-                            reader.State
+                        ParseState.addErrorDiagnostic (DiagnosticCode.Other diagMsg) token.PositionedToken reader.State
 
-                    let pt =
-                        PositionedToken.Create(
-                            Token.ofUInt16 (uint16 Token.Identifier ||| TokenRepresentation.IsVirtual),
-                            token.StartIndex
-                        )
+                    let pt = mkVirtualPT Token.Identifier token.StartIndex
 
                     reader.State.Trace.Invoke(TraceEvent.VirtualToken(pt.Token, pt.StartIndex))
 

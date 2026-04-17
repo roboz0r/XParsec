@@ -826,12 +826,11 @@ module TypeDefnElement =
                         let virtualEnd =
                             {
                                 PositionedToken =
-                                    PositionedToken.Create(
-                                        Token.ofUInt16 (uint16 Token.KWEnd ||| TokenRepresentation.IsVirtual),
-                                        match nextTokOpt with
-                                        | ValueSome tok -> tok.StartIndex
-                                        | ValueNone -> 0
-                                    )
+                                    mkVirtualPT
+                                        Token.KWEnd
+                                        (match nextTokOpt with
+                                         | ValueSome tok -> tok.StartIndex
+                                         | ValueNone -> 0)
                                 Index = TokenIndex.Virtual
                             }
 

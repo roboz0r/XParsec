@@ -292,6 +292,16 @@ module ParseState =
             Diagnostics = diag :: state.Diagnostics
         }
 
+    /// Shortcut for the common case of emitting an Error diagnostic at a single token
+    /// with no end-token range and no underlying parser error.
+    let addErrorDiagnostic code startToken state =
+        addDiagnostic code DiagnosticSeverity.Error startToken None None state
+
+    /// Shortcut for the common case of emitting an Error diagnostic at a single token
+    /// that wraps an underlying parser error.
+    let addErrorDiagnosticWithError code startToken err state =
+        addDiagnostic code DiagnosticSeverity.Error startToken None (Some err) state
+
     let private findLineNumberImpl (lexed: Lexed) (guess: int<line>) (index: int<token>) =
         if index < 0<token> || index >= lexed.Tokens.LengthM then
             invalidArg (nameof index) "Index out of range"
