@@ -202,12 +202,10 @@ module ModuleElem =
                                 }
 
                             reader.State <-
-                                ParseState.addDiagnostic
+                                ParseState.addErrorDiagnosticWithError
                                     DiagnosticCode.MissingModuleElem
-                                    DiagnosticSeverity.Error
                                     startTok.PositionedToken
-                                    None
-                                    (Some parseErr)
+                                    parseErr
                                     reader.State
 
                             result.Add(ModuleElem.SkipsTokens(ImmutableArray.CreateRange(skipped)))

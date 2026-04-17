@@ -1098,20 +1098,20 @@ module Expr =
         // and uses withContextAt to set the offside indent based on the keyword's column.
         // lhsParser peeks but does NOT consume — the parser handles consumption.
 
-        let pIfExpr =
-            let recoverExprMissing p =
-                recoverWith
-                    StoppingTokens.afterExpr
-                    DiagnosticSeverity.Error
-                    DiagnosticCode.MissingExpression
-                    (fun toks ->
-                        if toks.IsEmpty then
-                            Expr.Missing
-                        else
-                            Expr.SkipsTokens(toks)
-                    )
-                    p
+        let recoverExprMissing p =
+            recoverWith
+                StoppingTokens.afterExpr
+                DiagnosticSeverity.Error
+                DiagnosticCode.MissingExpression
+                (fun toks ->
+                    if toks.IsEmpty then
+                        Expr.Missing
+                    else
+                        Expr.SkipsTokens(toks)
+                )
+                p
 
+        let pIfExpr =
             parser {
                 let! (ifTok, indent) = assertKeywordToken Token.KWIf
                 // Condition at if_col + 1
@@ -1163,19 +1163,6 @@ module Expr =
                 )
 
         let pMatchExpr =
-            let recoverExprMissing p =
-                recoverWith
-                    StoppingTokens.afterExpr
-                    DiagnosticSeverity.Error
-                    DiagnosticCode.MissingExpression
-                    (fun toks ->
-                        if toks.IsEmpty then
-                            Expr.Missing
-                        else
-                            Expr.SkipsTokens(toks)
-                    )
-                    p
-
             let parseMatchBody
                 (matchTok: SyntaxToken)
                 (indent: int)
@@ -1240,19 +1227,6 @@ module Expr =
             // Grammar: FUN atomicPatterns RARROW typedSeqExprBlock
             let pBody = pTypedSeqExprBlock
 
-            let recoverExprMissing p =
-                recoverWith
-                    StoppingTokens.afterExpr
-                    DiagnosticSeverity.Error
-                    DiagnosticCode.MissingExpression
-                    (fun toks ->
-                        if toks.IsEmpty then
-                            Expr.Missing
-                        else
-                            Expr.SkipsTokens(toks)
-                    )
-                    p
-
             parser {
                 let! (funTok, indent) = assertKeywordToken Token.KWFun
                 // params, arrow, and body all at fun_col + 1
@@ -1278,19 +1252,6 @@ module Expr =
             }
 
         let pTryExpr =
-            let recoverExprMissing p =
-                recoverWith
-                    StoppingTokens.afterExpr
-                    DiagnosticSeverity.Error
-                    DiagnosticCode.MissingExpression
-                    (fun toks ->
-                        if toks.IsEmpty then
-                            Expr.Missing
-                        else
-                            Expr.SkipsTokens(toks)
-                    )
-                    p
-
             let pTryMatchRules indent tryTok =
                 withContextAt OffsideContext.MatchClauses indent tryTok Rules.parse
                 |> recoverWith
@@ -1398,19 +1359,6 @@ module Expr =
                     failwith "Unexpected end of input while looking for 'done' or virtual 'done'"
 
         let pWhileExpr =
-            let recoverExprMissing p =
-                recoverWith
-                    StoppingTokens.afterExpr
-                    DiagnosticSeverity.Error
-                    DiagnosticCode.MissingExpression
-                    (fun toks ->
-                        if toks.IsEmpty then
-                            Expr.Missing
-                        else
-                            Expr.SkipsTokens(toks)
-                    )
-                    p
-
             parser {
                 let! (whileTok, indent) = assertKeywordToken Token.KWWhile
                 // Condition at while_col + 1 (uses refExprNoSeq to prevent `do` from being consumed
@@ -1651,14 +1599,12 @@ module Expr =
                                 ValueNone
                             | _ ->
                                 reader.State <-
-                                    ParseState.addDiagnostic
+                                    ParseState.addErrorDiagnosticWithError
                                         DiagnosticCode.MissingExpression
-                                        DiagnosticSeverity.Error
                                         (match peekNextNonTriviaToken reader with
                                          | Ok tok -> tok.PositionedToken
                                          | Error _ -> PositionedToken.Create(Token.EOF, 0))
-                                        None
-                                        (Some err)
+                                        err
                                         reader.State
 
                                 ValueSome Expr.Missing
@@ -2204,12 +2150,9 @@ module Expr =
             | Ok tok when tok.Token = expectedClose -> consumePeeked tok reader
             | Ok tok when tok.Token = mismatchedClose ->
                 reader.State <-
-                    ParseState.addDiagnostic
+                    ParseState.addErrorDiagnostic
                         (DiagnosticCode.UnclosedDelimiter(openTok, expectedClose))
-                        DiagnosticSeverity.Error
                         tok.PositionedToken
-                        None
-                        None
                         reader.State
 
                 consumePeeked tok reader
@@ -2367,14 +2310,11 @@ module Expr =
                                             let intfVirtualEnd =
                                                 {
                                                     PositionedToken =
-                                                        PositionedToken.Create(
-                                                            Token.ofUInt16 (
-                                                                uint16 Token.KWEnd ||| TokenRepresentation.IsVirtual
-                                                            ),
-                                                            match intfNextTokOpt with
-                                                            | ValueSome tok -> tok.StartIndex
-                                                            | ValueNone -> 0
-                                                        )
+                                                        mkVirtualPT
+                                                            Token.KWEnd
+                                                            (match intfNextTokOpt with
+                                                             | ValueSome tok -> tok.StartIndex
+                                                             | ValueNone -> 0)
                                                     Index = TokenIndex.Virtual
                                                 }
 
@@ -2392,12 +2332,11 @@ module Expr =
                             let virtualEnd =
                                 {
                                     PositionedToken =
-                                        PositionedToken.Create(
-                                            Token.ofUInt16 (uint16 Token.KWEnd ||| TokenRepresentation.IsVirtual),
-                                            match nextTokOpt with
-                                            | ValueSome tok -> tok.StartIndex
-                                            | ValueNone -> 0
-                                        )
+                                        mkVirtualPT
+                                            Token.KWEnd
+                                            (match nextTokOpt with
+                                             | ValueSome tok -> tok.StartIndex
+                                             | ValueNone -> 0)
                                     Index = TokenIndex.Virtual
                                 }
 

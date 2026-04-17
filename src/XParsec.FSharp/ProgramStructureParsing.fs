@@ -153,12 +153,10 @@ module FSharpAst =
                             let startTok = skipped.[0]
 
                             reader.State <-
-                                addDiagnostic
+                                addErrorDiagnosticWithError
                                     DiagnosticCode.UnexpectedTopLevel
-                                    DiagnosticSeverity.Error
                                     startTok.PositionedToken
-                                    None
-                                    (Some topErr)
+                                    topErr
                                     reader.State
 
                             appendSkippedToImpl skipped implFile
@@ -180,12 +178,10 @@ module FSharpAst =
                             let startTok = skipped.[0]
 
                             reader.State <-
-                                addDiagnostic
+                                addErrorDiagnosticWithError
                                     DiagnosticCode.UnexpectedTopLevel
-                                    DiagnosticSeverity.Error
                                     startTok.PositionedToken
-                                    None
-                                    (Some topErr)
+                                    topErr
                                     reader.State
 
                             elems.Add(ModuleElem.SkipsTokens(skipped))
@@ -202,12 +198,10 @@ module FSharpAst =
                                 let startTok = skipped.[0]
 
                                 reader.State <-
-                                    addDiagnostic
+                                    addErrorDiagnosticWithError
                                         DiagnosticCode.UnexpectedTopLevel
-                                        DiagnosticSeverity.Error
                                         startTok.PositionedToken
-                                        None
-                                        (Some topErr)
+                                        topErr
                                         reader.State
 
                                 ImmutableArray.Create(ModuleElem.SkipsTokens(skipped))
