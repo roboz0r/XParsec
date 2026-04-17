@@ -735,21 +735,33 @@ module Parsing =
         | Ok _ -> fail (Message $"Expected '{expected1}' or '{expected2}' keyword") reader
         | Error e -> Error e
 
-    let rec nextNonTriviaTokenVirtualIfNot t (reader: Reader<PositionedToken, ParseState, _, _>) =
+    /// Core of the "match-token-or-synthesise-virtual" pattern. If the next
+    /// non-trivia token matches `t`, consume and return it. Otherwise produce a
+    /// virtual token of kind `t` without consuming, optionally emitting an error
+    /// diagnostic built by `mkDiag` from the token at the failure site.
+    let private nextNonTriviaTokenVirtualCore
+        (mkDiag: PositionedToken -> DiagnosticCode voption)
+        t
+        (reader: Reader<PositionedToken, ParseState, _, _>)
+        =
         match peekNextNonTriviaToken reader with
         | Ok token when token.Token = t ->
             // Real token matches: consume it and return it.
             consumePeeked token reader
         | result ->
             // Real token doesn't match (Ok with different token) or offside failure (Error):
-            // produce a virtual substitute without consuming.
-            let startIndex =
+            // optionally emit a diagnostic and produce a virtual substitute without consuming.
+            let startIndex, diagToken =
                 match result with
-                | Ok token -> token.StartIndex
+                | Ok token -> token.StartIndex, token.PositionedToken
                 | Error _ ->
                     match reader.Peek() with
-                    | ValueSome tok -> tok.StartIndex
-                    | ValueNone -> 0
+                    | ValueSome tok -> tok.StartIndex, tok
+                    | ValueNone -> 0, PositionedToken.Create(Token.EOF, 0)
+
+            match mkDiag diagToken with
+            | ValueSome code -> reader.State <- ParseState.addErrorDiagnostic code diagToken reader.State
+            | ValueNone -> ()
 
             let pt = mkVirtualPT t startIndex
 
@@ -761,6 +773,9 @@ module Parsing =
                     Index = TokenIndex.Virtual
                 }
                 reader
+
+    let nextNonTriviaTokenVirtualIfNot t reader =
+        nextNonTriviaTokenVirtualCore (fun _ -> ValueNone) t reader
 
     let rec nextNonTriviaTokenSatisfiesL (predicate: SyntaxToken -> bool) msg reader =
         match peekNextNonTriviaToken reader with
@@ -940,35 +955,15 @@ module Parsing =
     /// Like nextNonTriviaTokenVirtualIfNot but emits a UnclosedDelimiter diagnostic
     /// when the token must be synthesised.
     let nextNonTriviaTokenVirtualWithDiagnostic (openTok: SyntaxToken voption) t reader =
-        match peekNextNonTriviaToken reader with
-        | Ok token when token.Token = t -> consumePeeked token reader
-        | result ->
-            // Real token doesn't match or offside failure: emit diagnostic and produce virtual.
-            let startIndex, diagToken =
-                match result with
-                | Ok token -> token.StartIndex, token.PositionedToken
-                | Error _ ->
-                    match reader.Peek() with
-                    | ValueSome tok -> tok.StartIndex, tok
-                    | ValueNone -> 0, PositionedToken.Create(Token.EOF, 0)
-
+        let mkDiag _ =
             let code =
                 match openTok with
                 | ValueSome o -> DiagnosticCode.UnclosedDelimiter(o, t)
                 | ValueNone -> DiagnosticCode.Other $"Expected '{t}'"
 
-            reader.State <- ParseState.addErrorDiagnostic code diagToken reader.State
+            ValueSome code
 
-            let pt = mkVirtualPT t startIndex
-
-            reader.State.Trace.Invoke(TraceEvent.VirtualToken(pt.Token, pt.StartIndex))
-
-            preturn
-                {
-                    PositionedToken = pt
-                    Index = TokenIndex.Virtual
-                }
-                reader
+        nextNonTriviaTokenVirtualCore mkDiag t reader
 
     /// Wraps a parser so that on failure, it emits a diagnostic and returns a virtual token
     /// of the given type. Used for committed-keyword recovery where the parser must not fail
