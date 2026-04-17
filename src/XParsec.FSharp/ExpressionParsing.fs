@@ -235,6 +235,29 @@ module Binding =
             return! pChainStaticOptimizations annotated
         }
 
+    // Detects a named-field destructure head: `( Identifier = ...`. Used only as a
+    // lookahead guard in `parseFunction`; the shape is unambiguously a value-binding
+    // pattern (F# let bindings don't support default-valued parameters), so letting
+    // parseFunction commit here would cause pEnclosed to recover with a virtual `)`
+    // and bury the real parse.
+    let private pNamedFieldCtorArgHead =
+        lookAhead (
+            parser {
+                let! t1 = nextNonTriviaToken
+                let! t2 = nextNonTriviaToken
+                let! t3 = nextNonTriviaToken
+
+                if
+                    t1.Token = Token.KWLParen
+                    && (t2.Token = Token.Identifier || t2.Token = Token.BacktickedIdentifier)
+                    && t3.Token = Token.OpEquality
+                then
+                    return ()
+                else
+                    return! fail (Message "not a named-field ctor head")
+            }
+        )
+
     /// Parse a function-style binding: [inline] [access] identOrOp [typar-defns] pat+ [: returnType] = expr
     let parseFunction attrs =
         let pBody = pBindingBody
@@ -243,6 +266,7 @@ module Binding =
             let! inlineTok = opt pInline
             let! access = opt pAccessModifier
             let! identOrOp = IdentOrOp.parse
+            do! notFollowedByL pNamedFieldCtorArgHead "named-field destructure"
             let! typarDefns = opt TyparDefns.parse
             // Parse argument patterns (atomic to avoid consuming return type annotations).
             // Operator definitions (e.g., `let (|PointFree|) = expr`) allow zero arguments.
