@@ -19,12 +19,12 @@ module Parsing =
     let mkVirtualPT (tok: Token) (startIndex: int) =
         PositionedToken.Create(Token.ofUInt16 (uint16 tok ||| TokenRepresentation.IsVirtual), startIndex)
 
-    /// Scans forward past tokens in an inactive branch until reaching #else or #endif at depth 0.
-    /// Nested #if/#endif pairs are depth-tracked and correctly skipped.
-    /// The stop token (#else or #endif) is consumed before returning.
-    /// Returns true if stopped at #else (an else-branch follows), false if stopped at #endif.
-    /// Directives inside block comments (with the InComment flag) are correctly ignored.
-    let skipInactiveBranch (reader: Reader<PositionedToken, ParseState, _, _>) =
+    /// Scans forward past #if branch content, respecting nested #if/#endif pairs.
+    /// Stops (after consuming the stop token) at either:
+    ///   * matching #endif at depth 0 — always stops here,
+    ///   * matching #else at depth 0 — only when `stopOnElse` is true.
+    /// Returns true if the stop was a matching #else. Gracefully stops on EOF.
+    let private skipConditionalBranch (stopOnElse: bool) (reader: Reader<PositionedToken, ParseState, _, _>) =
         let mutable depth = 0
         let mutable foundElse = false
         let mutable stop = false
@@ -46,7 +46,7 @@ module Parsing =
                     // #endif for a nested #if: decrease depth
                     depth <- depth - 1
                     reader.Skip()
-                | Token.ElseDirective when depth = 0 ->
+                | Token.ElseDirective when stopOnElse && depth = 0 ->
                     // Matching #else found: consume it and stop; else-branch is now active
                     reader.Skip()
                     foundElse <- true
@@ -55,27 +55,17 @@ module Parsing =
 
         foundElse
 
+    /// Scans forward past tokens in an inactive branch until reaching #else or #endif at depth 0.
+    /// Nested #if/#endif pairs are depth-tracked and correctly skipped.
+    /// The stop token (#else or #endif) is consumed before returning.
+    /// Returns true if stopped at #else (an else-branch follows), false if stopped at #endif.
+    /// Directives inside block comments (with the InComment flag) are correctly ignored.
+    let skipInactiveBranch reader = skipConditionalBranch true reader
+
     /// Scans forward past an active else-branch until the matching #endif at depth 0 is consumed.
     /// Must be called after the #else token itself has already been consumed.
-    let skipElseBranch (reader: Reader<PositionedToken, ParseState, _, _>) =
-        let mutable depth = 0
-        let mutable stop = false
-
-        while not stop do
-            match reader.Peek() with
-            | ValueNone -> stop <- true // EOF — unclosed #endif, stop gracefully
-            | ValueSome t ->
-                match t.Token with
-                | Token.IfDirective ->
-                    depth <- depth + 1
-                    reader.Skip()
-                | Token.EndIfDirective when depth = 0 ->
-                    reader.Skip()
-                    stop <- true
-                | Token.EndIfDirective ->
-                    depth <- depth - 1
-                    reader.Skip()
-                | _ -> reader.Skip()
+    let skipElseBranch reader =
+        skipConditionalBranch false reader |> ignore
 
     /// Processes a #if directive: parses the condition expression, evaluates it against
     /// the current defined symbols, and either continues into the active branch or skips
