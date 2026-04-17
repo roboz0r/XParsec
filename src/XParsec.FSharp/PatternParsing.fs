@@ -128,49 +128,63 @@ module Pat =
             | _ -> return! fail (Message "Not a prefix pattern operator")
         }
 
+    // Shared token-to-operator dispatch for pattern Pratt parsing. Parameterized by
+    // two flags that distinguish `parenPattern` from `headBindingPattern`:
+    //   * `allowColon`       — whether `:` is a type-annotation operator in this
+    //                           context (true for parenPattern, false for
+    //                           headBindingPattern where `:` belongs to the
+    //                           enclosing binding's optReturnType).
+    //   * `semiCompletesElems` — the N-ary `InfixNary` flag on `;`: true in
+    //                            parenPattern (used by list/array patterns),
+    //                            false in headBindingPattern.
+    let private patTokenToOp (allowColon: bool) (semiCompletesElems: bool) (token: SyntaxToken) =
+        match token.Token with
+        // Infix Left: | (Or), & (And)
+        | Token.OpBar ->
+            let op = InfixLeft(token, preturn token, pipePrecedence, completeInfix)
+            preturn op
+
+        | Token.OpAmp ->
+            let op = InfixLeft(token, preturn token, andPrecedence, completeInfix)
+            preturn op
+
+        // Infix Right: :: (Cons)
+        | Token.KWColonColon ->
+            let op = InfixRight(token, preturn token, consPrecedence, completeInfix)
+            preturn op
+
+        // Infix Mapped: : (Typed) — only in parenPattern
+        | Token.OpColon when allowColon ->
+            let op = InfixMapped(token, preturn token, colonPrecedence, pTypeRhs, completeTyped)
+            preturn op
+
+        // Infix Mapped: as (As)
+        | Token.KWAs ->
+            let op = InfixMapped(token, preturn token, asPrecedence, pAsRhs, completeAs)
+            preturn op
+
+        // Infix N-ary: , (Tuple)
+        | Token.OpComma ->
+            let op = InfixNary(token, preturn token, tuplePrecedence, false, completeTuple)
+            preturn op
+
+        | Token.OpSemicolon ->
+            let op =
+                InfixNary(token, preturn token, semiPrecedence, semiCompletesElems, completeElems)
+
+            preturn op
+
+        | _ -> fail (Message "Not a valid RHS pattern operator")
+
+    let private patRhsParser (tokenToOp: SyntaxToken -> _) =
+        choiceL [ pSepVirtPat >>= tokenToOp; nextNonTriviaToken >>= tokenToOp ] "RHS pattern operator"
+
     /// Matches F#'s `parenPattern` grammar rule: includes `:` as a type-annotation
     /// operator so that `(x : int)`, `(x : int, y : float)`, etc. parse as
     /// per-element `Pat.Typed` inside the paren.
     type PatOperatorParser() =
-        static let tokenToOp (token: SyntaxToken) =
-            match token.Token with
-            // Infix Left: | (Or), & (And)
-            | Token.OpBar ->
-                let op = InfixLeft(token, preturn token, pipePrecedence, completeInfix)
-                preturn op
-
-            | Token.OpAmp ->
-                let op = InfixLeft(token, preturn token, andPrecedence, completeInfix)
-                preturn op
-
-            // Infix Right: :: (Cons)
-            | Token.KWColonColon ->
-                let op = InfixRight(token, preturn token, consPrecedence, completeInfix)
-                preturn op
-
-            // Infix Mapped: : (Typed)
-            | Token.OpColon ->
-                let op = InfixMapped(token, preturn token, colonPrecedence, pTypeRhs, completeTyped)
-                preturn op
-
-            // Infix Mapped: as (As)
-            | Token.KWAs ->
-                let op = InfixMapped(token, preturn token, asPrecedence, pAsRhs, completeAs)
-                preturn op
-
-            // Infix N-ary: , (Tuple)
-            | Token.OpComma ->
-                let op = InfixNary(token, preturn token, tuplePrecedence, false, completeTuple)
-                preturn op
-
-            | Token.OpSemicolon ->
-                let op = InfixNary(token, preturn token, semiPrecedence, true, completeElems)
-                preturn op
-
-            | _ -> fail (Message "Not a valid RHS pattern operator")
-
-        static let rhsParser =
-            choiceL [ pSepVirtPat >>= tokenToOp; nextNonTriviaToken >>= tokenToOp ] "RHS pattern operator"
+        static let tokenToOp = patTokenToOp true true
+        static let rhsParser = patRhsParser tokenToOp
 
         interface Operators<
             SyntaxToken,
@@ -192,36 +206,8 @@ module Pat =
     /// puts the `: int` into the binding's `optReturnType`, not the head
     /// pattern. Used by `Pat.parseHead` for let-value binding heads.
     type PatHeadOperatorParser() =
-        static let tokenToOp (token: SyntaxToken) =
-            match token.Token with
-            | Token.OpBar ->
-                let op = InfixLeft(token, preturn token, pipePrecedence, completeInfix)
-                preturn op
-
-            | Token.OpAmp ->
-                let op = InfixLeft(token, preturn token, andPrecedence, completeInfix)
-                preturn op
-
-            | Token.KWColonColon ->
-                let op = InfixRight(token, preturn token, consPrecedence, completeInfix)
-                preturn op
-
-            | Token.KWAs ->
-                let op = InfixMapped(token, preturn token, asPrecedence, pAsRhs, completeAs)
-                preturn op
-
-            | Token.OpComma ->
-                let op = InfixNary(token, preturn token, tuplePrecedence, false, completeTuple)
-                preturn op
-
-            | Token.OpSemicolon ->
-                let op = InfixNary(token, preturn token, semiPrecedence, false, completeElems)
-                preturn op
-
-            | _ -> fail (Message "Not a valid RHS pattern operator")
-
-        static let rhsParser =
-            choiceL [ pSepVirtPat >>= tokenToOp; nextNonTriviaToken >>= tokenToOp ] "RHS pattern operator"
+        static let tokenToOp = patTokenToOp false false
+        static let rhsParser = patRhsParser tokenToOp
 
         interface Operators<
             SyntaxToken,
