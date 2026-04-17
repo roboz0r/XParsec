@@ -298,7 +298,10 @@ module Pat =
                 many (
                     parser {
                         let! barTok = pBarToken
-                        let! altPat = altParser
+                        // Each Or-alternative gets its own SeqBlock boundary so `pNamed`'s
+                        // optional parameter/arg parsers don't overrun past the alternative
+                        // into a following field at a lower column.
+                        let! altPat = withContext OffsideContext.SeqBlock altParser
                         return struct (barTok, altPat)
                     }
                 )

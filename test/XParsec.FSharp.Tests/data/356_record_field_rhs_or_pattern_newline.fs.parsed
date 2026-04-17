@@ -1,0 +1,74 @@
+AnonymousModule:
+TypeDefn.Union:
+  TypeName                               'MyDU'            Identifier          tok=  12  pos= 352
+  =                                      '='               OpEquality          tok=  14  pos= 357
+    Case:
+      ident                              'A'               Identifier          tok=  19  pos= 365
+      of                                 'of'              KWOf                tok=  21  pos= 367
+      NamedType:
+        LongIdent:
+                                         'int'             Identifier          tok=  23  pos= 370
+    Case:
+      ident                              'B'               Identifier          tok=  28  pos= 380
+      of                                 'of'              KWOf                tok=  30  pos= 382
+      NamedType:
+        LongIdent:
+                                         'int'             Identifier          tok=  32  pos= 385
+TypeDefn.Record:
+  TypeName                               'Record'          Identifier          tok=  37  pos= 395
+  =                                      '='               OpEquality          tok=  39  pos= 402
+  {                                      '{'               KWLBrace            tok=  41  pos= 404
+    Field:
+      ident                              'Value'           Identifier          tok=  43  pos= 406
+      :                                  ':'               OpColon             tok=  44  pos= 411
+      NamedType:
+        LongIdent:
+                                         'MyDU'            Identifier          tok=  46  pos= 413
+    Field:
+      ident                              'Count'           Identifier          tok=  49  pos= 419
+      :                                  ':'               OpColon             tok=  50  pos= 424
+      NamedType:
+        LongIdent:
+                                         'int'             Identifier          tok=  52  pos= 426
+  }                                      '}'               KWRBrace            tok=  54  pos= 430
+FunctionOrValue:
+  let                                    'let'             KWLet               tok=  57  pos= 433
+    Pat.NamedSimple                      'test'            Identifier          tok=  59  pos= 437
+    Pats:
+      Pat.NamedSimple                    'r'               Identifier          tok=  61  pos= 442
+    =                                    '='               OpEquality          tok=  63  pos= 444
+      Match:
+        MatchToken                       'match'           KWMatch             tok=  66  pos= 450
+        MatchExpr:
+          Ident                          'r'               Identifier          tok=  68  pos= 456
+        WithToken                        'with'            KWWith              tok=  70  pos= 458
+        Rule:
+          Bar                            '|'               OpBar               tok=  73  pos= 467
+          Pat:
+            Pat.Record                   '{'               KWLBrace            tok=  75  pos= 469
+              FieldPat:
+                Ident                    'Value'           Identifier          tok=  77  pos= 471
+                =                        '='               OpEquality          tok=  79  pos= 477
+                Pat:
+                  Pat.Or                 '|'               OpBar               tok=  86  pos= 497
+                    Pat.Named:
+                      Ident              'A'               Identifier          tok=  81  pos= 479
+                      Param:
+                        Pat.NamedSimple  'x'               Identifier          tok=  83  pos= 481
+                    Pat.Named:
+                      Ident              'B'               Identifier          tok=  88  pos= 499
+                      Param:
+                        Pat.NamedSimple  'x'               Identifier          tok=  90  pos= 501
+              FieldPat:
+                Ident                    'Count'           Identifier          tok=  93  pos= 511
+                =                        '='               OpEquality          tok=  95  pos= 517
+                Pat:
+                  Pat.NamedSimple        'n'               Identifier          tok=  97  pos= 519
+                                         '}'               KWRBrace            tok=  99  pos= 521
+          Arrow                          '->'              OpArrowRight        tok= 101  pos= 523
+          Expr:
+            ParenBlock                   '('               KWLParen            tok= 103  pos= 526
+              Tuple:
+                Ident                    'x'               Identifier          tok= 104  pos= 527
+                Ident                    'n'               Identifier          tok= 107  pos= 530
+                                         ')'               KWRParen            tok= 108  pos= 531
