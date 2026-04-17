@@ -1,0 +1,125 @@
+AnonymousModule:
+TypeDefn.Union:
+  TypeName                                     'Repr'            Identifier          tok=  10  pos= 224
+  =                                            '='               OpEquality          tok=  12  pos= 229
+    Case:
+      ident                                    'Repr'            Identifier          tok=  14  pos= 231
+      of                                       'of'              KWOf                tok=  16  pos= 236
+      ident                                    'attributes'      Identifier          tok=  18  pos= 239
+      :                                        ':'               OpColon             tok=  19  pos= 249
+      NamedType:
+        LongIdent:
+                                               'int'             Identifier          tok=  21  pos= 251
+      ident                                    'caseName'        Identifier          tok=  25  pos= 257
+      :                                        ':'               OpColon             tok=  26  pos= 265
+      NamedType:
+        LongIdent:
+                                               'string'          Identifier          tok=  28  pos= 267
+      ident                                    'longId'          Identifier          tok=  32  pos= 276
+      :                                        ':'               OpColon             tok=  33  pos= 282
+      SuffixedType:
+        NamedType:
+          LongIdent:
+                                               'int'             Identifier          tok=  35  pos= 284
+        LongIdent:
+                                               'list'            Identifier          tok=  37  pos= 288
+TypeDefn.Union:
+  TypeName                                     'Defn'            Identifier          tok=  41  pos= 298
+  =                                            '='               OpEquality          tok=  43  pos= 303
+    Case:
+      ident                                    'Defn'            Identifier          tok=  45  pos= 305
+      of                                       'of'              KWOf                tok=  47  pos= 310
+      ident                                    'exnRepr'         Identifier          tok=  49  pos= 313
+      :                                        ':'               OpColon             tok=  50  pos= 320
+      NamedType:
+        LongIdent:
+                                               'Repr'            Identifier          tok=  52  pos= 322
+      ident                                    'members'         Identifier          tok=  56  pos= 329
+      :                                        ':'               OpColon             tok=  57  pos= 336
+      SuffixedType:
+        NamedType:
+          LongIdent:
+                                               'int'             Identifier          tok=  59  pos= 338
+        LongIdent:
+                                               'list'            Identifier          tok=  61  pos= 342
+TypeDefn.Union:
+  TypeName                                     'Decl'            Identifier          tok=  65  pos= 352
+  =                                            '='               OpEquality          tok=  67  pos= 357
+    Case:
+      ident                                    'Exn'             Identifier          tok=  69  pos= 359
+      of                                       'of'              KWOf                tok=  71  pos= 363
+      ident                                    'exnDefn'         Identifier          tok=  73  pos= 366
+      :                                        ':'               OpColon             tok=  74  pos= 373
+      NamedType:
+        LongIdent:
+                                               'Defn'            Identifier          tok=  76  pos= 375
+FunctionOrValue:
+  let                                          'let'             KWLet               tok=  79  pos= 381
+    Pat.NamedSimple                            'visit'           Identifier          tok=  81  pos= 385
+    Pats:
+      ParenBlock                               '('               KWLParen            tok=  83  pos= 391
+        Pat.Typed:
+          Pat.NamedSimple                      'd'               Identifier          tok=  84  pos= 392
+          Colon                                ':'               OpColon             tok=  85  pos= 393
+          NamedType:
+            LongIdent:
+                                               'Decl'            Identifier          tok=  87  pos= 395
+                                               ')'               KWRParen            tok=  88  pos= 399
+    =                                          '='               OpEquality          tok=  90  pos= 401
+      Match:
+        MatchToken                             'match'           KWMatch             tok=  93  pos= 407
+        MatchExpr:
+          Ident                                'd'               Identifier          tok=  95  pos= 413
+        WithToken                              'with'            KWWith              tok=  97  pos= 415
+        Rule:
+          Bar                                  '|'               OpBar               tok= 100  pos= 424
+          Pat:
+            Pat.NamedFieldPats:
+              Ident                            'Exn'             Identifier          tok= 102  pos= 426
+              (                                '('               KWLParen            tok= 103  pos= 429
+              UnionArgPat.Named:
+                Ident                          'exnDefn'         Identifier          tok= 106  pos= 439
+                =                              '='               OpEquality          tok= 108  pos= 447
+                Pat:
+                  Pat.NamedFieldPats:
+                    Ident                      'Defn'            Identifier          tok= 110  pos= 449
+                    (                          '('               KWLParen            tok= 111  pos= 453
+                    UnionArgPat.Named:
+                      Ident                    'exnRepr'         Identifier          tok= 114  pos= 467
+                      =                        '='               OpEquality          tok= 116  pos= 475
+                      Pat:
+                        Pat.NamedFieldPats:
+                          Ident                'Repr'            Identifier          tok= 118  pos= 477
+                          (                    '('               KWLParen            tok= 119  pos= 481
+                          UnionArgPat.Named:
+                            Ident              'attributes'      Identifier          tok= 120  pos= 482
+                            =                  '='               OpEquality          tok= 122  pos= 493
+                            Pat:
+                              Pat.NamedSimple  'a'               Identifier          tok= 124  pos= 495
+                          UnionArgPat.Named:
+                            Ident              'caseName'        Identifier          tok= 127  pos= 498
+                            =                  '='               OpEquality          tok= 129  pos= 507
+                            Pat:
+                              Pat.NamedSimple  'c'               Identifier          tok= 131  pos= 509
+                          UnionArgPat.Named:
+                            Ident              'longId'          Identifier          tok= 134  pos= 512
+                            =                  '='               OpEquality          tok= 136  pos= 519
+                            Pat:
+                              Pat.NamedSimple  'lid'             Identifier          tok= 138  pos= 521
+                          )                    ')'               KWRParen            tok= 139  pos= 524
+                    UnionArgPat.Named:
+                      Ident                    'members'         Identifier          tok= 142  pos= 527
+                      =                        '='               OpEquality          tok= 144  pos= 535
+                      Pat:
+                        Pat.NamedSimple        'm'               Identifier          tok= 146  pos= 537
+                    )                          ')'               KWRParen            tok= 147  pos= 538
+              )                                ')'               KWRParen            tok= 148  pos= 539
+          Arrow                                '->'              OpArrowRight        tok= 150  pos= 541
+          Expr:
+            ParenBlock                         '('               KWLParen            tok= 153  pos= 552
+              Tuple:
+                Ident                          'a'               Identifier          tok= 154  pos= 553
+                Ident                          'c'               Identifier          tok= 157  pos= 556
+                Ident                          'lid'             Identifier          tok= 160  pos= 559
+                Ident                          'm'               Identifier          tok= 163  pos= 564
+                                               ')'               KWRParen            tok= 164  pos= 565

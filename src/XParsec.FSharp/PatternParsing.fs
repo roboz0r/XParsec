@@ -395,28 +395,57 @@ module Pat =
     /// commas, semicolons, or newline-at-indent. Commits to this AST shape only when at
     /// least one argument is a named field; otherwise fails so `pNamed`'s fallback can
     /// handle the positional-only case with the standard `Pat.Named(lid, param, arg)`.
-    let private pNamedFieldPats =
-        parser {
-            let! lid = LongIdent.parse
-            let! lParen = pLParen
+    let private pNamedFieldPats: Parser<Pat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+        fun reader ->
+            match LongIdent.parse reader with
+            | Error e -> Error e
+            | Ok lid ->
+                match pLParen reader with
+                | Error e -> Error e
+                | Ok lParen ->
+                    // Push Paren context (indent=0) so inner args can appear at any column
+                    // relative to any enclosing SeqBlock — matches pParenPat/pRecordPat. Without
+                    // this, a recursive call from inside a RHS `withContext SeqBlock` (set by
+                    // pUnionNamedArgPat to the RHS column) would offside-fail on inner fields
+                    // indented below the RHS column.
+                    let parenEntry: Offside =
+                        {
+                            Context = OffsideContext.Paren
+                            Indent = 0
+                            Token = lParen.PositionedToken
+                        }
 
-            let! args, seps = withContext OffsideContext.SeqBlock (sepBy1 pUnionArgPat (pComma <|> pRecordFieldSep))
+                    let savedState = reader.State
+                    reader.State <- ParseState.pushOffside parenEntry reader.State
 
-            let! rParen = pRParen
+                    let innerParser =
+                        parser {
+                            let! args, seps =
+                                withContext OffsideContext.SeqBlock (sepBy1 pUnionArgPat (pComma <|> pRecordFieldSep))
 
-            let hasNamed =
-                args
-                |> Seq.exists (
-                    function
-                    | UnionArgPat.Named _ -> true
-                    | _ -> false
-                )
+                            let! rParen = pRParen
 
-            if hasNamed then
-                return Pat.NamedFieldPats(lid, lParen, args, seps, rParen)
-            else
-                return! fail (Message "positional-only ctor pattern")
-        }
+                            let hasNamed =
+                                args
+                                |> Seq.exists (
+                                    function
+                                    | UnionArgPat.Named _ -> true
+                                    | _ -> false
+                                )
+
+                            if hasNamed then
+                                return Pat.NamedFieldPats(lid, lParen, args, seps, rParen)
+                            else
+                                return! fail (Message "positional-only ctor pattern")
+                        }
+
+                    match innerParser reader with
+                    | Ok result ->
+                        reader.State <- ParseState.popOffside parenEntry reader.State
+                        Ok result
+                    | Error _ as e ->
+                        reader.State <- savedState
+                        e
 
     let pNamed =
         // Try named field patterns first (backtracking on failure),
