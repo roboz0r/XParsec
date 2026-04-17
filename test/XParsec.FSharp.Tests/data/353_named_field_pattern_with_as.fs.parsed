@@ -1,0 +1,48 @@
+AnonymousModule:
+TypeDefn.Union:
+  TypeName                       'NB'              Identifier          tok=   8  pos= 157
+  =                              '='               OpEquality          tok=  10  pos= 160
+    Case:
+      ident                      'Normalized...'   Identifier          tok=  12  pos= 162
+      of                         'of'              KWOf                tok=  14  pos= 180
+      ident                      'valSynData'      Identifier          tok=  16  pos= 183
+      :                          ':'               OpColon             tok=  17  pos= 193
+      NamedType:
+        LongIdent:
+                                 'int'             Identifier          tok=  19  pos= 195
+FunctionOrValue:
+  let                            'let'             KWLet               tok=  21  pos= 199
+    Pat.NamedSimple              'data'            Identifier          tok=  23  pos= 203
+    =                            '='               OpEquality          tok=  25  pos= 208
+      App:
+        Func:
+          Ident                  'Normalized...'   Identifier          tok=  27  pos= 210
+        Args:
+          Const                  '1'               NumInt32            tok=  29  pos= 228
+FunctionOrValue:
+  let                            'let'             KWLet               tok=  32  pos= 231
+    Pat.NamedSimple              'run'             Identifier          tok=  34  pos= 235
+    Pats:
+      ParenBlock                 '('               KWLParen            tok=  36  pos= 239
+                                 ')'               KWRParen            tok=  37  pos= 240
+    =                            '='               OpEquality          tok=  39  pos= 242
+      Let                        'let'             KWLet               tok=  42  pos= 248
+        Pat.As:
+          Pat.NamedFieldPats:
+            Ident                'Normalized...'   Identifier          tok=  44  pos= 252
+            (                    '('               KWLParen            tok=  45  pos= 269
+            UnionArgPat.Named:
+              Ident              'valSynData'      Identifier          tok=  46  pos= 270
+              =                  '='               OpEquality          tok=  48  pos= 281
+              Pat:
+                Pat.NamedSimple  'valSynData'      Identifier          tok=  50  pos= 283
+            )                    ')'               KWRParen            tok=  51  pos= 293
+          As                     'as'              KWAs                tok=  53  pos= 295
+          Ident                  'bind'            Identifier          tok=  55  pos= 298
+        =                        '='               OpEquality          tok=  57  pos= 303
+          Ident                  'data'            Identifier          tok=  59  pos= 305
+      in                         <virt>            KWIn                tok=virt  pos= 314
+      Body:
+        Tuple:
+          Ident                  'valSynData'      Identifier          tok=  62  pos= 314
+          Ident                  'bind'            Identifier          tok=  65  pos= 326
