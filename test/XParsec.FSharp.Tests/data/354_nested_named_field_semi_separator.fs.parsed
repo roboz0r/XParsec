@@ -8,21 +8,17 @@ TypeDefn.Union:
       ident                                    'attributes'      Identifier          tok=  18  pos= 239
       :                                        ':'               OpColon             tok=  19  pos= 249
       NamedType:
-        LongIdent:
-                                               'int'             Identifier          tok=  21  pos= 251
+        Ident                                  'int'             Identifier          tok=  21  pos= 251
       ident                                    'caseName'        Identifier          tok=  25  pos= 257
       :                                        ':'               OpColon             tok=  26  pos= 265
       NamedType:
-        LongIdent:
-                                               'string'          Identifier          tok=  28  pos= 267
+        Ident                                  'string'          Identifier          tok=  28  pos= 267
       ident                                    'longId'          Identifier          tok=  32  pos= 276
       :                                        ':'               OpColon             tok=  33  pos= 282
       SuffixedType:
         NamedType:
-          LongIdent:
-                                               'int'             Identifier          tok=  35  pos= 284
-        LongIdent:
-                                               'list'            Identifier          tok=  37  pos= 288
+          Ident                                'int'             Identifier          tok=  35  pos= 284
+        Ident                                  'list'            Identifier          tok=  37  pos= 288
 TypeDefn.Union:
   TypeName                                     'Defn'            Identifier          tok=  41  pos= 298
   =                                            '='               OpEquality          tok=  43  pos= 303
@@ -32,16 +28,13 @@ TypeDefn.Union:
       ident                                    'exnRepr'         Identifier          tok=  49  pos= 313
       :                                        ':'               OpColon             tok=  50  pos= 320
       NamedType:
-        LongIdent:
-                                               'Repr'            Identifier          tok=  52  pos= 322
+        Ident                                  'Repr'            Identifier          tok=  52  pos= 322
       ident                                    'members'         Identifier          tok=  56  pos= 329
       :                                        ':'               OpColon             tok=  57  pos= 336
       SuffixedType:
         NamedType:
-          LongIdent:
-                                               'int'             Identifier          tok=  59  pos= 338
-        LongIdent:
-                                               'list'            Identifier          tok=  61  pos= 342
+          Ident                                'int'             Identifier          tok=  59  pos= 338
+        Ident                                  'list'            Identifier          tok=  61  pos= 342
 TypeDefn.Union:
   TypeName                                     'Decl'            Identifier          tok=  65  pos= 352
   =                                            '='               OpEquality          tok=  67  pos= 357
@@ -51,8 +44,7 @@ TypeDefn.Union:
       ident                                    'exnDefn'         Identifier          tok=  73  pos= 366
       :                                        ':'               OpColon             tok=  74  pos= 373
       NamedType:
-        LongIdent:
-                                               'Defn'            Identifier          tok=  76  pos= 375
+        Ident                                  'Defn'            Identifier          tok=  76  pos= 375
 FunctionOrValue:
   let                                          'let'             KWLet               tok=  79  pos= 381
     Pat.NamedSimple                            'visit'           Identifier          tok=  81  pos= 385
@@ -62,8 +54,7 @@ FunctionOrValue:
           Pat.NamedSimple                      'd'               Identifier          tok=  84  pos= 392
           Colon                                ':'               OpColon             tok=  85  pos= 393
           NamedType:
-            LongIdent:
-                                               'Decl'            Identifier          tok=  87  pos= 395
+            Ident                              'Decl'            Identifier          tok=  87  pos= 395
                                                ')'               KWRParen            tok=  88  pos= 399
     =                                          '='               OpEquality          tok=  90  pos= 401
       Match:

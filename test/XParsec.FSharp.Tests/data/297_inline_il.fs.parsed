@@ -9,8 +9,7 @@ FunctionOrValue:
                            ')'               KWRParen            tok=  14  pos=  76
     ReturnColon            ':'               OpColon             tok=  16  pos=  78
     NamedType:
-      LongIdent:
-                           'int'             Identifier          tok=  18  pos=  80
+      Ident                'int'             Identifier          tok=  18  pos=  80
     =                      '='               OpEquality          tok=  20  pos=  84
       ILIntrinsic:
         (#                 '(#'              KWLHashParen        tok=  22  pos=  86
@@ -21,8 +20,7 @@ FunctionOrValue:
         ILReturnType:
           :                ':'               OpColon             tok=  28  pos= 100
           NamedType:
-            LongIdent:
-                           'int'             Identifier          tok=  30  pos= 102
+            Ident          'int'             Identifier          tok=  30  pos= 102
         #)                 '#)'              KWRHashParen        tok=  32  pos= 106
 FunctionOrValue:
   let                      'let'             KWLet               tok=  34  pos= 109
@@ -34,13 +32,11 @@ FunctionOrValue:
           Pat.NamedSimple  'p'               Identifier          tok=  41  pos= 133
           Colon            ':'               OpColon             tok=  42  pos= 134
           NamedType:
-            LongIdent:
-                           'nativeint'       Identifier          tok=  44  pos= 136
+            Ident          'nativeint'       Identifier          tok=  44  pos= 136
                            ')'               KWRParen            tok=  45  pos= 145
     ReturnColon            ':'               OpColon             tok=  47  pos= 147
     NamedType:
-      LongIdent:
-                           'bool'            Identifier          tok=  49  pos= 149
+      Ident                'bool'            Identifier          tok=  49  pos= 149
     =                      '='               OpEquality          tok=  51  pos= 154
       ILIntrinsic:
         (#                 '(#'              KWLHashParen        tok=  53  pos= 156
@@ -55,8 +51,7 @@ FunctionOrValue:
         ILReturnType:
           :                ':'               OpColon             tok=  63  pos= 170
           NamedType:
-            LongIdent:
-                           'bool'            Identifier          tok=  65  pos= 172
+            Ident          'bool'            Identifier          tok=  65  pos= 172
         #)                 '#)'              KWRHashParen        tok=  67  pos= 177
 FunctionOrValue:
   let                      'let'             KWLet               tok=  69  pos= 180
@@ -68,8 +63,7 @@ FunctionOrValue:
           Pat.NamedSimple  'address'         Identifier          tok=  76  pos= 200
           Colon            ':'               OpColon             tok=  77  pos= 207
           NamedType:
-            LongIdent:
-                           'nativeint'       Identifier          tok=  79  pos= 209
+            Ident          'nativeint'       Identifier          tok=  79  pos= 209
                            ')'               KWRParen            tok=  80  pos= 218
     =                      '='               OpEquality          tok=  82  pos= 220
       ILIntrinsic:
@@ -97,8 +91,7 @@ FunctionOrValue:
       >                    '>'               op_GreaterThan      tok= 113  pos= 500
     ReturnColon            ':'               OpColon             tok= 115  pos= 502
     NamedType:
-      LongIdent:
-                           'nativeint'       Identifier          tok= 117  pos= 504
+      Ident                'nativeint'       Identifier          tok= 117  pos= 504
     =                      '='               OpEquality          tok= 119  pos= 514
       ILIntrinsic:
         (#                 '(#'              KWLHashParen        tok= 121  pos= 516
@@ -109,8 +102,7 @@ FunctionOrValue:
         ILReturnType:
           :                ':'               OpColon             tok= 128  pos= 525
           NamedType:
-            LongIdent:
-                           'nativeint'       Identifier          tok= 130  pos= 527
+            Ident          'nativeint'       Identifier          tok= 130  pos= 527
         #)                 '#)'              KWRHashParen        tok= 132  pos= 537
 FunctionOrValue:
   let                      'let'             KWLet               tok= 134  pos= 540
@@ -122,8 +114,7 @@ FunctionOrValue:
           Pat.NamedSimple  'address'         Identifier          tok= 141  pos= 562
           Colon            ':'               OpColon             tok= 142  pos= 569
           NamedType:
-            LongIdent:
-                           'nativeint'       Identifier          tok= 144  pos= 571
+            Ident          'nativeint'       Identifier          tok= 144  pos= 571
                            ')'               KWRParen            tok= 145  pos= 580
     =                      '='               OpEquality          tok= 147  pos= 582
       ILIntrinsic:
@@ -138,13 +129,11 @@ FunctionOrValue:
               Ident        'myNullPtr'       Identifier          tok= 155  pos= 593
             Types:
               NamedType:
-                LongIdent:
-                           'int'             Identifier          tok= 157  pos= 603
+                Ident      'int'             Identifier          tok= 157  pos= 603
         Arg:
           Ident            'address'         Identifier          tok= 160  pos= 608
         ILReturnType:
           :                ':'               OpColon             tok= 162  pos= 616
           NamedType:
-            LongIdent:
-                           'bool'            Identifier          tok= 164  pos= 618
+            Ident          'bool'            Identifier          tok= 164  pos= 618
         #)                 '#)'              KWRHashParen        tok= 166  pos= 623

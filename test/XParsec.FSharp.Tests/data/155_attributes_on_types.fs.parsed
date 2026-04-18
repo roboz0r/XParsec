@@ -3,8 +3,7 @@ module               'module'          KWModule            tok=   0  pos=   0
 TypeDefn.Record:
   [<                 '[<'              KWLAttrBracket      tok=   5  pos=  16
   NamedType:
-    LongIdent:
-                     'Struct'          Identifier          tok=   6  pos=  18
+    Ident            'Struct'          Identifier          tok=   6  pos=  18
   >]                 '>]'              KWRAttrBracket      tok=   7  pos=  24
   TypeName           'Point'           Identifier          tok=  11  pos=  32
   =                  '='               OpEquality          tok=  13  pos=  38
@@ -13,20 +12,17 @@ TypeDefn.Record:
       ident          'X'               Identifier          tok=  17  pos=  42
       :              ':'               OpColon             tok=  18  pos=  43
       NamedType:
-        LongIdent:
-                     'float'           Identifier          tok=  20  pos=  45
+        Ident        'float'           Identifier          tok=  20  pos=  45
     Field:
       ident          'Y'               Identifier          tok=  23  pos=  52
       :              ':'               OpColon             tok=  24  pos=  53
       NamedType:
-        LongIdent:
-                     'float'           Identifier          tok=  26  pos=  55
+        Ident        'float'           Identifier          tok=  26  pos=  55
   }                  '}'               KWRBrace            tok=  28  pos=  61
 TypeDefn.Union:
   [<                 '[<'              KWLAttrBracket      tok=  31  pos=  64
   NamedType:
-    LongIdent:
-                     'RequireQua...'   Identifier          tok=  32  pos=  66
+    Ident            'RequireQua...'   Identifier          tok=  32  pos=  66
   >]                 '>]'              KWRAttrBracket      tok=  33  pos=  88
   TypeName           'Color'           Identifier          tok=  37  pos=  96
   =                  '='               OpEquality          tok=  39  pos= 102
@@ -39,8 +35,7 @@ TypeDefn.Union:
 TypeDefn.Anon:
   [<                 '[<'              KWLAttrBracket      tok=  57  pos= 138
   NamedType:
-    LongIdent:
-                     'AbstractCl...'   Identifier          tok=  58  pos= 140
+    Ident            'AbstractCl...'   Identifier          tok=  58  pos= 140
   >]                 '>]'              KWRAttrBracket      tok=  59  pos= 153
   TypeName           'Shape'           Identifier          tok=  63  pos= 161
   (                  '('               KWLParen            tok=  64  pos= 166
@@ -52,14 +47,12 @@ TypeDefn.Anon:
     ident            'Area'            Identifier          tok=  74  pos= 191
     :                ':'               OpColon             tok=  76  pos= 196
     NamedType:
-      LongIdent:
-                     'float'           Identifier          tok=  78  pos= 198
+      Ident          'float'           Identifier          tok=  78  pos= 198
   end                <virt>            KWEnd               tok=virt  pos= 205
 TypeDefn.Anon:
   [<                 '[<'              KWLAttrBracket      tok=  81  pos= 205
   NamedType:
-    LongIdent:
-                     'Sealed'          Identifier          tok=  82  pos= 207
+    Ident            'Sealed'          Identifier          tok=  82  pos= 207
   >]                 '>]'              KWRAttrBracket      tok=  83  pos= 213
   TypeName           'Circle'          Identifier          tok=  87  pos= 221
   (                  '('               KWLParen            tok=  88  pos= 227
@@ -67,15 +60,13 @@ TypeDefn.Anon:
     Pat.NamedSimple  'radius'          Identifier          tok=  89  pos= 228
     Colon            ':'               OpColon             tok=  90  pos= 234
     NamedType:
-      LongIdent:
-                     'float'           Identifier          tok=  92  pos= 236
+      Ident          'float'           Identifier          tok=  92  pos= 236
   )                  ')'               KWRParen            tok=  93  pos= 241
   =                  '='               OpEquality          tok=  95  pos= 243
   begin              <virt>            KWBegin             tok=virt  pos= 249
     inherit          'inherit'         KWInherit           tok=  98  pos= 249
     NamedType:
-      LongIdent:
-                     'Shape'           Identifier          tok= 100  pos= 257
+      Ident          'Shape'           Identifier          tok= 100  pos= 257
     ParenBlock       '('               KWLParen            tok= 101  pos= 262
                      ')'               KWRParen            tok= 102  pos= 263
     override         'override'        KWOverride          tok= 105  pos= 269
@@ -95,8 +86,7 @@ TypeDefn.Anon:
 TypeDefn.Anon:
   [<                 '[<'              KWLAttrBracket      tok= 128  pos= 321
   NamedType:
-    LongIdent:
-                     'Interface'       Identifier          tok= 129  pos= 323
+    Ident            'Interface'       Identifier          tok= 129  pos= 323
   >]                 '>]'              KWRAttrBracket      tok= 130  pos= 332
   TypeName           'IDrawable'       Identifier          tok= 134  pos= 340
   =                  '='               OpEquality          tok= 136  pos= 350
@@ -106,10 +96,8 @@ TypeDefn.Anon:
     ident            'Draw'            Identifier          tok= 143  pos= 372
     :                ':'               OpColon             tok= 145  pos= 377
     NamedType:
-      LongIdent:
-                     'unit'            Identifier          tok= 147  pos= 379
+      Ident          'unit'            Identifier          tok= 147  pos= 379
     ->               '->'              OpArrowRight        tok= 149  pos= 384
     NamedType:
-      LongIdent:
-                     'unit'            Identifier          tok= 151  pos= 387
+      Ident          'unit'            Identifier          tok= 151  pos= 387
   end                <virt>            KWEnd               tok=virt  pos= 392

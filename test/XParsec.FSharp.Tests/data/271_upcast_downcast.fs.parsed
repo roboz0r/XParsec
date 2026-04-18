@@ -5,8 +5,7 @@ FunctionOrValue:
     Pat.NamedSimple                 'x'               Identifier          tok=   7  pos=  17
     ReturnColon                     ':'               OpColon             tok=   8  pos=  18
     NamedType:
-      LongIdent:
-                                    'obj'             Identifier          tok=  10  pos=  20
+      Ident                         'obj'             Identifier          tok=  10  pos=  20
     =                               '='               OpEquality          tok=  12  pos=  24
       Upcast                        'upcast'          KWUpcast            tok=  14  pos=  26
         StringLiteral               '"'               StringOpen          tok=  16  pos=  33
@@ -18,8 +17,7 @@ FunctionOrValue:
     Pat.NamedSimple                 'y'               Identifier          tok=  22  pos=  45
     ReturnColon                     ':'               OpColon             tok=  23  pos=  46
     NamedType:
-      LongIdent:
-                                    'string'          Identifier          tok=  25  pos=  48
+      Ident                         'string'          Identifier          tok=  25  pos=  48
     =                               '='               OpEquality          tok=  27  pos=  55
       Downcast                      'downcast'        KWDowncast          tok=  29  pos=  57
         Ident                       'x'               Identifier          tok=  31  pos=  66
@@ -28,13 +26,11 @@ FunctionOrValue:
     Pat.NamedSimple                 'z'               Identifier          tok=  35  pos=  72
     ReturnColon                     ':'               OpColon             tok=  36  pos=  73
     GenericType:
-      LongIdent:
-                                    'seq'             Identifier          tok=  38  pos=  75
+      Ident                         'seq'             Identifier          tok=  38  pos=  75
       <                             '<'               op_LessThan         tok=  39  pos=  78
       TypeArg.Type:
         NamedType:
-          LongIdent:
-                                    'int'             Identifier          tok=  40  pos=  79
+          Ident                     'int'             Identifier          tok=  40  pos=  79
       >                             '>'               op_GreaterThan      tok=  41  pos=  82
     =                               '='               OpEquality          tok=  43  pos=  84
       Upcast                        'upcast'          KWUpcast            tok=  46  pos=  90
@@ -50,8 +46,7 @@ FunctionOrValue:
             <                       '<'               op_LessThan         tok=  60  pos= 149
             TypeArg.Type:
               NamedType:
-                LongIdent:
-                                    'int'             Identifier          tok=  61  pos= 150
+                Ident               'int'             Identifier          tok=  61  pos= 150
             >                       '>'               op_GreaterThan      tok=  62  pos= 153
           with                      'with'            KWWith              tok=  64  pos= 155
             member                  'member'          KWMember            tok=  67  pos= 172

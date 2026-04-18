@@ -22,8 +22,7 @@ TypeDefn.Anon:
     ident            'Count'           Identifier          tok=  38  pos=  90
     :                ':'               OpColon             tok=  39  pos=  95
     NamedType:
-      LongIdent:
-                     'int'             Identifier          tok=  41  pos=  97
+      Ident          'int'             Identifier          tok=  41  pos=  97
     =                '='               OpEquality          tok=  43  pos= 101
       Const          '0'               NumInt32            tok=  45  pos= 103
       with           'with'            KWWith              tok=  47  pos= 105
@@ -35,8 +34,7 @@ TypeDefn.Anon:
     :                ':'               OpColon             tok=  60  pos= 139
     ArrayType:
       NamedType:
-        LongIdent:
-                     'int'             Identifier          tok=  62  pos= 141
+        Ident        'int'             Identifier          tok=  62  pos= 141
                      '['               KWLBracket          tok=  63  pos= 144
                      ']'               KWRBracket          tok=  64  pos= 145
     =                '='               OpEquality          tok=  66  pos= 147

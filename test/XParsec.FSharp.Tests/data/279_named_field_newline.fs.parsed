@@ -9,18 +9,15 @@ TypeDefn.Union:
       ident                        'isInfix'         Identifier          tok=  15  pos=  31
       :                            ':'               OpColon             tok=  16  pos=  38
       NamedType:
-        LongIdent:
-                                   'bool'            Identifier          tok=  18  pos=  40
+        Ident                      'bool'            Identifier          tok=  18  pos=  40
       ident                        'funcExpr'        Identifier          tok=  22  pos=  47
       :                            ':'               OpColon             tok=  23  pos=  55
       NamedType:
-        LongIdent:
-                                   'string'          Identifier          tok=  25  pos=  57
+        Ident                      'string'          Identifier          tok=  25  pos=  57
       ident                        'argExpr'         Identifier          tok=  29  pos=  66
       :                            ':'               OpColon             tok=  30  pos=  73
       NamedType:
-        LongIdent:
-                                   'int'             Identifier          tok=  32  pos=  75
+        Ident                      'int'             Identifier          tok=  32  pos=  75
 FunctionOrValue:
   let                              'let'             KWLet               tok=  35  pos=  80
     Pat.NamedSimple                'test'            Identifier          tok=  37  pos=  84

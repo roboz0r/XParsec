@@ -19,8 +19,7 @@ TypeDefn.Anon:
                            '"'               StringClose         tok=  25  pos= 177
       Colon                ':'               OpColon             tok=  27  pos= 179
       NamedType:
-        LongIdent:
-                           'unit'            Identifier          tok=  29  pos= 181
+        Ident              'unit'            Identifier          tok=  29  pos= 181
     static                 'static'          KWStatic            tok=  33  pos= 191
     do                     'do'              KWDo                tok=  35  pos= 198
     TypeAnnotation:
@@ -35,6 +34,5 @@ TypeDefn.Anon:
                            '"'               StringClose         tok=  41  pos= 221
       Colon                ':'               OpColon             tok=  43  pos= 223
       NamedType:
-        LongIdent:
-                           'unit'            Identifier          tok=  45  pos= 225
+        Ident              'unit'            Identifier          tok=  45  pos= 225
   end                      <virt>            KWEnd               tok=virt  pos= 230

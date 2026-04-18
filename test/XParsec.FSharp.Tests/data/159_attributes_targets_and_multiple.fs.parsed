@@ -3,8 +3,7 @@ module               'module'          KWModule            tok=   0  pos=   0
 TypeDefn.Record:
   [<                 '[<'              KWLAttrBracket      tok=   5  pos=  16
   NamedType:
-    LongIdent:
-                     'Struct'          Identifier          tok=   6  pos=  18
+    Ident            'Struct'          Identifier          tok=   6  pos=  18
   ;                  ';'               OpSemicolon         tok=   7  pos=  24
   NamedType:
     LongIdent:
@@ -18,20 +17,17 @@ TypeDefn.Record:
       ident          'First'           Identifier          tok=  22  pos=  62
       :              ':'               OpColon             tok=  23  pos=  67
       NamedType:
-        LongIdent:
-                     'int'             Identifier          tok=  25  pos=  69
+        Ident        'int'             Identifier          tok=  25  pos=  69
     Field:
       ident          'Second'          Identifier          tok=  28  pos=  74
       :              ':'               OpColon             tok=  29  pos=  80
       NamedType:
-        LongIdent:
-                     'int'             Identifier          tok=  31  pos=  82
+        Ident        'int'             Identifier          tok=  31  pos=  82
   }                  '}'               KWRBrace            tok=  33  pos=  86
 TypeDefn.Union:
   [<                 '[<'              KWLAttrBracket      tok=  36  pos=  89
   NamedType:
-    LongIdent:
-                     'RequireQua...'   Identifier          tok=  37  pos=  91
+    Ident            'RequireQua...'   Identifier          tok=  37  pos=  91
   ;                  ';'               OpSemicolon         tok=  38  pos= 113
   NamedType:
     LongIdent:
@@ -47,13 +43,11 @@ TypeDefn.Union:
 TypeDefn.Anon:
   [<                 '[<'              KWLAttrBracket      tok=  62  pos= 165
   NamedType:
-    LongIdent:
-                     'AbstractCl...'   Identifier          tok=  63  pos= 167
+    Ident            'AbstractCl...'   Identifier          tok=  63  pos= 167
   >]                 '>]'              KWRAttrBracket      tok=  64  pos= 180
   [<                 '[<'              KWLAttrBracket      tok=  66  pos= 183
   NamedType:
-    LongIdent:
-                     'Sealed'          Identifier          tok=  67  pos= 185
+    Ident            'Sealed'          Identifier          tok=  67  pos= 185
   >]                 '>]'              KWRAttrBracket      tok=  68  pos= 191
   TypeName           'StaticHelp...'   Identifier          tok=  72  pos= 199
   =                  '='               OpEquality          tok=  74  pos= 212

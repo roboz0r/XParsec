@@ -7,14 +7,12 @@ TypeDefn.Record:
       ident                            'Flag'            Identifier          tok=  15  pos= 225
       :                                ':'               OpColon             tok=  16  pos= 229
       NamedType:
-        LongIdent:
-                                       'bool'            Identifier          tok=  18  pos= 231
+        Ident                          'bool'            Identifier          tok=  18  pos= 231
     Field:
       ident                            'Name'            Identifier          tok=  21  pos= 237
       :                                ':'               OpColon             tok=  22  pos= 241
       NamedType:
-        LongIdent:
-                                       'string'          Identifier          tok=  24  pos= 243
+        Ident                          'string'          Identifier          tok=  24  pos= 243
   }                                    '}'               KWRBrace            tok=  26  pos= 250
 FunctionOrValue:
   let                                  'let'             KWLet               tok=  29  pos= 253

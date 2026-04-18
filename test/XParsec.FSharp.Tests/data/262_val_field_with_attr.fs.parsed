@@ -8,12 +8,10 @@ Import:
 TypeDefn.Anon:
   [<              '[<'              KWLAttrBracket      tok=  14  pos=  50
   NamedType:
-    LongIdent:
-                  'Struct'          Identifier          tok=  15  pos=  52
+    Ident         'Struct'          Identifier          tok=  15  pos=  52
   ;               ';'               OpSemicolon         tok=  16  pos=  58
   NamedType:
-    LongIdent:
-                  'StructLayo...'   Identifier          tok=  18  pos=  60
+    Ident         'StructLayo...'   Identifier          tok=  18  pos=  60
   ParenBlock      '('               KWLParen            tok=  19  pos=  72
     LongIdentOrOp:
       LongIdent:
@@ -27,8 +25,7 @@ TypeDefn.Anon:
     Val:
       [<          '[<'              KWLAttrBracket      tok=  33  pos= 117
       NamedType:
-        LongIdent:
-                  'FieldOffse...'   Identifier          tok=  34  pos= 119
+        Ident     'FieldOffse...'   Identifier          tok=  34  pos= 119
       ParenBlock  '('               KWLParen            tok=  35  pos= 130
         Const     '0'               NumInt32            tok=  36  pos= 131
                   ')'               KWRParen            tok=  37  pos= 132
@@ -38,13 +35,11 @@ TypeDefn.Anon:
       ident       'First'           Identifier          tok=  45  pos= 152
       :           ':'               OpColon             tok=  46  pos= 157
       NamedType:
-        LongIdent:
-                  'byte'            Identifier          tok=  48  pos= 159
+        Ident     'byte'            Identifier          tok=  48  pos= 159
     Val:
       [<          '[<'              KWLAttrBracket      tok=  52  pos= 169
       NamedType:
-        LongIdent:
-                  'FieldOffse...'   Identifier          tok=  53  pos= 171
+        Ident     'FieldOffse...'   Identifier          tok=  53  pos= 171
       ParenBlock  '('               KWLParen            tok=  54  pos= 182
         Const     '0'               NumInt32            tok=  55  pos= 183
                   ')'               KWRParen            tok=  56  pos= 184
@@ -54,6 +49,5 @@ TypeDefn.Anon:
       ident       'Second'          Identifier          tok=  64  pos= 204
       :           ':'               OpColon             tok=  65  pos= 210
       NamedType:
-        LongIdent:
-                  'int'             Identifier          tok=  67  pos= 212
+        Ident     'int'             Identifier          tok=  67  pos= 212
   end             <virt>            KWEnd               tok=virt  pos= 216

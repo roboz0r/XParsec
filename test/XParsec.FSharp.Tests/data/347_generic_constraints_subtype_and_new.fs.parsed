@@ -56,8 +56,7 @@ TypeDefn.Anon:
                              ''Key'            TypeParameter       tok=  80  pos= 518
         :>                   ':>'              OpUpcast            tok=  81  pos= 522
         NamedType:
-          LongIdent:
-                             'ValueType'       Identifier          tok=  83  pos= 525
+          Ident              'ValueType'       Identifier          tok=  83  pos= 525
       >                      '>'               op_GreaterThan      tok=  84  pos= 534
     Pats:
       ParenBlock             '('               KWLParen            tok=  86  pos= 536
@@ -78,8 +77,7 @@ TypeDefn.Anon:
                              ''T'              TypeParameter       tok=  96  pos= 554
               ->             '->'              OpArrowRight        tok=  98  pos= 557
               GenericType:
-                LongIdent:
-                             'Nullable'        Identifier          tok= 100  pos= 560
+                Ident        'Nullable'        Identifier          tok= 100  pos= 560
                 <            '<'               op_LessThan         tok= 101  pos= 568
                 TypeArg.Type:
                   VarType:

@@ -12,8 +12,7 @@ FunctionOrValue:
         Args:
           AnonRecord            '{|'              KWLBraceBar         tok=  31  pos= 540
             Field:
-              LongIdent:
-                                'Kind'            Identifier          tok=  33  pos= 543
+              Ident             'Kind'            Identifier          tok=  33  pos= 543
               =                 '='               OpEquality          tok=  35  pos= 548
               Expr:
                 StringLiteral   '"'               StringOpen          tok=  37  pos= 550
@@ -21,8 +20,7 @@ FunctionOrValue:
                   Text          'start'           StringFragment      tok=  38  pos= 551
                                 '"'               StringClose         tok=  39  pos= 556
             Field:
-              LongIdent:
-                                'Count'           Identifier          tok=  42  pos= 559
+              Ident             'Count'           Identifier          tok=  42  pos= 559
               =                 '='               OpEquality          tok=  44  pos= 565
               Expr:
                 Const           '0'               NumInt32            tok=  46  pos= 567
@@ -37,16 +35,14 @@ FunctionOrValue:
           Colon                 ':'               OpColon             tok=  57  pos= 587
           FunctionType:
             NamedType:
-              LongIdent:
-                                'unit'            Identifier          tok=  59  pos= 589
+              Ident             'unit'            Identifier          tok=  59  pos= 589
             ->                  '->'              OpArrowRight        tok=  61  pos= 594
             AnonRecordType:
               {|                '{|'              KWLBraceBar         tok=  63  pos= 597
                                 'Ok'              Identifier          tok=  65  pos= 600
               :                 ':'               OpColon             tok=  66  pos= 602
               NamedType:
-                LongIdent:
-                                'bool'            Identifier          tok=  68  pos= 604
+                Ident           'bool'            Identifier          tok=  68  pos= 604
               |}                '|}'              KWRBraceBar         tok=  70  pos= 609
                                 ')'               KWRParen            tok=  71  pos= 611
     =                           '='               OpEquality          tok=  73  pos= 613
@@ -66,8 +62,7 @@ FunctionOrValue:
                                 ')'               KWRParen            tok=  83  pos= 628
             Dot                 '.'               OpDot               tok=  84  pos= 629
             LongIdentOrOp:
-              LongIdent:
-                                'Ok'              Identifier          tok=  85  pos= 630
+              Ident             'Ok'              Identifier          tok=  85  pos= 630
 FunctionOrValue:
   let                           'let'             KWLet               tok=  88  pos= 634
     Pat.NamedSimple             'twoArgs'         Identifier          tok=  90  pos= 638
@@ -82,8 +77,7 @@ FunctionOrValue:
           Ident                 'x'               Identifier          tok= 101  pos= 658
           AnonRecord            '{|'              KWLBraceBar         tok= 103  pos= 660
             Field:
-              LongIdent:
-                                'Tag'             Identifier          tok= 105  pos= 663
+              Ident             'Tag'             Identifier          tok= 105  pos= 663
               =                 '='               OpEquality          tok= 107  pos= 667
               Expr:
                 StringLiteral   '"'               StringOpen          tok= 109  pos= 669
@@ -91,8 +85,7 @@ FunctionOrValue:
                   Text          'y'               StringFragment      tok= 110  pos= 670
                                 '"'               StringClose         tok= 111  pos= 671
             Field:
-              LongIdent:
-                                'Value'           Identifier          tok= 114  pos= 674
+              Ident             'Value'           Identifier          tok= 114  pos= 674
               =                 '='               OpEquality          tok= 116  pos= 680
               Expr:
                 Const           '1'               NumInt32            tok= 118  pos= 682

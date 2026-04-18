@@ -17,8 +17,7 @@ FunctionOrValue:
               Const     '1'               NumInt32            tok=  26  pos= 222
             Colon       ':'               OpColon             tok=  28  pos= 224
             NamedType:
-              LongIdent:
-                        'int'             Identifier          tok=  30  pos= 226
+              Ident     'int'             Identifier          tok=  30  pos= 226
         ElseToken       'else'            KWElse              tok=  32  pos= 230
         ElseExpr:
           TypeAnnotation:
@@ -26,8 +25,7 @@ FunctionOrValue:
               Const     '2'               NumInt32            tok=  34  pos= 235
             Colon       ':'               OpColon             tok=  36  pos= 237
             NamedType:
-              LongIdent:
-                        'int'             Identifier          tok=  38  pos= 239
+              Ident     'int'             Identifier          tok=  38  pos= 239
 FunctionOrValue:
   let                   'let'             KWLet               tok=  41  pos= 244
     Pat.NamedSimple     'g'               Identifier          tok=  43  pos= 248
@@ -47,8 +45,7 @@ FunctionOrValue:
                 Const   '2'               NumInt32            tok=  61  pos= 280
             Colon       ':'               OpColon             tok=  63  pos= 282
             NamedType:
-              LongIdent:
-                        'int'             Identifier          tok=  65  pos= 284
+              Ident     'int'             Identifier          tok=  65  pos= 284
         ElseToken       'else'            KWElse              tok=  68  pos= 292
         ElseExpr:
           TypeAnnotation:
@@ -58,5 +55,4 @@ FunctionOrValue:
                 Const   '4'               NumInt32            tok=  75  pos= 309
             Colon       ':'               OpColon             tok=  77  pos= 311
             NamedType:
-              LongIdent:
-                        'int'             Identifier          tok=  79  pos= 313
+              Ident     'int'             Identifier          tok=  79  pos= 313

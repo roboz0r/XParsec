@@ -10,27 +10,22 @@ TypeDefn.Anon:
     ident                'ILModuleDe...'   Identifier          tok=  20  pos= 228
     :                    ':'               OpColon             tok=  21  pos= 239
     NamedType:
-      LongIdent:
-                         'int'             Identifier          tok=  23  pos= 241
+      Ident              'int'             Identifier          tok=  23  pos= 241
     abstract             'abstract'        KWAbstract          tok=  26  pos= 249
     ident                'ILAssembly...'   Identifier          tok=  28  pos= 258
     :                    ':'               OpColon             tok=  29  pos= 272
     SuffixedType:
       NamedType:
-        LongIdent:
-                         'int'             Identifier          tok=  31  pos= 274
-      LongIdent:
-                         'list'            Identifier          tok=  33  pos= 278
+        Ident            'int'             Identifier          tok=  31  pos= 274
+      Ident              'list'            Identifier          tok=  33  pos= 278
     inherit              'inherit'         KWInherit           tok=  43  pos= 419
     NamedType:
-      LongIdent:
-                         'IDisposabl...'   Identifier          tok=  45  pos= 427
+      Ident              'IDisposabl...'   Identifier          tok=  45  pos= 427
   end                    <virt>            KWEnd               tok=virt  pos= 440
 TypeDefn.Anon:
   [<                     '[<'              KWLAttrBracket      tok=  48  pos= 440
   NamedType:
-    LongIdent:
-                         'Sealed'          Identifier          tok=  49  pos= 442
+    Ident                'Sealed'          Identifier          tok=  49  pos= 442
   >]                     '>]'              KWRAttrBracket      tok=  50  pos= 448
   TypeName               'Impl'            Identifier          tok=  54  pos= 456
   (                      '('               KWLParen            tok=  55  pos= 460
@@ -40,8 +35,7 @@ TypeDefn.Anon:
     InterfaceImpl:
       interface          'interface'       KWInterface         tok=  61  pos= 469
       NamedType:
-        LongIdent:
-                         'ILModuleRe...'   Identifier          tok=  63  pos= 479
+        Ident            'ILModuleRe...'   Identifier          tok=  63  pos= 479
       with               'with'            KWWith              tok=  65  pos= 494
         member           'member'          KWMember            tok=  68  pos= 507
         self             '_'               Wildcard            tok=  70  pos= 514

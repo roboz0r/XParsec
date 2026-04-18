@@ -1,19 +1,17 @@
-module       'module'          KWModule            tok=   0  pos=   0
-             'MyModule'        Identifier          tok=   2  pos=   7
+module         'module'          KWModule            tok=   0  pos=   0
+               'MyModule'        Identifier          tok=   2  pos=   7
 TypeDefn.Record:
-  TypeName   'Point'           Identifier          tok=   7  pos=  22
-  =          '='               OpEquality          tok=   9  pos=  28
-  {          '{'               KWLBrace            tok=  11  pos=  30
+  TypeName     'Point'           Identifier          tok=   7  pos=  22
+  =            '='               OpEquality          tok=   9  pos=  28
+  {            '{'               KWLBrace            tok=  11  pos=  30
     Field:
-      ident  'X'               Identifier          tok=  14  pos=  36
-      :      ':'               OpColon             tok=  15  pos=  37
+      ident    'X'               Identifier          tok=  14  pos=  36
+      :        ':'               OpColon             tok=  15  pos=  37
       NamedType:
-        LongIdent:
-             'float'           Identifier          tok=  17  pos=  39
+        Ident  'float'           Identifier          tok=  17  pos=  39
     Field:
-      ident  'Y'               Identifier          tok=  20  pos=  49
-      :      ':'               OpColon             tok=  21  pos=  50
+      ident    'Y'               Identifier          tok=  20  pos=  49
+      :        ':'               OpColon             tok=  21  pos=  50
       NamedType:
-        LongIdent:
-             'float'           Identifier          tok=  23  pos=  52
-  }          '}'               KWRBrace            tok=  25  pos=  58
+        Ident  'float'           Identifier          tok=  23  pos=  52
+  }            '}'               KWRBrace            tok=  25  pos=  58

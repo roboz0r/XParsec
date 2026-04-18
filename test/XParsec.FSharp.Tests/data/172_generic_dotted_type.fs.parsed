@@ -16,32 +16,26 @@ TypeDefn.Record:
           <              '<'               op_LessThan         tok=  20  pos=  75
           TypeArg.Type:
             NamedType:
-              LongIdent:
-                         'int'             Identifier          tok=  21  pos=  76
+              Ident      'int'             Identifier          tok=  21  pos=  76
           >              <virt>            OpPipeLeft          tok=virt  pos=  79
         .                '.'               OpDot               tok=  22  pos=  80
-        LongIdent:
-                         'Builder'         Identifier          tok=  23  pos=  81
+        Ident            'Builder'         Identifier          tok=  23  pos=  81
     Field:
       ident              'More'            Identifier          tok=  26  pos=  97
       :                  ':'               OpColon             tok=  27  pos= 101
       DottedType:
         GenericType:
-          LongIdent:
-                         'Result'          Identifier          tok=  29  pos= 103
+          Ident          'Result'          Identifier          tok=  29  pos= 103
           <              '<'               op_LessThan         tok=  30  pos= 109
           TypeArg.Type:
             NamedType:
-              LongIdent:
-                         'int'             Identifier          tok=  31  pos= 110
+              Ident      'int'             Identifier          tok=  31  pos= 110
           TypeArg.Type:
             NamedType:
-              LongIdent:
-                         'string'          Identifier          tok=  34  pos= 115
+              Ident      'string'          Identifier          tok=  34  pos= 115
           >              <virt>            OpPipeLeft          tok=virt  pos= 121
         .                '.'               OpDot               tok=  35  pos= 122
-        LongIdent:
-                         'Ok'              Identifier          tok=  36  pos= 123
+        Ident            'Ok'              Identifier          tok=  36  pos= 123
   }                      '}'               KWRBrace            tok=  39  pos= 130
 FunctionOrValue:
   let                    'let'             KWLet               tok=  42  pos= 133
@@ -49,17 +43,14 @@ FunctionOrValue:
     ReturnColon          ':'               OpColon             tok=  45  pos= 138
     DottedType:
       GenericType:
-        LongIdent:
-                         'ImmutableA...'   Identifier          tok=  47  pos= 140
+        Ident            'ImmutableA...'   Identifier          tok=  47  pos= 140
         <                '<'               op_LessThan         tok=  48  pos= 154
         TypeArg.Type:
           NamedType:
-            LongIdent:
-                         'int'             Identifier          tok=  49  pos= 155
+            Ident        'int'             Identifier          tok=  49  pos= 155
         >                <virt>            OpPipeLeft          tok=virt  pos= 158
       .                  '.'               OpDot               tok=  50  pos= 159
-      LongIdent:
-                         'Builder'         Identifier          tok=  51  pos= 160
+      Ident              'Builder'         Identifier          tok=  51  pos= 160
     =                    '='               OpEquality          tok=  53  pos= 168
       App:
         Func:

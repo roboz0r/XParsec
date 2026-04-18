@@ -9,56 +9,48 @@ FunctionOrValue:
           Pat.NamedSimple  'line'            Identifier          tok=  15  pos= 110
           Colon            ':'               OpColon             tok=  16  pos= 114
           NamedType:
-            LongIdent:
-                           'int'             Identifier          tok=  18  pos= 116
+            Ident          'int'             Identifier          tok=  18  pos= 116
                            ')'               KWRParen            tok=  19  pos= 119
       ParenBlock           '('               KWLParen            tok=  21  pos= 121
         Pat.Typed:
           Pat.NamedSimple  'col'             Identifier          tok=  22  pos= 122
           Colon            ':'               OpColon             tok=  23  pos= 125
           NamedType:
-            LongIdent:
-                           'int'             Identifier          tok=  25  pos= 127
+            Ident          'int'             Identifier          tok=  25  pos= 127
                            ')'               KWRParen            tok=  26  pos= 130
       ParenBlock           '('               KWLParen            tok=  28  pos= 132
         Pat.Typed:
           Pat.NamedSimple  'len'             Identifier          tok=  29  pos= 133
           Colon            ':'               OpColon             tok=  30  pos= 136
           NamedType:
-            LongIdent:
-                           'int'             Identifier          tok=  32  pos= 138
+            Ident          'int'             Identifier          tok=  32  pos= 138
                            ')'               KWRParen            tok=  33  pos= 141
     =                      '='               OpEquality          tok=  35  pos= 143
       AnonRecord           '{|'              KWLBraceBar         tok=  38  pos= 149
         Field:
-          LongIdent:
-                           'startLine'       Identifier          tok=  40  pos= 152
+          Ident            'startLine'       Identifier          tok=  40  pos= 152
           =                '='               OpEquality          tok=  42  pos= 162
           Expr:
             InfixApp       '-'               op_Subtraction      tok=  46  pos= 169
               Ident        'line'            Identifier          tok=  44  pos= 164
               Const        '1'               NumInt32            tok=  48  pos= 171
         Field:
-          LongIdent:
-                           'startCol'        Identifier          tok=  51  pos= 180
+          Ident            'startCol'        Identifier          tok=  51  pos= 180
           =                '='               OpEquality          tok=  53  pos= 189
           Expr:
             Ident          'col'             Identifier          tok=  55  pos= 191
         Field:
-          LongIdent:
-                           'length'          Identifier          tok=  58  pos= 202
+          Ident            'length'          Identifier          tok=  58  pos= 202
           =                '='               OpEquality          tok=  60  pos= 209
           Expr:
             Ident          'len'             Identifier          tok=  62  pos= 211
         Field:
-          LongIdent:
-                           'tokType'         Identifier          tok=  65  pos= 222
+          Ident            'tokType'         Identifier          tok=  65  pos= 222
           =                '='               OpEquality          tok=  67  pos= 230
           Expr:
             Const          '0'               NumInt32            tok=  69  pos= 232
         Field:
-          LongIdent:
-                           'tokMods'         Identifier          tok=  72  pos= 241
+          Ident            'tokMods'         Identifier          tok=  72  pos= 241
           =                '='               OpEquality          tok=  74  pos= 249
           Expr:
             Const          '0'               NumInt32            tok=  76  pos= 251
@@ -76,18 +68,15 @@ FunctionOrValue:
                            'startLine'       Identifier          tok=  91  pos= 280
             :              ':'               OpColon             tok=  92  pos= 289
             NamedType:
-              LongIdent:
-                           'int'             Identifier          tok=  94  pos= 291
+              Ident        'int'             Identifier          tok=  94  pos= 291
                            'startCol'        Identifier          tok=  97  pos= 296
             :              ':'               OpColon             tok=  98  pos= 304
             NamedType:
-              LongIdent:
-                           'int'             Identifier          tok= 100  pos= 306
+              Ident        'int'             Identifier          tok= 100  pos= 306
                            'length'          Identifier          tok= 103  pos= 311
             :              ':'               OpColon             tok= 104  pos= 317
             NamedType:
-              LongIdent:
-                           'int'             Identifier          tok= 106  pos= 319
+              Ident        'int'             Identifier          tok= 106  pos= 319
             |}             '|}'              KWRBraceBar         tok= 108  pos= 323
                            ')'               KWRParen            tok= 109  pos= 325
     =                      '='               OpEquality          tok= 111  pos= 327

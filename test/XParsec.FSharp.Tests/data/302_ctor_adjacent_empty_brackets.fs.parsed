@@ -13,16 +13,14 @@ TypeDefn.Union:
       of               'of'              KWOf                tok=  24  pos= 181
       SuffixedType:
         GenericType:
-          LongIdent:
-                       'Tree'            Identifier          tok=  26  pos= 184
+          Ident        'Tree'            Identifier          tok=  26  pos= 184
           <            '<'               op_LessThan         tok=  27  pos= 188
           TypeArg.Type:
             VarType:
               Typar.Named:
                        ''T'              TypeParameter       tok=  28  pos= 189
           >            '>'               op_GreaterThan      tok=  29  pos= 191
-        LongIdent:
-                       'list'            Identifier          tok=  31  pos= 193
+        Ident          'list'            Identifier          tok=  31  pos= 193
     Case:
       ident            'LeafNode'        Identifier          tok=  36  pos= 204
       of               'of'              KWOf                tok=  38  pos= 213

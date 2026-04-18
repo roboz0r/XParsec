@@ -13,13 +13,11 @@ FunctionOrValue:
           Pat.NamedSimple  'x'               Identifier          tok=  12  pos=  23
           Colon            ':'               OpColon             tok=  13  pos=  24
           NamedType:
-            LongIdent:
-                           'int'             Identifier          tok=  15  pos=  26
+            Ident          'int'             Identifier          tok=  15  pos=  26
                            ')'               KWRParen            tok=  16  pos=  29
     ReturnColon            ':'               OpColon             tok=  18  pos=  31
     NamedType:
-      LongIdent:
-                           'int'             Identifier          tok=  20  pos=  33
+      Ident                'int'             Identifier          tok=  20  pos=  33
     =                      '='               OpEquality          tok=  22  pos=  37
       Ident                'x'               Identifier          tok=  24  pos=  39
 FunctionOrValue:
@@ -35,13 +33,11 @@ FunctionOrValue:
           Pat.NamedSimple  'x'               Identifier          tok=  33  pos=  52
           Colon            ':'               OpColon             tok=  34  pos=  53
           NamedType:
-            LongIdent:
-                           'int'             Identifier          tok=  36  pos=  55
+            Ident          'int'             Identifier          tok=  36  pos=  55
                            ')'               KWRParen            tok=  37  pos=  58
     ReturnColon            ':'               OpColon             tok=  39  pos=  60
     NamedType:
-      LongIdent:
-                           'int'             Identifier          tok=  41  pos=  62
+      Ident                'int'             Identifier          tok=  41  pos=  62
     =                      '='               OpEquality          tok=  43  pos=  66
       Ident                'x'               Identifier          tok=  45  pos=  68
 FunctionOrValue:
@@ -57,13 +53,11 @@ FunctionOrValue:
           Pat.NamedSimple  'x'               Identifier          tok=  54  pos=  80
           Colon            ':'               OpColon             tok=  55  pos=  81
           NamedType:
-            LongIdent:
-                           'int'             Identifier          tok=  57  pos=  83
+            Ident          'int'             Identifier          tok=  57  pos=  83
                            ')'               KWRParen            tok=  58  pos=  86
     ReturnColon            ':'               OpColon             tok=  60  pos=  88
     NamedType:
-      LongIdent:
-                           'int'             Identifier          tok=  62  pos=  90
+      Ident                'int'             Identifier          tok=  62  pos=  90
     =                      '='               OpEquality          tok=  64  pos=  94
       Ident                'x'               Identifier          tok=  66  pos=  96
 FunctionOrValue:
@@ -79,12 +73,10 @@ FunctionOrValue:
           Pat.NamedSimple  'x'               Identifier          tok=  75  pos= 109
           Colon            ':'               OpColon             tok=  76  pos= 110
           NamedType:
-            LongIdent:
-                           'int'             Identifier          tok=  78  pos= 112
+            Ident          'int'             Identifier          tok=  78  pos= 112
                            ')'               KWRParen            tok=  79  pos= 115
     ReturnColon            ':'               OpColon             tok=  81  pos= 117
     NamedType:
-      LongIdent:
-                           'int'             Identifier          tok=  83  pos= 119
+      Ident                'int'             Identifier          tok=  83  pos= 119
     =                      '='               OpEquality          tok=  85  pos= 123
       Ident                'x'               Identifier          tok=  87  pos= 125

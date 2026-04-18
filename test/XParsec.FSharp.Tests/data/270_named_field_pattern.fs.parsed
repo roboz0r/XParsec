@@ -9,29 +9,24 @@ TypeDefn.Union:
       ident                        'isStruct'        Identifier          tok=  18  pos=  64
       :                            ':'               OpColon             tok=  19  pos=  72
       NamedType:
-        LongIdent:
-                                   'bool'            Identifier          tok=  21  pos=  74
+        Ident                      'bool'            Identifier          tok=  21  pos=  74
       ident                        'elementPat...'   Identifier          tok=  25  pos=  81
       :                            ':'               OpColon             tok=  26  pos=  92
       SuffixedType:
         NamedType:
-          LongIdent:
-                                   'int'             Identifier          tok=  28  pos=  94
-        LongIdent:
-                                   'list'            Identifier          tok=  30  pos=  98
+          Ident                    'int'             Identifier          tok=  28  pos=  94
+        Ident                      'list'            Identifier          tok=  30  pos=  98
     Case:
       ident                        'Bar'             Identifier          tok=  35  pos= 109
       of                           'of'              KWOf                tok=  37  pos= 113
       ident                        'name'            Identifier          tok=  39  pos= 116
       :                            ':'               OpColon             tok=  40  pos= 120
       NamedType:
-        LongIdent:
-                                   'string'          Identifier          tok=  42  pos= 122
+        Ident                      'string'          Identifier          tok=  42  pos= 122
       ident                        'value'           Identifier          tok=  46  pos= 131
       :                            ':'               OpColon             tok=  47  pos= 136
       NamedType:
-        LongIdent:
-                                   'int'             Identifier          tok=  49  pos= 138
+        Ident                      'int'             Identifier          tok=  49  pos= 138
 FunctionOrValue:
   let                              'let'             KWLet               tok=  52  pos= 143
     Pat.NamedSimple                'f'               Identifier          tok=  54  pos= 147

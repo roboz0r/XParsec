@@ -10,15 +10,12 @@ TypeDefn.Union:
       :                              ':'               OpColon             tok=  19  pos=  47
       SuffixedType:
         NamedType:
-          LongIdent:
-                                     'string'          Identifier          tok=  21  pos=  49
-        LongIdent:
-                                     'list'            Identifier          tok=  23  pos=  56
+          Ident                      'string'          Identifier          tok=  21  pos=  49
+        Ident                        'list'            Identifier          tok=  23  pos=  56
       ident                          'tag'             Identifier          tok=  27  pos=  63
       :                              ':'               OpColon             tok=  28  pos=  66
       NamedType:
-        LongIdent:
-                                     'int'             Identifier          tok=  30  pos=  68
+        Ident                        'int'             Identifier          tok=  30  pos=  68
 FunctionOrValue:
   let                                'let'             KWLet               tok=  33  pos=  73
     Pat.NamedSimple                  'test'            Identifier          tok=  35  pos=  77

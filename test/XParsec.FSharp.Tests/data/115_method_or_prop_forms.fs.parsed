@@ -20,8 +20,7 @@ TypeDefn.Anon:
           Pat.NamedSimple    'x'               Identifier          tok=  35  pos= 137
           Colon              ':'               OpColon             tok=  36  pos= 138
           NamedType:
-            LongIdent:
-                             'int'             Identifier          tok=  38  pos= 140
+            Ident            'int'             Identifier          tok=  38  pos= 140
                              ')'               KWRParen            tok=  39  pos= 143
     =                        '='               OpEquality          tok=  41  pos= 145
       InfixApp               '+'               op_Addition         tok=  45  pos= 149
@@ -37,15 +36,13 @@ TypeDefn.Anon:
             Pat.NamedSimple  'x'               Identifier          tok=  56  pos= 177
             Colon            ':'               OpColon             tok=  57  pos= 178
             NamedType:
-              LongIdent:
-                             'int'             Identifier          tok=  59  pos= 180
+              Ident          'int'             Identifier          tok=  59  pos= 180
           ,                  ','               OpComma             tok=  60  pos= 183
           Pat.Typed:
             Pat.NamedSimple  'y'               Identifier          tok=  62  pos= 185
             Colon            ':'               OpColon             tok=  63  pos= 186
             NamedType:
-              LongIdent:
-                             'int'             Identifier          tok=  65  pos= 188
+              Ident          'int'             Identifier          tok=  65  pos= 188
                              ')'               KWRParen            tok=  66  pos= 191
     =                        '='               OpEquality          tok=  68  pos= 193
       InfixApp               '+'               op_Addition         tok=  80  pos= 218
@@ -78,8 +75,7 @@ TypeDefn.Anon:
           Pat.NamedSimple    'v'               Identifier          tok= 116  pos= 360
           Colon              ':'               OpColon             tok= 117  pos= 361
           NamedType:
-            LongIdent:
-                             'int'             Identifier          tok= 119  pos= 363
+            Ident            'int'             Identifier          tok= 119  pos= 363
                              ')'               KWRParen            tok= 120  pos= 366
     =                        '='               OpEquality          tok= 122  pos= 368
       Assignment             '<-'              OpArrowLeft         tok= 126  pos= 373

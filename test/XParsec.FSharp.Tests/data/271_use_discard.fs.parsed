@@ -17,8 +17,7 @@ Module:
             =                 '='               OpEquality          tok=  28  pos=  65
               New             'new'             KWNew               tok=  30  pos=  67
                 NamedType:
-                  LongIdent:
-                              'Compilatio...'   Identifier          tok=  32  pos=  71
+                  Ident       'Compilatio...'   Identifier          tok=  32  pos=  71
                 Arg:
                   ParenBlock  '('               KWLParen            tok=  33  pos=  94
                               ')'               KWRParen            tok=  34  pos=  95

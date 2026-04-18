@@ -7,8 +7,7 @@ FunctionOrValue:
     ParenType         '('               KWLParen            tok=  12  pos=  65
       UnionType:
         NamedType:
-          LongIdent:
-                      'string'          Identifier          tok=  13  pos=  66
+          Ident       'string'          Identifier          tok=  13  pos=  66
         |             '|'               OpBar               tok=  15  pos=  73
         null          'null'            KWNull              tok=  17  pos=  75
                       ')'               KWRParen            tok=  18  pos=  79
@@ -20,13 +19,11 @@ FunctionOrValue:
     ReturnColon       ':'               OpColon             tok=  32  pos= 175
     TupleType:
       NamedType:
-        LongIdent:
-                      'int'             Identifier          tok=  34  pos= 177
+        Ident         'int'             Identifier          tok=  34  pos= 177
       *               '*'               OpMultiply          tok=  36  pos= 181
       UnionType:
         NamedType:
-          LongIdent:
-                      'string'          Identifier          tok=  38  pos= 183
+          Ident       'string'          Identifier          tok=  38  pos= 183
         |             '|'               OpBar               tok=  40  pos= 190
         null          'null'            KWNull              tok=  42  pos= 192
     =                 '='               OpEquality          tok=  44  pos= 197
@@ -41,13 +38,11 @@ FunctionOrValue:
     ReturnColon       ':'               OpColon             tok=  61  pos= 302
     FunctionType:
       NamedType:
-        LongIdent:
-                      'int'             Identifier          tok=  63  pos= 304
+        Ident         'int'             Identifier          tok=  63  pos= 304
       ->              '->'              OpArrowRight        tok=  65  pos= 308
       UnionType:
         NamedType:
-          LongIdent:
-                      'string'          Identifier          tok=  67  pos= 311
+          Ident       'string'          Identifier          tok=  67  pos= 311
         |             '|'               OpBar               tok=  69  pos= 318
         null          'null'            KWNull              tok=  71  pos= 320
     =                 '='               OpEquality          tok=  73  pos= 325
@@ -62,18 +57,15 @@ FunctionOrValue:
     Pat.NamedSimple   'g'               Identifier          tok=  88  pos= 377
     ReturnColon       ':'               OpColon             tok=  89  pos= 378
     GenericType:
-      LongIdent:
-                      'Map'             Identifier          tok=  91  pos= 380
+      Ident           'Map'             Identifier          tok=  91  pos= 380
       <               '<'               op_LessThan         tok=  92  pos= 383
       TypeArg.Type:
         NamedType:
-          LongIdent:
-                      'string'          Identifier          tok=  93  pos= 384
+          Ident       'string'          Identifier          tok=  93  pos= 384
       TypeArg.Type:
         UnionType:
           NamedType:
-            LongIdent:
-                      'int'             Identifier          tok=  96  pos= 392
+            Ident     'int'             Identifier          tok=  96  pos= 392
           |           '|'               OpBar               tok=  98  pos= 396
           null        'null'            KWNull              tok= 100  pos= 398
       >               '>'               op_GreaterThan      tok= 101  pos= 402
@@ -88,8 +80,7 @@ FunctionOrValue:
     ReturnColon       ':'               OpColon             tok= 115  pos= 440
     UnionType:
       NamedType:
-        LongIdent:
-                      'string'          Identifier          tok= 117  pos= 442
+        Ident         'string'          Identifier          tok= 117  pos= 442
       |               '|'               OpBar               tok= 119  pos= 449
       null            'null'            KWNull              tok= 121  pos= 451
     =                 '='               OpEquality          tok= 123  pos= 456

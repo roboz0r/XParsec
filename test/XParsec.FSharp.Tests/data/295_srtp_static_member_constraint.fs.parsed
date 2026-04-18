@@ -35,8 +35,7 @@ FunctionOrValue:
                              ''T'              TypeParameter       tok=  44  pos= 161
           ->                 '->'              OpArrowRight        tok=  46  pos= 164
           NamedType:
-            LongIdent:
-                             'bool'            Identifier          tok=  48  pos= 167
+            Ident            'bool'            Identifier          tok=  48  pos= 167
         )                    ')'               KWRParen            tok=  49  pos= 171
       >                      '>'               op_GreaterThan      tok=  50  pos= 172
     Pats:
@@ -93,8 +92,7 @@ TypeDefn.Anon:
                              ''T'              TypeParameter       tok= 103  pos= 287
         ->                   '->'              OpArrowRight        tok= 105  pos= 290
         NamedType:
-          LongIdent:
-                             'bool'            Identifier          tok= 107  pos= 293
+          Ident              'bool'            Identifier          tok= 107  pos= 293
       )                      ')'               KWRParen            tok= 108  pos= 297
     >                        '>'               op_GreaterThan      tok= 109  pos= 298
   (                          '('               KWLParen            tok= 110  pos= 299

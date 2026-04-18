@@ -1,46 +1,38 @@
-module            'module'          KWModule            tok=   0  pos=   0
-                  'M'               Identifier          tok=   2  pos=   7
+module               'module'          KWModule            tok=   0  pos=   0
+                     'M'               Identifier          tok=   2  pos=   7
 TypeDefn.Abbrev:
-  TypeName        'MyAlias'         Identifier          tok=   7  pos=  15
-  =               '='               OpEquality          tok=   9  pos=  23
+  TypeName           'MyAlias'         Identifier          tok=   7  pos=  15
+  =                  '='               OpEquality          tok=   9  pos=  23
     GenericType:
-      LongIdent:
-                  'SomeType'        Identifier          tok=  12  pos=  29
-      <           '<'               op_LessThan         tok=  13  pos=  37
+      Ident          'SomeType'        Identifier          tok=  12  pos=  29
+      <              '<'               op_LessThan         tok=  13  pos=  37
       TypeArg.Type:
         NamedType:
-          LongIdent:
-                  'int'             Identifier          tok=  16  pos=  47
+          Ident      'int'             Identifier          tok=  16  pos=  47
       TypeArg.Type:
         NamedType:
-          LongIdent:
-                  'string'          Identifier          tok=  20  pos=  60
-      >           '>'               op_GreaterThan      tok=  23  pos=  71
+          Ident      'string'          Identifier          tok=  20  pos=  60
+      >              '>'               op_GreaterThan      tok=  23  pos=  71
 TypeDefn.Abbrev:
-  TypeName        'MyAlias2'        Identifier          tok=  28  pos=  79
-  =               '='               OpEquality          tok=  30  pos=  88
+  TypeName           'MyAlias2'        Identifier          tok=  28  pos=  79
+  =                  '='               OpEquality          tok=  30  pos=  88
     GenericType:
-      LongIdent:
-                  'SomeType'        Identifier          tok=  33  pos=  94
-      <           '<'               op_LessThan         tok=  34  pos= 102
+      Ident          'SomeType'        Identifier          tok=  33  pos=  94
+      <              '<'               op_LessThan         tok=  34  pos= 102
       TypeArg.Type:
         GenericType:
-          LongIdent:
-                  'Foo'             Identifier          tok=  37  pos= 112
-          <       '<'               op_LessThan         tok=  38  pos= 115
+          Ident      'Foo'             Identifier          tok=  37  pos= 112
+          <          '<'               op_LessThan         tok=  38  pos= 115
           TypeArg.Type:
             NamedType:
-              LongIdent:
-                  'int'             Identifier          tok=  39  pos= 116
-          >       '>'               op_GreaterThan      tok=  40  pos= 119
+              Ident  'int'             Identifier          tok=  39  pos= 116
+          >          '>'               op_GreaterThan      tok=  40  pos= 119
       TypeArg.Type:
         GenericType:
-          LongIdent:
-                  'Bar'             Identifier          tok=  44  pos= 130
-          <       '<'               op_LessThan         tok=  45  pos= 133
+          Ident      'Bar'             Identifier          tok=  44  pos= 130
+          <          '<'               op_LessThan         tok=  45  pos= 133
           TypeArg.Type:
             NamedType:
-              LongIdent:
-                  'string'          Identifier          tok=  46  pos= 134
-          >       '>'               op_GreaterThan      tok=  47  pos= 140
-      >           '>'               op_GreaterThan      tok=  50  pos= 146
+              Ident  'string'          Identifier          tok=  46  pos= 134
+          >          '>'               op_GreaterThan      tok=  47  pos= 140
+      >              '>'               op_GreaterThan      tok=  50  pos= 146

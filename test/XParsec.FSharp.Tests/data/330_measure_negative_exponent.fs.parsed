@@ -1,40 +1,35 @@
 AnonymousModule:
 TypeDefn.Abstract:
-  [<          '[<'              KWLAttrBracket      tok=   0  pos=   0
+  [<             '[<'              KWLAttrBracket      tok=   0  pos=   0
   NamedType:
-    LongIdent:
-              'Measure'         Identifier          tok=   1  pos=   2
-  >]          '>]'              KWRAttrBracket      tok=   2  pos=   9
-  TypeName    'second'          Identifier          tok=   6  pos=  17
+    Ident        'Measure'         Identifier          tok=   1  pos=   2
+  >]             '>]'              KWRAttrBracket      tok=   2  pos=   9
+  TypeName       'second'          Identifier          tok=   6  pos=  17
 TypeDefn.Abbrev:
-  [<          '[<'              KWLAttrBracket      tok=   9  pos=  25
+  [<             '[<'              KWLAttrBracket      tok=   9  pos=  25
   NamedType:
-    LongIdent:
-              'Measure'         Identifier          tok=  10  pos=  27
-  >]          '>]'              KWRAttrBracket      tok=  11  pos=  34
-  TypeName    'becquerel'       Identifier          tok=  15  pos=  42
-  =           '='               OpEquality          tok=  17  pos=  52
+    Ident        'Measure'         Identifier          tok=  10  pos=  27
+  >]             '>]'              KWRAttrBracket      tok=  11  pos=  34
+  TypeName       'becquerel'       Identifier          tok=  15  pos=  42
+  =              '='               OpEquality          tok=  17  pos=  52
     MeasureType:
       Measure.Power:
         Measure.Named:
-          LongIdent:
-              'second'          Identifier          tok=  19  pos=  54
-              <virt>            OpConcatenate       tok=virt  pos=  60
-              '-'               OpSubtractionAssignment  tok=  20  pos=  61
-              '1'               NumInt32            tok=  21  pos=  62
+          Ident  'second'          Identifier          tok=  19  pos=  54
+                 <virt>            OpConcatenate       tok=virt  pos=  60
+                 '-'               OpSubtractionAssignment  tok=  20  pos=  61
+                 '1'               NumInt32            tok=  21  pos=  62
 TypeDefn.Abbrev:
-  [<          '[<'              KWLAttrBracket      tok=  24  pos=  65
+  [<             '[<'              KWLAttrBracket      tok=  24  pos=  65
   NamedType:
-    LongIdent:
-              'Measure'         Identifier          tok=  25  pos=  67
-  >]          '>]'              KWRAttrBracket      tok=  26  pos=  74
-  TypeName    'foo'             Identifier          tok=  30  pos=  82
-  =           '='               OpEquality          tok=  32  pos=  86
+    Ident        'Measure'         Identifier          tok=  25  pos=  67
+  >]             '>]'              KWRAttrBracket      tok=  26  pos=  74
+  TypeName       'foo'             Identifier          tok=  30  pos=  82
+  =              '='               OpEquality          tok=  32  pos=  86
     MeasureType:
       Measure.Power:
         Measure.Named:
-          LongIdent:
-              'second'          Identifier          tok=  34  pos=  88
-              <virt>            OpConcatenate       tok=virt  pos=  94
-              '-'               OpSubtractionAssignment  tok=  35  pos=  95
-              '2'               NumInt32            tok=  36  pos=  96
+          Ident  'second'          Identifier          tok=  34  pos=  88
+                 <virt>            OpConcatenate       tok=virt  pos=  94
+                 '-'               OpSubtractionAssignment  tok=  35  pos=  95
+                 '2'               NumInt32            tok=  36  pos=  96

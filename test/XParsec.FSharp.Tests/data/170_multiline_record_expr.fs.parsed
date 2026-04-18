@@ -6,14 +6,12 @@ FunctionOrValue:
     =                '='               OpEquality          tok=   9  pos=  22
       Record         '{'               KWLBrace            tok=  12  pos=  28
         Field:
-          LongIdent:
-                     'A'               Identifier          tok=  14  pos=  30
+          Ident      'A'               Identifier          tok=  14  pos=  30
           =          '='               OpEquality          tok=  16  pos=  32
           Expr:
             Const    '1'               NumInt32            tok=  18  pos=  34
         Field:
-          LongIdent:
-                     'B'               Identifier          tok=  21  pos=  42
+          Ident      'B'               Identifier          tok=  21  pos=  42
           =          '='               OpEquality          tok=  23  pos=  44
           Expr:
             Const    '2'               NumInt32            tok=  25  pos=  46
@@ -27,14 +25,12 @@ FunctionOrValue:
           Ident      'x'               Identifier          tok=  39  pos=  65
         with         'with'            KWWith              tok=  41  pos=  67
         Field:
-          LongIdent:
-                     'A'               Identifier          tok=  44  pos=  80
+          Ident      'A'               Identifier          tok=  44  pos=  80
           =          '='               OpEquality          tok=  46  pos=  82
           Expr:
             Const    '3'               NumInt32            tok=  48  pos=  84
         Field:
-          LongIdent:
-                     'B'               Identifier          tok=  51  pos=  94
+          Ident      'B'               Identifier          tok=  51  pos=  94
           =          '='               OpEquality          tok=  53  pos=  96
           Expr:
             Const    '4'               NumInt32            tok=  55  pos=  98

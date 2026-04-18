@@ -25,8 +25,7 @@ FunctionOrValue:
           Pat.NamedSimple    'reprAttr'        Identifier          tok=  40  pos= 241
           Colon              ':'               OpColon             tok=  41  pos= 249
           NamedType:
-            LongIdent:
-                             'Attr'            Identifier          tok=  43  pos= 251
+            Ident            'Attr'            Identifier          tok=  43  pos= 251
                              ')'               KWRParen            tok=  44  pos= 255
     =                        '='               OpEquality          tok=  46  pos= 257
       IfThenElse:
@@ -49,8 +48,7 @@ FunctionOrValue:
               ILReturnType:
                 :            ':'               OpColon             tok=  63  pos= 306
                 NamedType:
-                  LongIdent:
-                             'int'             Identifier          tok=  65  pos= 308
+                  Ident      'int'             Identifier          tok=  65  pos= 308
               #)             '#)'              KWRHashParen        tok=  67  pos= 312
             Const            '0'               NumInt32            tok=  71  pos= 317
         ThenToken            'then'            KWThen              tok=  74  pos= 323
@@ -68,13 +66,11 @@ FunctionOrValue:
           Pat.NamedSimple    'o'               Identifier          tok=  89  pos= 357
           Colon              ':'               OpColon             tok=  90  pos= 358
           NamedType:
-            LongIdent:
-                             'obj'             Identifier          tok=  92  pos= 360
+            Ident            'obj'             Identifier          tok=  92  pos= 360
                              ')'               KWRParen            tok=  93  pos= 363
     ReturnColon              ':'               OpColon             tok=  95  pos= 365
     NamedType:
-      LongIdent:
-                             'int'             Identifier          tok=  97  pos= 367
+      Ident                  'int'             Identifier          tok=  97  pos= 367
     =                        '='               OpEquality          tok=  99  pos= 371
       ILIntrinsic:
         (#                   '(#'              KWLHashParen        tok= 102  pos= 377
@@ -92,6 +88,5 @@ FunctionOrValue:
         ILReturnType:
           :                  ':'               OpColon             tok= 116  pos= 408
           NamedType:
-            LongIdent:
-                             'int'             Identifier          tok= 118  pos= 410
+            Ident            'int'             Identifier          tok= 118  pos= 410
         #)                   '#)'              KWRHashParen        tok= 120  pos= 414

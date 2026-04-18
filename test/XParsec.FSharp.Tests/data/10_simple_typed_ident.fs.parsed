@@ -3,15 +3,12 @@ DotLookup:
   Expr:
     TypeApp:
       Expr:
-        Ident  'Map'             Identifier          tok=   0  pos=   0
+        Ident    'Map'             Identifier          tok=   0  pos=   0
       Types:
         NamedType:
-          LongIdent:
-               'int'             Identifier          tok=   2  pos=   4
+          Ident  'int'             Identifier          tok=   2  pos=   4
         NamedType:
-          LongIdent:
-               'string'          Identifier          tok=   5  pos=   9
-  Dot          '.'               OpDot               tok=   6  pos=  16
+          Ident  'string'          Identifier          tok=   5  pos=   9
+  Dot            '.'               OpDot               tok=   6  pos=  16
   LongIdentOrOp:
-    LongIdent:
-               'empty'           Identifier          tok=   7  pos=  17
+    Ident        'empty'           Identifier          tok=   7  pos=  17

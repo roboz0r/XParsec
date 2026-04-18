@@ -7,22 +7,19 @@ TypeDefn.Anon:
       Pat.NamedSimple        'a'               Identifier          tok=  18  pos= 353
       Colon                  ':'               OpColon             tok=  19  pos= 354
       NamedType:
-        LongIdent:
-                             'int'             Identifier          tok=  21  pos= 356
+        Ident                'int'             Identifier          tok=  21  pos= 356
     ,                        ','               OpComma             tok=  22  pos= 359
     Pat.Typed:
       Pat.NamedSimple        'b'               Identifier          tok=  24  pos= 361
       Colon                  ':'               OpColon             tok=  25  pos= 362
       NamedType:
-        LongIdent:
-                             'int'             Identifier          tok=  27  pos= 364
+        Ident                'int'             Identifier          tok=  27  pos= 364
     ,                        ','               OpComma             tok=  28  pos= 367
     Pat.Typed:
       Pat.NamedSimple        'c'               Identifier          tok=  30  pos= 369
       Colon                  ':'               OpColon             tok=  31  pos= 370
       NamedType:
-        LongIdent:
-                             'bool'            Identifier          tok=  33  pos= 372
+        Ident                'bool'            Identifier          tok=  33  pos= 372
   )                          ')'               KWRParen            tok=  34  pos= 376
   =                          '='               OpEquality          tok=  37  pos= 382
   begin                      <virt>            KWBegin             tok=virt  pos= 389
@@ -41,11 +38,9 @@ TypeDefn.Anon:
                              'Dictionary'      Identifier          tok=  53  pos= 428
             Types:
               NamedType:
-                LongIdent:
-                             'int'             Identifier          tok=  55  pos= 439
+                Ident        'int'             Identifier          tok=  55  pos= 439
               NamedType:
-                LongIdent:
-                             'int'             Identifier          tok=  58  pos= 444
+                Ident        'int'             Identifier          tok=  58  pos= 444
         (                    '('               KWLParen            tok=  60  pos= 448
         Arg:
           ParenBlock         '('               KWLParen            tok=  60  pos= 448
@@ -59,21 +54,18 @@ TypeDefn.Anon:
             Pat.NamedSimple  'a'               Identifier          tok=  67  pos= 460
             Colon            ':'               OpColon             tok=  68  pos= 461
             NamedType:
-              LongIdent:
-                             'int'             Identifier          tok=  70  pos= 463
+              Ident          'int'             Identifier          tok=  70  pos= 463
           ,                  ','               OpComma             tok=  71  pos= 466
           Pat.Typed:
             Pat.NamedSimple  'b'               Identifier          tok=  73  pos= 468
             Colon            ':'               OpColon             tok=  74  pos= 469
             NamedType:
-              LongIdent:
-                             'int'             Identifier          tok=  76  pos= 471
+              Ident          'int'             Identifier          tok=  76  pos= 471
                              ')'               KWRParen            tok=  77  pos= 474
       =                      '='               OpEquality          tok=  79  pos= 476
       new                    'new'             KWNew               tok=  81  pos= 478
       NamedType:
-        LongIdent:
-                             'Dependency...'   Identifier          tok=  83  pos= 482
+        Ident                'Dependency...'   Identifier          tok=  83  pos= 482
       ParenBlock             '('               KWLParen            tok=  84  pos= 500
         Tuple:
           Ident              'a'               Identifier          tok=  85  pos= 501
@@ -87,8 +79,7 @@ TypeDefn.Anon:
       =                      '='               OpEquality          tok= 100  pos= 524
       new                    'new'             KWNew               tok= 102  pos= 526
       NamedType:
-        LongIdent:
-                             'Dependency...'   Identifier          tok= 104  pos= 530
+        Ident                'Dependency...'   Identifier          tok= 104  pos= 530
       ParenBlock             '('               KWLParen            tok= 105  pos= 548
         Tuple:
           Const              '0'               NumInt32            tok= 106  pos= 549

@@ -15,14 +15,12 @@ TypeDefn.Class:
       ident    'X'               Identifier          tok=  32  pos= 102
       :        ':'               OpColon             tok=  33  pos= 103
       NamedType:
-        LongIdent:
-               'float'           Identifier          tok=  35  pos= 105
+        Ident  'float'           Identifier          tok=  35  pos= 105
     Val:
       val      'val'             KWVal               tok=  38  pos= 119
       mutable  'mutable'         KWMutable           tok=  40  pos= 123
       ident    'Y'               Identifier          tok=  42  pos= 131
       :        ':'               OpColon             tok=  43  pos= 132
       NamedType:
-        LongIdent:
-               'float'           Identifier          tok=  45  pos= 134
+        Ident  'float'           Identifier          tok=  45  pos= 134
   end          'end'             KWEnd               tok=  48  pos= 144

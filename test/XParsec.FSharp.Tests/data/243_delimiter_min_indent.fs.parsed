@@ -48,8 +48,7 @@ TypeDefn.Record:
       ident              'X'               Identifier          tok= 129  pos= 908
       :                  ':'               OpColon             tok= 130  pos= 909
       NamedType:
-        LongIdent:
-                         'int'             Identifier          tok= 132  pos= 911
+        Ident            'int'             Identifier          tok= 132  pos= 911
   }                      '}'               KWRBrace            tok= 134  pos= 915
 Module:
   module                 'module'          KWModule            tok= 137  pos= 918
@@ -62,8 +61,7 @@ Module:
         =                '='               OpEquality          tok= 152  pos=1000
           Record         '{'               KWLBrace            tok= 155  pos=1010
             Field:
-              LongIdent:
-                         'X'               Identifier          tok= 158  pos=1017
+              Ident      'X'               Identifier          tok= 158  pos=1017
               =          '='               OpEquality          tok= 160  pos=1019
               Expr:
                 Const    '1'               NumInt32            tok= 162  pos=1021
@@ -74,8 +72,7 @@ Module:
         =                '='               OpEquality          tok= 176  pos=1094
           Record         '{'               KWLBrace            tok= 179  pos=1104
             Field:
-              LongIdent:
-                         'X'               Identifier          tok= 182  pos=1118
+              Ident      'X'               Identifier          tok= 182  pos=1118
               =          '='               OpEquality          tok= 184  pos=1120
               Expr:
                 Const    '1'               NumInt32            tok= 186  pos=1122

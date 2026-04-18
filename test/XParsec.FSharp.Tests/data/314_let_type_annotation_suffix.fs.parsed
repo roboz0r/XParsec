@@ -15,8 +15,7 @@ FunctionOrValue:
             VarType:
               Typar.Named:
                            ''T'              TypeParameter       tok=  24  pos= 155
-            LongIdent:
-                           'array'           Identifier          tok=  26  pos= 158
+            Ident          'array'           Identifier          tok=  26  pos= 158
                            ')'               KWRParen            tok=  27  pos= 163
     =                      '='               OpEquality          tok=  29  pos= 165
       Let                  'let'             KWLet               tok=  32  pos= 171
@@ -37,8 +36,7 @@ FunctionOrValue:
               VarType:
                 Typar.Named:
                            ''T'              TypeParameter       tok=  46  pos= 206
-              LongIdent:
-                           'array'           Identifier          tok=  48  pos= 209
+              Ident        'array'           Identifier          tok=  48  pos= 209
       in                   <virt>            KWIn                tok=virt  pos= 219
       Body:
         Ident              'res'             Identifier          tok=  51  pos= 219

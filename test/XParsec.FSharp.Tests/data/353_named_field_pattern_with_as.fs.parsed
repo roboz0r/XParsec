@@ -8,8 +8,7 @@ TypeDefn.Union:
       ident                      'valSynData'      Identifier          tok=  16  pos= 183
       :                          ':'               OpColon             tok=  17  pos= 193
       NamedType:
-        LongIdent:
-                                 'int'             Identifier          tok=  19  pos= 195
+        Ident                    'int'             Identifier          tok=  19  pos= 195
 FunctionOrValue:
   let                            'let'             KWLet               tok=  21  pos= 199
     Pat.NamedSimple              'data'            Identifier          tok=  23  pos= 203

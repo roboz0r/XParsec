@@ -6,8 +6,7 @@ FunctionOrValue:
     =                '='               OpEquality          tok=  11  pos=  51
       AnonRecord     '{|'              KWLBraceBar         tok=  13  pos=  53
         Field:
-          LongIdent:
-                     'a'               Identifier          tok=  15  pos=  56
+          Ident      'a'               Identifier          tok=  15  pos=  56
           =          '='               OpEquality          tok=  17  pos=  58
           Expr:
             Const    '1'               NumInt32            tok=  19  pos=  60
@@ -18,8 +17,7 @@ FunctionOrValue:
     =                '='               OpEquality          tok=  30  pos= 103
       Record         '{'               KWLBrace            tok=  32  pos= 105
         Field:
-          LongIdent:
-                     'a'               Identifier          tok=  34  pos= 107
+          Ident      'a'               Identifier          tok=  34  pos= 107
           =          '='               OpEquality          tok=  36  pos= 109
           Expr:
             Const    '1'               NumInt32            tok=  38  pos= 111

@@ -12,16 +12,14 @@ FunctionOrValue:
           Pat.NamedSimple       'p'               Identifier          tok=  19  pos= 262
           Colon                 ':'               OpColon             tok=  20  pos= 263
           NamedType:
-            LongIdent:
-                                'Process'         Identifier          tok=  22  pos= 265
+            Ident               'Process'         Identifier          tok=  22  pos= 265
                                 ')'               KWRParen            tok=  23  pos= 272
       ParenBlock                '('               KWLParen            tok=  25  pos= 274
         Pat.Typed:
           Pat.NamedSimple       'timeout'         Identifier          tok=  26  pos= 275
           Colon                 ':'               OpColon             tok=  27  pos= 282
           NamedType:
-            LongIdent:
-                                'int'             Identifier          tok=  29  pos= 284
+            Ident               'int'             Identifier          tok=  29  pos= 284
                                 ')'               KWRParen            tok=  30  pos= 287
     =                           '='               OpEquality          tok=  32  pos= 289
       IfThenElse:
@@ -45,8 +43,7 @@ FunctionOrValue:
                         Ident   'timeout'         Identifier          tok=  44  pos= 317
                       Colon     ':'               OpColon             tok=  45  pos= 324
                       NamedType:
-                        LongIdent:
-                                'int'             Identifier          tok=  47  pos= 326
+                        Ident   'int'             Identifier          tok=  47  pos= 326
                                 ')'               KWRParen            tok=  48  pos= 329
                                 ')'               KWRParen            tok=  49  pos= 330
         ThenToken               'then'            KWThen              tok=  51  pos= 332

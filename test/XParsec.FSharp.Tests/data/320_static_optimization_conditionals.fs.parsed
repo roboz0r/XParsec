@@ -31,8 +31,7 @@ FunctionOrValue:
                            ''T'              TypeParameter       tok=  38  pos= 246
           :                ':'               OpColon             tok=  39  pos= 248
           NamedType:
-            LongIdent:
-                           'BigInteger'      Identifier          tok=  41  pos= 250
+            Ident          'BigInteger'      Identifier          tok=  41  pos= 250
         =                  '='               OpEquality          tok=  43  pos= 261
         LongIdentOrOp:
           LongIdent:
@@ -69,8 +68,7 @@ FunctionOrValue:
                            ''T'              TypeParameter       tok=  76  pos= 328
           :                ':'               OpColon             tok=  77  pos= 330
           NamedType:
-            LongIdent:
-                           'BigInteger'      Identifier          tok=  79  pos= 332
+            Ident          'BigInteger'      Identifier          tok=  79  pos= 332
         =                  '='               OpEquality          tok=  81  pos= 343
         LongIdentOrOp:
           LongIdent:
@@ -85,8 +83,7 @@ FunctionOrValue:
           Pat.NamedSimple  'value'           Identifier          tok=  93  pos= 376
           Colon            ':'               OpColon             tok=  94  pos= 381
           NamedType:
-            LongIdent:
-                           'int32'           Identifier          tok=  96  pos= 383
+            Ident          'int32'           Identifier          tok=  96  pos= 383
                            ')'               KWRParen            tok=  97  pos= 388
     ReturnColon            ':'               OpColon             tok=  99  pos= 390
     VarType:
@@ -113,13 +110,11 @@ FunctionOrValue:
                            ''T'              TypeParameter       tok= 118  pos= 427
           :                ':'               OpColon             tok= 119  pos= 429
           NamedType:
-            LongIdent:
-                           'BigInteger'      Identifier          tok= 121  pos= 431
+            Ident          'BigInteger'      Identifier          tok= 121  pos= 431
         =                  '='               OpEquality          tok= 123  pos= 442
         New                'new'             KWNew               tok= 125  pos= 444
           NamedType:
-            LongIdent:
-                           'BigInteger'      Identifier          tok= 127  pos= 448
+            Ident          'BigInteger'      Identifier          tok= 127  pos= 448
           Arg:
             ParenBlock     '('               KWLParen            tok= 128  pos= 458
               Ident        'value'           Identifier          tok= 129  pos= 459
@@ -133,8 +128,7 @@ FunctionOrValue:
           Pat.NamedSimple  'value'           Identifier          tok= 138  pos= 482
           Colon            ':'               OpColon             tok= 139  pos= 487
           NamedType:
-            LongIdent:
-                           'int64'           Identifier          tok= 141  pos= 489
+            Ident          'int64'           Identifier          tok= 141  pos= 489
                            ')'               KWRParen            tok= 142  pos= 494
     ReturnColon            ':'               OpColon             tok= 144  pos= 496
     VarType:
@@ -161,13 +155,11 @@ FunctionOrValue:
                            ''T'              TypeParameter       tok= 163  pos= 544
           :                ':'               OpColon             tok= 164  pos= 546
           NamedType:
-            LongIdent:
-                           'BigInteger'      Identifier          tok= 166  pos= 548
+            Ident          'BigInteger'      Identifier          tok= 166  pos= 548
         =                  '='               OpEquality          tok= 168  pos= 559
         New                'new'             KWNew               tok= 170  pos= 561
           NamedType:
-            LongIdent:
-                           'BigInteger'      Identifier          tok= 172  pos= 565
+            Ident          'BigInteger'      Identifier          tok= 172  pos= 565
           Arg:
             ParenBlock     '('               KWLParen            tok= 173  pos= 575
               Ident        'value'           Identifier          tok= 174  pos= 576

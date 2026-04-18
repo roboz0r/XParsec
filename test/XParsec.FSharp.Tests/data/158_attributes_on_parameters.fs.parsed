@@ -17,10 +17,8 @@ FunctionOrValue:
             Colon            ':'               OpColon             tok=  17  pos=  49
             SuffixedType:
               NamedType:
-                LongIdent:
-                             'int'             Identifier          tok=  19  pos=  51
-              LongIdent:
-                             'array'           Identifier          tok=  21  pos=  55
+                Ident        'int'             Identifier          tok=  19  pos=  51
+              Ident          'array'           Identifier          tok=  21  pos=  55
                              ')'               KWRParen            tok=  22  pos=  60
     =                        '='               OpEquality          tok=  24  pos=  62
       LongIdentOrOp:
@@ -43,8 +41,7 @@ FunctionOrValue:
             Pat.NamedSimple  'x'               Identifier          tok=  42  pos= 104
             Colon            ':'               OpColon             tok=  43  pos= 105
             NamedType:
-              LongIdent:
-                             'int'             Identifier          tok=  45  pos= 107
+              Ident          'int'             Identifier          tok=  45  pos= 107
                              ')'               KWRParen            tok=  46  pos= 110
       ParenBlock             '('               KWLParen            tok=  48  pos= 112
         Pat.Attributed:
@@ -58,8 +55,7 @@ FunctionOrValue:
             Pat.NamedSimple  'y'               Identifier          tok=  55  pos= 133
             Colon            ':'               OpColon             tok=  56  pos= 134
             NamedType:
-              LongIdent:
-                             'int'             Identifier          tok=  58  pos= 136
+              Ident          'int'             Identifier          tok=  58  pos= 136
                              ')'               KWRParen            tok=  59  pos= 139
     =                        '='               OpEquality          tok=  61  pos= 141
       InfixApp               '+'               op_Addition         tok=  65  pos= 145
@@ -80,10 +76,8 @@ TypeDefn.Anon:
       Colon                  ':'               OpColon             tok=  81  pos= 192
       SuffixedType:
         NamedType:
-          LongIdent:
-                             'obj'             Identifier          tok=  83  pos= 194
-        LongIdent:
-                             'array'           Identifier          tok=  85  pos= 198
+          Ident              'obj'             Identifier          tok=  83  pos= 194
+        Ident                'array'           Identifier          tok=  85  pos= 198
   )                          ')'               KWRParen            tok=  86  pos= 203
   =                          '='               OpEquality          tok=  88  pos= 205
   begin                      <virt>            KWBegin             tok=virt  pos= 211

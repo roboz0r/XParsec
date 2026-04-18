@@ -2,8 +2,7 @@ AnonymousModule:
 TypeDefn.Anon:
   [<                         '[<'              KWLAttrBracket      tok=   0  pos=   0
   NamedType:
-    LongIdent:
-                             'Struct'          Identifier          tok=   1  pos=   2
+    Ident                    'Struct'          Identifier          tok=   1  pos=   2
   >]                         '>]'              KWRAttrBracket      tok=   2  pos=   8
   TypeName                   'Foo'             Identifier          tok=   6  pos=  16
   =                          '='               OpEquality          tok=   8  pos=  20
@@ -13,8 +12,7 @@ TypeDefn.Anon:
       ident                  'value'           Identifier          tok=  15  pos=  38
       :                      ':'               OpColon             tok=  16  pos=  43
       NamedType:
-        LongIdent:
-                             'uint64'          Identifier          tok=  18  pos=  45
+        Ident                'uint64'          Identifier          tok=  18  pos=  45
     AdditionalConstructor:
       new                    'new'             KWNew               tok=  23  pos=  64
       ParenBlock             '('               KWLParen            tok=  24  pos=  67
@@ -22,13 +20,11 @@ TypeDefn.Anon:
           Pat.NamedSimple    'value'           Identifier          tok=  25  pos=  68
           Colon              ':'               OpColon             tok=  26  pos=  73
           NamedType:
-            LongIdent:
-                             'uint64'          Identifier          tok=  28  pos=  75
+            Ident            'uint64'          Identifier          tok=  28  pos=  75
                              ')'               KWRParen            tok=  29  pos=  81
       =                      '='               OpEquality          tok=  31  pos=  83
       {                      '{'               KWLBrace            tok=  33  pos=  85
-      LongIdent:
-                             'value'           Identifier          tok=  35  pos=  87
+      Ident                  'value'           Identifier          tok=  35  pos=  87
       =                      '='               OpEquality          tok=  37  pos=  93
       Ident                  'value'           Identifier          tok=  39  pos=  95
       }                      '}'               KWRBrace            tok=  41  pos= 101
@@ -42,15 +38,13 @@ TypeDefn.Anon:
             Pat.NamedSimple  'tokenValue'      Identifier          tok=  51  pos= 129
             Colon            ':'               OpColon             tok=  52  pos= 139
             NamedType:
-              LongIdent:
-                             'int'             Identifier          tok=  54  pos= 141
+              Ident          'int'             Identifier          tok=  54  pos= 141
           ,                  ','               OpComma             tok=  55  pos= 144
           Pat.Typed:
             Pat.NamedSimple  'startIndex'      Identifier          tok=  57  pos= 146
             Colon            ':'               OpColon             tok=  58  pos= 156
             NamedType:
-              LongIdent:
-                             'int'             Identifier          tok=  60  pos= 158
+              Ident          'int'             Identifier          tok=  60  pos= 158
                              ')'               KWRParen            tok=  61  pos= 161
     =                        '='               OpEquality          tok=  63  pos= 163
       Let                    'let'             KWLet               tok=  66  pos= 173
@@ -89,8 +83,7 @@ TypeDefn.Anon:
     Pat.NamedSimple          'Token'           Identifier          tok= 107  pos= 310
     ReturnColon              ':'               OpColon             tok= 108  pos= 315
     NamedType:
-      LongIdent:
-                             'int'             Identifier          tok= 110  pos= 317
+      Ident                  'int'             Identifier          tok= 110  pos= 317
     =                        '='               OpEquality          tok= 112  pos= 321
       App:
         Func:
@@ -105,8 +98,7 @@ TypeDefn.Anon:
     Pat.NamedSimple          'StartIndex'      Identifier          tok= 127  pos= 363
     ReturnColon              ':'               OpColon             tok= 128  pos= 373
     NamedType:
-      LongIdent:
-                             'int'             Identifier          tok= 130  pos= 375
+      Ident                  'int'             Identifier          tok= 130  pos= 375
     =                        '='               OpEquality          tok= 132  pos= 379
       App:
         Func:

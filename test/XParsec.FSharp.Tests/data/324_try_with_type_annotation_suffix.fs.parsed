@@ -16,8 +16,7 @@ FunctionOrValue:
               Const        '2'               NumInt32            tok=  27  pos= 157
           Colon            ':'               OpColon             tok=  29  pos= 159
           NamedType:
-            LongIdent:
-                           'int'             Identifier          tok=  31  pos= 161
+            Ident          'int'             Identifier          tok=  31  pos= 161
       WithToken            'with'            KWWith              tok=  34  pos= 169
       Rule:
         Pat:
@@ -29,8 +28,7 @@ FunctionOrValue:
               Const        '0'               NumInt32            tok=  41  pos= 187
             Colon          ':'               OpColon             tok=  43  pos= 189
             NamedType:
-              LongIdent:
-                           'int'             Identifier          tok=  45  pos= 191
+              Ident        'int'             Identifier          tok=  45  pos= 191
 FunctionOrValue:
   let                      'let'             KWLet               tok=  48  pos= 196
     Pat.NamedSimple        'g'               Identifier          tok=  50  pos= 200
@@ -47,8 +45,7 @@ FunctionOrValue:
               Const        '2'               NumInt32            tok=  65  pos= 227
           Colon            ':'               OpColon             tok=  67  pos= 229
           NamedType:
-            LongIdent:
-                           'int'             Identifier          tok=  69  pos= 231
+            Ident          'int'             Identifier          tok=  69  pos= 231
       FinallyToken         'finally'         KWFinally           tok=  72  pos= 239
       FinallyExpr:
         App:

@@ -38,8 +38,7 @@ FunctionOrValue:
   target                  'return'          KWReturn            tok=  42  pos= 249
   :                       ':'               OpColon             tok=  43  pos= 255
   NamedType:
-    LongIdent:
-                          'Struct'          Identifier          tok=  45  pos= 257
+    Ident                 'Struct'          Identifier          tok=  45  pos= 257
   >]                      '>]'              KWRAttrBracket      tok=  46  pos= 263
   let                     'let'             KWLet               tok=  48  pos= 266
     Pat.Op:
@@ -90,8 +89,7 @@ FunctionOrValue:
     target                'return'          KWReturn            tok= 101  pos= 447
     :                     ':'               OpColon             tok= 102  pos= 453
     NamedType:
-      LongIdent:
-                          'Struct'          Identifier          tok= 104  pos= 455
+      Ident               'Struct'          Identifier          tok= 104  pos= 455
     >]                    '>]'              KWRAttrBracket      tok= 105  pos= 461
     Pat.Op:
       ParenOp:

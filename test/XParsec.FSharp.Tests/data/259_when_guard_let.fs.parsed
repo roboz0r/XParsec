@@ -9,8 +9,7 @@ FunctionOrValue:
           Pat.NamedSimple      'x'               Identifier          tok=  12  pos=  45
           Colon                ':'               OpColon             tok=  13  pos=  46
           NamedType:
-            LongIdent:
-                               'obj'             Identifier          tok=  15  pos=  48
+            Ident              'obj'             Identifier          tok=  15  pos=  48
                                ')'               KWRParen            tok=  16  pos=  51
     =                          '='               OpEquality          tok=  18  pos=  53
       Match:
@@ -24,8 +23,7 @@ FunctionOrValue:
             Pat.TypeTestAs:
               ColonQuestion    ':?'              OpTypeTest          tok=  30  pos=  78
               NamedType:
-                LongIdent:
-                               'string'          Identifier          tok=  32  pos=  81
+                Ident          'string'          Identifier          tok=  32  pos=  81
               As               'as'              KWAs                tok=  34  pos=  88
               Pat.NamedSimple  's'               Identifier          tok=  36  pos=  91
           When                 'when'            KWWhen              tok=  38  pos=  93
@@ -58,8 +56,7 @@ FunctionOrValue:
           Pat.NamedSimple      'x'               Identifier          tok=  71  pos= 171
           Colon                ':'               OpColon             tok=  72  pos= 172
           NamedType:
-            LongIdent:
-                               'obj'             Identifier          tok=  74  pos= 174
+            Ident              'obj'             Identifier          tok=  74  pos= 174
                                ')'               KWRParen            tok=  75  pos= 177
     =                          '='               OpEquality          tok=  77  pos= 179
       Match:
@@ -73,8 +70,7 @@ FunctionOrValue:
             Pat.TypeTestAs:
               ColonQuestion    ':?'              OpTypeTest          tok=  89  pos= 204
               NamedType:
-                LongIdent:
-                               'string'          Identifier          tok=  91  pos= 207
+                Ident          'string'          Identifier          tok=  91  pos= 207
               As               'as'              KWAs                tok=  93  pos= 214
               Pat.NamedSimple  's'               Identifier          tok=  95  pos= 217
           When                 'when'            KWWhen              tok=  97  pos= 219

@@ -13,8 +13,7 @@ FunctionOrValue:
           Pat.NamedSimple  'sb'              Identifier          tok=  17  pos=  41
           Colon            ':'               OpColon             tok=  18  pos=  43
           NamedType:
-            LongIdent:
-                           'StringBuil...'   Identifier          tok=  20  pos=  45
+            Ident          'StringBuil...'   Identifier          tok=  20  pos=  45
                            ')'               KWRParen            tok=  21  pos=  58
     =                      '='               OpEquality          tok=  23  pos=  60
       HighPrecedenceApp:
@@ -33,8 +32,7 @@ FunctionOrValue:
                            ')'               KWRParen            tok=  31  pos=  79
             Dot            '.'               OpDot               tok=  32  pos=  80
             LongIdentOrOp:
-              LongIdent:
-                           'Append'          Identifier          tok=  33  pos=  81
+              Ident        'Append'          Identifier          tok=  33  pos=  81
         (                  '('               KWLParen            tok=  34  pos=  87
         Arg:
           Const            ''b''             CharLiteral         tok=  35  pos=  88

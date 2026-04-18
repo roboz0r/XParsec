@@ -19,13 +19,11 @@ FunctionOrValue:
     Pat.NamedSimple        'z'               Identifier          tok=  33  pos=  67
     ReturnColon            ':'               OpColon             tok=  34  pos=  68
     GenericType:
-      LongIdent:
-                           'seq'             Identifier          tok=  36  pos=  70
+      Ident                'seq'             Identifier          tok=  36  pos=  70
       <                    '<'               op_LessThan         tok=  37  pos=  73
       TypeArg.Type:
         NamedType:
-          LongIdent:
-                           'int'             Identifier          tok=  38  pos=  74
+          Ident            'int'             Identifier          tok=  38  pos=  74
       >                    '>'               op_GreaterThan      tok=  39  pos=  77
     =                      '='               OpEquality          tok=  41  pos=  79
       Upcast               'upcast'          KWUpcast            tok=  44  pos=  85
@@ -40,8 +38,7 @@ FunctionOrValue:
     Pat.NamedSimple        'w'               Identifier          tok=  62  pos= 119
     ReturnColon            ':'               OpColon             tok=  63  pos= 120
     NamedType:
-      LongIdent:
-                           'obj'             Identifier          tok=  65  pos= 122
+      Ident                'obj'             Identifier          tok=  65  pos= 122
     =                      '='               OpEquality          tok=  67  pos= 126
       Downcast             'downcast'        KWDowncast          tok=  70  pos= 132
         App:

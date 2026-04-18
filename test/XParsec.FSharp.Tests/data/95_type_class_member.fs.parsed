@@ -10,8 +10,7 @@ TypeDefn.Class:
       ident          'count'           Identifier          tok=  19  pos=  62
       :              ':'               OpColon             tok=  20  pos=  67
       NamedType:
-        LongIdent:
-                     'int'             Identifier          tok=  22  pos=  69
+        Ident        'int'             Identifier          tok=  22  pos=  69
     member           'member'          KWMember            tok=  25  pos=  81
     self             'this'            Identifier          tok=  27  pos=  88
     Pat.NamedSimple  'Increment'       Identifier          tok=  29  pos=  93

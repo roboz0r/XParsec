@@ -11,8 +11,7 @@ FunctionOrValue:
         {                        '{'               KWLBrace            tok=  19  pos=  75
         new                      'new'             KWNew               tok=  21  pos=  77
         NamedType:
-          LongIdent:
-                                 'IDisposabl...'   Identifier          tok=  23  pos=  81
+          Ident                  'IDisposabl...'   Identifier          tok=  23  pos=  81
         with                     'with'            KWWith              tok=  25  pos=  93
           member                 'member'          KWMember            tok=  28  pos= 106
           self                   '_'               Wildcard            tok=  30  pos= 113
@@ -41,8 +40,7 @@ FunctionOrValue:
           <                      '<'               op_LessThan         tok=  64  pos= 239
           TypeArg.Type:
             NamedType:
-              LongIdent:
-                                 'int'             Identifier          tok=  65  pos= 240
+              Ident              'int'             Identifier          tok=  65  pos= 240
           >                      '>'               op_GreaterThan      tok=  66  pos= 243
         ParenBlock               '('               KWLParen            tok=  67  pos= 244
                                  ')'               KWRParen            tok=  68  pos= 245
@@ -71,8 +69,7 @@ FunctionOrValue:
         {                        '{'               KWLBrace            tok= 105  pos= 365
         new                      'new'             KWNew               tok= 107  pos= 367
         NamedType:
-          LongIdent:
-                                 'IDisposabl...'   Identifier          tok= 109  pos= 371
+          Ident                  'IDisposabl...'   Identifier          tok= 109  pos= 371
         with                     'with'            KWWith              tok= 111  pos= 383
           member                 'member'          KWMember            tok= 114  pos= 396
           self                   '_'               Wildcard            tok= 116  pos= 403
@@ -87,8 +84,7 @@ FunctionOrValue:
         InterfaceImpl:
           interface              'interface'       KWInterface         tok= 128  pos= 426
           NamedType:
-            LongIdent:
-                                 'IComparabl...'   Identifier          tok= 130  pos= 436
+            Ident                'IComparabl...'   Identifier          tok= 130  pos= 436
           with                   'with'            KWWith              tok= 132  pos= 448
             member               'member'          KWMember            tok= 135  pos= 461
             self                 '_'               Wildcard            tok= 137  pos= 468
@@ -109,8 +105,7 @@ FunctionOrValue:
         {                        '{'               KWLBrace            tok= 160  pos= 549
         new                      'new'             KWNew               tok= 162  pos= 551
         NamedType:
-          LongIdent:
-                                 'IDisposabl...'   Identifier          tok= 164  pos= 555
+          Ident                  'IDisposabl...'   Identifier          tok= 164  pos= 555
         with                     'with'            KWWith              tok= 166  pos= 567
           member                 'member'          KWMember            tok= 169  pos= 580
           self                   '_'               Wildcard            tok= 171  pos= 587
@@ -143,8 +138,7 @@ FunctionOrValue:
           Pat.NamedSimple        'd'               Identifier          tok= 207  pos= 697
           Colon                  ':'               OpColon             tok= 208  pos= 698
           NamedType:
-            LongIdent:
-                                 'IDisposabl...'   Identifier          tok= 210  pos= 700
+            Ident                'IDisposabl...'   Identifier          tok= 210  pos= 700
                                  ')'               KWRParen            tok= 211  pos= 711
     =                            '='               OpEquality          tok= 213  pos= 713
       ParenBlock                 '('               KWLParen            tok= 215  pos= 715
@@ -161,8 +155,7 @@ FunctionOrValue:
             {                    '{'               KWLBrace            tok= 226  pos= 731
             new                  'new'             KWNew               tok= 228  pos= 733
             NamedType:
-              LongIdent:
-                                 'IDisposabl...'   Identifier          tok= 230  pos= 737
+              Ident              'IDisposabl...'   Identifier          tok= 230  pos= 737
             with                 'with'            KWWith              tok= 232  pos= 749
               member             'member'          KWMember            tok= 234  pos= 754
               self               '_'               Wildcard            tok= 236  pos= 761

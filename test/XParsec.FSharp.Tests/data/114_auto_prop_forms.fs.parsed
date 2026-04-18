@@ -23,8 +23,7 @@ TypeDefn.Anon:
     ident            'P2'              Identifier          tok=  42  pos= 220
     :                ':'               OpColon             tok=  43  pos= 222
     NamedType:
-      LongIdent:
-                     'int'             Identifier          tok=  45  pos= 224
+      Ident          'int'             Identifier          tok=  45  pos= 224
     =                '='               OpEquality          tok=  47  pos= 228
       Const          '42'              NumInt32            tok=  49  pos= 230
       with           'with'            KWWith              tok=  51  pos= 233
@@ -86,8 +85,7 @@ TypeDefn.Anon:
     ident            'P'               Identifier          tok= 158  pos= 615
     :                ':'               OpColon             tok= 159  pos= 616
     NamedType:
-      LongIdent:
-                     'string'          Identifier          tok= 161  pos= 618
+      Ident          'string'          Identifier          tok= 161  pos= 618
     with             'with'            KWWith              tok= 163  pos= 625
     get/set          'get'             Identifier          tok= 165  pos= 630
     set/get          'set'             Identifier          tok= 168  pos= 635
@@ -111,8 +109,7 @@ TypeDefn.Anon:
   begin              <virt>            KWBegin             tok=virt  pos= 754
     inherit          'inherit'         KWInherit           tok= 202  pos= 754
     NamedType:
-      LongIdent:
-                     'Base'            Identifier          tok= 204  pos= 762
+      Ident          'Base'            Identifier          tok= 204  pos= 762
     ParenBlock       '('               KWLParen            tok= 205  pos= 766
                      ')'               KWRParen            tok= 206  pos= 767
     override         'override'        KWOverride          tok= 209  pos= 773

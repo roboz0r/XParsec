@@ -51,8 +51,7 @@ FunctionOrValue:
                     Wildcard  '_'               Wildcard            tok=  61  pos= 131
                   Dot         '.'               OpDot               tok=  62  pos= 132
                   LongIdentOrOp:
-                    LongIdent:
-                              'ToString'        Identifier          tok=  63  pos= 133
+                    Ident     'ToString'        Identifier          tok=  63  pos= 133
               (               '('               KWLParen            tok=  64  pos= 141
               Arg:
                 ParenBlock    '('               KWLParen            tok=  64  pos= 141
@@ -86,5 +85,4 @@ FunctionOrValue:
                 Wildcard      '_'               Wildcard            tok=  92  pos= 191
               Dot             '.'               OpDot               tok=  93  pos= 192
               LongIdentOrOp:
-                LongIdent:
-                              'Length'          Identifier          tok=  94  pos= 193
+                Ident         'Length'          Identifier          tok=  94  pos= 193

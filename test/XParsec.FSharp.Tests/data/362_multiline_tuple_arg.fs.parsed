@@ -17,14 +17,16 @@ FunctionOrValue:
           Bar                                                     '|'               OpBar               tok=  35  pos= 433
           Pat:
             Pat.Named:
-              Ident                                               'Expr'            Identifier          tok=  37  pos= 435
-              Ident                                               'Op'              Identifier          tok=  39  pos= 440
+              LongIdent:
+                                                                  'Expr'            Identifier          tok=  37  pos= 435
+                                                                  'Op'              Identifier          tok=  39  pos= 440
               Args:
                 ParenBlock                                        '('               KWLParen            tok=  41  pos= 443
                   Pat.Tuple:
                     Pat.Named:
-                      Ident                                       'TOp'             Identifier          tok=  42  pos= 444
-                      Ident                                       'Tuple'           Identifier          tok=  44  pos= 448
+                      LongIdent:
+                                                                  'TOp'             Identifier          tok=  42  pos= 444
+                                                                  'Tuple'           Identifier          tok=  44  pos= 448
                       Args:
                         Pat.NamedSimple                           'tupInfo'         Identifier          tok=  46  pos= 454
                     ,                                             ','               OpComma             tok=  47  pos= 461

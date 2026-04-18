@@ -16,8 +16,7 @@ TypeDefn.Record:
       ident                                    'MemberKind'      Identifier          tok=  28  pos= 184
       :                                        ':'               OpColon             tok=  29  pos= 194
       NamedType:
-        LongIdent:
-                                               'Kind'            Identifier          tok=  31  pos= 196
+        Ident                                  'Kind'            Identifier          tok=  31  pos= 196
   }                                            '}'               KWRBrace            tok=  33  pos= 201
 TypeDefn.Record:
   TypeName                                     'Data'            Identifier          tok=  37  pos= 208
@@ -28,10 +27,8 @@ TypeDefn.Record:
       :                                        ':'               OpColon             tok=  44  pos= 222
       SuffixedType:
         NamedType:
-          LongIdent:
-                                               'Flags'           Identifier          tok=  46  pos= 224
-        LongIdent:
-                                               'option'          Identifier          tok=  48  pos= 230
+          Ident                                'Flags'           Identifier          tok=  46  pos= 224
+        Ident                                  'option'          Identifier          tok=  48  pos= 230
   }                                            '}'               KWRBrace            tok=  50  pos= 237
 FunctionOrValue:
   let                                          'let'             KWLet               tok=  53  pos= 240
@@ -42,8 +39,7 @@ FunctionOrValue:
           Pat.NamedSimple                      'd'               Identifier          tok=  58  pos= 250
           Colon                                ':'               OpColon             tok=  59  pos= 251
           NamedType:
-            LongIdent:
-                                               'Data'            Identifier          tok=  61  pos= 253
+            Ident                              'Data'            Identifier          tok=  61  pos= 253
                                                ')'               KWRParen            tok=  62  pos= 257
     =                                          '='               OpEquality          tok=  64  pos= 259
       Match:

@@ -20,8 +20,7 @@ TypeDefn.Anon:
                      ''Tag'            TypeParameter       tok=  28  pos= 113
     :>               ':>'              OpUpcast            tok=  30  pos= 118
     GenericType:
-      LongIdent:
-                     'IComparer'       Identifier          tok=  32  pos= 121
+      Ident          'IComparer'       Identifier          tok=  32  pos= 121
       <              '<'               op_LessThan         tok=  33  pos= 130
       TypeArg.Type:
         VarType:
@@ -33,8 +32,7 @@ TypeDefn.Anon:
     Pat.NamedSimple  'comparer'        Identifier          tok=  37  pos= 135
     Colon            ':'               OpColon             tok=  38  pos= 143
     GenericType:
-      LongIdent:
-                     'IComparer'       Identifier          tok=  40  pos= 145
+      Ident          'IComparer'       Identifier          tok=  40  pos= 145
       <              '<'               op_LessThan         tok=  41  pos= 154
       TypeArg.Type:
         VarType:
@@ -67,8 +65,7 @@ FunctionOrValue:
       >              '>'               op_GreaterThan      tok=  76  pos= 285
     ReturnColon      ':'               OpColon             tok=  78  pos= 287
     GenericType:
-      LongIdent:
-                     'IEqualityC...'   Identifier          tok=  80  pos= 289
+      Ident          'IEqualityC...'   Identifier          tok=  80  pos= 289
       <              '<'               op_LessThan         tok=  81  pos= 306
       TypeArg.Type:
         VarType:
@@ -87,5 +84,4 @@ FunctionOrValue:
                      ''T'              TypeParameter       tok=  90  pos= 334
         Dot          '.'               OpDot               tok=  91  pos= 337
         LongIdentOrOp:
-          LongIdent:
-                     'Default'         Identifier          tok=  92  pos= 338
+          Ident      'Default'         Identifier          tok=  92  pos= 338

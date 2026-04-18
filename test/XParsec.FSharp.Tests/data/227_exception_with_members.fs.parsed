@@ -5,11 +5,9 @@ ExceptionDefn.Full:
   ident                              'WrappedErr...'   Identifier          tok=   9  pos=  58
   of                                 'of'              KWOf                tok=  11  pos=  71
   NamedType:
-    LongIdent:
-                                     'exn'             Identifier          tok=  13  pos=  74
+    Ident                            'exn'             Identifier          tok=  13  pos=  74
   NamedType:
-    LongIdent:
-                                     'string'          Identifier          tok=  17  pos=  80
+    Ident                            'string'          Identifier          tok=  17  pos=  80
   with                               'with'            KWWith              tok=  19  pos=  87
     override                         'override'        KWOverride          tok=  22  pos=  96
     self                             'this'            Identifier          tok=  24  pos= 105
@@ -23,8 +21,7 @@ ExceptionDefn.Full:
               Ident                  'this'            Identifier          tok=  33  pos= 134
             :>                       ':>'              OpUpcast            tok=  35  pos= 139
             NamedType:
-              LongIdent:
-                                     'exn'             Identifier          tok=  37  pos= 142
+              Ident                  'exn'             Identifier          tok=  37  pos= 142
         WithToken                    'with'            KWWith              tok=  39  pos= 146
         Rule:
           Bar                        '|'               OpBar               tok=  42  pos= 159
@@ -57,5 +54,4 @@ ExceptionDefn.Full:
   ident                              'SimpleErro...'   Identifier          tok=  72  pos= 265
   of                                 'of'              KWOf                tok=  74  pos= 277
   NamedType:
-    LongIdent:
-                                     'string'          Identifier          tok=  76  pos= 280
+    Ident                            'string'          Identifier          tok=  76  pos= 280

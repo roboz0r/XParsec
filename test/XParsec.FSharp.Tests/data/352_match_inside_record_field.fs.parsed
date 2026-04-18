@@ -6,8 +6,7 @@ TypeDefn.Union:
       ident                              'Delegate'        Identifier          tok=  17  pos= 225
       of                                 'of'              KWOf                tok=  19  pos= 234
       NamedType:
-        LongIdent:
-                                         'int'             Identifier          tok=  21  pos= 237
+        Ident                            'int'             Identifier          tok=  21  pos= 237
     Case:
       ident                              'Other'           Identifier          tok=  26  pos= 247
 TypeDefn.Record:
@@ -19,34 +18,27 @@ TypeDefn.Record:
       :                                  ':'               OpColon             tok=  39  pos= 277
       SuffixedType:
         NamedType:
-          LongIdent:
-                                         'int'             Identifier          tok=  41  pos= 279
-        LongIdent:
-                                         'list'            Identifier          tok=  43  pos= 283
+          Ident                          'int'             Identifier          tok=  41  pos= 279
+        Ident                            'list'            Identifier          tok=  43  pos= 283
     Field:
       ident                              'Kind'            Identifier          tok=  46  pos= 294
       :                                  ':'               OpColon             tok=  47  pos= 298
       NamedType:
-        LongIdent:
-                                         'Kind'            Identifier          tok=  49  pos= 300
+        Ident                            'Kind'            Identifier          tok=  49  pos= 300
     Field:
       ident                              'VSlots'          Identifier          tok=  52  pos= 311
       :                                  ':'               OpColon             tok=  53  pos= 317
       SuffixedType:
         NamedType:
-          LongIdent:
-                                         'int'             Identifier          tok=  55  pos= 319
-        LongIdent:
-                                         'list'            Identifier          tok=  57  pos= 323
+          Ident                          'int'             Identifier          tok=  55  pos= 319
+        Ident                            'list'            Identifier          tok=  57  pos= 323
     Field:
       ident                              'RFields'         Identifier          tok=  60  pos= 334
       :                                  ':'               OpColon             tok=  61  pos= 341
       SuffixedType:
         NamedType:
-          LongIdent:
-                                         'int'             Identifier          tok=  63  pos= 343
-        LongIdent:
-                                         'list'            Identifier          tok=  65  pos= 347
+          Ident                          'int'             Identifier          tok=  63  pos= 343
+        Ident                            'list'            Identifier          tok=  65  pos= 347
   }                                      '}'               KWRBrace            tok=  67  pos= 352
 FunctionOrValue:
   let                                    'let'             KWLet               tok=  70  pos= 355
@@ -59,14 +51,12 @@ FunctionOrValue:
           Pat.NamedSimple                'x'               Identifier          tok=  79  pos= 377
           Colon                          ':'               OpColon             tok=  80  pos= 378
           NamedType:
-            LongIdent:
-                                         'Data'            Identifier          tok=  82  pos= 380
+            Ident                        'Data'            Identifier          tok=  82  pos= 380
                                          ')'               KWRParen            tok=  83  pos= 384
     =                                    '='               OpEquality          tok=  85  pos= 386
       Record                             '{'               KWLBrace            tok=  88  pos= 392
         Field:
-          LongIdent:
-                                         'Cases'           Identifier          tok=  91  pos= 402
+          Ident                          'Cases'           Identifier          tok=  91  pos= 402
           =                              '='               OpEquality          tok=  93  pos= 408
           Expr:
             LongIdentOrOp:
@@ -74,8 +64,7 @@ FunctionOrValue:
                                          'x'               Identifier          tok=  95  pos= 410
                                          'Cases'           Identifier          tok=  97  pos= 412
         Field:
-          LongIdent:
-                                         'Kind'            Identifier          tok= 100  pos= 426
+          Ident                          'Kind'            Identifier          tok= 100  pos= 426
           =                              '='               OpEquality          tok= 102  pos= 431
           Expr:
             ParenBlock                   '('               KWLParen            tok= 105  pos= 445
@@ -117,8 +106,7 @@ FunctionOrValue:
                                          'Kind'            Identifier          tok= 142  pos= 530
                                          ')'               KWRParen            tok= 143  pos= 534
         Field:
-          LongIdent:
-                                         'VSlots'          Identifier          tok= 146  pos= 544
+          Ident                          'VSlots'          Identifier          tok= 146  pos= 544
           =                              '='               OpEquality          tok= 148  pos= 551
           Expr:
             InfixApp                     '|>'              op_PipeRight        tok= 154  pos= 562
@@ -135,8 +123,7 @@ FunctionOrValue:
                 Args:
                   Ident                  'id'              Identifier          tok= 160  pos= 574
         Field:
-          LongIdent:
-                                         'RFields'         Identifier          tok= 163  pos= 585
+          Ident                          'RFields'         Identifier          tok= 163  pos= 585
           =                              '='               OpEquality          tok= 165  pos= 593
           Expr:
             InfixApp                     '|>'              op_PipeRight        tok= 171  pos= 605

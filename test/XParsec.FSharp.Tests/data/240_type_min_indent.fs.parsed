@@ -35,21 +35,18 @@ TypeDefn.Record:
       ident              'X'               Identifier          tok=  89  pos= 534
       :                  ':'               OpColon             tok=  90  pos= 535
       NamedType:
-        LongIdent:
-                         'int'             Identifier          tok=  92  pos= 537
+        Ident            'int'             Identifier          tok=  92  pos= 537
     Field:
       ident              'Y'               Identifier          tok=  95  pos= 542
       :                  ':'               OpColon             tok=  96  pos= 543
       NamedType:
-        LongIdent:
-                         'int'             Identifier          tok=  98  pos= 545
+        Ident            'int'             Identifier          tok=  98  pos= 545
   }                      '}'               KWRBrace            tok= 100  pos= 549
 TypeDefn.Abbrev:
   TypeName               'Alias1'          Identifier          tok= 107  pos= 587
   =                      '='               OpEquality          tok= 109  pos= 594
     NamedType:
-      LongIdent:
-                         'int'             Identifier          tok= 112  pos= 597
+      Ident              'int'             Identifier          tok= 112  pos= 597
 TypeDefn.Anon:
   TypeName               'A'               Identifier          tok= 119  pos= 634
   (                      '('               KWLParen            tok= 120  pos= 635

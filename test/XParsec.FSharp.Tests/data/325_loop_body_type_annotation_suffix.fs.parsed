@@ -34,8 +34,7 @@ FunctionOrValue:
                     Ident    'i'               Identifier          tok=  54  pos= 231
               Colon          ':'               OpColon             tok=  56  pos= 233
               NamedType:
-                LongIdent:
-                             'unit'            Identifier          tok=  58  pos= 235
+                Ident        'unit'            Identifier          tok=  58  pos= 235
           DoneToken          <virt>            KWDone              tok=virt  pos= 244
           Ident              'acc'             Identifier          tok=  61  pos= 244
 FunctionOrValue:
@@ -69,7 +68,6 @@ FunctionOrValue:
                     Const    '1'               NumInt32            tok= 104  pos= 318
               Colon          ':'               OpColon             tok= 106  pos= 320
               NamedType:
-                LongIdent:
-                             'unit'            Identifier          tok= 108  pos= 322
+                Ident        'unit'            Identifier          tok= 108  pos= 322
           DoneToken          <virt>            KWDone              tok=virt  pos= 331
           Ident              'n'               Identifier          tok= 111  pos= 331

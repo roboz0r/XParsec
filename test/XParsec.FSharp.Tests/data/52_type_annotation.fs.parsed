@@ -3,8 +3,7 @@ Let                'let'             KWLet               tok=   0  pos=   0
   Pat.NamedSimple  'x'               Identifier          tok=   2  pos=   4
   ReturnColon      ':'               OpColon             tok=   4  pos=   6
   NamedType:
-    LongIdent:
-                   'int'             Identifier          tok=   6  pos=   8
+    Ident          'int'             Identifier          tok=   6  pos=   8
   =                '='               OpEquality          tok=   8  pos=  12
     Const          '1'               NumInt32            tok=  10  pos=  14
 in                 'in'              KWIn                tok=  12  pos=  16

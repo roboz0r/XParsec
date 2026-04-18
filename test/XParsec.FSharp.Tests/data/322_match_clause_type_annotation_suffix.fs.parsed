@@ -27,8 +27,7 @@ FunctionOrValue:
                   Const          '1'               NumInt32            tok=  38  pos= 163
               Colon              ':'               OpColon             tok=  40  pos= 165
               NamedType:
-                LongIdent:
-                                 'int'             Identifier          tok=  42  pos= 167
+                Ident            'int'             Identifier          tok=  42  pos= 167
         Rule:
           Bar                    '|'               OpBar               tok=  45  pos= 175
           Pat:
@@ -40,8 +39,7 @@ FunctionOrValue:
                 Const            '0'               NumInt32            tok=  51  pos= 185
               Colon              ':'               OpColon             tok=  53  pos= 187
               NamedType:
-                LongIdent:
-                                 'int'             Identifier          tok=  55  pos= 189
+                Ident            'int'             Identifier          tok=  55  pos= 189
 FunctionOrValue:
   let                            'let'             KWLet               tok=  60  pos= 227
     Pat.NamedSimple              'g'               Identifier          tok=  62  pos= 231
@@ -63,8 +61,7 @@ FunctionOrValue:
                   Const          '1'               NumInt32            tok=  82  pos= 268
               Colon              ':'               OpColon             tok=  84  pos= 270
               NamedType:
-                LongIdent:
-                                 'int'             Identifier          tok=  86  pos= 272
+                Ident            'int'             Identifier          tok=  86  pos= 272
         Rule:
           Bar                    '|'               OpBar               tok=  89  pos= 280
           Pat:
@@ -76,5 +73,4 @@ FunctionOrValue:
                 Const            '0'               NumInt32            tok=  95  pos= 290
               Colon              ':'               OpColon             tok=  97  pos= 292
               NamedType:
-                LongIdent:
-                                 'int'             Identifier          tok=  99  pos= 294
+                Ident            'int'             Identifier          tok=  99  pos= 294

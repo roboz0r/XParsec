@@ -1,7 +1,6 @@
 [<                   '[<'              KWLAttrBracket      tok=   0  pos=   0
 NamedType:
-  LongIdent:
-                     'RequireQua...'   Identifier          tok=   1  pos=   2
+  Ident              'RequireQua...'   Identifier          tok=   1  pos=   2
 >]                   '>]'              KWRAttrBracket      tok=   2  pos=  24
 module               'module'          KWModule            tok=   4  pos=  27
 access               'internal'        KWInternal          tok=   6  pos=  34

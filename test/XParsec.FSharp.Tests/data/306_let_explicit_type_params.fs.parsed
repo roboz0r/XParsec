@@ -13,8 +13,7 @@ FunctionOrValue:
       VarType:
         Typar.Named:
                            ''T'              TypeParameter       tok=  21  pos= 223
-      LongIdent:
-                           'option'          Identifier          tok=  23  pos= 226
+      Ident                'option'          Identifier          tok=  23  pos= 226
     =                      '='               OpEquality          tok=  25  pos= 233
       Ident                'None'            Identifier          tok=  27  pos= 235
 FunctionOrValue:
@@ -72,8 +71,7 @@ FunctionOrValue:
           Pat.NamedSimple  'i'               Identifier          tok=  84  pos= 482
           Colon            ':'               OpColon             tok=  85  pos= 483
           NamedType:
-            LongIdent:
-                           'int'             Identifier          tok=  87  pos= 485
+            Ident          'int'             Identifier          tok=  87  pos= 485
                            ')'               KWRParen            tok=  88  pos= 488
     ReturnColon            ':'               OpColon             tok=  90  pos= 490
     VarType:

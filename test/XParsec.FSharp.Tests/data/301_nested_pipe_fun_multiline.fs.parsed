@@ -10,8 +10,7 @@ FunctionOrValue:
           Pat.NamedSimple                          'state'           Identifier          tok=  17  pos= 151
           Colon                                    ':'               OpColon             tok=  18  pos= 156
           NamedType:
-            LongIdent:
-                                                   'int'             Identifier          tok=  20  pos= 158
+            Ident                                  'int'             Identifier          tok=  20  pos= 158
                                                    ')'               KWRParen            tok=  21  pos= 161
       ParenBlock                                   '('               KWLParen            tok=  23  pos= 163
         Pat.Typed:
@@ -19,10 +18,8 @@ FunctionOrValue:
           Colon                                    ':'               OpColon             tok=  25  pos= 168
           SuffixedType:
             NamedType:
-              LongIdent:
-                                                   'string'          Identifier          tok=  27  pos= 170
-            LongIdent:
-                                                   'list'            Identifier          tok=  29  pos= 177
+              Ident                                'string'          Identifier          tok=  27  pos= 170
+            Ident                                  'list'            Identifier          tok=  29  pos= 177
                                                    ')'               KWRParen            tok=  30  pos= 181
     =                                              '='               OpEquality          tok=  32  pos= 183
       InfixApp                                     '||>'             op_PipeRight2       tok=  53  pos= 225

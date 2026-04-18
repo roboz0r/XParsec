@@ -4,5 +4,4 @@ StaticUpcast:
     Ident  'x'               Identifier          tok=   0  pos=   0
   :>       ':>'              OpUpcast            tok=   2  pos=   2
   NamedType:
-    LongIdent:
-           'int'             Identifier          tok=   4  pos=   5
+    Ident  'int'             Identifier          tok=   4  pos=   5

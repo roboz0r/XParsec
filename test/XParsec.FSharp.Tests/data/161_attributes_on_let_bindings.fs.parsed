@@ -3,8 +3,7 @@ module                      'module'          KWModule            tok=   0  pos=
 FunctionOrValue:
   [<                        '[<'              KWLAttrBracket      tok=   5  pos=  16
   NamedType:
-    LongIdent:
-                            'Literal'         Identifier          tok=   6  pos=  18
+    Ident                   'Literal'         Identifier          tok=   6  pos=  18
   >]                        '>]'              KWRAttrBracket      tok=   7  pos=  25
   let                       'let'             KWLet               tok=   9  pos=  28
     Pat.NamedSimple         'MaxSize'         Identifier          tok=  11  pos=  32

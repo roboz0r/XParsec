@@ -8,8 +8,7 @@ TypeDefn.Anon:
   begin                      <virt>            KWBegin             tok=virt  pos= 111
     [<                       '[<'              KWLAttrBracket      tok=  20  pos= 111
     NamedType:
-      LongIdent:
-                             'NoEagerCon...'   Identifier          tok=  21  pos= 113
+      Ident                  'NoEagerCon...'   Identifier          tok=  21  pos= 113
     >]                       '>]'              KWRAttrBracket      tok=  22  pos= 141
     static                   'static'          KWStatic            tok=  25  pos= 148
     member                   'member'          KWMember            tok=  27  pos= 155
@@ -37,8 +36,7 @@ TypeDefn.Anon:
         :                    ':'               OpColon             tok=  55  pos= 254
         FunctionType:
           NamedType:
-            LongIdent:
-                             'unit'            Identifier          tok=  57  pos= 256
+            Ident            'unit'            Identifier          tok=  57  pos= 256
           ->                 '->'              OpArrowRight        tok=  59  pos= 261
           VarType:
             Typar.Static:
@@ -57,12 +55,10 @@ TypeDefn.Anon:
         :                    ':'               OpColon             tok=  76  pos= 319
         FunctionType:
           NamedType:
-            LongIdent:
-                             'unit'            Identifier          tok=  78  pos= 321
+            Ident            'unit'            Identifier          tok=  78  pos= 321
           ->                 '->'              OpArrowRight        tok=  80  pos= 326
           NamedType:
-            LongIdent:
-                             'bool'            Identifier          tok=  82  pos= 329
+            Ident            'bool'            Identifier          tok=  82  pos= 329
         )                    ')'               KWRParen            tok=  83  pos= 333
       and                    'and'             KWAnd               tok=  86  pos= 343
       Constraint.MemberTrait:
@@ -76,8 +72,7 @@ TypeDefn.Anon:
         :                    ':'               OpColon             tok=  96  pos= 374
         FunctionType:
           NamedType:
-            LongIdent:
-                             'unit'            Identifier          tok=  98  pos= 376
+            Ident            'unit'            Identifier          tok=  98  pos= 376
           ->                 '->'              OpArrowRight        tok= 100  pos= 381
           VarType:
             Typar.Named:
@@ -104,8 +99,7 @@ TypeDefn.Anon:
                              ''TResult'        TypeParameter       tok= 118  pos= 427
               ->             '->'              OpArrowRight        tok= 120  pos= 436
               NamedType:
-                LongIdent:
-                             'int'             Identifier          tok= 122  pos= 439
+                Ident        'int'             Identifier          tok= 122  pos= 439
                              ')'               KWRParen            tok= 123  pos= 442
     =                        '='               OpEquality          tok= 125  pos= 444
       Const                  '42'              NumInt32            tok= 128  pos= 454

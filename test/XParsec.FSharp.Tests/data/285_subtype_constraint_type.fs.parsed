@@ -57,8 +57,7 @@ FunctionOrValue:
             AnonymousSubtype:
                            '#'               KWHash              tok=  65  pos= 137
               GenericType:
-                LongIdent:
-                           'seq'             Identifier          tok=  66  pos= 138
+                Ident      'seq'             Identifier          tok=  66  pos= 138
                 <          '<'               op_LessThan         tok=  67  pos= 141
                 TypeArg.Type:
                   VarType:

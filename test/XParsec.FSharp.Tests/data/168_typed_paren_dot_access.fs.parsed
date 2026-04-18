@@ -14,13 +14,11 @@ FunctionOrValue:
                     Const  '1'               NumInt32            tok=  12  pos=  25
                   Colon    ':'               OpColon             tok=  13  pos=  26
                   NamedType:
-                    LongIdent:
-                           'int'             Identifier          tok=  15  pos=  28
+                    Ident  'int'             Identifier          tok=  15  pos=  28
                            ')'               KWRParen            tok=  16  pos=  31
             Dot            '.'               OpDot               tok=  17  pos=  32
             LongIdentOrOp:
-              LongIdent:
-                           'ToString'        Identifier          tok=  18  pos=  33
+              Ident        'ToString'        Identifier          tok=  18  pos=  33
         (                  '('               KWLParen            tok=  19  pos=  41
         Arg:
           ParenBlock       '('               KWLParen            tok=  19  pos=  41
