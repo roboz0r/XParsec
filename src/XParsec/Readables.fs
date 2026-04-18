@@ -14,13 +14,14 @@ open XParsec
 type ReadableStringSlice(s: string, start: int, length: int) =
     member _.Item
         with get index =
-            if index < 0 || index >= length then
+            if uint index >= uint length then
                 raise (IndexOutOfRangeException())
 
             s.[start + index]
 
     member _.TryItem(index) =
-        if index < length then
+        // uint cast safely checks 0 <= index < length
+        if uint index < uint length then
             ValueSome(s.[start + index])
         else
             ValueNone
@@ -32,11 +33,12 @@ type ReadableStringSlice(s: string, start: int, length: int) =
         if count < 0 then
             invalidArg "count" "Count must be non-negative."
 
-        if index > length then
+        if index >= length then
             ReadOnlySpan.Empty
         else
-            let length = min count (length - int index)
-            s.AsSpan(start + int index, length)
+            // Clamp the count to the remaining length of THIS slice
+            let safeCount = min count (length - index)
+            s.AsSpan(start + index, safeCount)
 
     member _.Length = length
 
@@ -47,13 +49,12 @@ type ReadableStringSlice(s: string, start: int, length: int) =
         if newLength < 0 then
             invalidArg "newLength" "New length must be non-negative."
 
-        let newStart = start + newStart
-
-        if newStart > s.Length then
-            ReadableStringSlice(s, start, 0)
+        if newStart >= length then
+            ReadableStringSlice(s, start + length, 0)
         else
-            let newLength = min newLength (s.Length - newStart)
-            ReadableStringSlice(s, start + newStart, newLength)
+            // Clamp to the remaining length of THIS slice
+            let safeLength = min newLength (length - newStart)
+            ReadableStringSlice(s, start + newStart, safeLength)
 
     interface IReadable<char, ReadableStringSlice> with
         member this.Item
@@ -72,13 +73,16 @@ type ReadableStringSlice(s: string, start: int, length: int) =
 type ReadableString(s: string) =
     member _.Item
         with get index =
-            if index < 0 || index >= s.Length then
+            if uint index >= uint s.Length then
                 raise (IndexOutOfRangeException())
 
             s.[index]
 
     member _.TryItem(index) =
-        if index < s.Length then ValueSome(s.[index]) else ValueNone
+        if uint index < uint s.Length then
+            ValueSome(s.[index])
+        else
+            ValueNone
 
     member _.SpanSlice(index, count) =
         if index < 0 then
@@ -87,11 +91,12 @@ type ReadableString(s: string) =
         if count < 0 then
             invalidArg "count" "Count must be non-negative."
 
-        if index > s.Length then
+        if index >= s.Length then
             ReadOnlySpan.Empty
         else
-            let length = min count (s.Length - index)
-            s.AsSpan(index, length)
+            // Clamp the count to the length
+            let safeCount = min count (s.Length - index)
+            s.AsSpan(index, safeCount)
 
     member _.Length = s.Length
 
@@ -102,11 +107,11 @@ type ReadableString(s: string) =
         if newLength < 0 then
             invalidArg "newLength" "New length must be non-negative."
 
-        if newStart > s.Length then
-            ReadableStringSlice(s, 0, 0)
+        if newStart >= s.Length then
+            ReadableStringSlice(s, s.Length, 0)
         else
-            let newLength = min newLength (s.Length - newStart)
-            ReadableStringSlice(s, newStart, newLength)
+            let safeLength = min newLength (s.Length - newStart)
+            ReadableStringSlice(s, newStart, safeLength)
 
     interface IReadable<char, ReadableStringSlice> with
         member this.Item
@@ -125,13 +130,14 @@ type ReadableString(s: string) =
 type ReadableArraySlice<'T>(arr: 'T array, start: int, length: int) =
     member _.Item
         with get index =
-            if index < 0 || index >= length then
+            if uint index >= uint length then
                 raise (IndexOutOfRangeException())
 
             arr.[start + index]
 
     member _.TryItem(index) =
-        if index < length then
+        // uint cast safely checks 0 <= index < length
+        if uint index < uint length then
             ValueSome(arr.[start + index])
         else
             ValueNone
@@ -143,14 +149,15 @@ type ReadableArraySlice<'T>(arr: 'T array, start: int, length: int) =
         if count < 0 then
             invalidArg "count" "Count must be non-negative."
 
-        if index > length then
+        if index >= length then
             ReadOnlySpan.Empty
         else
-            let length = min count (length - index)
+            // Clamp the count to the remaining length of THIS slice
+            let safeCount = min count (length - index)
 #if FABLE_COMPILER
-            ArraySpan<'T>(arr, start + index, length) :> ReadOnlySpan<'T>
+            ArraySpan<'T>(arr, start + index, safeCount) :> ReadOnlySpan<'T>
 #else
-            ReadOnlySpan<'T>(arr, start + index, length)
+            ReadOnlySpan<'T>(arr, start + index, safeCount)
 #endif
 
     member _.Length = length
@@ -162,13 +169,12 @@ type ReadableArraySlice<'T>(arr: 'T array, start: int, length: int) =
         if newLength < 0 then
             invalidArg "newLength" "New length must be non-negative."
 
-        let newStart = start + newStart
-
-        if newStart > arr.Length then
-            ReadableArraySlice(arr, start, 0)
+        if newStart >= length then
+            ReadableArraySlice(arr, start + length, 0)
         else
-            let newLength = min newLength (arr.Length - newStart)
-            ReadableArraySlice(arr, start + newStart, newLength)
+            // Clamp to the remaining length of THIS slice
+            let safeLength = min newLength (length - newStart)
+            ReadableArraySlice(arr, start + newStart, safeLength)
 
     interface IReadable<'T, ReadableArraySlice<'T>> with
         member this.Item
@@ -187,13 +193,13 @@ type ReadableArraySlice<'T>(arr: 'T array, start: int, length: int) =
 type ReadableArray<'T>(arr: 'T array) =
     member _.Item
         with get index =
-            if index < 0 || index >= arr.Length then
+            if uint index >= uint arr.Length then
                 raise (IndexOutOfRangeException())
 
             arr.[index]
 
     member _.TryItem(index) =
-        if index < arr.Length then
+        if uint index < uint arr.Length then
             ValueSome(arr.[index])
         else
             ValueNone
@@ -205,14 +211,15 @@ type ReadableArray<'T>(arr: 'T array) =
         if count < 0 then
             invalidArg "count" "Count must be non-negative."
 
-        if index > arr.Length then
+        if index >= arr.Length then
             ReadOnlySpan.Empty
         else
-            let length = min count (arr.Length - index)
+            // Clamp the count to the length
+            let safeCount = min count (arr.Length - index)
 #if FABLE_COMPILER
-            ArraySpan<'T>(arr, index, length) :> ReadOnlySpan<'T>
+            ArraySpan<'T>(arr, index, safeCount) :> ReadOnlySpan<'T>
 #else
-            ReadOnlySpan<'T>(arr, index, length)
+            ReadOnlySpan<'T>(arr, index, safeCount)
 #endif
 
     member _.Length = arr.Length
@@ -224,11 +231,11 @@ type ReadableArray<'T>(arr: 'T array) =
         if newLength < 0 then
             invalidArg "newLength" "New length must be non-negative."
 
-        if newStart > arr.Length then
-            ReadableArraySlice(arr, 0, 0)
+        if newStart >= arr.Length then
+            ReadableArraySlice(arr, arr.Length, 0)
         else
-            let newLength = min newLength (arr.Length - newStart)
-            ReadableArraySlice(arr, newStart, newLength)
+            let safeLength = min newLength (arr.Length - newStart)
+            ReadableArraySlice(arr, newStart, safeLength)
 
     interface IReadable<'T, ReadableArraySlice<'T>> with
         member this.Item
@@ -248,13 +255,14 @@ type ReadableArray<'T>(arr: 'T array) =
 type ReadableImmutableArraySlice<'T>(arr: ImmutableArray<'T>, start: int, length: int) =
     member _.Item
         with get index =
-            if index < 0 || index >= length then
+            if uint index >= uint length then
                 raise (IndexOutOfRangeException())
 
             arr.[start + index]
 
     member _.TryItem(index) =
-        if index < length then
+        // uint cast safely checks 0 <= index < length
+        if uint index < uint length then
             ValueSome(arr.[start + index])
         else
             ValueNone
@@ -266,11 +274,12 @@ type ReadableImmutableArraySlice<'T>(arr: ImmutableArray<'T>, start: int, length
         if count < 0 then
             invalidArg "count" "Count must be non-negative."
 
-        if index > length then
+        if index >= length then
             ReadOnlySpan.Empty
         else
-            let length = min count (length - index)
-            arr.AsSpan(start + index, length)
+            // Clamp the count to the remaining length of THIS slice
+            let safeCount = min count (length - index)
+            arr.AsSpan(start + index, safeCount)
 
     member _.Length = length
 
@@ -281,13 +290,12 @@ type ReadableImmutableArraySlice<'T>(arr: ImmutableArray<'T>, start: int, length
         if newLength < 0 then
             invalidArg "newLength" "New length must be non-negative."
 
-        let newStart = start + newStart
-
-        if newStart > arr.Length then
-            ReadableImmutableArraySlice(arr, start, 0)
+        if newStart >= length then
+            ReadableImmutableArraySlice(arr, start + length, 0)
         else
-            let newLength = min newLength (arr.Length - newStart)
-            ReadableImmutableArraySlice(arr, start + newStart, newLength)
+            // Clamp to the remaining length of THIS slice
+            let safeLength = min newLength (length - newStart)
+            ReadableImmutableArraySlice(arr, start + newStart, safeLength)
 
     interface IReadable<'T, ReadableImmutableArraySlice<'T>> with
         member this.Item
@@ -307,13 +315,13 @@ type ReadableImmutableArraySlice<'T>(arr: ImmutableArray<'T>, start: int, length
 type ReadableImmutableArray<'T>(arr: ImmutableArray<'T>) =
     member _.Item
         with get index =
-            if index < 0 || index >= arr.Length then
+            if uint index >= uint arr.Length then
                 raise (IndexOutOfRangeException())
 
             arr.[index]
 
     member _.TryItem(index) =
-        if index < arr.Length then
+        if uint index < uint arr.Length then
             ValueSome(arr.[index])
         else
             ValueNone
@@ -325,11 +333,11 @@ type ReadableImmutableArray<'T>(arr: ImmutableArray<'T>) =
         if count < 0 then
             invalidArg "count" "Count must be non-negative."
 
-        if index > arr.Length then
+        if index >= arr.Length then
             ReadOnlySpan.Empty
         else
-            let length = min count (arr.Length - index)
-            arr.AsSpan(index, length)
+            let safeCount = min count (arr.Length - index)
+            arr.AsSpan(index, safeCount)
 
     member _.Length = arr.Length
 
@@ -340,11 +348,11 @@ type ReadableImmutableArray<'T>(arr: ImmutableArray<'T>) =
         if newLength < 0 then
             invalidArg "newLength" "New length must be non-negative."
 
-        if newStart > arr.Length then
-            ReadableImmutableArraySlice(arr, 0, 0)
+        if newStart >= arr.Length then
+            ReadableImmutableArraySlice(arr, arr.Length, 0)
         else
-            let newLength = min newLength (arr.Length - newStart)
-            ReadableImmutableArraySlice(arr, newStart, newLength)
+            let safeLength = min newLength (arr.Length - newStart)
+            ReadableImmutableArraySlice(arr, newStart, safeLength)
 
     interface IReadable<'T, ReadableImmutableArraySlice<'T>> with
         member this.Item
@@ -364,13 +372,14 @@ type ReadableImmutableArray<'T>(arr: ImmutableArray<'T>) =
 type ReadableResizeArraySlice<'T>(arr: ResizeArray<'T>, start: int, length: int) =
     member _.Item
         with get index =
-            if index < 0 || index >= length then
+            if uint index >= uint length then
                 raise (IndexOutOfRangeException())
 
             arr.[start + index]
 
     member _.TryItem(index) =
-        if index < length then
+        // uint cast safely checks 0 <= index < length
+        if uint index < uint length then
             ValueSome(arr.[start + index])
         else
             ValueNone
@@ -382,15 +391,16 @@ type ReadableResizeArraySlice<'T>(arr: ResizeArray<'T>, start: int, length: int)
         if count < 0 then
             invalidArg "count" "Count must be non-negative."
 
-        if index > length then
+        if index >= length then
             ReadOnlySpan.Empty
         else
-            let length = min count (length - index)
+            // Clamp the count to the remaining length of THIS slice
+            let safeCount = min count (length - index)
 #if FABLE_COMPILER
-            ResizeArraySpan<'T>(arr, start + index, length) :> ReadOnlySpan<'T>
+            ResizeArraySpan<'T>(arr, start + index, safeCount) :> ReadOnlySpan<'T>
 #else
             let span = CollectionsMarshal.AsSpan(arr)
-            Span.op_Implicit (span.Slice(start + index, length))
+            Span.op_Implicit (span.Slice(start + index, safeCount))
 #endif
 
     member _.Length = length
@@ -402,13 +412,12 @@ type ReadableResizeArraySlice<'T>(arr: ResizeArray<'T>, start: int, length: int)
         if newLength < 0 then
             invalidArg "newLength" "New length must be non-negative."
 
-        let newStart = start + newStart
-
-        if newStart > arr.Count then
-            ReadableResizeArraySlice(arr, start, 0)
+        if newStart >= length then
+            ReadableResizeArraySlice(arr, start + length, 0)
         else
-            let newLength = min newLength (arr.Count - newStart)
-            ReadableResizeArraySlice(arr, start + newStart, newLength)
+            // Clamp to the remaining length of THIS slice
+            let safeLength = min newLength (length - newStart)
+            ReadableResizeArraySlice(arr, start + newStart, safeLength)
 
     interface IReadable<'T, ReadableResizeArraySlice<'T>> with
         member this.Item
@@ -427,13 +436,13 @@ type ReadableResizeArraySlice<'T>(arr: ResizeArray<'T>, start: int, length: int)
 type ReadableResizeArray<'T>(arr: ResizeArray<'T>) =
     member _.Item
         with get index =
-            if index < 0 || index >= arr.Count then
+            if uint index >= uint arr.Count then
                 raise (IndexOutOfRangeException())
 
             arr.[index]
 
     member _.TryItem(index) =
-        if index < arr.Count then
+        if uint index < uint arr.Count then
             ValueSome(arr.[index])
         else
             ValueNone
@@ -445,15 +454,15 @@ type ReadableResizeArray<'T>(arr: ResizeArray<'T>) =
         if count < 0 then
             invalidArg "count" "Count must be non-negative."
 
-        if index > arr.Count then
+        if index >= arr.Count then
             ReadOnlySpan.Empty
         else
-            let length = min count (arr.Count - index)
+            let safeCount = min count (arr.Count - index)
 #if FABLE_COMPILER
-            ResizeArraySpan<'T>(arr, index, length) :> ReadOnlySpan<'T>
+            ResizeArraySpan<'T>(arr, index, safeCount) :> ReadOnlySpan<'T>
 #else
             let span = CollectionsMarshal.AsSpan(arr)
-            Span.op_Implicit (span.Slice(index, length))
+            Span.op_Implicit (span.Slice(index, safeCount))
 #endif
 
     member _.Length = arr.Count
@@ -465,11 +474,11 @@ type ReadableResizeArray<'T>(arr: ResizeArray<'T>) =
         if newLength < 0 then
             invalidArg "newLength" "New length must be non-negative."
 
-        if newStart > arr.Count then
-            ReadableResizeArraySlice(arr, 0, 0)
+        if newStart >= arr.Count then
+            ReadableResizeArraySlice(arr, arr.Count, 0)
         else
-            let newLength = min newLength (arr.Count - newStart)
-            ReadableResizeArraySlice(arr, newStart, newLength)
+            let safeLength = min newLength (arr.Count - newStart)
+            ReadableResizeArraySlice(arr, newStart, safeLength)
 
     interface IReadable<'T, ReadableResizeArraySlice<'T>> with
         member this.Item
@@ -490,13 +499,13 @@ type ReadableResizeArray<'T>(arr: ResizeArray<'T>) =
 type ReadableMemory<'T>(memory: ReadOnlyMemory<'T>) =
     member _.Item
         with get index =
-            if index < 0 || index >= memory.Length then
+            if uint index >= uint memory.Length then
                 raise (IndexOutOfRangeException())
 
             memory.Span[index]
 
     member _.TryItem(index) =
-        if index < memory.Length then
+        if uint index < uint memory.Length then
             ValueSome(memory.Span[index])
         else
             ValueNone
@@ -508,11 +517,11 @@ type ReadableMemory<'T>(memory: ReadOnlyMemory<'T>) =
         if count < 0 then
             invalidArg "count" "Count must be non-negative."
 
-        if index > memory.Length then
+        if index >= memory.Length then
             ReadOnlySpan.Empty
         else
-            let length = min count (memory.Length - index)
-            memory.Span.Slice(index, length)
+            let safeCount = min count (memory.Length - index)
+            memory.Span.Slice(index, safeCount)
 
     member _.Length = memory.Length
 
@@ -523,11 +532,11 @@ type ReadableMemory<'T>(memory: ReadOnlyMemory<'T>) =
         if newLength < 0 then
             invalidArg "newLength" "New length must be non-negative."
 
-        if newStart > memory.Length then
-            ReadableMemory(memory.Slice(0, 0))
+        if newStart >= memory.Length then
+            ReadableMemory(memory.Slice(memory.Length, 0))
         else
-            let newLength = min newLength (memory.Length - newStart)
-            ReadableMemory(memory.Slice(newStart, newLength))
+            let safeLength = min newLength (memory.Length - newStart)
+            ReadableMemory(memory.Slice(newStart, safeLength))
 
     new(memory: Memory<'T>) = ReadableMemory(memory)
 
