@@ -91,10 +91,10 @@ FunctionOrValue:
     inline                 'inline'          KWInline            tok= 108  pos= 481
     Pat.NamedSimple        'myNullPtr'       Identifier          tok= 110  pos= 488
     TyparDefns:
-                           '<'               op_LessThan         tok= 111  pos= 497
+      <                    '<'               op_LessThan         tok= 111  pos= 497
       Typar.Named:
                            ''T'              TypeParameter       tok= 112  pos= 498
-                           '>'               op_GreaterThan      tok= 113  pos= 500
+      >                    '>'               op_GreaterThan      tok= 113  pos= 500
     ReturnColon            ':'               OpColon             tok= 115  pos= 502
     NamedType:
       LongIdent:

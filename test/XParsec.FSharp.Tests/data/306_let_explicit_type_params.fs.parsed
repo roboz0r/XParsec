@@ -4,10 +4,10 @@ FunctionOrValue:
   let                      'let'             KWLet               tok=  12  pos= 201
     Pat.NamedSimple        'myNullValu...'   Identifier          tok=  14  pos= 205
     TyparDefns:
-                           '<'               op_LessThan         tok=  15  pos= 216
+      <                    '<'               op_LessThan         tok=  15  pos= 216
       Typar.Named:
                            ''T'              TypeParameter       tok=  16  pos= 217
-                           '>'               op_GreaterThan      tok=  17  pos= 219
+      >                    '>'               op_GreaterThan      tok=  17  pos= 219
     ReturnColon            ':'               OpColon             tok=  19  pos= 221
     SuffixedType:
       VarType:
@@ -22,7 +22,7 @@ FunctionOrValue:
     inline                 'inline'          KWInline            tok=  34  pos= 264
     Pat.NamedSimple        'myDefault'       Identifier          tok=  36  pos= 271
     TyparDefns:
-                           '<'               op_LessThan         tok=  37  pos= 280
+      <                    '<'               op_LessThan         tok=  37  pos= 280
       Typar.Named:
                            ''T'              TypeParameter       tok=  38  pos= 281
       when                 'when'            KWWhen              tok=  40  pos= 284
@@ -31,7 +31,7 @@ FunctionOrValue:
                            ''T'              TypeParameter       tok=  42  pos= 289
         :                  ':'               OpColon             tok=  44  pos= 292
         struct             'struct'          KWStruct            tok=  46  pos= 294
-                           '>'               op_GreaterThan      tok=  47  pos= 300
+      >                    '>'               op_GreaterThan      tok=  47  pos= 300
     ReturnColon            ':'               OpColon             tok=  49  pos= 302
     VarType:
       Typar.Named:
@@ -51,10 +51,10 @@ FunctionOrValue:
   let                      'let'             KWLet               tok=  67  pos= 452
     Pat.NamedSimple        'getValue'        Identifier          tok=  69  pos= 456
     TyparDefns:
-                           '<'               op_LessThan         tok=  70  pos= 464
+      <                    '<'               op_LessThan         tok=  70  pos= 464
       Typar.Named:
                            ''T'              TypeParameter       tok=  71  pos= 465
-                           '>'               op_GreaterThan      tok=  72  pos= 467
+      >                    '>'               op_GreaterThan      tok=  72  pos= 467
     Pats:
       ParenBlock           '('               KWLParen            tok=  74  pos= 469
         Pat.Typed:

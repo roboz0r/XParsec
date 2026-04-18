@@ -16,7 +16,7 @@ TypeDefn.Anon:
     inline                   'inline'          KWInline            tok=  29  pos= 162
     Pat.NamedSimple          'BindDynami...'   Identifier          tok=  31  pos= 169
     TyparDefns:
-                             '<'               op_LessThan         tok=  32  pos= 180
+      <                      '<'               op_LessThan         tok=  32  pos= 180
       Typar.Static:
                              '^'               OpConcatenate       tok=  34  pos= 182
                              'TaskLike'        Identifier          tok=  35  pos= 183
@@ -83,7 +83,7 @@ TypeDefn.Anon:
             Typar.Named:
                              ''TResult'        TypeParameter       tok= 102  pos= 384
         )                    ')'               KWRParen            tok= 103  pos= 392
-                             '>'               op_GreaterThan      tok= 104  pos= 393
+      >                      '>'               op_GreaterThan      tok= 104  pos= 393
     Pats:
       ParenBlock             '('               KWLParen            tok= 107  pos= 403
         Pat.Tuple:

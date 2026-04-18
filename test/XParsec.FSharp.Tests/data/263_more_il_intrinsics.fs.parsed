@@ -181,10 +181,10 @@ Module:
     TypeDefn.Abbrev:
       TypeName                        '``[]``'          BacktickedIdentifier  tok= 192  pos= 461
       TyparDefns:
-                                      '<'               op_LessThan         tok= 193  pos= 467
+        <                             '<'               op_LessThan         tok= 193  pos= 467
         Typar.Named:
                                       ''T'              TypeParameter       tok= 194  pos= 468
-                                      '>'               op_GreaterThan      tok= 195  pos= 470
+        >                             '>'               op_GreaterThan      tok= 195  pos= 470
       =                               '='               OpEquality          tok= 197  pos= 472
         ILIntrinsic:
           (#                          '(#'              KWLHashParen        tok= 199  pos= 474
@@ -196,10 +196,10 @@ Module:
     TypeDefn.Abbrev:
       TypeName                        '``[,]``'         BacktickedIdentifier  tok= 210  pos= 496
       TyparDefns:
-                                      '<'               op_LessThan         tok= 211  pos= 503
+        <                             '<'               op_LessThan         tok= 211  pos= 503
         Typar.Named:
                                       ''T'              TypeParameter       tok= 212  pos= 504
-                                      '>'               op_GreaterThan      tok= 213  pos= 506
+        >                             '>'               op_GreaterThan      tok= 213  pos= 506
       =                               '='               OpEquality          tok= 215  pos= 508
         ILIntrinsic:
           (#                          '(#'              KWLHashParen        tok= 217  pos= 510
@@ -393,10 +393,10 @@ Module:
         inline                        'inline'          KWInline            tok= 398  pos=1066
         Pat.NamedSimple               'typeof'          Identifier          tok= 400  pos=1073
         TyparDefns:
-                                      '<'               op_LessThan         tok= 401  pos=1079
+          <                           '<'               op_LessThan         tok= 401  pos=1079
           Typar.Named:
                                       ''T'              TypeParameter       tok= 402  pos=1080
-                                      '>'               op_GreaterThan      tok= 403  pos=1082
+          >                           '>'               op_GreaterThan      tok= 403  pos=1082
         =                             '='               OpEquality          tok= 405  pos=1084
           Let                         'let'             KWLet               tok= 408  pos=1094
             Pat.NamedSimple           'tok'             Identifier          tok= 410  pos=1098

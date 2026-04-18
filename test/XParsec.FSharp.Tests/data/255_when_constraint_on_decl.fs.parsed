@@ -8,12 +8,12 @@ Import:
 TypeDefn.Anon:
   TypeName           'MySet'           Identifier          tok=  18  pos=  92
   TyparDefns:
-                     '<'               op_LessThan         tok=  19  pos=  97
+    <                '<'               op_LessThan         tok=  19  pos=  97
     Typar.Named:
                      ''T'              TypeParameter       tok=  20  pos=  98
     Typar.Named:
                      ''Tag'            TypeParameter       tok=  23  pos= 102
-                     '>'               op_GreaterThan      tok=  24  pos= 106
+    >                '>'               op_GreaterThan      tok=  24  pos= 106
   when               'when'            KWWhen              tok=  26  pos= 108
   Constraint.Coercion:
     Typar.Named:
@@ -55,7 +55,7 @@ FunctionOrValue:
     inline           'inline'          KWInline            tok=  64  pos= 247
     Pat.NamedSimple  'Structural'      Identifier          tok=  66  pos= 254
     TyparDefns:
-                     '<'               op_LessThan         tok=  67  pos= 264
+      <              '<'               op_LessThan         tok=  67  pos= 264
       Typar.Named:
                      ''T'              TypeParameter       tok=  68  pos= 265
       when           'when'            KWWhen              tok=  70  pos= 268
@@ -64,7 +64,7 @@ FunctionOrValue:
                      ''T'              TypeParameter       tok=  72  pos= 273
         :            ':'               OpColon             tok=  73  pos= 275
         equality     'equality'        Identifier          tok=  75  pos= 277
-                     '>'               op_GreaterThan      tok=  76  pos= 285
+      >              '>'               op_GreaterThan      tok=  76  pos= 285
     ReturnColon      ':'               OpColon             tok=  78  pos= 287
     GenericType:
       LongIdent:

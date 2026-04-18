@@ -35,10 +35,10 @@ FunctionOrValue:
 TypeDefn.Abbrev:
   TypeName                 '``[]``'          BacktickedIdentifier  tok=  41  pos= 148
   TyparDefns:
-                           '<'               op_LessThan         tok=  42  pos= 154
+    <                      '<'               op_LessThan         tok=  42  pos= 154
     Typar.Named:
                            ''T'              TypeParameter       tok=  43  pos= 155
-                           '>'               op_GreaterThan      tok=  44  pos= 157
+    >                      '>'               op_GreaterThan      tok=  44  pos= 157
   =                        '='               OpEquality          tok=  46  pos= 159
     ILIntrinsic:
       (#                   '(#'              KWLHashParen        tok=  48  pos= 161

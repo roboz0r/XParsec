@@ -3,10 +3,10 @@ module                 'module'          KWModule            tok=   0  pos=   0
 TypeDefn.Union:
   TypeName             'Tree'            Identifier          tok=  12  pos= 155
   TyparDefns:
-                       '<'               op_LessThan         tok=  13  pos= 159
+    <                  '<'               op_LessThan         tok=  13  pos= 159
     Typar.Named:
                        ''T'              TypeParameter       tok=  14  pos= 160
-                       '>'               op_GreaterThan      tok=  15  pos= 162
+    >                  '>'               op_GreaterThan      tok=  15  pos= 162
   =                    '='               OpEquality          tok=  17  pos= 164
     Case:
       ident            'TreeNode'        Identifier          tok=  22  pos= 172

@@ -570,7 +570,7 @@ and walkConstraint (visitor: AstVisitor<'T>) (c: Constraint<'T>) : unit =
 and walkTyparDefns (visitor: AstVisitor<'T>) (typars: TyparDefns<'T>) : unit =
     let (TyparDefns(lAngle, defns, constraints, rAngle)) = typars
     visitor.EnterSection "TyparDefns"
-    visitor.VisitToken "" lAngle
+    visitor.VisitToken "<" lAngle
 
     for (TyparDefn(attrs, typar)) in defns do
         walkAttributesOpt visitor attrs
@@ -587,7 +587,7 @@ and walkTyparDefns (visitor: AstVisitor<'T>) (typars: TyparDefns<'T>) : unit =
                 visitor.VisitToken "and" ands[i]
     | ValueNone -> ()
 
-    visitor.VisitToken "" rAngle
+    visitor.VisitToken ">" rAngle
     visitor.ExitSection "TyparDefns"
 
 and walkTypeArg (visitor: AstVisitor<'T>) (typeArg: TypeArg<'T>) : unit =

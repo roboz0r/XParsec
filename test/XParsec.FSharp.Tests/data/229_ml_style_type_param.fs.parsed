@@ -35,10 +35,10 @@ TypeDefn.Abbrev:
 TypeDefn.Record:
   TypeName   'Wrapper'         Identifier          tok=  48  pos= 199
   TyparDefns:
-             '<'               op_LessThan         tok=  49  pos= 206
+    <        '<'               op_LessThan         tok=  49  pos= 206
     Typar.Named:
              ''T'              TypeParameter       tok=  50  pos= 207
-             '>'               op_GreaterThan      tok=  51  pos= 209
+    >        '>'               op_GreaterThan      tok=  51  pos= 209
   =          '='               OpEquality          tok=  53  pos= 211
   {          '{'               KWLBrace            tok=  55  pos= 213
     Field:
