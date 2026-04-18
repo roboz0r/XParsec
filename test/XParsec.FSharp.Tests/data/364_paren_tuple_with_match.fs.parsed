@@ -1,0 +1,123 @@
+AnonymousModule:
+FunctionOrValue:
+  let                                            'let'             KWLet               tok=  15  pos= 411
+    Pat.NamedSimple                              'adjustExnC...'   Identifier          tok=  17  pos= 415
+    Pats:
+      Pat.NamedSimple                            'origExnCla...'   Identifier          tok=  19  pos= 432
+      Pat.NamedSimple                            'adjuster'        Identifier          tok=  21  pos= 447
+    =                                            '='               OpEquality          tok=  23  pos= 456
+      InfixApp                                   '|>'              op_PipeRight        tok=  28  pos= 477
+        Ident                                    'origExnCla...'   Identifier          tok=  26  pos= 462
+        App:
+          Func:
+            LongIdentOrOp:
+              LongIdent:
+                                                 'List'            Identifier          tok=  30  pos= 480
+                                                 'map'             Identifier          tok=  32  pos= 485
+          Args:
+            ParenBlock                           '('               KWLParen            tok=  34  pos= 489
+              Fun                                'fun'             KWFun               tok=  35  pos= 490
+              Pats:
+                ParenBlock                       '('               KWLParen            tok=  37  pos= 494
+                  Pat.Tuple:
+                    Pat.NamedSimple              'st1'             Identifier          tok=  38  pos= 495
+                    ,                            ','               OpComma             tok=  39  pos= 498
+                    Pat.NamedSimple              'sz1'             Identifier          tok=  41  pos= 500
+                    ,                            ','               OpComma             tok=  42  pos= 503
+                    Pat.NamedSimple              'st2'             Identifier          tok=  44  pos= 505
+                    ,                            ','               OpComma             tok=  45  pos= 508
+                    Pat.NamedSimple              'sz2'             Identifier          tok=  47  pos= 510
+                    ,                            ','               OpComma             tok=  48  pos= 513
+                    Pat.NamedSimple              'kind'            Identifier          tok=  50  pos= 515
+                                                 ')'               KWRParen            tok=  51  pos= 519
+              Arrow                              '->'              OpArrowRight        tok=  53  pos= 521
+              Body:
+                ParenBlock                       '('               KWLParen            tok=  56  pos= 532
+                  Tuple:
+                    App:
+                      Func:
+                        Ident                    'adjuster'        Identifier          tok=  57  pos= 533
+                      Args:
+                        Ident                    'st1'             Identifier          tok=  59  pos= 542
+                    ParenBlock                   '('               KWLParen            tok=  62  pos= 547
+                      InfixApp                   '-'               op_Subtraction      tok=  73  pos= 569
+                        App:
+                          Func:
+                            Ident                'adjuster'        Identifier          tok=  63  pos= 548
+                          Args:
+                            ParenBlock           '('               KWLParen            tok=  65  pos= 557
+                              InfixApp           '+'               op_Addition         tok=  68  pos= 562
+                                Ident            'st1'             Identifier          tok=  66  pos= 558
+                                Ident            'sz1'             Identifier          tok=  70  pos= 564
+                                                 ')'               KWRParen            tok=  71  pos= 567
+                        App:
+                          Func:
+                            Ident                'adjuster'        Identifier          tok=  75  pos= 571
+                          Args:
+                            Ident                'st1'             Identifier          tok=  77  pos= 580
+                                                 ')'               KWRParen            tok=  78  pos= 583
+                    App:
+                      Func:
+                        Ident                    'adjuster'        Identifier          tok=  82  pos= 595
+                      Args:
+                        Ident                    'st2'             Identifier          tok=  84  pos= 604
+                    ParenBlock                   '('               KWLParen            tok=  87  pos= 609
+                      InfixApp                   '-'               op_Subtraction      tok=  98  pos= 631
+                        App:
+                          Func:
+                            Ident                'adjuster'        Identifier          tok=  88  pos= 610
+                          Args:
+                            ParenBlock           '('               KWLParen            tok=  90  pos= 619
+                              InfixApp           '+'               op_Addition         tok=  93  pos= 624
+                                Ident            'st2'             Identifier          tok=  91  pos= 620
+                                Ident            'sz2'             Identifier          tok=  95  pos= 626
+                                                 ')'               KWRParen            tok=  96  pos= 629
+                        App:
+                          Func:
+                            Ident                'adjuster'        Identifier          tok= 100  pos= 633
+                          Args:
+                            Ident                'st2'             Identifier          tok= 102  pos= 642
+                                                 ')'               KWRParen            tok= 103  pos= 645
+                    ParenBlock                   '('               KWLParen            tok= 107  pos= 657
+                      Match:
+                        MatchToken               'match'           KWMatch             tok= 108  pos= 658
+                        MatchExpr:
+                          Ident                  'kind'            Identifier          tok= 110  pos= 664
+                        WithToken                'with'            KWWith              tok= 112  pos= 669
+                        Rule:
+                          Bar                    '|'               OpBar               tok= 115  pos= 683
+                          Pat:
+                            Pat.Or               '|'               OpBar               tok= 123  pos= 713
+                              Pat.Or             '|'               OpBar               tok= 119  pos= 699
+                                Pat.NamedSimple  'FinallyCla...'   Identifier          tok= 117  pos= 685
+                                Pat.NamedSimple  'FaultClaus...'   Identifier          tok= 121  pos= 701
+                              Pat.Named:
+                                Ident            'TypeFilter...'   Identifier          tok= 125  pos= 715
+                                Param:
+                                  Pat.Wildcard   '_'               Wildcard            tok= 127  pos= 732
+                          Arrow                  '->'              OpArrowRight        tok= 129  pos= 734
+                          Expr:
+                            Ident                'kind'            Identifier          tok= 131  pos= 737
+                        Rule:
+                          Bar                    '|'               OpBar               tok= 134  pos= 751
+                          Pat:
+                            Pat.Named:
+                              Ident              'FilterClau...'   Identifier          tok= 136  pos= 753
+                              Param:
+                                Pat.NamedSimple  'n'               Identifier          tok= 138  pos= 766
+                          Arrow                  '->'              OpArrowRight        tok= 140  pos= 768
+                          Expr:
+                            App:
+                              Func:
+                                Ident            'FilterClau...'   Identifier          tok= 142  pos= 771
+                              Args:
+                                ParenBlock       '('               KWLParen            tok= 144  pos= 784
+                                  App:
+                                    Func:
+                                      Ident      'adjuster'        Identifier          tok= 145  pos= 785
+                                    Args:
+                                      Ident      'n'               Identifier          tok= 147  pos= 794
+                                                 ')'               KWRParen            tok= 148  pos= 795
+                                                 ')'               KWRParen            tok= 149  pos= 796
+                                                 ')'               KWRParen            tok= 150  pos= 797
+                                                 ')'               KWRParen            tok= 151  pos= 798

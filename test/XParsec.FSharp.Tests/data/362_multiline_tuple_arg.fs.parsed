@@ -1,0 +1,131 @@
+AnonymousModule:
+FunctionOrValue:
+  let                                                             'let'             KWLet               tok=  13  pos= 377
+    Pat.NamedSimple                                               'rewrite'         Identifier          tok=  15  pos= 381
+    Pats:
+      Pat.NamedSimple                                             'expr'            Identifier          tok=  17  pos= 389
+      Pat.NamedSimple                                             'g'               Identifier          tok=  19  pos= 394
+      Pat.NamedSimple                                             'access'          Identifier          tok=  21  pos= 396
+      Pat.NamedSimple                                             'rvs'             Identifier          tok=  23  pos= 403
+    =                                                             '='               OpEquality          tok=  25  pos= 407
+      Match:
+        MatchToken                                                'match'           KWMatch             tok=  28  pos= 413
+        MatchExpr:
+          Ident                                                   'expr'            Identifier          tok=  30  pos= 419
+        WithToken                                                 'with'            KWWith              tok=  32  pos= 424
+        Rule:
+          Bar                                                     '|'               OpBar               tok=  35  pos= 433
+          Pat:
+            Pat.Named:
+              Ident                                               'Expr'            Identifier          tok=  37  pos= 435
+              Ident                                               'Op'              Identifier          tok=  39  pos= 440
+              Param:
+                ParenBlock                                        '('               KWLParen            tok=  41  pos= 443
+                  Pat.Tuple:
+                    Pat.Named:
+                      Ident                                       'TOp'             Identifier          tok=  42  pos= 444
+                      Ident                                       'Tuple'           Identifier          tok=  44  pos= 448
+                      Param:
+                        Pat.NamedSimple                           'tupInfo'         Identifier          tok=  46  pos= 454
+                    ,                                             ','               OpComma             tok=  47  pos= 461
+                    Pat.NamedSimple                               'argTys'          Identifier          tok=  49  pos= 463
+                    ,                                             ','               OpComma             tok=  50  pos= 469
+                    Pat.NamedSimple                               'args'            Identifier          tok=  52  pos= 471
+                    ,                                             ','               OpComma             tok=  53  pos= 475
+                    Pat.NamedSimple                               'm'               Identifier          tok=  55  pos= 477
+                                                                  ')'               KWRParen            tok=  56  pos= 478
+          When                                                    'when'            KWWhen              tok=  58  pos= 480
+          Guard:
+            App:
+              Func:
+                Ident                                             'not'             Identifier          tok=  60  pos= 485
+              Args:
+                ParenBlock                                        '('               KWLParen            tok=  62  pos= 489
+                  App:
+                    Func:
+                      Ident                                       'evalTupInf...'   Identifier          tok=  63  pos= 490
+                    Args:
+                      Ident                                       'tupInfo'         Identifier          tok=  65  pos= 510
+                                                                  ')'               KWRParen            tok=  66  pos= 517
+          Arrow                                                   '->'              OpArrowRight        tok=  68  pos= 519
+          Expr:
+            InfixApp                                              '|>'              op_PipeRight        tok=  73  pos= 533
+              Ident                                               'args'            Identifier          tok=  71  pos= 528
+              App:
+                Func:
+                  LongIdentOrOp:
+                    LongIdent:
+                                                                  'List'            Identifier          tok=  75  pos= 536
+                                                                  'iteri'           Identifier          tok=  77  pos= 541
+                Args:
+                  ParenBlock                                      '('               KWLParen            tok=  79  pos= 547
+                    Fun                                           'fun'             KWFun               tok=  80  pos= 548
+                    Pats:
+                      Pat.NamedSimple                             'n'               Identifier          tok=  82  pos= 552
+                    Arrow                                         '->'              OpArrowRight        tok=  84  pos= 554
+                    Body:
+                      App:
+                        Func:
+                          Ident                                   'IterateRec...'   Identifier          tok=  87  pos= 567
+                        Args:
+                          Ident                                   'g'               Identifier          tok=  89  pos= 590
+                          Ident                                   'None'            Identifier          tok=  91  pos= 592
+                          Ident                                   'rvs'             Identifier          tok=  93  pos= 597
+                          ParenBlock                              '('               KWLParen            tok=  96  pos= 613
+                            Tuple:
+                              App:
+                                Func:
+                                  Ident                           'mkTupleFie...'   Identifier          tok=  97  pos= 614
+                                Args:
+                                  Ident                           'g'               Identifier          tok=  99  pos= 630
+                                  ParenBlock                      '('               KWLParen            tok= 101  pos= 632
+                                    Tuple:
+                                      Ident                       'tupInfo'         Identifier          tok= 102  pos= 633
+                                      Ident                       'access'          Identifier          tok= 105  pos= 642
+                                      Ident                       'argTys'          Identifier          tok= 108  pos= 650
+                                      Ident                       'n'               Identifier          tok= 111  pos= 658
+                                      Ident                       'm'               Identifier          tok= 114  pos= 661
+                                                                  ')'               KWRParen            tok= 115  pos= 662
+                              ParenBlock                          '('               KWLParen            tok= 119  pos= 677
+                                Fun                               'fun'             KWFun               tok= 120  pos= 678
+                                Pats:
+                                  Pat.NamedSimple                 'e'               Identifier          tok= 122  pos= 682
+                                Arrow                             '->'              OpArrowRight        tok= 124  pos= 684
+                                Body:
+                                  Sequential:
+                                    App:
+                                      Func:
+                                        Ident                     'errorR'          Identifier          tok= 127  pos= 701
+                                      Args:
+                                        ParenBlock                '('               KWLParen            tok= 129  pos= 708
+                                          App:
+                                            Func:
+                                              Ident               'Error'           Identifier          tok= 130  pos= 709
+                                            Args:
+                                              ParenBlock          '('               KWLParen            tok= 132  pos= 715
+                                                Tuple:
+                                                  App:
+                                                    Func:
+                                                      LongIdentOrOp:
+                                                        LongIdent:
+                                                                  'FSComp'          Identifier          tok= 133  pos= 716
+                                                                  'SR'              Identifier          tok= 135  pos= 723
+                                                                  'tastRecurs...'   Identifier          tok= 137  pos= 726
+                                                    Args:
+                                                      ParenBlock  '('               KWLParen            tok= 139  pos= 775
+                                                                  ')'               KWRParen            tok= 140  pos= 776
+                                                  Ident           'm'               Identifier          tok= 143  pos= 779
+                                                                  ')'               KWRParen            tok= 144  pos= 780
+                                                                  ')'               KWRParen            tok= 145  pos= 781
+                                    Ident                         'e'               Identifier          tok= 148  pos= 797
+                                                                  ')'               KWRParen            tok= 149  pos= 798
+                                                                  ')'               KWRParen            tok= 150  pos= 799
+                                                                  ')'               KWRParen            tok= 151  pos= 800
+        Rule:
+          Bar                                                     '|'               OpBar               tok= 154  pos= 806
+          Pat:
+            Pat.Wildcard                                          '_'               Wildcard            tok= 156  pos= 808
+          Arrow                                                   '->'              OpArrowRight        tok= 158  pos= 810
+          Expr:
+            ParenBlock                                            '('               KWLParen            tok= 160  pos= 813
+                                                                  ')'               KWRParen            tok= 161  pos= 814
