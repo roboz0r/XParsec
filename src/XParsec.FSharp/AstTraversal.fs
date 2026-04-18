@@ -862,469 +862,71 @@ and walkStringKindAndParts
 
     visitor.VisitToken "" closing
 
+// walkExpr dispatches to a per-arm helper so that each stack frame used during
+// deep expression recursion only contains the locals for that one arm. This
+// keeps per-frame size small on deeply nested expressions (pipelines, App/InfixApp
+// chains, match/paren stacks) and avoids stack overflows on large inputs.
 and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
     match expr with
     | Expr.Const value -> walkConstant visitor "Const" value
     | Expr.Ident ident -> visitor.VisitToken "Ident" ident
     | Expr.LetOrUse(keyword, isRec, bindings, _, inToken, body) ->
-        let kwLabel =
-            match keyword with
-            | LetOrUseKeyword.Let t ->
-                visitor.VisitToken "Let" t
-                "Let"
-            | LetOrUseKeyword.LetBang t ->
-                visitor.VisitToken "LetBang" t
-                "LetBang"
-            | LetOrUseKeyword.Use t ->
-                visitor.VisitToken "Use" t
-                "Use"
-            | LetOrUseKeyword.UseBang t ->
-                visitor.VisitToken "UseBang" t
-                "UseBang"
-
-        visitTokenOpt visitor "rec" isRec
-
-        visitor.EnterSection ""
-
-        for binding in bindings do
-            walkBinding visitor binding
-
-        visitor.ExitSection ""
-
-        visitTokenOpt visitor "in" inToken
-
-        match body with
-        | ValueSome bodyExpr ->
-            visitor.EnterSection "Body"
-            walkExpr visitor bodyExpr
-            visitor.ExitSection "Body"
-        | ValueNone -> ()
-    | Expr.InfixApp(left, op, right) ->
-        visitor.VisitToken "InfixApp" op
-        visitor.EnterSection ""
-        walkExpr visitor left
-        walkExpr visitor right
-        visitor.ExitSection ""
-    | Expr.PrefixApp(op, expr) ->
-        visitor.VisitToken "PrefixApp" op
-        visitor.EnterSection ""
-        walkExpr visitor expr
-        visitor.ExitSection ""
-    | Expr.OptionalArgExpr(qmark, ident) ->
-        visitor.EnterSection "OptionalArg"
-        visitor.VisitToken "?" qmark
-        visitor.VisitToken "Ident" ident
-        visitor.ExitSection "OptionalArg"
-    | Expr.Sequential(exprs, _ops) ->
-        visitor.EnterSection "Sequential"
-
-        for e in exprs do
-            walkExpr visitor e
-
-        visitor.ExitSection "Sequential"
-    | Expr.Tuple(elements, _) ->
-        visitor.EnterSection "Tuple"
-
-        for elem in elements do
-            walkExpr visitor elem
-
-        visitor.ExitSection "Tuple"
-    | Expr.StructTuple(_kw, _lParen, elements, _, _rParen) ->
-        visitor.EnterSection "StructTuple"
-
-        for elem in elements do
-            walkExpr visitor elem
-
-        visitor.ExitSection "StructTuple"
-    | Expr.EnclosedBlock(lParen, expr, r) ->
-        let label, lTok = parenKind lParen
-        visitor.VisitToken label lTok
-        visitor.EnterSection ""
-        walkExpr visitor expr
-        visitor.ExitSection ""
-        visitor.VisitToken "" r
-    | Expr.EmptyBlock(lParen, r) ->
-        let label, lTok = parenKind lParen
-
-        visitor.VisitToken label lTok
-        visitor.VisitToken "" r
-    | Expr.LongIdentOrOp longIdentOrOp ->
-        visitor.EnterSection "LongIdentOrOp"
-        walkLongIdentOrOp visitor longIdentOrOp
-        visitor.ExitSection "LongIdentOrOp"
-    | Expr.TypeApp(expr, lAngle, types, _, rAngle) ->
-        visitor.EnterSection "TypeApp"
-        visitor.EnterSection "Expr"
-        walkExpr visitor expr
-        visitor.ExitSection "Expr"
-        visitor.EnterSection "Types"
-
-        for ty in types do
-            walkType visitor ty
-
-        visitor.ExitSection "Types"
-        visitor.ExitSection "TypeApp"
-    | Expr.DotLookup(expr, dot, longIdentOrOp) ->
-        visitor.EnterSection "DotLookup"
-        visitor.EnterSection "Expr"
-        walkExpr visitor expr
-        visitor.ExitSection "Expr"
-        visitor.VisitToken "Dot" dot
-        visitor.EnterSection "LongIdentOrOp"
-        walkLongIdentOrOp visitor longIdentOrOp
-        visitor.ExitSection "LongIdentOrOp"
-        visitor.ExitSection "DotLookup"
+        walkExprLetOrUse visitor keyword isRec bindings inToken body
+    | Expr.InfixApp(left, op, right) -> walkExprInfixApp visitor left op right
+    | Expr.PrefixApp(op, inner) -> walkExprPrefixApp visitor op inner
+    | Expr.OptionalArgExpr(qmark, ident) -> walkExprOptionalArgExpr visitor qmark ident
+    | Expr.Sequential(exprs, _) -> walkExprSequential visitor exprs
+    | Expr.Tuple(elements, _) -> walkExprTuple visitor elements
+    | Expr.StructTuple(_, _, elements, _, _) -> walkExprStructTuple visitor elements
+    | Expr.EnclosedBlock(lParen, inner, r) -> walkExprEnclosedBlock visitor lParen inner r
+    | Expr.EmptyBlock(lParen, r) -> walkExprEmptyBlock visitor lParen r
+    | Expr.LongIdentOrOp longIdentOrOp -> walkExprLongIdentOrOp visitor longIdentOrOp
+    | Expr.TypeApp(inner, _, types, _, _) -> walkExprTypeApp visitor inner types
+    | Expr.DotLookup(inner, dot, longIdentOrOp) -> walkExprDotLookup visitor inner dot longIdentOrOp
     | Expr.IfThenElse(ifToken, condition, thenToken, thenExpr, elifBranches, elseBranch) ->
-        visitor.EnterSection "IfThenElse"
-        visitor.VisitToken "IfToken" ifToken
-        visitor.EnterSection "Condition"
-        walkExpr visitor condition
-        visitor.ExitSection "Condition"
-        visitor.VisitToken "ThenToken" thenToken
-        visitor.EnterSection "ThenExpr"
-        walkExpr visitor thenExpr
-        visitor.ExitSection "ThenExpr"
-
-        for elif' in elifBranches do
-            visitor.EnterSection "ElifBranch"
-
-            match elif' with
-            | ElifBranch.Elif(elifToken, elifCondition, elifThenToken, elifExpr) ->
-                visitor.VisitToken "ElifToken" elifToken
-                visitor.EnterSection "ElifCondition"
-                walkExpr visitor elifCondition
-                visitor.ExitSection "ElifCondition"
-                visitor.VisitToken "ThenToken" elifThenToken
-                visitor.EnterSection "ElifExpr"
-                walkExpr visitor elifExpr
-                visitor.ExitSection "ElifExpr"
-                visitor.ExitSection "ElifBranch"
-
-            | ElifBranch.ElseIf(elseTok, ifToken, elifCondition, elifThenToken, elifExpr) ->
-                visitor.VisitToken "ElseToken" elseTok
-                visitor.VisitToken "IfToken" ifToken
-                visitor.EnterSection "ElifCondition"
-                walkExpr visitor elifCondition
-                visitor.ExitSection "ElifCondition"
-                visitor.VisitToken "ThenToken" elifThenToken
-                visitor.EnterSection "ElifExpr"
-                walkExpr visitor elifExpr
-                visitor.ExitSection "ElifExpr"
-                visitor.ExitSection "ElifBranch"
-
-        match elseBranch with
-        | ValueSome(ElseBranch.ElseBranch(elseToken, elseExpr)) ->
-            visitor.VisitToken "ElseToken" elseToken
-            visitor.EnterSection "ElseExpr"
-            walkExpr visitor elseExpr
-            visitor.ExitSection "ElseExpr"
-        | ValueNone -> ()
-
-        visitor.ExitSection "IfThenElse"
-    | Expr.Match(matchToken, matchExpr, withToken, rules) ->
-        visitor.EnterSection "Match"
-        visitor.VisitToken "MatchToken" matchToken
-        visitor.EnterSection "MatchExpr"
-        walkExpr visitor matchExpr
-        visitor.ExitSection "MatchExpr"
-        visitor.VisitToken "WithToken" withToken
-        walkRules visitor rules
-        visitor.ExitSection "Match"
-    | Expr.Fun(funToken, pats, arrow, expr) ->
-        visitor.VisitToken "Fun" funToken
-        visitor.EnterSection "Pats"
-
-        for pat in pats do
-            walkPat visitor pat
-
-        visitor.ExitSection "Pats"
-        visitor.VisitToken "Arrow" arrow
-        visitor.EnterSection "Body"
-        walkExpr visitor expr
-        visitor.ExitSection "Body"
-    | Expr.TryWith(tryToken, tryExpr, withToken, rules) ->
-        visitor.VisitToken "TryWith" tryToken
-        visitor.EnterSection "TryExpr"
-        walkExpr visitor tryExpr
-        visitor.ExitSection "TryExpr"
-        visitor.VisitToken "WithToken" withToken
-        walkRules visitor rules
+        walkExprIfThenElse visitor ifToken condition thenToken thenExpr elifBranches elseBranch
+    | Expr.Match(matchToken, matchExpr, withToken, rules) -> walkExprMatch visitor matchToken matchExpr withToken rules
+    | Expr.Fun(funToken, pats, arrow, body) -> walkExprFun visitor funToken pats arrow body
+    | Expr.TryWith(tryToken, tryExpr, withToken, rules) -> walkExprTryWith visitor tryToken tryExpr withToken rules
     | Expr.TryFinally(tryToken, tryExpr, finallyToken, finallyExpr) ->
-        visitor.VisitToken "TryFinally" tryToken
-        visitor.EnterSection "TryExpr"
-        walkExpr visitor tryExpr
-        visitor.ExitSection "TryExpr"
-        visitor.VisitToken "FinallyToken" finallyToken
-        visitor.EnterSection "FinallyExpr"
-        walkExpr visitor finallyExpr
-        visitor.ExitSection "FinallyExpr"
+        walkExprTryFinally visitor tryToken tryExpr finallyToken finallyExpr
     | Expr.While(whileToken, cond, doToken, body, doneToken) ->
-        visitor.VisitToken "While" whileToken
-        visitor.EnterSection "Cond"
-        walkExpr visitor cond
-        visitor.ExitSection "Cond"
-        visitor.VisitToken "DoToken" doToken
-        visitor.EnterSection "Body"
-        walkExpr visitor body
-        visitor.ExitSection "Body"
-        visitor.VisitToken "DoneToken" doneToken
+        walkExprWhile visitor whileToken cond doToken body doneToken
     | Expr.ForTo(forToken, ident, equals, startExpr, toToken, endExpr, doToken, body, doneToken) ->
-        visitor.VisitToken "ForTo" forToken
-        visitor.VisitToken "Ident" ident
-        visitor.VisitToken "Equals" equals
-        visitor.EnterSection "Start"
-        walkExpr visitor startExpr
-        visitor.ExitSection "Start"
-        visitor.VisitToken "ToToken" toToken
-        visitor.EnterSection "End"
-        walkExpr visitor endExpr
-        visitor.ExitSection "End"
-        visitor.VisitToken "DoToken" doToken
-        visitor.EnterSection "Body"
-        walkExpr visitor body
-        visitor.ExitSection "Body"
-        visitor.VisitToken "DoneToken" doneToken
+        walkExprForTo visitor forToken ident equals startExpr toToken endExpr doToken body doneToken
     | Expr.ForIn(forToken, pat, inToken, range, doToken, body, doneToken) ->
-        visitor.VisitToken "ForIn" forToken
-        visitor.EnterSection "Pat"
-        walkPat visitor pat
-        visitor.ExitSection "Pat"
-        visitor.VisitToken "InToken" inToken
-        walkExpr visitor range
-        visitor.VisitToken "DoToken" doToken
-        visitor.EnterSection "Body"
-        walkExpr visitor body
-        visitor.ExitSection "Body"
-        visitor.VisitToken "DoneToken" doneToken
-    | Expr.App(funcExpr, argExprs) ->
-        visitor.EnterSection "App"
-        visitor.EnterSection "Func"
-        walkExpr visitor funcExpr
-        visitor.ExitSection "Func"
-        visitor.EnterSection "Args"
-
-        for argExpr in argExprs do
-            walkExpr visitor argExpr
-
-        visitor.ExitSection "Args"
-        visitor.ExitSection "App"
+        walkExprForIn visitor forToken pat inToken range doToken body doneToken
+    | Expr.App(funcExpr, argExprs) -> walkExprApp visitor funcExpr argExprs
     | Expr.HighPrecedenceApp(funcExpr, lParen, argExpr, rParen) ->
-        visitor.EnterSection "HighPrecedenceApp"
-        visitor.EnterSection "Func"
-        walkExpr visitor funcExpr
-        visitor.ExitSection "Func"
-        visitor.VisitToken "(" lParen
-        visitor.EnterSection "Arg"
-        walkExpr visitor argExpr
-        visitor.ExitSection "Arg"
-        visitor.VisitToken "" rParen
-        visitor.ExitSection "HighPrecedenceApp"
-    | Expr.TypeAnnotation(innerExpr, colon, typ) ->
-        visitor.EnterSection "TypeAnnotation"
-        visitor.EnterSection "Expr"
-        walkExpr visitor innerExpr
-        visitor.ExitSection "Expr"
-        visitor.VisitToken "Colon" colon
-        walkType visitor typ
-        visitor.ExitSection "TypeAnnotation"
-    | Expr.Lazy(lazyToken, innerExpr) ->
-        visitor.VisitToken "Lazy" lazyToken
-        visitor.EnterSection ""
-        walkExpr visitor innerExpr
-        visitor.ExitSection ""
-    | Expr.Assert(assertToken, innerExpr) ->
-        visitor.VisitToken "Assert" assertToken
-        visitor.EnterSection ""
-        walkExpr visitor innerExpr
-        visitor.ExitSection ""
-    | Expr.Fixed(fixedToken, innerExpr) ->
-        visitor.VisitToken "Fixed" fixedToken
-        visitor.EnterSection ""
-        walkExpr visitor innerExpr
-        visitor.ExitSection ""
+        walkExprHighPrecedenceApp visitor funcExpr lParen argExpr rParen
+    | Expr.TypeAnnotation(inner, colon, typ) -> walkExprTypeAnnotation visitor inner colon typ
+    | Expr.Lazy(lazyToken, inner) -> walkExprLazy visitor lazyToken inner
+    | Expr.Assert(assertToken, inner) -> walkExprAssert visitor assertToken inner
+    | Expr.Fixed(fixedToken, inner) -> walkExprFixed visitor fixedToken inner
     | Expr.Null nullToken -> visitor.VisitToken "Null" nullToken
-    | Expr.Function(functionToken, rules) ->
-        visitor.VisitToken "Function" functionToken
-        visitor.EnterSection ""
-        walkRules visitor rules
-        visitor.ExitSection ""
-    | Expr.New(newToken, typ, newExpr) ->
-        visitor.VisitToken "New" newToken
-        visitor.EnterSection ""
-        walkType visitor typ
-        visitor.EnterSection "Arg"
-        walkExpr visitor newExpr
-        visitor.ExitSection "Arg"
-        visitor.ExitSection ""
-    | Expr.Assignment(leftExpr, arrow, rightExpr) ->
-        visitor.VisitToken "Assignment" arrow
-        visitor.EnterSection ""
-        walkExpr visitor leftExpr
-        walkExpr visitor rightExpr
-        visitor.ExitSection ""
-    | Expr.Record(lBrace, fieldInitializers, _, rBrace) ->
-        let label, lTok =
-            match lBrace with
-            | ParenKind.BraceBar t -> "AnonRecord", t
-            | ParenKind.Brace t -> "Record", t
-            | _ -> parenKind lBrace
-
-        visitor.VisitToken label lTok
-        visitor.EnterSection ""
-
-        for fi in fieldInitializers do
-            walkFieldInitializer visitor fi
-
-        visitor.ExitSection ""
-        visitor.VisitToken "" rBrace
+    | Expr.Function(functionToken, rules) -> walkExprFunction visitor functionToken rules
+    | Expr.New(newToken, typ, newExpr) -> walkExprNew visitor newToken typ newExpr
+    | Expr.Assignment(leftExpr, arrow, rightExpr) -> walkExprAssignment visitor leftExpr arrow rightExpr
+    | Expr.Record(lBrace, fieldInitializers, _, rBrace) -> walkExprRecord visitor lBrace fieldInitializers rBrace
     | Expr.RecordClone(lBrace, baseExpr, withToken, fieldInitializers, _, rBrace) ->
-        let label, lTok =
-            match lBrace with
-            | ParenKind.BraceBar t -> "AnonRecordClone", t
-            | ParenKind.Brace t -> "RecordClone", t
-            | _ -> parenKind lBrace
-
-        visitor.VisitToken label lTok
-        visitor.EnterSection ""
-        visitor.EnterSection "Base"
-        walkExpr visitor baseExpr
-        visitor.ExitSection "Base"
-        visitor.VisitToken "with" withToken
-
-        for fi in fieldInitializers do
-            walkFieldInitializer visitor fi
-
-        visitor.ExitSection ""
-        visitor.VisitToken "" rBrace
+        walkExprRecordClone visitor lBrace baseExpr withToken fieldInitializers rBrace
     | Expr.IndexedLookup(indexedExpr, dot, lBracket, indexArgExpr, rBracket) ->
-        visitor.EnterSection "IndexedLookup"
-        visitor.EnterSection "Expr"
-        walkExpr visitor indexedExpr
-        visitor.ExitSection "Expr"
-
-        visitTokenOpt visitor "." dot
-
-        visitor.VisitToken "[" lBracket
-        visitor.EnterSection "Index"
-        walkExpr visitor indexArgExpr
-        visitor.ExitSection "Index"
-        visitor.VisitToken "" rBracket
-        visitor.ExitSection "IndexedLookup"
-    | Expr.StaticUpcast(castExpr, colonGT, typ) ->
-        visitor.EnterSection "StaticUpcast"
-        visitor.EnterSection "Expr"
-        walkExpr visitor castExpr
-        visitor.ExitSection "Expr"
-        visitor.VisitToken ":>" colonGT
-        walkType visitor typ
-        visitor.ExitSection "StaticUpcast"
-    | Expr.DynamicTypeTest(testExpr, colonQ, typ) ->
-        visitor.EnterSection "DynamicTypeTest"
-        visitor.EnterSection "Expr"
-        walkExpr visitor testExpr
-        visitor.ExitSection "Expr"
-        visitor.VisitToken ":?" colonQ
-        walkType visitor typ
-        visitor.ExitSection "DynamicTypeTest"
-    | Expr.DynamicDowncast(castExpr, colonQGT, typ) ->
-        visitor.EnterSection "DynamicDowncast"
-        visitor.EnterSection "Expr"
-        walkExpr visitor castExpr
-        visitor.ExitSection "Expr"
-        visitor.VisitToken ":?>" colonQGT
-        walkType visitor typ
-        visitor.ExitSection "DynamicDowncast"
-    | Expr.Upcast(upcastToken, castExpr) ->
-        visitor.VisitToken "Upcast" upcastToken
-        visitor.EnterSection ""
-        walkExpr visitor castExpr
-        visitor.ExitSection ""
-    | Expr.Downcast(downcastToken, castExpr) ->
-        visitor.VisitToken "Downcast" downcastToken
-        visitor.EnterSection ""
-        walkExpr visitor castExpr
-        visitor.ExitSection ""
+        walkExprIndexedLookup visitor indexedExpr dot lBracket indexArgExpr rBracket
+    | Expr.StaticUpcast(castExpr, colonGT, typ) -> walkExprStaticUpcast visitor castExpr colonGT typ
+    | Expr.DynamicTypeTest(testExpr, colonQ, typ) -> walkExprDynamicTypeTest visitor testExpr colonQ typ
+    | Expr.DynamicDowncast(castExpr, colonQGT, typ) -> walkExprDynamicDowncast visitor castExpr colonQGT typ
+    | Expr.Upcast(upcastToken, castExpr) -> walkExprUpcast visitor upcastToken castExpr
+    | Expr.Downcast(downcastToken, castExpr) -> walkExprDowncast visitor downcastToken castExpr
     | Expr.ILIntrinsic(lHashParen, instrKind, instrParts, instrClose, typeArg, args, returnType, rHashParen) ->
-        visitor.EnterSection "ILIntrinsic"
-        visitor.VisitToken "(#" lHashParen
-        walkStringKindAndParts visitor instrKind instrParts instrClose
-
-        match typeArg with
-        | ValueSome(ILTypeArg(typeKw, lParen, typeTokens, rParen)) ->
-            visitor.EnterSection "ILTypeArg"
-            visitor.VisitToken "type" typeKw
-            visitor.VisitToken "(" lParen
-
-            for t in typeTokens do
-                visitor.VisitToken "typeToken" t
-
-            visitor.VisitToken ")" rParen
-            visitor.ExitSection "ILTypeArg"
-        | ValueNone -> ()
-
-        for arg in args do
-            visitor.EnterSection "Arg"
-            walkExpr visitor arg
-            visitor.ExitSection "Arg"
-
-        match returnType with
-        | ValueSome(ReturnType(colon, typ)) ->
-            visitor.EnterSection "ILReturnType"
-            visitor.VisitToken ":" colon
-            walkType visitor typ
-            visitor.ExitSection "ILReturnType"
-        | ValueNone -> ()
-
-        visitor.VisitToken "#)" rHashParen
-        visitor.ExitSection "ILIntrinsic"
+        walkExprILIntrinsic visitor lHashParen instrKind instrParts instrClose typeArg args returnType rHashParen
     | Expr.Wildcard underscore -> visitor.VisitToken "Wildcard" underscore
     | Expr.Missing -> visitor.WriteLine "Missing"
-    | Expr.SkipsTokens(skippedTokens) ->
-        visitor.EnterSection "SkipsTokens"
-
-        for t in skippedTokens do
-            visitor.VisitToken "(skipped)" t
-
-        visitor.ExitSection "SkipsTokens"
-    | Expr.Pat innerPat ->
-        visitor.EnterSection "Pat"
-        walkPat visitor innerPat
-        visitor.ExitSection "Pat"
-    | Expr.ControlFlow(keyword, expr) ->
-        let kwLabel =
-            match keyword with
-            | ControlFlowKeyword.Yield t ->
-                visitor.VisitToken "yield" t
-                "Yield"
-            | ControlFlowKeyword.YieldBang t ->
-                visitor.VisitToken "yield!" t
-                "YieldBang"
-            | ControlFlowKeyword.Return t ->
-                visitor.VisitToken "return" t
-                "Return"
-            | ControlFlowKeyword.ReturnBang t ->
-                visitor.VisitToken "return!" t
-                "ReturnBang"
-            | ControlFlowKeyword.Do t ->
-                visitor.VisitToken "do" t
-                "Do"
-            | ControlFlowKeyword.DoBang t ->
-                visitor.VisitToken "do!" t
-                "DoBang"
-
-        visitor.EnterSection kwLabel
-        walkExpr visitor expr
-        visitor.ExitSection kwLabel
-    | Expr.ExpressionSplice(percent, expr) ->
-        visitor.VisitToken "%" percent
-        visitor.EnterSection ""
-        walkExpr visitor expr
-        visitor.ExitSection ""
-    | Expr.WeaklyTypedExpressionSplice(percentPercent, expr) ->
-        visitor.VisitToken "%%" percentPercent
-        visitor.EnterSection ""
-        walkExpr visitor expr
-        visitor.ExitSection ""
+    | Expr.SkipsTokens(skippedTokens) -> walkExprSkipsTokens visitor skippedTokens
+    | Expr.Pat innerPat -> walkExprPat visitor innerPat
+    | Expr.ControlFlow(keyword, inner) -> walkExprControlFlow visitor keyword inner
+    | Expr.ExpressionSplice(percent, inner) -> walkExprExpressionSplice visitor percent inner
+    | Expr.WeaklyTypedExpressionSplice(percentPercent, inner) ->
+        walkExprWeaklyTypedExpressionSplice visitor percentPercent inner
     | Expr.StaticMemberInvocation(lParen,
                                   staticTypars,
                                   colon,
@@ -1333,116 +935,778 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
                                   memberToken,
                                   membersign,
                                   rParenMember,
-                                  expr,
+                                  inner,
                                   rParen) ->
-        visitor.EnterSection "StaticMemberInvocation"
-        visitor.VisitToken "(" lParen
-        walkStaticTypars visitor staticTypars
-        visitor.VisitToken ":" colon
-        visitor.VisitToken "(" lParenMember
-        visitTokenOpt visitor "static" staticToken
-        visitor.VisitToken "member" memberToken
-        walkMemberSig visitor membersign
-        visitor.VisitToken ")" rParenMember
-        walkExpr visitor expr
-        visitor.VisitToken ")" rParen
-        visitor.ExitSection "StaticMemberInvocation"
-    | Expr.LibraryOnlyStaticOptimization(expr, whenToken, constraints, ands, equalsToken, optimizedExpr) ->
-        visitor.EnterSection "LibraryOnlyStaticOptimization"
-        walkExpr visitor expr
-        visitor.VisitToken "when" whenToken
-
-        if constraints.Length > 0 then
-            walkStaticOptimizationConstraint visitor constraints.[0]
-
-            for i in 0 .. ands.Length - 1 do
-                visitor.VisitToken "and" ands.[i]
-                walkStaticOptimizationConstraint visitor constraints.[i + 1]
-
-        visitor.VisitToken "=" equalsToken
-        walkExpr visitor optimizedExpr
-        visitor.ExitSection "LibraryOnlyStaticOptimization"
+        walkExprStaticMemberInvocation
+            visitor
+            lParen
+            staticTypars
+            colon
+            lParenMember
+            staticToken
+            memberToken
+            membersign
+            rParenMember
+            inner
+            rParen
+    | Expr.LibraryOnlyStaticOptimization(inner, whenToken, constraints, ands, equalsToken, optimizedExpr) ->
+        walkExprLibraryOnlyStaticOptimization visitor inner whenToken constraints ands equalsToken optimizedExpr
     | Expr.String(kind, parts, closing) -> walkStringKindAndParts visitor kind parts closing
     | Expr.Object(lBrace, newKeyword, baseCall, members, interfaceImpls, rBrace) ->
-        visitor.EnterSection "ObjectExpr"
-        visitor.VisitToken "{" lBrace
+        walkExprObject visitor lBrace newKeyword baseCall members interfaceImpls rBrace
+    | Expr.Range(fromExpr, dotdot, toExpr) -> walkExprRange visitor fromExpr dotdot toExpr
+    | Expr.SteppedRange(fromExpr, dotdot1, stepExpr, dotdot2, toExpr) ->
+        walkExprSteppedRange visitor fromExpr dotdot1 stepExpr dotdot2 toExpr
+    | Expr.SliceFrom(inner, dotdot) -> walkExprSliceFrom visitor inner dotdot
+    | Expr.SliceTo(dotdot, inner) -> walkExprSliceTo visitor dotdot inner
+    | Expr.SliceFromTo(startExpr, dotdot, endExpr) -> walkExprSliceFromTo visitor startExpr dotdot endExpr
+    | Expr.SliceAll(star) -> walkExprSliceAll visitor star
 
-        match newKeyword with
-        | ValueSome tok -> visitor.VisitToken "new" tok
-        | ValueNone -> ()
+and walkExprLetOrUse
+    (visitor: AstVisitor<'T>)
+    (keyword: LetOrUseKeyword<'T>)
+    (isRec: 'T voption)
+    (bindings: ImArr<Binding<'T>>)
+    (inToken: 'T voption)
+    (body: Expr<'T> voption)
+    : unit =
+    match keyword with
+    | LetOrUseKeyword.Let t -> visitor.VisitToken "Let" t
+    | LetOrUseKeyword.LetBang t -> visitor.VisitToken "LetBang" t
+    | LetOrUseKeyword.Use t -> visitor.VisitToken "Use" t
+    | LetOrUseKeyword.UseBang t -> visitor.VisitToken "UseBang" t
 
-        match baseCall with
-        | BaseCall.AnonBaseCall construction -> walkObjectConstruction visitor construction
-        | BaseCall.NamedBaseCall(construction, asTok, ident) ->
-            walkObjectConstruction visitor construction
-            visitor.VisitToken "as" asTok
-            visitor.VisitToken "" ident
+    visitTokenOpt visitor "rec" isRec
 
-        let (ObjectMembers.ObjectMembers(withTok, memberDefs, endTok)) = members
-        visitor.VisitToken "with" withTok
+    visitor.EnterSection ""
+
+    for binding in bindings do
+        walkBinding visitor binding
+
+    visitor.ExitSection ""
+
+    visitTokenOpt visitor "in" inToken
+
+    match body with
+    | ValueSome bodyExpr ->
+        visitor.EnterSection "Body"
+        walkExpr visitor bodyExpr
+        visitor.ExitSection "Body"
+    | ValueNone -> ()
+
+and walkExprInfixApp (visitor: AstVisitor<'T>) (left: Expr<'T>) (op: 'T) (right: Expr<'T>) : unit =
+    visitor.VisitToken "InfixApp" op
+    visitor.EnterSection ""
+    walkExpr visitor left
+    walkExpr visitor right
+    visitor.ExitSection ""
+
+and walkExprPrefixApp (visitor: AstVisitor<'T>) (op: 'T) (expr: Expr<'T>) : unit =
+    visitor.VisitToken "PrefixApp" op
+    visitor.EnterSection ""
+    walkExpr visitor expr
+    visitor.ExitSection ""
+
+and walkExprOptionalArgExpr (visitor: AstVisitor<'T>) (qmark: 'T) (ident: 'T) : unit =
+    visitor.EnterSection "OptionalArg"
+    visitor.VisitToken "?" qmark
+    visitor.VisitToken "Ident" ident
+    visitor.ExitSection "OptionalArg"
+
+and walkExprSequential (visitor: AstVisitor<'T>) (exprs: ImArr<Expr<'T>>) : unit =
+    visitor.EnterSection "Sequential"
+
+    for e in exprs do
+        walkExpr visitor e
+
+    visitor.ExitSection "Sequential"
+
+and walkExprTuple (visitor: AstVisitor<'T>) (elements: ImArr<Expr<'T>>) : unit =
+    visitor.EnterSection "Tuple"
+
+    for elem in elements do
+        walkExpr visitor elem
+
+    visitor.ExitSection "Tuple"
+
+and walkExprStructTuple (visitor: AstVisitor<'T>) (elements: ImArr<Expr<'T>>) : unit =
+    visitor.EnterSection "StructTuple"
+
+    for elem in elements do
+        walkExpr visitor elem
+
+    visitor.ExitSection "StructTuple"
+
+and walkExprEnclosedBlock (visitor: AstVisitor<'T>) (lParen: ParenKind<'T>) (expr: Expr<'T>) (r: 'T) : unit =
+    let label, lTok = parenKind lParen
+    visitor.VisitToken label lTok
+    visitor.EnterSection ""
+    walkExpr visitor expr
+    visitor.ExitSection ""
+    visitor.VisitToken "" r
+
+and walkExprEmptyBlock (visitor: AstVisitor<'T>) (lParen: ParenKind<'T>) (r: 'T) : unit =
+    let label, lTok = parenKind lParen
+    visitor.VisitToken label lTok
+    visitor.VisitToken "" r
+
+and walkExprLongIdentOrOp (visitor: AstVisitor<'T>) (longIdentOrOp: LongIdentOrOp<'T>) : unit =
+    visitor.EnterSection "LongIdentOrOp"
+    walkLongIdentOrOp visitor longIdentOrOp
+    visitor.ExitSection "LongIdentOrOp"
+
+and walkExprTypeApp (visitor: AstVisitor<'T>) (expr: Expr<'T>) (types: ImArr<Type<'T>>) : unit =
+    visitor.EnterSection "TypeApp"
+    visitor.EnterSection "Expr"
+    walkExpr visitor expr
+    visitor.ExitSection "Expr"
+    visitor.EnterSection "Types"
+
+    for ty in types do
+        walkType visitor ty
+
+    visitor.ExitSection "Types"
+    visitor.ExitSection "TypeApp"
+
+and walkExprDotLookup (visitor: AstVisitor<'T>) (expr: Expr<'T>) (dot: 'T) (longIdentOrOp: LongIdentOrOp<'T>) : unit =
+    visitor.EnterSection "DotLookup"
+    visitor.EnterSection "Expr"
+    walkExpr visitor expr
+    visitor.ExitSection "Expr"
+    visitor.VisitToken "Dot" dot
+    visitor.EnterSection "LongIdentOrOp"
+    walkLongIdentOrOp visitor longIdentOrOp
+    visitor.ExitSection "LongIdentOrOp"
+    visitor.ExitSection "DotLookup"
+
+and walkExprIfThenElse
+    (visitor: AstVisitor<'T>)
+    (ifToken: 'T)
+    (condition: Expr<'T>)
+    (thenToken: 'T)
+    (thenExpr: Expr<'T>)
+    (elifBranches: ImArr<ElifBranch<'T>>)
+    (elseBranch: ElseBranch<'T> voption)
+    : unit =
+    visitor.EnterSection "IfThenElse"
+    visitor.VisitToken "IfToken" ifToken
+    visitor.EnterSection "Condition"
+    walkExpr visitor condition
+    visitor.ExitSection "Condition"
+    visitor.VisitToken "ThenToken" thenToken
+    visitor.EnterSection "ThenExpr"
+    walkExpr visitor thenExpr
+    visitor.ExitSection "ThenExpr"
+
+    for elif' in elifBranches do
+        walkElifBranch visitor elif'
+
+    match elseBranch with
+    | ValueSome(ElseBranch.ElseBranch(elseToken, elseExpr)) ->
+        visitor.VisitToken "ElseToken" elseToken
+        visitor.EnterSection "ElseExpr"
+        walkExpr visitor elseExpr
+        visitor.ExitSection "ElseExpr"
+    | ValueNone -> ()
+
+    visitor.ExitSection "IfThenElse"
+
+and walkElifBranch (visitor: AstVisitor<'T>) (branch: ElifBranch<'T>) : unit =
+    visitor.EnterSection "ElifBranch"
+
+    match branch with
+    | ElifBranch.Elif(elifToken, elifCondition, elifThenToken, elifExpr) ->
+        visitor.VisitToken "ElifToken" elifToken
+        visitor.EnterSection "ElifCondition"
+        walkExpr visitor elifCondition
+        visitor.ExitSection "ElifCondition"
+        visitor.VisitToken "ThenToken" elifThenToken
+        visitor.EnterSection "ElifExpr"
+        walkExpr visitor elifExpr
+        visitor.ExitSection "ElifExpr"
+    | ElifBranch.ElseIf(elseTok, ifToken, elifCondition, elifThenToken, elifExpr) ->
+        visitor.VisitToken "ElseToken" elseTok
+        visitor.VisitToken "IfToken" ifToken
+        visitor.EnterSection "ElifCondition"
+        walkExpr visitor elifCondition
+        visitor.ExitSection "ElifCondition"
+        visitor.VisitToken "ThenToken" elifThenToken
+        visitor.EnterSection "ElifExpr"
+        walkExpr visitor elifExpr
+        visitor.ExitSection "ElifExpr"
+
+    visitor.ExitSection "ElifBranch"
+
+and walkExprMatch
+    (visitor: AstVisitor<'T>)
+    (matchToken: 'T)
+    (matchExpr: Expr<'T>)
+    (withToken: 'T)
+    (rules: Rules<'T>)
+    : unit =
+    visitor.EnterSection "Match"
+    visitor.VisitToken "MatchToken" matchToken
+    visitor.EnterSection "MatchExpr"
+    walkExpr visitor matchExpr
+    visitor.ExitSection "MatchExpr"
+    visitor.VisitToken "WithToken" withToken
+    walkRules visitor rules
+    visitor.ExitSection "Match"
+
+and walkExprFun (visitor: AstVisitor<'T>) (funToken: 'T) (pats: ImArr<Pat<'T>>) (arrow: 'T) (body: Expr<'T>) : unit =
+    visitor.VisitToken "Fun" funToken
+    visitor.EnterSection "Pats"
+
+    for pat in pats do
+        walkPat visitor pat
+
+    visitor.ExitSection "Pats"
+    visitor.VisitToken "Arrow" arrow
+    visitor.EnterSection "Body"
+    walkExpr visitor body
+    visitor.ExitSection "Body"
+
+and walkExprTryWith
+    (visitor: AstVisitor<'T>)
+    (tryToken: 'T)
+    (tryExpr: Expr<'T>)
+    (withToken: 'T)
+    (rules: Rules<'T>)
+    : unit =
+    visitor.VisitToken "TryWith" tryToken
+    visitor.EnterSection "TryExpr"
+    walkExpr visitor tryExpr
+    visitor.ExitSection "TryExpr"
+    visitor.VisitToken "WithToken" withToken
+    walkRules visitor rules
+
+and walkExprTryFinally
+    (visitor: AstVisitor<'T>)
+    (tryToken: 'T)
+    (tryExpr: Expr<'T>)
+    (finallyToken: 'T)
+    (finallyExpr: Expr<'T>)
+    : unit =
+    visitor.VisitToken "TryFinally" tryToken
+    visitor.EnterSection "TryExpr"
+    walkExpr visitor tryExpr
+    visitor.ExitSection "TryExpr"
+    visitor.VisitToken "FinallyToken" finallyToken
+    visitor.EnterSection "FinallyExpr"
+    walkExpr visitor finallyExpr
+    visitor.ExitSection "FinallyExpr"
+
+and walkExprWhile
+    (visitor: AstVisitor<'T>)
+    (whileToken: 'T)
+    (cond: Expr<'T>)
+    (doToken: 'T)
+    (body: Expr<'T>)
+    (doneToken: 'T)
+    : unit =
+    visitor.VisitToken "While" whileToken
+    visitor.EnterSection "Cond"
+    walkExpr visitor cond
+    visitor.ExitSection "Cond"
+    visitor.VisitToken "DoToken" doToken
+    visitor.EnterSection "Body"
+    walkExpr visitor body
+    visitor.ExitSection "Body"
+    visitor.VisitToken "DoneToken" doneToken
+
+and walkExprForTo
+    (visitor: AstVisitor<'T>)
+    (forToken: 'T)
+    (ident: 'T)
+    (equals: 'T)
+    (startExpr: Expr<'T>)
+    (toToken: 'T)
+    (endExpr: Expr<'T>)
+    (doToken: 'T)
+    (body: Expr<'T>)
+    (doneToken: 'T)
+    : unit =
+    visitor.VisitToken "ForTo" forToken
+    visitor.VisitToken "Ident" ident
+    visitor.VisitToken "Equals" equals
+    visitor.EnterSection "Start"
+    walkExpr visitor startExpr
+    visitor.ExitSection "Start"
+    visitor.VisitToken "ToToken" toToken
+    visitor.EnterSection "End"
+    walkExpr visitor endExpr
+    visitor.ExitSection "End"
+    visitor.VisitToken "DoToken" doToken
+    visitor.EnterSection "Body"
+    walkExpr visitor body
+    visitor.ExitSection "Body"
+    visitor.VisitToken "DoneToken" doneToken
+
+and walkExprForIn
+    (visitor: AstVisitor<'T>)
+    (forToken: 'T)
+    (pat: Pat<'T>)
+    (inToken: 'T)
+    (range: Expr<'T>)
+    (doToken: 'T)
+    (body: Expr<'T>)
+    (doneToken: 'T)
+    : unit =
+    visitor.VisitToken "ForIn" forToken
+    visitor.EnterSection "Pat"
+    walkPat visitor pat
+    visitor.ExitSection "Pat"
+    visitor.VisitToken "InToken" inToken
+    walkExpr visitor range
+    visitor.VisitToken "DoToken" doToken
+    visitor.EnterSection "Body"
+    walkExpr visitor body
+    visitor.ExitSection "Body"
+    visitor.VisitToken "DoneToken" doneToken
+
+and walkExprApp (visitor: AstVisitor<'T>) (funcExpr: Expr<'T>) (argExprs: ImArr<Expr<'T>>) : unit =
+    visitor.EnterSection "App"
+    visitor.EnterSection "Func"
+    walkExpr visitor funcExpr
+    visitor.ExitSection "Func"
+    visitor.EnterSection "Args"
+
+    for argExpr in argExprs do
+        walkExpr visitor argExpr
+
+    visitor.ExitSection "Args"
+    visitor.ExitSection "App"
+
+and walkExprHighPrecedenceApp
+    (visitor: AstVisitor<'T>)
+    (funcExpr: Expr<'T>)
+    (lParen: 'T)
+    (argExpr: Expr<'T>)
+    (rParen: 'T)
+    : unit =
+    visitor.EnterSection "HighPrecedenceApp"
+    visitor.EnterSection "Func"
+    walkExpr visitor funcExpr
+    visitor.ExitSection "Func"
+    visitor.VisitToken "(" lParen
+    visitor.EnterSection "Arg"
+    walkExpr visitor argExpr
+    visitor.ExitSection "Arg"
+    visitor.VisitToken "" rParen
+    visitor.ExitSection "HighPrecedenceApp"
+
+and walkExprTypeAnnotation (visitor: AstVisitor<'T>) (innerExpr: Expr<'T>) (colon: 'T) (typ: Type<'T>) : unit =
+    visitor.EnterSection "TypeAnnotation"
+    visitor.EnterSection "Expr"
+    walkExpr visitor innerExpr
+    visitor.ExitSection "Expr"
+    visitor.VisitToken "Colon" colon
+    walkType visitor typ
+    visitor.ExitSection "TypeAnnotation"
+
+and walkExprLazy (visitor: AstVisitor<'T>) (lazyToken: 'T) (innerExpr: Expr<'T>) : unit =
+    visitor.VisitToken "Lazy" lazyToken
+    visitor.EnterSection ""
+    walkExpr visitor innerExpr
+    visitor.ExitSection ""
+
+and walkExprAssert (visitor: AstVisitor<'T>) (assertToken: 'T) (innerExpr: Expr<'T>) : unit =
+    visitor.VisitToken "Assert" assertToken
+    visitor.EnterSection ""
+    walkExpr visitor innerExpr
+    visitor.ExitSection ""
+
+and walkExprFixed (visitor: AstVisitor<'T>) (fixedToken: 'T) (innerExpr: Expr<'T>) : unit =
+    visitor.VisitToken "Fixed" fixedToken
+    visitor.EnterSection ""
+    walkExpr visitor innerExpr
+    visitor.ExitSection ""
+
+and walkExprFunction (visitor: AstVisitor<'T>) (functionToken: 'T) (rules: Rules<'T>) : unit =
+    visitor.VisitToken "Function" functionToken
+    visitor.EnterSection ""
+    walkRules visitor rules
+    visitor.ExitSection ""
+
+and walkExprNew (visitor: AstVisitor<'T>) (newToken: 'T) (typ: Type<'T>) (newExpr: Expr<'T>) : unit =
+    visitor.VisitToken "New" newToken
+    visitor.EnterSection ""
+    walkType visitor typ
+    visitor.EnterSection "Arg"
+    walkExpr visitor newExpr
+    visitor.ExitSection "Arg"
+    visitor.ExitSection ""
+
+and walkExprAssignment (visitor: AstVisitor<'T>) (leftExpr: Expr<'T>) (arrow: 'T) (rightExpr: Expr<'T>) : unit =
+    visitor.VisitToken "Assignment" arrow
+    visitor.EnterSection ""
+    walkExpr visitor leftExpr
+    walkExpr visitor rightExpr
+    visitor.ExitSection ""
+
+and walkExprRecord
+    (visitor: AstVisitor<'T>)
+    (lBrace: ParenKind<'T>)
+    (fieldInitializers: ImArr<FieldInitializer<'T>>)
+    (rBrace: 'T)
+    : unit =
+    let label, lTok =
+        match lBrace with
+        | ParenKind.BraceBar t -> "AnonRecord", t
+        | ParenKind.Brace t -> "Record", t
+        | _ -> parenKind lBrace
+
+    visitor.VisitToken label lTok
+    visitor.EnterSection ""
+
+    for fi in fieldInitializers do
+        walkFieldInitializer visitor fi
+
+    visitor.ExitSection ""
+    visitor.VisitToken "" rBrace
+
+and walkExprRecordClone
+    (visitor: AstVisitor<'T>)
+    (lBrace: ParenKind<'T>)
+    (baseExpr: Expr<'T>)
+    (withToken: 'T)
+    (fieldInitializers: ImArr<FieldInitializer<'T>>)
+    (rBrace: 'T)
+    : unit =
+    let label, lTok =
+        match lBrace with
+        | ParenKind.BraceBar t -> "AnonRecordClone", t
+        | ParenKind.Brace t -> "RecordClone", t
+        | _ -> parenKind lBrace
+
+    visitor.VisitToken label lTok
+    visitor.EnterSection ""
+    visitor.EnterSection "Base"
+    walkExpr visitor baseExpr
+    visitor.ExitSection "Base"
+    visitor.VisitToken "with" withToken
+
+    for fi in fieldInitializers do
+        walkFieldInitializer visitor fi
+
+    visitor.ExitSection ""
+    visitor.VisitToken "" rBrace
+
+and walkExprIndexedLookup
+    (visitor: AstVisitor<'T>)
+    (indexedExpr: Expr<'T>)
+    (dot: 'T voption)
+    (lBracket: 'T)
+    (indexArgExpr: Expr<'T>)
+    (rBracket: 'T)
+    : unit =
+    visitor.EnterSection "IndexedLookup"
+    visitor.EnterSection "Expr"
+    walkExpr visitor indexedExpr
+    visitor.ExitSection "Expr"
+
+    visitTokenOpt visitor "." dot
+
+    visitor.VisitToken "[" lBracket
+    visitor.EnterSection "Index"
+    walkExpr visitor indexArgExpr
+    visitor.ExitSection "Index"
+    visitor.VisitToken "" rBracket
+    visitor.ExitSection "IndexedLookup"
+
+and walkExprStaticUpcast (visitor: AstVisitor<'T>) (castExpr: Expr<'T>) (colonGT: 'T) (typ: Type<'T>) : unit =
+    visitor.EnterSection "StaticUpcast"
+    visitor.EnterSection "Expr"
+    walkExpr visitor castExpr
+    visitor.ExitSection "Expr"
+    visitor.VisitToken ":>" colonGT
+    walkType visitor typ
+    visitor.ExitSection "StaticUpcast"
+
+and walkExprDynamicTypeTest (visitor: AstVisitor<'T>) (testExpr: Expr<'T>) (colonQ: 'T) (typ: Type<'T>) : unit =
+    visitor.EnterSection "DynamicTypeTest"
+    visitor.EnterSection "Expr"
+    walkExpr visitor testExpr
+    visitor.ExitSection "Expr"
+    visitor.VisitToken ":?" colonQ
+    walkType visitor typ
+    visitor.ExitSection "DynamicTypeTest"
+
+and walkExprDynamicDowncast (visitor: AstVisitor<'T>) (castExpr: Expr<'T>) (colonQGT: 'T) (typ: Type<'T>) : unit =
+    visitor.EnterSection "DynamicDowncast"
+    visitor.EnterSection "Expr"
+    walkExpr visitor castExpr
+    visitor.ExitSection "Expr"
+    visitor.VisitToken ":?>" colonQGT
+    walkType visitor typ
+    visitor.ExitSection "DynamicDowncast"
+
+and walkExprUpcast (visitor: AstVisitor<'T>) (upcastToken: 'T) (castExpr: Expr<'T>) : unit =
+    visitor.VisitToken "Upcast" upcastToken
+    visitor.EnterSection ""
+    walkExpr visitor castExpr
+    visitor.ExitSection ""
+
+and walkExprDowncast (visitor: AstVisitor<'T>) (downcastToken: 'T) (castExpr: Expr<'T>) : unit =
+    visitor.VisitToken "Downcast" downcastToken
+    visitor.EnterSection ""
+    walkExpr visitor castExpr
+    visitor.ExitSection ""
+
+and walkExprILIntrinsic
+    (visitor: AstVisitor<'T>)
+    (lHashParen: 'T)
+    (instrKind: StringKind<'T>)
+    (instrParts: ImArr<StringPart<'T>>)
+    (instrClose: 'T)
+    (typeArg: ILTypeArg<'T> voption)
+    (args: ImArr<Expr<'T>>)
+    (returnType: ReturnType<'T> voption)
+    (rHashParen: 'T)
+    : unit =
+    visitor.EnterSection "ILIntrinsic"
+    visitor.VisitToken "(#" lHashParen
+    walkStringKindAndParts visitor instrKind instrParts instrClose
+
+    match typeArg with
+    | ValueSome(ILTypeArg(typeKw, lParen, typeTokens, rParen)) ->
+        visitor.EnterSection "ILTypeArg"
+        visitor.VisitToken "type" typeKw
+        visitor.VisitToken "(" lParen
+
+        for t in typeTokens do
+            visitor.VisitToken "typeToken" t
+
+        visitor.VisitToken ")" rParen
+        visitor.ExitSection "ILTypeArg"
+    | ValueNone -> ()
+
+    for arg in args do
+        visitor.EnterSection "Arg"
+        walkExpr visitor arg
+        visitor.ExitSection "Arg"
+
+    match returnType with
+    | ValueSome(ReturnType(colon, typ)) ->
+        visitor.EnterSection "ILReturnType"
+        visitor.VisitToken ":" colon
+        walkType visitor typ
+        visitor.ExitSection "ILReturnType"
+    | ValueNone -> ()
+
+    visitor.VisitToken "#)" rHashParen
+    visitor.ExitSection "ILIntrinsic"
+
+and walkExprSkipsTokens (visitor: AstVisitor<'T>) (skippedTokens: ImArr<'T>) : unit =
+    visitor.EnterSection "SkipsTokens"
+
+    for t in skippedTokens do
+        visitor.VisitToken "(skipped)" t
+
+    visitor.ExitSection "SkipsTokens"
+
+and walkExprPat (visitor: AstVisitor<'T>) (innerPat: Pat<'T>) : unit =
+    visitor.EnterSection "Pat"
+    walkPat visitor innerPat
+    visitor.ExitSection "Pat"
+
+and walkExprControlFlow (visitor: AstVisitor<'T>) (keyword: ControlFlowKeyword<'T>) (expr: Expr<'T>) : unit =
+    let kwLabel =
+        match keyword with
+        | ControlFlowKeyword.Yield t ->
+            visitor.VisitToken "yield" t
+            "Yield"
+        | ControlFlowKeyword.YieldBang t ->
+            visitor.VisitToken "yield!" t
+            "YieldBang"
+        | ControlFlowKeyword.Return t ->
+            visitor.VisitToken "return" t
+            "Return"
+        | ControlFlowKeyword.ReturnBang t ->
+            visitor.VisitToken "return!" t
+            "ReturnBang"
+        | ControlFlowKeyword.Do t ->
+            visitor.VisitToken "do" t
+            "Do"
+        | ControlFlowKeyword.DoBang t ->
+            visitor.VisitToken "do!" t
+            "DoBang"
+
+    visitor.EnterSection kwLabel
+    walkExpr visitor expr
+    visitor.ExitSection kwLabel
+
+and walkExprExpressionSplice (visitor: AstVisitor<'T>) (percent: 'T) (expr: Expr<'T>) : unit =
+    visitor.VisitToken "%" percent
+    visitor.EnterSection ""
+    walkExpr visitor expr
+    visitor.ExitSection ""
+
+and walkExprWeaklyTypedExpressionSplice (visitor: AstVisitor<'T>) (percentPercent: 'T) (expr: Expr<'T>) : unit =
+    visitor.VisitToken "%%" percentPercent
+    visitor.EnterSection ""
+    walkExpr visitor expr
+    visitor.ExitSection ""
+
+and walkExprStaticMemberInvocation
+    (visitor: AstVisitor<'T>)
+    (lParen: 'T)
+    (staticTypars: StaticTypars<'T>)
+    (colon: 'T)
+    (lParenMember: 'T)
+    (staticToken: 'T voption)
+    (memberToken: 'T)
+    (membersign: MemberSig<'T>)
+    (rParenMember: 'T)
+    (expr: Expr<'T>)
+    (rParen: 'T)
+    : unit =
+    visitor.EnterSection "StaticMemberInvocation"
+    visitor.VisitToken "(" lParen
+    walkStaticTypars visitor staticTypars
+    visitor.VisitToken ":" colon
+    visitor.VisitToken "(" lParenMember
+    visitTokenOpt visitor "static" staticToken
+    visitor.VisitToken "member" memberToken
+    walkMemberSig visitor membersign
+    visitor.VisitToken ")" rParenMember
+    walkExpr visitor expr
+    visitor.VisitToken ")" rParen
+    visitor.ExitSection "StaticMemberInvocation"
+
+and walkExprLibraryOnlyStaticOptimization
+    (visitor: AstVisitor<'T>)
+    (expr: Expr<'T>)
+    (whenToken: 'T)
+    (constraints: ImArr<StaticOptimizationConstraint<'T>>)
+    (ands: ImArr<'T>)
+    (equalsToken: 'T)
+    (optimizedExpr: Expr<'T>)
+    : unit =
+    visitor.EnterSection "LibraryOnlyStaticOptimization"
+    walkExpr visitor expr
+    visitor.VisitToken "when" whenToken
+
+    if constraints.Length > 0 then
+        walkStaticOptimizationConstraint visitor constraints.[0]
+
+        for i in 0 .. ands.Length - 1 do
+            visitor.VisitToken "and" ands.[i]
+            walkStaticOptimizationConstraint visitor constraints.[i + 1]
+
+    visitor.VisitToken "=" equalsToken
+    walkExpr visitor optimizedExpr
+    visitor.ExitSection "LibraryOnlyStaticOptimization"
+
+and walkExprObject
+    (visitor: AstVisitor<'T>)
+    (lBrace: 'T)
+    (newKeyword: 'T voption)
+    (baseCall: BaseCall<'T>)
+    (members: ObjectMembers<'T>)
+    (interfaceImpls: ImArr<InterfaceImpl<'T>>)
+    (rBrace: 'T)
+    : unit =
+    visitor.EnterSection "ObjectExpr"
+    visitor.VisitToken "{" lBrace
+
+    match newKeyword with
+    | ValueSome tok -> visitor.VisitToken "new" tok
+    | ValueNone -> ()
+
+    match baseCall with
+    | BaseCall.AnonBaseCall construction -> walkObjectConstruction visitor construction
+    | BaseCall.NamedBaseCall(construction, asTok, ident) ->
+        walkObjectConstruction visitor construction
+        visitor.VisitToken "as" asTok
+        visitor.VisitToken "" ident
+
+    let (ObjectMembers.ObjectMembers(withTok, memberDefs, endTok)) = members
+    visitor.VisitToken "with" withTok
+    visitor.EnterSection ""
+
+    for m in memberDefs do
+        walkMemberDefn visitor m
+
+    visitor.ExitSection ""
+    visitor.VisitToken "end" endTok
+
+    for InterfaceImpl.InterfaceImpl(interfaceTok, typ, objMembers) in interfaceImpls do
+        walkExprObjectInterface visitor interfaceTok typ objMembers
+
+    visitor.VisitToken "}" rBrace
+    visitor.ExitSection "ObjectExpr"
+
+and walkExprObjectInterface
+    (visitor: AstVisitor<'T>)
+    (interfaceTok: 'T)
+    (typ: Type<'T>)
+    (objMembers: ObjectMembers<'T> voption)
+    : unit =
+    visitor.EnterSection "InterfaceImpl"
+    visitor.VisitToken "interface" interfaceTok
+    walkType visitor typ
+
+    match objMembers with
+    | ValueSome(ObjectMembers.ObjectMembers(wTok, intfMembers, intfEndTok)) ->
+        visitor.VisitToken "with" wTok
         visitor.EnterSection ""
 
-        for m in memberDefs do
+        for m in intfMembers do
             walkMemberDefn visitor m
 
         visitor.ExitSection ""
-        visitor.VisitToken "end" endTok
+        visitor.VisitToken "end" intfEndTok
+    | ValueNone -> ()
 
-        for InterfaceImpl.InterfaceImpl(interfaceTok, typ, objMembers) in interfaceImpls do
-            visitor.EnterSection "InterfaceImpl"
-            visitor.VisitToken "interface" interfaceTok
-            walkType visitor typ
+    visitor.ExitSection "InterfaceImpl"
 
-            match objMembers with
-            | ValueSome(ObjectMembers.ObjectMembers(wTok, intfMembers, intfEndTok)) ->
-                visitor.VisitToken "with" wTok
-                visitor.EnterSection ""
+and walkExprRange (visitor: AstVisitor<'T>) (fromExpr: Expr<'T>) (dotdot: 'T) (toExpr: Expr<'T>) : unit =
+    visitor.EnterSection "Range"
+    walkExpr visitor fromExpr
+    visitor.VisitToken ".." dotdot
+    walkExpr visitor toExpr
+    visitor.ExitSection "Range"
 
-                for m in intfMembers do
-                    walkMemberDefn visitor m
+and walkExprSteppedRange
+    (visitor: AstVisitor<'T>)
+    (fromExpr: Expr<'T>)
+    (dotdot1: 'T)
+    (stepExpr: Expr<'T>)
+    (dotdot2: 'T)
+    (toExpr: Expr<'T>)
+    : unit =
+    visitor.EnterSection "SteppedRange"
+    walkExpr visitor fromExpr
+    visitor.VisitToken ".." dotdot1
+    walkExpr visitor stepExpr
+    visitor.VisitToken ".." dotdot2
+    walkExpr visitor toExpr
+    visitor.ExitSection "SteppedRange"
 
-                visitor.ExitSection ""
-                visitor.VisitToken "end" intfEndTok
-            | ValueNone -> ()
+and walkExprSliceFrom (visitor: AstVisitor<'T>) (expr: Expr<'T>) (dotdot: 'T) : unit =
+    visitor.EnterSection "SliceFrom"
+    walkExpr visitor expr
+    visitor.VisitToken ".." dotdot
+    visitor.ExitSection "SliceFrom"
 
-            visitor.ExitSection "InterfaceImpl"
+and walkExprSliceTo (visitor: AstVisitor<'T>) (dotdot: 'T) (expr: Expr<'T>) : unit =
+    visitor.EnterSection "SliceTo"
+    visitor.VisitToken ".." dotdot
+    walkExpr visitor expr
+    visitor.ExitSection "SliceTo"
 
-        visitor.VisitToken "}" rBrace
-        visitor.ExitSection "ObjectExpr"
-    | Expr.Range(fromExpr, dotdot, toExpr) ->
-        visitor.EnterSection "Range"
-        walkExpr visitor fromExpr
-        visitor.VisitToken ".." dotdot
-        walkExpr visitor toExpr
-        visitor.ExitSection "Range"
-    | Expr.SteppedRange(fromExpr, dotdot1, stepExpr, dotdot2, toExpr) ->
-        visitor.EnterSection "SteppedRange"
-        walkExpr visitor fromExpr
-        visitor.VisitToken ".." dotdot1
-        walkExpr visitor stepExpr
-        visitor.VisitToken ".." dotdot2
-        walkExpr visitor toExpr
-        visitor.ExitSection "SteppedRange"
-    | Expr.SliceFrom(expr, dotdot) ->
-        visitor.EnterSection "SliceFrom"
-        walkExpr visitor expr
-        visitor.VisitToken ".." dotdot
-        visitor.ExitSection "SliceFrom"
-    | Expr.SliceTo(dotdot, expr) ->
-        visitor.EnterSection "SliceTo"
-        visitor.VisitToken ".." dotdot
-        walkExpr visitor expr
-        visitor.ExitSection "SliceTo"
-    | Expr.SliceFromTo(startExpr, dotdot, endExpr) ->
-        visitor.EnterSection "SliceFromTo"
-        walkExpr visitor startExpr
-        visitor.VisitToken ".." dotdot
-        walkExpr visitor endExpr
-        visitor.ExitSection "SliceFromTo"
-    | Expr.SliceAll(star) ->
-        visitor.EnterSection "SliceAll"
-        visitor.VisitToken "*" star
-        visitor.ExitSection "SliceAll"
+and walkExprSliceFromTo (visitor: AstVisitor<'T>) (startExpr: Expr<'T>) (dotdot: 'T) (endExpr: Expr<'T>) : unit =
+    visitor.EnterSection "SliceFromTo"
+    walkExpr visitor startExpr
+    visitor.VisitToken ".." dotdot
+    walkExpr visitor endExpr
+    visitor.ExitSection "SliceFromTo"
+
+and walkExprSliceAll (visitor: AstVisitor<'T>) (star: 'T) : unit =
+    visitor.EnterSection "SliceAll"
+    visitor.VisitToken "*" star
+    visitor.ExitSection "SliceAll"
 
 
 and walkArgSpec (visitor: AstVisitor<'T>) (argSpec: ArgSpec<'T>) : unit =
