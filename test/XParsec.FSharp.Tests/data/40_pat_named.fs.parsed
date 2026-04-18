@@ -9,7 +9,7 @@ Match:
     Pat:
       Pat.Named:
         Ident              'Some'            Identifier          tok=   8  pos=  15
-        Param:
+        Args:
           Pat.NamedSimple  'y'               Identifier          tok=  10  pos=  20
     Arrow                  '->'              OpArrowRight        tok=  12  pos=  22
     Expr:

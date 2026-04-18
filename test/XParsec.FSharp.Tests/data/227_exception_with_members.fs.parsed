@@ -31,7 +31,7 @@ ExceptionDefn.Full:
           Pat:
             Pat.Named:
               Ident                  'WrappedErr...'   Identifier          tok=  44  pos= 161
-              Param:
+              Args:
                 ParenBlock           '('               KWLParen            tok=  45  pos= 173
                   Pat.Tuple:
                     Pat.Wildcard     '_'               Wildcard            tok=  46  pos= 174

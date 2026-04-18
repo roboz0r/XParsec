@@ -51,7 +51,7 @@ FunctionOrValue:
                   Pat.As:
                     Pat.Named:
                       Ident             'Sequential'      Identifier          tok=  71  pos= 160
-                      Param:
+                      Args:
                         Pat.Wildcard    '_'               Wildcard            tok=  73  pos= 171
                     As                  'as'              KWAs                tok=  75  pos= 173
                     Ident               'e2'              Identifier          tok=  77  pos= 176
@@ -98,11 +98,11 @@ FunctionOrValue:
                   Pat.Or                '|'               OpBar               tok= 128  pos= 279
                     Pat.Named:
                       Ident             'Literal'         Identifier          tok= 124  pos= 269
-                      Param:
+                      Args:
                         Pat.Const       '1'               NumInt32            tok= 126  pos= 277
                     Pat.Named:
                       Ident             'Literal'         Identifier          tok= 130  pos= 281
-                      Param:
+                      Args:
                         Pat.Const       '2'               NumInt32            tok= 132  pos= 289
               UnionArgPat.Named:
                 Ident                   'expr2'           Identifier          tok= 135  pos= 292
@@ -131,11 +131,11 @@ FunctionOrValue:
                     Pat.Or              '|'               OpBar               tok= 161  pos= 350
                       Pat.Named:
                         Ident           'Literal'         Identifier          tok= 157  pos= 340
-                        Param:
+                        Args:
                           Pat.Wildcard  '_'               Wildcard            tok= 159  pos= 348
                       Pat.Named:
                         Ident           'Sequential'      Identifier          tok= 163  pos= 352
-                        Param:
+                        Args:
                           Pat.Wildcard  '_'               Wildcard            tok= 165  pos= 363
                     As                  'as'              KWAs                tok= 167  pos= 365
                     Ident               'e1'              Identifier          tok= 169  pos= 368

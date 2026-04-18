@@ -16,7 +16,7 @@ FunctionOrValue:
           Pat:
             Pat.Named:
               Ident              'Some'            Identifier          tok=  28  pos= 149
-              Param:
+              Args:
                 Pat.NamedSimple  'v'               Identifier          tok=  30  pos= 154
           Arrow                  '->'              OpArrowRight        tok=  32  pos= 156
           Expr:
@@ -52,7 +52,7 @@ FunctionOrValue:
           Pat:
             Pat.Named:
               Ident              'Some'            Identifier          tok=  72  pos= 254
-              Param:
+              Args:
                 Pat.NamedSimple  'v'               Identifier          tok=  74  pos= 259
           Arrow                  '->'              OpArrowRight        tok=  76  pos= 261
           Expr:

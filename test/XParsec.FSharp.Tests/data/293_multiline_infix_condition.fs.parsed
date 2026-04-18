@@ -25,7 +25,7 @@ FunctionOrValue:
                   Pat:
                     Pat.Named:
                       Ident           'Some'            Identifier          tok=  37  pos=  74
-                      Param:
+                      Args:
                         Pat.Wildcard  '_'               Wildcard            tok=  39  pos=  79
                   Arrow               '->'              OpArrowRight        tok=  41  pos=  81
                   Expr:

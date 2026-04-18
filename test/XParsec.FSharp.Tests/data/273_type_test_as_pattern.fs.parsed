@@ -43,7 +43,7 @@ FunctionOrValue:
             Pat.Tuple:
               Pat.Named:
                 Ident                  'Wrapper'         Identifier          tok=  50  pos= 101
-                Param:
+                Args:
                   Pat.NamedSimple      'this'            Identifier          tok=  52  pos= 109
               ,                        ','               OpComma             tok=  53  pos= 113
               ParenBlock               '('               KWLParen            tok=  55  pos= 115
@@ -55,7 +55,7 @@ FunctionOrValue:
                   As                   'as'              KWAs                tok=  60  pos= 127
                   Pat.Named:
                     Ident              'Wrapper'         Identifier          tok=  62  pos= 130
-                    Param:
+                    Args:
                       Pat.NamedSimple  'other'           Identifier          tok=  64  pos= 138
                                        ')'               KWRParen            tok=  65  pos= 143
           Arrow                        '->'              OpArrowRight        tok=  67  pos= 145

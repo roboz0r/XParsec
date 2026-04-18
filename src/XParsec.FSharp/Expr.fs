@@ -418,8 +418,8 @@ and [<RequireQualifiedAccess>] Pat<'T> =
     /// Only valid in List and Array patterns; a compiler error will be raised if this appears in a different context
     | Elems of pats: ImArr<Pat<'T>> * separators: ImArr<'T>
     | NamedSimple of ident: 'T
-    | Named of longIdent: LongIdent<'T> * param: Pat<'T> voption * pat: Pat<'T> voption
-    | OpNamed of head: IdentOrOp<'T> * param: Pat<'T> voption * pat: Pat<'T> voption
+    | Named of longIdent: LongIdent<'T> * argumentPats: ImArr<Pat<'T>>
+    | OpNamed of head: IdentOrOp<'T> * argumentPats: ImArr<Pat<'T>>
     | NamedFieldPats of
         longIdent: LongIdent<'T> *
         lParen: 'T *

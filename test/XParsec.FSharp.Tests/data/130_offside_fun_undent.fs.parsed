@@ -17,7 +17,7 @@ FunctionOrValue:
             Pats:
               Pat.Named:
                 Ident              'c'               Identifier          tok=  16  pos=  42
-                Param:
+                Args:
                   Pat.NamedSimple  'v'               Identifier          tok=  18  pos=  44
             Arrow                  '->'              OpArrowRight        tok=  20  pos=  46
             Body:

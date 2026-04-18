@@ -1,0 +1,103 @@
+AnonymousModule:
+FunctionOrValue:
+  let                                          'let'             KWLet               tok=  33  pos= 802
+    Pat.NamedSimple                            'classify'        Identifier          tok=  35  pos= 806
+    Pats:
+      Pat.NamedSimple                          'ceenv'           Identifier          tok=  37  pos= 815
+      Pat.NamedSimple                          'synExpr'         Identifier          tok=  39  pos= 821
+    =                                          '='               OpEquality          tok=  41  pos= 829
+      Match:
+        MatchToken                             'match'           KWMatch             tok=  44  pos= 835
+        MatchExpr:
+          Ident                                'synExpr'         Identifier          tok=  46  pos= 841
+        WithToken                              'with'            KWWith              tok=  48  pos= 849
+        Rule:
+          Bar                                  '|'               OpBar               tok=  51  pos= 858
+          Pat:
+            Pat.Named:
+              Ident                            'SynExpr'         Identifier          tok=  53  pos= 860
+              Ident                            'App'             Identifier          tok=  55  pos= 868
+              Args:
+                ParenBlock                     '('               KWLParen            tok=  57  pos= 872
+                  Pat.Tuple:
+                    Pat.Wildcard               '_'               Wildcard            tok=  58  pos= 873
+                    ,                          ','               OpComma             tok=  59  pos= 874
+                    Pat.Wildcard               '_'               Wildcard            tok=  61  pos= 876
+                    ,                          ','               OpComma             tok=  62  pos= 877
+                    Pat.Named:
+                      Ident                    'CustomOpId'      Identifier          tok=  64  pos= 879
+                      Args:
+                        ParenBlock             '('               KWLParen            tok=  66  pos= 890
+                          Pat.Named:
+                            Ident              'isCustomOp...'   Identifier          tok=  67  pos= 891
+                            Args:
+                              Pat.NamedSimple  'ceenv'           Identifier          tok=  69  pos= 909
+                                               ')'               KWRParen            tok=  70  pos= 914
+                        ParenBlock             '('               KWLParen            tok=  72  pos= 916
+                          Pat.Named:
+                            Ident              'customOper...'   Identifier          tok=  73  pos= 917
+                            Args:
+                              Pat.NamedSimple  'ceenv'           Identifier          tok=  75  pos= 942
+                                               ')'               KWRParen            tok=  76  pos= 947
+                        Pat.NamedSimple        'nm'              Identifier          tok=  78  pos= 949
+                    ,                          ','               OpComma             tok=  79  pos= 951
+                    Pat.Named:
+                      Ident                    'ExprAsPat'       Identifier          tok=  82  pos= 972
+                      Args:
+                        Pat.NamedSimple        'secondSour...'   Identifier          tok=  84  pos= 982
+                    ,                          ','               OpComma             tok=  85  pos= 997
+                    Pat.Wildcard               '_'               Wildcard            tok=  87  pos= 999
+                                               ')'               KWRParen            tok=  88  pos=1000
+          Arrow                                '->'              OpArrowRight        tok=  90  pos=1002
+          Expr:
+            App:
+              Func:
+                Ident                          'Some'            Identifier          tok=  93  pos=1013
+              Args:
+                ParenBlock                     '('               KWLParen            tok=  95  pos=1018
+                  Tuple:
+                    Ident                      'nm'              Identifier          tok=  96  pos=1019
+                    Ident                      'secondSour...'   Identifier          tok=  99  pos=1023
+                                               ')'               KWRParen            tok= 100  pos=1038
+        Rule:
+          Bar                                  '|'               OpBar               tok= 103  pos=1044
+          Pat:
+            Pat.Named:
+              Ident                            'CustomOpId'      Identifier          tok= 105  pos=1046
+              Args:
+                ParenBlock                     '('               KWLParen            tok= 107  pos=1057
+                  Pat.Named:
+                    Ident                      'isCustomOp...'   Identifier          tok= 108  pos=1058
+                    Args:
+                      Pat.NamedSimple          'ceenv'           Identifier          tok= 110  pos=1076
+                                               ')'               KWRParen            tok= 111  pos=1081
+                ParenBlock                     '('               KWLParen            tok= 113  pos=1083
+                  Pat.Named:
+                    Ident                      'customOper...'   Identifier          tok= 114  pos=1084
+                    Args:
+                      Pat.NamedSimple          'ceenv'           Identifier          tok= 116  pos=1109
+                                               ')'               KWRParen            tok= 117  pos=1114
+                Pat.NamedSimple                'nm'              Identifier          tok= 119  pos=1116
+          Arrow                                '->'              OpArrowRight        tok= 121  pos=1119
+          Expr:
+            App:
+              Func:
+                Ident                          'Some'            Identifier          tok= 124  pos=1130
+              Args:
+                ParenBlock                     '('               KWLParen            tok= 126  pos=1135
+                  Tuple:
+                    Ident                      'nm'              Identifier          tok= 127  pos=1136
+                    App:
+                      Func:
+                        Ident                  'arbPat'          Identifier          tok= 130  pos=1140
+                      Args:
+                        ParenBlock             '('               KWLParen            tok= 132  pos=1147
+                                               ')'               KWRParen            tok= 133  pos=1148
+                                               ')'               KWRParen            tok= 134  pos=1149
+        Rule:
+          Bar                                  '|'               OpBar               tok= 137  pos=1155
+          Pat:
+            Pat.Wildcard                       '_'               Wildcard            tok= 139  pos=1157
+          Arrow                                '->'              OpArrowRight        tok= 141  pos=1159
+          Expr:
+            Ident                              'None'            Identifier          tok= 143  pos=1162

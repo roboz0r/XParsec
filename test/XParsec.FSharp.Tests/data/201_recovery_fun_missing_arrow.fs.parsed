@@ -3,7 +3,7 @@ Fun              'fun'             KWFun               tok=   0  pos=   0
 Pats:
   Pat.Named:
     Ident        'x'               Identifier          tok=   2  pos=   4
-    Param:
+    Args:
       Pat.Const  '1'               NumInt32            tok=   4  pos=   6
 Arrow            <virt>            OpArrowRight        tok=virt  pos=   8
 Body:
