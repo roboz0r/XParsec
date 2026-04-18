@@ -2,7 +2,7 @@ AnonymousModule:
 TypeDefn.Anon:
   TypeName           'Foo'             Identifier          tok=   2  pos=   5
   TyparDefns:
-                     '<'               op_LessThan         tok=   3  pos=   8
+    <                '<'               op_LessThan         tok=   3  pos=   8
     Typar.Named:
                      ''Input'          TypeParameter       tok=   4  pos=   9
     Typar.Named:
@@ -43,7 +43,7 @@ TypeDefn.Anon:
             Typar.Named:
                      ''InputSlic...'   TypeParameter       tok=  36  pos= 114
         >            <virt>            OpPipeLeft          tok=virt  pos= 125
-                     '>>'              op_ComposeRight     tok=  37  pos= 125
+    >                '>>'              op_ComposeRight     tok=  37  pos= 125
   (                  '('               KWLParen            tok=  38  pos= 127
   )                  ')'               KWRParen            tok=  39  pos= 128
   =                  '='               OpEquality          tok=  41  pos= 130

@@ -12,7 +12,7 @@ TypeDefn.Anon:
     self                     '_'               Wildcard            tok=  24  pos= 257
     Pat.NamedSimple          'MinByNulla...'   Identifier          tok=  26  pos= 259
     TyparDefns:
-                             '<'               op_LessThan         tok=  27  pos= 272
+      <                      '<'               op_LessThan         tok=  27  pos= 272
       Typar.Named:
                              ''T'              TypeParameter       tok=  28  pos= 273
       Typar.Named:
@@ -58,7 +58,7 @@ TypeDefn.Anon:
         NamedType:
           LongIdent:
                              'ValueType'       Identifier          tok=  83  pos= 525
-                             '>'               op_GreaterThan      tok=  84  pos= 534
+      >                      '>'               op_GreaterThan      tok=  84  pos= 534
     Pats:
       ParenBlock             '('               KWLParen            tok=  86  pos= 536
         Pat.Tuple:

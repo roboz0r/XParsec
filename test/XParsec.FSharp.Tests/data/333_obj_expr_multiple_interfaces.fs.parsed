@@ -15,10 +15,10 @@ FunctionOrValue:
   let                                          'let'             KWLet               tok=  26  pos= 270
     Pat.NamedSimple                            'makeEnumer...'   Identifier          tok=  28  pos= 274
     TyparDefns:
-                                               '<'               op_LessThan         tok=  29  pos= 288
+      <                                        '<'               op_LessThan         tok=  29  pos= 288
       Typar.Named:
                                                ''U'              TypeParameter       tok=  30  pos= 289
-                                               '>'               op_GreaterThan      tok=  31  pos= 291
+      >                                        '>'               op_GreaterThan      tok=  31  pos= 291
     Pats:
       ParenBlock                               '('               KWLParen            tok=  33  pos= 293
         Pat.Typed:

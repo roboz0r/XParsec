@@ -119,7 +119,7 @@ TypeDefn.Anon:
     self                     '_'               Wildcard            tok= 141  pos= 483
     Pat.NamedSimple          'MaxBy'           Identifier          tok= 143  pos= 485
     TyparDefns:
-                             '<'               op_LessThan         tok= 144  pos= 490
+      <                      '<'               op_LessThan         tok= 144  pos= 490
       Typar.Named:
                              ''T'              TypeParameter       tok= 145  pos= 491
       Typar.Named:
@@ -136,7 +136,7 @@ TypeDefn.Anon:
                              ''Key'            TypeParameter       tok= 159  pos= 524
         :                    ':'               OpColon             tok= 160  pos= 528
         comparison           'comparison'      Identifier          tok= 162  pos= 530
-                             '>'               op_GreaterThan      tok= 163  pos= 540
+      >                      '>'               op_GreaterThan      tok= 163  pos= 540
     Pats:
       ParenBlock             '('               KWLParen            tok= 165  pos= 542
         Pat.Tuple:

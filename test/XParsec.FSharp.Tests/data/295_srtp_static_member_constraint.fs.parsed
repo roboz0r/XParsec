@@ -5,7 +5,7 @@ FunctionOrValue:
     inline                   'inline'          KWInline            tok=  12  pos=  97
     Pat.NamedSimple          'eq'              Identifier          tok=  14  pos= 104
     TyparDefns:
-                             '<'               op_LessThan         tok=  15  pos= 106
+      <                      '<'               op_LessThan         tok=  15  pos= 106
       Typar.Named:
                              ''T'              TypeParameter       tok=  16  pos= 107
       when                   'when'            KWWhen              tok=  18  pos= 110
@@ -38,7 +38,7 @@ FunctionOrValue:
             LongIdent:
                              'bool'            Identifier          tok=  48  pos= 167
         )                    ')'               KWRParen            tok=  49  pos= 171
-                             '>'               op_GreaterThan      tok=  50  pos= 172
+      >                      '>'               op_GreaterThan      tok=  50  pos= 172
     Pats:
       ParenBlock             '('               KWLParen            tok=  52  pos= 174
         Pat.Typed:
@@ -69,7 +69,7 @@ FunctionOrValue:
 TypeDefn.Anon:
   TypeName                   'Comparer'        Identifier          tok=  80  pos= 241
   TyparDefns:
-                             '<'               op_LessThan         tok=  81  pos= 249
+    <                        '<'               op_LessThan         tok=  81  pos= 249
     Typar.Named:
                              ''T'              TypeParameter       tok=  82  pos= 250
     when                     'when'            KWWhen              tok=  84  pos= 253
@@ -96,7 +96,7 @@ TypeDefn.Anon:
           LongIdent:
                              'bool'            Identifier          tok= 107  pos= 293
       )                      ')'               KWRParen            tok= 108  pos= 297
-                             '>'               op_GreaterThan      tok= 109  pos= 298
+    >                        '>'               op_GreaterThan      tok= 109  pos= 298
   (                          '('               KWLParen            tok= 110  pos= 299
   )                          ')'               KWRParen            tok= 111  pos= 300
   =                          '='               OpEquality          tok= 113  pos= 302
