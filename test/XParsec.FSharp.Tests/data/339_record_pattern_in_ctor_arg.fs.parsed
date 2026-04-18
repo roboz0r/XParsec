@@ -3,11 +3,11 @@ TypeDefn.Union:
   TypeName                                     'Kind'            Identifier          tok=   6  pos= 139
   =                                            '='               OpEquality          tok=   8  pos= 144
     Case:
-      ident                                    'Ctor'            Identifier          tok=  10  pos= 146
+      Ident                                    'Ctor'            Identifier          tok=  10  pos= 146
     Case:
-      ident                                    'Getter'          Identifier          tok=  14  pos= 153
+      Ident                                    'Getter'          Identifier          tok=  14  pos= 153
     Case:
-      ident                                    'Setter'          Identifier          tok=  18  pos= 162
+      Ident                                    'Setter'          Identifier          tok=  18  pos= 162
 TypeDefn.Record:
   TypeName                                     'Flags'           Identifier          tok=  22  pos= 174
   =                                            '='               OpEquality          tok=  24  pos= 180

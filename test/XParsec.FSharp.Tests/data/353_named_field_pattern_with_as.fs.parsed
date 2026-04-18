@@ -3,7 +3,7 @@ TypeDefn.Union:
   TypeName                       'NB'              Identifier          tok=   8  pos= 157
   =                              '='               OpEquality          tok=  10  pos= 160
     Case:
-      ident                      'Normalized...'   Identifier          tok=  12  pos= 162
+      Ident                      'Normalized...'   Identifier          tok=  12  pos= 162
       of                         'of'              KWOf                tok=  14  pos= 180
       ident                      'valSynData'      Identifier          tok=  16  pos= 183
       :                          ':'               OpColon             tok=  17  pos= 193

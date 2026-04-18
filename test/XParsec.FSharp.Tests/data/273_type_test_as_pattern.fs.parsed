@@ -4,7 +4,7 @@ TypeDefn.Union:
   TypeName                             'Wrapper'         Identifier          tok=   7  pos=  18
   =                                    '='               OpEquality          tok=   9  pos=  26
     Case:
-      ident                            'Wrapper'         Identifier          tok=  11  pos=  28
+      Ident                            'Wrapper'         Identifier          tok=  11  pos=  28
       of                               'of'              KWOf                tok=  13  pos=  36
       NamedType:
         Ident                          'string'          Identifier          tok=  15  pos=  39

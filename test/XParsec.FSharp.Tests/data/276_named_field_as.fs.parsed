@@ -4,7 +4,7 @@ TypeDefn.Union:
   TypeName                              'Expr'            Identifier          tok=   7  pos=  18
   =                                     '='               OpEquality          tok=   9  pos=  23
     Case:
-      ident                             'Sequential'      Identifier          tok=  14  pos=  31
+      Ident                             'Sequential'      Identifier          tok=  14  pos=  31
       of                                'of'              KWOf                tok=  16  pos=  42
       ident                             'expr1'           Identifier          tok=  18  pos=  45
       :                                 ':'               OpColon             tok=  19  pos=  50
@@ -15,7 +15,7 @@ TypeDefn.Union:
       NamedType:
         Ident                           'Expr'            Identifier          tok=  28  pos=  66
     Case:
-      ident                             'Literal'         Identifier          tok=  33  pos=  77
+      Ident                             'Literal'         Identifier          tok=  33  pos=  77
       of                                'of'              KWOf                tok=  35  pos=  85
       NamedType:
         Ident                           'int'             Identifier          tok=  37  pos=  88

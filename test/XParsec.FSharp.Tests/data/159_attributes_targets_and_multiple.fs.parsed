@@ -37,9 +37,9 @@ TypeDefn.Union:
   TypeName           'OldEnum'         Identifier          tok=  47  pos= 138
   =                  '='               OpEquality          tok=  49  pos= 146
     Case:
-      ident          'A'               Identifier          tok=  54  pos= 154
+      Ident          'A'               Identifier          tok=  54  pos= 154
     Case:
-      ident          'B'               Identifier          tok=  59  pos= 162
+      Ident          'B'               Identifier          tok=  59  pos= 162
 TypeDefn.Anon:
   [<                 '[<'              KWLAttrBracket      tok=  62  pos= 165
   NamedType:

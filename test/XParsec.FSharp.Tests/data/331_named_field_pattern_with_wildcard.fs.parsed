@@ -3,7 +3,7 @@ TypeDefn.Union:
   TypeName                               'Ctor'            Identifier          tok=   9  pos= 182
   =                                      '='               OpEquality          tok=  11  pos= 187
     Case:
-      ident                              'Ctor'            Identifier          tok=  13  pos= 189
+      Ident                              'Ctor'            Identifier          tok=  13  pos= 189
       of                                 'of'              KWOf                tok=  15  pos= 194
       ident                              'a'               Identifier          tok=  17  pos= 197
       :                                  ':'               OpColon             tok=  18  pos= 198
@@ -60,7 +60,7 @@ TypeDefn.Union:
   TypeName                               'Wrap'            Identifier          tok=  88  pos= 371
   =                                      '='               OpEquality          tok=  90  pos= 376
     Case:
-      ident                              'W'               Identifier          tok=  92  pos= 378
+      Ident                              'W'               Identifier          tok=  92  pos= 378
       of                                 'of'              KWOf                tok=  94  pos= 380
       ident                              'field'           Identifier          tok=  96  pos= 383
       :                                  ':'               OpColon             tok=  97  pos= 388

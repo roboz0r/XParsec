@@ -3,12 +3,12 @@ TypeDefn.Union:
   TypeName                               'MyDU'            Identifier          tok=  12  pos= 352
   =                                      '='               OpEquality          tok=  14  pos= 357
     Case:
-      ident                              'A'               Identifier          tok=  19  pos= 365
+      Ident                              'A'               Identifier          tok=  19  pos= 365
       of                                 'of'              KWOf                tok=  21  pos= 367
       NamedType:
         Ident                            'int'             Identifier          tok=  23  pos= 370
     Case:
-      ident                              'B'               Identifier          tok=  28  pos= 380
+      Ident                              'B'               Identifier          tok=  28  pos= 380
       of                                 'of'              KWOf                tok=  30  pos= 382
       NamedType:
         Ident                            'int'             Identifier          tok=  32  pos= 385

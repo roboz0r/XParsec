@@ -9,7 +9,7 @@ TypeDefn.Union:
     >           '>'               op_GreaterThan      tok=  19  pos= 304
   =             '='               OpEquality          tok=  21  pos= 306
     Case:
-      ident     'None'            Identifier          tok=  26  pos= 314
+      Ident     'None'            Identifier          tok=  26  pos= 314
       :         ':'               OpColon             tok=  28  pos= 319
       SuffixedType:
         VarType:
@@ -17,7 +17,7 @@ TypeDefn.Union:
                 ''T'              TypeParameter       tok=  30  pos= 327
         Ident   'option'          Identifier          tok=  32  pos= 330
     Case:
-      ident     'Some'            Identifier          tok=  37  pos= 343
+      Ident     'Some'            Identifier          tok=  37  pos= 343
       :         ':'               OpColon             tok=  39  pos= 348
       arg       'Value'           Identifier          tok=  41  pos= 350
       :         ':'               OpColon             tok=  42  pos= 355
@@ -41,7 +41,7 @@ TypeDefn.Union:
     >           '>'               op_GreaterThan      tok=  60  pos= 393
   =             '='               OpEquality          tok=  62  pos= 395
     Case:
-      ident     'Choice1Of2'      Identifier          tok=  67  pos= 403
+      Ident     'Choice1Of2'      Identifier          tok=  67  pos= 403
       :         ':'               OpColon             tok=  69  pos= 414
       VarType:
         Typar.Named:
@@ -60,7 +60,7 @@ TypeDefn.Union:
                 ''T2'             TypeParameter       tok=  80  pos= 435
         >       '>'               op_GreaterThan      tok=  81  pos= 438
     Case:
-      ident     'Choice2Of2'      Identifier          tok=  86  pos= 446
+      Ident     'Choice2Of2'      Identifier          tok=  86  pos= 446
       :         ':'               OpColon             tok=  88  pos= 457
       VarType:
         Typar.Named:

@@ -4,7 +4,7 @@ TypeDefn.Union:
   TypeName                           'Item'            Identifier          tok=   7  pos=  18
   =                                  '='               OpEquality          tok=   9  pos=  23
     Case:
-      ident                          'Property'        Identifier          tok=  14  pos=  31
+      Ident                          'Property'        Identifier          tok=  14  pos=  31
       of                             'of'              KWOf                tok=  16  pos=  40
       ident                          'info'            Identifier          tok=  18  pos=  43
       :                              ':'               OpColon             tok=  19  pos=  47

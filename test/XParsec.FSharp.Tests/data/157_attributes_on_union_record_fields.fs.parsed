@@ -10,14 +10,14 @@ TypeDefn.Union:
                'System'          Identifier          tok=  15  pos=  37
                'Obsolete'        Identifier          tok=  17  pos=  44
       >]       '>]'              KWRAttrBracket      tok=  18  pos=  52
-      ident    'Circle'          Identifier          tok=  20  pos=  55
+      Ident    'Circle'          Identifier          tok=  20  pos=  55
       of       'of'              KWOf                tok=  22  pos=  62
       ident    'radius'          Identifier          tok=  24  pos=  65
       :        ':'               OpColon             tok=  25  pos=  71
       NamedType:
         Ident  'float'           Identifier          tok=  27  pos=  73
     Case:
-      ident    'Rectangle'       Identifier          tok=  32  pos=  85
+      Ident    'Rectangle'       Identifier          tok=  32  pos=  85
       of       'of'              KWOf                tok=  34  pos=  95
       ident    'width'           Identifier          tok=  36  pos=  98
       :        ':'               OpColon             tok=  37  pos= 103
@@ -34,7 +34,7 @@ TypeDefn.Union:
                'System'          Identifier          tok=  52  pos= 135
                'Obsolete'        Identifier          tok=  54  pos= 142
       >]       '>]'              KWRAttrBracket      tok=  55  pos= 150
-      ident    'Point'           Identifier          tok=  57  pos= 153
+      Ident    'Point'           Identifier          tok=  57  pos= 153
 TypeDefn.Record:
   TypeName     'Config'          Identifier          tok=  62  pos= 165
   =            '='               OpEquality          tok=  64  pos= 172

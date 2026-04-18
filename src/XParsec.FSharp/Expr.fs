@@ -42,6 +42,8 @@ and [<RequireQualifiedAccess>] OpName<'T> =
     | SymbolicOp of op: 'T
     | RangeOp of rangeOp: RangeOpName<'T>
     | ActivePatternOp of activePatternOp: ActivePatternOpName<'T>
+    // [] — op_Nil. Internal FSharp.Core syntax for `type List<'T> = | ([]) : 'T list`.
+    | NilOp of lBracket: 'T * rBracket: 'T
 
 and [<RequireQualifiedAccess>] RangeOpName<'T> =
     | DotDot of 'T
@@ -627,12 +629,14 @@ and [<RequireQualifiedAccess>] UnionTypeField<'T> =
     | Named of ident: 'T * colon: 'T * typ: Type<'T>
 
 and [<RequireQualifiedAccess>] UnionTypeCaseData<'T> =
-    | Nullary of ident: 'T
-    | Nary of ident: 'T * ofToken: 'T * fields: ImArr<UnionTypeField<'T>> * asterisks: ImArr<'T>
+    // `name` is IdentOrOp so it can be a plain identifier, a parenthesized
+    // operator, or an empty-bracket `([])` op (FSharp.Core List cases).
+    | Nullary of name: IdentOrOp<'T>
+    | Nary of name: IdentOrOp<'T> * ofToken: 'T * fields: ImArr<UnionTypeField<'T>> * asterisks: ImArr<'T>
     // GADT-style: | Name : arg -> retType  (possibly with named args)
-    | GadtNary of ident: 'T * colon: 'T * sign: UncurriedSig<'T>
+    | GadtNary of name: IdentOrOp<'T> * colon: 'T * sign: UncurriedSig<'T>
     // GADT-style nullary: | Name : retType  (no arrow)
-    | GadtNullary of ident: 'T * colon: 'T * typ: Type<'T>
+    | GadtNullary of name: IdentOrOp<'T> * colon: 'T * typ: Type<'T>
 
 and UnionTypeCase<'T> = | UnionTypeCase of attributes: Attributes<'T> voption * data: UnionTypeCaseData<'T>
 

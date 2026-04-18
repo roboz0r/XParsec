@@ -13,7 +13,7 @@ Module:
                              'Serializab...'   Identifier          tok=  15  pos=  44
       >]                     '>]'              KWRAttrBracket      tok=  16  pos=  56
       exception              'exception'       KWException         tok=  19  pos=  63
-      ident                  'MyError'         Identifier          tok=  21  pos=  73
+      Ident                  'MyError'         Identifier          tok=  21  pos=  73
       of                     'of'              KWOf                tok=  23  pos=  81
       ident                  'message'         Identifier          tok=  25  pos=  84
       :                      ':'               OpColon             tok=  26  pos=  91
@@ -62,7 +62,7 @@ ExceptionDefn.Full:
                              'Serializab...'   Identifier          tok=  85  pos= 250
   >]                         '>]'              KWRAttrBracket      tok=  86  pos= 262
   exception                  'exception'       KWException         tok=  88  pos= 265
-  ident                      'SimpleErro...'   Identifier          tok=  90  pos= 275
+  Ident                      'SimpleErro...'   Identifier          tok=  90  pos= 275
   of                         'of'              KWOf                tok=  92  pos= 287
   NamedType:
     Ident                    'string'          Identifier          tok=  94  pos= 290

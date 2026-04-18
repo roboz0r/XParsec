@@ -4,16 +4,16 @@ TypeDefn.Union:
   TypeName               'DU1'             Identifier          tok=  20  pos= 322
   =                      '='               OpEquality          tok=  22  pos= 326
     Case:
-      ident              'X'               Identifier          tok=  27  pos= 331
+      Ident              'X'               Identifier          tok=  27  pos= 331
     Case:
-      ident              'Y'               Identifier          tok=  32  pos= 336
+      Ident              'Y'               Identifier          tok=  32  pos= 336
 TypeDefn.Union:
   TypeName               'DU2'             Identifier          tok=  39  pos= 390
   =                      '='               OpEquality          tok=  41  pos= 394
     Case:
-      ident              'X'               Identifier          tok=  45  pos= 398
+      Ident              'X'               Identifier          tok=  45  pos= 398
     Case:
-      ident              'Y'               Identifier          tok=  49  pos= 402
+      Ident              'Y'               Identifier          tok=  49  pos= 402
 Module:
   module                 'module'          KWModule            tok=  54  pos= 443
   ident                  'Nested'          Identifier          tok=  56  pos= 450
@@ -23,9 +23,9 @@ Module:
       TypeName           'DU3'             Identifier          tok=  63  pos= 468
       =                  '='               OpEquality          tok=  65  pos= 472
         Case:
-          ident          'X'               Identifier          tok=  70  pos= 480
+          Ident          'X'               Identifier          tok=  70  pos= 480
         Case:
-          ident          'Y'               Identifier          tok=  75  pos= 488
+          Ident          'Y'               Identifier          tok=  75  pos= 488
   end                    <virt>            KWEnd               tok=virt  pos= 521
 TypeDefn.Record:
   TypeName               'R1'              Identifier          tok=  82  pos= 526

@@ -151,12 +151,21 @@ module OpName =
             "Expected symbolic operator"
         |>> OpName.SymbolicOp
 
+    // [] — op_Nil. Internal FSharp.Core syntax for `type List<'T> = | ([]) : 'T list`.
+    let private pNilOp =
+        parser {
+            let! lBracket = pLBracket
+            let! rBracket = pRBracket
+            return OpName.NilOp(lBracket, rBracket)
+        }
+
     let parse: Parser<OpName<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         choiceL
             [
                 RangeOpName.parse |>> OpName.RangeOp
                 // Attempt active pattern first because it starts with '|', which is also a symbolic op
                 ActivePatternOpName.parse |>> OpName.ActivePatternOp
+                pNilOp
                 pSymbolicOp
             ]
             "OpName"
