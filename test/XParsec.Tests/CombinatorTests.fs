@@ -1857,4 +1857,106 @@ let tests =
                     "" |> Expect.equal reader2.Index 1
                 | Error e -> failwithf "State 2 failed: %A" e
             }
+
+            test "ParserCE While has imperative semantics" {
+                // `while` inside a `parser { }` block should behave like plain F#: the
+                // guard is evaluated normally, every statement in the body runs on each
+                // iteration, and mutations to `let mutable` bindings in the enclosing
+                // scope propagate.
+                //
+                // The interesting case is a body that mixes a destructuring `let`, an
+                // `if cond then stmt` (with no else), and a trailing mutation:
+                //
+                //     while guard do
+                //         let struct (_, _) = ...
+                //         if cond then mutate ()
+                //         advance ()
+                //
+                // Previously this spun forever: F# CE lowering inserts `Zero()` at the
+                // end of each unit-typed sub-expression, and with `Zero() = pzero`, the
+                // `if` branch produced a parse Error that short-circuited `Combine` —
+                // so `advance ()` never ran and the guard's counter never incremented.
+                let routes: struct (int * int)[] =
+                    [| struct (0, 100); struct (1, 200); struct (2, 300) |]
+
+                let p =
+                    parser {
+                        let mutable found: int voption = ValueNone
+                        let mutable i = 0
+
+                        while found.IsNone && i < routes.Length do
+                            let struct (key, value) = routes.[i]
+
+                            if key = 1 then
+                                found <- ValueSome value
+
+                            i <- i + 1
+
+                        return struct (found, i)
+                    }
+
+                let reader = Reader.ofString "" ()
+                let result = p reader
+
+                match result with
+                | Ok(struct (found, i)) ->
+                    "found" |> Expect.equal found (ValueSome 200)
+                    "iterations" |> Expect.equal i 2
+                    "reader position" |> Expect.equal reader.Index 0
+                | Error e -> failwithf "%A" e
+            }
+
+            test "ParserCE For has imperative semantics" {
+                // `for x in xs do body` inside a `parser { }` block should iterate every
+                // element of the sequence with plain F# semantics, regardless of the
+                // body's parse result. Same pitfall as `while`: if the body's implicit
+                // `Zero()` were `pzero`, `Combine` would short-circuit after the first
+                // sub-statement and the accumulator would stop updating.
+                let p =
+                    parser {
+                        let mutable sum = 0
+
+                        for x in [ 1; 2; 3; 4 ] do
+                            sum <- sum + x
+
+                        return sum
+                    }
+
+                let reader = Reader.ofString "" ()
+                let result = p reader
+
+                match result with
+                | Ok result ->
+                    "sum 1+2+3+4" |> Expect.equal result 10
+                    "reader position" |> Expect.equal reader.Index 0
+                | Error e -> failwithf "%A" e
+            }
+
+            test "ParserCE if-then without else does not short-circuit" {
+                // `if cond then stmt` with no else branch inside a `parser { }` block
+                // should NOT abort the rest of the CE via `Combine`-on-`Zero`-Error.
+                // F# inserts `else Zero()` implicitly; for that insertion to be benign,
+                // `Zero() = preturn ()` (not `pzero`).
+                let mkP (x: int) =
+                    parser {
+                        let mutable tag = "unchanged"
+
+                        if x = 1 then
+                            tag <- "changed"
+
+                        return tag
+                    }
+
+                let reader = Reader.ofString "" ()
+
+                match mkP 1 reader with
+                | Ok result -> "then-branch" |> Expect.equal result "changed"
+                | Error e -> failwithf "mkP 1: %A" e
+
+                let reader = Reader.ofString "" ()
+
+                match mkP 0 reader with
+                | Ok result -> "else-Zero branch" |> Expect.equal result "unchanged"
+                | Error e -> failwithf "mkP 0: %A" e
+            }
         ]

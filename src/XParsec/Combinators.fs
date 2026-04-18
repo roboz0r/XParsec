@@ -132,7 +132,11 @@ module Combinators =
         // So we eat the closure allocation for correctness.
         member inline _.Delay([<InlineIfLambda>] f: unit -> Parser<'A, 'T, 'State, 'Input, 'InputSlice>) =
             fun reader -> (f ()) reader
-        member inline _.Zero() = pzero
+
+        // `Zero` succeeds with unit so implicit insertions in imperative-style CE bodies
+        // (`if cond then stmt` without else, end of `while`/`for` body, etc.) don't
+        // short-circuit via `Combine`'s Error branch.
+        member inline _.Zero() : Parser<unit, 'T, 'State, 'Input, 'InputSlice> = fun _reader -> Ok()
 
         member inline _.TryWith ([<InlineIfLambda>] p, [<InlineIfLambda>] cf) (reader: Reader<_, _, _, _>) =
             try
@@ -155,24 +159,26 @@ module Combinators =
                 use r = resource
                 binder r reader
 
+        // `While` / `For` have plain imperative semantics: the guard is evaluated
+        // normally and the body is run once per iteration as a side effect.
         member inline _.While
             (
                 [<InlineIfLambda>] guard: unit -> bool,
                 [<InlineIfLambda>] generator: Parser<unit, 'T, 'State, 'Input, 'InputSlice>
-            ) =
-            fun (reader: Reader<'T, 'State, 'Input, 'InputSlice>) ->
+            ) : Parser<unit, 'T, 'State, 'Input, 'InputSlice> =
+            fun reader ->
                 let mutable doContinue = true
                 let mutable result = Ok()
 
                 while doContinue && guard () do
-                    let pos = reader.Position
+                    // Typical usage is unit returning body implicitly wrapped in Zero (always Ok),
+                    // but we allow arbitrary bodies to give more control to the user.
+                    // If the body fails, we break the loop and return the error.
 
+                    // No checks that we advance the reader position here; if the body doesn't consume input (typically fine),
+                    // it's on the user to ensure termination via an explicit check in the guard.
                     match generator reader with
-                    | Ok() ->
-                        if reader.Position = pos then
-                            raise (InfiniteLoopException pos)
-                        else
-                            ()
+                    | Ok() -> ()
                     | Error e ->
                         doContinue <- false
                         result <- Error e
