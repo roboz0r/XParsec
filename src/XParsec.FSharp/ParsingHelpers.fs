@@ -309,6 +309,18 @@ module Parsing =
             else
                 contextPermitsTokenBounded token tokenCol rest
 
+    /// Paren-like contexts per F# spec §15.1.10.4 — delimiters and begin/end.
+    /// These sit on the context stack as markers (Indent = 0), not as offside lines.
+    let private isParenLike (ctx: OffsideContext) =
+        match ctx with
+        | OffsideContext.Paren
+        | OffsideContext.Bracket
+        | OffsideContext.BracketBar
+        | OffsideContext.BraceBar
+        | OffsideContext.Brace
+        | OffsideContext.Begin -> true
+        | _ -> false
+
     /// Determines whether a token at column `tokenCol` is permitted despite being
     /// strictly left of the innermost context's offside line.
     /// Implements F# spec sections 15.1.8 (Balancing), 15.1.9 (Exceptions to Offside Rules)
@@ -346,21 +358,8 @@ module Parsing =
                 else
                     // 15.1.10.4 fallback: infix undentation exceeded, but if the SeqBlock
                     // sits directly inside a paren-like context, delegate to the collection
-                    // undentation rule (same logic as the SeqBlockParen check below).
-                    match rest with
-                    | ctx :: deeper when
-                        ctx.Context = OffsideContext.Paren
-                        || ctx.Context = OffsideContext.Bracket
-                        || ctx.Context = OffsideContext.BracketBar
-                        || ctx.Context = OffsideContext.BraceBar
-                        || ctx.Context = OffsideContext.Brace
-                        || ctx.Context = OffsideContext.Begin
-                        ->
-                        if checkCollectionUndent tokenCol deeper then
-                            ValueSome "15.1.10.4 SeqBlockParen"
-                        else
-                            ValueNone
-                    | _ -> ValueNone
+                    // undentation rule.
+                    tryCollectionUndent tokenCol context
 
             // Check if the token is permitted at the head context or any enclosing context
             elif contextPermitsToken token tokenCol head then
@@ -465,15 +464,11 @@ module Parsing =
                         ValueSome "15.1.10.3 BeginModule"
                     else
                         ValueNone
-                else if
-                    // 15.1.10.4: Collection/CE undentation
-                    // Inside [ ], [| |], or { }, content may undent to the enclosing expression's
-                    // offside line, skipping SeqBlock/Paren pairs introduced by ( or =.
-                    checkCollectionUndent tokenCol rest
-                then
-                    ValueSome "15.1.10.4 Collection"
                 else
-                    ValueNone
+                    // 15.1.10.4: Collection/CE undentation
+                    // Inside ( ), content may undent to the enclosing expression's
+                    // offside line, skipping SeqBlock/Paren pairs introduced by ( or =.
+                    tryCollectionUndent tokenCol context
 
             // 15.1.10.4: Collection/CE undentation for Bracket, BracketBar, Brace contexts
             elif
@@ -482,30 +477,14 @@ module Parsing =
                 || head.Context = OffsideContext.BraceBar
                 || head.Context = OffsideContext.Brace
             then
-                if checkCollectionUndent tokenCol rest then
-                    ValueSome "15.1.10.4 Collection"
-                else
-                    ValueNone
+                tryCollectionUndent tokenCol context
 
             // 15.1.10.4 extended: SeqBlock inside paren-like context
             // withContext pushes a SeqBlock on top of the Paren context from pEnclosed.
             // When content undents past that SeqBlock but is still within the enclosing
             // expression's offside line, delegate to the collection undentation rule.
             elif head.Context = OffsideContext.SeqBlock then
-                match rest with
-                | ctx :: deeper when
-                    ctx.Context = OffsideContext.Paren
-                    || ctx.Context = OffsideContext.Bracket
-                    || ctx.Context = OffsideContext.BracketBar
-                    || ctx.Context = OffsideContext.BraceBar
-                    || ctx.Context = OffsideContext.Brace
-                    || ctx.Context = OffsideContext.Begin
-                    ->
-                    if checkCollectionUndent tokenCol deeper then
-                        ValueSome "15.1.10.4 SeqBlockParen"
-                    else
-                        ValueNone
-                | _ -> ValueNone
+                tryCollectionUndent tokenCol context
 
             // 15.1.10 extended: Match/Function/Try aligned tokens (with/|/finally)
             // may undent when the expression is enclosed in brackets, to the
@@ -529,12 +508,7 @@ module Parsing =
                         | OffsideContext.MatchClauses
                         | OffsideContext.Function
                         | OffsideContext.Try -> hasEnclosingParen deeper
-                        | OffsideContext.Paren
-                        | OffsideContext.Bracket
-                        | OffsideContext.BracketBar
-                        | OffsideContext.BraceBar
-                        | OffsideContext.Brace
-                        | OffsideContext.Begin -> true
+                        | c when isParenLike c -> true
                         | _ -> false
 
                 if hasEnclosingParen rest && checkCollectionUndent tokenCol rest then
@@ -552,20 +526,33 @@ module Parsing =
         | [] -> true // Walked past all paren-like/SeqBlock contexts; no enclosing offside line to violate
         | ctx :: deeper ->
             match (ctx: Offside).Context with
-            | OffsideContext.SeqBlock ->
-                // Skip this SeqBlock and check what's beneath it
-                checkCollectionUndent tokenCol deeper
-            | OffsideContext.Paren
-            | OffsideContext.Bracket
-            | OffsideContext.BracketBar
-            | OffsideContext.BraceBar
-            | OffsideContext.Brace
-            | OffsideContext.Begin ->
-                // Skip paren-like context (and its associated SeqBlock) and keep looking
-                checkCollectionUndent tokenCol deeper
+            | OffsideContext.SeqBlock -> checkCollectionUndent tokenCol deeper
+            | c when isParenLike c -> checkCollectionUndent tokenCol deeper
             | _ ->
                 // Found the enclosing non-paren context; check if token is within its indent
                 tokenCol >= ctx.Indent
+
+    /// F# spec §15.1.10.4 (collection/CE undentation) and its SeqBlockParen extension:
+    /// a token may undent from the head context when it still lies within the enclosing
+    /// expression's offside line. Returns the trace-rule name on success.
+    /// Expects `stack` to be the full context list; inspects the head:
+    ///   * `SeqBlock :: paren-like :: deeper` — SeqBlock pushed on top of a paren-like
+    ///     context by `withContext` after `pEnclosed`. Rule: "15.1.10.4 SeqBlockParen".
+    ///   * `paren-like :: rest` — head is itself the paren-like container. Rule:
+    ///     "15.1.10.4 Collection".
+    and private tryCollectionUndent (tokenCol: int) (stack: Offside list) : string voption =
+        match stack with
+        | { Context = OffsideContext.SeqBlock } :: { Context = ctx } :: deeper when isParenLike ctx ->
+            if checkCollectionUndent tokenCol deeper then
+                ValueSome "15.1.10.4 SeqBlockParen"
+            else
+                ValueNone
+        | { Context = ctx } :: rest when isParenLike ctx ->
+            if checkCollectionUndent tokenCol rest then
+                ValueSome "15.1.10.4 Collection"
+            else
+                ValueNone
+        | _ -> ValueNone
 
     let rec private nextNonTriviaTokenImpl isPeek (reader: Reader<PositionedToken, ParseState, _, _>) =
         match reader.Peek() with
