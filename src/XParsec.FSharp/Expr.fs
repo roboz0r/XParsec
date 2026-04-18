@@ -149,6 +149,7 @@ and [<RequireQualifiedAccess>] Constraint<'T> =
         rAngle: 'T
     | Equality of typar: Typar<'T> * colon: 'T * equalityToken: 'T
     | Comparison of typar: Typar<'T> * colon: 'T * comparisonToken: 'T
+    | Default of defaultToken: 'T * typar: Typar<'T> * colon: 'T * typ: Type<'T>
 
 and [<RequireQualifiedAccess>] StaticTypars<'T> =
     | Single of typar: Typar<'T>
