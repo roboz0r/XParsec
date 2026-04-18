@@ -122,14 +122,11 @@ module Combinators =
         member inline _.Using
             (
                 resource: 'disposable :> IDisposable,
-                [<InlineIfLambda>] binder: 'disposable -> Parser<unit, 'T, 'State, 'Input, 'InputSlice>
-            ) : Parser<unit, 'T, 'State, 'Input, 'InputSlice> =
+                [<InlineIfLambda>] binder: 'disposable -> Parser<'A, 'T, 'State, 'Input, 'InputSlice>
+            ) : Parser<'A, 'T, 'State, 'Input, 'InputSlice> =
             fun reader ->
-                try
-                    binder resource reader
-                finally
-                    if not (obj.ReferenceEquals(resource, null)) then
-                        resource.Dispose()
+                use r = resource
+                binder r reader
 
         member inline _.While
             (
