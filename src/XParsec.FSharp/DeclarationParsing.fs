@@ -54,25 +54,40 @@ module CompilerDirectiveDecl =
 [<RequireQualifiedAccess>]
 module ModuleFunctionOrValueDefn =
 
+    // Consume a trailing `in` only when another token follows. If the `in` is the last
+    // meaningful token in the file, leave it for the existing missing-body diagnostic
+    // to fire via the script-expression fallback in FSharpAst.parse.
+    let private pTrailingIn =
+        parser {
+            let! inTok = pIn
+
+            match! peekNextNonTriviaToken with
+            | t when t.Token <> Token.EOF -> return inTok
+            | _ -> return! fail (Message "trailing 'in' at end of file has no body")
+        }
+
     let private pLetBinding attrs letTok =
         parser {
             let! isRec = opt pRec
 
-            match isRec with
-            | ValueSome recTok ->
-                let! bindings, ands = Binding.parseSepByAnd1 attrs
-                return ModuleFunctionOrValueDefn.Let(attrs, letTok, ValueSome recTok, bindings, ands)
-            | ValueNone ->
-                let! binding = Binding.parse attrs
+            let! recTok, bindings, ands =
+                match isRec with
+                | ValueSome recTok ->
+                    parser {
+                        let! bindings, ands = Binding.parseSepByAnd1 attrs
+                        return ValueSome recTok, bindings, ands
+                    }
+                | ValueNone ->
+                    parser {
+                        let! binding = Binding.parse attrs
+                        return ValueNone, ImmutableArray.Create(binding), ImmutableArray.Empty
+                    }
 
-                return
-                    ModuleFunctionOrValueDefn.Let(
-                        attrs,
-                        letTok,
-                        ValueNone,
-                        ImmutableArray.Create(binding),
-                        ImmutableArray.Empty
-                    )
+            // F# allows an ML-style trailing `in` to terminate a module-level let binding
+            // (LexFilter turns it into ODECLEND in the reference compiler). Capture it so
+            // the AST preserves the source token.
+            let! inTok = opt pTrailingIn
+            return ModuleFunctionOrValueDefn.Let(attrs, letTok, recTok, bindings, ands, inTok)
         }
 
     let parse =
@@ -98,7 +113,8 @@ module ModuleFunctionOrValueDefn =
                         )
                         Expr.pTypedSeqExprBlock
 
-                return ModuleFunctionOrValueDefn.Do(attrs, token, expr)
+                let! inTok = opt pTrailingIn
+                return ModuleFunctionOrValueDefn.Do(attrs, token, expr, inTok)
 
             | Token.KWLet -> return! pLetBinding attrs token
 
