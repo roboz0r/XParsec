@@ -65,13 +65,24 @@ module ElifBranches =
             ]
             "Expected 'elif' or 'else'"
 
-    let pConditionThen (indent: int) (keywordTok: SyntaxToken) (reader: Reader<PositionedToken, ParseState, _, _>) =
-        // Anchor condition and body to keyword_col + 1, matching pIfExpr behaviour
+    // Anchor the arm's If and Then contexts at (indent + 1). `indent` is the
+    // chain's effective offside column — the leftmost of the arm's keywords:
+    //   - `elif`     — elif's column
+    //   - `else if`  — min(else_col, if_col). `else if` is F# LexFilter sugar
+    //                  that collapses to a single chain arm; the arm aligns at
+    //                  the leftmost keyword. For same-line `else if` that's
+    //                  `else`; for multi-line `else\nif` (where collapse requires
+    //                  `if_col <= else_col`, e.g. `if` starts the next line after
+    //                  a trailing `else`) it's `if`.
+    // Anchoring at +1 (rather than the peeked expression token's column, which
+    // is what plain `withContext` would use) is needed so multi-line conditions
+    // that undent onto the following line remain within the If context.
+    let pConditionThen (indent: int) (armKeyword: SyntaxToken) (reader: Reader<PositionedToken, ParseState, _, _>) =
         let pCond =
-            withContextAt OffsideContext.If (indent + 1) keywordTok.PositionedToken refExpr.Parser
+            withContextAt OffsideContext.If (indent + 1) armKeyword.PositionedToken refExpr.Parser
         // Grammar: THEN typedSeqExprBlock
         let pThenExpr =
-            withContextAt OffsideContext.Then (indent + 1) keywordTok.PositionedToken refTypedSeqExprBlock.Parser
+            withContextAt OffsideContext.Then (indent + 1) armKeyword.PositionedToken refTypedSeqExprBlock.Parser
 
         match pCond reader with
         | Ok condition ->
@@ -103,9 +114,10 @@ module ElifBranches =
             | Error e -> Error e
 
         | Ok(ElIfTok.ElseIf(elseTok, ifTok)) ->
-            let indent = getIndent reader ifTok
+            // Leftmost of the pair is the chain's alignment column — see comment on pConditionThen.
+            let indent = min (getIndent reader elseTok) (getIndent reader ifTok)
 
-            match pConditionThen indent ifTok reader with
+            match pConditionThen indent elseTok reader with
             | Ok(condition, thenTok, expr) ->
                 acc.Add(ElifBranch.ElseIf(elseTok, ifTok, condition, thenTok, expr))
                 parseBranches acc reader

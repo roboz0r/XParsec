@@ -1,0 +1,39 @@
+AnonymousModule:
+FunctionOrValue:
+  let                        'let'             KWLet               tok=   7  pos= 233
+    Pat.NamedSimple          'classify'        Identifier          tok=   9  pos= 237
+    Pats:
+      Pat.NamedSimple        'n'               Identifier          tok=  11  pos= 246
+    =                        '='               OpEquality          tok=  13  pos= 248
+      IfThenElse:
+        IfToken              'if'              KWIf                tok=  16  pos= 254
+        Condition:
+          InfixApp           '<'               op_LessThan         tok=  20  pos= 259
+            Ident            'n'               Identifier          tok=  18  pos= 257
+            Const            '0'               NumInt32            tok=  22  pos= 261
+        ThenToken            'then'            KWThen              tok=  24  pos= 263
+        ThenExpr:
+          StringLiteral      '"'               StringOpen          tok=  27  pos= 276
+          Parts:
+            Text             'neg'             StringFragment      tok=  28  pos= 277
+                             '"'               StringClose         tok=  29  pos= 280
+        ElseToken            'else'            KWElse              tok=  32  pos= 286
+        ElseExpr:
+          IfThenElse:
+            IfToken          'if'              KWIf                tok=  35  pos= 299
+            Condition:
+              InfixApp       '='               OpEquality          tok=  39  pos= 304
+                Ident        'n'               Identifier          tok=  37  pos= 302
+                Const        '0'               NumInt32            tok=  41  pos= 306
+            ThenToken        'then'            KWThen              tok=  43  pos= 308
+            ThenExpr:
+              StringLiteral  '"'               StringOpen          tok=  46  pos= 325
+              Parts:
+                Text         'zero'            StringFragment      tok=  47  pos= 326
+                             '"'               StringClose         tok=  48  pos= 330
+            ElseToken        'else'            KWElse              tok=  51  pos= 340
+            ElseExpr:
+              StringLiteral  '"'               StringOpen          tok=  54  pos= 357
+              Parts:
+                Text         'positive'        StringFragment      tok=  55  pos= 358
+                             '"'               StringClose         tok=  56  pos= 366
