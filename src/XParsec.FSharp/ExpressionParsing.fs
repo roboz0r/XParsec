@@ -1751,52 +1751,60 @@ module Expr =
                 | _ -> return! fail (Message "Not a prefix operator")
             }
 
+        // Keyword-prefix dispatch table. Flattened to one entry per token for a simple
+        // linear scan (same pattern as `dispatchNextNonTriviaTokenFallback`). Most entries
+        // do NOT consume the keyword here — the body parser peeks the keyword to establish
+        // offside indent, then consumes. The `do/do!/return/return!/yield/yield!` forms
+        // consume up front because their body expects to start past the keyword.
+        let kwPrefixNoConsume body completer (token: SyntaxToken) =
+            preturn (PrefixMapped(token, preturn token, body, completer))
+
+        let kwPrefixConsume body completer (token: SyntaxToken) =
+            parser {
+                let! tok = consumePeeked token
+                return PrefixMapped(tok, preturn tok, body, completer)
+            }
+
+        let kwPrefixRoutes: struct (Token * (SyntaxToken -> Parser<_, _, _, _, _>))[] =
+            [|
+                struct (Token.KWIf, kwPrefixNoConsume pIfExpr completeFor)
+                struct (Token.KWMatch, kwPrefixNoConsume pMatchExpr completeFor)
+                struct (Token.KWMatchBang, kwPrefixNoConsume pMatchExpr completeFor)
+                struct (Token.KWFunction, kwPrefixNoConsume pFunctionExpr completeFor)
+                struct (Token.KWFun, kwPrefixNoConsume pFunExpr completeFor)
+                struct (Token.KWTry, kwPrefixNoConsume pTryExpr completeFor)
+                struct (Token.KWWhile, kwPrefixNoConsume pWhileExpr completeFor)
+                struct (Token.KWFor, kwPrefixNoConsume pForExpr completeFor)
+                struct (Token.KWLet, kwPrefixNoConsume pLetOrUseBody completeKeyword)
+                struct (Token.KWLetBang, kwPrefixNoConsume pLetOrUseBody completeKeyword)
+                struct (Token.KWUse, kwPrefixNoConsume pLetOrUseBody completeKeyword)
+                struct (Token.KWUseBang, kwPrefixNoConsume pLetOrUseBody completeKeyword)
+                struct (Token.KWDo, kwPrefixConsume pYieldReturnDoBody completeKeyword)
+                struct (Token.KWDoBang, kwPrefixConsume pYieldReturnDoBody completeKeyword)
+                struct (Token.KWReturn, kwPrefixConsume pYieldReturnDoBody completeKeyword)
+                struct (Token.KWReturnBang, kwPrefixConsume pYieldReturnDoBody completeKeyword)
+                struct (Token.KWYield, kwPrefixConsume pYieldReturnDoBody completeKeyword)
+                struct (Token.KWYieldBang, kwPrefixConsume pYieldReturnDoBody completeKeyword)
+            |]
+
         let lhsParser =
             parser {
                 let! token = peekNextNonTriviaToken
 
-                // Keyword-prefix forms: these tokens are not in isOperatorKeyword, so OperatorInfo.TryCreate
-                // returns ValueNone for them. Match directly on the token type instead.
-                // We peek but do NOT consume — the body parser handles consumption inside withContext.
-                match token.Token with
-                | Token.KWIf ->
-                    // Do NOT consume here — pIfExpr peeks the 'if' keyword to set the context indent, then consumes.
-                    return PrefixMapped(token, preturn token, pIfExpr, completeFor)
-                | Token.KWMatch
-                | Token.KWMatchBang ->
-                    // Do NOT consume here — pMatchExpr peeks the 'match' keyword to set the context indent, then consumes.
-                    return PrefixMapped(token, preturn token, pMatchExpr, completeFor)
-                | Token.KWFunction ->
-                    // Do NOT consume here — pFunctionExpr peeks the 'function' keyword to set the context indent, then consumes.
-                    return PrefixMapped(token, preturn token, pFunctionExpr, completeFor)
-                | Token.KWFun ->
-                    // Do NOT consume here — pFunExpr peeks the 'fun' keyword to set the context indent, then consumes.
-                    return PrefixMapped(token, preturn token, pFunExpr, completeFor)
-                | Token.KWTry ->
-                    // Do NOT consume here — pTryExpr peeks the 'try' keyword to set the context indent, then consumes.
-                    return PrefixMapped(token, preturn token, pTryExpr, completeFor)
-                | Token.KWWhile ->
-                    // Do NOT consume here — pWhileExpr peeks the 'while' keyword to set the context indent, then consumes.
-                    return PrefixMapped(token, preturn token, pWhileExpr, completeFor)
-                | Token.KWFor ->
-                    // Do NOT consume here — pForBody peeks the 'for' keyword to set the context indent, then consumes.
-                    return PrefixMapped(token, preturn token, pForExpr, completeFor)
-                | Token.KWLet
-                | Token.KWLetBang
-                | Token.KWUse
-                | Token.KWUseBang ->
-                    // Do NOT consume here — pLetOrUseBody peeks the keyword to set the Let
-                    // context indent at the keyword's column (F# spec 15.1.7), then consumes.
-                    return PrefixMapped(token, preturn token, pLetOrUseBody, completeKeyword)
-                | Token.KWDo
-                | Token.KWDoBang
-                | Token.KWReturn
-                | Token.KWReturnBang
-                | Token.KWYield
-                | Token.KWYieldBang ->
-                    let! token = consumePeeked token
-                    return PrefixMapped(token, preturn token, pYieldReturnDoBody, completeKeyword)
-                | _ -> return! pOperatorPrefix token
+                let mutable handler = ValueNone
+                let mutable i = 0
+
+                while handler.IsNone && i < kwPrefixRoutes.Length do
+                    let struct (tok, h) = kwPrefixRoutes.[i]
+
+                    if token.Token = tok then
+                        handler <- ValueSome h
+
+                    i <- i + 1
+
+                match handler with
+                | ValueSome h -> return! h token
+                | ValueNone -> return! pOperatorPrefix token
             }
 
         interface Operators<
