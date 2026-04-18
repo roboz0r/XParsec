@@ -161,7 +161,7 @@ and [<RequireQualifiedAccess>] StaticTypars<'T> =
 // type-specialized dispatch. See F# compiler's SynStaticOptimizationConstraint.
 and [<RequireQualifiedAccess>] StaticOptimizationConstraint<'T> =
     | WhenTyparTyconEqualsTycon of typar: Typar<'T> * colon: 'T * rhsType: Type<'T>
-    | WhenTyparIsStruct of typar: Typar<'T> * colon: 'T * structToken: 'T
+    | WhenTyparIsStruct of typar: Typar<'T> * colon: 'T voption * structToken: 'T
 
 // Represents: elif-branch and else-branch
 // Note: The spec doesn't mention 'else if' branches, but they are present
