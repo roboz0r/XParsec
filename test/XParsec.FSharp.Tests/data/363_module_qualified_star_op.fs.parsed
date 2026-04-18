@@ -1,0 +1,47 @@
+AnonymousModule:
+FunctionOrValue:
+  let                           'let'             KWLet               tok=  19  pos= 482
+    Pat.NamedSimple             'checkedBin...'   Identifier          tok=  21  pos= 486
+    Pats:
+      ParenBlock                '('               KWLParen            tok=  23  pos= 500
+                                ')'               KWRParen            tok=  24  pos= 501
+    =                           '='               OpEquality          tok=  26  pos= 503
+      App:
+        Func:
+          Ident                 'EvalArithB...'   Identifier          tok=  29  pos= 509
+        Args:
+          ParenBlock            '('               KWLParen            tok=  31  pos= 524
+            Tuple:
+              LongIdentOrOp:
+                QualifiedOp:
+                                'Checked'         Identifier          tok=  32  pos= 525
+                  .             '.'               OpDot               tok=  33  pos= 532
+                  ParenOp:
+                                '('               KWLParen            tok=  34  pos= 533
+                    SymbolicOp  '*'               OpMultiply          tok=  35  pos= 534
+                                ')'               KWRParen            tok=  36  pos= 535
+              LongIdentOrOp:
+                QualifiedOp:
+                                'Checked'         Identifier          tok=  39  pos= 538
+                  .             '.'               OpDot               tok=  40  pos= 545
+                  ParenOp:
+                                '('               KWLParen            tok=  41  pos= 546
+                    SymbolicOp  '*'               OpMultiply          tok=  42  pos= 547
+                                ')'               KWRParen            tok=  43  pos= 548
+              LongIdentOrOp:
+                QualifiedOp:
+                                'Checked'         Identifier          tok=  46  pos= 551
+                  .             '.'               OpDot               tok=  47  pos= 558
+                  ParenOp:
+                                '('               KWLParen            tok=  48  pos= 559
+                    SymbolicOp  '*'               OpMultiply          tok=  49  pos= 560
+                                ')'               KWRParen            tok=  50  pos= 561
+              LongIdentOrOp:
+                QualifiedOp:
+                                'Checked'         Identifier          tok=  53  pos= 564
+                  .             '.'               OpDot               tok=  54  pos= 571
+                  ParenOp:
+                                '('               KWLParen            tok=  55  pos= 572
+                    SymbolicOp  '*'               OpMultiply          tok=  56  pos= 573
+                                ')'               KWRParen            tok=  57  pos= 574
+                                ')'               KWRParen            tok=  58  pos= 575
