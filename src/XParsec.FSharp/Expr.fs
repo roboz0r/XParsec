@@ -629,7 +629,10 @@ and [<RequireQualifiedAccess>] UnionTypeField<'T> =
 and [<RequireQualifiedAccess>] UnionTypeCaseData<'T> =
     | Nullary of ident: 'T
     | Nary of ident: 'T * ofToken: 'T * fields: ImArr<UnionTypeField<'T>> * asterisks: ImArr<'T>
-    | NaryUncurried of ident: 'T * colon: 'T * sign: UncurriedSig<'T>
+    // GADT-style: | Name : arg -> retType  (possibly with named args)
+    | GadtNary of ident: 'T * colon: 'T * sign: UncurriedSig<'T>
+    // GADT-style nullary: | Name : retType  (no arrow)
+    | GadtNullary of ident: 'T * colon: 'T * typ: Type<'T>
 
 and UnionTypeCase<'T> = | UnionTypeCase of attributes: Attributes<'T> voption * data: UnionTypeCaseData<'T>
 

@@ -1974,10 +1974,14 @@ and walkUnionCaseData (visitor: AstVisitor<'T>) (data: UnionTypeCaseData<'T>) : 
                 visitor.VisitToken "ident" id
                 visitor.VisitToken ":" colon
                 walkType visitor typ
-    | UnionTypeCaseData.NaryUncurried(ident, colon, sign) ->
+    | UnionTypeCaseData.GadtNary(ident, colon, sign) ->
         visitor.VisitToken "ident" ident
         visitor.VisitToken ":" colon
         walkUncurriedSig visitor sign
+    | UnionTypeCaseData.GadtNullary(ident, colon, typ) ->
+        visitor.VisitToken "ident" ident
+        visitor.VisitToken ":" colon
+        walkType visitor typ
 
 and walkExceptionDefn (visitor: AstVisitor<'T>) (exnDefn: ExceptionDefn<'T>) : unit =
     match exnDefn with
@@ -2084,10 +2088,14 @@ and walkTypeDefn (visitor: AstVisitor<'T>) (typeDefn: TypeDefn<'T>) : unit =
                         visitor.VisitToken "ident" id
                         visitor.VisitToken ":" colon
                         walkType visitor typ
-            | UnionTypeCaseData.NaryUncurried(ident, colon, _sign) ->
+            | UnionTypeCaseData.GadtNary(ident, colon, sign) ->
                 visitor.VisitToken "ident" ident
                 visitor.VisitToken ":" colon
-                visitor.WriteLine "<uncurried sig>"
+                walkUncurriedSig visitor sign
+            | UnionTypeCaseData.GadtNullary(ident, colon, typ) ->
+                visitor.VisitToken "ident" ident
+                visitor.VisitToken ":" colon
+                walkType visitor typ
 
             visitor.ExitSection "Case"
 

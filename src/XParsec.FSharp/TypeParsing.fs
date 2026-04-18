@@ -493,6 +493,52 @@ module Type =
     /// Use in contexts where `*` is an explicit separator (e.g. union case fields).
     let parseField = pPostfixType
 
+    // Variants that do NOT consume `|` as a nullable-ref type union.
+    // Used in contexts where `|` separates something else (e.g. DU case separators).
+    let private pTupleTypeNoUnion =
+        parser {
+            let! types, asterisks = sepBy1 pSubtypeType pOpMultiply
+
+            if types.Length = 1 then
+                return types[0]
+            else
+                return Type.TupleType(types, asterisks)
+        }
+
+    let private pFunctionTypeNoUnion =
+        let rec pFunc () =
+            parser {
+                let! lhs = pTupleTypeNoUnion
+
+                return!
+                    choice
+                        [
+                            parser {
+                                let! arrow = opt pArrowRight
+
+                                match arrow with
+                                | ValueSome arr ->
+                                    let! rhs = pFunc ()
+                                    return Type.FunctionType(lhs, arr, rhs)
+                                | ValueNone -> return lhs
+                            }
+                            preturn lhs
+                        ]
+            }
+
+        pFunc ()
+
+    /// Type parser that does not treat `|` as a type-union separator.
+    /// Use in contexts where `|` has a different meaning (e.g. DU case separator).
+    let parseNoUnion =
+        parser {
+            let! typ = pFunctionTypeNoUnion
+
+            match! opt pWhenConstraints with
+            | ValueSome constraints -> return Type.WhenConstrainedType(typ, constraints)
+            | ValueNone -> return typ
+        }
+
     // Initialize the recursive ref parser
     do refType.Set parse
 
