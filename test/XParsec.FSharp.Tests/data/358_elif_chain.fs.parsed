@@ -1,0 +1,49 @@
+AnonymousModule:
+FunctionOrValue:
+  let                      'let'             KWLet               tok=   7  pos= 180
+    Pat.NamedSimple        'classify'        Identifier          tok=   9  pos= 184
+    Pats:
+      Pat.NamedSimple      'n'               Identifier          tok=  11  pos= 193
+    =                      '='               OpEquality          tok=  13  pos= 195
+      IfThenElse:
+        IfToken            'if'              KWIf                tok=  16  pos= 201
+        Condition:
+          InfixApp         '<'               op_LessThan         tok=  20  pos= 206
+            Ident          'n'               Identifier          tok=  18  pos= 204
+            Const          '0'               NumInt32            tok=  22  pos= 208
+        ThenToken          'then'            KWThen              tok=  24  pos= 210
+        ThenExpr:
+          StringLiteral    '"'               StringOpen          tok=  27  pos= 223
+          Parts:
+            Text           'neg'             StringFragment      tok=  28  pos= 224
+                           '"'               StringClose         tok=  29  pos= 227
+        ElifBranch:
+          ElifToken        'elif'            KWElif              tok=  32  pos= 233
+          ElifCondition:
+            InfixApp       '='               OpEquality          tok=  36  pos= 240
+              Ident        'n'               Identifier          tok=  34  pos= 238
+              Const        '0'               NumInt32            tok=  38  pos= 242
+          ThenToken        'then'            KWThen              tok=  40  pos= 244
+          ElifExpr:
+            StringLiteral  '"'               StringOpen          tok=  43  pos= 257
+            Parts:
+              Text         'zero'            StringFragment      tok=  44  pos= 258
+                           '"'               StringClose         tok=  45  pos= 262
+        ElifBranch:
+          ElifToken        'elif'            KWElif              tok=  48  pos= 268
+          ElifCondition:
+            InfixApp       '<'               op_LessThan         tok=  52  pos= 275
+              Ident        'n'               Identifier          tok=  50  pos= 273
+              Const        '10'              NumInt32            tok=  54  pos= 277
+          ThenToken        'then'            KWThen              tok=  56  pos= 280
+          ElifExpr:
+            StringLiteral  '"'               StringOpen          tok=  59  pos= 293
+            Parts:
+              Text         'small'           StringFragment      tok=  60  pos= 294
+                           '"'               StringClose         tok=  61  pos= 299
+        ElseToken          'else'            KWElse              tok=  64  pos= 305
+        ElseExpr:
+          StringLiteral    '"'               StringOpen          tok=  67  pos= 318
+          Parts:
+            Text           'large'           StringFragment      tok=  68  pos= 319
+                           '"'               StringClose         tok=  69  pos= 324

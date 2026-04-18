@@ -1,0 +1,60 @@
+AnonymousModule:
+FunctionOrValue:
+  let                           'let'             KWLet               tok=  17  pos= 457
+  rec                           'rec'             KWRec               tok=  19  pos= 461
+    Pat.NamedSimple             'sizeAux'         Identifier          tok=  21  pos= 465
+    Pats:
+      Pat.NamedSimple           'acc'             Identifier          tok=  23  pos= 473
+      Pat.NamedSimple           'm'               Identifier          tok=  25  pos= 477
+    =                           '='               OpEquality          tok=  27  pos= 479
+      IfThenElse:
+        IfToken                 'if'              KWIf                tok=  30  pos= 485
+        Condition:
+          App:
+            Func:
+              Ident             'isEmpty'         Identifier          tok=  32  pos= 488
+            Args:
+              Ident             'm'               Identifier          tok=  34  pos= 496
+        ThenToken               'then'            KWThen              tok=  36  pos= 498
+        ThenExpr:
+          Ident                 'acc'             Identifier          tok=  39  pos= 511
+        ElifBranch:
+          ElseToken             'else'            KWElse              tok=  42  pos= 519
+          IfToken               'if'              KWIf                tok=  44  pos= 524
+          ElifCondition:
+            InfixApp            '='               OpEquality          tok=  50  pos= 536
+              LongIdentOrOp:
+                LongIdent:
+                                'm'               Identifier          tok=  46  pos= 527
+                                'Height'          Identifier          tok=  48  pos= 529
+              Const             '1'               NumInt32            tok=  52  pos= 538
+          ThenToken             'then'            KWThen              tok=  54  pos= 540
+          ElifExpr:
+            InfixApp            '+'               op_Addition         tok=  59  pos= 557
+              Ident             'acc'             Identifier          tok=  57  pos= 553
+              Const             '1'               NumInt32            tok=  61  pos= 559
+        ElseToken               'else'            KWElse              tok=  64  pos= 565
+        ElseExpr:
+          App:
+            Func:
+              Ident             'sizeAux'         Identifier          tok=  67  pos= 578
+            Args:
+              ParenBlock        '('               KWLParen            tok=  69  pos= 586
+                App:
+                  Func:
+                    Ident       'sizeAux'         Identifier          tok=  70  pos= 587
+                  Args:
+                    ParenBlock  '('               KWLParen            tok=  72  pos= 595
+                      InfixApp  '+'               op_Addition         tok=  75  pos= 600
+                        Ident   'acc'             Identifier          tok=  73  pos= 596
+                        Const   '1'               NumInt32            tok=  77  pos= 602
+                                ')'               KWRParen            tok=  78  pos= 603
+                    LongIdentOrOp:
+                      LongIdent:
+                                'm'               Identifier          tok=  80  pos= 605
+                                'Left'            Identifier          tok=  82  pos= 607
+                                ')'               KWRParen            tok=  83  pos= 611
+              LongIdentOrOp:
+                LongIdent:
+                                'm'               Identifier          tok=  85  pos= 613
+                                'Right'           Identifier          tok=  87  pos= 615
