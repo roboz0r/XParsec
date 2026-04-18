@@ -1033,31 +1033,47 @@ module UnionTypeField =
 module UnionTypeCaseData =
     let parseFields = sepBy1 UnionTypeField.parse pOpMultiply
 
-    let parseNary: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _, _> =
+    // | Name of field * field ...
+    let private parseNaryOf: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _, _> =
         parser {
             let! ident = nextNonTriviaIdentifierL "Union Case Name"
             let! ofTok = pOf
-
-            // Check for uncurried signature (colon Type) or field list
-            let! next = peekNextNonTriviaToken
-
-            match next.Token with
-            | Token.OpColon ->
-                // UncurriedSig
-                let! colon = pColon
-                let! sign = UncurriedSig.parse
-                return UnionTypeCaseData.NaryUncurried(ident, colon, sign)
-            | _ ->
-                // Field list
-                let! fields, asterisks = parseFields
-                return UnionTypeCaseData.Nary(ident, ofTok, fields, asterisks)
+            let! fields, asterisks = parseFields
+            return UnionTypeCaseData.Nary(ident, ofTok, fields, asterisks)
         }
 
+    // | Name : arg -> retType  (GADT-style with args)
+    // Uses Type.parseNoUnion for the return type so a following `| NextCase`
+    // is not swallowed as a `T | T` nullable-ref type union.
+    let private parseGadtNary: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! ident = nextNonTriviaIdentifierL "Union Case Name"
+            let! colon = pColon
+            let! args = ArgsSpec.parse
+            let! arrow = pArrowRight
+            let! retType = Type.parseNoUnion
+            return UnionTypeCaseData.GadtNary(ident, colon, UncurriedSig.UncurriedSig(args, arrow, retType))
+        }
+
+    // | Name : retType  (GADT-style nullary with explicit return type)
+    let private parseGadtNullary: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _, _> =
+        parser {
+            let! ident = nextNonTriviaIdentifierL "Union Case Name"
+            let! colon = pColon
+            let! t = Type.parseNoUnion
+            return UnionTypeCaseData.GadtNullary(ident, colon, t)
+        }
+
+    // Non-nullary forms (used by ExceptionDefn which falls back to its own Nullary path)
+    let parseNary: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _, _> =
+        choiceL [ parseNaryOf; parseGadtNary; parseGadtNullary ] "Union Case (Nary)"
+
     let parse: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _, _> =
-        // Try Nary first (requires ident followed by 'of'); backtrack on failure
         choiceL
             [
-                parseNary
+                parseNaryOf
+                parseGadtNary
+                parseGadtNullary
                 parser {
                     let! ident = nextNonTriviaIdentifierL "Union Case Name"
                     return UnionTypeCaseData.Nullary ident
