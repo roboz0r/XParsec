@@ -204,7 +204,17 @@ module Constraint =
                 | _ -> return! fail (Message "Unknown constraint type")
         }
 
-    let parse = choiceL [ pMemberTrait; pTyparConstraints ] "Constraint"
+    let private pDefaultConstraint =
+        parser {
+            let! defaultTok = pDefault
+            let! typar = Typar.parse
+            let! colon = pColon
+            let! typ = refType.Parser
+            return Constraint.Default(defaultTok, typar, colon, typ)
+        }
+
+    let parse =
+        choiceL [ pDefaultConstraint; pMemberTrait; pTyparConstraints ] "Constraint"
 
 [<RequireQualifiedAccess>]
 module TyparDefns =

@@ -566,6 +566,13 @@ and walkConstraint (visitor: AstVisitor<'T>) (c: Constraint<'T>) : unit =
         visitor.VisitToken ":" colon
         visitor.VisitToken "comparison" comparisonToken
         visitor.ExitSection "Constraint.Comparison"
+    | Constraint.Default(defaultToken, typar, colon, typ) ->
+        visitor.EnterSection "Constraint.Default"
+        visitor.VisitToken "default" defaultToken
+        walkTypar visitor typar
+        visitor.VisitToken ":" colon
+        walkType visitor typ
+        visitor.ExitSection "Constraint.Default"
 
 and walkTyparDefns (visitor: AstVisitor<'T>) (typars: TyparDefns<'T>) : unit =
     let (TyparDefns(lAngle, defns, constraints, rAngle)) = typars
