@@ -2289,6 +2289,24 @@ module Lexing =
     let pTabToken = pToken (pchar '\t') Token.Tab
     let pCommaToken = pToken (pchar ',') Token.OpComma
 
+    // Parenthesized `*` operator: `(*)` is the only form where `(*` does not
+    // start a block comment. Emits three tokens (KWLParen, OpMultiply, KWRParen)
+    // and balances the paren context stack.
+    let pParenStarOperator =
+        parser {
+            let! pos = getPosition
+            let! _ = pstring "(*)"
+            let idx = int pos.Index
+
+            do!
+                updateUserState (fun state ->
+                    state
+                    |> LexBuilder.appendI Token.KWLParen idx (CtxOp.Push LexContext.ParenthesExpression)
+                    |> LexBuilder.appendI Token.OpMultiply (idx + 1) CtxOp.NoOp
+                    |> LexBuilder.appendI Token.KWRParen (idx + 2) (CtxOp.Pop LexContext.ParenthesExpression)
+                )
+        }
+
     let pLParenToken =
         choiceL
             [
@@ -2297,6 +2315,8 @@ module Lexing =
                 pToken (pstring "(*IF-OCAML*)") Token.StartOCamlBlockComment
                 pToken (pstring "(*IF-FSHARP") Token.StartFSharpBlockComment
                 pToken (pstring "(*F#") Token.StartFSharpBlockComment
+                // Parenthesized star operator — must precede `(*` block-comment match
+                pParenStarOperator
                 // 3.2 Comments
                 pToken (pstring "(*") Token.BlockCommentStart
                 // IL intrinsic literal opening
