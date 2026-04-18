@@ -2,7 +2,7 @@ module                               'module'          KWModule            tok= 
                                      'Test'            Identifier          tok=   2  pos=   7
 ExceptionDefn.Full:
   exception                          'exception'       KWException         tok=   7  pos=  48
-  ident                              'WrappedErr...'   Identifier          tok=   9  pos=  58
+  Ident                              'WrappedErr...'   Identifier          tok=   9  pos=  58
   of                                 'of'              KWOf                tok=  11  pos=  71
   NamedType:
     Ident                            'exn'             Identifier          tok=  13  pos=  74
@@ -51,7 +51,7 @@ ExceptionDefn.Full:
   end                                <virt>            KWEnd               tok=virt  pos= 255
 ExceptionDefn.Full:
   exception                          'exception'       KWException         tok=  70  pos= 255
-  ident                              'SimpleErro...'   Identifier          tok=  72  pos= 265
+  Ident                              'SimpleErro...'   Identifier          tok=  72  pos= 265
   of                                 'of'              KWOf                tok=  74  pos= 277
   NamedType:
     Ident                            'string'          Identifier          tok=  76  pos= 280

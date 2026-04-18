@@ -4,7 +4,7 @@ TypeDefn.Union:
   TypeName                         'App'             Identifier          tok=   7  pos=  18
   =                                '='               OpEquality          tok=   9  pos=  22
     Case:
-      ident                        'App'             Identifier          tok=  11  pos=  24
+      Ident                        'App'             Identifier          tok=  11  pos=  24
       of                           'of'              KWOf                tok=  13  pos=  28
       ident                        'isInfix'         Identifier          tok=  15  pos=  31
       :                            ':'               OpColon             tok=  16  pos=  38

@@ -8,9 +8,9 @@ TypeDefn.Union:
     >                                                  '>'               op_GreaterThan      tok=  13  pos= 283
   =                                                    '='               OpEquality          tok=  15  pos= 285
     Case:
-      ident                                            'N'               Identifier          tok=  17  pos= 287
+      Ident                                            'N'               Identifier          tok=  17  pos= 287
     Case:
-      ident                                            'S'               Identifier          tok=  21  pos= 291
+      Ident                                            'S'               Identifier          tok=  21  pos= 291
       of                                               'of'              KWOf                tok=  23  pos= 293
       VarType:
         Typar.Named:

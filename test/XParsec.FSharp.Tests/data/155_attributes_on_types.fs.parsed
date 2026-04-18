@@ -27,11 +27,11 @@ TypeDefn.Union:
   TypeName           'Color'           Identifier          tok=  37  pos=  96
   =                  '='               OpEquality          tok=  39  pos= 102
     Case:
-      ident          'Red'             Identifier          tok=  44  pos= 110
+      Ident          'Red'             Identifier          tok=  44  pos= 110
     Case:
-      ident          'Green'           Identifier          tok=  49  pos= 120
+      Ident          'Green'           Identifier          tok=  49  pos= 120
     Case:
-      ident          'Blue'            Identifier          tok=  54  pos= 132
+      Ident          'Blue'            Identifier          tok=  54  pos= 132
 TypeDefn.Anon:
   [<                 '[<'              KWLAttrBracket      tok=  57  pos= 138
   NamedType:

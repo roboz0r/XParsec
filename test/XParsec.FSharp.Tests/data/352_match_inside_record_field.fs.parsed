@@ -3,12 +3,12 @@ TypeDefn.Union:
   TypeName                               'Kind'            Identifier          tok=  10  pos= 212
   =                                      '='               OpEquality          tok=  12  pos= 217
     Case:
-      ident                              'Delegate'        Identifier          tok=  17  pos= 225
+      Ident                              'Delegate'        Identifier          tok=  17  pos= 225
       of                                 'of'              KWOf                tok=  19  pos= 234
       NamedType:
         Ident                            'int'             Identifier          tok=  21  pos= 237
     Case:
-      ident                              'Other'           Identifier          tok=  26  pos= 247
+      Ident                              'Other'           Identifier          tok=  26  pos= 247
 TypeDefn.Record:
   TypeName                               'Data'            Identifier          tok=  31  pos= 259
   =                                      '='               OpEquality          tok=  33  pos= 264

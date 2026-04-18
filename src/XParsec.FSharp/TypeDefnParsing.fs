@@ -1033,13 +1033,16 @@ module UnionTypeField =
 module UnionTypeCaseData =
     let parseFields = sepBy1 UnionTypeField.parse pOpMultiply
 
+    // Case name: plain identifier, (op), (*), or ([]). IdentOrOp.parse covers all.
+    let private pCaseName = IdentOrOp.parse
+
     // | Name of field * field ...
     let private parseNaryOf: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _, _> =
         parser {
-            let! ident = nextNonTriviaIdentifierL "Union Case Name"
+            let! name = pCaseName
             let! ofTok = pOf
             let! fields, asterisks = parseFields
-            return UnionTypeCaseData.Nary(ident, ofTok, fields, asterisks)
+            return UnionTypeCaseData.Nary(name, ofTok, fields, asterisks)
         }
 
     // | Name : arg -> retType  (GADT-style with args)
@@ -1047,21 +1050,21 @@ module UnionTypeCaseData =
     // is not swallowed as a `T | T` nullable-ref type union.
     let private parseGadtNary: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _, _> =
         parser {
-            let! ident = nextNonTriviaIdentifierL "Union Case Name"
+            let! name = pCaseName
             let! colon = pColon
             let! args = ArgsSpec.parse
             let! arrow = pArrowRight
             let! retType = Type.parseNoUnion
-            return UnionTypeCaseData.GadtNary(ident, colon, UncurriedSig.UncurriedSig(args, arrow, retType))
+            return UnionTypeCaseData.GadtNary(name, colon, UncurriedSig.UncurriedSig(args, arrow, retType))
         }
 
     // | Name : retType  (GADT-style nullary with explicit return type)
     let private parseGadtNullary: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _, _> =
         parser {
-            let! ident = nextNonTriviaIdentifierL "Union Case Name"
+            let! name = pCaseName
             let! colon = pColon
             let! t = Type.parseNoUnion
-            return UnionTypeCaseData.GadtNullary(ident, colon, t)
+            return UnionTypeCaseData.GadtNullary(name, colon, t)
         }
 
     // Non-nullary forms (used by ExceptionDefn which falls back to its own Nullary path)
@@ -1075,8 +1078,8 @@ module UnionTypeCaseData =
                 parseGadtNary
                 parseGadtNullary
                 parser {
-                    let! ident = nextNonTriviaIdentifierL "Union Case Name"
-                    return UnionTypeCaseData.Nullary ident
+                    let! name = pCaseName
+                    return UnionTypeCaseData.Nullary name
                 }
             ]
             "Union Case"
@@ -1485,7 +1488,8 @@ module ExceptionDefn =
                                         "Type Extension"
                                 )
 
-                            return ExceptionDefn.Full(attrs, exTok, UnionTypeCaseData.Nullary ident, ext)
+                            return
+                                ExceptionDefn.Full(attrs, exTok, UnionTypeCaseData.Nullary(IdentOrOp.Ident ident), ext)
                         }
                     ]
                     "Exception definition"

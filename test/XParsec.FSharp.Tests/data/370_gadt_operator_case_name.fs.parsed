@@ -1,0 +1,46 @@
+module              'module'          KWModule            tok=   0  pos=   0
+                    'Repro'           Identifier          tok=   2  pos=   7
+TypeDefn.Union:
+  TypeName          'List'            Identifier          tok=  16  pos= 279
+  TyparDefns:
+    <               '<'               op_LessThan         tok=  17  pos= 283
+    Typar.Named:
+                    ''T'              TypeParameter       tok=  18  pos= 284
+    >               '>'               op_GreaterThan      tok=  19  pos= 286
+  =                 '='               OpEquality          tok=  21  pos= 288
+    Case:
+      ParenOp:
+                    '('               KWLParen            tok=  26  pos= 296
+        [           '['               KWLBracket          tok=  27  pos= 297
+        ]           ']'               KWRBracket          tok=  28  pos= 298
+                    ')'               KWRParen            tok=  29  pos= 299
+      :             ':'               OpColon             tok=  31  pos= 302
+      SuffixedType:
+        VarType:
+          Typar.Named:
+                    ''T'              TypeParameter       tok=  33  pos= 321
+        Ident       'list'            Identifier          tok=  35  pos= 324
+    Case:
+      ParenOp:
+                    '('               KWLParen            tok=  40  pos= 335
+        SymbolicOp  '::'              KWColonColon        tok=  42  pos= 337
+                    ')'               KWRParen            tok=  44  pos= 340
+      :             ':'               OpColon             tok=  46  pos= 343
+      arg           'Head'            Identifier          tok=  48  pos= 345
+      :             ':'               OpColon             tok=  49  pos= 349
+      VarType:
+        Typar.Named:
+                    ''T'              TypeParameter       tok=  51  pos= 351
+      arg           'Tail'            Identifier          tok=  55  pos= 356
+      :             ':'               OpColon             tok=  56  pos= 360
+      SuffixedType:
+        VarType:
+          Typar.Named:
+                    ''T'              TypeParameter       tok=  58  pos= 362
+        Ident       'list'            Identifier          tok=  60  pos= 365
+      ->            '->'              OpArrowRight        tok=  62  pos= 370
+      SuffixedType:
+        VarType:
+          Typar.Named:
+                    ''T'              TypeParameter       tok=  64  pos= 373
+        Ident       'list'            Identifier          tok=  66  pos= 376

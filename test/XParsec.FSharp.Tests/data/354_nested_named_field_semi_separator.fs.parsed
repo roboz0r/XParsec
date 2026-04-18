@@ -3,7 +3,7 @@ TypeDefn.Union:
   TypeName                                     'Repr'            Identifier          tok=  10  pos= 224
   =                                            '='               OpEquality          tok=  12  pos= 229
     Case:
-      ident                                    'Repr'            Identifier          tok=  14  pos= 231
+      Ident                                    'Repr'            Identifier          tok=  14  pos= 231
       of                                       'of'              KWOf                tok=  16  pos= 236
       ident                                    'attributes'      Identifier          tok=  18  pos= 239
       :                                        ':'               OpColon             tok=  19  pos= 249
@@ -23,7 +23,7 @@ TypeDefn.Union:
   TypeName                                     'Defn'            Identifier          tok=  41  pos= 298
   =                                            '='               OpEquality          tok=  43  pos= 303
     Case:
-      ident                                    'Defn'            Identifier          tok=  45  pos= 305
+      Ident                                    'Defn'            Identifier          tok=  45  pos= 305
       of                                       'of'              KWOf                tok=  47  pos= 310
       ident                                    'exnRepr'         Identifier          tok=  49  pos= 313
       :                                        ':'               OpColon             tok=  50  pos= 320
@@ -39,7 +39,7 @@ TypeDefn.Union:
   TypeName                                     'Decl'            Identifier          tok=  65  pos= 352
   =                                            '='               OpEquality          tok=  67  pos= 357
     Case:
-      ident                                    'Exn'             Identifier          tok=  69  pos= 359
+      Ident                                    'Exn'             Identifier          tok=  69  pos= 359
       of                                       'of'              KWOf                tok=  71  pos= 363
       ident                                    'exnDefn'         Identifier          tok=  73  pos= 366
       :                                        ':'               OpColon             tok=  74  pos= 373

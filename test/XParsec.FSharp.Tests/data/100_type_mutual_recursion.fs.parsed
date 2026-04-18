@@ -4,12 +4,12 @@ TypeDefn.Union:
   TypeName     'Tree'            Identifier          tok=   7  pos=  22
   =            '='               OpEquality          tok=   9  pos=  27
     Case:
-      ident    'Leaf'            Identifier          tok=  14  pos=  35
+      Ident    'Leaf'            Identifier          tok=  14  pos=  35
       of       'of'              KWOf                tok=  16  pos=  40
       NamedType:
         Ident  'int'             Identifier          tok=  18  pos=  43
     Case:
-      ident    'Node'            Identifier          tok=  23  pos=  53
+      Ident    'Node'            Identifier          tok=  23  pos=  53
       of       'of'              KWOf                tok=  25  pos=  58
       NamedType:
         Ident  'Forest'          Identifier          tok=  27  pos=  61
@@ -17,9 +17,9 @@ TypeDefn.Union:
   TypeName     'Forest'          Identifier          tok=  31  pos=  72
   =            '='               OpEquality          tok=  33  pos=  79
     Case:
-      ident    'Empty'           Identifier          tok=  38  pos=  87
+      Ident    'Empty'           Identifier          tok=  38  pos=  87
     Case:
-      ident    'Cons'            Identifier          tok=  43  pos=  99
+      Ident    'Cons'            Identifier          tok=  43  pos=  99
       of       'of'              KWOf                tok=  45  pos= 104
       NamedType:
         Ident  'Tree'            Identifier          tok=  47  pos= 107

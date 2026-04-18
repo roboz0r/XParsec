@@ -3,7 +3,7 @@ TypeDefn.Union:
   TypeName     'Foo'             Identifier          tok=   2  pos=   5
   =            '='               OpEquality          tok=   4  pos=   9
     Case:
-      ident    'Foo'             Identifier          tok=   6  pos=  11
+      Ident    'Foo'             Identifier          tok=   6  pos=  11
       of       'of'              KWOf                tok=   8  pos=  15
       NamedType:
         Ident  'int'             Identifier          tok=  10  pos=  18
@@ -11,7 +11,7 @@ TypeDefn.Union:
   TypeName     'Bar'             Identifier          tok=  14  pos=  27
   =            '='               OpEquality          tok=  16  pos=  31
     Case:
-      ident    'Bar'             Identifier          tok=  20  pos=  35
+      Ident    'Bar'             Identifier          tok=  20  pos=  35
       of       'of'              KWOf                tok=  22  pos=  39
       NamedType:
         Ident  'string'          Identifier          tok=  24  pos=  42
@@ -19,7 +19,7 @@ TypeDefn.Union:
   TypeName     'Baz'             Identifier          tok=  28  pos=  54
   =            '='               OpEquality          tok=  30  pos=  58
     Case:
-      ident    'Baz'             Identifier          tok=  32  pos=  60
+      Ident    'Baz'             Identifier          tok=  32  pos=  60
       of       'of'              KWOf                tok=  34  pos=  64
       NamedType:
         Ident  'int'             Identifier          tok=  36  pos=  67

@@ -199,6 +199,9 @@ and walkOpName (visitor: AstVisitor<'T>) (opName: OpName<'T>) : unit =
         visitor.EnterSection "ActivePatternOp"
         walkActivePatternOpName visitor activePatternOp
         visitor.ExitSection "ActivePatternOp"
+    | OpName.NilOp(lBracket, rBracket) ->
+        visitor.VisitToken "[" lBracket
+        visitor.VisitToken "]" rBracket
 
 and walkRangeOpName (visitor: AstVisitor<'T>) (rangeOpName: RangeOpName<'T>) : unit =
     match rangeOpName with
@@ -1962,9 +1965,9 @@ and walkPrimaryConstrArgs (visitor: AstVisitor<'T>) (args: PrimaryConstrArgs<'T>
 
 and walkUnionCaseData (visitor: AstVisitor<'T>) (data: UnionTypeCaseData<'T>) : unit =
     match data with
-    | UnionTypeCaseData.Nullary ident -> visitor.VisitToken "ident" ident
-    | UnionTypeCaseData.Nary(ident, ofTok, fields, _) ->
-        visitor.VisitToken "ident" ident
+    | UnionTypeCaseData.Nullary name -> walkIdentOrOp visitor name
+    | UnionTypeCaseData.Nary(name, ofTok, fields, _) ->
+        walkIdentOrOp visitor name
         visitor.VisitToken "of" ofTok
 
         for field in fields do
@@ -1974,12 +1977,12 @@ and walkUnionCaseData (visitor: AstVisitor<'T>) (data: UnionTypeCaseData<'T>) : 
                 visitor.VisitToken "ident" id
                 visitor.VisitToken ":" colon
                 walkType visitor typ
-    | UnionTypeCaseData.GadtNary(ident, colon, sign) ->
-        visitor.VisitToken "ident" ident
+    | UnionTypeCaseData.GadtNary(name, colon, sign) ->
+        walkIdentOrOp visitor name
         visitor.VisitToken ":" colon
         walkUncurriedSig visitor sign
-    | UnionTypeCaseData.GadtNullary(ident, colon, typ) ->
-        visitor.VisitToken "ident" ident
+    | UnionTypeCaseData.GadtNullary(name, colon, typ) ->
+        walkIdentOrOp visitor name
         visitor.VisitToken ":" colon
         walkType visitor typ
 
@@ -2076,9 +2079,9 @@ and walkTypeDefn (visitor: AstVisitor<'T>) (typeDefn: TypeDefn<'T>) : unit =
             walkAttributesOpt visitor attrs
 
             match data with
-            | UnionTypeCaseData.Nullary ident -> visitor.VisitToken "ident" ident
-            | UnionTypeCaseData.Nary(ident, ofTok, fields, _) ->
-                visitor.VisitToken "ident" ident
+            | UnionTypeCaseData.Nullary name -> walkIdentOrOp visitor name
+            | UnionTypeCaseData.Nary(name, ofTok, fields, _) ->
+                walkIdentOrOp visitor name
                 visitor.VisitToken "of" ofTok
 
                 for field in fields do
@@ -2088,12 +2091,12 @@ and walkTypeDefn (visitor: AstVisitor<'T>) (typeDefn: TypeDefn<'T>) : unit =
                         visitor.VisitToken "ident" id
                         visitor.VisitToken ":" colon
                         walkType visitor typ
-            | UnionTypeCaseData.GadtNary(ident, colon, sign) ->
-                visitor.VisitToken "ident" ident
+            | UnionTypeCaseData.GadtNary(name, colon, sign) ->
+                walkIdentOrOp visitor name
                 visitor.VisitToken ":" colon
                 walkUncurriedSig visitor sign
-            | UnionTypeCaseData.GadtNullary(ident, colon, typ) ->
-                visitor.VisitToken "ident" ident
+            | UnionTypeCaseData.GadtNullary(name, colon, typ) ->
+                walkIdentOrOp visitor name
                 visitor.VisitToken ":" colon
                 walkType visitor typ
 

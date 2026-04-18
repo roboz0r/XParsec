@@ -3,17 +3,17 @@ TypeDefn.Union:
   TypeName                       'Conv'            Identifier          tok=  10  pos= 189
   =                              '='               OpEquality          tok=  12  pos= 194
     Case:
-      ident                      'FastCall'        Identifier          tok=  14  pos= 196
+      Ident                      'FastCall'        Identifier          tok=  14  pos= 196
     Case:
-      ident                      'StdCall'         Identifier          tok=  18  pos= 207
+      Ident                      'StdCall'         Identifier          tok=  18  pos= 207
     Case:
-      ident                      'ThisCall'        Identifier          tok=  22  pos= 217
+      Ident                      'ThisCall'        Identifier          tok=  22  pos= 217
     Case:
-      ident                      'CDecl'           Identifier          tok=  26  pos= 228
+      Ident                      'CDecl'           Identifier          tok=  26  pos= 228
     Case:
-      ident                      'Default'         Identifier          tok=  30  pos= 236
+      Ident                      'Default'         Identifier          tok=  30  pos= 236
     Case:
-      ident                      'VarArg'          Identifier          tok=  34  pos= 246
+      Ident                      'VarArg'          Identifier          tok=  34  pos= 246
 FunctionOrValue:
   let                            'let'             KWLet               tok=  37  pos= 254
     Pat.NamedSimple              'callconvTo...'   Identifier          tok=  39  pos= 258

@@ -9,7 +9,7 @@ TypeDefn.Union:
     >                  '>'               op_GreaterThan      tok=  15  pos= 162
   =                    '='               OpEquality          tok=  17  pos= 164
     Case:
-      ident            'TreeNode'        Identifier          tok=  22  pos= 172
+      Ident            'TreeNode'        Identifier          tok=  22  pos= 172
       of               'of'              KWOf                tok=  24  pos= 181
       SuffixedType:
         GenericType:
@@ -22,7 +22,7 @@ TypeDefn.Union:
           >            '>'               op_GreaterThan      tok=  29  pos= 191
         Ident          'list'            Identifier          tok=  31  pos= 193
     Case:
-      ident            'LeafNode'        Identifier          tok=  36  pos= 204
+      Ident            'LeafNode'        Identifier          tok=  36  pos= 204
       of               'of'              KWOf                tok=  38  pos= 213
       VarType:
         Typar.Named:
