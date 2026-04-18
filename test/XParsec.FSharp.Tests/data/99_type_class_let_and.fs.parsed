@@ -19,6 +19,7 @@ TypeDefn.Class:
               Ident    'x'               Identifier          tok=  28  pos=  67
               Const    '1'               NumInt32            tok=  32  pos=  71
                        ')'               KWRParen            tok=  33  pos=  72
+    and                'and'             KWAnd               tok=  36  pos=  82
     Pat.NamedSimple    'g'               Identifier          tok=  38  pos=  86
     Pats:
       Pat.NamedSimple  'x'               Identifier          tok=  40  pos=  88

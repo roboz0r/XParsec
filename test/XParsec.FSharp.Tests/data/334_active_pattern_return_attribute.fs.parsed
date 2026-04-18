@@ -85,6 +85,7 @@ FunctionOrValue:
           Ident           'bar'             Identifier          tok=  94  pos= 435
         Args:
           Ident           'x'               Identifier          tok=  96  pos= 439
+    and                   'and'             KWAnd               tok=  98  pos= 441
     [<                    '[<'              KWLAttrBracket      tok= 100  pos= 445
     target                'return'          KWReturn            tok= 101  pos= 447
     :                     ':'               OpColon             tok= 102  pos= 453
@@ -131,6 +132,7 @@ FunctionOrValue:
                 Ident     'ValueSome'       Identifier          tok= 144  pos= 550
               Args:
                 Const     'false'           KWFalse             tok= 146  pos= 560
+    and                   'and'             KWAnd               tok= 148  pos= 566
     Pat.NamedSimple       'bar'             Identifier          tok= 150  pos= 570
     Pats:
       Pat.NamedSimple     'x'               Identifier          tok= 152  pos= 574

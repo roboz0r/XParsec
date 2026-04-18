@@ -1761,7 +1761,7 @@ and walkObjectModelBody (visitor: AstVisitor<'T>) (body: ObjectModelBody<'T>) : 
 
     for preamble in body.classPreamble do
         match preamble with
-        | ClassFunctionOrValueDefn.LetBindings(attrs, staticTok, letTok, isRec, bindings, _) ->
+        | ClassFunctionOrValueDefn.LetBindings(attrs, staticTok, letTok, isRec, bindings, ands) ->
             walkAttributesOpt visitor attrs
             visitTokenOpt visitor "static" staticTok
             visitor.VisitToken "let" letTok
@@ -1774,6 +1774,9 @@ and walkObjectModelBody (visitor: AstVisitor<'T>) (body: ObjectModelBody<'T>) : 
                     walkAttributesOpt visitor binding.attributes
 
                 walkBinding visitor binding
+
+                if i < ands.Length then
+                    visitor.VisitToken "and" ands.[i]
         | ClassFunctionOrValueDefn.Do(attrs, staticTok, doTok, expr) ->
             walkAttributesOpt visitor attrs
             visitTokenOpt visitor "static" staticTok
@@ -1956,7 +1959,7 @@ and walkTypeDefn (visitor: AstVisitor<'T>) (typeDefn: TypeDefn<'T>) : unit =
 
 and walkModuleFunctionOrValueDefn (visitor: AstVisitor<'T>) (defn: ModuleFunctionOrValueDefn<'T>) : unit =
     match defn with
-    | ModuleFunctionOrValueDefn.Let(attrs, letToken, isRec, bindings, _, inToken) ->
+    | ModuleFunctionOrValueDefn.Let(attrs, letToken, isRec, bindings, ands, inToken) ->
         walkAttributesOpt visitor attrs
         visitor.VisitToken "let" letToken
         visitTokenOpt visitor "rec" isRec
@@ -1970,6 +1973,9 @@ and walkModuleFunctionOrValueDefn (visitor: AstVisitor<'T>) (defn: ModuleFunctio
                 walkAttributesOpt visitor binding.attributes
 
             walkBinding visitor binding
+
+            if i < ands.Length then
+                visitor.VisitToken "and" ands.[i]
 
         visitor.ExitSection ""
         visitTokenOpt visitor "in" inToken

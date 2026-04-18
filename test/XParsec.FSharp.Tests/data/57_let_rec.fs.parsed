@@ -9,6 +9,7 @@ FunctionOrValue:
       InfixApp         '+'               op_Addition         tok=  12  pos=  16
         Ident          'g'               Identifier          tok=  10  pos=  14
         Ident          'x'               Identifier          tok=  14  pos=  18
+    and                'and'             KWAnd               tok=  16  pos=  20
     Pat.NamedSimple    'g'               Identifier          tok=  18  pos=  24
     =                  '='               OpEquality          tok=  20  pos=  26
       Const            '1'               NumInt32            tok=  22  pos=  28
