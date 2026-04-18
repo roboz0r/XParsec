@@ -27,8 +27,9 @@ type ModuleFunctionOrValueDefn<'T> =
         letToken: 'T *
         isRec: 'T voption *
         bindings: ImArr<Binding<'T>> *
-        ands: ImArr<'T>
-    | Do of attributes: Attributes<'T> voption * doToken: 'T * expr: Expr<'T>
+        ands: ImArr<'T> *
+        inToken: 'T voption
+    | Do of attributes: Attributes<'T> voption * doToken: 'T * expr: Expr<'T> * inToken: 'T voption
 
 // Represents: module-elem
 type ModuleElem<'T> =

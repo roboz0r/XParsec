@@ -1956,7 +1956,7 @@ and walkTypeDefn (visitor: AstVisitor<'T>) (typeDefn: TypeDefn<'T>) : unit =
 
 and walkModuleFunctionOrValueDefn (visitor: AstVisitor<'T>) (defn: ModuleFunctionOrValueDefn<'T>) : unit =
     match defn with
-    | ModuleFunctionOrValueDefn.Let(attrs, letToken, isRec, bindings, _) ->
+    | ModuleFunctionOrValueDefn.Let(attrs, letToken, isRec, bindings, _, inToken) ->
         walkAttributesOpt visitor attrs
         visitor.VisitToken "let" letToken
         visitTokenOpt visitor "rec" isRec
@@ -1972,12 +1972,14 @@ and walkModuleFunctionOrValueDefn (visitor: AstVisitor<'T>) (defn: ModuleFunctio
             walkBinding visitor binding
 
         visitor.ExitSection ""
-    | ModuleFunctionOrValueDefn.Do(attrs, doToken, expr) ->
+        visitTokenOpt visitor "in" inToken
+    | ModuleFunctionOrValueDefn.Do(attrs, doToken, expr, inToken) ->
         walkAttributesOpt visitor attrs
         visitor.VisitToken "do" doToken
         visitor.EnterSection ""
         walkExpr visitor expr
         visitor.ExitSection ""
+        visitTokenOpt visitor "in" inToken
 
 and walkImportDecl (visitor: AstVisitor<'T>) (decl: ImportDecl<'T>) : unit =
     match decl with

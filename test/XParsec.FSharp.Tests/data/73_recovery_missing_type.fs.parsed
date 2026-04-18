@@ -1,13 +1,13 @@
-ScriptFragment:
-Let                'let'             KWLet               tok=   0  pos=   0
-  Pat.NamedSimple  'x'               Identifier          tok=   2  pos=   4
-  ReturnColon      ':'               OpColon             tok=   4  pos=   6
-  Missing
-  =                '='               OpEquality          tok=   6  pos=   8
-    Const          '1'               NumInt32            tok=   8  pos=  10
-in                 'in'              KWIn                tok=  10  pos=  12
-Body:
-  Ident            'x'               Identifier          tok=  12  pos=  15
+AnonymousModule:
+FunctionOrValue:
+  let                'let'             KWLet               tok=   0  pos=   0
+    Pat.NamedSimple  'x'               Identifier          tok=   2  pos=   4
+    ReturnColon      ':'               OpColon             tok=   4  pos=   6
+    Missing
+    =                '='               OpEquality          tok=   6  pos=   8
+      Const          '1'               NumInt32            tok=   8  pos=  10
+  in                 'in'              KWIn                tok=  10  pos=  12
+Ident                'x'               Identifier          tok=  12  pos=  15
 ---
 Diagnostics:
   [error] MissingType at 8 (Ln 1, Col 9)
