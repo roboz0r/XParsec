@@ -1338,7 +1338,7 @@ module Parsing =
                             { op with
                                 PositionedToken = PositionedToken.Create(firstTok.Token, t.StartIndex + charsConsumed)
                             }
-                    | Error _ -> invalidOp "Failed to re-lex operator after type parameters"
+                    | Error _ -> return invalidOp "Failed to re-lex operator after type parameters"
                 | _ -> return! fail (Message "Expected operator after type parameters")
             else
                 return! fail (Message "No operator to reprocess after type parameters")
