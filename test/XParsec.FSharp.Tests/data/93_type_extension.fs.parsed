@@ -8,6 +8,5 @@ TypeDefn.TypeExtension:
     ident     'Count'           Identifier          tok=  16  pos=  54
     :         ':'               OpColon             tok=  17  pos=  59
     NamedType:
-      LongIdent:
-              'int'             Identifier          tok=  19  pos=  61
+      Ident   'int'             Identifier          tok=  19  pos=  61
   end         'end'             KWEnd               tok=  21  pos=  65

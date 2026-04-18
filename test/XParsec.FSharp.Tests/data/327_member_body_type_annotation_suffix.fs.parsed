@@ -15,15 +15,13 @@ TypeDefn.Anon:
             Const      '2'               NumInt32            tok=  32  pos= 230
         Colon          ':'               OpColon             tok=  34  pos= 232
         NamedType:
-          LongIdent:
-                       'int'             Identifier          tok=  36  pos= 234
+          Ident        'int'             Identifier          tok=  36  pos= 234
     static             'static'          KWStatic            tok=  43  pos= 316
     member             'member'          KWMember            tok=  45  pos= 323
     Pat.NamedSimple    'B'               Identifier          tok=  47  pos= 330
     ReturnColon        ':'               OpColon             tok=  49  pos= 332
     NamedType:
-      LongIdent:
-                       'int'             Identifier          tok=  51  pos= 334
+      Ident            'int'             Identifier          tok=  51  pos= 334
     =                  '='               OpEquality          tok=  53  pos= 338
       TypeAnnotation:
         Expr:
@@ -32,8 +30,7 @@ TypeDefn.Anon:
             Const      '2'               NumInt32            tok=  59  pos= 344
         Colon          ':'               OpColon             tok=  61  pos= 346
         NamedType:
-          LongIdent:
-                       'int'             Identifier          tok=  63  pos= 348
+          Ident        'int'             Identifier          tok=  63  pos= 348
     static             'static'          KWStatic            tok=  70  pos= 403
     member             'member'          KWMember            tok=  72  pos= 410
     Pat.NamedSimple    'C'               Identifier          tok=  74  pos= 417
@@ -47,6 +44,5 @@ TypeDefn.Anon:
             Const      '1'               NumInt32            tok=  84  pos= 427
         Colon          ':'               OpColon             tok=  86  pos= 429
         NamedType:
-          LongIdent:
-                       'int'             Identifier          tok=  88  pos= 431
+          Ident        'int'             Identifier          tok=  88  pos= 431
   end                  <virt>            KWEnd               tok=virt  pos= 435

@@ -221,6 +221,7 @@ and walkActivePatternOpName (visitor: AstVisitor<'T>) (apn: ActivePatternOpName<
 
 and walkLongIdentOrOp (visitor: AstVisitor<'T>) (longIdentOrOp: LongIdentOrOp<'T>) : unit =
     match longIdentOrOp with
+    | LongIdentOrOp.LongIdent idents when idents.Length = 1 -> visitor.VisitToken "Ident" idents[0]
     | LongIdentOrOp.LongIdent idents ->
         visitor.EnterSection "LongIdent"
 
@@ -246,9 +247,7 @@ and walkPat (visitor: AstVisitor<'T>) (pat: Pat<'T>) : unit =
     | Pat.Wildcard underscore -> visitor.VisitToken "Pat.Wildcard" underscore
     | Pat.Named(longIdent, args) ->
         visitor.EnterSection "Pat.Named"
-
-        for ident in longIdent do
-            visitor.VisitToken "Ident" ident
+        walkLongIdentOrOp visitor (LongIdentOrOp.LongIdent longIdent)
 
         if not args.IsEmpty then
             visitor.EnterSection "Args"
@@ -274,9 +273,7 @@ and walkPat (visitor: AstVisitor<'T>) (pat: Pat<'T>) : unit =
         visitor.ExitSection "Pat.OpNamed"
     | Pat.NamedFieldPats(longIdent, lParen, args, _commas, rParen) ->
         visitor.EnterSection "Pat.NamedFieldPats"
-
-        for ident in longIdent do
-            visitor.VisitToken "Ident" ident
+        walkLongIdentOrOp visitor (LongIdentOrOp.LongIdent longIdent)
 
         visitor.VisitToken "(" lParen
 
@@ -284,9 +281,7 @@ and walkPat (visitor: AstVisitor<'T>) (pat: Pat<'T>) : unit =
             match arg with
             | UnionArgPat.Named(fieldLongIdent, equals, innerPat) ->
                 visitor.EnterSection "UnionArgPat.Named"
-
-                for ident in fieldLongIdent do
-                    visitor.VisitToken "Ident" ident
+                walkLongIdentOrOp visitor (LongIdentOrOp.LongIdent fieldLongIdent)
 
                 visitor.VisitToken "=" equals
                 visitor.EnterSection "Pat"
@@ -376,10 +371,7 @@ and walkPat (visitor: AstVisitor<'T>) (pat: Pat<'T>) : unit =
 
         for FieldPat(longIdent, equals, innerPat) in fieldPats do
             visitor.EnterSection "FieldPat"
-
-            for ident in longIdent do
-                visitor.VisitToken "Ident" ident
-
+            walkLongIdentOrOp visitor (LongIdentOrOp.LongIdent longIdent)
             visitor.VisitToken "=" equals
             visitor.EnterSection "Pat"
             walkPat visitor innerPat

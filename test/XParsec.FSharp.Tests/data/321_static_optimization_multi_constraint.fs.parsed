@@ -71,8 +71,7 @@ FunctionOrValue:
                                  'T'               Identifier          tok=  68  pos= 273
                 :                ':'               OpColon             tok=  70  pos= 275
                 NamedType:
-                  LongIdent:
-                                 'int32'           Identifier          tok=  72  pos= 277
+                  Ident          'int32'           Identifier          tok=  72  pos= 277
               and                'and'             KWAnd               tok=  74  pos= 286
               WhenTyparTyconEqualsTycon:
                 Typar.Static:
@@ -80,8 +79,7 @@ FunctionOrValue:
                                  'U'               Identifier          tok=  77  pos= 291
                 :                ':'               OpColon             tok=  79  pos= 293
                 NamedType:
-                  LongIdent:
-                                 'int32'           Identifier          tok=  81  pos= 295
+                  Ident          'int32'           Identifier          tok=  81  pos= 295
               =                  '='               OpEquality          tok=  83  pos= 304
               ILIntrinsic:
                 (#               '(#'              KWLHashParen        tok=  85  pos= 306
@@ -96,8 +94,7 @@ FunctionOrValue:
                 ILReturnType:
                   :              ':'               OpColon             tok=  95  pos= 319
                   NamedType:
-                    LongIdent:
-                                 'int32'           Identifier          tok=  97  pos= 321
+                    Ident        'int32'           Identifier          tok=  97  pos= 321
                 #)               '#)'              KWRHashParen        tok=  99  pos= 327
             when                 'when'            KWWhen              tok= 102  pos= 334
             WhenTyparTyconEqualsTycon:
@@ -106,8 +103,7 @@ FunctionOrValue:
                                  'T'               Identifier          tok= 105  pos= 340
               :                  ':'               OpColon             tok= 107  pos= 342
               NamedType:
-                LongIdent:
-                                 'float'           Identifier          tok= 109  pos= 344
+                Ident            'float'           Identifier          tok= 109  pos= 344
             and                  'and'             KWAnd               tok= 111  pos= 353
             WhenTyparTyconEqualsTycon:
               Typar.Static:
@@ -115,8 +111,7 @@ FunctionOrValue:
                                  'U'               Identifier          tok= 114  pos= 358
               :                  ':'               OpColon             tok= 116  pos= 360
               NamedType:
-                LongIdent:
-                                 'float'           Identifier          tok= 118  pos= 362
+                Ident            'float'           Identifier          tok= 118  pos= 362
             =                    '='               OpEquality          tok= 120  pos= 371
             ILIntrinsic:
               (#                 '(#'              KWLHashParen        tok= 122  pos= 373
@@ -131,8 +126,7 @@ FunctionOrValue:
               ILReturnType:
                 :                ':'               OpColon             tok= 132  pos= 386
                 NamedType:
-                  LongIdent:
-                                 'float'           Identifier          tok= 134  pos= 388
+                  Ident          'float'           Identifier          tok= 134  pos= 388
               #)                 '#)'              KWRHashParen        tok= 136  pos= 394
           when                   'when'            KWWhen              tok= 139  pos= 401
           WhenTyparTyconEqualsTycon:
@@ -141,8 +135,7 @@ FunctionOrValue:
                                  'T'               Identifier          tok= 142  pos= 407
             :                    ':'               OpColon             tok= 144  pos= 409
             NamedType:
-              LongIdent:
-                                 'int64'           Identifier          tok= 146  pos= 411
+              Ident              'int64'           Identifier          tok= 146  pos= 411
           and                    'and'             KWAnd               tok= 148  pos= 420
           WhenTyparTyconEqualsTycon:
             Typar.Static:
@@ -150,8 +143,7 @@ FunctionOrValue:
                                  'U'               Identifier          tok= 151  pos= 425
             :                    ':'               OpColon             tok= 153  pos= 427
             NamedType:
-              LongIdent:
-                                 'int64'           Identifier          tok= 155  pos= 429
+              Ident              'int64'           Identifier          tok= 155  pos= 429
           =                      '='               OpEquality          tok= 157  pos= 438
           ILIntrinsic:
             (#                   '(#'              KWLHashParen        tok= 159  pos= 440
@@ -166,8 +158,7 @@ FunctionOrValue:
             ILReturnType:
               :                  ':'               OpColon             tok= 169  pos= 453
               NamedType:
-                LongIdent:
-                                 'int64'           Identifier          tok= 171  pos= 455
+                Ident            'int64'           Identifier          tok= 171  pos= 455
             #)                   '#)'              KWRHashParen        tok= 173  pos= 461
         when                     'when'            KWWhen              tok= 176  pos= 468
         WhenTyparTyconEqualsTycon:

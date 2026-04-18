@@ -11,8 +11,7 @@ FunctionOrValue:
             Pat.NamedSimple    'x'               Identifier          tok=  11  pos=  32
           Colon                ':'               OpColon             tok=  12  pos=  33
           NamedType:
-            LongIdent:
-                               'int'             Identifier          tok=  14  pos=  35
+            Ident              'int'             Identifier          tok=  14  pos=  35
                                ')'               KWRParen            tok=  15  pos=  38
     =                          '='               OpEquality          tok=  17  pos=  40
       Ident                    'x'               Identifier          tok=  19  pos=  42
@@ -60,8 +59,7 @@ TypeDefn.Anon:
               Pat.NamedSimple  'label'           Identifier          tok=  69  pos= 165
             Colon              ':'               OpColon             tok=  70  pos= 170
             NamedType:
-              LongIdent:
-                               'string'          Identifier          tok=  72  pos= 172
+              Ident            'string'          Identifier          tok=  72  pos= 172
           ,                    ','               OpComma             tok=  73  pos= 178
           Pat.Typed:
             Pat.Optional:
@@ -69,8 +67,7 @@ TypeDefn.Anon:
               Pat.NamedSimple  'count'           Identifier          tok=  76  pos= 181
             Colon              ':'               OpColon             tok=  77  pos= 186
             NamedType:
-              LongIdent:
-                               'int'             Identifier          tok=  79  pos= 188
+              Ident            'int'             Identifier          tok=  79  pos= 188
                                ')'               KWRParen            tok=  80  pos= 191
     =                          '='               OpEquality          tok=  82  pos= 193
       App:

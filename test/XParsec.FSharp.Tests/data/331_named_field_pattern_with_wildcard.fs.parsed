@@ -8,18 +8,15 @@ TypeDefn.Union:
       ident                              'a'               Identifier          tok=  17  pos= 197
       :                                  ':'               OpColon             tok=  18  pos= 198
       NamedType:
-        LongIdent:
-                                         'int'             Identifier          tok=  20  pos= 200
+        Ident                            'int'             Identifier          tok=  20  pos= 200
       ident                              'b'               Identifier          tok=  24  pos= 206
       :                                  ':'               OpColon             tok=  25  pos= 207
       NamedType:
-        LongIdent:
-                                         'string'          Identifier          tok=  27  pos= 209
+        Ident                            'string'          Identifier          tok=  27  pos= 209
       ident                              'c'               Identifier          tok=  31  pos= 218
       :                                  ':'               OpColon             tok=  32  pos= 219
       NamedType:
-        LongIdent:
-                                         'bool'            Identifier          tok=  34  pos= 221
+        Ident                            'bool'            Identifier          tok=  34  pos= 221
 FunctionOrValue:
   let                                    'let'             KWLet               tok=  37  pos= 227
     Pat.NamedSimple                      'f'               Identifier          tok=  39  pos= 231
@@ -68,13 +65,11 @@ TypeDefn.Union:
       ident                              'field'           Identifier          tok=  96  pos= 383
       :                                  ':'               OpColon             tok=  97  pos= 388
       NamedType:
-        LongIdent:
-                                         'Ctor'            Identifier          tok=  99  pos= 390
+        Ident                            'Ctor'            Identifier          tok=  99  pos= 390
       ident                              'rest'            Identifier          tok= 103  pos= 397
       :                                  ':'               OpColon             tok= 104  pos= 401
       NamedType:
-        LongIdent:
-                                         'int'             Identifier          tok= 106  pos= 403
+        Ident                            'int'             Identifier          tok= 106  pos= 403
 FunctionOrValue:
   let                                    'let'             KWLet               tok= 109  pos= 408
     Pat.NamedSimple                      'g'               Identifier          tok= 111  pos= 412

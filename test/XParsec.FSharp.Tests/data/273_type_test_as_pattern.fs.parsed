@@ -7,8 +7,7 @@ TypeDefn.Union:
       ident                            'Wrapper'         Identifier          tok=  11  pos=  28
       of                               'of'              KWOf                tok=  13  pos=  36
       NamedType:
-        LongIdent:
-                                       'string'          Identifier          tok=  15  pos=  39
+        Ident                          'string'          Identifier          tok=  15  pos=  39
 FunctionOrValue:
   let                                  'let'             KWLet               tok=  18  pos=  47
     Pat.NamedSimple                    'test'            Identifier          tok=  20  pos=  51
@@ -19,15 +18,13 @@ FunctionOrValue:
             Pat.NamedSimple            'x'               Identifier          tok=  23  pos=  57
             Colon                      ':'               OpColon             tok=  24  pos=  58
             NamedType:
-              LongIdent:
-                                       'obj'             Identifier          tok=  26  pos=  60
+              Ident                    'obj'             Identifier          tok=  26  pos=  60
           ,                            ','               OpComma             tok=  27  pos=  63
           Pat.Typed:
             Pat.NamedSimple            'y'               Identifier          tok=  29  pos=  65
             Colon                      ':'               OpColon             tok=  30  pos=  66
             NamedType:
-              LongIdent:
-                                       'obj'             Identifier          tok=  32  pos=  68
+              Ident                    'obj'             Identifier          tok=  32  pos=  68
                                        ')'               KWRParen            tok=  33  pos=  71
     =                                  '='               OpEquality          tok=  35  pos=  73
       Match:
@@ -50,8 +47,7 @@ FunctionOrValue:
                 Pat.TypeTestAs:
                   ColonQuestion        ':?'              OpTypeTest          tok=  56  pos= 116
                   NamedType:
-                    LongIdent:
-                                       'Wrapper'         Identifier          tok=  58  pos= 119
+                    Ident              'Wrapper'         Identifier          tok=  58  pos= 119
                   As                   'as'              KWAs                tok=  60  pos= 127
                   Pat.Named:
                     Ident              'Wrapper'         Identifier          tok=  62  pos= 130
@@ -67,8 +63,7 @@ FunctionOrValue:
             Pat.TypeTestAs:
               ColonQuestion            ':?'              OpTypeTest          tok=  74  pos= 159
               NamedType:
-                LongIdent:
-                                       'string'          Identifier          tok=  76  pos= 162
+                Ident                  'string'          Identifier          tok=  76  pos= 162
               As                       'as'              KWAs                tok=  78  pos= 169
               Pat.NamedSimple          's'               Identifier          tok=  80  pos= 172
           Arrow                        '->'              OpArrowRight        tok=  82  pos= 174

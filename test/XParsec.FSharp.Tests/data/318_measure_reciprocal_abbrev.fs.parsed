@@ -3,15 +3,13 @@ module               'module'          KWModule            tok=   0  pos=   0
 TypeDefn.Abstract:
   [<                 '[<'              KWLAttrBracket      tok=  10  pos=  78
   NamedType:
-    LongIdent:
-                     'Measure'         Identifier          tok=  11  pos=  80
+    Ident            'Measure'         Identifier          tok=  11  pos=  80
   >]                 '>]'              KWRAttrBracket      tok=  12  pos=  87
   TypeName           'second'          Identifier          tok=  16  pos=  95
 TypeDefn.Abbrev:
   [<                 '[<'              KWLAttrBracket      tok=  19  pos= 103
   NamedType:
-    LongIdent:
-                     'Measure'         Identifier          tok=  20  pos= 105
+    Ident            'Measure'         Identifier          tok=  20  pos= 105
   >]                 '>]'              KWRAttrBracket      tok=  21  pos= 112
   TypeName           'hertz'           Identifier          tok=  25  pos= 120
   =                  '='               OpEquality          tok=  27  pos= 126
@@ -19,20 +17,17 @@ TypeDefn.Abbrev:
       Measure.Reciprocal:
                      '/'               OpDivision          tok=  29  pos= 128
         Measure.Named:
-          LongIdent:
-                     'second'          Identifier          tok=  31  pos= 130
+          Ident      'second'          Identifier          tok=  31  pos= 130
 FunctionOrValue:
   let                'let'             KWLet               tok=  34  pos= 138
     Pat.NamedSimple  'freq'            Identifier          tok=  36  pos= 142
     ReturnColon      ':'               OpColon             tok=  37  pos= 146
     GenericType:
-      LongIdent:
-                     'float'           Identifier          tok=  39  pos= 148
+      Ident          'float'           Identifier          tok=  39  pos= 148
       <              '<'               op_LessThan         tok=  40  pos= 153
       TypeArg.Type:
         NamedType:
-          LongIdent:
-                     'hertz'           Identifier          tok=  41  pos= 154
+          Ident      'hertz'           Identifier          tok=  41  pos= 154
       >              '>'               op_GreaterThan      tok=  42  pos= 159
     =                '='               OpEquality          tok=  44  pos= 161
       Const:
@@ -40,6 +35,5 @@ FunctionOrValue:
         <            '<'               op_LessThan         tok=  47  pos= 168
         Measure:
           Measure.Named:
-            LongIdent:
-                     'hertz'           Identifier          tok=  48  pos= 169
+            Ident    'hertz'           Identifier          tok=  48  pos= 169
         >            '>'               op_GreaterThan      tok=  49  pos= 174

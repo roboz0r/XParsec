@@ -1,28 +1,25 @@
-module        'module'          KWModule            tok=   0  pos=   0
-              'MyModule'        Identifier          tok=   2  pos=   7
+module         'module'          KWModule            tok=   0  pos=   0
+               'MyModule'        Identifier          tok=   2  pos=   7
 TypeDefn.Record:
-  TypeName    'Point'           Identifier          tok=   7  pos=  22
-  =           '='               OpEquality          tok=   9  pos=  28
-  {           '{'               KWLBrace            tok=  12  pos=  34
+  TypeName     'Point'           Identifier          tok=   7  pos=  22
+  =            '='               OpEquality          tok=   9  pos=  28
+  {            '{'               KWLBrace            tok=  12  pos=  34
     Field:
-      ident   'X'               Identifier          tok=  14  pos=  36
-      :       ':'               OpColon             tok=  15  pos=  37
+      ident    'X'               Identifier          tok=  14  pos=  36
+      :        ':'               OpColon             tok=  15  pos=  37
       NamedType:
-        LongIdent:
-              'float'           Identifier          tok=  17  pos=  39
+        Ident  'float'           Identifier          tok=  17  pos=  39
     Field:
-      ident   'Y'               Identifier          tok=  20  pos=  46
-      :       ':'               OpColon             tok=  21  pos=  47
+      ident    'Y'               Identifier          tok=  20  pos=  46
+      :        ':'               OpColon             tok=  21  pos=  47
       NamedType:
-        LongIdent:
-              'float'           Identifier          tok=  23  pos=  49
-  }           '}'               KWRBrace            tok=  25  pos=  55
-  with        'with'            KWWith              tok=  28  pos=  61
-    abstract  'abstract'        KWAbstract          tok=  31  pos=  74
-    member    'member'          KWMember            tok=  33  pos=  83
-    ident     'Length'          Identifier          tok=  35  pos=  90
-    :         ':'               OpColon             tok=  36  pos=  96
+        Ident  'float'           Identifier          tok=  23  pos=  49
+  }            '}'               KWRBrace            tok=  25  pos=  55
+  with         'with'            KWWith              tok=  28  pos=  61
+    abstract   'abstract'        KWAbstract          tok=  31  pos=  74
+    member     'member'          KWMember            tok=  33  pos=  83
+    ident      'Length'          Identifier          tok=  35  pos=  90
+    :          ':'               OpColon             tok=  36  pos=  96
     NamedType:
-      LongIdent:
-              'float'           Identifier          tok=  38  pos=  98
-  end         'end'             KWEnd               tok=  41  pos= 108
+      Ident    'float'           Identifier          tok=  38  pos=  98
+  end          'end'             KWEnd               tok=  41  pos= 108

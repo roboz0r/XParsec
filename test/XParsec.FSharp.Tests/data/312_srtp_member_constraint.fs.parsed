@@ -27,8 +27,7 @@ FunctionOrValue:
         :                    ':'               OpColon             tok=  36  pos= 185
         FunctionType:
           NamedType:
-            LongIdent:
-                             'unit'            Identifier          tok=  38  pos= 187
+            Ident            'unit'            Identifier          tok=  38  pos= 187
           ->                 '->'              OpArrowRight        tok=  40  pos= 192
           VarType:
             Typar.Static:
@@ -64,8 +63,7 @@ FunctionOrValue:
         :                    ':'               OpColon             tok=  76  pos= 275
         FunctionType:
           NamedType:
-            LongIdent:
-                             'unit'            Identifier          tok=  78  pos= 277
+            Ident            'unit'            Identifier          tok=  78  pos= 277
           ->                 '->'              OpArrowRight        tok=  80  pos= 282
           VarType:
             Typar.Named:
@@ -100,12 +98,10 @@ FunctionOrValue:
         :                    ':'               OpColon             tok= 115  pos= 376
         FunctionType:
           NamedType:
-            LongIdent:
-                             'unit'            Identifier          tok= 117  pos= 378
+            Ident            'unit'            Identifier          tok= 117  pos= 378
           ->                 '->'              OpArrowRight        tok= 119  pos= 383
           NamedType:
-            LongIdent:
-                             'bool'            Identifier          tok= 121  pos= 386
+            Ident            'bool'            Identifier          tok= 121  pos= 386
         )                    ')'               KWRParen            tok= 122  pos= 390
         Ident                'awaiter'         Identifier          tok= 124  pos= 392
         )                    ')'               KWRParen            tok= 125  pos= 399
@@ -147,8 +143,7 @@ TypeDefn.Anon:
               VarType:
                 Typar.Named:
                              ''T'              TypeParameter       tok= 169  pos= 547
-              LongIdent:
-                             'list'            Identifier          tok= 171  pos= 550
+              Ident          'list'            Identifier          tok= 171  pos= 550
           ,                  ','               OpComma             tok= 172  pos= 554
           Pat.Typed:
             Pat.NamedSimple  'f'               Identifier          tok= 174  pos= 556

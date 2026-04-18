@@ -13,8 +13,7 @@ FunctionOrValue:
             VarType:
               Typar.Named:
                               ''T'              TypeParameter       tok=  24  pos= 292
-            LongIdent:
-                              'list'            Identifier          tok=  26  pos= 295
+            Ident             'list'            Identifier          tok=  26  pos= 295
                               ')'               KWRParen            tok=  27  pos= 299
       ParenBlock              '('               KWLParen            tok=  29  pos= 301
         Pat.Typed:
@@ -24,8 +23,7 @@ FunctionOrValue:
             VarType:
               Typar.Named:
                               ''T'              TypeParameter       tok=  33  pos= 308
-            LongIdent:
-                              'list'            Identifier          tok=  35  pos= 311
+            Ident             'list'            Identifier          tok=  35  pos= 311
                               ')'               KWRParen            tok=  36  pos= 315
     =                         '='               OpEquality          tok=  38  pos= 317
       Assignment              '<-'              OpArrowLeft         tok=  51  pos= 337
@@ -41,6 +39,5 @@ FunctionOrValue:
                               ')'               KWRParen            tok=  47  pos= 333
           Dot                 '.'               OpDot               tok=  48  pos= 334
           LongIdentOrOp:
-            LongIdent:
-                              '1'               NumInt32            tok=  49  pos= 335
+            Ident             '1'               NumInt32            tok=  49  pos= 335
         Ident                 'tail'            Identifier          tok=  53  pos= 340

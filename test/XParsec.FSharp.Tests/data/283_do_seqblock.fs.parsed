@@ -9,8 +9,7 @@ TypeDefn.Anon:
       Colon                        ':'               OpColon             tok=  10  pos=  33
       ArrayType:
         NamedType:
-          LongIdent:
-                                   'byte'            Identifier          tok=  12  pos=  35
+          Ident                    'byte'            Identifier          tok=  12  pos=  35
                                    '['               KWLBracket          tok=  13  pos=  39
                                    ']'               KWRBracket          tok=  14  pos=  40
     ,                              ','               OpComma             tok=  15  pos=  41

@@ -8,14 +8,12 @@ TypeDefn.Record:
       ident            'ShowAll'         Identifier          tok=  13  pos=  26
       :                ':'               OpColon             tok=  14  pos=  33
       NamedType:
-        LongIdent:
-                       'bool'            Identifier          tok=  16  pos=  35
+        Ident          'bool'            Identifier          tok=  16  pos=  35
     Field:
       ident            'Verbose'         Identifier          tok=  19  pos=  41
       :                ':'               OpColon             tok=  20  pos=  48
       NamedType:
-        LongIdent:
-                       'bool'            Identifier          tok=  22  pos=  50
+        Ident          'bool'            Identifier          tok=  22  pos=  50
   }                    '}'               KWRBrace            tok=  24  pos=  55
 FunctionOrValue:
   let                  'let'             KWLet               tok=  32  pos= 203
@@ -28,14 +26,12 @@ FunctionOrValue:
           Ident        'e'               Identifier          tok=  43  pos= 225
         with           'with'            KWWith              tok=  45  pos= 227
         Field:
-          LongIdent:
-                       'ShowAll'         Identifier          tok=  47  pos= 232
+          Ident        'ShowAll'         Identifier          tok=  47  pos= 232
           =            '='               OpEquality          tok=  49  pos= 240
           Expr:
             Const      'true'            KWTrue              tok=  51  pos= 242
         Field:
-          LongIdent:
-                       'Verbose'         Identifier          tok=  54  pos= 248
+          Ident        'Verbose'         Identifier          tok=  54  pos= 248
           =            '='               OpEquality          tok=  56  pos= 256
           Expr:
             Const      'true'            KWTrue              tok=  58  pos= 258
@@ -56,8 +52,7 @@ FunctionOrValue:
               Ident    'denv'            Identifier          tok=  79  pos= 299
             with       'with'            KWWith              tok=  81  pos= 304
             Field:
-              LongIdent:
-                       'ShowAll'         Identifier          tok=  83  pos= 309
+              Ident    'ShowAll'         Identifier          tok=  83  pos= 309
               =        '='               OpEquality          tok=  85  pos= 317
               Expr:
                 Const  'true'            KWTrue              tok=  87  pos= 319

@@ -24,16 +24,14 @@ FunctionOrValue:
           Pat.NamedSimple        'hasthis'         Identifier          tok=  44  pos= 282
           Colon                  ':'               OpColon             tok=  45  pos= 289
           NamedType:
-            LongIdent:
-                                 'byte'            Identifier          tok=  47  pos= 291
+            Ident                'byte'            Identifier          tok=  47  pos= 291
                                  ')'               KWRParen            tok=  48  pos= 295
       ParenBlock                 '('               KWLParen            tok=  50  pos= 297
         Pat.Typed:
           Pat.NamedSimple        'bcc'             Identifier          tok=  51  pos= 298
           Colon                  ':'               OpColon             tok=  52  pos= 301
           NamedType:
-            LongIdent:
-                                 'Conv'            Identifier          tok=  54  pos= 303
+            Ident                'Conv'            Identifier          tok=  54  pos= 303
                                  ')'               KWRParen            tok=  55  pos= 307
     =                            '='               OpEquality          tok=  57  pos= 309
       InfixApp                   '|||'             op_BitwiseOr        tok=  83  pos= 372

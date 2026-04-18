@@ -9,16 +9,14 @@ TypeDefn.Anon:
     Val:
       [<             '[<'              KWLAttrBracket      tok=  14  pos=  37
       NamedType:
-        LongIdent:
-                     'DefaultVal...'   Identifier          tok=  15  pos=  39
+        Ident        'DefaultVal...'   Identifier          tok=  15  pos=  39
       >]             '>]'              KWRAttrBracket      tok=  16  pos=  51
       val            'val'             KWVal               tok=  19  pos=  58
       mutable        'mutable'         KWMutable           tok=  21  pos=  62
       ident          'Value'           Identifier          tok=  23  pos=  70
       :              ':'               OpColon             tok=  25  pos=  76
       NamedType:
-        LongIdent:
-                     'int'             Identifier          tok=  27  pos=  78
+        Ident        'int'             Identifier          tok=  27  pos=  78
     [<               '[<'              KWLAttrBracket      tok=  31  pos=  87
     NamedType:
       LongIdent:

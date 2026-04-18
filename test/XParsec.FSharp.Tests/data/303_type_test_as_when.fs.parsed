@@ -9,8 +9,7 @@ FunctionOrValue:
           Pat.NamedSimple       'arg'             Identifier          tok=  15  pos= 123
           Colon                 ':'               OpColon             tok=  16  pos= 126
           NamedType:
-            LongIdent:
-                                'obj'             Identifier          tok=  18  pos= 128
+            Ident               'obj'             Identifier          tok=  18  pos= 128
                                 ')'               KWRParen            tok=  19  pos= 131
     =                           '='               OpEquality          tok=  21  pos= 133
       Match:
@@ -24,8 +23,7 @@ FunctionOrValue:
             Pat.TypeTestAs:
               ColonQuestion     ':?'              OpTypeTest          tok=  33  pos= 160
               NamedType:
-                LongIdent:
-                                'int32'           Identifier          tok=  35  pos= 163
+                Ident           'int32'           Identifier          tok=  35  pos= 163
               As                'as'              KWAs                tok=  37  pos= 169
               Pat.NamedSimple   'arg'             Identifier          tok=  39  pos= 172
           When                  'when'            KWWhen              tok=  41  pos= 176
@@ -79,8 +77,7 @@ FunctionOrValue:
                                 ')'               KWRParen            tok=  83  pos= 284
               Dot               '.'               OpDot               tok=  84  pos= 285
               LongIdentOrOp:
-                LongIdent:
-                                'IsPublic'        Identifier          tok=  85  pos= 286
+                Ident           'IsPublic'        Identifier          tok=  85  pos= 286
           Arrow                 '->'              OpArrowRight        tok=  87  pos= 295
           Expr:
             App:

@@ -15,8 +15,9 @@ FunctionOrValue:
           Bar                                  '|'               OpBar               tok=  51  pos= 858
           Pat:
             Pat.Named:
-              Ident                            'SynExpr'         Identifier          tok=  53  pos= 860
-              Ident                            'App'             Identifier          tok=  55  pos= 868
+              LongIdent:
+                                               'SynExpr'         Identifier          tok=  53  pos= 860
+                                               'App'             Identifier          tok=  55  pos= 868
               Args:
                 ParenBlock                     '('               KWLParen            tok=  57  pos= 872
                   Pat.Tuple:

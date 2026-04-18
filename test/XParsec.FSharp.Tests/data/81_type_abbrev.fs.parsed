@@ -1,8 +1,7 @@
-module      'module'          KWModule            tok=   0  pos=   0
-            'MyModule'        Identifier          tok=   2  pos=   7
+module       'module'          KWModule            tok=   0  pos=   0
+             'MyModule'        Identifier          tok=   2  pos=   7
 TypeDefn.Abbrev:
-  TypeName  'Foo'             Identifier          tok=   7  pos=  22
-  =         '='               OpEquality          tok=   9  pos=  26
+  TypeName   'Foo'             Identifier          tok=   7  pos=  22
+  =          '='               OpEquality          tok=   9  pos=  26
     NamedType:
-      LongIdent:
-            'int'             Identifier          tok=  11  pos=  28
+      Ident  'int'             Identifier          tok=  11  pos=  28

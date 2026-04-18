@@ -12,8 +12,7 @@ Match:
           Pat.NamedSimple  'y'               Identifier          tok=   9  pos=  16
           Colon            ':'               OpColon             tok=  11  pos=  18
           NamedType:
-            LongIdent:
-                           'int'             Identifier          tok=  13  pos=  20
+            Ident          'int'             Identifier          tok=  13  pos=  20
                            ')'               KWRParen            tok=  14  pos=  23
     Arrow                  '->'              OpArrowRight        tok=  16  pos=  25
     Expr:

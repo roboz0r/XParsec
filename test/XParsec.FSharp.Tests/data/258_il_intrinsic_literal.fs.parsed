@@ -10,8 +10,7 @@ FunctionOrValue:
           Pat.NamedSimple  'address'         Identifier          tok=  14  pos=  86
           Colon            ':'               OpColon             tok=  15  pos=  93
           NamedType:
-            LongIdent:
-                           'nativeint'       Identifier          tok=  17  pos=  95
+            Ident          'nativeint'       Identifier          tok=  17  pos=  95
                            ')'               KWRParen            tok=  18  pos= 104
     =                      '='               OpEquality          tok=  20  pos= 106
       ILIntrinsic:
@@ -23,13 +22,11 @@ FunctionOrValue:
         ILReturnType:
           :                ':'               OpColon             tok=  29  pos= 122
           GenericType:
-            LongIdent:
-                           'nativeptr'       Identifier          tok=  31  pos= 124
+            Ident          'nativeptr'       Identifier          tok=  31  pos= 124
             <              '<'               op_LessThan         tok=  32  pos= 133
             TypeArg.Type:
               NamedType:
-                LongIdent:
-                           'int'             Identifier          tok=  33  pos= 134
+                Ident      'int'             Identifier          tok=  33  pos= 134
             >              '>'               op_GreaterThan      tok=  34  pos= 137
         #)                 '#)'              KWRHashParen        tok=  36  pos= 139
 TypeDefn.Abbrev:

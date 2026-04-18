@@ -7,8 +7,7 @@ Module:
     FunctionOrValue:
       [<                              '[<'              KWLAttrBracket      tok=   7  pos=  22
       NamedType:
-        LongIdent:
-                                      'CompiledNa...'   Identifier          tok=   8  pos=  24
+        Ident                         'CompiledNa...'   Identifier          tok=   8  pos=  24
       ParenBlock                      '('               KWLParen            tok=   9  pos=  36
         StringLiteral                 '"'               StringOpen          tok=  10  pos=  37
         Parts:
@@ -43,14 +42,12 @@ Module:
             ILReturnType:
               :                       ':'               OpColon             tok=  41  pos= 111
               NamedType:
-                LongIdent:
-                                      'int'             Identifier          tok=  43  pos= 113
+                Ident                 'int'             Identifier          tok=  43  pos= 113
             #)                        '#)'              KWRHashParen        tok=  45  pos= 117
     FunctionOrValue:
       [<                              '[<'              KWLAttrBracket      tok=  51  pos= 131
       NamedType:
-        LongIdent:
-                                      'CompiledNa...'   Identifier          tok=  52  pos= 133
+        Ident                         'CompiledNa...'   Identifier          tok=  52  pos= 133
       ParenBlock                      '('               KWLParen            tok=  53  pos= 145
         StringLiteral                 '"'               StringOpen          tok=  54  pos= 146
         Parts:
@@ -78,16 +75,14 @@ Module:
               Pat.NamedSimple         'index1'          Identifier          tok=  76  pos= 183
               Colon                   ':'               OpColon             tok=  77  pos= 189
               NamedType:
-                LongIdent:
-                                      'int'             Identifier          tok=  78  pos= 190
+                Ident                 'int'             Identifier          tok=  78  pos= 190
                                       ')'               KWRParen            tok=  79  pos= 193
           ParenBlock                  '('               KWLParen            tok=  81  pos= 195
             Pat.Typed:
               Pat.NamedSimple         'index2'          Identifier          tok=  82  pos= 196
               Colon                   ':'               OpColon             tok=  83  pos= 202
               NamedType:
-                LongIdent:
-                                      'int'             Identifier          tok=  84  pos= 203
+                Ident                 'int'             Identifier          tok=  84  pos= 203
                                       ')'               KWRParen            tok=  85  pos= 206
           ParenBlock                  '('               KWLParen            tok=  87  pos= 208
             Pat.Typed:
@@ -128,8 +123,7 @@ Module:
               Pat.NamedSimple         'n'               Identifier          tok= 130  pos= 336
               Colon                   ':'               OpColon             tok= 131  pos= 337
               NamedType:
-                LongIdent:
-                                      'int'             Identifier          tok= 132  pos= 338
+                Ident                 'int'             Identifier          tok= 132  pos= 338
                                       ')'               KWRParen            tok= 133  pos= 341
         =                             '='               OpEquality          tok= 135  pos= 343
           ILIntrinsic:
@@ -151,8 +145,7 @@ Module:
                 VarType:
                   Typar.Named:
                                       ''T'              TypeParameter       tok= 153  pos= 374
-                LongIdent:
-                                      'array'           Identifier          tok= 155  pos= 377
+                Ident                 'array'           Identifier          tok= 155  pos= 377
             #)                        '#)'              KWRHashParen        tok= 157  pos= 383
     FunctionOrValue:
       let                             'let'             KWLet               tok= 160  pos= 390
@@ -175,8 +168,7 @@ Module:
                   VarType:
                     Typar.Named:
                                       ''T'              TypeParameter       tok= 182  pos= 440
-                  LongIdent:
-                                      'list'            Identifier          tok= 184  pos= 443
+                  Ident               'list'            Identifier          tok= 184  pos= 443
               #)                      '#)'              KWRHashParen        tok= 186  pos= 448
     TypeDefn.Abbrev:
       TypeName                        '``[]``'          BacktickedIdentifier  tok= 192  pos= 461
@@ -211,8 +203,7 @@ Module:
     TypeDefn.Anon:
       [<                              '[<'              KWLAttrBracket      tok= 227  pos= 539
       NamedType:
-        LongIdent:
-                                      'AttributeU...'   Identifier          tok= 228  pos= 541
+        Ident                         'AttributeU...'   Identifier          tok= 228  pos= 541
       ParenBlock                      '('               KWLParen            tok= 229  pos= 555
         Tuple:
           LongIdentOrOp:
@@ -226,8 +217,7 @@ Module:
       >]                              '>]'              KWRAttrBracket      tok= 239  pos= 601
       [<                              '[<'              KWLAttrBracket      tok= 242  pos= 608
       NamedType:
-        LongIdent:
-                                      'Sealed'          Identifier          tok= 243  pos= 610
+        Ident                         'Sealed'          Identifier          tok= 243  pos= 610
       >]                              '>]'              KWRAttrBracket      tok= 244  pos= 616
       TypeName                        'Compilatio...'   Identifier          tok= 249  pos= 628
       (                               '('               KWLParen            tok= 250  pos= 662
@@ -236,17 +226,14 @@ Module:
         Colon                         ':'               OpColon             tok= 252  pos= 669
         SuffixedType:
           NamedType:
-            LongIdent:
-                                      'int'             Identifier          tok= 253  pos= 670
-          LongIdent:
-                                      'array'           Identifier          tok= 255  pos= 674
+            Ident                     'int'             Identifier          tok= 253  pos= 670
+          Ident                       'array'           Identifier          tok= 255  pos= 674
       )                               ')'               KWRParen            tok= 256  pos= 679
       =                               '='               OpEquality          tok= 258  pos= 681
       begin                           <virt>            KWBegin             tok=virt  pos= 691
         inherit                       'inherit'         KWInherit           tok= 261  pos= 691
         NamedType:
-          LongIdent:
-                                      'Attribute'       Identifier          tok= 263  pos= 699
+          Ident                       'Attribute'       Identifier          tok= 263  pos= 699
         ParenBlock                    '('               KWLParen            tok= 264  pos= 708
                                       ')'               KWRParen            tok= 265  pos= 709
         member                        'member'          KWMember            tok= 268  pos= 719
@@ -261,8 +248,7 @@ Module:
                   Pat.NamedSimple     'x'               Identifier          tok= 282  pos= 763
                   Colon               ':'               OpColon             tok= 283  pos= 764
                   NamedType:
-                    LongIdent:
-                                      'obj'             Identifier          tok= 284  pos= 765
+                    Ident             'obj'             Identifier          tok= 284  pos= 765
                                       ')'               KWRParen            tok= 285  pos= 768
             =                         '='               OpEquality          tok= 287  pos= 770
               ILIntrinsic:
@@ -308,26 +294,22 @@ Module:
                                       ')'               KWRParen            tok= 318  pos= 846
                 Colon                 ':'               OpColon             tok= 320  pos= 848
                 GenericType:
-                  LongIdent:
-                                      'IEnumerabl...'   Identifier          tok= 322  pos= 850
+                  Ident               'IEnumerabl...'   Identifier          tok= 322  pos= 850
                   <                   '<'               op_LessThan         tok= 323  pos= 861
                   TypeArg.Type:
                     NamedType:
-                      LongIdent:
-                                      'int'             Identifier          tok= 324  pos= 862
+                      Ident           'int'             Identifier          tok= 324  pos= 862
                   >                   '>'               op_GreaterThan      tok= 325  pos= 865
                                       ')'               KWRParen            tok= 326  pos= 866
       end                             <virt>            KWEnd               tok=virt  pos= 884
     FunctionOrValue:
       [<                              '[<'              KWLAttrBracket      tok= 331  pos= 884
       NamedType:
-        LongIdent:
-                                      'NoDynamicI...'   Identifier          tok= 332  pos= 886
+        Ident                         'NoDynamicI...'   Identifier          tok= 332  pos= 886
       >]                              '>]'              KWRAttrBracket      tok= 333  pos= 905
       [<                              '[<'              KWLAttrBracket      tok= 336  pos= 912
       NamedType:
-        LongIdent:
-                                      'CompiledNa...'   Identifier          tok= 337  pos= 914
+        Ident                         'CompiledNa...'   Identifier          tok= 337  pos= 914
       ParenBlock                      '('               KWLParen            tok= 338  pos= 926
         StringLiteral                 '"'               StringOpen          tok= 339  pos= 927
         Parts:
@@ -344,13 +326,11 @@ Module:
               Pat.NamedSimple         'count'           Identifier          tok= 353  pos= 973
               Colon                   ':'               OpColon             tok= 354  pos= 978
               NamedType:
-                LongIdent:
-                                      'int'             Identifier          tok= 356  pos= 980
+                Ident                 'int'             Identifier          tok= 356  pos= 980
                                       ')'               KWRParen            tok= 357  pos= 983
         ReturnColon                   ':'               OpColon             tok= 359  pos= 985
         GenericType:
-          LongIdent:
-                                      'nativeptr'       Identifier          tok= 361  pos= 987
+          Ident                       'nativeptr'       Identifier          tok= 361  pos= 987
           <                           '<'               op_LessThan         tok= 362  pos= 996
           TypeArg.Type:
             VarType:
@@ -379,8 +359,7 @@ Module:
             ILReturnType:
               :                       ':'               OpColon             tok= 385  pos=1038
               GenericType:
-                LongIdent:
-                                      'nativeptr'       Identifier          tok= 387  pos=1040
+                Ident                 'nativeptr'       Identifier          tok= 387  pos=1040
                 <                     '<'               op_LessThan         tok= 388  pos=1049
                 TypeArg.Type:
                   VarType:

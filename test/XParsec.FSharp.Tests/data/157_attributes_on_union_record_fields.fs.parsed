@@ -15,21 +15,18 @@ TypeDefn.Union:
       ident    'radius'          Identifier          tok=  24  pos=  65
       :        ':'               OpColon             tok=  25  pos=  71
       NamedType:
-        LongIdent:
-               'float'           Identifier          tok=  27  pos=  73
+        Ident  'float'           Identifier          tok=  27  pos=  73
     Case:
       ident    'Rectangle'       Identifier          tok=  32  pos=  85
       of       'of'              KWOf                tok=  34  pos=  95
       ident    'width'           Identifier          tok=  36  pos=  98
       :        ':'               OpColon             tok=  37  pos= 103
       NamedType:
-        LongIdent:
-               'float'           Identifier          tok=  39  pos= 105
+        Ident  'float'           Identifier          tok=  39  pos= 105
       ident    'height'          Identifier          tok=  43  pos= 113
       :        ':'               OpColon             tok=  44  pos= 119
       NamedType:
-        LongIdent:
-               'float'           Identifier          tok=  46  pos= 121
+        Ident  'float'           Identifier          tok=  46  pos= 121
     Case:
       [<       '[<'              KWLAttrBracket      tok=  51  pos= 133
       NamedType:
@@ -52,8 +49,7 @@ TypeDefn.Record:
       ident    'Host'            Identifier          tok=  77  pos= 216
       :        ':'               OpColon             tok=  78  pos= 220
       NamedType:
-        LongIdent:
-               'string'          Identifier          tok=  80  pos= 222
+        Ident  'string'          Identifier          tok=  80  pos= 222
     Field:
       [<       '[<'              KWLAttrBracket      tok=  83  pos= 237
       NamedType:
@@ -64,8 +60,7 @@ TypeDefn.Record:
       ident    'Port'            Identifier          tok=  90  pos= 265
       :        ':'               OpColon             tok=  91  pos= 269
       NamedType:
-        LongIdent:
-               'int'             Identifier          tok=  93  pos= 271
+        Ident  'int'             Identifier          tok=  93  pos= 271
     Field:
       [<       '[<'              KWLAttrBracket      tok=  96  pos= 283
       NamedType:
@@ -77,6 +72,5 @@ TypeDefn.Record:
       ident    'Delay'           Identifier          tok= 105  pos= 319
       :        ':'               OpColon             tok= 106  pos= 324
       NamedType:
-        LongIdent:
-               'int'             Identifier          tok= 108  pos= 326
+        Ident  'int'             Identifier          tok= 108  pos= 326
   }            '}'               KWRBrace            tok= 111  pos= 334

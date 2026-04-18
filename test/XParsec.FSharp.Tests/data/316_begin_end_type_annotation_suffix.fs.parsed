@@ -12,8 +12,7 @@ FunctionOrValue:
               Const   '2'               NumInt32            tok=  22  pos= 127
           Colon       ':'               OpColon             tok=  24  pos= 129
           NamedType:
-            LongIdent:
-                      'int'             Identifier          tok=  26  pos= 131
+            Ident     'int'             Identifier          tok=  26  pos= 131
                       'end'             KWEnd               tok=  28  pos= 135
 FunctionOrValue:
   let                 'let'             KWLet               tok=  31  pos= 140
@@ -27,6 +26,5 @@ FunctionOrValue:
               Const   '2'               NumInt32            tok=  45  pos= 170
           Colon       ':'               OpColon             tok=  47  pos= 172
           NamedType:
-            LongIdent:
-                      'int'             Identifier          tok=  49  pos= 174
+            Ident     'int'             Identifier          tok=  49  pos= 174
                       'end'             KWEnd               tok=  52  pos= 182

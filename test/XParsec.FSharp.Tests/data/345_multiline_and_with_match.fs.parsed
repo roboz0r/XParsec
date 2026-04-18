@@ -23,19 +23,16 @@ TypeDefn.Record:
       ident                                            'NLR'             Identifier          tok=  35  pos= 310
       :                                                ':'               OpColon             tok=  36  pos= 313
       NamedType:
-        LongIdent:
-                                                       'int'             Identifier          tok=  38  pos= 315
+        Ident                                          'int'             Identifier          tok=  38  pos= 315
     Field:
       ident                                            'TryDeref'        Identifier          tok=  41  pos= 320
       :                                                ':'               OpColon             tok=  42  pos= 328
       GenericType:
-        LongIdent:
-                                                       'V'               Identifier          tok=  44  pos= 330
+        Ident                                          'V'               Identifier          tok=  44  pos= 330
         <                                              '<'               op_LessThan         tok=  45  pos= 331
         TypeArg.Type:
           NamedType:
-            LongIdent:
-                                                       'int'             Identifier          tok=  46  pos= 332
+            Ident                                      'int'             Identifier          tok=  46  pos= 332
         >                                              '>'               op_GreaterThan      tok=  47  pos= 335
   }                                                    '}'               KWRBrace            tok=  49  pos= 337
 FunctionOrValue:
@@ -47,16 +44,14 @@ FunctionOrValue:
           Pat.NamedSimple                              'a'               Identifier          tok=  57  pos= 359
           Colon                                        ':'               OpColon             tok=  58  pos= 360
           NamedType:
-            LongIdent:
-                                                       'int'             Identifier          tok=  60  pos= 362
+            Ident                                      'int'             Identifier          tok=  60  pos= 362
                                                        ')'               KWRParen            tok=  61  pos= 365
       ParenBlock                                       '('               KWLParen            tok=  63  pos= 367
         Pat.Typed:
           Pat.NamedSimple                              'b'               Identifier          tok=  64  pos= 368
           Colon                                        ':'               OpColon             tok=  65  pos= 369
           NamedType:
-            LongIdent:
-                                                       'int'             Identifier          tok=  67  pos= 371
+            Ident                                      'int'             Identifier          tok=  67  pos= 371
                                                        ')'               KWRParen            tok=  68  pos= 374
     =                                                  '='               OpEquality          tok=  70  pos= 376
       InfixApp                                         '='               OpEquality          tok=  74  pos= 380
@@ -71,16 +66,14 @@ FunctionOrValue:
           Pat.NamedSimple                              'a'               Identifier          tok=  83  pos= 416
           Colon                                        ':'               OpColon             tok=  84  pos= 417
           NamedType:
-            LongIdent:
-                                                       'int'             Identifier          tok=  86  pos= 419
+            Ident                                      'int'             Identifier          tok=  86  pos= 419
                                                        ')'               KWRParen            tok=  87  pos= 422
       ParenBlock                                       '('               KWLParen            tok=  89  pos= 424
         Pat.Typed:
           Pat.NamedSimple                              'b'               Identifier          tok=  90  pos= 425
           Colon                                        ':'               OpColon             tok=  91  pos= 426
           NamedType:
-            LongIdent:
-                                                       'int'             Identifier          tok=  93  pos= 428
+            Ident                                      'int'             Identifier          tok=  93  pos= 428
                                                        ')'               KWRParen            tok=  94  pos= 431
     =                                                  '='               OpEquality          tok=  96  pos= 433
       InfixApp                                         '<>'              op_Inequality       tok= 100  pos= 437
@@ -95,16 +88,14 @@ FunctionOrValue:
           Pat.NamedSimple                              'x'               Identifier          tok= 110  pos= 451
           Colon                                        ':'               OpColon             tok= 111  pos= 452
           NamedType:
-            LongIdent:
-                                                       'R'               Identifier          tok= 113  pos= 454
+            Ident                                      'R'               Identifier          tok= 113  pos= 454
                                                        ')'               KWRParen            tok= 114  pos= 455
       ParenBlock                                       '('               KWLParen            tok= 116  pos= 457
         Pat.Typed:
           Pat.NamedSimple                              'y'               Identifier          tok= 117  pos= 458
           Colon                                        ':'               OpColon             tok= 118  pos= 459
           NamedType:
-            LongIdent:
-                                                       'R'               Identifier          tok= 120  pos= 461
+            Ident                                      'R'               Identifier          tok= 120  pos= 461
                                                        ')'               KWRParen            tok= 121  pos= 462
     =                                                  '='               OpEquality          tok= 123  pos= 464
       IfThenElse:

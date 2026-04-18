@@ -9,8 +9,7 @@ TypeDefn.Anon:
       Pat.NamedSimple    'label'           Identifier          tok=  12  pos=  72
     Colon                ':'               OpColon             tok=  13  pos=  77
     NamedType:
-      LongIdent:
-                         'string'          Identifier          tok=  15  pos=  79
+      Ident              'string'          Identifier          tok=  15  pos=  79
   )                      ')'               KWRParen            tok=  16  pos=  85
   =                      '='               OpEquality          tok=  18  pos=  87
   begin                  <virt>            KWBegin             tok=virt  pos=  93

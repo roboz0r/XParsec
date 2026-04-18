@@ -17,8 +17,7 @@ TypeDefn.Anon:
         Colon        ':'               OpColon             tok=  24  pos=  53
         ArrayType:
           NamedType:
-            LongIdent:
-                     'int'             Identifier          tok=  26  pos=  55
+            Ident    'int'             Identifier          tok=  26  pos=  55
                      '['               KWLBracket          tok=  27  pos=  58
                      ']'               KWRBracket          tok=  28  pos=  59
       with           'with'            KWWith              tok=  30  pos=  61

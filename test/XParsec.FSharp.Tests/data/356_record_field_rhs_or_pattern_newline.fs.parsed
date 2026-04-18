@@ -6,14 +6,12 @@ TypeDefn.Union:
       ident                              'A'               Identifier          tok=  19  pos= 365
       of                                 'of'              KWOf                tok=  21  pos= 367
       NamedType:
-        LongIdent:
-                                         'int'             Identifier          tok=  23  pos= 370
+        Ident                            'int'             Identifier          tok=  23  pos= 370
     Case:
       ident                              'B'               Identifier          tok=  28  pos= 380
       of                                 'of'              KWOf                tok=  30  pos= 382
       NamedType:
-        LongIdent:
-                                         'int'             Identifier          tok=  32  pos= 385
+        Ident                            'int'             Identifier          tok=  32  pos= 385
 TypeDefn.Record:
   TypeName                               'Record'          Identifier          tok=  37  pos= 395
   =                                      '='               OpEquality          tok=  39  pos= 402
@@ -22,14 +20,12 @@ TypeDefn.Record:
       ident                              'Value'           Identifier          tok=  43  pos= 406
       :                                  ':'               OpColon             tok=  44  pos= 411
       NamedType:
-        LongIdent:
-                                         'MyDU'            Identifier          tok=  46  pos= 413
+        Ident                            'MyDU'            Identifier          tok=  46  pos= 413
     Field:
       ident                              'Count'           Identifier          tok=  49  pos= 419
       :                                  ':'               OpColon             tok=  50  pos= 424
       NamedType:
-        LongIdent:
-                                         'int'             Identifier          tok=  52  pos= 426
+        Ident                            'int'             Identifier          tok=  52  pos= 426
   }                                      '}'               KWRBrace            tok=  54  pos= 430
 FunctionOrValue:
   let                                    'let'             KWLet               tok=  57  pos= 433

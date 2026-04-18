@@ -19,8 +19,7 @@ FunctionOrValue:
           Pat.NamedSimple              'e'               Identifier          tok=  19  pos= 142
           Colon                        ':'               OpColon             tok=  20  pos= 143
           NamedType:
-            LongIdent:
-                                       'obj'             Identifier          tok=  22  pos= 145
+            Ident                      'obj'             Identifier          tok=  22  pos= 145
                                        ')'               KWRParen            tok=  23  pos= 148
     =                                  '='               OpEquality          tok=  25  pos= 150
       Ident                            'None'            Identifier          tok=  27  pos= 152

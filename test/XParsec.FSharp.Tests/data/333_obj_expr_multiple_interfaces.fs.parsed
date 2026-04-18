@@ -28,13 +28,11 @@ FunctionOrValue:
             VarType:
               Typar.Named:
                                                ''U'              TypeParameter       tok=  37  pos= 301
-            LongIdent:
-                                               'array'           Identifier          tok=  39  pos= 304
+            Ident                              'array'           Identifier          tok=  39  pos= 304
                                                ')'               KWRParen            tok=  40  pos= 309
     ReturnColon                                ':'               OpColon             tok=  42  pos= 311
     GenericType:
-      LongIdent:
-                                               'IEnumerato...'   Identifier          tok=  44  pos= 313
+      Ident                                    'IEnumerato...'   Identifier          tok=  44  pos= 313
       <                                        '<'               op_LessThan         tok=  45  pos= 324
       TypeArg.Type:
         VarType:
@@ -64,8 +62,7 @@ FunctionOrValue:
             {                                  '{'               KWLBrace            tok=  79  pos= 401
             new                                'new'             KWNew               tok=  81  pos= 403
             GenericType:
-              LongIdent:
-                                               'IEnumerato...'   Identifier          tok=  83  pos= 407
+              Ident                            'IEnumerato...'   Identifier          tok=  83  pos= 407
               <                                '<'               op_LessThan         tok=  84  pos= 418
               TypeArg.Type:
                 VarType:
@@ -89,8 +86,7 @@ FunctionOrValue:
             InterfaceImpl:
               interface                        'interface'       KWInterface         tok= 106  pos= 475
               NamedType:
-                LongIdent:
-                                               'IEnumerato...'   Identifier          tok= 108  pos= 485
+                Ident                          'IEnumerato...'   Identifier          tok= 108  pos= 485
               with                             'with'            KWWith              tok= 110  pos= 497
                 member                         'member'          KWMember            tok= 113  pos= 512
                 self                           '_'               Wildcard            tok= 115  pos= 519
@@ -191,8 +187,7 @@ FunctionOrValue:
             InterfaceImpl:
               interface                        'interface'       KWInterface         tok= 251  pos=1064
               NamedType:
-                LongIdent:
-                                               'IDisposabl...'   Identifier          tok= 253  pos=1074
+                Ident                          'IDisposabl...'   Identifier          tok= 253  pos=1074
               with                             'with'            KWWith              tok= 255  pos=1086
                 member                         'member'          KWMember            tok= 258  pos=1101
                 self                           '_'               Wildcard            tok= 260  pos=1108

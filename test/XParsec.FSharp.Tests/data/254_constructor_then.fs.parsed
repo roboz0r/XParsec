@@ -7,8 +7,7 @@ TypeDefn.Anon:
     Pat.NamedSimple              'capacity'        Identifier          tok=  11  pos=  74
     Colon                        ':'               OpColon             tok=  12  pos=  82
     NamedType:
-      LongIdent:
-                                 'int'             Identifier          tok=  14  pos=  84
+      Ident                      'int'             Identifier          tok=  14  pos=  84
   )                              ')'               KWRParen            tok=  15  pos=  87
   =                              '='               OpEquality          tok=  17  pos=  89
   begin                          <virt>            KWBegin             tok=virt  pos=  95
@@ -22,8 +21,7 @@ TypeDefn.Anon:
               Ident              'ResizeArra...'   Identifier          tok=  26  pos= 107
             Types:
               NamedType:
-                LongIdent:
-                                 'int'             Identifier          tok=  28  pos= 119
+                Ident            'int'             Identifier          tok=  28  pos= 119
         (                        '('               KWLParen            tok=  30  pos= 123
         Arg:
           Ident                  'capacity'        Identifier          tok=  31  pos= 124
@@ -36,13 +34,11 @@ TypeDefn.Anon:
             Pat.NamedSimple      'entries'         Identifier          tok=  38  pos= 143
             Colon                ':'               OpColon             tok=  39  pos= 150
             GenericType:
-              LongIdent:
-                                 'seq'             Identifier          tok=  41  pos= 152
+              Ident              'seq'             Identifier          tok=  41  pos= 152
               <                  '<'               op_LessThan         tok=  42  pos= 155
               TypeArg.Type:
                 NamedType:
-                  LongIdent:
-                                 'int'             Identifier          tok=  43  pos= 156
+                  Ident          'int'             Identifier          tok=  43  pos= 156
               >                  '>'               op_GreaterThan      tok=  44  pos= 159
                                  ')'               KWRParen            tok=  45  pos= 160
         As                       'as'              KWAs                tok=  47  pos= 162

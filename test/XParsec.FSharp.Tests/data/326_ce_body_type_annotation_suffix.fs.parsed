@@ -18,8 +18,7 @@ FunctionOrValue:
                     Const     '2'               NumInt32            tok=  26  pos= 167
                 Colon         ':'               OpColon             tok=  28  pos= 169
                 NamedType:
-                  LongIdent:
-                              'int'             Identifier          tok=  30  pos= 171
+                  Ident       'int'             Identifier          tok=  30  pos= 171
                               '}'               KWRBrace            tok=  32  pos= 175
 FunctionOrValue:
   let                         'let'             KWLet               tok=  35  pos= 178
@@ -39,8 +38,7 @@ FunctionOrValue:
                     Const     '2'               NumInt32            tok=  51  pos= 205
                 Colon         ':'               OpColon             tok=  53  pos= 207
                 NamedType:
-                  LongIdent:
-                              'int'             Identifier          tok=  55  pos= 209
+                  Ident       'int'             Identifier          tok=  55  pos= 209
                               '}'               KWRBrace            tok=  57  pos= 213
 FunctionOrValue:
   let                         'let'             KWLet               tok=  60  pos= 216
@@ -61,8 +59,7 @@ FunctionOrValue:
                       Const   '2'               NumInt32            tok=  78  pos= 253
                   Colon       ':'               OpColon             tok=  80  pos= 255
                   NamedType:
-                    LongIdent:
-                              'int'             Identifier          tok=  82  pos= 257
+                    Ident     'int'             Identifier          tok=  82  pos= 257
               yield           'yield'           KWYield             tok=  85  pos= 269
               Yield:
                 TypeAnnotation:
@@ -72,6 +69,5 @@ FunctionOrValue:
                       Const   '4'               NumInt32            tok=  91  pos= 279
                   Colon       ':'               OpColon             tok=  93  pos= 281
                   NamedType:
-                    LongIdent:
-                              'int'             Identifier          tok=  95  pos= 283
+                    Ident     'int'             Identifier          tok=  95  pos= 283
                               '}'               KWRBrace            tok=  98  pos= 291

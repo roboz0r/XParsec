@@ -9,8 +9,7 @@ FunctionOrValue:
           Pat.NamedSimple  't'               Identifier          tok=  10  pos=  30
           Colon            ':'               OpColon             tok=  11  pos=  31
           NamedType:
-            LongIdent:
-                           'Token'           Identifier          tok=  13  pos=  33
+            Ident          'Token'           Identifier          tok=  13  pos=  33
                            ')'               KWRParen            tok=  14  pos=  38
     =                      '='               OpEquality          tok=  16  pos=  40
       InfixApp             '||'              OpBarBar            tok=  24  pos=  62

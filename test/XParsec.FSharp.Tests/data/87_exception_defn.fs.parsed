@@ -7,18 +7,15 @@ ExceptionDefn.Full:
   ident      'message'         Identifier          tok=  11  pos=  38
   :          ':'               OpColon             tok=  12  pos=  45
   NamedType:
-    LongIdent:
-             'string'          Identifier          tok=  14  pos=  47
+    Ident    'string'          Identifier          tok=  14  pos=  47
 ExceptionDefn.Full:
   exception  'exception'       KWException         tok=  16  pos=  54
   ident      'AnotherErr...'   Identifier          tok=  18  pos=  64
   of         'of'              KWOf                tok=  20  pos=  77
   NamedType:
-    LongIdent:
-             'int'             Identifier          tok=  22  pos=  80
+    Ident    'int'             Identifier          tok=  22  pos=  80
   NamedType:
-    LongIdent:
-             'string'          Identifier          tok=  26  pos=  86
+    Ident    'string'          Identifier          tok=  26  pos=  86
 ExceptionDefn.Full:
   exception  'exception'       KWException         tok=  28  pos=  93
   ident      'SimpleErro...'   Identifier          tok=  30  pos= 103

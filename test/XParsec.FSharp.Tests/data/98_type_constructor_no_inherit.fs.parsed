@@ -10,8 +10,7 @@ TypeDefn.Class:
       ident                'x'               Identifier          tok=  19  pos=  62
       :                    ':'               OpColon             tok=  20  pos=  63
       NamedType:
-        LongIdent:
-                           'int'             Identifier          tok=  22  pos=  65
+        Ident              'int'             Identifier          tok=  22  pos=  65
     AdditionalConstructor:
       new                  'new'             KWNew               tok=  25  pos=  77
       ParenBlock           '('               KWLParen            tok=  26  pos=  80
@@ -19,13 +18,11 @@ TypeDefn.Class:
           Pat.NamedSimple  'n'               Identifier          tok=  27  pos=  81
           Colon            ':'               OpColon             tok=  28  pos=  82
           NamedType:
-            LongIdent:
-                           'int'             Identifier          tok=  30  pos=  84
+            Ident          'int'             Identifier          tok=  30  pos=  84
                            ')'               KWRParen            tok=  31  pos=  87
       =                    '='               OpEquality          tok=  33  pos=  89
       {                    '{'               KWLBrace            tok=  35  pos=  91
-      LongIdent:
-                           'x'               Identifier          tok=  37  pos=  93
+      Ident                'x'               Identifier          tok=  37  pos=  93
       =                    '='               OpEquality          tok=  39  pos=  95
       Ident                'n'               Identifier          tok=  41  pos=  97
       }                    '}'               KWRBrace            tok=  43  pos=  99

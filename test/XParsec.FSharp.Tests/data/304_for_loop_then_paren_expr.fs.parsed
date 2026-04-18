@@ -17,15 +17,12 @@ FunctionOrValue:
             ParenType            '('               KWLParen            tok=  29  pos= 261
               TupleType:
                 NamedType:
-                  LongIdent:
-                                 'string'          Identifier          tok=  30  pos= 262
+                  Ident          'string'          Identifier          tok=  30  pos= 262
                 *                '*'               OpMultiply          tok=  32  pos= 269
                 NamedType:
-                  LongIdent:
-                                 'int'             Identifier          tok=  34  pos= 271
+                  Ident          'int'             Identifier          tok=  34  pos= 271
                                  ')'               KWRParen            tok=  35  pos= 274
-            LongIdent:
-                                 'list'            Identifier          tok=  37  pos= 276
+            Ident                'list'            Identifier          tok=  37  pos= 276
                                  ')'               KWRParen            tok=  38  pos= 280
     =                            '='               OpEquality          tok=  40  pos= 282
       Let                        'let'             KWLet               tok=  43  pos= 288

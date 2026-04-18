@@ -100,8 +100,7 @@ TypeDefn.Anon:
                            'Value'           Identifier          tok= 165  pos=1455
         :                  ':'               OpColon             tok= 167  pos=1461
         NamedType:
-          LongIdent:
-                           'int'             Identifier          tok= 169  pos=1463
+          Ident            'int'             Identifier          tok= 169  pos=1463
       >                    '>'               op_GreaterThan      tok= 170  pos=1466
     Pats:
       ParenBlock           '('               KWLParen            tok= 173  pos=1486
@@ -109,8 +108,7 @@ TypeDefn.Anon:
           Pat.NamedSimple  'source'          Identifier          tok= 174  pos=1487
           Colon            ':'               OpColon             tok= 175  pos=1493
           GenericType:
-            LongIdent:
-                           'QuerySourc...'   Identifier          tok= 177  pos=1495
+            Ident          'QuerySourc...'   Identifier          tok= 177  pos=1495
             <              '<'               op_LessThan         tok= 178  pos=1506
             TypeArg.Type:
               VarType:

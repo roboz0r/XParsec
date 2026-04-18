@@ -8,8 +8,7 @@ TypeDefn.Record:
       ident          'Index'           Identifier          tok=  15  pos=  50
       :              ':'               OpColon             tok=  16  pos=  55
       NamedType:
-        LongIdent:
-                     'int'             Identifier          tok=  18  pos=  57
+        Ident        'int'             Identifier          tok=  18  pos=  57
   }                  '}'               KWRBrace            tok=  21  pos=  65
   with               <virt>            KWWith              tok=virt  pos=  72
     member           'member'          KWMember            tok=  25  pos=  72

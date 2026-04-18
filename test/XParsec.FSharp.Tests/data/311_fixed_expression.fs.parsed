@@ -13,8 +13,7 @@ FunctionOrValue:
           Colon            ':'               OpColon             tok=  21  pos= 117
           ArrayType:
             NamedType:
-              LongIdent:
-                           'byte'            Identifier          tok=  23  pos= 119
+              Ident        'byte'            Identifier          tok=  23  pos= 119
                            '['               KWLBracket          tok=  24  pos= 123
                            ']'               KWRBracket          tok=  25  pos= 124
                            ')'               KWRParen            tok=  26  pos= 125

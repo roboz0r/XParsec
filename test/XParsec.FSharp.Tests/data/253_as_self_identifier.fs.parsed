@@ -7,8 +7,7 @@ TypeDefn.Anon:
     Pat.NamedSimple      'x'               Identifier          tok=  11  pos=  66
     Colon                ':'               OpColon             tok=  12  pos=  67
     NamedType:
-      LongIdent:
-                         'int'             Identifier          tok=  14  pos=  69
+      Ident              'int'             Identifier          tok=  14  pos=  69
   )                      ')'               KWRParen            tok=  15  pos=  72
   =                      '='               OpEquality          tok=  21  pos=  82
   begin                  <virt>            KWBegin             tok=virt  pos=  88

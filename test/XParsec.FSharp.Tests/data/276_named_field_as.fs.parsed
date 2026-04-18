@@ -9,19 +9,16 @@ TypeDefn.Union:
       ident                             'expr1'           Identifier          tok=  18  pos=  45
       :                                 ':'               OpColon             tok=  19  pos=  50
       NamedType:
-        LongIdent:
-                                        'Expr'            Identifier          tok=  21  pos=  52
+        Ident                           'Expr'            Identifier          tok=  21  pos=  52
       ident                             'expr2'           Identifier          tok=  25  pos=  59
       :                                 ':'               OpColon             tok=  26  pos=  64
       NamedType:
-        LongIdent:
-                                        'Expr'            Identifier          tok=  28  pos=  66
+        Ident                           'Expr'            Identifier          tok=  28  pos=  66
     Case:
       ident                             'Literal'         Identifier          tok=  33  pos=  77
       of                                'of'              KWOf                tok=  35  pos=  85
       NamedType:
-        LongIdent:
-                                        'int'             Identifier          tok=  37  pos=  88
+        Ident                           'int'             Identifier          tok=  37  pos=  88
 FunctionOrValue:
   let                                   'let'             KWLet               tok=  40  pos=  93
     Pat.NamedSimple                     'test'            Identifier          tok=  42  pos=  97

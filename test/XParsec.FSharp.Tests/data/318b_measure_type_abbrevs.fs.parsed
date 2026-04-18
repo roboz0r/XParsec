@@ -1,168 +1,141 @@
-module                'module'          KWModule            tok=   0  pos=   0
-                      'Test'            Identifier          tok=   2  pos=   7
+module                   'module'          KWModule            tok=   0  pos=   0
+                         'Test'            Identifier          tok=   2  pos=   7
 TypeDefn.Abstract:
-  [<                  '[<'              KWLAttrBracket      tok=  14  pos= 237
+  [<                     '[<'              KWLAttrBracket      tok=  14  pos= 237
   NamedType:
-    LongIdent:
-                      'Measure'         Identifier          tok=  15  pos= 239
-  >]                  '>]'              KWRAttrBracket      tok=  16  pos= 246
-  TypeName            'second'          Identifier          tok=  20  pos= 254
+    Ident                'Measure'         Identifier          tok=  15  pos= 239
+  >]                     '>]'              KWRAttrBracket      tok=  16  pos= 246
+  TypeName               'second'          Identifier          tok=  20  pos= 254
 TypeDefn.Abstract:
-  [<                  '[<'              KWLAttrBracket      tok=  23  pos= 262
+  [<                     '[<'              KWLAttrBracket      tok=  23  pos= 262
   NamedType:
-    LongIdent:
-                      'Measure'         Identifier          tok=  24  pos= 264
-  >]                  '>]'              KWRAttrBracket      tok=  25  pos= 271
-  TypeName            'meter'           Identifier          tok=  29  pos= 279
+    Ident                'Measure'         Identifier          tok=  24  pos= 264
+  >]                     '>]'              KWRAttrBracket      tok=  25  pos= 271
+  TypeName               'meter'           Identifier          tok=  29  pos= 279
 TypeDefn.Abstract:
-  [<                  '[<'              KWLAttrBracket      tok=  32  pos= 286
+  [<                     '[<'              KWLAttrBracket      tok=  32  pos= 286
   NamedType:
-    LongIdent:
-                      'Measure'         Identifier          tok=  33  pos= 288
-  >]                  '>]'              KWRAttrBracket      tok=  34  pos= 295
-  TypeName            'kg'              Identifier          tok=  38  pos= 303
+    Ident                'Measure'         Identifier          tok=  33  pos= 288
+  >]                     '>]'              KWRAttrBracket      tok=  34  pos= 295
+  TypeName               'kg'              Identifier          tok=  38  pos= 303
 TypeDefn.Abbrev:
-  [<                  '[<'              KWLAttrBracket      tok=  43  pos= 335
+  [<                     '[<'              KWLAttrBracket      tok=  43  pos= 335
   NamedType:
-    LongIdent:
-                      'Measure'         Identifier          tok=  44  pos= 337
-  >]                  '>]'              KWRAttrBracket      tok=  45  pos= 344
-  TypeName            'speed'           Identifier          tok=  49  pos= 352
-  =                   '='               OpEquality          tok=  51  pos= 358
+    Ident                'Measure'         Identifier          tok=  44  pos= 337
+  >]                     '>]'              KWRAttrBracket      tok=  45  pos= 344
+  TypeName               'speed'           Identifier          tok=  49  pos= 352
+  =                      '='               OpEquality          tok=  51  pos= 358
     MeasureType:
       Measure.Quotient:
         Measure.Named:
-          LongIdent:
-                      'meter'           Identifier          tok=  53  pos= 360
-                      '/'               OpDivision          tok=  55  pos= 366
+          Ident          'meter'           Identifier          tok=  53  pos= 360
+                         '/'               OpDivision          tok=  55  pos= 366
         Measure.Named:
-          LongIdent:
-                      'second'          Identifier          tok=  57  pos= 368
+          Ident          'second'          Identifier          tok=  57  pos= 368
 TypeDefn.Abbrev:
-  [<                  '[<'              KWLAttrBracket      tok=  62  pos= 399
+  [<                     '[<'              KWLAttrBracket      tok=  62  pos= 399
   NamedType:
-    LongIdent:
-                      'Measure'         Identifier          tok=  63  pos= 401
-  >]                  '>]'              KWRAttrBracket      tok=  64  pos= 408
-  TypeName            'momentum_u...'   Identifier          tok=  68  pos= 416
-  =                   '='               OpEquality          tok=  70  pos= 430
+    Ident                'Measure'         Identifier          tok=  63  pos= 401
+  >]                     '>]'              KWRAttrBracket      tok=  64  pos= 408
+  TypeName               'momentum_u...'   Identifier          tok=  68  pos= 416
+  =                      '='               OpEquality          tok=  70  pos= 430
     TupleType:
       NamedType:
-        LongIdent:
-                      'kg'              Identifier          tok=  72  pos= 432
-      *               '*'               OpMultiply          tok=  74  pos= 435
+        Ident            'kg'              Identifier          tok=  72  pos= 432
+      *                  '*'               OpMultiply          tok=  74  pos= 435
       NamedType:
-        LongIdent:
-                      'meter'           Identifier          tok=  76  pos= 437
+        Ident            'meter'           Identifier          tok=  76  pos= 437
 TypeDefn.Abbrev:
-  [<                  '[<'              KWLAttrBracket      tok=  81  pos= 464
+  [<                     '[<'              KWLAttrBracket      tok=  81  pos= 464
   NamedType:
-    LongIdent:
-                      'Measure'         Identifier          tok=  82  pos= 466
-  >]                  '>]'              KWRAttrBracket      tok=  83  pos= 473
-  TypeName            'area'            Identifier          tok=  87  pos= 481
-  =                   '='               OpEquality          tok=  89  pos= 486
+    Ident                'Measure'         Identifier          tok=  82  pos= 466
+  >]                     '>]'              KWRAttrBracket      tok=  83  pos= 473
+  TypeName               'area'            Identifier          tok=  87  pos= 481
+  =                      '='               OpEquality          tok=  89  pos= 486
     MeasureType:
       Measure.Power:
         Measure.Named:
-          LongIdent:
-                      'meter'           Identifier          tok=  91  pos= 488
-                      '^'               OpConcatenate       tok=  92  pos= 493
-                      '2'               NumInt32            tok=  93  pos= 494
+          Ident          'meter'           Identifier          tok=  91  pos= 488
+                         '^'               OpConcatenate       tok=  92  pos= 493
+                         '2'               NumInt32            tok=  93  pos= 494
 TypeDefn.Abbrev:
-  [<                  '[<'              KWLAttrBracket      tok=  98  pos= 529
+  [<                     '[<'              KWLAttrBracket      tok=  98  pos= 529
   NamedType:
-    LongIdent:
-                      'Measure'         Identifier          tok=  99  pos= 531
-  >]                  '>]'              KWRAttrBracket      tok= 100  pos= 538
-  TypeName            'accelerati...'   Identifier          tok= 104  pos= 546
-  =                   '='               OpEquality          tok= 106  pos= 559
+    Ident                'Measure'         Identifier          tok=  99  pos= 531
+  >]                     '>]'              KWRAttrBracket      tok= 100  pos= 538
+  TypeName               'accelerati...'   Identifier          tok= 104  pos= 546
+  =                      '='               OpEquality          tok= 106  pos= 559
     MeasureType:
       Measure.Quotient:
         Measure.Named:
-          LongIdent:
-                      'meter'           Identifier          tok= 108  pos= 561
-                      '/'               OpDivision          tok= 110  pos= 567
+          Ident          'meter'           Identifier          tok= 108  pos= 561
+                         '/'               OpDivision          tok= 110  pos= 567
         Measure.Power:
           Measure.Named:
-            LongIdent:
-                      'second'          Identifier          tok= 112  pos= 569
-                      '^'               OpConcatenate       tok= 113  pos= 575
-                      '2'               NumInt32            tok= 114  pos= 576
+            Ident        'second'          Identifier          tok= 112  pos= 569
+                         '^'               OpConcatenate       tok= 113  pos= 575
+                         '2'               NumInt32            tok= 114  pos= 576
 TypeDefn.Abbrev:
-  [<                  '[<'              KWLAttrBracket      tok= 119  pos= 628
+  [<                     '[<'              KWLAttrBracket      tok= 119  pos= 628
   NamedType:
-    LongIdent:
-                      'Measure'         Identifier          tok= 120  pos= 630
-  >]                  '>]'              KWRAttrBracket      tok= 121  pos= 637
-  TypeName            'newton'          Identifier          tok= 125  pos= 645
-  =                   '='               OpEquality          tok= 127  pos= 652
+    Ident                'Measure'         Identifier          tok= 120  pos= 630
+  >]                     '>]'              KWRAttrBracket      tok= 121  pos= 637
+  TypeName               'newton'          Identifier          tok= 125  pos= 645
+  =                      '='               OpEquality          tok= 127  pos= 652
     MeasureType:
       Measure.Quotient:
         Measure.Product:
           Measure.Named:
-            LongIdent:
-                      'kg'              Identifier          tok= 129  pos= 654
-                      '*'               OpMultiply          tok= 131  pos= 657
+            Ident        'kg'              Identifier          tok= 129  pos= 654
+                         '*'               OpMultiply          tok= 131  pos= 657
           Measure.Named:
-            LongIdent:
-                      'meter'           Identifier          tok= 133  pos= 659
-                      '/'               OpDivision          tok= 135  pos= 665
+            Ident        'meter'           Identifier          tok= 133  pos= 659
+                         '/'               OpDivision          tok= 135  pos= 665
         Measure.Paren:
-                      '('               KWLParen            tok= 137  pos= 667
+                         '('               KWLParen            tok= 137  pos= 667
           Measure.Product:
             Measure.Named:
-              LongIdent:
-                      'second'          Identifier          tok= 138  pos= 668
-                      '*'               OpMultiply          tok= 140  pos= 675
+              Ident      'second'          Identifier          tok= 138  pos= 668
+                         '*'               OpMultiply          tok= 140  pos= 675
             Measure.Named:
-              LongIdent:
-                      'second'          Identifier          tok= 142  pos= 677
-                      ')'               KWRParen            tok= 143  pos= 683
+              Ident      'second'          Identifier          tok= 142  pos= 677
+                         ')'               KWRParen            tok= 143  pos= 683
 TypeDefn.Abbrev:
-  [<                  '[<'              KWLAttrBracket      tok= 146  pos= 686
+  [<                     '[<'              KWLAttrBracket      tok= 146  pos= 686
   NamedType:
-    LongIdent:
-                      'Measure'         Identifier          tok= 147  pos= 688
-  >]                  '>]'              KWRAttrBracket      tok= 148  pos= 695
-  TypeName            'newton2'         Identifier          tok= 152  pos= 703
-  =                   '='               OpEquality          tok= 154  pos= 711
+    Ident                'Measure'         Identifier          tok= 147  pos= 688
+  >]                     '>]'              KWRAttrBracket      tok= 148  pos= 695
+  TypeName               'newton2'         Identifier          tok= 152  pos= 703
+  =                      '='               OpEquality          tok= 154  pos= 711
     MeasureType:
       Measure.Product:
         Measure.Named:
-          LongIdent:
-                      'kg'              Identifier          tok= 156  pos= 713
-                      '*'               OpMultiply          tok= 158  pos= 716
+          Ident          'kg'              Identifier          tok= 156  pos= 713
+                         '*'               OpMultiply          tok= 158  pos= 716
         Measure.Paren:
-                      '('               KWLParen            tok= 160  pos= 718
+                         '('               KWLParen            tok= 160  pos= 718
           Measure.Quotient:
             Measure.Named:
-              LongIdent:
-                      'meter'           Identifier          tok= 161  pos= 719
-                      '/'               OpDivision          tok= 163  pos= 725
+              Ident      'meter'           Identifier          tok= 161  pos= 719
+                         '/'               OpDivision          tok= 163  pos= 725
             Measure.Paren:
-                      '('               KWLParen            tok= 165  pos= 727
+                         '('               KWLParen            tok= 165  pos= 727
               Measure.Product:
                 Measure.Named:
-                  LongIdent:
-                      'second'          Identifier          tok= 166  pos= 728
-                      '*'               OpMultiply          tok= 168  pos= 735
+                  Ident  'second'          Identifier          tok= 166  pos= 728
+                         '*'               OpMultiply          tok= 168  pos= 735
                 Measure.Named:
-                  LongIdent:
-                      'second'          Identifier          tok= 170  pos= 737
-                      ')'               KWRParen            tok= 171  pos= 743
-                      ')'               KWRParen            tok= 172  pos= 744
+                  Ident  'second'          Identifier          tok= 170  pos= 737
+                         ')'               KWRParen            tok= 171  pos= 743
+                         ')'               KWRParen            tok= 172  pos= 744
 TypeDefn.Abbrev:
-  [<                  '[<'              KWLAttrBracket      tok= 177  pos= 800
+  [<                     '[<'              KWLAttrBracket      tok= 177  pos= 800
   NamedType:
-    LongIdent:
-                      'Measure'         Identifier          tok= 178  pos= 802
-  >]                  '>]'              KWRAttrBracket      tok= 179  pos= 809
-  TypeName            'kg_meter'        Identifier          tok= 183  pos= 817
-  =                   '='               OpEquality          tok= 185  pos= 826
+    Ident                'Measure'         Identifier          tok= 178  pos= 802
+  >]                     '>]'              KWRAttrBracket      tok= 179  pos= 809
+  TypeName               'kg_meter'        Identifier          tok= 183  pos= 817
+  =                      '='               OpEquality          tok= 185  pos= 826
     SuffixedType:
       NamedType:
-        LongIdent:
-                      'kg'              Identifier          tok= 187  pos= 828
-      LongIdent:
-                      'meter'           Identifier          tok= 189  pos= 831
+        Ident            'kg'              Identifier          tok= 187  pos= 828
+      Ident              'meter'           Identifier          tok= 189  pos= 831

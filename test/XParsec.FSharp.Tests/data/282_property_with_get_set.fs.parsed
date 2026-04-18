@@ -40,8 +40,7 @@ TypeDefn.Anon:
           Pat.NamedSimple  'v'               Identifier          tok=  70  pos= 193
           Colon            ':'               OpColon             tok=  71  pos= 194
           NamedType:
-            LongIdent:
-                           'string'          Identifier          tok=  73  pos= 196
+            Ident          'string'          Identifier          tok=  73  pos= 196
                            ')'               KWRParen            tok=  74  pos= 202
     =                      '='               OpEquality          tok=  76  pos= 204
       ParenBlock           '('               KWLParen            tok=  78  pos= 206

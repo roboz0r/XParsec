@@ -9,13 +9,11 @@ TypeDefn.Record:
       ident    'X'               Identifier          tok=  15  pos=  41
       :        ':'               OpColon             tok=  16  pos=  42
       NamedType:
-        LongIdent:
-               'float'           Identifier          tok=  18  pos=  44
+        Ident  'float'           Identifier          tok=  18  pos=  44
     Field:
       mutable  'mutable'         KWMutable           tok=  21  pos=  51
       ident    'Y'               Identifier          tok=  23  pos=  59
       :        ':'               OpColon             tok=  24  pos=  60
       NamedType:
-        LongIdent:
-               'float'           Identifier          tok=  26  pos=  62
+        Ident  'float'           Identifier          tok=  26  pos=  62
   }            '}'               KWRBrace            tok=  28  pos=  68

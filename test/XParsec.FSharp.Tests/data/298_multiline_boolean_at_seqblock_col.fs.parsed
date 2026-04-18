@@ -9,8 +9,7 @@ FunctionOrValue:
           Pat.NamedSimple          's'               Identifier          tok=  17  pos= 210
           Colon                    ':'               OpColon             tok=  18  pos= 211
           NamedType:
-            LongIdent:
-                                   'string'          Identifier          tok=  20  pos= 213
+            Ident                  'string'          Identifier          tok=  20  pos= 213
                                    ')'               KWRParen            tok=  21  pos= 219
     =                              '='               OpEquality          tok=  23  pos= 221
       Let                          'let'             KWLet               tok=  26  pos= 227
@@ -61,8 +60,7 @@ FunctionOrValue:
           Pat.NamedSimple          's'               Identifier          tok=  84  pos= 524
           Colon                    ':'               OpColon             tok=  85  pos= 525
           NamedType:
-            LongIdent:
-                                   'string'          Identifier          tok=  87  pos= 527
+            Ident                  'string'          Identifier          tok=  87  pos= 527
                                    ')'               KWRParen            tok=  88  pos= 533
     =                              '='               OpEquality          tok=  90  pos= 535
       Let                          'let'             KWLet               tok=  93  pos= 541

@@ -11,12 +11,10 @@ TypeDefn.Anon:
     ident                'Greet'           Identifier          tok=  18  pos=  47
     :                    ':'               OpColon             tok=  19  pos=  52
     NamedType:
-      LongIdent:
-                         'string'          Identifier          tok=  21  pos=  54
+      Ident              'string'          Identifier          tok=  21  pos=  54
     ->                   '->'              OpArrowRight        tok=  23  pos=  61
     NamedType:
-      LongIdent:
-                         'string'          Identifier          tok=  25  pos=  64
+      Ident              'string'          Identifier          tok=  25  pos=  64
     default              'default'         KWDefault           tok=  28  pos=  75
     self                 '_'               Wildcard            tok=  30  pos=  83
     Pat.NamedSimple      'Greet'           Identifier          tok=  32  pos=  85
@@ -40,8 +38,7 @@ TypeDefn.Anon:
   begin                  <virt>            KWBegin             tok=virt  pos= 138
     inherit              'inherit'         KWInherit           tok=  57  pos= 138
     NamedType:
-      LongIdent:
-                         'Base'            Identifier          tok=  59  pos= 146
+      Ident              'Base'            Identifier          tok=  59  pos= 146
     ParenBlock           '('               KWLParen            tok=  60  pos= 150
                          ')'               KWRParen            tok=  61  pos= 151
     override             'override'        KWOverride          tok=  65  pos= 158

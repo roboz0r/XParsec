@@ -22,8 +22,7 @@ FunctionOrValue:
           Pat.NamedSimple      'e'               Identifier          tok=  28  pos= 157
           Colon                ':'               OpColon             tok=  29  pos= 158
           NamedType:
-            LongIdent:
-                               'obj'             Identifier          tok=  31  pos= 160
+            Ident              'obj'             Identifier          tok=  31  pos= 160
                                ')'               KWRParen            tok=  32  pos= 163
     =                          '='               OpEquality          tok=  34  pos= 165
       Match:
@@ -37,8 +36,7 @@ FunctionOrValue:
             Pat.TypeTestAs:
               ColonQuestion    ':?'              OpTypeTest          tok=  46  pos= 190
               NamedType:
-                LongIdent:
-                               'MethodInfo'      Identifier          tok=  48  pos= 193
+                Ident          'MethodInfo'      Identifier          tok=  48  pos= 193
               As               'as'              KWAs                tok=  50  pos= 204
               Pat.NamedSimple  'ctor'            Identifier          tok=  52  pos= 207
           When                 'when'            KWWhen              tok=  54  pos= 212

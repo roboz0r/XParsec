@@ -7,8 +7,7 @@ TypeDefn.Record:
       ident                                   'Name'            Identifier          tok=  14  pos= 204
       :                                       ':'               OpColon             tok=  15  pos= 208
       NamedType:
-        LongIdent:
-                                              'string'          Identifier          tok=  17  pos= 210
+        Ident                                 'string'          Identifier          tok=  17  pos= 210
   }                                           '}'               KWRBrace            tok=  19  pos= 217
 FunctionOrValue:
   let                                         'let'             KWLet               tok=  22  pos= 220

@@ -3,8 +3,7 @@ module                   'module'          KWModule            tok=   0  pos=   
 FunctionOrValue:
   [<                     '[<'              KWLAttrBracket      tok=   5  pos=  13
   NamedType:
-    LongIdent:
-                         'Literal'         Identifier          tok=   6  pos=  15
+    Ident                'Literal'         Identifier          tok=   6  pos=  15
   >]                     '>]'              KWRAttrBracket      tok=   7  pos=  22
   let                    'let'             KWLet               tok=   9  pos=  25
     Pat.NamedSimple      'KindSpecia...'   Identifier          tok=  11  pos=  29
@@ -18,8 +17,7 @@ Module:
     FunctionOrValue:
       [<                 '[<'              KWLAttrBracket      tok=  25  pos=  74
       NamedType:
-        LongIdent:
-                         'Literal'         Identifier          tok=  26  pos=  76
+        Ident            'Literal'         Identifier          tok=  26  pos=  76
       >]                 '>]'              KWRAttrBracket      tok=  27  pos=  83
       let                'let'             KWLet               tok=  30  pos=  90
         Pat.NamedSimple  'EOF'             Identifier          tok=  32  pos=  94

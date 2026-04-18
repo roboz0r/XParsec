@@ -9,12 +9,10 @@ Function                   'function'        KWFunction          tok=   0  pos= 
           Colon            ':'               OpColon             tok=   7  pos=  14
           TupleType:
             NamedType:
-              LongIdent:
-                           'int'             Identifier          tok=   9  pos=  16
+              Ident        'int'             Identifier          tok=   9  pos=  16
             *              '*'               OpMultiply          tok=  11  pos=  20
             NamedType:
-              LongIdent:
-                           'string'          Identifier          tok=  13  pos=  22
+              Ident        'string'          Identifier          tok=  13  pos=  22
                            ')'               KWRParen            tok=  14  pos=  28
     Arrow                  '->'              OpArrowRight        tok=  16  pos=  30
     Expr:

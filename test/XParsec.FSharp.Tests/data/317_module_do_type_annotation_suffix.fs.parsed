@@ -14,5 +14,4 @@ FunctionOrValue:
                            '"'               StringClose         tok=  16  pos= 156
       Colon                ':'               OpColon             tok=  18  pos= 158
       NamedType:
-        LongIdent:
-                           'unit'            Identifier          tok=  20  pos= 160
+        Ident              'unit'            Identifier          tok=  20  pos= 160

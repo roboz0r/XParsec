@@ -20,5 +20,4 @@ FunctionOrValue:
                 Wildcard  '_'               Wildcard            tok=  22  pos=  47
               Dot         '.'               OpDot               tok=  23  pos=  48
               LongIdentOrOp:
-                LongIdent:
-                          'Length'          Identifier          tok=  24  pos=  49
+                Ident     'Length'          Identifier          tok=  24  pos=  49

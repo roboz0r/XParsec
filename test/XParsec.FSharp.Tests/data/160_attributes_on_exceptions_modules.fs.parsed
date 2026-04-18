@@ -18,18 +18,15 @@ Module:
       ident                  'message'         Identifier          tok=  25  pos=  84
       :                      ':'               OpColon             tok=  26  pos=  91
       NamedType:
-        LongIdent:
-                             'string'          Identifier          tok=  28  pos=  93
+        Ident                'string'          Identifier          tok=  28  pos=  93
       ident                  'code'            Identifier          tok=  32  pos= 102
       :                      ':'               OpColon             tok=  33  pos= 106
       NamedType:
-        LongIdent:
-                             'int'             Identifier          tok=  35  pos= 108
+        Ident                'int'             Identifier          tok=  35  pos= 108
     Module:
       [<                     '[<'              KWLAttrBracket      tok=  39  pos= 117
       NamedType:
-        LongIdent:
-                             'AutoOpen'        Identifier          tok=  40  pos= 119
+        Ident                'AutoOpen'        Identifier          tok=  40  pos= 119
       >]                     '>]'              KWRAttrBracket      tok=  41  pos= 127
       module                 'module'          KWModule            tok=  44  pos= 134
       ident                  'Inner'           Identifier          tok=  46  pos= 141
@@ -44,8 +41,7 @@ Module:
     Module:
       [<                     '[<'              KWLAttrBracket      tok=  61  pos= 172
       NamedType:
-        LongIdent:
-                             'RequireQua...'   Identifier          tok=  62  pos= 174
+        Ident                'RequireQua...'   Identifier          tok=  62  pos= 174
       >]                     '>]'              KWRAttrBracket      tok=  63  pos= 196
       module                 'module'          KWModule            tok=  66  pos= 203
       ident                  'Qualified'       Identifier          tok=  68  pos= 210
@@ -69,5 +65,4 @@ ExceptionDefn.Full:
   ident                      'SimpleErro...'   Identifier          tok=  90  pos= 275
   of                         'of'              KWOf                tok=  92  pos= 287
   NamedType:
-    LongIdent:
-                             'string'          Identifier          tok=  94  pos= 290
+    Ident                    'string'          Identifier          tok=  94  pos= 290

@@ -20,8 +20,7 @@ TypeDefn.Anon:
                 ')'               KWRParen            tok=  34  pos= 175
     [<          '[<'              KWLAttrBracket      tok=  38  pos= 182
     NamedType:
-      LongIdent:
-                'Required'        Identifier          tok=  39  pos= 184
+      Ident     'Required'        Identifier          tok=  39  pos= 184
     >]          '>]'              KWRAttrBracket      tok=  40  pos= 192
     member      'member'          KWMember            tok=  43  pos= 199
     val         'val'             KWVal               tok=  45  pos= 206
@@ -29,8 +28,7 @@ TypeDefn.Anon:
     :           ':'               OpColon             tok=  48  pos= 221
     ArrayType:
       NamedType:
-        LongIdent:
-                'int'             Identifier          tok=  50  pos= 223
+        Ident   'int'             Identifier          tok=  50  pos= 223
                 '['               KWLBracket          tok=  51  pos= 226
                 ']'               KWRBracket          tok=  52  pos= 227
     =           '='               OpEquality          tok=  54  pos= 229

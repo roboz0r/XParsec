@@ -10,6 +10,5 @@ FunctionOrValue:
             Const    '1'               NumInt32            tok=  12  pos=  25
           Colon      ':'               OpColon             tok=  13  pos=  26
           NamedType:
-            LongIdent:
-                     'int'             Identifier          tok=  15  pos=  28
+            Ident    'int'             Identifier          tok=  15  pos=  28
                      ')'               KWRParen            tok=  16  pos=  31

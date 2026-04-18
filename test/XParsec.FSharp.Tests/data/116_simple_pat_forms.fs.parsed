@@ -20,8 +20,7 @@ TypeDefn.Anon:
     Pat.NamedSimple    'x'               Identifier          tok=  34  pos= 131
     Colon              ':'               OpColon             tok=  35  pos= 132
     NamedType:
-      LongIdent:
-                       'int'             Identifier          tok=  37  pos= 134
+      Ident            'int'             Identifier          tok=  37  pos= 134
   )                    ')'               KWRParen            tok=  38  pos= 137
   =                    '='               OpEquality          tok=  40  pos= 139
   begin                <virt>            KWBegin             tok=virt  pos= 145
@@ -39,15 +38,13 @@ TypeDefn.Anon:
       Pat.NamedSimple  'x'               Identifier          tok=  60  pos= 196
       Colon            ':'               OpColon             tok=  61  pos= 197
       NamedType:
-        LongIdent:
-                       'int'             Identifier          tok=  63  pos= 199
+        Ident          'int'             Identifier          tok=  63  pos= 199
     ,                  ','               OpComma             tok=  64  pos= 202
     Pat.Typed:
       Pat.NamedSimple  'y'               Identifier          tok=  66  pos= 204
       Colon            ':'               OpColon             tok=  67  pos= 205
       NamedType:
-        LongIdent:
-                       'float'           Identifier          tok=  69  pos= 207
+        Ident          'float'           Identifier          tok=  69  pos= 207
     ,                  ','               OpComma             tok=  70  pos= 212
     Pat.NamedSimple    'z'               Identifier          tok=  72  pos= 214
   )                    ')'               KWRParen            tok=  73  pos= 215

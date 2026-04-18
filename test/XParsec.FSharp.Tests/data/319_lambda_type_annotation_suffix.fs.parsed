@@ -16,8 +16,7 @@ FunctionOrValue:
               Const        '1'               NumInt32            tok=  26  pos= 135
           Colon            ':'               OpColon             tok=  28  pos= 137
           NamedType:
-            LongIdent:
-                           'int'             Identifier          tok=  30  pos= 139
+            Ident          'int'             Identifier          tok=  30  pos= 139
 FunctionOrValue:
   let                      'let'             KWLet               tok=  33  pos= 144
     Pat.NamedSimple        'g'               Identifier          tok=  35  pos= 148
@@ -42,5 +41,4 @@ FunctionOrValue:
                 Const      '2'               NumInt32            tok=  64  pos= 199
             Colon          ':'               OpColon             tok=  66  pos= 201
             NamedType:
-              LongIdent:
-                           'int'             Identifier          tok=  68  pos= 203
+              Ident        'int'             Identifier          tok=  68  pos= 203

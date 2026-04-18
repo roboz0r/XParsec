@@ -1,28 +1,25 @@
-module       'module'          KWModule            tok=   0  pos=   0
-             'MyModule'        Identifier          tok=   2  pos=   7
+module         'module'          KWModule            tok=   0  pos=   0
+               'MyModule'        Identifier          tok=   2  pos=   7
 TypeDefn.Union:
-  TypeName   'Shape'           Identifier          tok=   7  pos=  22
-  =          '='               OpEquality          tok=   9  pos=  28
+  TypeName     'Shape'           Identifier          tok=   7  pos=  22
+  =            '='               OpEquality          tok=   9  pos=  28
     Case:
-      ident  'Circle'          Identifier          tok=  14  pos=  36
-      of     'of'              KWOf                tok=  16  pos=  43
-      ident  'radius'          Identifier          tok=  18  pos=  46
-      :      ':'               OpColon             tok=  19  pos=  52
+      ident    'Circle'          Identifier          tok=  14  pos=  36
+      of       'of'              KWOf                tok=  16  pos=  43
+      ident    'radius'          Identifier          tok=  18  pos=  46
+      :        ':'               OpColon             tok=  19  pos=  52
       NamedType:
-        LongIdent:
-             'float'           Identifier          tok=  21  pos=  54
+        Ident  'float'           Identifier          tok=  21  pos=  54
     Case:
-      ident  'Rectangle'       Identifier          tok=  26  pos=  66
-      of     'of'              KWOf                tok=  28  pos=  76
-      ident  'width'           Identifier          tok=  30  pos=  79
-      :      ':'               OpColon             tok=  31  pos=  84
+      ident    'Rectangle'       Identifier          tok=  26  pos=  66
+      of       'of'              KWOf                tok=  28  pos=  76
+      ident    'width'           Identifier          tok=  30  pos=  79
+      :        ':'               OpColon             tok=  31  pos=  84
       NamedType:
-        LongIdent:
-             'float'           Identifier          tok=  33  pos=  86
-      ident  'height'          Identifier          tok=  37  pos=  94
-      :      ':'               OpColon             tok=  38  pos= 100
+        Ident  'float'           Identifier          tok=  33  pos=  86
+      ident    'height'          Identifier          tok=  37  pos=  94
+      :        ':'               OpColon             tok=  38  pos= 100
       NamedType:
-        LongIdent:
-             'float'           Identifier          tok=  40  pos= 102
+        Ident  'float'           Identifier          tok=  40  pos= 102
     Case:
-      ident  'Point'           Identifier          tok=  45  pos= 114
+      ident    'Point'           Identifier          tok=  45  pos= 114

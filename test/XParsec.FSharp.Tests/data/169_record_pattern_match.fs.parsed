@@ -8,14 +8,12 @@ TypeDefn.Record:
       ident                        'A'               Identifier          tok=  13  pos=  27
       :                            ':'               OpColon             tok=  14  pos=  28
       NamedType:
-        LongIdent:
-                                   'int'             Identifier          tok=  16  pos=  30
+        Ident                      'int'             Identifier          tok=  16  pos=  30
     Field:
       ident                        'B'               Identifier          tok=  19  pos=  35
       :                            ':'               OpColon             tok=  20  pos=  36
       NamedType:
-        LongIdent:
-                                   'string'          Identifier          tok=  22  pos=  38
+        Ident                      'string'          Identifier          tok=  22  pos=  38
   }                                '}'               KWRBrace            tok=  24  pos=  45
 FunctionOrValue:
   let                              'let'             KWLet               tok=  27  pos=  48

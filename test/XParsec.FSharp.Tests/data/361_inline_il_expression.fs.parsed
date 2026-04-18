@@ -37,8 +37,7 @@ FunctionOrValue:
                                      ''T'              TypeParameter       tok=  59  pos= 674
                 :                    ':'               OpColon             tok=  61  pos= 677
                 NamedType:
-                  LongIdent:
-                                     'bool'            Identifier          tok=  63  pos= 679
+                  Ident              'bool'            Identifier          tok=  63  pos= 679
               =                      '='               OpEquality          tok=  65  pos= 688
               ILIntrinsic:
                 (#                   '(#'              KWLHashParen        tok=  67  pos= 690
@@ -53,8 +52,7 @@ FunctionOrValue:
                 ILReturnType:
                   :                  ':'               OpColon             tok=  77  pos= 703
                   NamedType:
-                    LongIdent:
-                                     'bool'            Identifier          tok=  79  pos= 705
+                    Ident            'bool'            Identifier          tok=  79  pos= 705
                 #)                   '#)'              KWRHashParen        tok=  81  pos= 710
             when                     'when'            KWWhen              tok=  84  pos= 717
             WhenTyparTyconEqualsTycon:
@@ -62,8 +60,7 @@ FunctionOrValue:
                                      ''T'              TypeParameter       tok=  86  pos= 722
               :                      ':'               OpColon             tok=  88  pos= 725
               NamedType:
-                LongIdent:
-                                     'int32'           Identifier          tok=  90  pos= 727
+                Ident                'int32'           Identifier          tok=  90  pos= 727
             =                        '='               OpEquality          tok=  92  pos= 736
             ILIntrinsic:
               (#                     '(#'              KWLHashParen        tok=  94  pos= 738
@@ -78,8 +75,7 @@ FunctionOrValue:
               ILReturnType:
                 :                    ':'               OpColon             tok= 104  pos= 751
                 NamedType:
-                  LongIdent:
-                                     'bool'            Identifier          tok= 106  pos= 753
+                  Ident              'bool'            Identifier          tok= 106  pos= 753
               #)                     '#)'              KWRHashParen        tok= 108  pos= 758
           when                       'when'            KWWhen              tok= 111  pos= 765
           WhenTyparTyconEqualsTycon:
@@ -87,8 +83,7 @@ FunctionOrValue:
                                      ''T'              TypeParameter       tok= 113  pos= 770
             :                        ':'               OpColon             tok= 115  pos= 773
             NamedType:
-              LongIdent:
-                                     'float'           Identifier          tok= 117  pos= 775
+              Ident                  'float'           Identifier          tok= 117  pos= 775
           =                          '='               OpEquality          tok= 119  pos= 784
           IfThenElse:
             IfToken                  'if'              KWIf                tok= 122  pos= 794
@@ -106,8 +101,7 @@ FunctionOrValue:
                 ILReturnType:
                   :                  ':'               OpColon             tok= 134  pos= 810
                   NamedType:
-                    LongIdent:
-                                     'bool'            Identifier          tok= 136  pos= 812
+                    Ident            'bool'            Identifier          tok= 136  pos= 812
                 #)                   '#)'              KWRHashParen        tok= 138  pos= 817
             ThenToken                'then'            KWThen              tok= 140  pos= 820
             ThenExpr:
@@ -132,8 +126,7 @@ FunctionOrValue:
                       ILReturnType:
                         :            ':'               OpColon             tok= 161  pos= 884
                         NamedType:
-                          LongIdent:
-                                     'bool'            Identifier          tok= 163  pos= 886
+                          Ident      'bool'            Identifier          tok= 163  pos= 886
                       #)             '#)'              KWRHashParen        tok= 165  pos= 891
                 App:
                   Func:
@@ -152,8 +145,7 @@ FunctionOrValue:
                       ILReturnType:
                         :            ':'               OpColon             tok= 181  pos= 914
                         NamedType:
-                          LongIdent:
-                                     'bool'            Identifier          tok= 183  pos= 916
+                          Ident      'bool'            Identifier          tok= 183  pos= 916
                       #)             '#)'              KWRHashParen        tok= 185  pos= 921
         when                         'when'            KWWhen              tok= 188  pos= 928
         WhenTyparTyconEqualsTycon:
@@ -161,8 +153,7 @@ FunctionOrValue:
                                      ''T'              TypeParameter       tok= 190  pos= 933
           :                          ':'               OpColon             tok= 192  pos= 936
           NamedType:
-            LongIdent:
-                                     'string'          Identifier          tok= 194  pos= 938
+            Ident                    'string'          Identifier          tok= 194  pos= 938
         =                            '='               OpEquality          tok= 196  pos= 947
         HighPrecedenceApp:
           Func:
@@ -183,8 +174,7 @@ FunctionOrValue:
                 ILReturnType:
                   :                  ':'               OpColon             tok= 211  pos= 978
                   NamedType:
-                    LongIdent:
-                                     'string'          Identifier          tok= 213  pos= 980
+                    Ident            'string'          Identifier          tok= 213  pos= 980
                 #)                   '#)'              KWRHashParen        tok= 215  pos= 987
               ILIntrinsic:
                 (#                   '(#'              KWLHashParen        tok= 218  pos= 991
@@ -195,7 +185,6 @@ FunctionOrValue:
                 ILReturnType:
                   :                  ':'               OpColon             tok= 225  pos= 999
                   NamedType:
-                    LongIdent:
-                                     'string'          Identifier          tok= 227  pos=1001
+                    Ident            'string'          Identifier          tok= 227  pos=1001
                 #)                   '#)'              KWRHashParen        tok= 229  pos=1008
                                      ')'               KWRParen            tok= 230  pos=1010

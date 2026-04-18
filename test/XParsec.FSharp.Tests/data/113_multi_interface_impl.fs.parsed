@@ -32,8 +32,7 @@ TypeDefn.Anon:
         <                      '<'               op_LessThan         tok=  42  pos= 127
         TypeArg.Type:
           NamedType:
-            LongIdent:
-                               'Foo'             Identifier          tok=  43  pos= 128
+            Ident              'Foo'             Identifier          tok=  43  pos= 128
         >                      '>'               op_GreaterThan      tok=  44  pos= 131
       with                     'with'            KWWith              tok=  46  pos= 133
         member                 'member'          KWMember            tok=  49  pos= 146
@@ -45,8 +44,7 @@ TypeDefn.Anon:
               Pat.NamedSimple  'other'           Identifier          tok=  55  pos= 165
               Colon            ':'               OpColon             tok=  56  pos= 170
               NamedType:
-                LongIdent:
-                               'Foo'             Identifier          tok=  58  pos= 172
+                Ident          'Foo'             Identifier          tok=  58  pos= 172
                                ')'               KWRParen            tok=  59  pos= 175
         =                      '='               OpEquality          tok=  61  pos= 177
           Const                'false'           KWFalse             tok=  63  pos= 179
