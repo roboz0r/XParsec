@@ -26,6 +26,7 @@ let main argv =
                 ParserTests.tests
                 CombinatorTests.tests
                 CharParserTests.tests
+                ReadableTests.tests
                 NumericCharParserTests.tests
                 OperatorParsingTests.tests
                 OperatorParsingTests.tests2
