@@ -53,11 +53,11 @@ FunctionOrValue:
                   Pat.Or                 '|'               OpBar               tok=  86  pos= 497
                     Pat.Named:
                       Ident              'A'               Identifier          tok=  81  pos= 479
-                      Param:
+                      Args:
                         Pat.NamedSimple  'x'               Identifier          tok=  83  pos= 481
                     Pat.Named:
                       Ident              'B'               Identifier          tok=  88  pos= 499
-                      Param:
+                      Args:
                         Pat.NamedSimple  'x'               Identifier          tok=  90  pos= 501
               FieldPat:
                 Ident                    'Count'           Identifier          tok=  93  pos= 511

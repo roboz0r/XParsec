@@ -227,6 +227,7 @@ module Pat =
     let private refFieldPat = FSRefParser<Pat<SyntaxToken>>()
     let private refUnionFieldPat = FSRefParser<Pat<SyntaxToken>>()
     let private refPatAtomic = FSRefParser<Pat<SyntaxToken>>()
+    let private refPatAtomicBindingArg = FSRefParser<Pat<SyntaxToken>>()
 
     let private pEnclosed =
         let completeEmpty l r = Pat.EmptyBlock(l, r)
@@ -444,21 +445,20 @@ module Pat =
                 pNamedFieldPats
                 parser {
                     let! lid = LongIdent.parse
-                    let! param = opt refPatAtomic.Parser
-                    let! arg = opt refPat.Parser
+                    // Parses a curried list of atomic argument patterns. This is what enables
+                    // parameterized active patterns like `CustomOpId (fn a) (fn b) boundVar`.
+                    let! args = many refPatAtomicBindingArg.Parser
 
-                    match lid.Length, param, arg with
-                    | 1, ValueNone, ValueNone ->
+                    match lid.Length, args.IsEmpty with
+                    | 1, true ->
                         // Simple named pattern (variable)
                         return Pat.NamedSimple(lid[0])
-                    | _ ->
-                        // Full named pattern
-                        return Pat.Named(lid, param, arg)
+                    | _ -> return Pat.Named(lid, args)
                 }
             ]
             "Named pattern"
 
-    // Parses `(op) [atomicArg] [fullArg]` in pattern position. Enables parameterized
+    // Parses `(op) atomicArg*` in pattern position. Enables parameterized
     // active pattern calls whose parameter is an expression-shaped pattern, e.g.
     // `| NLambdas ((-) n 1) (vs, b) -> ...`. F# parses the expression argument as a
     // pattern and the type checker reinterprets it as an expression in active-pattern
@@ -469,12 +469,12 @@ module Pat =
             let! op = OpName.parse
             let! r = pRParen
             let head = IdentOrOp.ParenOp(l, op, r)
-            let! param = opt refPatAtomic.Parser
-            let! arg = opt refPat.Parser
+            let! args = many refPatAtomicBindingArg.Parser
 
-            match param, arg with
-            | ValueNone, ValueNone -> return Pat.Op head
-            | _ -> return Pat.OpNamed(head, param, arg)
+            if args.IsEmpty then
+                return Pat.Op head
+            else
+                return Pat.OpNamed(head, args)
         }
 
     let private pParenOrOpHeadPat = pParenOpHeadPat <|> pParenPat
@@ -618,7 +618,7 @@ module Pat =
 
             match lid.Length with
             | 1 -> return Pat.NamedSimple(lid[0])
-            | _ -> return Pat.Named(lid, ValueNone, ValueNone)
+            | _ -> return Pat.Named(lid, ImmutableArray.Empty)
         }
 
     let parseAtomic =
@@ -696,6 +696,7 @@ module Pat =
     do refPatSeqBlock.Set parseSeqBlock
     do refFieldPat.Set parseFieldPat
     do refUnionFieldPat.Set parseUnionFieldPat
+    do refPatAtomicBindingArg.Set parseAtomicBindingArg
 
 
 [<RequireQualifiedAccess>]

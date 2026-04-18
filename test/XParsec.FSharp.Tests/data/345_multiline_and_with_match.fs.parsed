@@ -191,7 +191,7 @@ FunctionOrValue:
                           Pat:
                             Pat.Named:
                               Ident                    'S'               Identifier          tok= 212  pos= 771
-                              Param:
+                              Args:
                                 Pat.NamedSimple        'v1'              Identifier          tok= 214  pos= 773
                           Arrow                        '->'              OpArrowRight        tok= 216  pos= 776
                           Expr:
@@ -207,7 +207,7 @@ FunctionOrValue:
                                 Pat:
                                   Pat.Named:
                                     Ident              'S'               Identifier          tok= 226  pos= 801
-                                    Param:
+                                    Args:
                                       Pat.NamedSimple  'v2'              Identifier          tok= 228  pos= 803
                                 Arrow                  '->'              OpArrowRight        tok= 230  pos= 806
                                 Expr:

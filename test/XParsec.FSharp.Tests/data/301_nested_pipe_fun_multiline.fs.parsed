@@ -51,7 +51,7 @@ FunctionOrValue:
               Pats:
                 Pat.Named:
                   Ident                            'acc'             Identifier          tok=  62  pos= 245
-                  Param:
+                  Args:
                     Pat.NamedSimple                'takeParts'       Identifier          tok=  64  pos= 249
               Arrow                                '->'              OpArrowRight        tok=  66  pos= 259
               Body:
@@ -108,7 +108,7 @@ FunctionOrValue:
                             Pats:
                               Pat.Named:
                                 Ident              'innerAcc'        Identifier          tok= 134  pos= 560
-                                Param:
+                                Args:
                                   Pat.NamedSimple  'ns'              Identifier          tok= 136  pos= 569
                             Arrow                  '->'              OpArrowRight        tok= 138  pos= 572
                             Body:

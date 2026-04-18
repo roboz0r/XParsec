@@ -143,7 +143,7 @@ FunctionOrValue:
                 Pat:
                   Pat.Named:
                     Ident                 'Some'            Identifier          tok= 187  pos= 699
-                    Param:
+                    Args:
                       Pat.NamedSimple     'v'               Identifier          tok= 189  pos= 704
                 Arrow                     '->'              OpArrowRight        tok= 191  pos= 706
                 Expr:
@@ -184,7 +184,7 @@ FunctionOrValue:
                 Pat:
                   Pat.Named:
                     Ident                 'Ok'              Identifier          tok= 236  pos= 880
-                    Param:
+                    Args:
                       Pat.NamedSimple     'v'               Identifier          tok= 238  pos= 883
                 Arrow                     '->'              OpArrowRight        tok= 240  pos= 885
                 Expr:
@@ -194,7 +194,7 @@ FunctionOrValue:
                 Pat:
                   Pat.Named:
                     Ident                 'Error'           Identifier          tok= 247  pos= 900
-                    Param:
+                    Args:
                       Pat.NamedSimple     'msg'             Identifier          tok= 249  pos= 906
                 Arrow                     '->'              OpArrowRight        tok= 251  pos= 910
                 Expr:

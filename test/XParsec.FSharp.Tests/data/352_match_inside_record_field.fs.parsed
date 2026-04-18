@@ -92,7 +92,7 @@ FunctionOrValue:
                   Pat:
                     Pat.Named:
                       Ident              'Delegate'        Identifier          tok= 117  pos= 478
-                      Param:
+                      Args:
                         Pat.NamedSimple  'n'               Identifier          tok= 119  pos= 487
                   Arrow                  '->'              OpArrowRight        tok= 121  pos= 489
                   Expr:

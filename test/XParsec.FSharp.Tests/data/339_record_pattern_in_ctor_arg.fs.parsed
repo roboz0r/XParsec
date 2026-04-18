@@ -61,7 +61,7 @@ FunctionOrValue:
                 Pat:
                   Pat.Named:
                     Ident                      'Some'            Identifier          tok=  82  pos= 294
-                    Param:
+                    Args:
                       Pat.Record               '{'               KWLBrace            tok=  84  pos= 299
                         FieldPat:
                           Ident                'MemberKind'      Identifier          tok=  86  pos= 301
@@ -83,7 +83,7 @@ FunctionOrValue:
                 Pat:
                   Pat.Named:
                     Ident                      'Some'            Identifier          tok= 109  pos= 344
-                    Param:
+                    Args:
                       Pat.Record               '{'               KWLBrace            tok= 111  pos= 349
                         FieldPat:
                           Ident                'MemberKind'      Identifier          tok= 113  pos= 351

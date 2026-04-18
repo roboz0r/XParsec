@@ -93,7 +93,7 @@ FunctionOrValue:
                                 Pat.NamedSimple  'FaultClaus...'   Identifier          tok= 121  pos= 701
                               Pat.Named:
                                 Ident            'TypeFilter...'   Identifier          tok= 125  pos= 715
-                                Param:
+                                Args:
                                   Pat.Wildcard   '_'               Wildcard            tok= 127  pos= 732
                           Arrow                  '->'              OpArrowRight        tok= 129  pos= 734
                           Expr:
@@ -103,7 +103,7 @@ FunctionOrValue:
                           Pat:
                             Pat.Named:
                               Ident              'FilterClau...'   Identifier          tok= 136  pos= 753
-                              Param:
+                              Args:
                                 Pat.NamedSimple  'n'               Identifier          tok= 138  pos= 766
                           Arrow                  '->'              OpArrowRight        tok= 140  pos= 768
                           Expr:

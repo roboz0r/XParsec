@@ -244,44 +244,32 @@ and walkPat (visitor: AstVisitor<'T>) (pat: Pat<'T>) : unit =
     | Pat.Const value -> walkConstant visitor "Pat.Const" value
     | Pat.NamedSimple ident -> visitor.VisitToken "Pat.NamedSimple" ident
     | Pat.Wildcard underscore -> visitor.VisitToken "Pat.Wildcard" underscore
-    | Pat.Named(longIdent, param, innerPat) ->
+    | Pat.Named(longIdent, args) ->
         visitor.EnterSection "Pat.Named"
 
         for ident in longIdent do
             visitor.VisitToken "Ident" ident
 
-        match param with
-        | ValueSome p ->
-            visitor.EnterSection "Param"
-            walkPat visitor p
-            visitor.ExitSection "Param"
-        | ValueNone -> ()
+        if not args.IsEmpty then
+            visitor.EnterSection "Args"
 
-        match innerPat with
-        | ValueSome p ->
-            visitor.EnterSection "Pat"
-            walkPat visitor p
-            visitor.ExitSection "Pat"
-        | ValueNone -> ()
+            for arg in args do
+                walkPat visitor arg
+
+            visitor.ExitSection "Args"
 
         visitor.ExitSection "Pat.Named"
-    | Pat.OpNamed(head, param, innerPat) ->
+    | Pat.OpNamed(head, args) ->
         visitor.EnterSection "Pat.OpNamed"
         walkIdentOrOp visitor head
 
-        match param with
-        | ValueSome p ->
-            visitor.EnterSection "Param"
-            walkPat visitor p
-            visitor.ExitSection "Param"
-        | ValueNone -> ()
+        if not args.IsEmpty then
+            visitor.EnterSection "Args"
 
-        match innerPat with
-        | ValueSome p ->
-            visitor.EnterSection "Pat"
-            walkPat visitor p
-            visitor.ExitSection "Pat"
-        | ValueNone -> ()
+            for arg in args do
+                walkPat visitor arg
+
+            visitor.ExitSection "Args"
 
         visitor.ExitSection "Pat.OpNamed"
     | Pat.NamedFieldPats(longIdent, lParen, args, _commas, rParen) ->
