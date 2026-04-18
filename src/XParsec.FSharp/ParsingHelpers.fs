@@ -425,41 +425,15 @@ module Parsing =
                 else
                     ValueNone
 
-            // 15.1.10.2: If/Then/Else + Paren undentation
-            // Inside ( ) following then/else, content may undent but not past if.
-            //
-            // 15.1.10.3 (module/class body undentation inside begin/end) is intentionally
-            // omitted: the spec rule exists because F#'s Lexical Filtering step retrofits
-            // offside onto a token stream after lexing, requiring a special case for module
-            // bodies wrapped in begin/end. XParsec.FSharp is offside-aware by construction —
-            // Begin is pushed by pEnclosed with Indent=0 as a stack marker, so it can never
-            // be the head context in an offside check (tokenCol < 0 is impossible). Module-
-            // body content is bounded by the SeqBlock inside pInner, not by the Begin frame.
-            elif head.Context = OffsideContext.Paren then
-                let rec checkThenElseUndent (stack: Offside list) =
-                    match stack with
-                    | [] -> false
-                    | ctx :: deeper ->
-                        match ctx.Context with
-                        | OffsideContext.Then
-                        | OffsideContext.Else ->
-                            // Find the enclosing If context and check we don't undent past it
-                            deeper
-                            |> List.tryFind (fun (c: Offside) -> c.Context = OffsideContext.If)
-                            |> Option.map (fun ifCtx -> tokenCol >= ifCtx.Indent)
-                            |> Option.defaultValue true
-                        | OffsideContext.SeqBlock ->
-                            // Skip SeqBlock contexts (they sit between paren and then/else)
-                            checkThenElseUndent deeper
-                        | _ -> false
-
-                if checkThenElseUndent rest then
-                    ValueSome "15.1.10.2 ThenElse"
-                else
-                    // 15.1.10.4: Collection/CE undentation
-                    // Inside ( ), content may undent to the enclosing expression's
-                    // offside line, skipping SeqBlock/Paren pairs introduced by ( or =.
-                    tryCollectionUndent tokenCol context
+            // 15.1.10.2 (if/then/else + paren/begin undentation) and 15.1.10.3 (module/class
+            // body undentation inside begin/end) are intentionally omitted. Both spec rules
+            // exist because F#'s Lexical Filtering step retrofits offside onto a token stream
+            // after lexing, requiring special cases for paren-like frames. XParsec.FSharp is
+            // offside-aware by construction: Paren and Begin are pushed (by pEnclosed and
+            // withContextAt) with Indent=0 as pure stack markers, so they can never be the
+            // head context in an offside check (tokenCol < 0 is impossible). Content inside
+            // `(...)` or `begin...end` is bounded by the SeqBlock inside pInner, which is
+            // handled by the SeqBlockParen arm of tryCollectionUndent below.
 
             // 15.1.10.4: Collection/CE undentation for Bracket, BracketBar, Brace contexts
             elif
