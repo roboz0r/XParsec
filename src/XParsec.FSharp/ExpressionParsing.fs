@@ -907,6 +907,7 @@ module Expr =
                 | Token.KWBegin
                 | Token.KWStruct
                 | Token.KWLBrace
+                | Token.KWLHashParen
                 | Token.OpQuotationTypedLeft
                 | Token.OpQuotationUntypedLeft
                 | Token.OpDereference
