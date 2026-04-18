@@ -460,7 +460,11 @@ and walkStaticOptimizationConstraint (visitor: AstVisitor<'T>) (c: StaticOptimiz
     | StaticOptimizationConstraint.WhenTyparIsStruct(typar, colon, structToken) ->
         visitor.EnterSection "WhenTyparIsStruct"
         walkTypar visitor typar
-        visitor.VisitToken ":" colon
+
+        match colon with
+        | ValueSome c -> visitor.VisitToken ":" c
+        | ValueNone -> ()
+
         visitor.VisitToken "struct" structToken
         visitor.ExitSection "WhenTyparIsStruct"
 

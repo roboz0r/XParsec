@@ -149,15 +149,22 @@ module Binding =
     let private pStaticOptimizationConstraint =
         parser {
             let! typar = Typar.parse
-            let! colon = pColon
 
             match! peekNextNonTriviaToken with
             | t when t.Token = Token.KWStruct ->
+                // Bare `'T struct` — no colon
                 let! structTok = consumePeeked t
-                return StaticOptimizationConstraint.WhenTyparIsStruct(typar, colon, structTok)
+                return StaticOptimizationConstraint.WhenTyparIsStruct(typar, ValueNone, structTok)
             | _ ->
-                let! rhsType = Type.parse
-                return StaticOptimizationConstraint.WhenTyparTyconEqualsTycon(typar, colon, rhsType)
+                let! colon = pColon
+
+                match! peekNextNonTriviaToken with
+                | t when t.Token = Token.KWStruct ->
+                    let! structTok = consumePeeked t
+                    return StaticOptimizationConstraint.WhenTyparIsStruct(typar, ValueSome colon, structTok)
+                | _ ->
+                    let! rhsType = Type.parse
+                    return StaticOptimizationConstraint.WhenTyparTyconEqualsTycon(typar, colon, rhsType)
         }
 
     // Parses one `when c1 and c2 ... = optimizedExpr` clause, wrapping the given baseExpr.
