@@ -491,7 +491,9 @@ module Parsing =
         | [] -> true // Walked past all paren-like/SeqBlock contexts; no enclosing offside line to violate
         | ctx :: deeper ->
             match (ctx: Offside).Context with
-            | OffsideContext.SeqBlock -> checkCollectionUndent tokenCol deeper
+            | OffsideContext.SeqBlock
+            | OffsideContext.Fun
+            | OffsideContext.Function -> checkCollectionUndent tokenCol deeper
             | c when isParenLike c -> checkCollectionUndent tokenCol deeper
             | _ ->
                 // Found the enclosing non-paren context; check if token is within its indent
