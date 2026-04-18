@@ -425,9 +425,17 @@ module Parsing =
                 else
                     ValueNone
 
-            // 15.1.10.2: If/Then/Else + Paren/Begin undentation
-            // Inside ( ) or begin/end following then/else, content may undent but not past if.
-            elif head.Context = OffsideContext.Paren || head.Context = OffsideContext.Begin then
+            // 15.1.10.2: If/Then/Else + Paren undentation
+            // Inside ( ) following then/else, content may undent but not past if.
+            //
+            // 15.1.10.3 (module/class body undentation inside begin/end) is intentionally
+            // omitted: the spec rule exists because F#'s Lexical Filtering step retrofits
+            // offside onto a token stream after lexing, requiring a special case for module
+            // bodies wrapped in begin/end. XParsec.FSharp is offside-aware by construction —
+            // Begin is pushed by pEnclosed with Indent=0 as a stack marker, so it can never
+            // be the head context in an offside check (tokenCol < 0 is impossible). Module-
+            // body content is bounded by the SeqBlock inside pInner, not by the Begin frame.
+            elif head.Context = OffsideContext.Paren then
                 let rec checkThenElseUndent (stack: Offside list) =
                     match stack with
                     | [] -> false
@@ -447,23 +455,6 @@ module Parsing =
 
                 if checkThenElseUndent rest then
                     ValueSome "15.1.10.2 ThenElse"
-                else if
-                    // 15.1.10.3: Module/class body undentation
-                    // Inside begin/end with enclosing Module or Type, content may undent to Module/Type indent.
-                    head.Context = OffsideContext.Begin
-                then
-                    let result =
-                        rest
-                        |> List.tryFind (fun (c: Offside) ->
-                            c.Context = OffsideContext.Module || c.Context = OffsideContext.Type
-                        )
-                        |> Option.map (fun (ctx: Offside) -> tokenCol >= ctx.Indent)
-                        |> Option.defaultValue false
-
-                    if result then
-                        ValueSome "15.1.10.3 BeginModule"
-                    else
-                        ValueNone
                 else
                     // 15.1.10.4: Collection/CE undentation
                     // Inside ( ), content may undent to the enclosing expression's
