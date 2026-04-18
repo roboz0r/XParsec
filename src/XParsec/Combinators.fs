@@ -99,12 +99,39 @@ module Combinators =
 
     [<Sealed>]
     type ParserCE() =
+        // We repeat lambdas and implementations here to give F# the best chance to inline and eliminate closures.
+        // In particular, the `Bind` implementation is critical to avoid heap allocations in CE bodies.
+        member inline _.Bind
+            (
+                [<InlineIfLambda>] p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>,
+                [<InlineIfLambda>] binder: 'A -> Parser<'B, 'T, 'State, 'Input, 'InputSlice>
+            ) =
+            fun reader ->
+                match p reader with
+                | Ok success ->
+                    let p2 = binder success
+                    p2 reader
+                | Error err -> Error err
 
-        member inline _.Bind([<InlineIfLambda>] p, [<InlineIfLambda>] binder) = p >>= binder
-        member inline _.Return(x) = preturn x
-        member inline _.ReturnFrom(p) = p
-        member inline _.BindReturn([<InlineIfLambda>] p, [<InlineIfLambda>] map) = p |>> map
-        member inline _.Delay([<InlineIfLambda>] f) = fun reader -> (f ()) reader
+        member inline _.Return(x) : Parser<'A, 'T, 'State, 'Input, 'InputSlice> = fun _reader -> Ok x
+        member inline _.ReturnFrom(p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>) = p
+
+        member inline _.BindReturn
+            ([<InlineIfLambda>] p: Parser<'A, 'T, 'State, 'Input, 'InputSlice>, [<InlineIfLambda>] mapping: 'A -> 'B)
+            =
+            fun reader ->
+                match p reader with
+                | Ok success -> Ok(mapping success)
+                | Error err -> Error err
+
+        // The `fun reader -> (f ()) reader` wrapper is load-bearing: F# CE wraps
+        // `while`/`for` bodies (and Combine seconds) in Delay so they can be
+        // re-evaluated per iteration. In `For`, in particular, `binder enum.Current`
+        // must be deferred until AFTER `enum.MoveNext()` has advanced the enumerator
+        // — evaluating it at Delay-call time ("Enumeration has not started") crashes.
+        // So we eat the closure allocation for correctness.
+        member inline _.Delay([<InlineIfLambda>] f: unit -> Parser<'A, 'T, 'State, 'Input, 'InputSlice>) =
+            fun reader -> (f ()) reader
         member inline _.Zero() = pzero
 
         member inline _.TryWith ([<InlineIfLambda>] p, [<InlineIfLambda>] cf) (reader: Reader<_, _, _, _>) =
