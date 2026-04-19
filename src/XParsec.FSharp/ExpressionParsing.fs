@@ -662,10 +662,22 @@ module Expr =
         let pHighPrec token char =
             // Use satisfy to check the raw token is '(' AND the previous raw token is not trivia,
             // confirming true adjacency (e.g. f(x), not f (x) or a newline-separated expression).
-            let pSatisfy =
-                satisfyL (fun (t: PositionedToken) -> t.Token = token) $"Expected '{char}' for high precedence"
+            // Hoist the error message into a single ErrorType.Message value so the failure
+            // paths below don't allocate per invocation.
+            let errMsg = Message $"Expected '{char}' for high precedence"
 
-            let pFail = fail (Message $"Expected '{char}' for high precedence")
+            let pSatisfy =
+                fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
+                    match reader.Peek() with
+                    | ValueNone -> fail EndOfInput reader
+                    | ValueSome t ->
+                        if t.Token = token then
+                            reader.Skip()
+                            preturn t reader
+                        else
+                            fail errMsg reader
+
+            let pFail (reader: Reader<PositionedToken, ParseState, _, _>) = fail errMsg reader
 
             parser {
                 let! canBeHighPrec = isPrevTokenNonTrivia >> Ok
@@ -1004,39 +1016,28 @@ module Expr =
         let pTypeApplication =
             // Treat '<' followed by a type and '>' as type application.
             // Like high-prec app, '<' must be truly adjacent (no trivia before it in the raw stream).
-            parser {
-                let! canBeTyApp = isPrevTokenNonTrivia >> Ok
+            // Direct-style: the `parser { }` CE form allocated a fresh closure + fresh Message
+            // on every invocation; this hot RHS path parses on almost every identifier.
+            let errMsg = Message "Expected '<' for type application"
 
-                if canBeTyApp then
-                    let! state = getUserState
-                    let! pos = getPosition
-
-                    let! lAngle =
-                        satisfyL
-                            (fun (t: PositionedToken) ->
-                                match t.Token with
-                                | Token.OpLessThan -> true
-                                | _ -> false
-                            )
-                            "Expected '<' for type application"
-                        |> lookAhead
-                        >>= fun t ->
-                            let st = syntaxToken t pos.Index
-
-                            if tokenStringIs "<" st state then
-                                preturn st
-                            else
-                                fail (Message "Expected '<' for type application")
-
-                    let typeAngle =
-                        { lAngle with
-                            PositionedToken = PositionedToken.Create(Token.VirtualTyApp, lAngle.StartIndex)
-                        }
-
-                    return typeAngle
+            fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
+                if not (isPrevTokenNonTrivia reader) then
+                    fail errMsg reader
                 else
-                    return! fail (Message "Expected '<' for type application")
-            }
+                    match reader.Peek() with
+                    | ValueSome t when t.Token = Token.OpLessThan ->
+                        let st = syntaxToken t reader.Index
+
+                        if tokenStringIs "<" st reader.State then
+                            let typeAngle =
+                                { st with
+                                    PositionedToken = PositionedToken.Create(Token.VirtualTyApp, t.StartIndex)
+                                }
+
+                            preturn typeAngle reader
+                        else
+                            fail errMsg reader
+                    | _ -> fail errMsg reader
 
         let getRhsOperatorHandler (opInfo: OperatorInfo) token =
             // Note: Precedence gets bit-packed into the token and converted directly

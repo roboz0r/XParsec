@@ -718,7 +718,7 @@ module Parsing =
     let nextNonTriviaTokenVirtualIfNot t reader =
         nextNonTriviaTokenVirtualCore (fun _ -> ValueNone) t reader
 
-    let rec nextNonTriviaTokenSatisfiesL (predicate: SyntaxToken -> bool) msg reader =
+    let nextNonTriviaTokenSatisfiesL (predicate: SyntaxToken -> bool) msg reader =
         match peekNextNonTriviaToken reader with
         | Error e -> Error e
         | Ok token ->
