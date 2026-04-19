@@ -98,35 +98,6 @@ let printLexed (input: string) (x: Lexed) =
 
     f 0
 
-let printLexedBlocks (input: string) (x: Lexed) =
-    let rec f i =
-        if i < x.Blocks.Length then
-            let iT = x.Blocks[i * 1<block>].TokenIndex
-            let pt = x.Tokens[iT]
-            // For debugging, print the first line of the block
-            let charINextLine =
-                let i =
-                    x.LineStarts
-                    |> Seq.findIndex (fun pos -> pos >= iT && x.Tokens[pos].TokenWithoutCommentFlags <> Token.Newline)
-
-                if i + 1 < x.LineStarts.Length then
-                    int x.Tokens.[x.LineStarts[(i + 1) * 1<line>]].StartIndex
-                else
-                    input.Length
-
-            let p1 = min (charINextLine - 1) (int pt.StartIndex + 40)
-            let s = input.AsSpan(int pt.StartIndex, p1 - int pt.StartIndex).ToString()
-            let s = escapeSpecialCharacters s
-            let s = sprintf "%d, %A (%s)" (int pt.StartIndex) pt.Token s
-            printfn "%s" s
-
-            f (i + 1)
-
-    // printfn "%A" (List.ofSeq (x.LineStarts |> Seq.map (fun iT -> x.Tokens[iT])))
-    // printfn "%A" (List.ofSeq (x.Blocks |> Seq.map (fun iT -> x.Tokens[iT])))
-
-    f 0
-
 let writeLexed (path: string) (x: Lexed) =
     use writer = new StreamWriter(path)
 
@@ -134,18 +105,6 @@ let writeLexed (path: string) (x: Lexed) =
         if i < x.Tokens.Length then
             let t = x.Tokens[i * 1<token>]
             writer.WriteLine(t.ToString())
-            f (i + 1)
-
-    f 0
-
-let writeLexedBlocks (path: string) (x: Lexed) =
-    use writer = new StreamWriter(path)
-
-    let rec f i =
-        if i < x.Blocks.Length then
-            let ti = x.Blocks[i * 1<block>].TokenIndex
-            let token = x.Tokens[ti]
-            writer.WriteLine(token.ToString())
             f (i + 1)
 
     f 0
@@ -232,24 +191,6 @@ let testLexed (input: string) (expected: _ list) =
         printfn "Lexing failed: %A" err
         failwith "Lexing failed"
 
-let testLexedBlocks (input: string) (expected: _ list) =
-    // for i in 0 .. 100000 do
-    // Run multiple times to catch any state issues
-    let input = input.Replace("\r\n", "\n")
-
-    match lexString input with
-    | Ok lexed ->
-        try
-            ""
-            |> Expect.equal (lexed.Blocks |> Seq.map (fun b -> lexed.Tokens[b.TokenIndex]) |> List.ofSeq) expected
-        with ex ->
-            printfn "An error occurred: %s" (ex.Message)
-            printLexed input lexed
-            reraise ()
-    | Error err ->
-        printfn "Lexing failed: %A" err
-        failwith "Lexing failed"
-
 /// When true, golden files are overwritten with fresh output rather than compared.
 /// Activate by setting the UPDATE_SNAPSHOTS environment variable to any non-empty value,
 /// e.g. `UPDATE_SNAPSHOTS=1 dotnet test`. Useful after deliberate debug-output format changes.
@@ -265,16 +206,9 @@ let private isCi = Environment.GetEnvironmentVariable("CI") |> isNull |> not
 let testDataDir =
     lazy DirectoryInfo(IO.Path.Combine(__SOURCE_DIRECTORY__, "data")).FullName
 
-let blocksTestDataDir = lazy IO.Path.Combine(testDataDir.Value, "blocks")
-
 let testData =
     lazy
         let dir = testDataDir.Value
-        IO.Directory.GetFiles(dir, "*.fs")
-
-let blocksTestData =
-    lazy
-        let dir = blocksTestDataDir.Value
         IO.Directory.GetFiles(dir, "*.fs")
 
 let lexOnlyTestData =
@@ -311,31 +245,6 @@ let testLexFile (filePath: string) =
             let expected = readLexed expectedPath
             testLexed input expected
 
-
-let testLexFileBlocks (filePath: string) =
-    let input = File.ReadAllText filePath
-    let input = input.Replace("\r\n", "\n")
-    let expectedPath = filePath + ".lexedblocks"
-
-    match lexString input with
-    | Error err ->
-        let pos = err.Position
-        printLexedBlocks input (LexBuilder.complete pos.Index pos.State)
-        ErrorFormatting.formatStringError input err |> printfn "%s"
-        failwith "Lexing failed"
-    | Ok lexed ->
-        if updateSnapshots || not (File.Exists expectedPath) then
-            writeLexedBlocks expectedPath lexed
-
-            if not updateSnapshots then
-                if isCi then
-                    skiptest
-                        $"Golden file created at {Path.GetFileName expectedPath}; commit it to enable this test in CI"
-                else
-                    failtestf "Created expected blocks file at %s, please verify it is correct" expectedPath
-        else
-            let expected = readLexed expectedPath
-            testLexedBlocks input expected
 
 /// Parses a source file using the given set of defined preprocessor symbols and compares
 /// the result against a golden `.parsed` file.

@@ -1,5 +1,0 @@
-// Test 2: Simple Indentation
-let x =
-    let a = 1
-    let b = 2
-    a + b

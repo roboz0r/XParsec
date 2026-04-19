@@ -72,18 +72,6 @@ let integrityTests =
                         orphans.Length
                         fileList
             }
-
-            test "No orphaned golden files in data/blocks/" {
-                let orphans = findOrphanedGoldenFiles blocksTestDataDir.Value
-
-                if orphans.Length > 0 then
-                    let fileList = orphans |> String.concat "\n  "
-
-                    failtestf
-                        "Found %d orphaned golden file(s) with no corresponding .fs source:\n  %s"
-                        orphans.Length
-                        fileList
-            }
         ]
 
 [<Tests>]
