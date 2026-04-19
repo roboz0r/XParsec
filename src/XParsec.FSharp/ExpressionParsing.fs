@@ -562,10 +562,13 @@ module Expr =
                         fail pTypeApplicationErr reader
                 | _ -> fail pTypeApplicationErr reader
 
-    type ExprOperatorParser() =
-        let completeInfix (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) = Expr.InfixApp(l, op, r)
+    /// Completion functions for operator parsing — pure transformations from the
+    /// parsed pieces (LHS / operator / RHS or Aux) into an Expr. These are
+    /// independent of any ExprOperatorParser state, so they live at module scope.
+    module private Complete =
+        let infix (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) = Expr.InfixApp(l, op, r)
 
-        let completeRange (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) =
+        let range (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) =
             match l with
             | Expr.Range(l, dotdot1, step) ->
                 // We already have a range on the left, so this must be a stepped range
@@ -573,26 +576,28 @@ module Expr =
                 Expr.SteppedRange(l, dotdot1, step, op, r)
             | _ -> Expr.Range(l, op, r)
 
-        let completeFor _forTok (expr: ExprAux) =
+        // Shared PrefixNoConsume completion for fun, function, if, match, try, while, for —
+        // each wraps its fully-parsed body into ExprAux.ForExpr (historical name).
+        let forE _forTok (expr: ExprAux) =
             match expr with
             | ExprAux.ForExpr forExpr -> forExpr
             | _ -> failwith "Unexpected Aux type for For expression completion"
 
-        let completeSequence (exprs: ResizeArray<Expr<_>>) ops =
+        let sequence (exprs: ResizeArray<Expr<_>>) ops =
             Expr.Sequential(ImmutableArray.CreateRange exprs, ImmutableArray.CreateRange ops)
 
-        let completeAssignment (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) = Expr.Assignment(l, op, r)
-        let completePrefix (op: SyntaxToken) (e: Expr<_>) = Expr.PrefixApp(op, e)
-        let completeLazy (op: SyntaxToken) (e: Expr<_>) = Expr.Lazy(op, e)
-        let completeAssert (op: SyntaxToken) (e: Expr<_>) = Expr.Assert(op, e)
-        let completeUpcast (op: SyntaxToken) (e: Expr<_>) = Expr.Upcast(op, e)
-        let completeDowncast (op: SyntaxToken) (e: Expr<_>) = Expr.Downcast(op, e)
-        let completeSliceTo (op: SyntaxToken) (e: Expr<_>) = Expr.SliceTo(op, e)
+        let assignment (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) = Expr.Assignment(l, op, r)
+        let prefix (op: SyntaxToken) (e: Expr<_>) = Expr.PrefixApp(op, e)
+        let lazyE (op: SyntaxToken) (e: Expr<_>) = Expr.Lazy(op, e)
+        let assertE (op: SyntaxToken) (e: Expr<_>) = Expr.Assert(op, e)
+        let upcastE (op: SyntaxToken) (e: Expr<_>) = Expr.Upcast(op, e)
+        let downcastE (op: SyntaxToken) (e: Expr<_>) = Expr.Downcast(op, e)
+        let sliceTo (op: SyntaxToken) (e: Expr<_>) = Expr.SliceTo(op, e)
 
-        let completeTuple (elements: ResizeArray<Expr<_>>) (ops: ResizeArray<SyntaxToken>) =
+        let tuple (elements: ResizeArray<Expr<_>>) (ops: ResizeArray<SyntaxToken>) =
             Expr.Tuple(ImmutableArray.CreateRange elements, ImmutableArray.CreateRange ops)
 
-        let completeApp (elements: ResizeArray<Expr<_>>) ops =
+        let app (elements: ResizeArray<Expr<_>>) ops =
             let args = ImmutableArray.CreateBuilder(elements.Count - 1)
 
             for i in 1 .. elements.Count - 1 do
@@ -600,17 +605,66 @@ module Expr =
 
             Expr.App(elements[0], args.ToImmutable())
 
-        let completeSliceAll (op: SyntaxToken) (x: ExprAux) =
+        let sliceAll (op: SyntaxToken) (x: ExprAux) =
             match x with
             | ExprAux.SliceAll -> Expr.SliceAll(op)
             | _ -> failwith "Unexpected Aux type for SliceAll completion"
 
-        let completeRangeOrSliceFrom (l: Expr<_>) (op: SyntaxToken) (aux: ExprAux) =
+        let rangeOrSliceFrom (l: Expr<_>) (op: SyntaxToken) (aux: ExprAux) =
             match aux with
             | ExprAux.SliceFrom -> Expr.SliceFrom(l, op)
-            | ExprAux.Range r -> completeRange l op r
+            | ExprAux.Range r -> range l op r
             | _ -> failwith "Unexpected Aux type for RangeOrSliceFrom completion"
 
+        let dot (expr: Expr<_>) (op: SyntaxToken) (aux: ExprAux) =
+            match aux with
+            | ExprAux.Ident ident ->
+                match expr with
+                | Expr.Ident firstIdent ->
+                    Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ImmutableArray.Create(firstIdent, ident)))
+                | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent longIdentOrOp) ->
+                    Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(longIdentOrOp.Add(ident)))
+                | _ -> Expr.DotLookup(expr, op, LongIdentOrOp.LongIdent(ImmutableArray.Create(ident)))
+            | ExprAux.DotParenOp identOrOp ->
+                match expr with
+                | Expr.Ident firstIdent ->
+                    Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(ImmutableArray.Create(firstIdent), op, identOrOp))
+                | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent longIdent) ->
+                    Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(longIdent, op, identOrOp))
+                | _ -> Expr.DotLookup(expr, op, LongIdentOrOp.Op identOrOp)
+            | ExprAux.DotIndex(lBracket, indexExpr, rBracket) ->
+                Expr.IndexedLookup(expr, ValueSome op, lBracket, indexExpr, rBracket)
+            | _ -> failwith "Unexpected Aux type for dot completion"
+
+        let typeApp (expr: Expr<_>) (op: SyntaxToken) (aux: ExprAux) =
+            match aux with
+            | ExprAux.TypeApp(lAngle, types, commas, rAngle) -> Expr.TypeApp(expr, lAngle, types, commas, rAngle)
+            | _ -> failwith "Unexpected Aux type for type application completion"
+
+        let highPrec (funcExpr: Expr<_>) (_op: SyntaxToken) (aux: ExprAux) =
+            match aux with
+            | ExprAux.HighPrecApp(lParen, argExpr, rParen) -> Expr.HighPrecedenceApp(funcExpr, lParen, argExpr, rParen)
+            | ExprAux.HighPrecIndex(lBracket, argExpr, rBracket) ->
+                Expr.IndexedLookup(funcExpr, ValueNone, lBracket, argExpr, rBracket)
+            | _ -> failwith "Unexpected Aux type for high-precedence application/index completion"
+
+        let typeCast (expr: Expr<_>) (op: SyntaxToken) (aux: ExprAux) =
+            match aux with
+            | ExprAux.TypeCast(typ) ->
+                match op.Token with
+                | Token.OpColon -> Expr.TypeAnnotation(expr, op, typ)
+                | Token.OpUpcast -> Expr.StaticUpcast(expr, op, typ)
+                | Token.OpDowncast -> Expr.DynamicDowncast(expr, op, typ)
+                | Token.OpTypeTest -> Expr.DynamicTypeTest(expr, op, typ)
+                | _ -> failwith "Unexpected operator for type cast completion"
+            | _ -> failwith "Unexpected Aux type for type cast completion"
+
+        let keyword (op: SyntaxToken) (aux: ExprAux) =
+            match aux with
+            | ExprAux.KeywordExpr e -> e op
+            | _ -> failwith "Unexpected Aux type for keyword expression"
+
+    type ExprOperatorParser() =
         let printOpInfo (op: OperatorInfo) =
             printfn
                 $"Operator: {op.PositionedToken}({op.StartIndex}), Precedence: {op.Precedence}, Associativity: %A{op.Associativity}"
@@ -650,27 +704,6 @@ module Expr =
                 ]
                 "Dot RHS (identifier or index)"
 
-        let completeDot (expr: Expr<_>) (op: SyntaxToken) (aux: ExprAux) =
-            match aux with
-            | ExprAux.Ident ident ->
-                match expr with
-                | Expr.Ident firstIdent ->
-                    Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ImmutableArray.Create(firstIdent, ident)))
-                | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent longIdentOrOp) ->
-                    Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(longIdentOrOp.Add(ident)))
-                | _ -> Expr.DotLookup(expr, op, LongIdentOrOp.LongIdent(ImmutableArray.Create(ident)))
-            | ExprAux.DotParenOp identOrOp ->
-                match expr with
-                | Expr.Ident firstIdent ->
-                    Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(ImmutableArray.Create(firstIdent), op, identOrOp))
-                | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent longIdent) ->
-                    Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(longIdent, op, identOrOp))
-                | _ -> Expr.DotLookup(expr, op, LongIdentOrOp.Op identOrOp)
-            | ExprAux.DotIndex(lBracket, indexExpr, rBracket) ->
-                Expr.IndexedLookup(expr, ValueSome op, lBracket, indexExpr, rBracket)
-            | _ -> failwith "Unexpected Aux type for dot completion"
-
-
         let pTypeAppRhs =
             parser {
                 let! lAngle = nextNonTriviaTokenIsL Token.OpLessThan "Expected '<' for type application"
@@ -682,11 +715,6 @@ module Expr =
 
                 return ExprAux.TypeApp(lAngle, types, commas, rAngle)
             }
-
-        let completeTypeApp (expr: Expr<_>) (op: SyntaxToken) (aux: ExprAux) =
-            match aux with
-            | ExprAux.TypeApp(lAngle, types, commas, rAngle) -> Expr.TypeApp(expr, lAngle, types, commas, rAngle)
-            | _ -> failwith "Unexpected Aux type for type application completion"
 
         let pHighPrec token char =
             // Use satisfy to check the raw token is '(' AND the previous raw token is not trivia,
@@ -777,13 +805,6 @@ module Expr =
                     return ExprAux.HighPrecApp(lParen, argExpr, rParen)
             }
 
-        let completeHighPrec (funcExpr: Expr<_>) (_op: SyntaxToken) (aux: ExprAux) =
-            match aux with
-            | ExprAux.HighPrecApp(lParen, argExpr, rParen) -> Expr.HighPrecedenceApp(funcExpr, lParen, argExpr, rParen)
-            | ExprAux.HighPrecIndex(lBracket, argExpr, rBracket) ->
-                Expr.IndexedLookup(funcExpr, ValueNone, lBracket, argExpr, rBracket)
-            | _ -> failwith "Unexpected Aux type for high-precedence application/index completion"
-
         let parseRangeRhs reader =
             match peekNextNonTriviaToken reader with
             | Ok t ->
@@ -803,16 +824,6 @@ module Expr =
 
         let parseTypeCastRhs = Type.parse |>> ExprAux.TypeCast
 
-        let completeTypeCast (expr: Expr<_>) (op: SyntaxToken) (aux: ExprAux) =
-            match aux with
-            | ExprAux.TypeCast(typ) ->
-                match op.Token with
-                | Token.OpColon -> Expr.TypeAnnotation(expr, op, typ)
-                | Token.OpUpcast -> Expr.StaticUpcast(expr, op, typ)
-                | Token.OpDowncast -> Expr.DynamicDowncast(expr, op, typ)
-                | Token.OpTypeTest -> Expr.DynamicTypeTest(expr, op, typ)
-                | _ -> failwith "Unexpected operator for type cast completion"
-            | _ -> failwith "Unexpected Aux type for type cast completion"
 
         let rhsOperators
             : (SyntaxToken
@@ -833,55 +844,55 @@ module Expr =
 
                     match pl with
                     // Pattern only keywords
-                    // | PrecedenceLevel.As -> (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
-                    // | PrecedenceLevel.When -> (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
-                    | PrecedenceLevel.Pipe -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
+                    // | PrecedenceLevel.As -> (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, Complete.infix))
+                    // | PrecedenceLevel.When -> (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, Complete.infix))
+                    | PrecedenceLevel.Pipe -> (fun op -> InfixLeft(op, preturn op, power, Complete.infix))
                     | PrecedenceLevel.Semicolon ->
                         // (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeSemicolon))
-                        (fun op -> InfixNary(op, preturn op, power, true, completeSequence))
+                        (fun op -> InfixNary(op, preturn op, power, true, Complete.sequence))
                     // | PrecedenceLevel.RArrow -> `->` is listed in the operator precedence table but never used as an operator in expressions
-                    //     (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
+                    //     (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, Complete.infix))
                     // LHS keywords
-                    // | PrecedenceLevel.Let -> (fun op -> InfixNonAssociative(op, preturn op, power, completeInfix))
-                    // | PrecedenceLevel.Function -> (fun op -> InfixNonAssociative(op, preturn op, power, completeInfix))
-                    // | PrecedenceLevel.If -> (fun op -> InfixNonAssociative(op, preturn op, power, completeInfix))
+                    // | PrecedenceLevel.Let -> (fun op -> InfixNonAssociative(op, preturn op, power, Complete.infix))
+                    // | PrecedenceLevel.Function -> (fun op -> InfixNonAssociative(op, preturn op, power, Complete.infix))
+                    // | PrecedenceLevel.If -> (fun op -> InfixNonAssociative(op, preturn op, power, Complete.infix))
                     | PrecedenceLevel.Assignment ->
-                        (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeAssignment))
-                    | PrecedenceLevel.Comma -> (fun op -> InfixNary(op, preturn op, power, false, completeTuple))
+                        (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, Complete.assignment))
+                    | PrecedenceLevel.Comma -> (fun op -> InfixNary(op, preturn op, power, false, Complete.tuple))
                     | PrecedenceLevel.Range ->
                         (fun op ->
                             // The binary '..' operator. Non-associative. The ternary '.. ..' form or the postfix form are special grammar rules.
                             // Parse as Left-associative and disambiguate if we see another '..' at the same precedence level on the right.
-                            InfixMapped(op, preturn op, power, parseRangeRhs, completeRangeOrSliceFrom)
+                            InfixMapped(op, preturn op, power, parseRangeRhs, Complete.rangeOrSliceFrom)
                         )
-                    | PrecedenceLevel.LogicalOr -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
-                    | PrecedenceLevel.LogicalAnd -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
+                    | PrecedenceLevel.LogicalOr -> (fun op -> InfixLeft(op, preturn op, power, Complete.infix))
+                    | PrecedenceLevel.LogicalAnd -> (fun op -> InfixLeft(op, preturn op, power, Complete.infix))
                     | PrecedenceLevel.Cast ->
-                        (fun op -> InfixMapped(op, preturn op, power, parseTypeCastRhs, completeTypeCast))
+                        (fun op -> InfixMapped(op, preturn op, power, parseTypeCastRhs, Complete.typeCast))
                     | PrecedenceLevel.ComparisonAndBitwise ->
-                        (fun op -> InfixLeft(op, preturn op, power, completeInfix))
+                        (fun op -> InfixLeft(op, preturn op, power, Complete.infix))
                     | PrecedenceLevel.Append ->
-                        (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
+                        (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, Complete.infix))
                     | PrecedenceLevel.Cons ->
-                        (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
+                        (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, Complete.infix))
                     | PrecedenceLevel.TypeTest ->
-                        (fun op -> InfixMapped(op, preturn op, power, parseTypeCastRhs, completeTypeCast))
-                    | PrecedenceLevel.InfixAdd -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
-                    | PrecedenceLevel.InfixMultiply -> (fun op -> InfixLeft(op, preturn op, power, completeInfix))
+                        (fun op -> InfixMapped(op, preturn op, power, parseTypeCastRhs, Complete.typeCast))
+                    | PrecedenceLevel.InfixAdd -> (fun op -> InfixLeft(op, preturn op, power, Complete.infix))
+                    | PrecedenceLevel.InfixMultiply -> (fun op -> InfixLeft(op, preturn op, power, Complete.infix))
                     | PrecedenceLevel.Power ->
-                        (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeInfix))
+                        (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, Complete.infix))
                     | PrecedenceLevel.Application ->
-                        // (fun op -> InfixLeft(op, preturn op, power, completeInfix))
-                        (fun op -> InfixNary(op, preturn op, power, false, completeApp))
+                        // (fun op -> InfixLeft(op, preturn op, power, Complete.infix))
+                        (fun op -> InfixNary(op, preturn op, power, false, Complete.app))
                     // | PrecedenceLevel.PatternMatchBar -> Pattern only operator
                     // | PrecedenceLevel.Prefix -> LHS only
-                    | PrecedenceLevel.Dot -> (fun op -> InfixMapped(op, preturn op, power, parseDotRhs, completeDot))
+                    | PrecedenceLevel.Dot -> (fun op -> InfixMapped(op, preturn op, power, parseDotRhs, Complete.dot))
                     | PrecedenceLevel.HighIndexApplication ->
-                        (fun op -> InfixMapped(op, preturn op, power, parseHighPrecIndex, completeHighPrec))
+                        (fun op -> InfixMapped(op, preturn op, power, parseHighPrecIndex, Complete.highPrec))
                     | PrecedenceLevel.HighApplication ->
-                        (fun op -> InfixMapped(op, preturn op, power, parseHighPrecApp, completeHighPrec))
+                        (fun op -> InfixMapped(op, preturn op, power, parseHighPrecApp, Complete.highPrec))
                     | PrecedenceLevel.HighTypeApplication ->
-                        (fun op -> InfixMapped(op, preturn op, power, pTypeAppRhs, completeTypeApp))
+                        (fun op -> InfixMapped(op, preturn op, power, pTypeAppRhs, Complete.typeApp))
                     // | PrecedenceLevel.Parens -> LHS only
                     | pl ->
                         (fun op ->
@@ -1112,11 +1123,6 @@ module Expr =
         // Used for for-to and use identifiers (not the dot-access pIdent above)
         let pIdentTok = nextNonTriviaIdentifierL "identifier"
 
-        // Shared complete function for all PrefixMapped keyword forms.
-        let completeKeyword (op: SyntaxToken) (aux: ExprAux) =
-            match aux with
-            | ExprAux.KeywordExpr e -> e op
-            | _ -> failwith "Unexpected Aux type for keyword expression"
 
         // Keyword expression parsers. Each parser consumes its own keyword via assertKeywordToken
         // and uses withContextAt to set the offside indent based on the keyword's column.
@@ -1698,7 +1704,7 @@ module Expr =
                             preturn tok,
                             (refExprSeqBlock.Parser
                              |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Lazy(kwTok, e))),
-                            completeKeyword
+                            Complete.keyword
                         )
                 | ValueSome opInfo when opInfo.Token = Token.KWAssert ->
                     let! tok = consumePeeked token
@@ -1709,7 +1715,7 @@ module Expr =
                             preturn tok,
                             (refExprSeqBlock.Parser
                              |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Assert(kwTok, e))),
-                            completeKeyword
+                            Complete.keyword
                         )
                 | ValueSome opInfo when opInfo.Token = Token.KWFixed ->
                     let! tok = consumePeeked token
@@ -1720,7 +1726,7 @@ module Expr =
                             preturn tok,
                             (refExprSeqBlock.Parser
                              |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Fixed(kwTok, e))),
-                            completeKeyword
+                            Complete.keyword
                         )
                 | ValueSome opInfo when opInfo.Token = Token.KWUpcast ->
                     let! tok = consumePeeked token
@@ -1731,7 +1737,7 @@ module Expr =
                             preturn tok,
                             (refExprSeqBlock.Parser
                              |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Upcast(kwTok, e))),
-                            completeKeyword
+                            Complete.keyword
                         )
                 | ValueSome opInfo when opInfo.Token = Token.KWDowncast ->
                     let! tok = consumePeeked token
@@ -1742,25 +1748,25 @@ module Expr =
                             preturn tok,
                             (refExprSeqBlock.Parser
                              |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Downcast(kwTok, e))),
-                            completeKeyword
+                            Complete.keyword
                         )
                 | ValueSome opInfo when opInfo.Token = Token.OpRange ->
                     let! tok = consumePeeked token
                     let power = BindingPower.fromLevel (int opInfo.Precedence)
                     // A[..5]
-                    return Prefix(tok, preturn tok, power, completeSliceTo)
+                    return Prefix(tok, preturn tok, power, Complete.sliceTo)
                 | ValueSome opInfo when opInfo.Token = Token.OpMultiply ->
                     let! tok = consumePeeked token
                     let power = BindingPower.fromLevel (int opInfo.Precedence)
                     // A[0..1,*]
-                    return PrefixMapped(token, preturn tok, peekIsSliceAll, completeSliceAll)
+                    return PrefixMapped(token, preturn tok, peekIsSliceAll, Complete.sliceAll)
                 // & and && are address-of operators when used as prefix.
                 // Must be checked before the generic CanBePrefix handler to use
                 // PrecedenceLevel.Prefix instead of their infix precedence (LogicalAnd).
                 | ValueSome opInfo when opInfo.Token = Token.OpAmp || opInfo.Token = Token.OpAmpAmp ->
                     let! tok = consumePeeked token
                     let power = BindingPower.fromLevel (int PrecedenceLevel.Prefix)
-                    return Prefix(tok, preturn tok, power, completePrefix)
+                    return Prefix(tok, preturn tok, power, Complete.prefix)
                 | ValueSome opInfo when opInfo.CanBePrefix ->
                     let! tok = consumePeeked token
                     // TODO: PrecedenceLevel.Prefix has higher precedence than function application, which means `-f x` parses as `(-f) x` instead of `-(f x)`.
@@ -1771,7 +1777,7 @@ module Expr =
                     // (e.g., `-x - 1` must parse as `(-x) - 1`), while staying below Application
                     // so `-f x` still parses as `-(f x)`.
                     let power = BindingPower.fromLevel (int opInfo.Precedence) + 1uy<bp>
-                    return Prefix(tok, preturn tok, power, completePrefix)
+                    return Prefix(tok, preturn tok, power, Complete.prefix)
                 | _ -> return! fail (Message "Not a prefix operator")
             }
 
@@ -1791,24 +1797,24 @@ module Expr =
 
         let kwPrefixRoutes: struct (Token * (SyntaxToken -> Parser<_, _, _, _, _>))[] =
             [|
-                struct (Token.KWIf, kwPrefixNoConsume pIfExpr completeFor)
-                struct (Token.KWMatch, kwPrefixNoConsume pMatchExpr completeFor)
-                struct (Token.KWMatchBang, kwPrefixNoConsume pMatchExpr completeFor)
-                struct (Token.KWFunction, kwPrefixNoConsume pFunctionExpr completeFor)
-                struct (Token.KWFun, kwPrefixNoConsume pFunExpr completeFor)
-                struct (Token.KWTry, kwPrefixNoConsume pTryExpr completeFor)
-                struct (Token.KWWhile, kwPrefixNoConsume pWhileExpr completeFor)
-                struct (Token.KWFor, kwPrefixNoConsume pForExpr completeFor)
-                struct (Token.KWLet, kwPrefixNoConsume pLetOrUseBody completeKeyword)
-                struct (Token.KWLetBang, kwPrefixNoConsume pLetOrUseBody completeKeyword)
-                struct (Token.KWUse, kwPrefixNoConsume pLetOrUseBody completeKeyword)
-                struct (Token.KWUseBang, kwPrefixNoConsume pLetOrUseBody completeKeyword)
-                struct (Token.KWDo, kwPrefixConsume pYieldReturnDoBody completeKeyword)
-                struct (Token.KWDoBang, kwPrefixConsume pYieldReturnDoBody completeKeyword)
-                struct (Token.KWReturn, kwPrefixConsume pYieldReturnDoBody completeKeyword)
-                struct (Token.KWReturnBang, kwPrefixConsume pYieldReturnDoBody completeKeyword)
-                struct (Token.KWYield, kwPrefixConsume pYieldReturnDoBody completeKeyword)
-                struct (Token.KWYieldBang, kwPrefixConsume pYieldReturnDoBody completeKeyword)
+                struct (Token.KWIf, kwPrefixNoConsume pIfExpr Complete.forE)
+                struct (Token.KWMatch, kwPrefixNoConsume pMatchExpr Complete.forE)
+                struct (Token.KWMatchBang, kwPrefixNoConsume pMatchExpr Complete.forE)
+                struct (Token.KWFunction, kwPrefixNoConsume pFunctionExpr Complete.forE)
+                struct (Token.KWFun, kwPrefixNoConsume pFunExpr Complete.forE)
+                struct (Token.KWTry, kwPrefixNoConsume pTryExpr Complete.forE)
+                struct (Token.KWWhile, kwPrefixNoConsume pWhileExpr Complete.forE)
+                struct (Token.KWFor, kwPrefixNoConsume pForExpr Complete.forE)
+                struct (Token.KWLet, kwPrefixNoConsume pLetOrUseBody Complete.keyword)
+                struct (Token.KWLetBang, kwPrefixNoConsume pLetOrUseBody Complete.keyword)
+                struct (Token.KWUse, kwPrefixNoConsume pLetOrUseBody Complete.keyword)
+                struct (Token.KWUseBang, kwPrefixNoConsume pLetOrUseBody Complete.keyword)
+                struct (Token.KWDo, kwPrefixConsume pYieldReturnDoBody Complete.keyword)
+                struct (Token.KWDoBang, kwPrefixConsume pYieldReturnDoBody Complete.keyword)
+                struct (Token.KWReturn, kwPrefixConsume pYieldReturnDoBody Complete.keyword)
+                struct (Token.KWReturnBang, kwPrefixConsume pYieldReturnDoBody Complete.keyword)
+                struct (Token.KWYield, kwPrefixConsume pYieldReturnDoBody Complete.keyword)
+                struct (Token.KWYieldBang, kwPrefixConsume pYieldReturnDoBody Complete.keyword)
             |]
 
         let lhsParser =
