@@ -533,35 +533,6 @@ module Expr =
             | ValueNone -> return expr
         }
 
-    // Shared once-allocated ErrorType for pTypeApplication's failure paths. Kept as a
-    // separate module-level binding (with explicit type) so the value-restriction rule
-    // can't generalize pTypeApplication into a thunk that re-allocates the Message.
-    let private pTypeApplicationErr: ErrorType<PositionedToken, ParseState> =
-        Message "Expected '<' for type application"
-
-    /// Direct-style type-application lookahead. Moved to module scope so the binding
-    /// is initialized once as a static field (rather than re-evaluated for each generic
-    /// instantiation of an enclosing class member).
-    let pTypeApplication: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, _> =
-        fun reader ->
-            if not (isPrevTokenNonTrivia reader) then
-                fail pTypeApplicationErr reader
-            else
-                match reader.Peek() with
-                | ValueSome t when t.Token = Token.OpLessThan ->
-                    let st = syntaxToken t reader.Index
-
-                    if tokenStringIs "<" st reader.State then
-                        let typeAngle =
-                            { st with
-                                PositionedToken = PositionedToken.Create(Token.VirtualTyApp, t.StartIndex)
-                            }
-
-                        preturn typeAngle reader
-                    else
-                        fail pTypeApplicationErr reader
-                | _ -> fail pTypeApplicationErr reader
-
     /// Completion functions for operator parsing — pure transformations from the
     /// parsed pieces (LHS / operator / RHS or Aux) into an Expr. These are
     /// independent of any ExprOperatorParser state, so they live at module scope.
@@ -1227,6 +1198,36 @@ module Expr =
     /// ExprOperatorParser to avoid re-evaluating their bodies on each generic
     /// instantiation of an enclosing class member.
     module private HighPrec =
+        // Shared once-allocated ErrorType for pTypeApplication's failure paths. Kept as a
+        // separate module-level binding (with explicit type) so the value-restriction rule
+        // can't generalize pTypeApplication into a thunk that re-allocates the Message.
+        let private pTypeApplicationErr: ErrorType<PositionedToken, ParseState> =
+            Message "Expected '<' for type application"
+
+        /// Direct-style type-application lookahead. Moved to module scope so the binding
+        /// is initialized once as a static field (rather than re-evaluated for each generic
+        /// instantiation of an enclosing class member).
+        let pTypeApplication
+            : Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, _> =
+            fun reader ->
+                if not (isPrevTokenNonTrivia reader) then
+                    fail pTypeApplicationErr reader
+                else
+                    match reader.Peek() with
+                    | ValueSome t when t.Token = Token.OpLessThan ->
+                        let st = syntaxToken t reader.Index
+
+                        if tokenStringIs "<" st reader.State then
+                            let typeAngle =
+                                { st with
+                                    PositionedToken = PositionedToken.Create(Token.VirtualTyApp, t.StartIndex)
+                                }
+
+                            preturn typeAngle reader
+                        else
+                            fail pTypeApplicationErr reader
+                    | _ -> fail pTypeApplicationErr reader
+
         let pTypeAppRhs =
             parser {
                 let! lAngle = nextNonTriviaTokenIsL Token.OpLessThan "Expected '<' for type application"
@@ -1675,7 +1676,7 @@ module Expr =
             choiceL
                 [
                     reprocessedOperatorAfterTypeParams >>= handleToken
-                    pTypeApplication >>= handleToken
+                    HighPrec.pTypeApplication >>= handleToken
                     HighPrec.peekHighPrecApp >>= handleToken
                     pApplication >>= handleToken
                     pSepVirt >>= handleToken
