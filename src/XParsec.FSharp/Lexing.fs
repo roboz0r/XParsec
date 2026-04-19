@@ -1676,22 +1676,47 @@ module Lexing =
             let startIdx = reader.Position.Index
             let inComment = state.IsInBlockComment || state.IsInOCamlBlockComment
 
-            // Imperatively consume operator chars, stopping before `*)` when inside a block comment
-            let mutable cont = true
+            // `:` is only permitted as the first char of the predefined colon-starting
+            // operators (`:`, `::`, `:?`, `:?>`, `:>`, `:=`). It must never fuse with
+            // adjacent operator chars — e.g. `(x:^T)` must lex as `:` + `^T`, not `:^`.
+            // Skip this treatment inside block comments: the content there is discarded
+            // anyway, and splitting `://` in a URL would expose `//` to the line-comment
+            // lexer, which would then eat past the closing `*)`.
+            match reader.Peek() with
+            | ValueSome ':' when not inComment ->
+                reader.Skip()
 
-            while cont do
                 match reader.Peek() with
-                | ValueSome c when customOperatorChars.Contains c ->
-                    if inComment && c = '*' then
-                        let peek2 = reader.PeekN(2)
+                | ValueSome ':' -> reader.Skip()
+                | ValueSome '=' -> reader.Skip()
+                | ValueSome '>' -> reader.Skip()
+                | ValueSome '?' ->
+                    reader.Skip()
 
-                        if peek2.Length >= 2 && peek2[1] = ')' then
-                            cont <- false // stop before `*)`
+                    match reader.Peek() with
+                    | ValueSome '>' -> reader.Skip()
+                    | _ -> ()
+                | _ -> ()
+            | _ ->
+                // Imperatively consume operator chars, stopping at `:` (only valid as first
+                // char, handled above) except inside block comments, and before `*)` when
+                // inside a block comment.
+                let mutable cont = true
+
+                while cont do
+                    match reader.Peek() with
+                    | ValueSome ':' when not inComment -> cont <- false
+                    | ValueSome c when customOperatorChars.Contains c ->
+                        if inComment && c = '*' then
+                            let peek2 = reader.PeekN(2)
+
+                            if peek2.Length >= 2 && peek2[1] = ')' then
+                                cont <- false // stop before `*)`
+                            else
+                                reader.Skip()
                         else
                             reader.Skip()
-                    else
-                        reader.Skip()
-                | _ -> cont <- false
+                    | _ -> cont <- false
 
             let endIdx = reader.Position.Index
 
