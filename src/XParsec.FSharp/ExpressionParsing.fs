@@ -1450,6 +1450,48 @@ module Expr =
                             return! failApp
             }
 
+    /// Parses a subsequent tuple separator `,` for the Pratt parser's InfixNary
+    /// loop. Unlike the first comma (which is identified by the full RHS
+    /// operator dispatcher), this parser only needs to recognise another `,`.
+    let private pTupleComma: Parser<SyntaxToken, _, _, _, _> =
+        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpComma) "','"
+
+    /// Matches a real `;` or emits a layout-sensitive `VirtualSep` when the
+    /// next token can start an expression at the enclosing context's indent.
+    /// Used as the subsequent-separator parser for both the expression-level
+    /// RHS dispatcher and the InfixNary nary-loop for sequences.
+    let private pSepVirt =
+        let failSep =
+            fail (Message "Expected ';' or newline at the same indent for expression sequencing")
+
+        parser {
+            match! peekNextNonTriviaToken with
+            | t when t.Token = Token.EOF -> return! failSep
+            | t when t.Token = Token.OpSemicolon -> return! consumePeeked t
+            | t ->
+                // Not a semicolon, but maybe we emit a virtual semicolon for newline-separated expressions.
+                // Only emit VirtualSep when the next token can actually start an expression.
+                // Tokens that cannot start expressions (closing delimiters, block-continuation keywords
+                // like `with`/`finally`/`then`/`else`, pure infix operators, etc.) must NOT trigger
+                // VirtualSep — doing so causes infinite loops in the Pratt parser's InfixNary handler
+                // because the zero-width virtual token never advances the reader.
+                if TokenInfo.canStartExpression t.Token then
+                    let! indent = currentIndent
+                    let! state = getUserState
+
+                    let atContextIndent =
+                        match state.Context with
+                        | { Indent = ctxIndent } :: _ -> indent = ctxIndent
+                        | [] -> indent = 0
+
+                    if atContextIndent then
+                        return virtualToken (PositionedToken.Create(Token.VirtualSep, t.StartIndex))
+                    else
+                        return! failSep
+                else
+                    return! failSep
+        }
+
     type ExprOperatorParser() =
         let printOpInfo (op: OperatorInfo) =
             printfn
@@ -1534,7 +1576,7 @@ module Expr =
                     | PrecedenceLevel.Pipe -> (fun op -> InfixLeft(op, preturn op, power, Complete.infix))
                     | PrecedenceLevel.Semicolon ->
                         // (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, completeSemicolon))
-                        (fun op -> InfixNary(op, preturn op, power, true, Complete.sequence))
+                        (fun op -> InfixNary(op, pSepVirt, power, true, Complete.sequence))
                     // | PrecedenceLevel.RArrow -> `->` is listed in the operator precedence table but never used as an operator in expressions
                     //     (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, Complete.infix))
                     // LHS keywords
@@ -1543,7 +1585,7 @@ module Expr =
                     // | PrecedenceLevel.If -> (fun op -> InfixNonAssociative(op, preturn op, power, Complete.infix))
                     | PrecedenceLevel.Assignment ->
                         (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, Complete.assignment))
-                    | PrecedenceLevel.Comma -> (fun op -> InfixNary(op, preturn op, power, false, Complete.tuple))
+                    | PrecedenceLevel.Comma -> (fun op -> InfixNary(op, pTupleComma, power, false, Complete.tuple))
                     | PrecedenceLevel.Range ->
                         (fun op ->
                             // The binary '..' operator. Non-associative. The ternary '.. ..' form or the postfix form are special grammar rules.
@@ -1568,7 +1610,7 @@ module Expr =
                         (fun op -> InfixRight(op, preturn op, BindingPower.rightAssocLhs power, Complete.infix))
                     | PrecedenceLevel.Application ->
                         // (fun op -> InfixLeft(op, preturn op, power, Complete.infix))
-                        (fun op -> InfixNary(op, preturn op, power, false, Complete.app))
+                        (fun op -> InfixNary(op, Application.parse, power, false, Complete.app))
                     // | PrecedenceLevel.PatternMatchBar -> Pattern only operator
                     // | PrecedenceLevel.Prefix -> LHS only
                     | PrecedenceLevel.Dot -> (fun op -> InfixMapped(op, preturn op, power, parseDotRhs, Complete.dot))
@@ -1585,38 +1627,6 @@ module Expr =
                                 $"No operator handler for precedence level {pl}. Got op {op.Token} at position {op.StartIndex}"
                         )
                 )
-
-        let pSepVirt =
-            let failSep =
-                fail (Message "Expected ';' or newline at the same indent for expression sequencing")
-
-            parser {
-                match! peekNextNonTriviaToken with
-                | t when t.Token = Token.EOF -> return! failSep
-                | t when t.Token = Token.OpSemicolon -> return! consumePeeked t
-                | t ->
-                    // Not a semicolon, but maybe we emit a virtual semicolon for newline-separated expressions.
-                    // Only emit VirtualSep when the next token can actually start an expression.
-                    // Tokens that cannot start expressions (closing delimiters, block-continuation keywords
-                    // like `with`/`finally`/`then`/`else`, pure infix operators, etc.) must NOT trigger
-                    // VirtualSep — doing so causes infinite loops in the Pratt parser's InfixNary handler
-                    // because the zero-width virtual token never advances the reader.
-                    if TokenInfo.canStartExpression t.Token then
-                        let! indent = currentIndent
-                        let! state = getUserState
-
-                        let atContextIndent =
-                            match state.Context with
-                            | { Indent = ctxIndent } :: _ -> indent = ctxIndent
-                            | [] -> indent = 0
-
-                        if atContextIndent then
-                            return virtualToken (PositionedToken.Create(Token.VirtualSep, t.StartIndex))
-                        else
-                            return! failSep
-                    else
-                        return! failSep
-            }
 
         let getRhsOperatorHandler (opInfo: OperatorInfo) token =
             // Note: Precedence gets bit-packed into the token and converted directly

@@ -142,7 +142,7 @@ module Measure =
                 | Token.Whitespace ->
                     // Juxtaposition: implicit multiplication
                     let op =
-                        InfixNary(token, preturn token, juxtapositionPrecedence, false, completeJuxtaposition)
+                        InfixNary(token, pJuxtapositionOp, juxtapositionPrecedence, false, completeJuxtaposition)
 
                     preturn op
 

@@ -97,6 +97,16 @@ module Pat =
                     return! failSep
         }
 
+    /// Subsequent-separator parser for InfixNary tuple patterns.
+    let private pPatTupleComma: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpComma) "','"
+
+    /// Subsequent-separator parser for InfixNary element patterns. Matches a
+    /// real `;` or a virtual one emitted by `pSepVirtPat`.
+    let private pPatSemicolon: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpSemicolon) "';'"
+        <|> pSepVirtPat
+
     let private pTypeRhs = Type.parse |>> PatAux.Type
 
     let private pAsRhs =
@@ -165,12 +175,12 @@ module Pat =
 
         // Infix N-ary: , (Tuple)
         | Token.OpComma ->
-            let op = InfixNary(token, preturn token, tuplePrecedence, false, completeTuple)
+            let op = InfixNary(token, pPatTupleComma, tuplePrecedence, false, completeTuple)
             preturn op
 
         | Token.OpSemicolon ->
             let op =
-                InfixNary(token, preturn token, semiPrecedence, semiCompletesElems, completeElems)
+                InfixNary(token, pPatSemicolon, semiPrecedence, semiCompletesElems, completeElems)
 
             preturn op
 
