@@ -1,0 +1,81 @@
+AnonymousModule:
+FunctionOrValue:
+  let                      'let'             KWLet               tok=  15  pos= 447
+    inline                 'inline'          KWInline            tok=  17  pos= 451
+    Pat.Op:
+      ParenOp:
+                           '('               KWLParen            tok=  19  pos= 458
+        SymbolicOp         '+'               op_Addition         tok=  20  pos= 459
+                           ')'               KWRParen            tok=  21  pos= 460
+    Pats:
+      ParenBlock           '('               KWLParen            tok=  23  pos= 462
+        Pat.Typed:
+          Pat.NamedSimple  'x'               Identifier          tok=  24  pos= 463
+          Colon            ':'               OpColon             tok=  25  pos= 464
+          VarType:
+            Typar.Static:
+                           '^'               OpConcatenate       tok=  26  pos= 465
+                           'T'               Identifier          tok=  27  pos= 466
+                           ')'               KWRParen            tok=  28  pos= 467
+      ParenBlock           '('               KWLParen            tok=  30  pos= 469
+        Pat.Typed:
+          Pat.NamedSimple  'y'               Identifier          tok=  31  pos= 470
+          Colon            ':'               OpColon             tok=  32  pos= 471
+          VarType:
+            Typar.Static:
+                           '^'               OpConcatenate       tok=  33  pos= 472
+                           'U'               Identifier          tok=  34  pos= 473
+                           ')'               KWRParen            tok=  35  pos= 474
+    =                      '='               OpEquality          tok=  37  pos= 476
+      LibraryOnlyStaticOptimization:
+        App:
+          Func:
+            TypeApp:
+              Expr:
+                Ident      'AdditionDy...'   Identifier          tok=  40  pos= 482
+              Types:
+                ParenType  '('               KWLParen            tok=  42  pos= 498
+                  VarType:
+                    Typar.Static:
+                           '^'               OpConcatenate       tok=  43  pos= 499
+                           'T'               Identifier          tok=  44  pos= 500
+                           ')'               KWRParen            tok=  45  pos= 501
+                ParenType  '('               KWLParen            tok=  47  pos= 503
+                  VarType:
+                    Typar.Static:
+                           '^'               OpConcatenate       tok=  48  pos= 504
+                           'U'               Identifier          tok=  49  pos= 505
+                           ')'               KWRParen            tok=  50  pos= 506
+                ParenType  '('               KWLParen            tok=  52  pos= 508
+                  VarType:
+                    Typar.Static:
+                           '^'               OpConcatenate       tok=  53  pos= 509
+                           'T'               Identifier          tok=  54  pos= 510
+                           ')'               KWRParen            tok=  55  pos= 511
+          Args:
+            Ident          'x'               Identifier          tok=  58  pos= 514
+            Ident          'y'               Identifier          tok=  60  pos= 516
+        when               'when'            KWWhen              tok=  63  pos= 522
+        WhenTyparTyconEqualsTycon:
+          Typar.Static:
+                           '^'               OpConcatenate       tok=  65  pos= 527
+                           'T'               Identifier          tok=  66  pos= 528
+          :                ':'               OpColon             tok=  68  pos= 530
+          NamedType:
+            Ident          'int32'           Identifier          tok=  70  pos= 532
+        =                  '='               OpEquality          tok=  72  pos= 538
+        ILIntrinsic:
+          (#               '(#'              KWLHashParen        tok=  74  pos= 540
+          StringLiteral    '"'               StringOpen          tok=  76  pos= 543
+          Parts:
+            Text           'add'             StringFragment      tok=  77  pos= 544
+                           '"'               StringClose         tok=  78  pos= 547
+          Arg:
+            Ident          'x'               Identifier          tok=  80  pos= 549
+          Arg:
+            Ident          'y'               Identifier          tok=  82  pos= 551
+          ILReturnType:
+            :              ':'               OpColon             tok=  84  pos= 553
+            NamedType:
+              Ident        'int32'           Identifier          tok=  86  pos= 555
+          #)               '#)'              KWRHashParen        tok=  88  pos= 561
