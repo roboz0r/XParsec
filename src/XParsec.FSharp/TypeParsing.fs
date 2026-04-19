@@ -329,6 +329,14 @@ module Type =
             ]
             "Atomic Type"
 
+    // Matches '[' or '[|' as an array-rank open bracket in postfix type position.
+    let private pArrayOpenBracket =
+        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWLArrayBracket || t.Token = Token.KWLBracket) "["
+
+    // Matches ']' or '|]' as an array-rank close bracket in postfix type position.
+    let private pArrayCloseBracket =
+        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWRArrayBracket || t.Token = Token.KWRBracket) "]"
+
     // Postfix operators: [] (Array), ident (Suffixed e.g. int list)
     // Note: This needs to be left-recursive elimination or chained.
     // Using a simple loop for postfix application.
@@ -341,17 +349,10 @@ module Type =
                     [
                         // Array: [] or [,]
                         parser {
-                            let! l =
-                                nextNonTriviaTokenSatisfiesL
-                                    (fun t -> t.Token = Token.KWLArrayBracket || t.Token = Token.KWLBracket)
-                                    "["
+                            let! l = pArrayOpenBracket
                             // Parse commas for rank
                             let! commas = many pComma
-
-                            let! r =
-                                nextNonTriviaTokenSatisfiesL
-                                    (fun t -> t.Token = Token.KWRArrayBracket || t.Token = Token.KWRBracket)
-                                    "]"
+                            let! r = pArrayCloseBracket
 
                             let newAcc = Type.ArrayType(acc, l, commas, r)
                             return! loop newAcc

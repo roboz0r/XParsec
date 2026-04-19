@@ -167,19 +167,18 @@ module Binding =
                     return StaticOptimizationConstraint.WhenTyparTyconEqualsTycon(typar, colon, rhsType)
         }
 
+    let private pAndConstraint =
+        parser {
+            let! andTok = pAnd
+            let! c = pStaticOptimizationConstraint
+            return struct (andTok, c)
+        }
+
     // Parses one `when c1 and c2 ... = optimizedExpr` clause, wrapping the given baseExpr.
     let private pStaticOptimizationClause (baseExpr: Expr<SyntaxToken>) =
         parser {
             let! whenTok = pWhen
             let! firstC = pStaticOptimizationConstraint
-
-            let pAndConstraint =
-                parser {
-                    let! andTok = pAnd
-                    let! c = pStaticOptimizationConstraint
-                    return struct (andTok, c)
-                }
-
             let! restPairs = many pAndConstraint
 
             let constraints =
