@@ -90,20 +90,21 @@ module Attributes =
 
 [<RequireQualifiedAccess>]
 module RangeOpName =
+    // `.. ..` is the step-range operator name. It appears only as an operator name
+    // inside parens (e.g. `let inline (.. ..) start step finish = ...`); never infix.
+    // The lexer emits two separate `OpRange` tokens because the greedy operator scan
+    // can't span the whitespace/comments/newlines that may sit between the two `..`
+    // pieces, so the parser fuses them here instead.
     let parse: Parser<RangeOpName<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        nextNonTriviaTokenSatisfiesL
-            (fun t ->
-                match t.Token with
-                | Token.OpRange
-                | Token.OpRangeStep -> true
-                | _ -> false
-            )
-            "Expected '..' or '.. ..'"
-        |>> fun t ->
-            match t.Token with
-            | Token.OpRange -> RangeOpName.DotDot t
-            | Token.OpRangeStep -> RangeOpName.DotDotDotDot t
-            | _ -> failwith "Unreachable"
+        parser {
+            let! first = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpRange) "Expected '..'"
+
+            let! second = opt (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpRange) "'..'")
+
+            match second with
+            | ValueSome second -> return RangeOpName.DotDotDotDot(first, second)
+            | ValueNone -> return RangeOpName.DotDot first
+        }
 
 [<RequireQualifiedAccess>]
 module ActivePatternOpName =
