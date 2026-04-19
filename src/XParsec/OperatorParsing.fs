@@ -292,17 +292,22 @@ module internal rec Pratt =
         }
 
     module PrattParsed =
-        let success expr : PrattParsed<'Expr, 'T, 'State> = { Expr = expr; Error = ValueNone }
+        let inline success expr : PrattParsed<'Expr, 'T, 'State> = { Expr = expr; Error = ValueNone }
 
-        let withError expr error : PrattParsed<'Expr, 'T, 'State> = { Expr = expr; Error = error }
+        let inline withError expr error : PrattParsed<'Expr, 'T, 'State> = { Expr = expr; Error = error }
 
     // Combines two optional soft errors. Typically, you want to nest them
     // or pick the furthest one depending on your exact ParseError design.
-    let private mergeSoftErrors
+    // Cases ordered hot-path-first: the steady-state success path is
+    // (ValueNone, ValueNone); the allocating nested cases are cold.
+    let inline private mergeSoftErrors
         (e1: ParseError<'T, 'State> voption)
         (e2: ParseError<'T, 'State> voption)
         : ParseError<'T, 'State> voption =
         match e1, e2 with
+        | ValueNone, ValueNone -> ValueNone
+        | _, ValueNone -> e1
+        | ValueNone, _ -> e2
         | ValueSome {
                         Position = aPos
                         Errors = Nested(aParent, aErrs)
@@ -325,9 +330,6 @@ module internal rec Pratt =
         | ValueSome a, ValueSome b ->
             // Assuming a nested structure is desired when combining soft errors
             ValueSome(ParseError.createNested failure [ b; a ] b.Position)
-        | ValueSome a, ValueNone -> ValueSome a
-        | ValueNone, ValueSome b -> ValueSome b
-        | ValueNone, ValueNone -> ValueNone
 
     // Injects a preceding soft error into a hard parser failure
     let private mergeWithError (hardErr: ParseError<'T, 'State>) (softErr: _ voption) =
@@ -355,7 +357,7 @@ module internal rec Pratt =
         | hardErr, ValueSome s -> ParseError.createNested failure [ hardErr; s ] hardErr.Position
         | hardErr, ValueNone -> hardErr
 
-    let private ensureAdvanced (pos: Position<'State>) (reader: Reader<_, _, _, _>) : unit =
+    let inline private ensureAdvanced (pos: Position<'State>) (reader: Reader<_, _, _, _>) : unit =
         if reader.Index = pos.Index then
             raise (InfiniteLoopException(pos))
 
@@ -363,7 +365,7 @@ module internal rec Pratt =
     // Each case is a separate function so the JIT allocates stack only for
     // the locals of the branch actually taken, rather than for all branches.
 
-    let private rhsInfix
+    let inline private rhsInfix
         pExpr
         ops
         minBinding
@@ -425,8 +427,12 @@ module internal rec Pratt =
                     reader.Position <- nextOpPos
                     preturn (items, mergeSoftErrors currentErr (ValueSome errRhs)) reader
 
-        let items = ResizeArray()
-        let parsedOps = ResizeArray()
+        // Typical nary use — tuples, app chains, sequences — rarely exceeds 4 items.
+        // Hint an initial capacity of 4 so `Add lhs` + up to three more adds don't
+        // trigger the first grow allocation. For sequences with many elements, the
+        // usual doubling growth still kicks in.
+        let items = ResizeArray(4)
+        let parsedOps = ResizeArray(4)
         items.Add lhs
         parsedOps.Add op
         let entryPos = reader.Position
@@ -618,78 +624,54 @@ module internal rec Pratt =
 
         match ops.RhsParser reader with
         | Ok op ->
-            match op with
-            | Postfix(op, _parseOp, leftPower, completePostfix) ->
-                if leftPower < minBinding then
-                    reader.Position <- pos
-                    preturn (PrattParsed.withError lhs errAcc) reader
-                elif leftPower = minBinding then
-                    fail ambiguous reader
-                else
+            // Every RHS operator variant carries leftPower in slot 3; extract once so
+            // the < / = minBinding checks are hoisted out of the per-case dispatch
+            // and the JIT only emits one branch ladder per token instead of eight.
+            let leftPower =
+                match op with
+                | Postfix(_, _, lp, _)
+                | InfixLeft(_, _, lp, _)
+                | InfixRight(_, _, lp, _)
+                | InfixNonAssociative(_, _, lp, _)
+                | InfixNary(_, _, lp, _, _)
+                | InfixMapped(_, _, lp, _, _)
+                | Indexer(_, _, lp, _, _, _, _)
+                | Ternary(_, _, lp, _, _) -> lp
+
+            if leftPower < minBinding then
+                reader.Position <- pos
+                // InfixNonAssociative drops errAcc on the low-power branch; every
+                // other variant propagates it. Preserve that distinction.
+                match op with
+                | InfixNonAssociative _ -> preturn (PrattParsed.success lhs) reader
+                | _ -> preturn (PrattParsed.withError lhs errAcc) reader
+            elif leftPower = minBinding then
+                fail ambiguous reader
+            else
+                match op with
+                | Postfix(op, _parseOp, _, completePostfix) ->
                     ensureAdvanced pos reader
                     parseRhsInternal pExpr ops minBinding (completePostfix lhs op) errAcc reader
 
-            | InfixLeft(op, _parseOp, leftPower, completeInfix) ->
-                if leftPower < minBinding then
-                    reader.Position <- pos
-                    preturn (PrattParsed.withError lhs errAcc) reader
-                elif leftPower = minBinding then
-                    fail ambiguous reader
-                else
+                | InfixLeft(op, _parseOp, _, completeInfix) ->
                     rhsInfix pExpr ops minBinding lhs errAcc pos (leftPower + 1uy<bp>) op completeInfix reader
 
-            | InfixRight(op, _parseOp, leftPower, completeInfix) ->
-                if leftPower < minBinding then
-                    reader.Position <- pos
-                    preturn (PrattParsed.withError lhs errAcc) reader
-                elif leftPower = minBinding then
-                    fail ambiguous reader
-                else
+                | InfixRight(op, _parseOp, _, completeInfix) ->
                     rhsInfix pExpr ops minBinding lhs errAcc pos (leftPower - 1uy<bp>) op completeInfix reader
 
-            | InfixNonAssociative(op, _parseOp, leftPower, completeInfix) ->
-                if leftPower < minBinding then
-                    reader.Position <- pos
-                    preturn (PrattParsed.success lhs) reader
-                elif leftPower = minBinding then
-                    fail ambiguous reader
-                else
+                | InfixNonAssociative(op, _parseOp, _, completeInfix) ->
                     rhsInfix pExpr ops minBinding lhs errAcc pos leftPower op completeInfix reader
 
-            | InfixNary(op, _parseOp, leftPower, allowTrailingOp, completeNary) ->
-                if leftPower < minBinding then
-                    reader.Position <- pos
-                    preturn (PrattParsed.withError lhs errAcc) reader
-                elif leftPower = minBinding then
-                    fail ambiguous reader
-                else
+                | InfixNary(op, _parseOp, _, allowTrailingOp, completeNary) ->
                     rhsInfixNary pExpr ops minBinding lhs leftPower op allowTrailingOp completeNary reader
 
-            | InfixMapped(op, _parseOp, leftPower, parseRight, complete) ->
-                if leftPower < minBinding then
-                    reader.Position <- pos
-                    preturn (PrattParsed.withError lhs errAcc) reader
-                elif leftPower = minBinding then
-                    fail ambiguous reader
-                else
+                | InfixMapped(op, _parseOp, _, parseRight, complete) ->
                     rhsInfixMapped pExpr ops minBinding lhs errAcc pos op parseRight complete reader
 
-            | Indexer(op, _parseOp, leftPower, _closeOp, parseCloseOp, innerParser, completeIndexer) ->
-                if leftPower < minBinding then
-                    reader.Position <- pos
-                    preturn (PrattParsed.withError lhs errAcc) reader
-                elif leftPower = minBinding then
-                    fail ambiguous reader
-                else
+                | Indexer(op, _parseOp, _, _closeOp, parseCloseOp, innerParser, completeIndexer) ->
                     rhsIndexer pExpr ops minBinding lhs errAcc pos op parseCloseOp innerParser completeIndexer reader
 
-            | Ternary(op, _parseOp, leftPower, parseTernaryOp, completeTernary) ->
-                if leftPower < minBinding then
-                    reader.Position <- pos
-                    preturn (PrattParsed.withError lhs errAcc) reader
-                elif leftPower = minBinding then
-                    fail ambiguous reader
-                else
+                | Ternary(op, _parseOp, _, parseTernaryOp, completeTernary) ->
                     rhsTernary
                         pExpr
                         ops
