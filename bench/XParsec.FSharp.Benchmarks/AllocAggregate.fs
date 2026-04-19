@@ -22,6 +22,152 @@ let private add (dict: Dictionary<string, int64>) key bytes =
 let private isAllocationEvent (name: string) =
     name.Contains "AllocationTick" || name.Contains "SampledObjectAllocation"
 
+/// Aggregate by allocated type name for samples whose leaf frame contains
+/// `targetSubstring`. Reveals *what* is being allocated at that leaf (often the
+/// most useful diagnostic — leaf stack attribution says where, this says what).
+let aggregateTypesAt (tracePath: string) (targetSubstring: string) (topN: int) =
+    printfn "Opening %s ..." tracePath
+    let etlxPath = TraceLog.CreateFromEventPipeDataFile(tracePath)
+    use traceLog = new TraceLog(etlxPath)
+    let byType = Dictionary<string, int64>()
+    let mutable matched = 0L
+
+    for ev in traceLog.Events do
+        if isAllocationEvent ev.EventName then
+            match ev with
+            | :? GCAllocationTickTraceData as a ->
+                let cs = ev.CallStack()
+
+                if cs <> null then
+                    let leaf = cs.CodeAddress.FullMethodName
+
+                    if not (String.IsNullOrEmpty leaf) && leaf.Contains targetSubstring then
+                        let bytes = int64 a.AllocationAmount64
+                        matched <- matched + bytes
+                        add byType a.TypeName bytes
+            | _ -> ()
+
+    printfn ""
+    printfn "Matched %s bytes at leaf frames containing '%s'" (matched.ToString("N0")) targetSubstring
+    printfn ""
+
+    let pct v =
+        if matched = 0L then
+            "n/a"
+        else
+            sprintf "%5.2f%%" (float v / float matched * 100.0)
+
+    let fmt (b: int64) = sprintf "%12s" (b.ToString("N0"))
+    printfn "## Top %d allocated types" topN
+
+    for kv in byType |> Seq.sortByDescending (fun kv -> kv.Value) |> Seq.truncate topN do
+        printfn "%s  %s  %s" (pct kv.Value) (fmt kv.Value) kv.Key
+
+/// Dump the first `maxStacks` full call stacks for allocation samples whose leaf
+/// frame contains `targetSubstring`. Shows frame names from leaf to root one per line.
+let dumpStacks (tracePath: string) (targetSubstring: string) (maxStacks: int) =
+    printfn "Opening %s ..." tracePath
+    let etlxPath = TraceLog.CreateFromEventPipeDataFile(tracePath)
+    use traceLog = new TraceLog(etlxPath)
+    let mutable printed = 0
+
+    for ev in traceLog.Events do
+        if printed < maxStacks && isAllocationEvent ev.EventName then
+            let cs = ev.CallStack()
+
+            if cs <> null then
+                let leaf = cs.CodeAddress.FullMethodName
+
+                if not (String.IsNullOrEmpty leaf) && leaf.Contains targetSubstring then
+                    printed <- printed + 1
+                    printfn ""
+                    printfn "---- stack %d ----" printed
+                    let mutable f = cs
+                    let mutable depth = 0
+
+                    while f <> null && depth < 20 do
+                        let m = f.CodeAddress.FullMethodName
+
+                        let show =
+                            if String.IsNullOrEmpty m then
+                                sprintf "%s!?" f.CodeAddress.ModuleName
+                            else
+                                sprintf "%s!%s" f.CodeAddress.ModuleName m
+
+                        printfn "  [%2d] %s" depth show
+                        depth <- depth + 1
+                        f <- f.Caller
+
+/// Print the top-N callers of any frame whose name contains `targetSubstring`.
+/// Useful for pinpointing which source location is constructing a particular
+/// compiler-generated closure (e.g. `clo@1023-6`). For every allocation sample
+/// whose leaf frame matches, bucket by the immediate caller and report totals.
+let aggregateCallers (tracePath: string) (targetSubstring: string) (topN: int) =
+    printfn "Opening %s ..." tracePath
+    let etlxPath = TraceLog.CreateFromEventPipeDataFile(tracePath)
+    use traceLog = new TraceLog(etlxPath)
+    printfn "Loaded. %d events, %d processes." traceLog.EventCount traceLog.Processes.Count
+
+    let callerBytes = Dictionary<string, int64>()
+    let mutable matchedBytes = 0L
+    let mutable matchedSamples = 0
+
+    for ev in traceLog.Events do
+        let name = ev.EventName
+
+        if isAllocationEvent name then
+            let bytes =
+                match ev with
+                | :? GCAllocationTickTraceData as a -> int64 a.AllocationAmount64
+                | _ -> 0L
+
+            if bytes > 0L then
+                let cs = ev.CallStack()
+
+                if cs <> null then
+                    let leafMethod = cs.CodeAddress.FullMethodName
+
+                    if not (String.IsNullOrEmpty leafMethod) && leafMethod.Contains targetSubstring then
+                        matchedBytes <- matchedBytes + bytes
+                        matchedSamples <- matchedSamples + 1
+                        let caller = cs.Caller
+
+                        let callerName =
+                            if caller = null then
+                                "<root>"
+                            else
+                                let m = caller.CodeAddress.FullMethodName
+                                let mo = caller.CodeAddress.ModuleName
+
+                                if String.IsNullOrEmpty m then
+                                    sprintf "%s!?" mo
+                                else
+                                    sprintf "%s!%s" mo m
+
+                        add callerBytes callerName bytes
+
+    printfn ""
+
+    printfn
+        "Matched %d samples / %s bytes at leaf frames containing '%s'"
+        matchedSamples
+        (matchedBytes.ToString("N0"))
+        targetSubstring
+
+    printfn ""
+
+    let pct v =
+        if matchedBytes = 0L then
+            "n/a"
+        else
+            sprintf "%5.2f%%" (float v / float matchedBytes * 100.0)
+
+    let fmt (b: int64) = sprintf "%12s" (b.ToString("N0"))
+    printfn "## Top %d immediate callers" topN
+
+    for kv in callerBytes |> Seq.sortByDescending (fun kv -> kv.Value) |> Seq.truncate topN do
+        printfn "%s  %s  %s" (pct kv.Value) (fmt kv.Value) kv.Key
+
 /// Opens the .nettrace, walks GC allocation events, and prints top-N-by-self and
 /// top-N-by-total attribution tables to stdout. `filter` scopes the printed tables
 /// to frames whose name contains the substring (pass "*" to disable filtering).
