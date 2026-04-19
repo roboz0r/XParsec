@@ -21,6 +21,7 @@
     <PackageVersion Include="BenchmarkDotNet.Diagnostics.Windows" Version="0.15.8" />
     <PackageVersion Include="FParsec" Version="1.1.1" />
     <PackageVersion Include="FSharp.Compiler.Service" Version="43.12.202" />
+    <PackageVersion Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.2.2" />
   </ItemGroup>
   <ItemGroup Condition="'$(IsClient)' == 'true'" Label="Client">
     <PackageVersion Include="Fable.Browser.Dom" Version="2.18.1" />
