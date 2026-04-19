@@ -533,6 +533,35 @@ module Expr =
             | ValueNone -> return expr
         }
 
+    // Shared once-allocated ErrorType for pTypeApplication's failure paths. Kept as a
+    // separate module-level binding (with explicit type) so the value-restriction rule
+    // can't generalize pTypeApplication into a thunk that re-allocates the Message.
+    let private pTypeApplicationErr: ErrorType<PositionedToken, ParseState> =
+        Message "Expected '<' for type application"
+
+    /// Direct-style type-application lookahead. Moved to module scope so the binding
+    /// is initialized once as a static field (rather than re-evaluated for each generic
+    /// instantiation of an enclosing class member).
+    let pTypeApplication: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, _> =
+        fun reader ->
+            if not (isPrevTokenNonTrivia reader) then
+                fail pTypeApplicationErr reader
+            else
+                match reader.Peek() with
+                | ValueSome t when t.Token = Token.OpLessThan ->
+                    let st = syntaxToken t reader.Index
+
+                    if tokenStringIs "<" st reader.State then
+                        let typeAngle =
+                            { st with
+                                PositionedToken = PositionedToken.Create(Token.VirtualTyApp, t.StartIndex)
+                            }
+
+                        preturn typeAngle reader
+                    else
+                        fail pTypeApplicationErr reader
+                | _ -> fail pTypeApplicationErr reader
+
     type ExprOperatorParser() =
         let completeInfix (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) = Expr.InfixApp(l, op, r)
 
@@ -1012,32 +1041,6 @@ module Expr =
                         else
                             return! failApp
             }
-
-        let pTypeApplication =
-            // Treat '<' followed by a type and '>' as type application.
-            // Like high-prec app, '<' must be truly adjacent (no trivia before it in the raw stream).
-            // Direct-style: the `parser { }` CE form allocated a fresh closure + fresh Message
-            // on every invocation; this hot RHS path parses on almost every identifier.
-            let errMsg = Message "Expected '<' for type application"
-
-            fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
-                if not (isPrevTokenNonTrivia reader) then
-                    fail errMsg reader
-                else
-                    match reader.Peek() with
-                    | ValueSome t when t.Token = Token.OpLessThan ->
-                        let st = syntaxToken t reader.Index
-
-                        if tokenStringIs "<" st reader.State then
-                            let typeAngle =
-                                { st with
-                                    PositionedToken = PositionedToken.Create(Token.VirtualTyApp, t.StartIndex)
-                                }
-
-                            preturn typeAngle reader
-                        else
-                            fail errMsg reader
-                    | _ -> fail errMsg reader
 
         let getRhsOperatorHandler (opInfo: OperatorInfo) token =
             // Note: Precedence gets bit-packed into the token and converted directly
