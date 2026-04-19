@@ -2038,91 +2038,129 @@ module Lexing =
 
                 | _ -> fail expectedBasePrefix reader
 
-        let private getIntToken (numBase: NumericBase) (suffix: string) =
+        // Span-based dispatch — avoids allocating a suffix string per numeric
+        // literal. The valid suffix length is ≤2; longer runs of identifier
+        // chars collapse to `ReservedNumericLiteral` regardless of content.
+        let private getIntTokenFromSpan (numBase: NumericBase) (suffix: ReadOnlySpan<char>) =
             let token =
-                if suffix.Length > 2 then
-                    Token.ReservedNumericLiteral
-                else
-                    match suffix with
-                    | "y" -> Token.NumSByte
-                    | "uy" -> Token.NumByte
-                    | "s" -> Token.NumInt16
-                    | "us" -> Token.NumUInt16
-                    | ""
-                    | "l" -> Token.NumInt32
-                    | "u"
-                    | "ul" -> Token.NumUInt32
-                    | "n" -> Token.NumNativeInt
-                    | "un" -> Token.NumUNativeInt
-                    | "L" -> Token.NumInt64
-                    | "uL"
-                    | "UL" -> Token.NumUInt64
-                    | "Q" ->
+                match suffix.Length with
+                | 0 -> Token.NumInt32
+                | 1 ->
+                    match suffix.[0] with
+                    | 'y' -> Token.NumSByte
+                    | 's' -> Token.NumInt16
+                    | 'l' -> Token.NumInt32
+                    | 'u' -> Token.NumUInt32
+                    | 'n' -> Token.NumNativeInt
+                    | 'L' -> Token.NumInt64
+                    | 'Q' ->
                         match numBase with
                         | NumericBase.Decimal -> Token.NumBigIntegerQ
                         | _ -> Token.ReservedNumericLiteral
-                    | "R" ->
+                    | 'R' ->
                         match numBase with
                         | NumericBase.Decimal -> Token.NumBigIntegerR
                         | _ -> Token.ReservedNumericLiteral
-                    | "Z" ->
+                    | 'Z' ->
                         match numBase with
                         | NumericBase.Decimal -> Token.NumBigIntegerZ
                         | _ -> Token.ReservedNumericLiteral
-                    | "I" ->
+                    | 'I' ->
                         match numBase with
                         | NumericBase.Decimal -> Token.NumBigIntegerI
                         | _ -> Token.ReservedNumericLiteral
-                    | "N" ->
+                    | 'N' ->
                         match numBase with
                         | NumericBase.Decimal -> Token.NumBigIntegerN
                         | _ -> Token.ReservedNumericLiteral
-                    | "G" ->
+                    | 'G' ->
                         match numBase with
                         | NumericBase.Decimal -> Token.NumBigIntegerG
                         | _ -> Token.ReservedNumericLiteral
-                    | "m"
-                    | "M" ->
-                        // Integer decimals only, float decimals also use m/M suffix
-                        // but are handled in the float parser
+                    | 'm'
+                    | 'M' ->
+                        // Integer decimals only; float decimals also use m/M
+                        // suffix but are handled in the float parser.
                         match numBase with
                         | NumericBase.Decimal -> Token.NumDecimal
                         | _ -> Token.ReservedNumericLiteral
-                    | "f"
-                    | "F" ->
-                        // Float suffixes are only valid for decimal base
+                    | 'f'
+                    | 'F' ->
+                        // Float suffixes are only valid for decimal base.
                         match numBase with
                         | NumericBase.Decimal -> Token.NumIEEE32
                         | _ -> Token.ReservedNumericLiteral
-                    | "LF" ->
-                        match numBase with
-                        | NumericBase.Decimal -> Token.ReservedNumericLiteral
-                        | _ -> Token.NumIEEE64
-                    | "lf" ->
-                        match numBase with
-                        | NumericBase.Decimal -> Token.ReservedNumericLiteral
-                        | _ -> Token.NumIEEE32
                     | _ -> Token.ReservedNumericLiteral
+                | 2 ->
+                    // Nested match on the two chars avoids allocating a
+                    // reference tuple for the outer `match c0, c1 with` form.
+                    match suffix.[0] with
+                    | 'u' ->
+                        match suffix.[1] with
+                        | 'y' -> Token.NumByte
+                        | 's' -> Token.NumUInt16
+                        | 'l' -> Token.NumUInt32
+                        | 'n' -> Token.NumUNativeInt
+                        | 'L' -> Token.NumUInt64
+                        | _ -> Token.ReservedNumericLiteral
+                    | 'U' ->
+                        match suffix.[1] with
+                        | 'L' -> Token.NumUInt64
+                        | _ -> Token.ReservedNumericLiteral
+                    | 'L' ->
+                        match suffix.[1] with
+                        | 'F' ->
+                            match numBase with
+                            | NumericBase.Decimal -> Token.ReservedNumericLiteral
+                            | _ -> Token.NumIEEE64
+                        | _ -> Token.ReservedNumericLiteral
+                    | 'l' ->
+                        match suffix.[1] with
+                        | 'f' ->
+                            match numBase with
+                            | NumericBase.Decimal -> Token.ReservedNumericLiteral
+                            | _ -> Token.NumIEEE32
+                        | _ -> Token.ReservedNumericLiteral
+                    | _ -> Token.ReservedNumericLiteral
+                | _ -> Token.ReservedNumericLiteral
 
             // Combine the base into the token
             let numBase = uint16 numBase <<< TokenRepresentation.NumericBaseShift
             Token.ofUInt16 (uint16 token ||| numBase)
 
-        let getDecimalFloatToken (suffix: string) =
-            // Float suffixes are only valid for decimal base
-            match suffix with
-            | "" -> Token.NumIEEE64
-            | "f"
-            | "F" -> Token.NumIEEE32
-            | "m"
-            | "M" -> Token.NumDecimal
+        let private getDecimalFloatTokenFromSpan (suffix: ReadOnlySpan<char>) =
+            match suffix.Length with
+            | 0 -> Token.NumIEEE64
+            | 1 ->
+                match suffix.[0] with
+                | 'f'
+                | 'F' -> Token.NumIEEE32
+                | 'm'
+                | 'M' -> Token.NumDecimal
+                | _ -> Token.ReservedNumericLiteral
             | _ -> Token.ReservedNumericLiteral
 
-        let private parseDecimalIntToken =
-            parser {
-                let! suffix = manyChars pIdentChar
-                return getIntToken NumericBase.Decimal suffix
-            }
+        /// Consumes a run of identifier characters (the numeric-literal suffix)
+        /// and returns its span. Zero chars is a success.
+        let inline private skipSuffixAndGetSpan (reader: Reader<char, LexBuilder, ReadableString, _>) =
+            let startIdx = int reader.Position.Index
+            let mutable more = true
+
+            while more do
+                match reader.Peek() with
+                | ValueSome c when isIdentChar c -> reader.Skip()
+                | _ -> more <- false
+
+            let len = int reader.Position.Index - startIdx
+            reader.State.Source.AsSpan(startIdx, len)
+
+        let private parseDecimalIntToken (reader: Reader<char, LexBuilder, ReadableString, _>) =
+            let span = skipSuffixAndGetSpan reader
+            preturn (getIntTokenFromSpan NumericBase.Decimal span) reader
+
+        let private parseDecimalFloatSuffixToken (reader: Reader<char, LexBuilder, ReadableString, _>) =
+            let span = skipSuffixAndGetSpan reader
+            preturn (getDecimalFloatTokenFromSpan span) reader
 
         let private parseDecimalExpFloatToken =
             let choices =
@@ -2131,15 +2169,13 @@ module Lexing =
             parser {
                 let! e = anyOf "eE"
                 let! expPart = choices
-                let! suffix = manyChars pIdentChar
-                return getDecimalFloatToken suffix
+                let! token = parseDecimalFloatSuffixToken
+                return token
             }
 
         let private parseDecimalFracFloatToken =
             let choices =
-                choiceL
-                    [ parseDecimalExpFloatToken; manyChars pIdentChar |>> getDecimalFloatToken ]
-                    "parseDecimalFracFloatToken"
+                choiceL [ parseDecimalExpFloatToken; parseDecimalFloatSuffixToken ] "parseDecimalFracFloatToken"
 
             parser {
                 let! dot = pchar '.' .>> notFollowedBy (pchar '.')
@@ -2149,6 +2185,10 @@ module Lexing =
 
         let private parseDecimalToken =
             choiceL [ parseDecimalFracFloatToken; parseDecimalExpFloatToken; parseDecimalIntToken ] "parseDecimalToken"
+
+        let private parseIntSuffixToken (numBase: NumericBase) (reader: Reader<char, LexBuilder, ReadableString, _>) =
+            let span = skipSuffixAndGetSpan reader
+            preturn (getIntTokenFromSpan numBase span) reader
 
         let parseToken =
             parser {
@@ -2161,8 +2201,7 @@ module Lexing =
                     do! updateUserState (LexBuilder.append token pos CtxOp.NoOp)
                 | _ ->
                     // Non-decimal base, must be integer (or integral float "1F", "1M", "0x1LF")
-                    let! suffix = manyChars pIdentChar
-                    let token = getIntToken numBase suffix
+                    let! token = parseIntSuffixToken numBase
                     do! updateUserState (LexBuilder.append token pos CtxOp.NoOp)
             }
 
