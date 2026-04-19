@@ -10,22 +10,11 @@ open XParsec.FSharp
 type token
 
 [<Measure>]
-type block
-
-[<Measure>]
 type line
-
-[<Struct>]
-type BlockInfo =
-    {
-        TokenIndex: int<token>
-        IndentLevel: int
-    }
 
 type Lexed =
     {
         Tokens: ImmutableArrayM<PositionedToken, token>
-        Blocks: ImmutableArrayM<BlockInfo, block>
         LineStarts: ImmutableArrayM<int<token>, line>
     }
 
@@ -34,13 +23,6 @@ type Lexed =
             invalidArg (nameof lineIndex) "Index out of range"
 
         let tokenIndex = this.LineStarts[lineIndex]
-        this.Tokens[tokenIndex]
-
-    member this.FirstTokenOfBlock(blockIndex: int<block>) =
-        if blockIndex < 0<_> || int blockIndex >= this.Blocks.Length then
-            invalidArg (nameof blockIndex) "Index out of range"
-
-        let tokenIndex = this.Blocks[blockIndex].TokenIndex
         this.Tokens[tokenIndex]
 
     member this.GetLineForToken(i: int<token>) =
@@ -209,107 +191,6 @@ type CtxOp =
 
 module LexBuilder =
 
-    let private computeBlocks
-        (tokens: ImmutableArrayM<PositionedToken, token>)
-        (lineStarts: ImmutableArrayM<int<token>, line>)
-        =
-        let blocks = ImmutableArray.CreateBuilder<BlockInfo>(lineStarts.Length / 4 + 1) // Rough estimate of number of blocks
-
-        let rec firstNonTrivialOnLine iTok iTokEnd =
-            // printfn $"    firstNonTrivialOnLine: iTok={iTok}, iTokEnd={iTokEnd}"
-            if iTok = iTokEnd then
-                None
-            else
-                // Line with only whitespace/comments doesn't change blocks
-                // Empty line doesn't change blocks
-                let token = tokens[iTok]
-
-                if token.InComment then
-                    firstNonTrivialOnLine (iTok + 1<_>) iTokEnd
-                else
-                    match token.TokenWithoutCommentFlags with
-                    | Token.LineComment -> None // rest of line is comment, so no non-trivial token
-                    | Token.Indent
-                    | Token.Whitespace
-                    | Token.EOF
-                    | Token.Tab
-                    | Token.BlockCommentStart
-                    | Token.BlockCommentEnd
-                    | Token.StartFSharpBlockComment
-                    | Token.EndFSharpBlockComment
-                    | Token.StartOCamlBlockComment
-                    | Token.EndOCamlBlockComment -> firstNonTrivialOnLine (iTok + 1<_>) iTokEnd
-                    | Token.Newline -> invalidOp "Unexpected Newline token in line"
-
-                    | _ -> Some(iTok, token)
-
-        let rec tryFindNonTriviaToken iLine iTok =
-            // printfn $"  tryFindNonTriviaToken: iLine={iLine}, iTok={iTok}"
-
-            // Last token on this line (inclusive)
-            let iTokEnd =
-                if iLine + 1<line> < lineStarts.LengthM then
-                    lineStarts[iLine + 1<_>] - 1<_>
-                else
-                    tokens.LengthM - 1<_>
-
-            match firstNonTrivialOnLine iTok iTokEnd with
-            | Some(iTok, token) -> Some(iLine, iTok, token)
-            | None ->
-                let iLineNext = iLine + 1<_>
-
-                if iLineNext < lineStarts.LengthM then
-                    // try next line
-                    tryFindNonTriviaToken iLineNext (lineStarts[iLineNext])
-                else
-                    None
-
-        let rec findBlocks iLine currentIndent =
-            // printfn $"findBlocks: iLine={iLine}, currentIndent={currentIndent}"
-            if iLine = lineStarts.LengthM then
-                ImmutableArrayM(blocks.ToImmutable())
-            elif iLine > lineStarts.LengthM then
-                invalidOp "Line index out of range"
-            else
-                let iTok = lineStarts[iLine]
-
-                match tryFindNonTriviaToken iLine iTok with
-                | None -> ImmutableArrayM(blocks.ToImmutable())
-                | Some(iLineNext, iTokNext, token) ->
-                    let thisIndent =
-                        let firstTok = tokens[lineStarts[iLineNext]]
-                        token.StartIndex - firstTok.StartIndex
-
-                    if thisIndent <> currentIndent then
-                        // printfn $"  New block at line {iLine}, token {iTokNext}: {token}, indent {thisIndent}"
-                        // We add iTok not iTokNext here, as the block starts at
-                        // the first token on the line (including leading trivia)
-                        blocks.Add
-                            {
-                                TokenIndex = iTok
-                                IndentLevel = int thisIndent
-                            }
-
-                        findBlocks (iLineNext + 1<_>) thisIndent
-                    else
-                        findBlocks (iLineNext + 1<_>) currentIndent
-
-
-        match tryFindNonTriviaToken 0<line> 0<token> with
-        | None ->
-            blocks.Add { TokenIndex = 0<_>; IndentLevel = 0 }
-            ImmutableArrayM(blocks.ToImmutable())
-        | Some(iLineNext, iTok, token) ->
-            let thisIndent = token.StartIndex - tokens[lineStarts[iLineNext]].StartIndex
-            // printfn $"  New block at line 0, token {iTok}: {token}, indent {thisIndent}"
-            blocks.Add
-                {
-                    TokenIndex = 0<_>
-                    IndentLevel = int thisIndent
-                }
-
-            findBlocks (iLineNext + 1<_>) thisIndent
-
     let private emitUnterminatedStrings idx (state: LexBuilder) =
         let rec unwindContext (ctx: LexContext list) =
             // TODO: Handle other unclosed contexts (e.g. unterminated #if) — currently we just ignore them and let the parser handle any resulting errors
@@ -350,12 +231,9 @@ module LexBuilder =
 
             ImmutableArrayM(state.LineStarts.ToImmutable())
 
-        let blocks = computeBlocks tokens lineStarts
-
         {
             Tokens = tokens
             LineStarts = lineStarts
-            Blocks = blocks
         }
 
     let init (input: string) =

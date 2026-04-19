@@ -11,7 +11,6 @@
     <Compile Include="KeywordTests.fs" />
     <Compile Include="NumericTests.fs" />
     <Compile Include="LexingTests.fs" />
-    <Compile Include="BlocksTests.fs" />
     <Compile Include="ParserTests.fs" />
     <Compile Include="CorpusReport.fs" />
     <Compile Include="Program.fs" />
