@@ -250,8 +250,6 @@ type Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
     abstract RhsParser:
         Parser<RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>, 'T, 'State, 'Input, 'InputSlice>
 
-    abstract OpComparer: IEqualityComparer<'Op>
-
 type OperatorsCollection<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
     when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
     internal
@@ -267,7 +265,6 @@ type OperatorsCollection<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
     interface Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice> with
         member this.LhsParser = this.LhsParserImpl
         member this.RhsParser = this.RhsParserImpl
-        member this.OpComparer = EqualityComparer<'Op>.Default
 
 
 module internal rec Pratt =
