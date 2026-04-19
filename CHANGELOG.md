@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.4.1 - 2026-04-19
+
+### 0.4.1 Behaviour Changes
+
+- **`ParserCE.While` and `ParserCE.For` now use plain F# imperative semantics.** The guard is evaluated normally, the body runs for its side effects on each iteration, and mutations to enclosing `let mutable` bindings propagate as expected. This supersedes the 0.4.0 behaviour where `ParserCE.While` raised `InfiniteLoopException` when the body made no progress. Termination is now the user's responsibility (enforce it via the guard).
+- **`ParserCE.Zero` now returns `Ok ()` instead of `pzero`.** This fixes `if cond then stmt` (with no `else`) and the implicit trailing `Zero` at the end of `while`/`for` bodies from short-circuiting the rest of the CE via `Combine`.
+- **`ParserCE.Using` generalised to any return type.** Previously constrained to `Parser<unit, …>`; now `Parser<'A, …>`. Existing callers remain source-compatible. Implementation also switched to `use` binding to avoid a null-check boxing allocation.
+
+### 0.4.1 Fixes
+
+- Fix `OperatorParser.InfixNary` to roll back the reader position when the right-hand side parse fails under `allowTrailingOp`, and add a same-position guard before the trailing `parseRhsInternal` call to prevent infinite recursion when virtual tokens can repeatedly fire at the same position. Follow-up to the 0.4.0 `InfixNary` infinite-loop fix.
+- Fix bounds-check bugs in `ReadableStringSlice` and related slice types:
+  - `Slice` was double-applying the `start` offset when computing the new slice's start.
+  - `AsSpan` used `index > length` where it should have been `index >= length`, and did not clamp the returned length to this slice's remaining bytes.
+  - `Item` and `TryItem` index checks tightened via `uint` cast (single comparison for `0 <= index < length`).
+- Fix an escape bug where a parent `Readable` could leak through slice operations.
+
+### 0.4.1 Performance
+
+- `ParserCE.Bind`, `Return`, `ReturnFrom`, and `BindReturn` are now inlined directly instead of delegating to `>>=`, `preturn`, and `|>>`. Eliminates closure allocations in CE bodies.
+
+### 0.4.1 Tests
+
+- New `ReadableTests.fs` covering slicing edge cases.
+- New `ParserCE` tests for imperative `while`/`for` semantics and `if`-without-`else`.
+
 ## 0.4.0 - 2026-03-28
 
 ### 0.4.0 Breaking Changes
