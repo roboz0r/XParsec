@@ -13,11 +13,25 @@ open System
 open System.Collections.Generic
 open Microsoft.Diagnostics.Tracing.Etlx
 open Microsoft.Diagnostics.Tracing.Parsers.Clr
+open Microsoft.Diagnostics.Tracing.Parsers.Kernel
 
 let private add (dict: Dictionary<string, int64>) key bytes =
     match dict.TryGetValue key with
     | true, v -> dict.[key] <- v + bytes
     | _ -> dict.[key] <- bytes
+
+/// Opens a .nettrace (EventPipe) or .etl/.etlx (ETW) trace and returns a TraceLog
+/// that the caller must dispose.
+let private openTraceLog (tracePath: string) : TraceLog =
+    let ext = IO.Path.GetExtension(tracePath).ToLowerInvariant()
+
+    match ext with
+    | ".nettrace" ->
+        let etlxPath = TraceLog.CreateFromEventPipeDataFile(tracePath)
+        new TraceLog(etlxPath)
+    | ".etl"
+    | ".etlx" -> TraceLog.OpenOrConvert(tracePath)
+    | _ -> failwithf "Unknown trace extension %s (expected .nettrace, .etl, .etlx)" ext
 
 let private isAllocationEvent (name: string) =
     name.Contains "AllocationTick" || name.Contains "SampledObjectAllocation"
@@ -264,3 +278,86 @@ let aggregate (tracePath: string) (filter: string) =
 
     for kv in topBy totalBytes 30 do
         printfn "%s  %s  %s" (pct kv.Value) (fmtBytes kv.Value) (short kv.Key)
+
+/// Opens a CPU trace (ETW .etl, or EventPipe .nettrace with the sampler enabled)
+/// and prints top-N-by-self / top-N-by-total tables counting CPU samples.
+/// Each sample is ≈1ms of on-CPU time, so the counts proxy wall-time attribution.
+let aggregateCpu (tracePath: string) (filter: string) =
+    printfn "Opening %s ..." tracePath
+    use traceLog = openTraceLog tracePath
+    printfn "Loaded. %d events, %d processes." traceLog.EventCount traceLog.Processes.Count
+
+    let selfSamples = Dictionary<string, int64>()
+    let totalSamples = Dictionary<string, int64>()
+    let mutable totalCount = 0L
+    let mutable samplesWithStack = 0
+
+    for ev in traceLog.Events do
+        match ev with
+        | :? SampledProfileTraceData ->
+            totalCount <- totalCount + 1L
+            let cs = ev.CallStack()
+
+            if cs <> null then
+                samplesWithStack <- samplesWithStack + 1
+                let seen = HashSet<string>()
+                let mutable frame = cs
+                let mutable isLeaf = true
+
+                while frame <> null do
+                    let methodName = frame.CodeAddress.FullMethodName
+                    let modName = frame.CodeAddress.ModuleName
+
+                    let display =
+                        if String.IsNullOrEmpty methodName then
+                            sprintf "%s!?" modName
+                        else
+                            sprintf "%s!%s" modName methodName
+
+                    if isLeaf then
+                        add selfSamples display 1L
+                        isLeaf <- false
+
+                    if seen.Add display then
+                        add totalSamples display 1L
+
+                    frame <- frame.Caller
+        | _ -> ()
+
+    printfn ""
+
+    printfn "CPU samples: %d   with stack: %d   (~%d ms of on-CPU time at 1 kHz)" totalCount samplesWithStack totalCount
+
+    printfn "Filter: %s" filter
+    printfn ""
+
+    let matches (name: string) = filter = "*" || name.Contains filter
+
+    let pct v =
+        if totalCount = 0L then
+            "n/a"
+        else
+            sprintf "%5.2f%%" (float v / float totalCount * 100.0)
+
+    let fmtCount (b: int64) = sprintf "%12s" (b.ToString("N0"))
+
+    let short (s: string) =
+        if s.Length > 140 then s.Substring(0, 137) + "..." else s
+
+    let topBy (d: Dictionary<string, int64>) n =
+        d
+        |> Seq.filter (fun kv -> matches kv.Key)
+        |> Seq.sortByDescending (fun kv -> kv.Value)
+        |> Seq.truncate n
+        |> Seq.toArray
+
+    printfn "## Top 30 frames by SELF CPU samples (leaf = where the CPU is spent)"
+
+    for kv in topBy selfSamples 30 do
+        printfn "%s  %s  %s" (pct kv.Value) (fmtCount kv.Value) (short kv.Key)
+
+    printfn ""
+    printfn "## Top 30 frames by TOTAL (inclusive) CPU samples"
+
+    for kv in topBy totalSamples 30 do
+        printfn "%s  %s  %s" (pct kv.Value) (fmtCount kv.Value) (short kv.Key)
