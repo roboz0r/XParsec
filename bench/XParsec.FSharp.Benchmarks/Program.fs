@@ -111,6 +111,15 @@ let main argv =
     | [| "--trace-child"; sizeArg; iterArg |] ->
         runTraceChild (parseSize sizeArg) (int iterArg)
         0
+    | [| "--aggregate-callers"; tracePath; substring |] ->
+        AllocAggregate.aggregateCallers tracePath substring 20
+        0
+    | [| "--dump-stacks"; tracePath; substring; count |] ->
+        AllocAggregate.dumpStacks tracePath substring (int count)
+        0
+    | [| "--aggregate-types"; tracePath; substring |] ->
+        AllocAggregate.aggregateTypesAt tracePath substring 20
+        0
     | _ ->
         BenchmarkSwitcher.FromAssembly(typeof<LexingBenchmarks.LexingBenchmarks>.Assembly).Run(argv)
         |> ignore
