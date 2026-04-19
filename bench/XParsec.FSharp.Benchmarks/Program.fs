@@ -120,6 +120,12 @@ let main argv =
     | [| "--aggregate-types"; tracePath; substring |] ->
         AllocAggregate.aggregateTypesAt tracePath substring 20
         0
+    | [| "--aggregate-cpu"; tracePath |] ->
+        AllocAggregate.aggregateCpu tracePath "XParsec"
+        0
+    | [| "--aggregate-cpu"; tracePath; filter |] ->
+        AllocAggregate.aggregateCpu tracePath filter
+        0
     | _ ->
         BenchmarkSwitcher.FromAssembly(typeof<LexingBenchmarks.LexingBenchmarks>.Assembly).Run(argv)
         |> ignore
