@@ -1492,18 +1492,37 @@ module Lexing =
     let pInterpolatedStringEndToken =
         pTokenPopCtx (pchar '"') Token.InterpolatedStringClose LexContext.InterpolatedString
 
-    let pInterpolatedStringFragmentToken =
-        // Non-verbatim interpolated strings support escape sequences like \"
-        // A backslash consumes itself and the next character as an escape pair.
-        let pFragmentChar =
-            choiceL
-                [
-                    pchar '\\' >>. anyChar
-                    satisfy (fun c -> c <> '"' && c <> '{' && c <> '}' && c <> '%' && c <> '\\')
-                ]
-                "Interpolated string fragment char"
+    // Non-verbatim interpolated strings support escape sequences like \".
+    // A backslash consumes itself and the next character as an escape pair;
+    // a bare backslash at EOF causes the whole fragment to fail (matches the
+    // old `pchar '\\' >>. anyChar` behaviour).
+    let private pSkipInterpolatedFragmentChars (reader: Reader<char, LexBuilder, ReadableString, _>) =
+        let mutable more = true
+        let mutable consumedAny = false
 
-        pToken (skipMany1 pFragmentChar) Token.InterpolatedStringFragment
+        while more do
+            match reader.Peek() with
+            | ValueSome '\\' ->
+                let span = reader.PeekN(2)
+
+                if span.Length >= 2 then
+                    reader.SkipN(2)
+                    consumedAny <- true
+                else
+                    // lone \ at EOF — stop without consuming
+                    more <- false
+            | ValueSome c when c <> '"' && c <> '{' && c <> '}' && c <> '%' ->
+                reader.Skip()
+                consumedAny <- true
+            | _ -> more <- false
+
+        if consumedAny then
+            preturn () reader
+        else
+            fail (Message "Expected interpolated string fragment character") reader
+
+    let pInterpolatedStringFragmentToken =
+        pToken pSkipInterpolatedFragmentChars Token.InterpolatedStringFragment
 
     let pInterpolated3StringFragmentToken =
         pToken pSkipInterpolated3FragmentChars Token.Interpolated3StringFragment
