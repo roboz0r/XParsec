@@ -5,7 +5,7 @@
 
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("Build", "Test", "Format")]
+    [ValidateSet("Build", "Test", "Format", "Benchmark")]
     [string]$Action,
 
     [Parameter(Mandatory = $false)]
@@ -135,6 +135,29 @@ try {
         "Format" {
             Write-Host "Running Fantomas to format all F# code..." -ForegroundColor Cyan
             dotnet fantomas . 2>&1 | Tee-Object -FilePath $LogFile
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        }
+
+        "Benchmark" {
+            if ([string]::IsNullOrWhiteSpace($Filter)) {
+                Write-Error "You must specify a -Filter when using the Benchmark action. Available benchmark names: EndToEndBenchmarks, LexingBenchmarks, ParsingBenchmarks. Wildcards are allowed (e.g. '*Lexing*')."
+                exit 1
+            }
+
+            $BenchmarkProject = "bench/XParsec.FSharp.Benchmarks"
+            Write-Host "Running benchmarks in $BenchmarkProject with filter '$Filter'..." -ForegroundColor Cyan
+
+            $benchArgs = @(
+                "run",
+                "--project", $BenchmarkProject,
+                "-c", "Release",
+                "--",
+                "-i",
+                "-j", "short",
+                "--filter", $Filter
+            )
+
+            & dotnet @benchArgs 2>&1 | Tee-Object -FilePath $LogFile
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         }
     }
