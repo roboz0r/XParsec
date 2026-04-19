@@ -552,14 +552,14 @@ module Parsing =
             // as OpSubtraction at StartIndex+1 (the numeric `N` follows as its own token).
             let token =
                 if reader.State.SplitRAttrBracket && token.Token = Token.KWRAttrBracket then
-                    reader.State.Trace.Invoke(TraceEvent.SplitRAttrBracketConsumed(token.StartIndex))
+                    reader.State.Trace.SplitRAttrBracketConsumed(token.StartIndex)
                     PositionedToken.Create(Token.KWRBracket, token.StartIndex + 1)
                 elif reader.State.SplitPowerMinus then
                     let span =
                         reader.State.Lexed.GetTokenSpan(reader.Index * 1<token>, reader.State.Input)
 
                     if span.Length >= 2 && span.[0] = '^' && span.[1] = '-' then
-                        reader.State.Trace.Invoke(TraceEvent.SplitPowerMinusConsumed(token.StartIndex))
+                        reader.State.Trace.SplitPowerMinusConsumed(token.StartIndex)
                         PositionedToken.Create(Token.OpSubtraction, token.StartIndex + 1)
                     else
                         token
@@ -581,16 +581,13 @@ module Parsing =
                         if tokenCol < contextIndent then
                             match isPermittedUndentation token.Token tokenCol context reader.State reader.Index with
                             | ValueSome rule ->
-                                reader.State.Trace.Invoke(
-                                    TraceEvent.PermittedUndentation(token, tokenCol, contextIndent, rule)
-                                )
-
+                                reader.State.Trace.PermittedUndentation(token, tokenCol, contextIndent, rule)
                                 false
                             | ValueNone ->
-                                reader.State.Trace.Invoke(TraceEvent.OffsideFail(token, tokenCol, contextIndent, ctx))
+                                reader.State.Trace.OffsideFail(token, tokenCol, contextIndent, ctx)
                                 true
                         else
-                            reader.State.Trace.Invoke(TraceEvent.OffsideOk(token, tokenCol, contextIndent, ctx))
+                            reader.State.Trace.OffsideOk(token, tokenCol, contextIndent, ctx)
                             false
                     | [] -> false
                 )
@@ -602,11 +599,11 @@ module Parsing =
 
                 if isPeek then
                     let col = ParseState.getIndent reader.State (reader.Index * 1<token>)
-                    reader.State.Trace.Invoke(TraceEvent.TokenPeeked(token, int reader.Index, col))
+                    reader.State.Trace.TokenPeeked(token, int reader.Index, col)
                     preturn t reader
                 else
                     let col = ParseState.getIndent reader.State (reader.Index * 1<token>)
-                    reader.State.Trace.Invoke(TraceEvent.TokenConsumed(token, int reader.Index, col))
+                    reader.State.Trace.TokenConsumed(token, int reader.Index, col)
 
                     if reader.State.SplitRAttrBracket then
                         reader.State <-
@@ -631,7 +628,7 @@ module Parsing =
 
     /// Emits a trace message. Use with `do!` inside a `parser { }` CE for debugging.
     let trace (msg: string) (reader: Reader<PositionedToken, ParseState, _, _>) =
-        reader.State.Trace.Invoke(TraceEvent.Message msg)
+        reader.State.Trace.Message msg
         preturn () reader
 
     /// Consumes the given token, which must have been previously returned by `peekNextNotTriviaToken`, and returns it.
@@ -642,7 +639,7 @@ module Parsing =
             assert (reader.Index = tokenIdx * 1< / token>) // Ensure the reader is still at the expected position
             reader.Index <- (tokenIdx + 1<token>) * 1< / token>
             let col = ParseState.getIndent reader.State tokenIdx
-            reader.State.Trace.Invoke(TraceEvent.TokenConsumed(token.PositionedToken, int tokenIdx, col))
+            reader.State.Trace.TokenConsumed(token.PositionedToken, int tokenIdx, col)
             preturn token reader
 
     /// Peeks the next non-trivia token, asserts it matches the expected token,
@@ -709,7 +706,7 @@ module Parsing =
 
             let pt = mkVirtualPT t startIndex
 
-            reader.State.Trace.Invoke(TraceEvent.VirtualToken(pt.Token, pt.StartIndex))
+            reader.State.Trace.VirtualToken(pt.Token, pt.StartIndex)
 
             preturn
                 {
@@ -887,7 +884,7 @@ module Parsing =
         match reader.Peek() with
         | ValueNone -> fail EndOfInput reader
         | ValueSome token ->
-            reader.State.Trace.Invoke(TraceEvent.VirtualToken(Token.VirtualSep, token.StartIndex))
+            reader.State.Trace.VirtualToken(Token.VirtualSep, token.StartIndex)
 
             preturn
                 {
@@ -929,7 +926,7 @@ module Parsing =
 
                     let pt = mkVirtualPT expectedToken token.StartIndex
 
-                    reader.State.Trace.Invoke(TraceEvent.VirtualToken(pt.Token, pt.StartIndex))
+                    reader.State.Trace.VirtualToken(pt.Token, pt.StartIndex)
 
                     preturn
                         {
@@ -956,7 +953,7 @@ module Parsing =
 
                     let pt = mkVirtualPT Token.Identifier token.StartIndex
 
-                    reader.State.Trace.Invoke(TraceEvent.VirtualToken(pt.Token, pt.StartIndex))
+                    reader.State.Trace.VirtualToken(pt.Token, pt.StartIndex)
 
                     let virtualIdent: SyntaxToken =
                         {

@@ -85,8 +85,14 @@ let tracingTests =
                 match XParsec.FSharp.Lexer.Lexing.lexString input with
                 | Error e -> failtestf "Lexing failed: %A" e
                 | Ok lexed ->
-                    let events = ResizeArray<XParsec.FSharp.Parser.TraceEvent>()
-                    let traceCallback = XParsec.FSharp.Parser.TraceCallback(events.Add)
+                    let mutable pushCount = 0
+                    let mutable consumeCount = 0
+
+                    let traceCallback =
+                        { new XParsec.FSharp.Parser.TraceCallback() with
+                            override _.ContextPush(_, _, _, _) = pushCount <- pushCount + 1
+                            override _.TokenConsumed(_, _, _) = consumeCount <- consumeCount + 1
+                        }
 
                     let reader =
                         XParsec.FSharp.Parser.Reader.ofLexedWithTracing lexed input Set.empty traceCallback
@@ -97,27 +103,8 @@ let tracingTests =
                             "Parsing failed:\n%s"
                             (XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
                     | Ok _ ->
-                        let pushEvents =
-                            events
-                            |> Seq.filter (fun e ->
-                                match e with
-                                | XParsec.FSharp.Parser.TraceEvent.ContextPush _ -> true
-                                | _ -> false
-                            )
-                            |> Seq.length
-
-                        Expect.isGreaterThan pushEvents 0 "Expected at least one ContextPush event"
-
-                        let consumeEvents =
-                            events
-                            |> Seq.filter (fun e ->
-                                match e with
-                                | XParsec.FSharp.Parser.TraceEvent.TokenConsumed _ -> true
-                                | _ -> false
-                            )
-                            |> Seq.length
-
-                        Expect.isGreaterThan consumeEvents 0 "Expected at least one TokenConsumed event"
+                        Expect.isGreaterThan pushCount 0 "Expected at least one ContextPush event"
+                        Expect.isGreaterThan consumeCount 0 "Expected at least one TokenConsumed event"
             }
 
             test "Tracing is off by default" {
