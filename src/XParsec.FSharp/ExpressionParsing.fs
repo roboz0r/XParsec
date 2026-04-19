@@ -664,6 +664,564 @@ module Expr =
             | ExprAux.KeywordExpr e -> e op
             | _ -> failwith "Unexpected Aux type for keyword expression"
 
+    /// Keyword-expression body parsers (if/match/fun/function/try/while/for/let/use/yield/return/do).
+    /// Each parser consumes its own keyword via `assertKeywordToken` and uses `withContextAt` to
+    /// set the offside indent based on the keyword's column; lhsParser peeks but does NOT consume.
+    /// Lifted from ExprOperatorParser so they're initialized once at module load rather than
+    /// per-instance.
+    module private KWBody =
+        let recoverExprMissing p =
+            recoverWith
+                StoppingTokens.afterExpr
+                DiagnosticSeverity.Error
+                DiagnosticCode.MissingExpression
+                (fun toks ->
+                    if toks.IsEmpty then
+                        Expr.Missing
+                    else
+                        Expr.SkipsTokens(toks)
+                )
+                p
+
+        // Used for for-to and use identifiers (not the dot-access pIdent above)
+        let pIdentTok = nextNonTriviaIdentifierL "identifier"
+
+        let pDoneVirt reader =
+            match peekNextNonTriviaToken reader with
+            | Ok t when t.Token = Token.KWDone -> consumePeeked t reader
+            | Ok t ->
+                let doneTok =
+                    virtualToken (PositionedToken.Create(Token.VirtualDone, t.PositionedToken.StartIndex))
+
+                Ok doneTok
+            | Error e ->
+                match reader.Current with
+                | ValueSome t ->
+                    let doneTok = virtualToken (PositionedToken.Create(Token.VirtualDone, t.StartIndex))
+                    Ok doneTok
+                | ValueNone ->
+                    // No more tokens means something else skipped past the EOF marker token
+                    // So, we throw here
+                    failwith "Unexpected end of input while looking for 'done' or virtual 'done'"
+
+        let pIfExpr =
+            parser {
+                let! (ifTok, indent) = assertKeywordToken Token.KWIf
+                // Condition at if_col + 1
+                let! cond =
+                    recoverExprMissing (
+                        withContextAt OffsideContext.If (indent + 1) ifTok.PositionedToken refExpr.Parser
+                    )
+                // then permitted undentation at if_col via contextPermitsToken
+                let! thenTok = recoverWithVirtualToken Token.KWThen "Expected 'then' after condition" pThen
+                // Body anchored to if_col + 1, NOT then_col + 1
+                // Grammar: THEN typedSeqExprBlock
+                let! thenExpr =
+                    recoverExprMissing (
+                        withContextAt OffsideContext.Then (indent + 1) ifTok.PositionedToken refTypedSeqExprBlock.Parser
+                    )
+
+                let! elifs, elseBranch = ElifBranches.parse
+
+                return ExprAux.ForExpr(Expr.IfThenElse(ifTok, cond, thenTok, thenExpr, elifs, elseBranch))
+            }
+
+        let pMatchRules =
+            withContext OffsideContext.MatchClauses Rules.parse
+            |> recoverWith
+                StoppingTokens.afterRule
+                DiagnosticSeverity.Error
+                DiagnosticCode.MissingRule
+                (fun toks ->
+                    let missing =
+                        Rule.Rule(
+                            Pat.Missing,
+                            ValueNone,
+                            virtualToken (PositionedToken.Create(Token.OpArrowRight, 0)),
+                            Expr.Missing
+                        )
+
+                    if toks.IsEmpty then
+                        Rules(ValueNone, ImmutableArray.Create(missing), ImmutableArray.Empty)
+                    else
+                        let missingWithSkips =
+                            Rule.Rule(
+                                Pat.SkipsTokens(toks),
+                                ValueNone,
+                                virtualToken (PositionedToken.Create(Token.OpArrowRight, 0)),
+                                Expr.Missing
+                            )
+
+                        Rules(ValueNone, ImmutableArray.Create(missingWithSkips), ImmutableArray.Empty)
+                )
+
+        let pMatchExpr =
+            let parseMatchBody
+                (matchTok: SyntaxToken)
+                (indent: int)
+                (reader: Reader<PositionedToken, ParseState, _, _>)
+                : Result<ExprAux, _> =
+                let savedState = reader.State
+
+                // Push Match context at match_col — stays active for with/| undentation
+                let matchEntry =
+                    {
+                        Context = OffsideContext.Match
+                        Indent = indent
+                        Token = matchTok.PositionedToken
+                    }
+
+                reader.State <- ParseState.pushOffside matchEntry reader.State
+
+                // Match expression inner content at match_col + 1
+                match
+                    recoverExprMissing
+                        (withContextAt OffsideContext.SeqBlock (indent + 1) matchTok.PositionedToken refExpr.Parser)
+                        reader
+                with
+                | Error e ->
+                    reader.State <- savedState
+                    Error e
+                | Ok e ->
+
+                    // with permitted at match_col via contextPermitsToken (Match context still active)
+                    match
+                        recoverWithVirtualToken Token.KWWith "Expected 'with' after match expression" pWith reader
+                    with
+                    | Error e ->
+                        reader.State <- savedState
+                        Error e
+                    | Ok w ->
+
+                        // | permitted at match_col via contextPermitsToken (Match context still active)
+                        match pMatchRules reader with
+                        | Error e ->
+                            reader.State <- savedState
+                            Error e
+                        | Ok rules ->
+
+                            reader.State <- ParseState.popOffside matchEntry reader.State
+                            Ok(ExprAux.ForExpr(Expr.Match(matchTok, e, w, rules)))
+
+            fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
+                match assertKeywordTokens Token.KWMatch Token.KWMatchBang reader with
+                | Error e -> Error e
+                | Ok(matchTok, indent) -> parseMatchBody matchTok indent reader
+
+        let pFunctionExpr =
+            parser {
+                let! (funcTok, indent) = assertKeywordToken Token.KWFunction
+                // Function context at function_col for | undentation
+                let! rules = withContextAt OffsideContext.Function indent funcTok.PositionedToken pMatchRules
+                return ExprAux.ForExpr(Expr.Function(funcTok, rules))
+            }
+
+        let pFunExpr =
+            // Grammar: FUN atomicPatterns RARROW typedSeqExprBlock
+            let pBody = pTypedSeqExprBlock
+
+            parser {
+                let! (funTok, indent) = assertKeywordToken Token.KWFun
+                // params, arrow, and body all at fun_col + 1
+                let! result =
+                    withContextAt
+                        OffsideContext.Fun
+                        (indent + 1)
+                        funTok.PositionedToken
+                        (parser {
+                            let! pats = many1 Pat.parse
+
+                            let! arrow =
+                                recoverWithVirtualToken
+                                    Token.OpArrowRight
+                                    "Expected '->' after fun parameters"
+                                    pArrowRight
+
+                            let! expr = recoverExprMissing pBody
+                            return Expr.Fun(funTok, pats, arrow, expr)
+                        })
+
+                return ExprAux.ForExpr result
+            }
+
+        let pTryExpr =
+            let pTryMatchRules indent tryTok =
+                withContextAt OffsideContext.MatchClauses indent tryTok Rules.parse
+                |> recoverWith
+                    StoppingTokens.afterRule
+                    DiagnosticSeverity.Error
+                    DiagnosticCode.MissingRule
+                    (fun toks ->
+                        let missing =
+                            Rule.Rule(
+                                Pat.Missing,
+                                ValueNone,
+                                virtualToken (PositionedToken.Create(Token.OpArrowRight, 0)),
+                                Expr.Missing
+                            )
+
+                        if toks.IsEmpty then
+                            Rules(ValueNone, ImmutableArray.Create(missing), ImmutableArray.Empty)
+                        else
+                            let missingWithSkips =
+                                Rule.Rule(
+                                    Pat.SkipsTokens(toks),
+                                    ValueNone,
+                                    virtualToken (PositionedToken.Create(Token.OpArrowRight, 0)),
+                                    Expr.Missing
+                                )
+
+                            Rules(ValueNone, ImmutableArray.Create(missingWithSkips), ImmutableArray.Empty)
+                    )
+
+            // Manually manage the Try context so it stays active through with/finally parsing,
+            // similar to how parseMatchBody keeps Match context active for | undentation.
+            fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
+                match assertKeywordToken Token.KWTry reader with
+                | Error e -> Error e
+                | Ok(tryTok, indent) ->
+
+                    let savedState = reader.State
+
+                    // Push Try context at try_col — stays active for with/finally/| undentation
+                    let tryEntry =
+                        {
+                            Context = OffsideContext.Try
+                            Indent = indent
+                            Token = tryTok.PositionedToken
+                        }
+
+                    reader.State <- ParseState.pushOffside tryEntry reader.State
+
+                    // Try body — SeqBlock set by refExprSeqBlock at first expression's indent.
+                    // The Try context below it permits with/finally undentation to try_col.
+                    // Grammar: TRY typedSeqExprBlock WITH|FINALLY ...
+                    match recoverExprMissing refTypedSeqExprBlock.Parser reader with
+                    | Error e ->
+                        reader.State <- savedState
+                        Error e
+                    | Ok tryExpr ->
+
+                        // with/finally permitted at try_col via contextPermitsToken (Try context still active)
+                        let pWith' =
+                            parser {
+                                let! withTok = pWith
+                                // | permitted at try_col via contextPermitsToken (Try context still active)
+                                // MatchClauses at try_col so clause bodies can be at try_col
+                                let! rules = pTryMatchRules indent tryTok.PositionedToken
+                                return Expr.TryWith(tryTok, tryExpr, withTok, rules)
+                            }
+
+                        let pFinally' =
+                            parser {
+                                let! finTok = pFinally
+                                // Grammar: FINALLY typedSeqExprBlock
+                                let! finExpr = refTypedSeqExprBlock.Parser
+                                return Expr.TryFinally(tryTok, tryExpr, finTok, finExpr)
+                            }
+
+                        match
+                            dispatchNextNonTriviaTokenL
+                                [ Token.KWWith, pWith'; Token.KWFinally, pFinally' ]
+                                "Expected 'with' or 'finally'"
+                                reader
+                        with
+                        | Error e ->
+                            reader.State <- savedState
+                            Error e
+                        | Ok result ->
+                            reader.State <- ParseState.popOffside tryEntry reader.State
+                            Ok(ExprAux.ForExpr result)
+
+        let pWhileExpr =
+            parser {
+                let! (whileTok, indent) = assertKeywordToken Token.KWWhile
+                // Condition at while_col + 1 (uses refExprNoSeq to prevent `do` from being consumed
+                // as a keyword expression via sequential composition)
+                let! cond =
+                    recoverExprMissing (
+                        withContextAt OffsideContext.While (indent + 1) whileTok.PositionedToken refExprNoSeq.Parser
+                    )
+                // do keyword also at while_col + 1 (NOT permitted undentation)
+                let! doTok =
+                    recoverWithVirtualToken
+                        Token.KWDo
+                        "Expected 'do' after while condition"
+                        (withContextAt OffsideContext.While (indent + 1) whileTok.PositionedToken pDo)
+                // Body at while_col
+                // Grammar: WHILE _ DO typedSeqExprBlock
+                let! body =
+                    recoverExprMissing (
+                        withContextAt OffsideContext.Do indent whileTok.PositionedToken refTypedSeqExprBlock.Parser
+                    )
+
+                let! doneTok = pDoneVirt
+                return ExprAux.ForExpr(Expr.While(whileTok, cond, doTok, body, doneTok))
+            }
+
+        let pForExpr =
+            let pForHeader =
+                choiceL
+                    [
+                        // for ident = start to end do (also accepts _ as wildcard)
+                        parser {
+                            let! ident = pIdentTok <|> pWildcard
+                            let! eq = pEquals
+                            let! startExpr = refExprGuard.Parser
+                            let! toTok = pToOrDownTo
+                            let! endExpr = refExprGuard.Parser
+                            let! doTok = pDo <|> pArrowRight
+
+                            return
+                                fun forTok body doneTok ->
+                                    Expr.ForTo(forTok, ident, eq, startExpr, toTok, endExpr, doTok, body, doneTok)
+                        }
+                        // for pat in expr do
+                        parser {
+                            let! pat = Pat.parse
+                            let! inTok = pIn
+                            let! iterable = refExprGuard.Parser
+                            let! doTok = pDo <|> pArrowRight
+
+                            return
+                                fun forTok body doneTok ->
+                                    Expr.ForIn(forTok, pat, inTok, iterable, doTok, body, doneTok)
+                        }
+                    ]
+                    "Expected 'for-to' or 'for-in' loop header"
+
+            let assertFor reader =
+                // We throw here as `pForExpr` should only be called if we've already peeked and confirmed we have a 'for' token.
+                match peekNextNonTriviaToken reader with
+                | Ok t when t.Token = Token.KWFor ->
+                    (consumePeeked t
+                     |>> fun forTok ->
+                         let state = reader.State
+
+                         let indent =
+                             match forTok.Index with
+                             | TokenIndex.Regular iT -> ParseState.getIndent state iT
+                             | TokenIndex.Virtual ->
+                                 invalidOp "Virtual tokens should not be used for 'for' keyword in pForBody"
+
+                         struct (forTok, indent))
+                        reader
+
+                | Ok t -> invalidOp $"Expected 'for' keyword. Got {t.Token} at position {t.StartIndex}"
+                | Error e -> invalidOp $"Expected 'for' keyword. Failed to peek next token: {e}"
+
+            parser {
+                let! (forTok, indent) = assertFor
+                // The pattern and iterator (or variable and range) must be indented past the 'for' keyword
+                // After do, the body can be at the same indent as 'for' or indented further
+                let headerMinIndent = indent + 1
+                let bodyMinIndent = indent
+                let! forBuilder = withContextAt OffsideContext.For headerMinIndent forTok.PositionedToken pForHeader
+                // Grammar: FOR _ IN _ DO typedSeqExprBlock (and FOR _ = _ TO _ DO typedSeqExprBlock)
+                let! body =
+                    withContextAt OffsideContext.Do bodyMinIndent forTok.PositionedToken refTypedSeqExprBlock.Parser
+
+                let! doneTok = pDoneVirt
+                return ExprAux.ForExpr(forBuilder forTok body doneTok)
+            }
+
+        let pLetOrUseIn letIndent (reader: Reader<PositionedToken, ParseState, _, _>) =
+            match peekNextNonTriviaToken reader with
+            | Ok t when t.Token = Token.KWIn -> consumePeeked t reader
+            | Ok t ->
+                // Not 'in', but maybe we emit a virtual 'in' for offside rule in let bindings without 'in'.
+                // We can only emit VirtualIn if the next token is indented less than or equal to the 'let' and we're at the correct context indent.
+                let indent = ParseState.getIndent reader.State (reader.Index * 1<token>)
+                let state = reader.State
+
+                let atContextIndent =
+                    match state.Context with
+                    // Inside paren-like contexts (Indent = 0), the offside rule is relaxed.
+                    // Always emit virtual 'in' since the paren delimiter governs scope, not indentation.
+                    | { Indent = 0 } :: _ -> true
+                    | { Indent = ctxIndent } :: _ -> indent = ctxIndent || indent = letIndent
+                    | [] -> indent = 0 || indent = letIndent
+
+                if atContextIndent then
+                    Ok(virtualToken (PositionedToken.Create(Token.VirtualIn, t.StartIndex)))
+                else
+                    // TODO: Consider parser recovery here instead of hard failure,
+                    // e.g. skip tokens until we find one that is at the correct indent
+                    // or a valid separator (e.g. semicolon, newline with correct indent, or closing delimiter).
+                    // Maybe still emit a virtual 'in' as well as a diagnostic error for the missing 'in' to allow parsing to continue and produce a more complete AST with error nodes.
+                    fail (Message "Expected 'in' at the same indent as 'let'") reader
+            | Error _ ->
+                // Peek failed (e.g., EOF offside or end of input).
+                // Emit a virtual 'in' — this handles `use _ = expr` at the end of a scope.
+                let pos = reader.Index * 1<token>
+
+                let startIndex =
+                    if pos < reader.State.Lexed.Tokens.Length * 1<token> then
+                        reader.State.Lexed.Tokens[pos].StartIndex
+                    else
+                        0
+
+                Ok(virtualToken (PositionedToken.Create(Token.VirtualIn, startIndex)))
+
+        // Shared definition parser for let/use bindings:
+        // Parses [rec] binding [and binding ...] inside a Let offside context.
+        // 'use rec' and 'use ... and ...' are syntactically accepted here; semantic
+        // validation is responsible for rejecting those forms with diagnostics.
+        let pLetOrUseDefn indent token =
+            withContextAt
+                OffsideContext.Let
+                indent
+                token
+                (parser {
+                    let! recTok = opt pRec
+                    let! bindings, ands = Binding.parseSepByAnd1 ValueNone
+                    return struct (recTok, bindings, ands)
+                })
+
+        /// Build nested `Expr.LetOrUse` from an accumulated list of bindings (innermost last)
+        /// and a body expression. The fold runs backwards so that the first binding wraps the outermost scope.
+        let buildNestedLetOrUse
+            (bindings: ResizeArray<struct (SyntaxToken * SyntaxToken voption * _ * _ * SyntaxToken)>)
+            (body: Expr<SyntaxToken> voption)
+            =
+            let mutable result = body
+
+            for i in bindings.Count - 1 .. -1 .. 0 do
+                let struct (kwTok, recTok, defs, ands, inTok) = bindings[i]
+
+                let kw =
+                    match kwTok.Token with
+                    | Token.KWLet -> LetOrUseKeyword.Let kwTok
+                    | Token.KWUse -> LetOrUseKeyword.Use kwTok
+                    | Token.KWLetBang -> LetOrUseKeyword.LetBang kwTok
+                    | Token.KWUseBang -> LetOrUseKeyword.UseBang kwTok
+                    | t -> failwith $"Unexpected keyword token for let/use body {t}"
+
+                result <- ValueSome(Expr.LetOrUse(kw, recTok, defs, ands, ValueSome inTok, result))
+
+            match result with
+            | ValueSome expr -> expr
+            | ValueNone -> Expr.Missing
+
+        /// Single body parser used by both `let/let!` and `use/use!`.
+        /// The keyword token has been peeked but NOT consumed by lhsParser.
+        ///
+        /// Sequential let/use bindings (e.g. `let x = 1\nlet y = 2\nexpr`) are collected
+        /// iteratively to avoid deep recursion — each `let` in a sequence would otherwise
+        /// add ~30 stack frames via the Pratt parser → SeqBlock → pLetOrUseBody chain,
+        /// overflowing the stack on moderately nested code.
+        let pLetOrUseBody =
+            fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
+                let bindings = ResizeArray()
+                let mutable cont = true
+                let mutable error = Unchecked.defaultof<ParseResult<ExprAux, _, _>>
+
+                while cont do
+                    match peekNextNonTriviaToken reader with
+                    | Error e ->
+                        if bindings.Count = 0 then
+                            error <- Error e
+                        // If we already have bindings, stop iterating; the body parse will report the error
+                        cont <- false
+                    | Ok peeked ->
+                        match peeked.Token with
+                        | Token.KWLet
+                        | Token.KWLetBang
+                        | Token.KWUse
+                        | Token.KWUseBang ->
+                            match consumePeeked peeked reader with
+                            | Error e ->
+                                error <- Error e
+                                cont <- false
+                            | Ok kwTok ->
+                                let indent =
+                                    match kwTok.Index with
+                                    | TokenIndex.Regular iT -> ParseState.getIndent reader.State iT
+                                    | TokenIndex.Virtual -> 0
+
+                                match pLetOrUseDefn indent kwTok.PositionedToken reader with
+                                | Error e ->
+                                    error <- Error e
+                                    cont <- false
+                                | Ok(recTok, defs, ands) ->
+                                    match pLetOrUseIn indent reader with
+                                    | Error e ->
+                                        error <- Error e
+                                        cont <- false
+                                    | Ok inTok -> bindings.Add(struct (kwTok, recTok, defs, ands, inTok))
+                        | _ ->
+                            if bindings.Count = 0 then
+                                error <-
+                                    Parsers.fail (Message $"Expected let/use keyword but got {peeked.Token}") reader
+
+                            cont <- false
+
+                if bindings.Count = 0 then
+                    error
+                else
+                    // Committed after consuming let/use bindings — recover body expression if it fails
+                    // Grammar: LET bindings IN typedSeqExprBlock
+                    let body =
+                        match refTypedSeqExprBlock.Parser reader with
+                        | Ok body -> ValueSome body
+                        | Error err ->
+                            let struct (lastKw, _, _, _, _) = bindings[bindings.Count - 1]
+
+                            match lastKw.Token with
+                            | Token.KWUse
+                            | Token.KWUseBang ->
+                                // use/use! with no body is valid F# (e.g. `use _ = expr` at end of scope)
+                                ValueNone
+                            | _ ->
+                                reader.State <-
+                                    ParseState.addErrorDiagnosticWithError
+                                        DiagnosticCode.MissingExpression
+                                        (match peekNextNonTriviaToken reader with
+                                         | Ok tok -> tok.PositionedToken
+                                         | Error _ -> PositionedToken.Create(Token.EOF, 0))
+                                        err
+                                        reader.State
+
+                                ValueSome Expr.Missing
+
+                    let result = buildNestedLetOrUse bindings body
+                    preturn (ExprAux.KeywordExpr(fun _opTok -> result)) reader
+
+        let pYieldReturnDoBody =
+            // Grammar: YIELD|RETURN typedSeqExprBlock (and DO typedSeqExprBlock in CE context)
+            let pBody =
+                recoverWith
+                    StoppingTokens.afterExpr
+                    DiagnosticSeverity.Error
+                    DiagnosticCode.MissingExpression
+                    (fun toks ->
+                        if toks.IsEmpty then
+                            Expr.Missing
+                        else
+                            Expr.SkipsTokens(toks)
+                    )
+                    refTypedSeqExprBlock.Parser
+
+            parser {
+                // Committed after do/return/yield keyword
+                let! expr = pBody
+
+                return
+                    ExprAux.KeywordExpr(fun kwTok ->
+                        let kw =
+                            match kwTok.Token with
+                            | Token.KWDo -> ControlFlowKeyword.Do kwTok
+                            | Token.KWDoBang -> ControlFlowKeyword.DoBang kwTok
+                            | Token.KWReturn -> ControlFlowKeyword.Return kwTok
+                            | Token.KWReturnBang -> ControlFlowKeyword.ReturnBang kwTok
+                            | Token.KWYield -> ControlFlowKeyword.Yield kwTok
+                            | Token.KWYieldBang -> ControlFlowKeyword.YieldBang kwTok
+                            | t -> failwith $"Unexpected keyword token for yield/return body {t}"
+
+                        Expr.ControlFlow(kw, expr)
+                    )
+            }
+
     type ExprOperatorParser() =
         let printOpInfo (op: OperatorInfo) =
             printfn
@@ -1120,563 +1678,6 @@ module Expr =
                 ]
                 "RHS operator"
 
-        // Used for for-to and use identifiers (not the dot-access pIdent above)
-        let pIdentTok = nextNonTriviaIdentifierL "identifier"
-
-
-        // Keyword expression parsers. Each parser consumes its own keyword via assertKeywordToken
-        // and uses withContextAt to set the offside indent based on the keyword's column.
-        // lhsParser peeks but does NOT consume — the parser handles consumption.
-
-        let recoverExprMissing p =
-            recoverWith
-                StoppingTokens.afterExpr
-                DiagnosticSeverity.Error
-                DiagnosticCode.MissingExpression
-                (fun toks ->
-                    if toks.IsEmpty then
-                        Expr.Missing
-                    else
-                        Expr.SkipsTokens(toks)
-                )
-                p
-
-        let pIfExpr =
-            parser {
-                let! (ifTok, indent) = assertKeywordToken Token.KWIf
-                // Condition at if_col + 1
-                let! cond =
-                    recoverExprMissing (
-                        withContextAt OffsideContext.If (indent + 1) ifTok.PositionedToken refExpr.Parser
-                    )
-                // then permitted undentation at if_col via contextPermitsToken
-                let! thenTok = recoverWithVirtualToken Token.KWThen "Expected 'then' after condition" pThen
-                // Body anchored to if_col + 1, NOT then_col + 1
-                // Grammar: THEN typedSeqExprBlock
-                let! thenExpr =
-                    recoverExprMissing (
-                        withContextAt OffsideContext.Then (indent + 1) ifTok.PositionedToken refTypedSeqExprBlock.Parser
-                    )
-
-                let! elifs, elseBranch = ElifBranches.parse
-
-                return ExprAux.ForExpr(Expr.IfThenElse(ifTok, cond, thenTok, thenExpr, elifs, elseBranch))
-            }
-
-        let pMatchRules =
-            withContext OffsideContext.MatchClauses Rules.parse
-            |> recoverWith
-                StoppingTokens.afterRule
-                DiagnosticSeverity.Error
-                DiagnosticCode.MissingRule
-                (fun toks ->
-                    let missing =
-                        Rule.Rule(
-                            Pat.Missing,
-                            ValueNone,
-                            virtualToken (PositionedToken.Create(Token.OpArrowRight, 0)),
-                            Expr.Missing
-                        )
-
-                    if toks.IsEmpty then
-                        Rules(ValueNone, ImmutableArray.Create(missing), ImmutableArray.Empty)
-                    else
-                        let missingWithSkips =
-                            Rule.Rule(
-                                Pat.SkipsTokens(toks),
-                                ValueNone,
-                                virtualToken (PositionedToken.Create(Token.OpArrowRight, 0)),
-                                Expr.Missing
-                            )
-
-                        Rules(ValueNone, ImmutableArray.Create(missingWithSkips), ImmutableArray.Empty)
-                )
-
-        let pMatchExpr =
-            let parseMatchBody
-                (matchTok: SyntaxToken)
-                (indent: int)
-                (reader: Reader<PositionedToken, ParseState, _, _>)
-                : Result<ExprAux, _> =
-                let savedState = reader.State
-
-                // Push Match context at match_col — stays active for with/| undentation
-                let matchEntry =
-                    {
-                        Context = OffsideContext.Match
-                        Indent = indent
-                        Token = matchTok.PositionedToken
-                    }
-
-                reader.State <- ParseState.pushOffside matchEntry reader.State
-
-                // Match expression inner content at match_col + 1
-                match
-                    recoverExprMissing
-                        (withContextAt OffsideContext.SeqBlock (indent + 1) matchTok.PositionedToken refExpr.Parser)
-                        reader
-                with
-                | Error e ->
-                    reader.State <- savedState
-                    Error e
-                | Ok e ->
-
-                    // with permitted at match_col via contextPermitsToken (Match context still active)
-                    match
-                        recoverWithVirtualToken Token.KWWith "Expected 'with' after match expression" pWith reader
-                    with
-                    | Error e ->
-                        reader.State <- savedState
-                        Error e
-                    | Ok w ->
-
-                        // | permitted at match_col via contextPermitsToken (Match context still active)
-                        match pMatchRules reader with
-                        | Error e ->
-                            reader.State <- savedState
-                            Error e
-                        | Ok rules ->
-
-                            reader.State <- ParseState.popOffside matchEntry reader.State
-                            Ok(ExprAux.ForExpr(Expr.Match(matchTok, e, w, rules)))
-
-            fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
-                match assertKeywordTokens Token.KWMatch Token.KWMatchBang reader with
-                | Error e -> Error e
-                | Ok(matchTok, indent) -> parseMatchBody matchTok indent reader
-
-        let pFunctionExpr =
-            parser {
-                let! (funcTok, indent) = assertKeywordToken Token.KWFunction
-                // Function context at function_col for | undentation
-                let! rules = withContextAt OffsideContext.Function indent funcTok.PositionedToken pMatchRules
-                return ExprAux.ForExpr(Expr.Function(funcTok, rules))
-            }
-
-        let pFunExpr =
-            // Grammar: FUN atomicPatterns RARROW typedSeqExprBlock
-            let pBody = pTypedSeqExprBlock
-
-            parser {
-                let! (funTok, indent) = assertKeywordToken Token.KWFun
-                // params, arrow, and body all at fun_col + 1
-                let! result =
-                    withContextAt
-                        OffsideContext.Fun
-                        (indent + 1)
-                        funTok.PositionedToken
-                        (parser {
-                            let! pats = many1 Pat.parse
-
-                            let! arrow =
-                                recoverWithVirtualToken
-                                    Token.OpArrowRight
-                                    "Expected '->' after fun parameters"
-                                    pArrowRight
-
-                            let! expr = recoverExprMissing pBody
-                            return Expr.Fun(funTok, pats, arrow, expr)
-                        })
-
-                return ExprAux.ForExpr result
-            }
-
-        let pTryExpr =
-            let pTryMatchRules indent tryTok =
-                withContextAt OffsideContext.MatchClauses indent tryTok Rules.parse
-                |> recoverWith
-                    StoppingTokens.afterRule
-                    DiagnosticSeverity.Error
-                    DiagnosticCode.MissingRule
-                    (fun toks ->
-                        let missing =
-                            Rule.Rule(
-                                Pat.Missing,
-                                ValueNone,
-                                virtualToken (PositionedToken.Create(Token.OpArrowRight, 0)),
-                                Expr.Missing
-                            )
-
-                        if toks.IsEmpty then
-                            Rules(ValueNone, ImmutableArray.Create(missing), ImmutableArray.Empty)
-                        else
-                            let missingWithSkips =
-                                Rule.Rule(
-                                    Pat.SkipsTokens(toks),
-                                    ValueNone,
-                                    virtualToken (PositionedToken.Create(Token.OpArrowRight, 0)),
-                                    Expr.Missing
-                                )
-
-                            Rules(ValueNone, ImmutableArray.Create(missingWithSkips), ImmutableArray.Empty)
-                    )
-
-            // Manually manage the Try context so it stays active through with/finally parsing,
-            // similar to how parseMatchBody keeps Match context active for | undentation.
-            fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
-                match assertKeywordToken Token.KWTry reader with
-                | Error e -> Error e
-                | Ok(tryTok, indent) ->
-
-                    let savedState = reader.State
-
-                    // Push Try context at try_col — stays active for with/finally/| undentation
-                    let tryEntry =
-                        {
-                            Context = OffsideContext.Try
-                            Indent = indent
-                            Token = tryTok.PositionedToken
-                        }
-
-                    reader.State <- ParseState.pushOffside tryEntry reader.State
-
-                    // Try body — SeqBlock set by refExprSeqBlock at first expression's indent.
-                    // The Try context below it permits with/finally undentation to try_col.
-                    // Grammar: TRY typedSeqExprBlock WITH|FINALLY ...
-                    match recoverExprMissing refTypedSeqExprBlock.Parser reader with
-                    | Error e ->
-                        reader.State <- savedState
-                        Error e
-                    | Ok tryExpr ->
-
-                        // with/finally permitted at try_col via contextPermitsToken (Try context still active)
-                        let pWith' =
-                            parser {
-                                let! withTok = pWith
-                                // | permitted at try_col via contextPermitsToken (Try context still active)
-                                // MatchClauses at try_col so clause bodies can be at try_col
-                                let! rules = pTryMatchRules indent tryTok.PositionedToken
-                                return Expr.TryWith(tryTok, tryExpr, withTok, rules)
-                            }
-
-                        let pFinally' =
-                            parser {
-                                let! finTok = pFinally
-                                // Grammar: FINALLY typedSeqExprBlock
-                                let! finExpr = refTypedSeqExprBlock.Parser
-                                return Expr.TryFinally(tryTok, tryExpr, finTok, finExpr)
-                            }
-
-                        match
-                            dispatchNextNonTriviaTokenL
-                                [ Token.KWWith, pWith'; Token.KWFinally, pFinally' ]
-                                "Expected 'with' or 'finally'"
-                                reader
-                        with
-                        | Error e ->
-                            reader.State <- savedState
-                            Error e
-                        | Ok result ->
-                            reader.State <- ParseState.popOffside tryEntry reader.State
-                            Ok(ExprAux.ForExpr result)
-
-        let pDoneVirt reader =
-            match peekNextNonTriviaToken reader with
-            | Ok t when t.Token = Token.KWDone -> consumePeeked t reader
-            | Ok t ->
-                let doneTok =
-                    virtualToken (PositionedToken.Create(Token.VirtualDone, t.PositionedToken.StartIndex))
-
-                Ok doneTok
-            | Error e ->
-                match reader.Current with
-                | ValueSome t ->
-                    let doneTok = virtualToken (PositionedToken.Create(Token.VirtualDone, t.StartIndex))
-                    Ok doneTok
-                | ValueNone ->
-                    // No more tokens means something else skipped past the EOF marker token
-                    // So, we throw here
-                    failwith "Unexpected end of input while looking for 'done' or virtual 'done'"
-
-        let pWhileExpr =
-            parser {
-                let! (whileTok, indent) = assertKeywordToken Token.KWWhile
-                // Condition at while_col + 1 (uses refExprNoSeq to prevent `do` from being consumed
-                // as a keyword expression via sequential composition)
-                let! cond =
-                    recoverExprMissing (
-                        withContextAt OffsideContext.While (indent + 1) whileTok.PositionedToken refExprNoSeq.Parser
-                    )
-                // do keyword also at while_col + 1 (NOT permitted undentation)
-                let! doTok =
-                    recoverWithVirtualToken
-                        Token.KWDo
-                        "Expected 'do' after while condition"
-                        (withContextAt OffsideContext.While (indent + 1) whileTok.PositionedToken pDo)
-                // Body at while_col
-                // Grammar: WHILE _ DO typedSeqExprBlock
-                let! body =
-                    recoverExprMissing (
-                        withContextAt OffsideContext.Do indent whileTok.PositionedToken refTypedSeqExprBlock.Parser
-                    )
-
-                let! doneTok = pDoneVirt
-                return ExprAux.ForExpr(Expr.While(whileTok, cond, doTok, body, doneTok))
-            }
-
-        let pForExpr =
-            let pForHeader =
-                choiceL
-                    [
-                        // for ident = start to end do (also accepts _ as wildcard)
-                        parser {
-                            let! ident = pIdentTok <|> pWildcard
-                            let! eq = pEquals
-                            let! startExpr = refExprGuard.Parser
-                            let! toTok = pToOrDownTo
-                            let! endExpr = refExprGuard.Parser
-                            let! doTok = pDo <|> pArrowRight
-
-                            return
-                                fun forTok body doneTok ->
-                                    Expr.ForTo(forTok, ident, eq, startExpr, toTok, endExpr, doTok, body, doneTok)
-                        }
-                        // for pat in expr do
-                        parser {
-                            let! pat = Pat.parse
-                            let! inTok = pIn
-                            let! iterable = refExprGuard.Parser
-                            let! doTok = pDo <|> pArrowRight
-
-                            return
-                                fun forTok body doneTok ->
-                                    Expr.ForIn(forTok, pat, inTok, iterable, doTok, body, doneTok)
-                        }
-                    ]
-                    "Expected 'for-to' or 'for-in' loop header"
-
-            let assertFor reader =
-                // We throw here as `pForExpr` should only be called if we've already peeked and confirmed we have a 'for' token.
-                match peekNextNonTriviaToken reader with
-                | Ok t when t.Token = Token.KWFor ->
-                    (consumePeeked t
-                     |>> fun forTok ->
-                         let state = reader.State
-
-                         let indent =
-                             match forTok.Index with
-                             | TokenIndex.Regular iT -> ParseState.getIndent state iT
-                             | TokenIndex.Virtual ->
-                                 invalidOp "Virtual tokens should not be used for 'for' keyword in pForBody"
-
-                         struct (forTok, indent))
-                        reader
-
-                | Ok t -> invalidOp $"Expected 'for' keyword. Got {t.Token} at position {t.StartIndex}"
-                | Error e -> invalidOp $"Expected 'for' keyword. Failed to peek next token: {e}"
-
-            parser {
-                let! (forTok, indent) = assertFor
-                // The pattern and iterator (or variable and range) must be indented past the 'for' keyword
-                // After do, the body can be at the same indent as 'for' or indented further
-                let headerMinIndent = indent + 1
-                let bodyMinIndent = indent
-                let! forBuilder = withContextAt OffsideContext.For headerMinIndent forTok.PositionedToken pForHeader
-                // Grammar: FOR _ IN _ DO typedSeqExprBlock (and FOR _ = _ TO _ DO typedSeqExprBlock)
-                let! body =
-                    withContextAt OffsideContext.Do bodyMinIndent forTok.PositionedToken refTypedSeqExprBlock.Parser
-
-                let! doneTok = pDoneVirt
-                return ExprAux.ForExpr(forBuilder forTok body doneTok)
-            }
-
-        let pLetOrUseIn letIndent (reader: Reader<PositionedToken, ParseState, _, _>) =
-            match peekNextNonTriviaToken reader with
-            | Ok t when t.Token = Token.KWIn -> consumePeeked t reader
-            | Ok t ->
-                // Not 'in', but maybe we emit a virtual 'in' for offside rule in let bindings without 'in'.
-                // We can only emit VirtualIn if the next token is indented less than or equal to the 'let' and we're at the correct context indent.
-                let indent = ParseState.getIndent reader.State (reader.Index * 1<token>)
-                let state = reader.State
-
-                let atContextIndent =
-                    match state.Context with
-                    // Inside paren-like contexts (Indent = 0), the offside rule is relaxed.
-                    // Always emit virtual 'in' since the paren delimiter governs scope, not indentation.
-                    | { Indent = 0 } :: _ -> true
-                    | { Indent = ctxIndent } :: _ -> indent = ctxIndent || indent = letIndent
-                    | [] -> indent = 0 || indent = letIndent
-
-                if atContextIndent then
-                    Ok(virtualToken (PositionedToken.Create(Token.VirtualIn, t.StartIndex)))
-                else
-                    // TODO: Consider parser recovery here instead of hard failure,
-                    // e.g. skip tokens until we find one that is at the correct indent
-                    // or a valid separator (e.g. semicolon, newline with correct indent, or closing delimiter).
-                    // Maybe still emit a virtual 'in' as well as a diagnostic error for the missing 'in' to allow parsing to continue and produce a more complete AST with error nodes.
-                    fail (Message "Expected 'in' at the same indent as 'let'") reader
-            | Error _ ->
-                // Peek failed (e.g., EOF offside or end of input).
-                // Emit a virtual 'in' — this handles `use _ = expr` at the end of a scope.
-                let pos = reader.Index * 1<token>
-
-                let startIndex =
-                    if pos < reader.State.Lexed.Tokens.Length * 1<token> then
-                        reader.State.Lexed.Tokens[pos].StartIndex
-                    else
-                        0
-
-                Ok(virtualToken (PositionedToken.Create(Token.VirtualIn, startIndex)))
-
-        // Shared definition parser for let/use bindings:
-        // Parses [rec] binding [and binding ...] inside a Let offside context.
-        // 'use rec' and 'use ... and ...' are syntactically accepted here; semantic
-        // validation is responsible for rejecting those forms with diagnostics.
-        let pLetOrUseDefn indent token =
-            withContextAt
-                OffsideContext.Let
-                indent
-                token
-                (parser {
-                    let! recTok = opt pRec
-                    let! bindings, ands = Binding.parseSepByAnd1 ValueNone
-                    return struct (recTok, bindings, ands)
-                })
-
-        /// Build nested `Expr.LetOrUse` from an accumulated list of bindings (innermost last)
-        /// and a body expression. The fold runs backwards so that the first binding wraps the outermost scope.
-        let buildNestedLetOrUse
-            (bindings: ResizeArray<struct (SyntaxToken * SyntaxToken voption * _ * _ * SyntaxToken)>)
-            (body: Expr<SyntaxToken> voption)
-            =
-            let mutable result = body
-
-            for i in bindings.Count - 1 .. -1 .. 0 do
-                let struct (kwTok, recTok, defs, ands, inTok) = bindings[i]
-
-                let kw =
-                    match kwTok.Token with
-                    | Token.KWLet -> LetOrUseKeyword.Let kwTok
-                    | Token.KWUse -> LetOrUseKeyword.Use kwTok
-                    | Token.KWLetBang -> LetOrUseKeyword.LetBang kwTok
-                    | Token.KWUseBang -> LetOrUseKeyword.UseBang kwTok
-                    | t -> failwith $"Unexpected keyword token for let/use body {t}"
-
-                result <- ValueSome(Expr.LetOrUse(kw, recTok, defs, ands, ValueSome inTok, result))
-
-            match result with
-            | ValueSome expr -> expr
-            | ValueNone -> Expr.Missing
-
-        /// Single body parser used by both `let/let!` and `use/use!`.
-        /// The keyword token has been peeked but NOT consumed by lhsParser.
-        ///
-        /// Sequential let/use bindings (e.g. `let x = 1\nlet y = 2\nexpr`) are collected
-        /// iteratively to avoid deep recursion — each `let` in a sequence would otherwise
-        /// add ~30 stack frames via the Pratt parser → SeqBlock → pLetOrUseBody chain,
-        /// overflowing the stack on moderately nested code.
-        let pLetOrUseBody =
-            fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
-                let bindings = ResizeArray()
-                let mutable cont = true
-                let mutable error = Unchecked.defaultof<ParseResult<ExprAux, _, _>>
-
-                while cont do
-                    match peekNextNonTriviaToken reader with
-                    | Error e ->
-                        if bindings.Count = 0 then
-                            error <- Error e
-                        // If we already have bindings, stop iterating; the body parse will report the error
-                        cont <- false
-                    | Ok peeked ->
-                        match peeked.Token with
-                        | Token.KWLet
-                        | Token.KWLetBang
-                        | Token.KWUse
-                        | Token.KWUseBang ->
-                            match consumePeeked peeked reader with
-                            | Error e ->
-                                error <- Error e
-                                cont <- false
-                            | Ok kwTok ->
-                                let indent =
-                                    match kwTok.Index with
-                                    | TokenIndex.Regular iT -> ParseState.getIndent reader.State iT
-                                    | TokenIndex.Virtual -> 0
-
-                                match pLetOrUseDefn indent kwTok.PositionedToken reader with
-                                | Error e ->
-                                    error <- Error e
-                                    cont <- false
-                                | Ok(recTok, defs, ands) ->
-                                    match pLetOrUseIn indent reader with
-                                    | Error e ->
-                                        error <- Error e
-                                        cont <- false
-                                    | Ok inTok -> bindings.Add(struct (kwTok, recTok, defs, ands, inTok))
-                        | _ ->
-                            if bindings.Count = 0 then
-                                error <-
-                                    Parsers.fail (Message $"Expected let/use keyword but got {peeked.Token}") reader
-
-                            cont <- false
-
-                if bindings.Count = 0 then
-                    error
-                else
-                    // Committed after consuming let/use bindings — recover body expression if it fails
-                    // Grammar: LET bindings IN typedSeqExprBlock
-                    let body =
-                        match refTypedSeqExprBlock.Parser reader with
-                        | Ok body -> ValueSome body
-                        | Error err ->
-                            let struct (lastKw, _, _, _, _) = bindings[bindings.Count - 1]
-
-                            match lastKw.Token with
-                            | Token.KWUse
-                            | Token.KWUseBang ->
-                                // use/use! with no body is valid F# (e.g. `use _ = expr` at end of scope)
-                                ValueNone
-                            | _ ->
-                                reader.State <-
-                                    ParseState.addErrorDiagnosticWithError
-                                        DiagnosticCode.MissingExpression
-                                        (match peekNextNonTriviaToken reader with
-                                         | Ok tok -> tok.PositionedToken
-                                         | Error _ -> PositionedToken.Create(Token.EOF, 0))
-                                        err
-                                        reader.State
-
-                                ValueSome Expr.Missing
-
-                    let result = buildNestedLetOrUse bindings body
-                    preturn (ExprAux.KeywordExpr(fun _opTok -> result)) reader
-
-        let pYieldReturnDoBody =
-            // Grammar: YIELD|RETURN typedSeqExprBlock (and DO typedSeqExprBlock in CE context)
-            let pBody =
-                recoverWith
-                    StoppingTokens.afterExpr
-                    DiagnosticSeverity.Error
-                    DiagnosticCode.MissingExpression
-                    (fun toks ->
-                        if toks.IsEmpty then
-                            Expr.Missing
-                        else
-                            Expr.SkipsTokens(toks)
-                    )
-                    refTypedSeqExprBlock.Parser
-
-            parser {
-                // Committed after do/return/yield keyword
-                let! expr = pBody
-
-                return
-                    ExprAux.KeywordExpr(fun kwTok ->
-                        let kw =
-                            match kwTok.Token with
-                            | Token.KWDo -> ControlFlowKeyword.Do kwTok
-                            | Token.KWDoBang -> ControlFlowKeyword.DoBang kwTok
-                            | Token.KWReturn -> ControlFlowKeyword.Return kwTok
-                            | Token.KWReturnBang -> ControlFlowKeyword.ReturnBang kwTok
-                            | Token.KWYield -> ControlFlowKeyword.Yield kwTok
-                            | Token.KWYieldBang -> ControlFlowKeyword.YieldBang kwTok
-                            | t -> failwith $"Unexpected keyword token for yield/return body {t}"
-
-                        Expr.ControlFlow(kw, expr)
-                    )
-            }
-
         let peekIsSliceAll =
             parser {
                 let! token = peekNextNonTriviaToken
@@ -1797,24 +1798,24 @@ module Expr =
 
         let kwPrefixRoutes: struct (Token * (SyntaxToken -> Parser<_, _, _, _, _>))[] =
             [|
-                struct (Token.KWIf, kwPrefixNoConsume pIfExpr Complete.forE)
-                struct (Token.KWMatch, kwPrefixNoConsume pMatchExpr Complete.forE)
-                struct (Token.KWMatchBang, kwPrefixNoConsume pMatchExpr Complete.forE)
-                struct (Token.KWFunction, kwPrefixNoConsume pFunctionExpr Complete.forE)
-                struct (Token.KWFun, kwPrefixNoConsume pFunExpr Complete.forE)
-                struct (Token.KWTry, kwPrefixNoConsume pTryExpr Complete.forE)
-                struct (Token.KWWhile, kwPrefixNoConsume pWhileExpr Complete.forE)
-                struct (Token.KWFor, kwPrefixNoConsume pForExpr Complete.forE)
-                struct (Token.KWLet, kwPrefixNoConsume pLetOrUseBody Complete.keyword)
-                struct (Token.KWLetBang, kwPrefixNoConsume pLetOrUseBody Complete.keyword)
-                struct (Token.KWUse, kwPrefixNoConsume pLetOrUseBody Complete.keyword)
-                struct (Token.KWUseBang, kwPrefixNoConsume pLetOrUseBody Complete.keyword)
-                struct (Token.KWDo, kwPrefixConsume pYieldReturnDoBody Complete.keyword)
-                struct (Token.KWDoBang, kwPrefixConsume pYieldReturnDoBody Complete.keyword)
-                struct (Token.KWReturn, kwPrefixConsume pYieldReturnDoBody Complete.keyword)
-                struct (Token.KWReturnBang, kwPrefixConsume pYieldReturnDoBody Complete.keyword)
-                struct (Token.KWYield, kwPrefixConsume pYieldReturnDoBody Complete.keyword)
-                struct (Token.KWYieldBang, kwPrefixConsume pYieldReturnDoBody Complete.keyword)
+                struct (Token.KWIf, kwPrefixNoConsume KWBody.pIfExpr Complete.forE)
+                struct (Token.KWMatch, kwPrefixNoConsume KWBody.pMatchExpr Complete.forE)
+                struct (Token.KWMatchBang, kwPrefixNoConsume KWBody.pMatchExpr Complete.forE)
+                struct (Token.KWFunction, kwPrefixNoConsume KWBody.pFunctionExpr Complete.forE)
+                struct (Token.KWFun, kwPrefixNoConsume KWBody.pFunExpr Complete.forE)
+                struct (Token.KWTry, kwPrefixNoConsume KWBody.pTryExpr Complete.forE)
+                struct (Token.KWWhile, kwPrefixNoConsume KWBody.pWhileExpr Complete.forE)
+                struct (Token.KWFor, kwPrefixNoConsume KWBody.pForExpr Complete.forE)
+                struct (Token.KWLet, kwPrefixNoConsume KWBody.pLetOrUseBody Complete.keyword)
+                struct (Token.KWLetBang, kwPrefixNoConsume KWBody.pLetOrUseBody Complete.keyword)
+                struct (Token.KWUse, kwPrefixNoConsume KWBody.pLetOrUseBody Complete.keyword)
+                struct (Token.KWUseBang, kwPrefixNoConsume KWBody.pLetOrUseBody Complete.keyword)
+                struct (Token.KWDo, kwPrefixConsume KWBody.pYieldReturnDoBody Complete.keyword)
+                struct (Token.KWDoBang, kwPrefixConsume KWBody.pYieldReturnDoBody Complete.keyword)
+                struct (Token.KWReturn, kwPrefixConsume KWBody.pYieldReturnDoBody Complete.keyword)
+                struct (Token.KWReturnBang, kwPrefixConsume KWBody.pYieldReturnDoBody Complete.keyword)
+                struct (Token.KWYield, kwPrefixConsume KWBody.pYieldReturnDoBody Complete.keyword)
+                struct (Token.KWYieldBang, kwPrefixConsume KWBody.pYieldReturnDoBody Complete.keyword)
             |]
 
         let lhsParser =
