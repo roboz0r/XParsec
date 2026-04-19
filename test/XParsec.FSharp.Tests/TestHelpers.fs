@@ -377,14 +377,17 @@ let parseWithStackProbe (stackSize: int) (timeout: System.TimeSpan) (filePath: s
         let mutable maxDepth = 0
         let mutable deepestTrace: System.Diagnostics.StackTrace option = None
         let stackProbes = ResizeArray<struct (string * nativeint)>()
-        let events = ResizeArray<XParsec.FSharp.Parser.TraceEvent>()
+        let events = ResizeArray<string>()
         let traceWriter = new StreamWriter(filePath + ".trace", false)
         traceWriter.AutoFlush <- true
 
         let traceCallback =
-            XParsec.FSharp.Parser.TraceCallback(fun x ->
-                match x with
-                | XParsec.FSharp.Parser.TraceEvent.ContextPush(ctx, indent, _, depth) ->
+            { new XParsec.FSharp.Parser.WriterTraceCallback(lexed, traceWriter) with
+                override this.Write(line) =
+                    traceWriter.WriteLine(line)
+                    events.Add(line)
+
+                override this.ContextPush(ctx, indent, token, depth) =
                     let mutable marker = 0
                     let sp = NativePtr.toNativeInt &&marker
                     stackProbes.Add(struct ($"PUSH {ctx} indent={indent} depth={depth}", sp))
@@ -400,15 +403,15 @@ let parseWithStackProbe (stackSize: int) (timeout: System.TimeSpan) (filePath: s
                                 DeepestTrace = deepestTrace
                                 StackProbes = stackProbes.ToArray()
                             }
-                | XParsec.FSharp.Parser.TraceEvent.ContextPop(ctx, depth) ->
+
+                    base.ContextPush(ctx, indent, token, depth)
+
+                override this.ContextPop(ctx, depth) =
                     let mutable marker = 0
                     let sp = NativePtr.toNativeInt &&marker
                     stackProbes.Add(struct ($"POP {ctx} depth={depth}", sp))
-                | _ -> ()
-
-                events.Add x
-                traceWriter.WriteLine(XParsec.FSharp.Parser.TraceEvent.format lexed x)
-            )
+                    base.ContextPop(ctx, depth)
+            }
 
         let reader =
             XParsec.FSharp.Parser.Reader.ofLexedWithTracing lexed input Set.empty traceCallback
@@ -445,7 +448,6 @@ let parseWithStackProbe (stackSize: int) (timeout: System.TimeSpan) (filePath: s
                 |> Array.rev
                 |> Array.truncate 80
                 |> Array.rev
-                |> Array.map (XParsec.FSharp.Parser.TraceEvent.format lexed)
                 |> String.concat "\n  "
 
             failwithf

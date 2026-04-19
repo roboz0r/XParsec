@@ -138,28 +138,60 @@ and [<RequireQualifiedAccess>] Syntax =
     | Light
     | Verbose
 
-and [<RequireQualifiedAccess>] TraceEvent =
-    | ContextPush of context: OffsideContext * indent: int * token: PositionedToken * stackDepth: int
-    | ContextPop of context: OffsideContext * stackDepth: int
-    | TokenConsumed of token: PositionedToken * index: int * col: int
-    | TokenPeeked of token: PositionedToken * index: int * col: int
-    | VirtualToken of token: Token * atStartIndex: int
-    | OffsideOk of token: PositionedToken * tokenCol: int * contextIndent: int * context: OffsideContext
-    | OffsideFail of token: PositionedToken * tokenCol: int * contextIndent: int * context: OffsideContext
-    | PermittedUndentation of token: PositionedToken * tokenCol: int * contextIndent: int * rule: string
-    | DiagnosticEmitted of code: DiagnosticCode * severity: DiagnosticSeverity * token: PositionedToken
-    | SplitRAttrBracketSet of atStartIndex: int
-    | SplitRAttrBracketConsumed of atStartIndex: int
-    | SplitPowerMinusSet of atStartIndex: int
-    | SplitPowerMinusConsumed of atStartIndex: int
-    | Message of message: string
-
-/// Holds the trace callback. A reference type so it doesn't affect ParseState equality
-/// and is shared across immutable record copies.
-and TraceCallback(callback: TraceEvent -> unit) =
-    static let empty = TraceCallback(ignore)
+/// Receives structured parse-trace events. The default base class has empty `default`
+/// impls for every hook — so `TraceCallback.Empty` and any unoverridden subclass allocate
+/// nothing on the hot parse path. Override only the hooks you care about. A reference
+/// type so it doesn't affect ParseState equality and is shared across immutable record copies.
+and TraceCallback() =
+    static let empty = TraceCallback()
     static member Empty = empty
-    member _.Invoke(event) = callback event
+
+    abstract ContextPush: context: OffsideContext * indent: int * token: PositionedToken * stackDepth: int -> unit
+
+    default _.ContextPush(_, _, _, _) = ()
+
+    abstract ContextPop: context: OffsideContext * stackDepth: int -> unit
+    default _.ContextPop(_, _) = ()
+
+    abstract TokenConsumed: token: PositionedToken * index: int * col: int -> unit
+    default _.TokenConsumed(_, _, _) = ()
+
+    abstract TokenPeeked: token: PositionedToken * index: int * col: int -> unit
+    default _.TokenPeeked(_, _, _) = ()
+
+    abstract VirtualToken: token: Token * atStartIndex: int -> unit
+    default _.VirtualToken(_, _) = ()
+
+    abstract OffsideOk: token: PositionedToken * tokenCol: int * contextIndent: int * context: OffsideContext -> unit
+
+    default _.OffsideOk(_, _, _, _) = ()
+
+    abstract OffsideFail: token: PositionedToken * tokenCol: int * contextIndent: int * context: OffsideContext -> unit
+
+    default _.OffsideFail(_, _, _, _) = ()
+
+    abstract PermittedUndentation: token: PositionedToken * tokenCol: int * contextIndent: int * rule: string -> unit
+
+    default _.PermittedUndentation(_, _, _, _) = ()
+
+    abstract DiagnosticEmitted: code: DiagnosticCode * severity: DiagnosticSeverity * token: PositionedToken -> unit
+
+    default _.DiagnosticEmitted(_, _, _) = ()
+
+    abstract SplitRAttrBracketSet: atStartIndex: int -> unit
+    default _.SplitRAttrBracketSet(_) = ()
+
+    abstract SplitRAttrBracketConsumed: atStartIndex: int -> unit
+    default _.SplitRAttrBracketConsumed(_) = ()
+
+    abstract SplitPowerMinusSet: atStartIndex: int -> unit
+    default _.SplitPowerMinusSet(_) = ()
+
+    abstract SplitPowerMinusConsumed: atStartIndex: int -> unit
+    default _.SplitPowerMinusConsumed(_) = ()
+
+    abstract Message: message: string -> unit
+    default _.Message(_) = ()
 
 and [<Struct>] WarnDirective =
     {
@@ -260,9 +292,7 @@ module ParseState =
 
         let stackDepth = newState.Context.Length
 
-        newState.Trace.Invoke(
-            TraceEvent.ContextPush(offsideCtx.Context, offsideCtx.Indent, offsideCtx.Token, stackDepth)
-        )
+        newState.Trace.ContextPush(offsideCtx.Context, offsideCtx.Indent, offsideCtx.Token, stackDepth)
 
         newState
 
@@ -273,11 +303,11 @@ module ParseState =
             if head <> current then
                 invalidOp $"Attempted to pop context {current} but top of stack was {head}"
 
-            state.Trace.Invoke(TraceEvent.ContextPop(head.Context, state.Context.Length))
+            state.Trace.ContextPop(head.Context, state.Context.Length)
             { state with Context = tail }
 
     let addDiagnostic code severity startToken endToken error (state: ParseState) =
-        state.Trace.Invoke(TraceEvent.DiagnosticEmitted(code, severity, startToken))
+        state.Trace.DiagnosticEmitted(code, severity, startToken)
 
         let diag =
             {
@@ -427,31 +457,58 @@ module ParseState =
         |> Option.map (fun d -> d.Suppress)
         |> Option.defaultValue false
 
-module TraceEvent =
-    let format (lexed: Lexed) (event: TraceEvent) =
-        match event with
-        | TraceEvent.ContextPush(ctx, indent, token, depth) ->
-            $"PUSH {ctx} indent={indent} token={token.Token} @{token.StartIndex} depth={depth}"
-        | TraceEvent.ContextPop(ctx, depth) -> $"POP {ctx} depth={depth}"
-        | TraceEvent.TokenConsumed(token, index, col) ->
-            let line = lexed.GetLineForToken(index * 1<token>)
-            $"CONSUME {token.Token} @{token.StartIndex} index={index} col={col} line={line}"
-        | TraceEvent.TokenPeeked(token, index, col) ->
-            let line = lexed.GetLineForToken(index * 1<token>)
-            $"PEEK {token.Token} @{token.StartIndex} index={index} col={col} line={line}"
-        | TraceEvent.VirtualToken(token, startIndex) -> $"VIRTUAL {token} @{startIndex}"
-        | TraceEvent.OffsideOk(token, tokenCol, contextIndent, ctx) ->
-            $"OFFSIDE_OK {token.Token} col={tokenCol} >= indent={contextIndent} ctx={ctx}"
-        | TraceEvent.OffsideFail(token, tokenCol, contextIndent, ctx) ->
-            $"OFFSIDE_FAIL {token.Token} col={tokenCol} < indent={contextIndent} ctx={ctx}"
-        | TraceEvent.PermittedUndentation(token, tokenCol, contextIndent, rule) ->
-            $"UNDENT_OK {token.Token} col={tokenCol} < indent={contextIndent} rule={rule}"
-        | TraceEvent.DiagnosticEmitted(code, severity, token) -> $"DIAGNOSTIC {severity} {code} @{token.StartIndex}"
-        | TraceEvent.SplitRAttrBracketSet(startIndex) -> $"SPLIT_RATTR_SET @{startIndex}"
-        | TraceEvent.SplitRAttrBracketConsumed(startIndex) -> $"SPLIT_RATTR_CONSUMED @{startIndex}"
-        | TraceEvent.SplitPowerMinusSet(startIndex) -> $"SPLIT_POW_MINUS_SET @{startIndex}"
-        | TraceEvent.SplitPowerMinusConsumed(startIndex) -> $"SPLIT_POW_MINUS_CONSUMED @{startIndex}"
-        | TraceEvent.Message(msg) -> $"MSG: {msg}"
+/// TraceCallback that formats each event as a line of text and routes it through
+/// the virtual `Write` hook (default: the supplied TextWriter). Subclasses can override
+/// individual event methods to capture structured data, or override `Write` to tee the
+/// formatted lines elsewhere (e.g. an in-memory ring buffer for test diagnostics).
+type WriterTraceCallback(lexed: Lexed, writer: System.IO.TextWriter) =
+    inherit TraceCallback()
+
+    /// Emit a formatted trace line. Default writes to the supplied TextWriter.
+    abstract Write: line: string -> unit
+    default _.Write(line) = writer.WriteLine(line)
+
+    override this.ContextPush(ctx, indent, token, depth) =
+        this.Write($"PUSH {ctx} indent={indent} token={token.Token} @{token.StartIndex} depth={depth}")
+
+    override this.ContextPop(ctx, depth) = this.Write($"POP {ctx} depth={depth}")
+
+    override this.TokenConsumed(token, index, col) =
+        let line = lexed.GetLineForToken(index * 1<token>)
+        this.Write($"CONSUME {token.Token} @{token.StartIndex} index={index} col={col} line={line}")
+
+    override this.TokenPeeked(token, index, col) =
+        let line = lexed.GetLineForToken(index * 1<token>)
+        this.Write($"PEEK {token.Token} @{token.StartIndex} index={index} col={col} line={line}")
+
+    override this.VirtualToken(token, startIndex) =
+        this.Write($"VIRTUAL {token} @{startIndex}")
+
+    override this.OffsideOk(token, tokenCol, contextIndent, ctx) =
+        this.Write($"OFFSIDE_OK {token.Token} col={tokenCol} >= indent={contextIndent} ctx={ctx}")
+
+    override this.OffsideFail(token, tokenCol, contextIndent, ctx) =
+        this.Write($"OFFSIDE_FAIL {token.Token} col={tokenCol} < indent={contextIndent} ctx={ctx}")
+
+    override this.PermittedUndentation(token, tokenCol, contextIndent, rule) =
+        this.Write($"UNDENT_OK {token.Token} col={tokenCol} < indent={contextIndent} rule={rule}")
+
+    override this.DiagnosticEmitted(code, severity, token) =
+        this.Write($"DIAGNOSTIC {severity} {code} @{token.StartIndex}")
+
+    override this.SplitRAttrBracketSet(startIndex) =
+        this.Write($"SPLIT_RATTR_SET @{startIndex}")
+
+    override this.SplitRAttrBracketConsumed(startIndex) =
+        this.Write($"SPLIT_RATTR_CONSUMED @{startIndex}")
+
+    override this.SplitPowerMinusSet(startIndex) =
+        this.Write($"SPLIT_POW_MINUS_SET @{startIndex}")
+
+    override this.SplitPowerMinusConsumed(startIndex) =
+        this.Write($"SPLIT_POW_MINUS_CONSUMED @{startIndex}")
+
+    override this.Message(msg) = this.Write($"MSG: {msg}")
 
 [<RequireQualifiedAccess>]
 module Reader =

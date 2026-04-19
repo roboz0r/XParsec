@@ -118,7 +118,7 @@ module Measure =
                 if ParseState.tokenStringIs "^-" peeked state then
                     do!
                         updateUserState (fun s ->
-                            s.Trace.Invoke(TraceEvent.SplitPowerMinusSet peeked.StartIndex)
+                            s.Trace.SplitPowerMinusSet peeked.StartIndex
                             { s with SplitPowerMinus = true }
                         )
 

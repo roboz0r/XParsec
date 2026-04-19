@@ -38,7 +38,7 @@ module Constant =
                 // rewrites it from KWRAttrBracket to KWRBracket (yielding `]`).
                 do!
                     updateUserState (fun s ->
-                        s.Trace.Invoke(TraceEvent.SplitRAttrBracketSet(t.StartIndex))
+                        s.Trace.SplitRAttrBracketSet(t.StartIndex)
                         { s with SplitRAttrBracket = true }
                     )
 
