@@ -833,37 +833,40 @@ module Combinators =
         (pSep: Parser<'B, 'T, 'State, 'Input, 'InputSlice>)
         (reader: Reader<_, _, _, _>)
         =
-        pOneThen
-            p
-            (fun s ->
-                let xs = ImmutableArray.CreateBuilder()
-                let seps = ImmutableArray.CreateBuilder()
-                xs.Add(s)
+        // Manually inlined `pOneThen p (fun s -> ...) reader` — sepBy1 itself is not inline,
+        // so the InlineIfLambda on pOneThen's binder does not reach it and the lambda
+        // would otherwise be emitted as a closure class (hot allocation site).
+        let startPos = reader.Position
 
-                let mutable ok = true
+        match p reader with
+        | Error e -> ParseError.createNested ParseError.expectedAtLeastOne [ e ] startPos
+        | Ok s ->
+            let xs = ImmutableArray.CreateBuilder()
+            let seps = ImmutableArray.CreateBuilder()
+            xs.Add(s)
 
-                while ok do
-                    let pos = reader.Position
+            let mutable ok = true
 
-                    match pSep reader with
-                    | Ok sep ->
-                        match p reader with
-                        | Ok s ->
-                            if reader.Position = pos then
-                                raise (InfiniteLoopException pos)
+            while ok do
+                let pos = reader.Position
 
-                            seps.Add(sep)
-                            xs.Add(s)
-                        | Error _ ->
-                            reader.Position <- pos
-                            ok <- false
-                    | Error e ->
+                match pSep reader with
+                | Ok sep ->
+                    match p reader with
+                    | Ok s ->
+                        if reader.Position = pos then
+                            raise (InfiniteLoopException pos)
+
+                        seps.Add(sep)
+                        xs.Add(s)
+                    | Error _ ->
                         reader.Position <- pos
                         ok <- false
+                | Error e ->
+                    reader.Position <- pos
+                    ok <- false
 
-                preturn struct (xs.ToImmutable(), seps.ToImmutable())
-            )
-            reader
+            preturn struct (xs.ToImmutable(), seps.ToImmutable()) reader
 
     /// Applies the parser `p` zero or more times, separated by `pSep`. If it succeeds, returns unit.
     /// This parser always succeeds.
