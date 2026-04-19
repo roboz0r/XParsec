@@ -65,5 +65,27 @@ Used for expressions, patterns, measures, and types. `PrecedenceLevel` converts 
 ## Testing
 
 - **Framework**: [Expecto](https://github.com/haf/expecto) (`test/XParsec.FSharp.Tests/`)
-- **Golden File Testing**: Test data lives in `data/` and `data/blocks/`. Source `.fs` files are lexed/parsed and asserted against `.fs.lexed` and `.fs.parsed` golden output files.
+- **Golden File Testing**: Test data lives in `data/`. Source `.fs` files are lexed/parsed and asserted against `.fs.lexed` and `.fs.parsed` golden output files.
 - **Trace Debugging**: Test "Trace Debugging Test" in `test/XParsec.FSharp.Tests/ParserTests.fs` should be set to `ftest` and used to understand challenging parsing issues using the `.fs.trace` and `.fs.stack` output.
+
+## Benchmarking
+
+[BenchmarkDotNet](https://benchmarkdotnet.org/) benchmarks live in `bench/XParsec.FSharp.Benchmarks/`. Each benchmark class compares XParsec against `FSharp.Compiler.Service` (FCS) on `fixtures/{small,medium,large}.fs` and reports mean time and managed allocations via `[<MemoryDiagnoser>]`.
+
+**Benchmark classes:**
+
+- `LexingBenchmarks` — tokenization only (`Lexing.lexString`)
+- `ParsingBenchmarks` — parse from already-lexed input (isolates the parser layer)
+- `EndToEndBenchmarks` — source-to-AST (full pipeline)
+
+**Running:**
+
+```bash
+./claude_tools.cmd -Action Benchmark -Filter '*Lexing*'
+```
+
+The `-Filter` argument is **required** and accepts BDN's wildcard syntax (e.g. `*Lexing*`, `*Parsing*`, `*EndToEnd*`, or `*` for all). The script runs `dotnet run -c Release -- -i -j short --filter <pattern>` under the hood — `-j short` keeps iteration count low so a pass takes ~45 s per class. Full BDN output is streamed to stdout and also saved to `claude_tools_output.log`; a GitHub-flavoured markdown summary lands in `BenchmarkDotNet.Artifacts/results/`.
+
+**Reading the results:** focus on the `Allocated` column (managed bytes per op) and `Alloc Ratio` (vs. FCS baseline). Mean-time columns also appear but BDN's short-run confidence intervals are wide — allocation numbers are far more stable than mean times. When changing hot paths, always run the relevant benchmark before and after and compare both.
+
+**In-process toolchain:** `BenchConfig.fs` forces `InProcessEmitToolchain` because the default out-of-process runner generates a fresh csproj that inherits this repo's CPM pin (`FSharp.Core 8.0.300`) and trips `NU1109` against FCS's `10.1.202` transitive requirement. The benchmark fsproj pins `FSharp.Core` via `VersionOverride` for the same reason.
