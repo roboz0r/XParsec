@@ -245,13 +245,6 @@ module SyntaxToken =
             Index = TokenIndex.Virtual
         }
 
-    let opComparer =
-        // For parsing, we only care about the operator token itself for equality
-        { new IEqualityComparer<SyntaxToken> with
-            member _.Equals(x, y) = x.Token = y.Token
-            member _.GetHashCode(obj) = hash obj.Token
-        }
-
 module ParseState =
     let createWithTracing (lexed: Lexed) input definedSymbols (trace: TraceCallback) =
         {

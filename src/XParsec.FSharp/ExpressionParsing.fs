@@ -1866,7 +1866,6 @@ module Expr =
          > with
             member _.LhsParser = lhsParser
             member _.RhsParser = rhsParser
-            member _.OpComparer = opComparer
 
     let pConst = Constant.parse |>> Expr.Const
 

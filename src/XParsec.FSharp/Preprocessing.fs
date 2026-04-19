@@ -127,7 +127,6 @@ module IfExpr =
          > with
             member _.LhsParser = lhsParser
             member _.RhsParser = rhsParser
-            member _.OpComparer = opComparer
 
         static member AtomParser = atomParser
         static member IfDirectiveParser = ifDirectiveParser

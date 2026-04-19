@@ -207,7 +207,6 @@ module Pat =
          > with
             member _.LhsParser = patLhsParser
             member _.RhsParser = rhsParser
-            member _.OpComparer = opComparer
 
     /// Matches F#'s `headBindingPattern` grammar rule: same operators as
     /// `PatOperatorParser` except `:` is not consumed. In the F# grammar `:`
@@ -230,7 +229,6 @@ module Pat =
          > with
             member _.LhsParser = patLhsParser
             member _.RhsParser = rhsParser
-            member _.OpComparer = opComparer
 
     let private refPat = FSRefParser<Pat<SyntaxToken>>()
     let private refPatSeqBlock = FSRefParser<Pat<SyntaxToken>>()
