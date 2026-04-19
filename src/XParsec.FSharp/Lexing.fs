@@ -792,6 +792,76 @@ module Lexing =
 
     let private parenChars = [| '('; ')'; '{'; '}'; '['; ']' |]
 
+    // Hoisted character predicates and counting/skipping sub-parsers.
+    // These are allocated once at module initialization so each invocation of
+    // a `parser { }` body that references them reuses the same closure instead
+    // of rebuilding (e.g.) `many1Chars (pchar ' ')` on every call.
+    let private isSpace c = c = ' '
+    let private isLBrace c = c = '{'
+    let private isRBrace c = c = '}'
+    let private isDoubleQuote c = c = '"'
+    let private isDollar c = c = '$'
+    let private isPercent c = c = '%'
+
+    let private isPlainStringFragmentChar c = c <> '"' && c <> '\\' && c <> '%'
+
+    let private isVerbatimStringFragmentChar c = c <> '"' && c <> '%'
+
+    let private isInterpolated3FragmentChar c =
+        c <> '"' && c <> '{' && c <> '}' && c <> '%'
+
+    let private isVerbatimInterpolatedFragmentChar c = c <> '"' && c <> '{' && c <> '}'
+
+    let private isNotNewline c = c <> '\n' && c <> '\r'
+
+    let private pSkipSpaces = skipMany1Satisfies isSpace
+    let private pCountLBraces = countMany1Satisfies isLBrace
+    let private pCountRBraces = countMany1Satisfies isRBrace
+    let private pCountDoubleQuotes = countMany1Satisfies isDoubleQuote
+    let private pCountDollars = countMany1Satisfies isDollar
+
+    let private pSkipPlainStringFragmentChars =
+        skipMany1Satisfies isPlainStringFragmentChar
+
+    let private pSkipVerbatimStringFragmentChars =
+        skipMany1Satisfies isVerbatimStringFragmentChar
+
+    let private pSkipInterpolated3FragmentChars =
+        skipMany1Satisfies isInterpolated3FragmentChar
+
+    let private pSkipVerbatimInterpolatedFragmentChars =
+        skipMany1Satisfies isVerbatimInterpolatedFragmentChar
+
+    let private pSkipUntilNewline = skipManySatisfies isNotNewline
+
+    /// Non-consuming span-based count of consecutive chars matching `predicate`
+    /// starting at the reader's current position. Used in place of
+    /// `lookAhead (many1Chars (pchar c))` to avoid allocating the run string.
+    let private peekCountSatisfies (predicate: char -> bool) (reader: Reader<char, LexBuilder, ReadableString, _>) =
+        let mutable windowSize = 16
+        let mutable finished = false
+        let mutable count = 0
+
+        while not finished do
+            let span = reader.PeekN(windowSize)
+            let mutable i = 0
+
+            while i < span.Length && predicate span.[i] do
+                i <- i + 1
+
+            count <- i
+
+            if i < span.Length || span.Length < windowSize then
+                finished <- true
+            else
+                windowSize <- windowSize * 2
+
+        preturn count reader
+
+    let private pPeekCountDoubleQuotes = peekCountSatisfies isDoubleQuote
+    let private pPeekCountRBraces = peekCountSatisfies isRBrace
+    let private pPeekCountPercents = peekCountSatisfies isPercent
+
     let private pToken p token =
         parser {
             let! pos = getPosition
@@ -816,7 +886,7 @@ module Lexing =
     let pIndentOrWhitespaceToken =
         parser {
             let! pos = getPosition
-            let! spaces = many1Chars (pchar ' ')
+            do! pSkipSpaces
 
             do!
                 updateUserState (fun state ->
@@ -879,53 +949,104 @@ module Lexing =
     let pIdentChar = satisfyL isIdentChar "identifier character"
     let pIdentifier = many1Chars2 pIdentStartChar pIdentChar
 
-    let pIdentifierOrKeywordToken =
-        let keywords = dict identifierKeywords
+    // Ordinal-comparer-backed dictionary for keyword lookup. Per-identifier
+    // we allocate one string via `source.Substring(start, len)` for the key,
+    // avoiding the double allocation of the old
+    // `many1Chars2 + (id + string c)` path.
+    let private keywordsDict =
+        let d = Dictionary<string, Token>(System.StringComparer.Ordinal)
 
-        let pId =
-            choiceL
-                [
-                    // 19.1 Conditional Compilation for ML Compatibility
-                    pstring "F#*)"
-                    pstring "ENDIF-FSHARP*)"
-                    // 3.4 Identifiers and Keywords
-                    pIdentifier
-                ]
-                "Identifier"
+        for (k, v) in identifierKeywords do
+            d.[k] <- v
 
-        parser {
-            let! pos = getPosition
+        d
 
-            let! id = pId
+    // 19.1 Conditional Compilation for ML Compatibility — these sentinel strings
+    // close an OCaml-compatibility block comment when encountered in identifier
+    // position.
+    let private fSharpBlockCommentEnd1 = "F#*)"
+    let private fSharpBlockCommentEnd2 = "ENDIF-FSHARP*)"
 
-            match id with
-            | "F#*)"
-            | "ENDIF-FSHARP*)" ->
-                do! updateUserState (LexBuilder.append Token.EndFSharpBlockComment pos CtxOp.NoOp)
+    let pIdentifierOrKeywordToken (reader: Reader<char, LexBuilder, ReadableString, _>) =
+        let pos = reader.Position
+        let source = reader.State.Source
+        let startIdx = int pos.Index
 
-                return ()
-            | _ ->
+        // Check F#*) sentinel first
+        let peek1 = reader.PeekN(fSharpBlockCommentEnd1.Length)
 
-                let! suffix = opt (anyOf "!#")
+        if
+            peek1.Length = fSharpBlockCommentEnd1.Length
+            && peek1.SequenceEqual(fSharpBlockCommentEnd1.AsSpan())
+        then
+            reader.SkipN(fSharpBlockCommentEnd1.Length)
+            reader.State <- LexBuilder.append Token.EndFSharpBlockComment pos CtxOp.NoOp reader.State
+            preturn () reader
+        else
+            // Check ENDIF-FSHARP*) sentinel
+            let peek2 = reader.PeekN(fSharpBlockCommentEnd2.Length)
 
-                let id =
-                    match suffix with
-                    | ValueSome c -> id + string c
-                    | ValueNone -> id
+            if
+                peek2.Length = fSharpBlockCommentEnd2.Length
+                && peek2.SequenceEqual(fSharpBlockCommentEnd2.AsSpan())
+            then
+                reader.SkipN(fSharpBlockCommentEnd2.Length)
+                reader.State <- LexBuilder.append Token.EndFSharpBlockComment pos CtxOp.NoOp reader.State
+                preturn () reader
+            else
+                // Regular identifier
+                match reader.Peek() with
+                | ValueNone -> fail EndOfInput reader
+                | ValueSome c when not (isIdentStartChar c) ->
+                    fail (Message "Expected identifier start character") reader
+                | ValueSome _ ->
+                    reader.Skip()
+                    let mutable more = true
 
-                let token =
-                    match keywords.TryGetValue id with
-                    | true, kw -> kw
-                    | false, _ ->
+                    while more do
+                        match reader.Peek() with
+                        | ValueSome ic when isIdentChar ic -> reader.Skip()
+                        | _ -> more <- false
+
+                    let baseLen = int (reader.Position.Index - pos.Index)
+
+                    // Peek for ! / # suffix
+                    let suffix =
+                        match reader.Peek() with
+                        | ValueSome '!' -> ValueSome '!'
+                        | ValueSome '#' -> ValueSome '#'
+                        | _ -> ValueNone
+
+                    let token, consumedSuffix =
                         match suffix with
-                        | ValueNone -> Token.Identifier
-                        | ValueSome '!' -> Token.OpDereference
-                        | ValueSome '#' -> Token.ReservedIdentifierHash
-                        | ValueSome c -> invalidOp $"Unexpected identifier suffix '{c}'"
+                        | ValueSome c ->
+                            // Suffix is always consumed if present. The full `id+c`
+                            // is looked up first; on miss, fall back to the
+                            // suffix-based token (OpDereference / ReservedIdentifierHash).
+                            let key = source.Substring(startIdx, baseLen + 1)
 
-                do! updateUserState (LexBuilder.append token pos CtxOp.NoOp)
-                return ()
-        }
+                            match keywordsDict.TryGetValue(key) with
+                            | true, tok -> tok, true
+                            | false, _ ->
+                                let fallback =
+                                    match c with
+                                    | '!' -> Token.OpDereference
+                                    | '#' -> Token.ReservedIdentifierHash
+                                    | _ -> Token.Identifier
+
+                                fallback, true
+                        | ValueNone ->
+                            let key = source.Substring(startIdx, baseLen)
+
+                            match keywordsDict.TryGetValue(key) with
+                            | true, tok -> tok, false
+                            | false, _ -> Token.Identifier, false
+
+                    if consumedSuffix then
+                        reader.Skip()
+
+                    reader.State <- LexBuilder.append token pos CtxOp.NoOp reader.State
+                    preturn () reader
 
 
     let pBacktickedIdentifierToken (reader: Reader<char, LexBuilder, ReadableString, _>) =
@@ -991,7 +1112,7 @@ module Lexing =
         | ValueSome('\n' | '\r') -> preturn () reader
         | _ -> fail expectedNewline reader
 
-    let pLineComment = pstring "//" >>. manyCharsTill anyChar (peekNewLine <|> eof)
+    let pLineComment = pstring "//" >>. pSkipUntilNewline
     let pLineCommentToken = pToken pLineComment Token.LineComment
 
     module IfDirective =
@@ -1048,7 +1169,7 @@ module Lexing =
         let pWhitespaceToken =
             parser {
                 let! pos = getPosition
-                let! spaces = many1Chars (pchar ' ')
+                do! pSkipSpaces
 
                 do! updateUserState (LexBuilder.append Token.Whitespace pos CtxOp.NoOp)
             }
@@ -1167,24 +1288,20 @@ module Lexing =
                 reader.Skip()
                 preturn (CharChar.Simple c) reader
 
-    let private pStringToken pLiteral =
+    let pCharToken =
+        let pLiteral =
+            between (pchar '\'') (pchar '\'') pCharChar
+            |>> (fun x ->
+                match x with
+                | CharChar.InvalidTrigraph _ -> Token.InvalidCharTrigraphLiteral
+                | _ -> Token.CharLiteral
+            )
+
         parser {
             let! pos = getPosition
-            let! (s, token) = pLiteral
+            let! token = pLiteral
             do! updateUserState (LexBuilder.append token pos CtxOp.NoOp)
         }
-
-    let pCharToken =
-        between (pchar '\'') (pchar '\'') pCharChar
-        |>> (fun x ->
-            match x with
-            | CharChar.Simple c -> x, Token.CharLiteral
-            | CharChar.Escaped c -> x, Token.CharLiteral
-            | CharChar.UnicodeShort c -> x, Token.CharLiteral
-            | CharChar.Trigraph c -> x, Token.CharLiteral
-            | CharChar.InvalidTrigraph i -> x, Token.InvalidCharTrigraphLiteral
-        )
-        |> pStringToken
 
     // ======================================================================
     // Fragment-based plain string lexing (paralleling interpolated strings)
@@ -1201,15 +1318,15 @@ module Lexing =
 
     // Fragment: plain text inside a regular string (stops at ", \, %)
     let pPlainStringFragmentToken =
-        pToken (many1Chars (satisfy (fun c -> c <> '"' && c <> '\\' && c <> '%'))) Token.StringFragment
+        pToken pSkipPlainStringFragmentChars Token.StringFragment
 
     // Fragment: plain text inside a verbatim string (stops at ", %)
     let pVerbatimStringFragmentToken2 =
-        pToken (many1Chars (satisfy (fun c -> c <> '"' && c <> '%'))) Token.StringFragment
+        pToken pSkipVerbatimStringFragmentChars Token.StringFragment
 
     // Fragment: plain text inside a triple-quoted string (stops at ", %)
     let pTripleStringFragmentToken =
-        pToken (many1Chars (satisfy (fun c -> c <> '"' && c <> '%'))) Token.StringFragment
+        pToken pSkipVerbatimStringFragmentChars Token.StringFragment
 
     // Escape sequence inside a regular string: \n, \t, \xHH, \uXXXX, \UXXXXXXXX, \DDD, etc.
     let pStringEscapeToken (reader: Reader<char, LexBuilder, ReadableString, _>) =
@@ -1285,9 +1402,9 @@ module Lexing =
     let pVerbatimStringQuoteToken2 =
         parser {
             let! pos = getPosition
-            let! quotes = lookAhead (many1Chars (pchar '"'))
+            let! quoteCount = pPeekCountDoubleQuotes
 
-            if quotes.Length >= 2 then
+            if quoteCount >= 2 then
                 // "" is an escaped quote
                 do! skipN 2
                 do! updateUserState (LexBuilder.append Token.VerbatimEscapeQuote pos CtxOp.NoOp)
@@ -1315,36 +1432,53 @@ module Lexing =
     let pTripleStringQuoteOrFragment =
         parser {
             let! pos = getPosition
-            let! quotes = lookAhead (many1Chars (pchar '"'))
+            let! quoteCount = pPeekCountDoubleQuotes
 
-            if quotes.Length >= 3 then
+            if quoteCount >= 3 then
                 do! skipN 3
                 do! updateUserState (LexBuilder.append Token.String3Close pos (CtxOp.Pop LexContext.TripleQuotedString))
             else
-                do! skipN quotes.Length
+                do! skipN quoteCount
                 do! updateUserState (LexBuilder.append Token.StringFragment pos CtxOp.NoOp)
         }
 
-    let pTypeParamToken =
-        let keywords = dict identifierKeywords
+    let pTypeParamToken (reader: Reader<char, LexBuilder, ReadableString, _>) =
+        let pos = reader.Position
 
-        parser {
-            let! pos = getPosition
-            let! _ = pchar '\''
-            let! chars = many1Chars pIdentChar
-            // Type parameter
-            match keywords.TryGetValue chars with
-            | true, token ->
-                // e.g. 'let is a keyword, not a type parameter
-                do!
-                    updateUserState (fun state ->
-                        state
+        match reader.Peek() with
+        | ValueSome '\'' ->
+            reader.Skip()
+
+            match reader.Peek() with
+            | ValueSome c when isIdentChar c ->
+                reader.Skip()
+                let identStart = int pos.Index + 1
+                let mutable more = true
+
+                while more do
+                    match reader.Peek() with
+                    | ValueSome ic when isIdentChar ic -> reader.Skip()
+                    | _ -> more <- false
+
+                let identLen = int (reader.Position.Index) - identStart
+                let source = reader.State.Source
+                let key = source.Substring(identStart, identLen)
+
+                match keywordsDict.TryGetValue(key) with
+                | true, token ->
+                    // e.g. 'let is a keyword, not a type parameter
+                    let newState =
+                        reader.State
                         |> LexBuilder.append Token.KWSingleQuote pos CtxOp.NoOp
-                        |> LexBuilder.appendI token (pos.Index + 1) CtxOp.NoOp
+                        |> LexBuilder.appendI token identStart CtxOp.NoOp
 
-                    )
-            | false, _ -> do! updateUserState (LexBuilder.append Token.TypeParameter pos CtxOp.NoOp)
-        }
+                    reader.State <- newState
+                    preturn () reader
+                | false, _ ->
+                    reader.State <- LexBuilder.append Token.TypeParameter pos CtxOp.NoOp reader.State
+                    preturn () reader
+            | _ -> fail (Message "Expected identifier character after '") reader
+        | _ -> fail (Message "Expected '") reader
 
     let pInterpolatedStringStartToken =
         pTokenPushCtx (pstring "$\"") Token.InterpolatedStringOpen LexContext.InterpolatedString
@@ -1369,22 +1503,20 @@ module Lexing =
                 ]
                 "Interpolated string fragment char"
 
-        pToken (many1Chars pFragmentChar) Token.InterpolatedStringFragment
+        pToken (skipMany1 pFragmentChar) Token.InterpolatedStringFragment
 
     let pInterpolated3StringFragmentToken =
-        pToken
-            (many1Chars (satisfy (fun c -> c <> '"' && c <> '{' && c <> '}' && c <> '%')))
-            Token.Interpolated3StringFragment
+        pToken pSkipInterpolated3FragmentChars Token.Interpolated3StringFragment
 
     let pInterpolatedExpressionStartToken =
         parser {
             let! pos = getPosition
-            let! braces = many1Chars (pchar '{')
+            let! braceCount = pCountLBraces
 
             do!
                 updateUserState (fun state ->
 
-                    let mutable count = braces.Length
+                    let mutable count = int braceCount
                     let mutable idx = int pos.Index
 
                     while count > 1 do
@@ -1408,12 +1540,12 @@ module Lexing =
     let pInterpolated3ExpressionStartToken =
         parser {
             let! pos = getPosition
-            let! braces = many1Chars (pchar '{')
+            let! braceCount = pCountLBraces
 
             do!
                 updateUserState (fun state ->
                     let level = LexBuilder.level state
-                    let count = braces.Length
+                    let count = int braceCount
                     let idx = pos.Index
 
                     let diff = count - level
@@ -1446,10 +1578,12 @@ module Lexing =
     /// When inside an interpolated expression ({expr:format}), ':' starts a .NET format clause.
     /// Consumes ':' and everything up to (but not including) '}'.
     let pInterpolatedFormatClause =
+        let pSkipUntilRBrace = skipManySatisfies (fun c -> c <> '}')
+
         parser {
             let! pos = getPosition
             do! skip // consume ':'
-            do! skipMany (noneOf "}" >>% ())
+            do! pSkipUntilRBrace
 
             do! updateUserState (LexBuilder.append Token.InterpolatedFormatClause pos CtxOp.NoOp)
         }
@@ -1481,7 +1615,7 @@ module Lexing =
     let pInterpolatedExpressionEndToken =
         parser {
             let! pos = getPosition
-            let! braces = lookAhead (many1Chars (pchar '}'))
+            let! braceCount = pPeekCountRBraces
             let level = LexBuilder.level pos.State
 
             match level with
@@ -1495,7 +1629,7 @@ module Lexing =
                             pos
                             (CtxOp.Pop LexContext.InterpolatedExpression)
                     )
-            | _ when braces.Length >= level ->
+            | _ when braceCount >= level ->
                 do! skipN level
 
                 do!
@@ -1506,13 +1640,13 @@ module Lexing =
                             (CtxOp.Pop LexContext.InterpolatedExpression)
                     )
             | _ ->
-                do! skipN braces.Length
+                do! skipN braceCount
 
                 do!
                     updateUserState (fun state ->
                         let mutable state = state
 
-                        for i in 0 .. (braces.Length - 1) do
+                        for i in 0 .. (braceCount - 1) do
                             // We have some number of braces, but not enough to close the expression
                             state <- LexBuilder.appendI Token.KWRBrace (pos.Index + i) CtxOp.NoOp state
 
@@ -1524,9 +1658,9 @@ module Lexing =
     let pInterpolatedStringFragmentRBraces =
         parser {
             let! pos = getPosition
-            let! braces = many1Chars (pchar '}')
+            let! braceCount = pCountRBraces
 
-            let mutable count = braces.Length
+            let mutable count = int braceCount
             let mutable idx = int pos.Index
 
             do!
@@ -1553,10 +1687,10 @@ module Lexing =
     let pInterpolated3StringFragmentRBraces =
         parser {
             let! pos = getPosition
-            let! braces = many1Chars (pchar '}')
+            let! braceCount = pCountRBraces
             let level = LexBuilder.level pos.State
 
-            let count = braces.Length
+            let count = int braceCount
             let idx = int pos.Index
 
             let diff = count - level
@@ -1597,13 +1731,13 @@ module Lexing =
     let pVerbatimInterpolatedStringQuoteToken =
         parser {
             let! pos = getPosition
-            let! quotes = many1Chars (pchar '"')
+            let! quoteCount = pCountDoubleQuotes
 
             do!
                 updateUserState (fun state ->
                     let mutable idx = pos.Index
                     let mutable state = state
-                    let mutable count = quotes.Length
+                    let mutable count = int quoteCount
 
                     while count > 1 do
                         // "" is an escape sequence for '"'
@@ -1624,21 +1758,20 @@ module Lexing =
         }
 
     let pVerbatimInterpolatedStringFragmentToken =
-        pToken
-            (many1Chars (satisfy (fun c -> c <> '"' && c <> '{' && c <> '}')))
-            Token.VerbatimInterpolatedStringFragment
+        pToken pSkipVerbatimInterpolatedFragmentChars Token.VerbatimInterpolatedStringFragment
 
     let pInterpolated3StartToken =
         parser {
             let! pos = getPosition
-            let! (dollars, _) = many1Chars (pchar '$') .>>. pstring "\"\"\""
+            let! dollarCount = pCountDollars
+            let! _ = pstring "\"\"\""
 
             do!
                 updateUserState (
                     LexBuilder.append
                         Token.Interpolated3StringOpen
                         pos
-                        (CtxOp.Push(LexContext.Interpolated3String dollars.Length))
+                        (CtxOp.Push(LexContext.Interpolated3String(int dollarCount)))
                 )
         }
 
@@ -1660,7 +1793,7 @@ module Lexing =
     /// If fewer than 3 quotes, treat them as literal fragment content.
     let pInterpolated3QuoteOrFragment =
         pInterpolated3EndToken
-        <|> pToken (many1Chars (pchar '"')) Token.Interpolated3StringFragment
+        <|> pToken pCountDoubleQuotes Token.Interpolated3StringFragment
 
 
     let pNewlineToken =
@@ -2217,7 +2350,7 @@ module Lexing =
         let pFormatSpecifierTokens: Parser<unit, _, _, ReadableString, _> =
             parser {
                 let! pos = getPosition
-                let! percents = lookAhead (many1Chars (pchar '%'))
+                let! percentCount = pPeekCountPercents
                 let! state = getUserState
                 let tokens = state.Tokens
 
@@ -2234,7 +2367,7 @@ module Lexing =
                 | 1 ->
                     // Level 1 logic
                     let count, idx =
-                        let mutable count = percents.Length
+                        let mutable count = percentCount
                         let mutable idx = pos.Index
 
                         while count > 1 do
@@ -2247,20 +2380,20 @@ module Lexing =
 
                     match count with
                     | 0 ->
-                        // All percents consumed as %% escape pairs by many1Chars above
-                        do! skipN percents.Length
+                        // All percents consumed as %% escape pairs
+                        do! skipN percentCount
                         return ()
                     | _ ->
                         // reads flags/width/precision/type after the final '%'
-                        do! skipN percents.Length
+                        do! skipN percentCount
                         let! t = lFormatPlaceholderToken
                         addToken t idx
                         return ()
 
                 | level ->
 
-                    // Level 2 or higher logic, impossible to get 0 or negative from many1Chars
-                    let count = percents.Length
+                    // Level 2 or higher logic, impossible to get 0 or negative since peek count > 0
+                    let count = percentCount
                     let leading = count - level
                     let idx = pos.Index
 
@@ -2472,6 +2605,25 @@ module Lexing =
         |]
 
     let pDirectiveToken =
+        // Hoist allocations: the choiceL and its sub-parsers would otherwise be
+        // rebuilt on every invocation of the parser CE body.
+        let pSkipSpaces1 = skipMany1Satisfies isSpace
+        let pSkipDecimalDigits1 = skipMany1Satisfies NumericLiterals.isDecimalDigit
+        let pSkipIdentChars1 = skipMany1Satisfies isIdentChar
+
+        let pDirectiveChoice =
+            choiceL
+                [
+                    anyStringReturn directives
+                    // # int
+                    // We just peek the int to distinguish from InvalidDirective
+                    // The actual int is lexed to a separate token
+                    tuple3 (pchar '#') pSkipSpaces1 (followedBy pSkipDecimalDigits1)
+                    >>% Token.LineIntDirective
+                    pchar '#' .>> pSkipIdentChars1 >>% Token.InvalidDirective
+                ]
+                "Directive"
+
         parser {
             let! atStart = isAtStartOfLineOrIndent
 
@@ -2479,22 +2631,7 @@ module Lexing =
                 return! fail (Message "Directives must be at start of line or immediately after indentation")
             else
                 let! pos = getPosition
-
-                let! token =
-                    choiceL
-                        [
-                            anyStringReturn directives
-                            // # int
-                            // We just peek the int to distinguish from InvalidDirective
-                            // The actual int is lexed to a separate token
-                            tuple3
-                                (pchar '#')
-                                (many1Chars (pchar ' '))
-                                (followedBy (many1Chars (satisfy NumericLiterals.isDecimalDigit)))
-                            >>% Token.LineIntDirective
-                            pchar '#' .>> many1Chars pIdentChar >>% Token.InvalidDirective
-                        ]
-                        "Directive"
+                let! token = pDirectiveChoice
 
                 do!
                     updateUserState (fun x ->
@@ -2515,6 +2652,10 @@ module Lexing =
                 pToken (pchar '#') Token.KWHash
             ]
             "Hash or Directive"
+
+    // Hoisted out of the `lex` dispatch so the list/closure is built once, not per iteration.
+    let private pLBraceExpressionToken =
+        choiceL [ pOpenBraceBarExpressionContext; pOpenBraceExpressionContext ] "Left brace"
 
     [<TailCall>]
     let rec lex (reader: Reader<char, LexBuilder, ReadableString, _>) =
@@ -2554,8 +2695,7 @@ module Lexing =
                 | '{', LexContext.Interpolated3String level ->
                     // In a triple-quoted interpolated string, { * level starts an expression or is escaped as {{
                     pInterpolated3ExpressionStartToken
-                | '{', ExpressionCtx ->
-                    choiceL [ pOpenBraceBarExpressionContext; pOpenBraceExpressionContext ] "Left brace"
+                | '{', ExpressionCtx -> pLBraceExpressionToken
                 | '}', LexContext.InterpolatedString ->
                     // In an interpolated string, } is escaped as }}
                     pInterpolatedStringFragmentRBraces
