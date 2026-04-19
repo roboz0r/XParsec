@@ -206,7 +206,9 @@ and walkOpName (visitor: AstVisitor<'T>) (opName: OpName<'T>) : unit =
 and walkRangeOpName (visitor: AstVisitor<'T>) (rangeOpName: RangeOpName<'T>) : unit =
     match rangeOpName with
     | RangeOpName.DotDot dotDot -> visitor.VisitToken "DotDot" dotDot
-    | RangeOpName.DotDotDotDot dotDotDotDot -> visitor.VisitToken "DotDotDotDot" dotDotDotDot
+    | RangeOpName.DotDotDotDot(first, second) ->
+        visitor.VisitToken "DotDotDotDot" first
+        visitor.VisitToken "DotDotDotDot" second
 
 and walkActivePatternOpName (visitor: AstVisitor<'T>) (apn: ActivePatternOpName<'T>) : unit =
     match apn with

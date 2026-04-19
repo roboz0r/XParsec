@@ -1,0 +1,34 @@
+module                  'module'          KWModule            tok=  11  pos= 382
+                        'Test'            Identifier          tok=  13  pos= 389
+FunctionOrValue:
+  let                   'let'             KWLet               tok=  16  pos= 395
+    inline              'inline'          KWInline            tok=  18  pos= 399
+    Pat.Op:
+      ParenOp:
+                        '('               KWLParen            tok=  20  pos= 406
+        RangeOp:
+          DotDotDotDot  '..'              OpRange             tok=  21  pos= 407
+          DotDotDotDot  '..'              OpRange             tok=  23  pos= 410
+                        ')'               KWRParen            tok=  24  pos= 412
+    Pats:
+      Pat.NamedSimple   'start'           Identifier          tok=  26  pos= 414
+      Pat.NamedSimple   'step'            Identifier          tok=  28  pos= 420
+      Pat.NamedSimple   'finish'          Identifier          tok=  30  pos= 425
+    =                   '='               OpEquality          tok=  32  pos= 432
+      Const             '0'               NumInt32            tok=  34  pos= 434
+FunctionOrValue:
+  let                   'let'             KWLet               tok=  37  pos= 437
+    inline              'inline'          KWInline            tok=  39  pos= 441
+    Pat.Op:
+      ParenOp:
+                        '('               KWLParen            tok=  41  pos= 448
+        RangeOp:
+          DotDotDotDot  '..'              OpRange             tok=  42  pos= 449
+          DotDotDotDot  '..'              OpRange             tok=  47  pos= 490
+                        ')'               KWRParen            tok=  48  pos= 492
+    Pats:
+      Pat.NamedSimple   'start'           Identifier          tok=  50  pos= 494
+      Pat.NamedSimple   'step'            Identifier          tok=  52  pos= 500
+      Pat.NamedSimple   'finish'          Identifier          tok=  54  pos= 505
+    =                   '='               OpEquality          tok=  56  pos= 512
+      Const             '0'               NumInt32            tok=  58  pos= 514

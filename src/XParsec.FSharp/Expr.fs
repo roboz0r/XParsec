@@ -47,7 +47,7 @@ and [<RequireQualifiedAccess>] OpName<'T> =
 
 and [<RequireQualifiedAccess>] RangeOpName<'T> =
     | DotDot of 'T
-    | DotDotDotDot of 'T
+    | DotDotDotDot of firstDotDot: 'T * secondDotDot: 'T
 
 and ActivePatternOpName<'T> = | ActivePatternOp of lBar: 'T * idents: ImArr<'T> * finalUnderscore: 'T voption * rBar: 'T
 
