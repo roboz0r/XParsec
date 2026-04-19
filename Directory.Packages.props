@@ -20,6 +20,7 @@
     <PackageVersion Include="BenchmarkDotNet" Version="0.14.0" />
     <PackageVersion Include="BenchmarkDotNet.Diagnostics.Windows" Version="0.14.0" />
     <PackageVersion Include="FParsec" Version="1.1.1" />
+    <PackageVersion Include="FSharp.Compiler.Service" Version="43.12.202" />
   </ItemGroup>
   <ItemGroup Condition="'$(IsClient)' == 'true'" Label="Client">
     <PackageVersion Include="Fable.Browser.Dom" Version="2.18.1" />

@@ -1,1 +1,2 @@
 test/XParsec.FSharp.Tests/data/
+bench/XParsec.FSharp.Benchmarks/fixtures/
