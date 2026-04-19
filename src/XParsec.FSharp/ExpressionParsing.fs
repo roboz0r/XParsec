@@ -1222,46 +1222,11 @@ module Expr =
                     )
             }
 
-    type ExprOperatorParser() =
-        let printOpInfo (op: OperatorInfo) =
-            printfn
-                $"Operator: {op.PositionedToken}({op.StartIndex}), Precedence: {op.Precedence}, Associativity: %A{op.Associativity}"
-
-        let pIdentAfterDot = nextNonTriviaIdentifierL "Expected identifier after '.'"
-
-        let parseDotRhs: Parser<ExprAux, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-            // Note: cannot use module-level pIdent here as that maps to Expr.Ident
-            choiceL
-                [
-                    // .[expr] — indexed access (e.g. xs.[0])
-                    parser {
-                        let! lBracket = pLBracket
-                        let! indexExpr = refExpr.Parser
-                        let! rBracket = pRBracket
-                        return ExprAux.DotIndex(lBracket, indexExpr, rBracket)
-                    }
-                    // .(op) — qualified operator access (e.g. Module.(+))
-                    parser {
-                        let! lParen = pLParen
-                        let! op = OpName.parse
-                        let! rParen = pRParen
-                        return ExprAux.DotParenOp(IdentOrOp.ParenOp(lParen, op, rParen))
-                    }
-                    // .ident — field/member access (e.g. x.Name)
-                    parser {
-                        let! ident = pIdentAfterDot
-                        return ExprAux.Ident ident
-                    }
-                    // .N — positional DU field access (e.g. cons.( :: ).1)
-                    parser {
-                        let! intTok =
-                            nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.NumInt32) "integer field index"
-
-                        return ExprAux.Ident intTok
-                    }
-                ]
-                "Dot RHS (identifier or index)"
-
+    /// High-precedence-application / type-application lookaheads — the `f(x)`, `f[i]`,
+    /// and `f<T>` forms that bind tighter than whitespace application. Lifted from
+    /// ExprOperatorParser to avoid re-evaluating their bodies on each generic
+    /// instantiation of an enclosing class member.
+    module private HighPrec =
         let pTypeAppRhs =
             parser {
                 let! lAngle = nextNonTriviaTokenIsL Token.OpLessThan "Expected '<' for type application"
@@ -1363,6 +1328,46 @@ module Expr =
                     return ExprAux.HighPrecApp(lParen, argExpr, rParen)
             }
 
+    type ExprOperatorParser() =
+        let printOpInfo (op: OperatorInfo) =
+            printfn
+                $"Operator: {op.PositionedToken}({op.StartIndex}), Precedence: {op.Precedence}, Associativity: %A{op.Associativity}"
+
+        let pIdentAfterDot = nextNonTriviaIdentifierL "Expected identifier after '.'"
+
+        let parseDotRhs: Parser<ExprAux, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+            // Note: cannot use module-level pIdent here as that maps to Expr.Ident
+            choiceL
+                [
+                    // .[expr] — indexed access (e.g. xs.[0])
+                    parser {
+                        let! lBracket = pLBracket
+                        let! indexExpr = refExpr.Parser
+                        let! rBracket = pRBracket
+                        return ExprAux.DotIndex(lBracket, indexExpr, rBracket)
+                    }
+                    // .(op) — qualified operator access (e.g. Module.(+))
+                    parser {
+                        let! lParen = pLParen
+                        let! op = OpName.parse
+                        let! rParen = pRParen
+                        return ExprAux.DotParenOp(IdentOrOp.ParenOp(lParen, op, rParen))
+                    }
+                    // .ident — field/member access (e.g. x.Name)
+                    parser {
+                        let! ident = pIdentAfterDot
+                        return ExprAux.Ident ident
+                    }
+                    // .N — positional DU field access (e.g. cons.( :: ).1)
+                    parser {
+                        let! intTok =
+                            nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.NumInt32) "integer field index"
+
+                        return ExprAux.Ident intTok
+                    }
+                ]
+                "Dot RHS (identifier or index)"
+
         let parseRangeRhs reader =
             match peekNextNonTriviaToken reader with
             | Ok t ->
@@ -1446,11 +1451,11 @@ module Expr =
                     // | PrecedenceLevel.Prefix -> LHS only
                     | PrecedenceLevel.Dot -> (fun op -> InfixMapped(op, preturn op, power, parseDotRhs, Complete.dot))
                     | PrecedenceLevel.HighIndexApplication ->
-                        (fun op -> InfixMapped(op, preturn op, power, parseHighPrecIndex, Complete.highPrec))
+                        (fun op -> InfixMapped(op, preturn op, power, HighPrec.parseHighPrecIndex, Complete.highPrec))
                     | PrecedenceLevel.HighApplication ->
-                        (fun op -> InfixMapped(op, preturn op, power, parseHighPrecApp, Complete.highPrec))
+                        (fun op -> InfixMapped(op, preturn op, power, HighPrec.parseHighPrecApp, Complete.highPrec))
                     | PrecedenceLevel.HighTypeApplication ->
-                        (fun op -> InfixMapped(op, preturn op, power, pTypeAppRhs, Complete.typeApp))
+                        (fun op -> InfixMapped(op, preturn op, power, HighPrec.pTypeAppRhs, Complete.typeApp))
                     // | PrecedenceLevel.Parens -> LHS only
                     | pl ->
                         (fun op ->
@@ -1671,7 +1676,7 @@ module Expr =
                 [
                     reprocessedOperatorAfterTypeParams >>= handleToken
                     pTypeApplication >>= handleToken
-                    peekHighPrecApp >>= handleToken
+                    HighPrec.peekHighPrecApp >>= handleToken
                     pApplication >>= handleToken
                     pSepVirt >>= handleToken
                     nextNonTriviaToken >>= handleToken
