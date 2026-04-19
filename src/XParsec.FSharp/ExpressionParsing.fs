@@ -1329,6 +1329,127 @@ module Expr =
                     return ExprAux.HighPrecApp(lParen, argExpr, rParen)
             }
 
+    module private Application =
+        let parse =
+            /// Checks whether the operator at the given raw token index is an ADJACENT_PREFIX_OP:
+            /// adjacent to the following token (no whitespace after) but with whitespace before.
+            /// See F# spec 3.8.1 "Post-filtering of Adjacent Prefix Tokens".
+            let isAdjacentPrefixOp (state: ParseState) (rawIndex: int<token>) =
+                let tokens = state.Lexed.Tokens
+
+                // Check right-adjacency: next raw token must NOT be trivia (whitespace/newline/comment)
+                let rightAdjacent =
+                    rawIndex + 1<token> < tokens.Length * 1<token>
+                    && not (ParseState.isTriviaToken state tokens[rawIndex + 1<token>])
+
+                // Check left-separation: previous raw token must be trivia (whitespace/newline/comment)
+                // or the operator must be at the start of input
+                let leftSeparated =
+                    rawIndex = 0<token>
+                    || (rawIndex > 0<token>
+                        && ParseState.isTriviaToken state tokens[rawIndex - 1<token>])
+
+                rightAdjacent && leftSeparated
+
+            let isAtomicExprToken (state: ParseState) (t: SyntaxToken) =
+                match t.Token with
+                | Token.Identifier
+                | Token.BacktickedIdentifier
+                | Token.UnterminatedBacktickedIdentifier
+                | Token.KWLParen
+                | Token.KWLBracket
+                | Token.KWLArrayBracket
+                | Token.KWBegin
+                | Token.KWStruct
+                | Token.KWLBrace
+                | Token.KWLBraceBar
+                | Token.KWLHashParen
+                | Token.OpQuotationTypedLeft
+                | Token.OpQuotationUntypedLeft
+                | Token.OpDereference
+                | Token.InterpolatedStringOpen
+                | Token.VerbatimInterpolatedStringOpen
+                | Token.Interpolated3StringOpen
+                | Token.StringOpen
+                | Token.VerbatimStringOpen
+                | Token.String3Open
+                | Token.Wildcard -> true
+                | _ ->
+                    if Constant.isLiteralToken t.Token then
+                        true
+                    else
+                        match OperatorInfo.TryCreate t.PositionedToken with
+                        | ValueSome opInfo when opInfo.CanBePrefix ->
+                            // Prefix-only operators (e.g. !, ~~~) always start application args.
+                            // Dual-use operators (e.g. -, +) only start application args when they
+                            // are ADJACENT_PREFIX_OPs: adjacent to the right token with whitespace before.
+                            // See F# spec 3.8.1 "Post-filtering of Adjacent Prefix Tokens".
+                            opInfo.Precedence = PrecedenceLevel.Prefix
+                            || (
+                                match t.Index with
+                                | TokenIndex.Regular rawIndex -> isAdjacentPrefixOp state rawIndex
+                                | TokenIndex.Virtual -> false
+                            )
+                        | _ -> false
+
+            let failApp = fail (Message "Expected expression after application")
+            // Application is *juxtaposition* of two expressions with trivia in between, e.g. `f x` or `f (g y)` or `f(*comment*)x`.
+            parser {
+                match! peekNextNonTriviaToken with
+                | t when t.Token = Token.EOF -> return! failApp
+                | t ->
+                    let! indent = currentIndent
+                    let! state = getUserState
+
+                    if not (isAtomicExprToken state t) then
+                        return! failApp
+                    else
+                        let atAppIndent =
+                            match state.Context with
+                            | { Indent = ctxIndent } :: _ ->
+                                if indent > ctxIndent then
+                                    true
+                                elif indent < ctxIndent then
+                                    // Token is undented from the SeqBlock but might still be a valid
+                                    // application argument inside a paren-like context (rule 15.1.10.4).
+                                    // Walk past SeqBlock+Paren pairs to find the enclosing non-paren
+                                    // context and check indent > that context's indent (strictly greater
+                                    // to preserve sequential-expression semantics at the same indent).
+                                    match state.Context with
+                                    | { Context = OffsideContext.SeqBlock } :: ctx :: deeper when
+                                        ctx.Context = OffsideContext.Paren
+                                        || ctx.Context = OffsideContext.Bracket
+                                        || ctx.Context = OffsideContext.BracketBar
+                                        || ctx.Context = OffsideContext.BraceBar
+                                        || ctx.Context = OffsideContext.Brace
+                                        || ctx.Context = OffsideContext.Begin
+                                        ->
+                                        let rec walkPastParens stack =
+                                            match stack with
+                                            | [] -> indent > 0
+                                            | (ctx: Offside) :: rest ->
+                                                match ctx.Context with
+                                                | OffsideContext.SeqBlock
+                                                | OffsideContext.Paren
+                                                | OffsideContext.Bracket
+                                                | OffsideContext.BracketBar
+                                                | OffsideContext.BraceBar
+                                                | OffsideContext.Brace
+                                                | OffsideContext.Begin -> walkPastParens rest
+                                                | _ -> indent > ctx.Indent
+
+                                        walkPastParens deeper
+                                    | _ -> false
+                                else
+                                    false // indent = ctxIndent → sequential expression, not application
+                            | [] -> indent > 0
+
+                        if atAppIndent then
+                            return virtualToken (PositionedToken.Create(Token.VirtualApp, t.StartIndex))
+                        else
+                            return! failApp
+            }
+
     type ExprOperatorParser() =
         let printOpInfo (op: OperatorInfo) =
             printfn
@@ -1497,126 +1618,6 @@ module Expr =
                         return! failSep
             }
 
-        let pApplication =
-            /// Checks whether the operator at the given raw token index is an ADJACENT_PREFIX_OP:
-            /// adjacent to the following token (no whitespace after) but with whitespace before.
-            /// See F# spec 3.8.1 "Post-filtering of Adjacent Prefix Tokens".
-            let isAdjacentPrefixOp (state: ParseState) (rawIndex: int<token>) =
-                let tokens = state.Lexed.Tokens
-
-                // Check right-adjacency: next raw token must NOT be trivia (whitespace/newline/comment)
-                let rightAdjacent =
-                    rawIndex + 1<token> < tokens.Length * 1<token>
-                    && not (ParseState.isTriviaToken state tokens[rawIndex + 1<token>])
-
-                // Check left-separation: previous raw token must be trivia (whitespace/newline/comment)
-                // or the operator must be at the start of input
-                let leftSeparated =
-                    rawIndex = 0<token>
-                    || (rawIndex > 0<token>
-                        && ParseState.isTriviaToken state tokens[rawIndex - 1<token>])
-
-                rightAdjacent && leftSeparated
-
-            let isAtomicExprToken (state: ParseState) (t: SyntaxToken) =
-                match t.Token with
-                | Token.Identifier
-                | Token.BacktickedIdentifier
-                | Token.UnterminatedBacktickedIdentifier
-                | Token.KWLParen
-                | Token.KWLBracket
-                | Token.KWLArrayBracket
-                | Token.KWBegin
-                | Token.KWStruct
-                | Token.KWLBrace
-                | Token.KWLBraceBar
-                | Token.KWLHashParen
-                | Token.OpQuotationTypedLeft
-                | Token.OpQuotationUntypedLeft
-                | Token.OpDereference
-                | Token.InterpolatedStringOpen
-                | Token.VerbatimInterpolatedStringOpen
-                | Token.Interpolated3StringOpen
-                | Token.StringOpen
-                | Token.VerbatimStringOpen
-                | Token.String3Open
-                | Token.Wildcard -> true
-                | _ ->
-                    if Constant.isLiteralToken t.Token then
-                        true
-                    else
-                        match OperatorInfo.TryCreate t.PositionedToken with
-                        | ValueSome opInfo when opInfo.CanBePrefix ->
-                            // Prefix-only operators (e.g. !, ~~~) always start application args.
-                            // Dual-use operators (e.g. -, +) only start application args when they
-                            // are ADJACENT_PREFIX_OPs: adjacent to the right token with whitespace before.
-                            // See F# spec 3.8.1 "Post-filtering of Adjacent Prefix Tokens".
-                            opInfo.Precedence = PrecedenceLevel.Prefix
-                            || (
-                                match t.Index with
-                                | TokenIndex.Regular rawIndex -> isAdjacentPrefixOp state rawIndex
-                                | TokenIndex.Virtual -> false
-                            )
-                        | _ -> false
-
-            let failApp = fail (Message "Expected expression after application")
-            // Application is *juxtaposition* of two expressions with trivia in between, e.g. `f x` or `f (g y)` or `f(*comment*)x`.
-            parser {
-                match! peekNextNonTriviaToken with
-                | t when t.Token = Token.EOF -> return! failApp
-                | t ->
-                    let! indent = currentIndent
-                    let! state = getUserState
-
-                    if not (isAtomicExprToken state t) then
-                        return! failApp
-                    else
-                        let atAppIndent =
-                            match state.Context with
-                            | { Indent = ctxIndent } :: _ ->
-                                if indent > ctxIndent then
-                                    true
-                                elif indent < ctxIndent then
-                                    // Token is undented from the SeqBlock but might still be a valid
-                                    // application argument inside a paren-like context (rule 15.1.10.4).
-                                    // Walk past SeqBlock+Paren pairs to find the enclosing non-paren
-                                    // context and check indent > that context's indent (strictly greater
-                                    // to preserve sequential-expression semantics at the same indent).
-                                    match state.Context with
-                                    | { Context = OffsideContext.SeqBlock } :: ctx :: deeper when
-                                        ctx.Context = OffsideContext.Paren
-                                        || ctx.Context = OffsideContext.Bracket
-                                        || ctx.Context = OffsideContext.BracketBar
-                                        || ctx.Context = OffsideContext.BraceBar
-                                        || ctx.Context = OffsideContext.Brace
-                                        || ctx.Context = OffsideContext.Begin
-                                        ->
-                                        let rec walkPastParens stack =
-                                            match stack with
-                                            | [] -> indent > 0
-                                            | (ctx: Offside) :: rest ->
-                                                match ctx.Context with
-                                                | OffsideContext.SeqBlock
-                                                | OffsideContext.Paren
-                                                | OffsideContext.Bracket
-                                                | OffsideContext.BracketBar
-                                                | OffsideContext.BraceBar
-                                                | OffsideContext.Brace
-                                                | OffsideContext.Begin -> walkPastParens rest
-                                                | _ -> indent > ctx.Indent
-
-                                        walkPastParens deeper
-                                    | _ -> false
-                                else
-                                    false // indent = ctxIndent → sequential expression, not application
-                            | [] -> indent > 0
-
-                        if atAppIndent then
-                            return virtualToken (PositionedToken.Create(Token.VirtualApp, t.StartIndex))
-                        else
-                            return! failApp
-            }
-
         let getRhsOperatorHandler (opInfo: OperatorInfo) token =
             // Note: Precedence gets bit-packed into the token and converted directly
             // to RHS handler index for efficiency.
@@ -1678,7 +1679,7 @@ module Expr =
                     reprocessedOperatorAfterTypeParams >>= handleToken
                     HighPrec.pTypeApplication >>= handleToken
                     HighPrec.peekHighPrecApp >>= handleToken
-                    pApplication >>= handleToken
+                    Application.parse >>= handleToken
                     pSepVirt >>= handleToken
                     nextNonTriviaToken >>= handleToken
                 ]
