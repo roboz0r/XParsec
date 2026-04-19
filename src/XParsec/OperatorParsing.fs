@@ -391,6 +391,7 @@ module internal rec Pratt =
         lhs
         leftPower
         op
+        (parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice>)
         allowTrailingOp
         completeNary
         (reader: Reader<_, _, _, _>)
@@ -414,18 +415,16 @@ module internal rec Pratt =
                 let currentErr = mergeSoftErrors accumulatedErr errNext
                 let nextOpPos = reader.Position
 
-                match ops.RhsParser reader with // Parse next operator
-                | Ok nextOp ->
-                    match nextOp with
-                    | InfixNary(nextSym, _, _, _, _) when ops.OpComparer.Equals(nextSym, op) ->
-                        parsedOps.Add nextSym
-                        loopNary items parsedOps currentErr
-                    | _ ->
-                        reader.Position <- nextOpPos
-                        preturn (items, currentErr) reader
-                | Error errRhs ->
+                // Use the operator-specific parseOp to detect a subsequent occurrence
+                // of the same operator. Avoids re-dispatching through the full RhsParser
+                // (and the associated `OpComparer` equality check) on every iteration.
+                match parseOp reader with
+                | Ok nextSym ->
+                    parsedOps.Add nextSym
+                    loopNary items parsedOps currentErr
+                | Error errOp ->
                     reader.Position <- nextOpPos
-                    preturn (items, mergeSoftErrors currentErr (ValueSome errRhs)) reader
+                    preturn (items, mergeSoftErrors currentErr (ValueSome errOp)) reader
 
         // Typical nary use — tuples, app chains, sequences — rarely exceeds 4 items.
         // Hint an initial capacity of 4 so `Add lhs` + up to three more adds don't
@@ -662,8 +661,8 @@ module internal rec Pratt =
                 | InfixNonAssociative(op, _parseOp, _, completeInfix) ->
                     rhsInfix pExpr ops minBinding lhs errAcc pos leftPower op completeInfix reader
 
-                | InfixNary(op, _parseOp, _, allowTrailingOp, completeNary) ->
-                    rhsInfixNary pExpr ops minBinding lhs leftPower op allowTrailingOp completeNary reader
+                | InfixNary(op, parseOp, _, allowTrailingOp, completeNary) ->
+                    rhsInfixNary pExpr ops minBinding lhs leftPower op parseOp allowTrailingOp completeNary reader
 
                 | InfixMapped(op, _parseOp, _, parseRight, complete) ->
                     rhsInfixMapped pExpr ops minBinding lhs errAcc pos op parseRight complete reader
