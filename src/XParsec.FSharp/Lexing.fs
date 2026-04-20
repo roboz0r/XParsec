@@ -439,13 +439,33 @@ module LexBuilder =
 
 [<AutoOpen>]
 module internal Errors =
-    // Centralized error messages
-    // Use constants where possible
+    // Centralized error messages. Explicit type annotations are mandatory: without
+    // them the F# value restriction compiles each binding as a thunk that re-allocates
+    // the `Message` every time it's accessed.
     let expectedEndOfIdent = Message "Expected end of identifier"
 
     let expectedNewline = Message "Expected newline"
 
     let expectedStringLiteral = Message "Expected string literal"
+
+    let expectedIdentStartChar: ErrorType<char, LexBuilder> =
+        Message "Expected identifier start character"
+
+    let expectedBacktickedIdent: ErrorType<char, LexBuilder> =
+        Message "Expected backticked identifier"
+
+    let expectedIdentCharAfterQuote: ErrorType<char, LexBuilder> =
+        Message "Expected identifier character after '"
+
+    let expectedQuote: ErrorType<char, LexBuilder> = Message "Expected '"
+
+    let expectedInterpolatedFragmentChar: ErrorType<char, LexBuilder> =
+        Message "Expected interpolated string fragment character"
+
+    let expectedOperator: ErrorType<char, LexBuilder> = Message "Expected operator"
+
+    let expectedDirectiveAtStart: ErrorType<char, LexBuilder> =
+        Message "Directives must be at start of line or immediately after indentation"
 
 module Lexing =
 
@@ -896,8 +916,7 @@ module Lexing =
                 // Regular identifier
                 match reader.Peek() with
                 | ValueNone -> fail EndOfInput reader
-                | ValueSome c when not (isIdentStartChar c) ->
-                    fail (Message "Expected identifier start character") reader
+                | ValueSome c when not (isIdentStartChar c) -> fail expectedIdentStartChar reader
                 | ValueSome _ ->
                     reader.Skip()
                     let mutable more = true
@@ -988,7 +1007,7 @@ module Lexing =
             reader.Skip()
             reader.State <- LexBuilder.append Token.UnterminatedBacktickedIdentifier pos CtxOp.NoOp reader.State
             preturn () reader
-        | 1 -> fail (Message "Expected backticked identifier") reader
+        | 1 -> fail expectedBacktickedIdent reader
         | _ ->
             match span[0], span[1] with
             | '`', '`' ->
@@ -1003,7 +1022,7 @@ module Lexing =
                 reader.Skip()
                 reader.State <- LexBuilder.append Token.KWReservedBacktick pos CtxOp.NoOp reader.State
                 preturn () reader
-            | _ -> fail (Message "Expected backticked identifier") reader
+            | _ -> fail expectedBacktickedIdent reader
 
 
     let peekNewLine (reader: Reader<char, LexBuilder, ReadableString, _>) =
@@ -1376,8 +1395,8 @@ module Lexing =
                 | false, _ ->
                     reader.State <- LexBuilder.append Token.TypeParameter pos CtxOp.NoOp reader.State
                     preturn () reader
-            | _ -> fail (Message "Expected identifier character after '") reader
-        | _ -> fail (Message "Expected '") reader
+            | _ -> fail expectedIdentCharAfterQuote reader
+        | _ -> fail expectedQuote reader
 
     let pInterpolatedStringStartToken =
         pTokenPushCtx (pstring "$\"") Token.InterpolatedStringOpen LexContext.InterpolatedString
@@ -1418,7 +1437,7 @@ module Lexing =
         if consumedAny then
             preturn () reader
         else
-            fail (Message "Expected interpolated string fragment character") reader
+            fail expectedInterpolatedFragmentChar reader
 
     let pInterpolatedStringFragmentToken =
         pToken pSkipInterpolatedFragmentChars Token.InterpolatedStringFragment
@@ -1772,7 +1791,7 @@ module Lexing =
             let endIdx = reader.Position.Index
 
             if endIdx = startIdx then
-                fail (Message "Expected operator") reader
+                fail expectedOperator reader
             else
 
                 let op = state.Source.Substring(startIdx, endIdx - startIdx)
@@ -1849,7 +1868,7 @@ module Lexing =
     // This is a fallback, we shouldn't see any Other tokens in output
     let private peekEndOfIdent (reader: Reader<char, LexBuilder, ReadableString, _>) =
         match reader.Peek() with
-        | ValueSome c when isIdentChar c -> fail (Message "Expected end of identifier") reader
+        | ValueSome c when isIdentChar c -> fail expectedEndOfIdent reader
         | _ -> preturn () reader
 
     // Any single char that doesn't start another token
@@ -2585,7 +2604,7 @@ module Lexing =
             let! atStart = isAtStartOfLineOrIndent
 
             if not atStart then
-                return! fail (Message "Directives must be at start of line or immediately after indentation")
+                return! fail expectedDirectiveAtStart
             else
                 let! pos = getPosition
                 let! token = pDirectiveChoice
