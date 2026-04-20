@@ -153,7 +153,7 @@ member-sig :=
 
     let private pGet =
         parser {
-            let! getTok = nextNonTriviaTokenIsL Token.Identifier "get"
+            let! getTok = nextNonTriviaTokenIsLMsg Token.Identifier "get"
             let! state = getUserState
 
             if tokenStringIs "get" getTok state then
@@ -164,7 +164,7 @@ member-sig :=
 
     let private pSet =
         parser {
-            let! setTok = nextNonTriviaTokenIsL Token.Identifier "set"
+            let! setTok = nextNonTriviaTokenIsLMsg Token.Identifier "set"
             let! state = getUserState
 
             if tokenStringIs "set" setTok state then
@@ -1129,7 +1129,7 @@ module RecordField =
 module EnumTypeCase =
     let parse: Parser<EnumTypeCase<SyntaxToken>, _, _, _, _> =
         parser {
-            let! id = nextNonTriviaIdentifierL "Enum Name"
+            let! id = nextNonTriviaIdentifierLMsg "Enum Name"
             let! eq = pEquals
             let! c = withContext OffsideContext.SeqBlock refExpr.Parser
             return EnumTypeCase.EnumTypeCase(id, eq, c)

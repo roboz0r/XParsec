@@ -11,19 +11,22 @@ open XParsec.FSharp.Lexer
 [<RequireQualifiedAccess>]
 module AttributeTarget =
     let private pContextualKeyword s ctor =
+        // Hoist err out of the parser CE body — allocated once per (s) at module load.
+        let err: ErrorType<PositionedToken, ParseState> = Message(sprintf "Expected '%s'" s)
+
         parser {
             let! state = getUserState
 
             let! t =
                 nextNonTriviaTokenSatisfiesL
                     (fun t -> t.Token = Token.Identifier && ParseState.tokenStringIs s t state)
-                    (sprintf "Expected '%s'" s)
+                    err
 
             return ctor t
         }
 
     let private pKw k ctor =
-        nextNonTriviaTokenIsL k (sprintf "Expected '%A'" k) |>> ctor
+        nextNonTriviaTokenIsLMsg k (sprintf "Expected '%A'" k) |>> ctor
 
     let parse: Parser<AttributeTarget<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         choiceL
@@ -62,24 +65,26 @@ module Attribute =
 
 [<RequireQualifiedAccess>]
 module AttributeSet =
+    let private pLAttrBracket =
+        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.KWLAttrBracket) "Expected '[<'"
+
+    let private pRAttrBracket =
+        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.KWRAttrBracket) "Expected '>]'"
+
+    let private pAttributeItem =
+        parser {
+            let! attr = Attribute.parse
+            let! sep = opt pSemi
+            return (attr, sep)
+        }
+
+    let private pAttributeItems = many pAttributeItem
+
     let parse: Parser<AttributeSet<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
-            let! lBracket = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWLAttrBracket) "Expected '[<'"
-
-            // Parse attributes separated by semicolons, capturing the separators
-            // We use `many` loop instead of `sepBy` to capture the optional semicolons in the list structure
-            let! attributes =
-                let pAttributeItem =
-                    parser {
-                        let! attr = Attribute.parse
-                        let! sep = opt pSemi
-                        return (attr, sep)
-                    }
-                // Stop when we hit the closing bracket
-                many pAttributeItem
-
-            let! rBracket = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWRAttrBracket) "Expected '>]'"
-
+            let! lBracket = pLAttrBracket
+            let! attributes = pAttributeItems
+            let! rBracket = pRAttrBracket
             return AttributeSet(lBracket, attributes, rBracket)
         }
 
@@ -95,11 +100,17 @@ module RangeOpName =
     // The lexer emits two separate `OpRange` tokens because the greedy operator scan
     // can't span the whitespace/comments/newlines that may sit between the two `..`
     // pieces, so the parser fuses them here instead.
+    let private pRangeFirst =
+        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.OpRange) "Expected '..'"
+
+    let private pRangeSecond =
+        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.OpRange) "'..'"
+
     let parse: Parser<RangeOpName<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         parser {
-            let! first = nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpRange) "Expected '..'"
+            let! first = pRangeFirst
 
-            let! second = opt (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpRange) "'..'")
+            let! second = opt pRangeSecond
 
             match second with
             | ValueSome second -> return RangeOpName.DotDotDotDot(first, second)
@@ -108,11 +119,13 @@ module RangeOpName =
 
 [<RequireQualifiedAccess>]
 module ActivePatternOpName =
+    let private pIdent = nextNonTriviaIdentifierLMsg "Expected identifier"
+
     let parse: Parser<ActivePatternOpName<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         // Recursive helper to parse segments: ident | ...
         let rec parseSegments (builder: ImmutableArray<_>.Builder) =
             parser {
-                let! ident = nextNonTriviaIdentifierL "Expected identifier"
+                let! ident = pIdent
                 builder.Add(ident)
 
                 let! bar = pBar
@@ -147,7 +160,7 @@ module ActivePatternOpName =
 [<RequireQualifiedAccess>]
 module OpName =
     let private pSymbolicOp =
-        nextNonTriviaTokenSatisfiesL
+        nextNonTriviaTokenSatisfiesLMsg
             (fun t -> t.Token.IsOperator || TokenInfo.isOperatorKeyword t.Token)
             "Expected symbolic operator"
         |>> OpName.SymbolicOp
@@ -173,17 +186,21 @@ module OpName =
 
 [<RequireQualifiedAccess>]
 module IdentOrOp =
+    let private pIdentOrOpIdent = nextNonTriviaIdentifierLMsg "Expected Identifier"
+
+    let private pStarOpDecl =
+        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.KWOpDeclareMultiply) "Expected '(*)'"
+
     let parse: Parser<IdentOrOp<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         choiceL
             [
                 // Case 1: Simple Identifier (including backticked)
-                nextNonTriviaIdentifierL "Expected Identifier" |>> IdentOrOp.Ident
+                pIdentOrOpIdent |>> IdentOrOp.Ident
 
                 // Case 2: Star Operator (*)
                 // Subcase 2a: Parsed as a single token KWOpDeclareMultiply `(*)`
                 (parser {
-                    let! token =
-                        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWOpDeclareMultiply) "Expected '(*)'"
+                    let! token = pStarOpDecl
                     // Synthesize virtual tokens to match the AST requirement of ( * )
                     let lParen =
                         { token with
@@ -270,7 +287,7 @@ module LongIdentOrOp =
 [<RequireQualifiedAccess>]
 module LongIdent =
     // Simple parser for A.B.C
-    let private pIdent = nextNonTriviaIdentifierL "Expected Identifier"
+    let private pIdent = nextNonTriviaIdentifierLMsg "Expected Identifier"
     let parse = sepBy1 pIdent pDot |>> fun struct (xs, dots) -> xs
 
 
@@ -279,7 +296,7 @@ module Access =
     let parse
         : Reader<PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, _>
               -> ParseResult<Access<SyntaxToken>, PositionedToken, ParseState> =
-        nextNonTriviaTokenSatisfiesL
+        nextNonTriviaTokenSatisfiesLMsg
             (fun t ->
                 t.Token = Token.KWPrivate
                 || t.Token = Token.KWInternal

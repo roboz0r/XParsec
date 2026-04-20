@@ -20,7 +20,7 @@ module Constant =
         || t = Token.CharLiteral
 
     let private pLiteral: Parser<_, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        nextNonTriviaTokenSatisfiesL
+        nextNonTriviaTokenSatisfiesLMsg
             (fun (synTok: SyntaxToken) -> isLiteralToken synTok.Token)
             "Expected constant literal"
 

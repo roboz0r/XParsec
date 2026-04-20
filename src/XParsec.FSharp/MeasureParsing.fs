@@ -52,7 +52,9 @@ module Measure =
 
                 if firstTok.Token = Token.OpSubtraction then
                     let! intToken =
-                        nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsNumeric) "Expected integer exponent after '-'"
+                        nextNonTriviaTokenSatisfiesLMsg
+                            (fun t -> t.Token.IsNumeric)
+                            "Expected integer exponent after '-'"
 
                     return MeasureAux.PowerOperand(ValueSome firstTok, intToken)
                 elif firstTok.Token.IsNumeric then
@@ -69,7 +71,7 @@ module Measure =
                 // Lookahead to confirm we are adjacent to a measure atom
                 let! _ =
                     lookAhead (
-                        nextNonTriviaTokenSatisfiesL
+                        nextNonTriviaTokenSatisfiesLMsg
                             (fun t ->
                                 t.Token.IsIdentifier
                                 || t.Token = Token.OpLessThan
@@ -173,7 +175,7 @@ module Measure =
             let! state = getUserState
 
             let! t =
-                nextNonTriviaTokenSatisfiesL
+                nextNonTriviaTokenSatisfiesLMsg
                     (fun t -> t.Token = Token.NumInt32 && tokenStringIs "1" t state)
                     "Expected '1'"
 

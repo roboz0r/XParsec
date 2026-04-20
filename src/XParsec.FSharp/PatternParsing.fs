@@ -99,12 +99,12 @@ module Pat =
 
     /// Subsequent-separator parser for InfixNary tuple patterns.
     let private pPatTupleComma: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpComma) "','"
+        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.OpComma) "','"
 
     /// Subsequent-separator parser for InfixNary element patterns. Matches a
     /// real `;` or a virtual one emitted by `pSepVirtPat`.
     let private pPatSemicolon: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
-        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpSemicolon) "';'"
+        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.OpSemicolon) "';'"
         <|> pSepVirtPat
 
     let private pTypeRhs = Type.parse |>> PatAux.Type
@@ -113,7 +113,7 @@ module Pat =
         parser {
             // NOTE: the 'as' token was already consumed by rhsParser's nextNonTriviaToken.
             // We only need to consume the identifier that follows.
-            let! ident = nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "identifier after 'as'"
+            let! ident = nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token.IsIdentifier) "identifier after 'as'"
             return PatAux.AsIdent ident
         }
 
@@ -275,7 +275,7 @@ module Pat =
     // 'as' via their min-binding-power cutoff, so we reapply them manually
     // here around a parsed base pattern.
     let private pBarToken =
-        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpBar) "'|'"
+        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.OpBar) "'|'"
 
     let private pOrAsChain
         (altParser:
@@ -314,7 +314,7 @@ module Pat =
                         let! asTok = pAs
 
                         let! ident =
-                            nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "identifier after 'as'"
+                            nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token.IsIdentifier) "identifier after 'as'"
 
                         return struct (asTok, ident)
                     }
@@ -578,7 +578,7 @@ module Pat =
 
         parser {
             let! opening =
-                nextNonTriviaTokenSatisfiesL
+                nextNonTriviaTokenSatisfiesLMsg
                     (fun t ->
                         match t.Token with
                         | Token.StringOpen
@@ -591,7 +591,7 @@ module Pat =
             let kind = stringKindOfToken opening
             let! parts = loop (ResizeArray())
 
-            let! closing = nextNonTriviaTokenSatisfiesL (fun t -> isStringClose t.Token) "Expected string close"
+            let! closing = nextNonTriviaTokenSatisfiesLMsg (fun t -> isStringClose t.Token) "Expected string close"
 
             return Pat.String(kind, ImmutableArray.CreateRange(parts), closing)
         }

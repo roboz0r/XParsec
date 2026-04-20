@@ -13,7 +13,7 @@ open XParsec.FSharp.Parser.ParseState
 module Typar =
 
     let private pIdent =
-        nextNonTriviaIdentifierL "Expected identifier for type parameter"
+        nextNonTriviaIdentifierLMsg "Expected identifier for type parameter"
 
     let pAnon = pWildcard |>> Typar.Anon
 
@@ -87,6 +87,12 @@ module StaticTypars =
 [<RequireQualifiedAccess>]
 module Constraint =
 
+    // Hoisted helpers — allocate Message once at module load instead of per invocation.
+    let private pUnitIdent = nextNonTriviaIdentifierLMsg "Expected 'unit'"
+
+    let private pUpcast =
+        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.OpUpcast) ":>"
+
     // Parses the member name inside a constraint member sig: plain ident or parenthesized operator.
     // For operators like (=), we consume '(' op ')' and return the op token as the ident,
     // since MemberSig.ident is a single token and the structural parens are not stored.
@@ -121,8 +127,8 @@ module Constraint =
             let! staticTypars = StaticTypars.parse
             let! colon = pColon
             let! lParen = pLParen
-            let! staticToken = opt (nextNonTriviaTokenIsL Token.KWStatic "static")
-            let! memberToken = nextNonTriviaTokenIsL Token.KWMember "member"
+            let! staticToken = opt pStatic
+            let! memberToken = pMember
             let! membersig = pConstraintMemberSig
             let! rParen = pRParen
             return Constraint.MemberTrait(staticTypars, colon, lParen, staticToken, memberToken, membersig, rParen)
@@ -131,7 +137,7 @@ module Constraint =
     let private pDefaultConstructor (typar: Typar<_>) colon lParen (tokenNew: SyntaxToken) =
         parser {
             let! colonUnit = pColon
-            let! unitToken = nextNonTriviaIdentifierL "Expected 'unit'"
+            let! unitToken = pUnitIdent
             let! arrow = pArrowRight
             let! resultTypar = Typar.parse
             let! rParen = pRParen
@@ -155,7 +161,7 @@ module Constraint =
             let! typar = Typar.parse
 
             // Check for :> (Coercion) vs : (Everything else)
-            let! coercion = opt (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpUpcast) ":>") // :>
+            let! coercion = opt pUpcast // :>
 
             match coercion with
             | ValueSome op ->
@@ -251,9 +257,27 @@ module TyparDefns =
 [<RequireQualifiedAccess>]
 module Type =
 
+    // Hoisted helpers — allocate Message + closure once at module load instead of per invocation.
+    let private pLHashParen = nextNonTriviaTokenIsLMsg Token.KWLHashParen "(#"
+    let private pRHashParen = nextNonTriviaTokenIsLMsg Token.KWRHashParen "#)"
+    let private pAnonRecFieldIdent = nextNonTriviaIdentifierLMsg "field name"
+
+    let private pUpcast =
+        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.OpUpcast) ":>"
+
     let private pTypeArg =
         // Placeholder handling for TypeArg variations
         refType.Parser |>> TypeArg.Type
+
+    // Hoisted: field-parser for anon record types. Previously defined inline inside
+    // `parseAtomic`'s choiceL arm, which rebuilt it on every outer invocation.
+    let private pAnonRecField =
+        parser {
+            let! ident = pAnonRecFieldIdent
+            let! colon = pColon
+            let! typ = refType.Parser
+            return AnonRecordField(ident, colon, typ)
+        }
 
     let parseAtomic =
         choiceL
@@ -287,24 +311,15 @@ module Type =
                 Typar.parse |>> Type.VarType
                 // (# "iltype" #) — IL intrinsic type
                 parser {
-                    let! l = nextNonTriviaTokenIsL Token.KWLHashParen "(#"
+                    let! l = pLHashParen
                     let! (kind, parts, instrClose) = parsePlainStringLiteral "IL instruction string"
-                    let! r = nextNonTriviaTokenIsL Token.KWRHashParen "#)"
+                    let! r = pRHashParen
                     return Type.ILIntrinsic(l, kind, parts, instrClose, r)
                 }
                 // {| field: Type; ... |} — Anonymous record type
                 parser {
                     let! lBraceBar = pLBraceBar
-
-                    let pField =
-                        parser {
-                            let! ident = nextNonTriviaIdentifierL "field name"
-                            let! colon = nextNonTriviaTokenIsL Token.OpColon ":"
-                            let! typ = refType.Parser
-                            return AnonRecordField(ident, colon, typ)
-                        }
-
-                    let! fields, seps = sepBy1 pField (nextNonTriviaTokenIsL Token.OpSemicolon ";")
+                    let! fields, seps = sepBy1 pAnonRecField pSemi
                     let! rBraceBar = pRBraceBar
                     return Type.AnonRecordType(lBraceBar, fields, seps, rBraceBar)
                 }
@@ -331,11 +346,11 @@ module Type =
 
     // Matches '[' or '[|' as an array-rank open bracket in postfix type position.
     let private pArrayOpenBracket =
-        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWLArrayBracket || t.Token = Token.KWLBracket) "["
+        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.KWLArrayBracket || t.Token = Token.KWLBracket) "["
 
     // Matches ']' or '|]' as an array-rank close bracket in postfix type position.
     let private pArrayCloseBracket =
-        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWRArrayBracket || t.Token = Token.KWRBracket) "]"
+        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.KWRArrayBracket || t.Token = Token.KWRBracket) "]"
 
     // Postfix operators: [] (Array), ident (Suffixed e.g. int list)
     // Note: This needs to be left-recursive elimination or chained.
@@ -408,7 +423,7 @@ module Type =
 
             match lhs with
             | Type.VarType typar ->
-                let! colonGreater = opt (nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpUpcast) ":>")
+                let! colonGreater = opt pUpcast
 
                 match colonGreater with
                 | ValueSome op ->
