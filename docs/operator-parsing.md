@@ -111,7 +111,7 @@ Now, we create a list of all our operators and their precedences. This is where 
 // A helper to parse an operator token and skip any trailing whitespace.
 let op p = p .>> spaces
 
-let operators: Operators<string, unit, Expr, char, unit, ReadableString, ReadableStringSlice> =
+let operators: Operators<string, unit, Expr, char, unit, ReadableString> =
     [
         // P1: Addition and Subtraction (Left-associative)
         Operator.infixLeftAssoc "+" P1 (op (pchar '+') >>% "+") (fun l _ r -> Add(l, r))
@@ -183,13 +183,12 @@ If the simplified operator parsing table approach cannot describe your grammar t
 /// A collection of operators used for parsing expressions.
 /// It contains both left-hand side (LHS) and right-hand side (RHS) operators, along with their associated parsers.
 /// Use `Operator.create` to create an instance of this type.
-type Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
-    when 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
+type Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input when 'Input :> IReadable<'T, 'Input>> =
     abstract LhsParser:
-        Parser<LHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>, 'T, 'State, 'Input, 'InputSlice>
+        Parser<LHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input>, 'T, 'State, 'Input>
 
     abstract RhsParser:
-        Parser<RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>, 'T, 'State, 'Input, 'InputSlice>
+        Parser<RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input>, 'T, 'State, 'Input>
 
     abstract OpComparer: IEqualityComparer<'Op>
 ```

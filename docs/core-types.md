@@ -21,9 +21,8 @@ type Parser = Reader -> ParseResult
 This simple `Reader -> ParseResult` signature is the foundation. To make it powerful and flexible, XParsec uses generics to allow you to parse almost any kind of input into any kind of F# type. This leads to the full type definition:
 
 ```fsharp
-type Parser<'Parsed, 'T, 'State, 'Input, 'InputSlice
-    when 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
-    Reader<'T, 'State, 'Input, 'InputSlice> -> ParseResult<'Parsed, 'T, 'State>
+type Parser<'Parsed, 'T, 'State, 'Input when 'Input :> IReadable<'T, 'Input>> =
+    Reader<'T, 'State, 'Input> -> ParseResult<'Parsed, 'T, 'State>
 ```
 
 Let's break down those generic parameters. They give you complete control over your parsing environment:
@@ -31,14 +30,13 @@ Let's break down those generic parameters. They give you complete control over y
 - `'Parsed`: The type of the value you want to produce (e.g., `int`, `string`, a custom `User` record).
 - `'T`: The type of the items in your input stream (e.g., `char` for a string, `byte` for a binary format).
 - `'State`: A user-defined state that you can thread through the parsing process. This is perfect for tasks like managing indentation levels or symbol tables. Defaults to `unit` if you don't need it.
-- `'Input`: The type of the input stream itself.
-- `'InputSlice`: The type of a slice of the input stream.
+- `'Input`: The type of the input stream itself. Every `'Input` is self-slicing: slicing a `'Input` returns another `'Input`, which lets nested grammars share parsers freely.
 
 Because parsers are just functions, you can use standard F# operators like `>>` for composition, or you can use the rich set of combinators provided by XParsec (like `>>=` for sequencing or `<|>` for choice) to build sophisticated parsers from simple ones.
 
-> **When to use `'InputSlice`**
+> **Slicing the input**
 >
-> In most cases, you can ignore the `'InputSlice` parameter. Its main power comes from parsing nested grammars. Imagine a binary format where a 32-bit integer specifies the length of a sub-message that follows. You can use a parser to read the length, then "slice" the input to that length and pass the slice to a *different* set of parsers to process the sub-message.
+> The self-slicing `'Input` constraint is useful for parsing nested grammars. Imagine a binary format where a 32-bit integer specifies the length of a sub-message that follows. You can use a parser to read the length, slice the input to that length, and pass the slice to a *different* set of parsers to process the sub-message, potentially with a different 'State.
 
 Now, let's look at the input and output of this function.
 
@@ -47,7 +45,7 @@ Now, let's look at the input and output of this function.
 The input to every parser is a `Reader`. Think of the `Reader` as a smart cursor that moves over your input data. It tracks the current position and holds your custom state.
 
 ```fsharp
-type Reader<'T, 'State, 'Input, 'InputSlice>
+type Reader<'T, 'State, 'Input when 'Input :> IReadable<'T, 'Input>>
 ```
 
 > It's important to understand the `Reader`, but, in most cases you won't need to interact with this type directly. Parser and combinator functions implicitly thread the reader through your overall parser.
