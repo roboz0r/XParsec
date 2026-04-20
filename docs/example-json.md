@@ -49,9 +49,8 @@ For a deeper dive, see Microsoft's documentation on [Value Restriction](https://
 open XParsec
 open XParsec.CharParsers
 
-// Generic parameters must match the contrains of the XParsec.Reader type
-type JsonParsers<'Input, 'InputSlice
-    when 'Input :> IReadable<char, 'InputSlice> and 'InputSlice :> IReadable<char, 'InputSlice>> =
+// Generic parameters must match the constraints of the XParsec.Reader type
+type JsonParsers<'Input when 'Input :> IReadable<char, 'Input>> =
 
     // Parsers will be defined here as static let bindings...
     
@@ -337,7 +336,7 @@ A valid JSON document consists of a single element (a value, object or array) fo
 
 ```fsharp
 // inside JsonParsers type...
-static let pJson: Parser<JsonValue, char, unit, 'Input, 'InputSlice> = 
+static let pJson: Parser<JsonValue, char, unit, 'Input> =
     pElement .>> eof
 
 // We expose it as a public member
