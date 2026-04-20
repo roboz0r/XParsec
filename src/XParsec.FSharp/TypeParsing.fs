@@ -352,68 +352,67 @@ module Type =
     let private pArrayCloseBracket =
         nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.KWRArrayBracket || t.Token = Token.KWRBracket) "]"
 
-    // Postfix operators: [] (Array), ident (Suffixed e.g. int list)
-    // Note: This needs to be left-recursive elimination or chained.
-    // Using a simple loop for postfix application.
+    let private errExpectedDot: ErrorType<PositionedToken, ParseState> =
+        Message "Expected '.'"
+
+    // A dot that may appear as a regular OpDot token or embedded in a fused operator
+    // like ">." after pCloseTypeParams consumed the ">" and set CharsConsumedAfterTypeParams.
+    let private pPostfixDot =
+        choiceL
+            [
+                pDot
+                parser {
+                    let! reprocessed = reprocessedOperatorAfterTypeParams
+
+                    if reprocessed.PositionedToken.Token = Token.OpDot then
+                        return reprocessed
+                    else
+                        return! fail errExpectedDot
+                }
+            ]
+            "."
+
+    // Array continuation: [] or [,] or [|]
+    let private pPostfixArrayCont =
+        parser {
+            let! l = pArrayOpenBracket
+            let! commas = many pComma
+            let! r = pArrayCloseBracket
+            return struct (l, commas, r)
+        }
+
+    // Dotted nested type continuation: .Foo.Bar
+    let private pPostfixDottedCont =
+        parser {
+            let! dot = pPostfixDot
+            let! lid = LongIdent.parse
+            return struct (dot, lid)
+        }
+
+    // Suffix continuation: list (as in `int list`)
+    let private pPostfixSuffixCont
+        : Parser<LongIdent<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+        LongIdent.parse
+
+    // Postfix operators: [] (Array), .Ident (Dotted), ident (Suffixed e.g. int list)
     let private pPostfixType =
         parser {
             let! atom = parseAtomic
+            let mutable acc = atom
+            let mutable keepGoing = true
 
-            let rec loop acc =
-                choiceL
-                    [
-                        // Array: [] or [,]
-                        parser {
-                            let! l = pArrayOpenBracket
-                            // Parse commas for rank
-                            let! commas = many pComma
-                            let! r = pArrayCloseBracket
+            while keepGoing do
+                match! opt pPostfixArrayCont with
+                | ValueSome(struct (l, commas, r)) -> acc <- Type.ArrayType(acc, l, commas, r)
+                | ValueNone ->
+                    match! opt pPostfixDottedCont with
+                    | ValueSome(struct (dot, lid)) -> acc <- Type.DottedType(acc, dot, lid)
+                    | ValueNone ->
+                        match! opt pPostfixSuffixCont with
+                        | ValueSome lid -> acc <- Type.SuffixedType(acc, lid)
+                        | ValueNone -> keepGoing <- false
 
-                            let newAcc = Type.ArrayType(acc, l, commas, r)
-                            return! loop newAcc
-                        }
-                        // Dotted nested type: Foo<int>.Builder
-                        // The dot may be a regular OpDot token, or it may be
-                        // embedded in a fused operator like ">." after pCloseTypeParams
-                        // consumed the ">" and set CharsConsumedAfterTypeParams.
-                        parser {
-                            let! dot =
-                                choiceL
-                                    [
-                                        pDot
-                                        parser {
-                                            let! reprocessed = reprocessedOperatorAfterTypeParams
-
-                                            if reprocessed.PositionedToken.Token = Token.OpDot then
-                                                return reprocessed
-                                            else
-                                                return! fail (Message "Expected '.'")
-                                        }
-                                    ]
-                                    "."
-
-                            let! lid = LongIdent.parse
-                            let newAcc = Type.DottedType(acc, dot, lid)
-                            return! loop newAcc
-                        }
-                        // Suffix: int list
-                        // We only consume an identifier here if it's NOT a keyword,
-                        // and not start of a new construct.
-                        parser {
-                            // Lookahead or logic to ensure this is a type suffix and not next token
-                            let! lid = LongIdent.parse
-                            // If we see <, it's a GenericType which is an atom, not a suffix to an existing type in this specific position
-                            // F# parsing `int list` -> Suffixed(int, list).
-                            // `int list list` -> Suffixed(Suffixed(int, list), list)
-                            let newAcc = Type.SuffixedType(acc, lid)
-                            return! loop newAcc
-                        }
-                        // Done
-                        preturn acc
-                    ]
-                    "pPostfixType"
-
-            return! loop atom
+            return acc
         }
 
     // Subtype constraint: 'T :> IDisposable (flexible type annotation)
@@ -462,31 +461,31 @@ module Type =
         }
 
     // Function: T -> T -> T (Right Associative)
-    // Recursive implementation
+    // Iterative implementation: collect a -> b -> c as (a, arrow0)(b, arrow1)(c) then
+    // right-fold into FunctionType(a, arrow0, FunctionType(b, arrow1, c)).
     let private pFunctionType =
-        let rec pFunc () =
-            parser {
-                let! lhs = pTupleType
+        parser {
+            let! first = pTupleType
+            let mutable current = first
+            let mutable pairs: struct (Type<SyntaxToken> * SyntaxToken) list = []
+            let mutable keepGoing = true
 
-                return!
-                    choice
-                        [
-                            // Arrow case
-                            parser {
-                                let! arrow = opt pArrowRight
+            while keepGoing do
+                match! opt pArrowRight with
+                | ValueSome arr ->
+                    let! next = pTupleType
+                    pairs <- struct (current, arr) :: pairs
+                    current <- next
+                | ValueNone -> keepGoing <- false
 
-                                match arrow with
-                                | ValueSome arr ->
-                                    let! rhs = pFunc ()
-                                    return Type.FunctionType(lhs, arr, rhs)
-                                | ValueNone -> return lhs
-                            }
-                            // If parsing fails, we return the inner success as the final type
-                            preturn lhs
-                        ]
-            }
+            let mutable acc = current
 
-        pFunc ()
+            for p in pairs do
+                let struct (t, arr) = p
+                acc <- Type.FunctionType(t, arr, acc)
+
+            return acc
+        }
 
     let private pWhenConstraints =
         parser {
@@ -522,27 +521,28 @@ module Type =
         }
 
     let private pFunctionTypeNoUnion =
-        let rec pFunc () =
-            parser {
-                let! lhs = pTupleTypeNoUnion
+        parser {
+            let! first = pTupleTypeNoUnion
+            let mutable current = first
+            let mutable pairs: struct (Type<SyntaxToken> * SyntaxToken) list = []
+            let mutable keepGoing = true
 
-                return!
-                    choice
-                        [
-                            parser {
-                                let! arrow = opt pArrowRight
+            while keepGoing do
+                match! opt pArrowRight with
+                | ValueSome arr ->
+                    let! next = pTupleTypeNoUnion
+                    pairs <- struct (current, arr) :: pairs
+                    current <- next
+                | ValueNone -> keepGoing <- false
 
-                                match arrow with
-                                | ValueSome arr ->
-                                    let! rhs = pFunc ()
-                                    return Type.FunctionType(lhs, arr, rhs)
-                                | ValueNone -> return lhs
-                            }
-                            preturn lhs
-                        ]
-            }
+            let mutable acc = current
 
-        pFunc ()
+            for p in pairs do
+                let struct (t, arr) = p
+                acc <- Type.FunctionType(t, arr, acc)
+
+            return acc
+        }
 
     /// Type parser that does not treat `|` as a type-union separator.
     /// Use in contexts where `|` has a different meaning (e.g. DU case separator).
