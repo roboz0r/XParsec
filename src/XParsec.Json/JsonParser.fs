@@ -26,8 +26,7 @@ and JsonObject = ImmutableArray<JsonMember>
 
 and JsonArray = ImmutableArray<JsonValue>
 
-type JsonParsers<'Input, 'InputSlice
-    when 'Input :> IReadable<char, 'InputSlice> and 'InputSlice :> IReadable<char, 'InputSlice>> =
+type JsonParsers<'Input when 'Input :> IReadable<char, 'Input>> =
 
     static let pWhitespace = skipMany (anyOf [ ' '; '\t'; '\n'; '\r' ])
 
@@ -100,7 +99,7 @@ type JsonParsers<'Input, 'InputSlice
             | c when c >= 'A' && c <= 'F' -> int c - int 'A' + 10
             | _ -> failwith "Invalid hex digit"
 
-    static let pUnicodeEscape: Parser<_, _, _, _, _> =
+    static let pUnicodeEscape: Parser<_, _, _, _> =
         parser {
             let! _ = pstring "\\u"
             let! hex0 = pHexDigit
@@ -112,7 +111,7 @@ type JsonParsers<'Input, 'InputSlice
         }
 
     static let pEscape =
-        fun (reader: Reader<_, _, _, _>) ->
+        fun (reader: Reader<_, _, _>) ->
             let span = reader.PeekN 6
 
             if span.Length >= 2 && span[0] = '\\' then
@@ -146,7 +145,7 @@ type JsonParsers<'Input, 'InputSlice
             else
                 fail (Message "Escape char") reader
 
-    static let pOtherChar: Parser<_, _, _, _, _> =
+    static let pOtherChar: Parser<_, _, _, _> =
         satisfyL
             (function
             | '"'
@@ -167,7 +166,7 @@ type JsonParsers<'Input, 'InputSlice
     static let pNull = pstring "null" >>% JsonValue.Null
     static let pStringValue = pString |>> JsonValue.String
 
-    static let rec pValue: Parser<JsonValue, char, _, _, _> =
+    static let rec pValue: Parser<JsonValue, char, _, _> =
         fun cursor ->
             match cursor.Peek() with
             | ValueSome '{' -> pObject cursor
@@ -214,7 +213,7 @@ type JsonParsers<'Input, 'InputSlice
             return JsonValue.Array values
         }
 
-    static let pJson: Parser<JsonValue, char, unit, 'Input, 'InputSlice> = pElement .>> eof
+    static let pJson: Parser<JsonValue, char, unit, 'Input> = pElement .>> eof
 
     static member Parser = pJson
     static member PString = pString

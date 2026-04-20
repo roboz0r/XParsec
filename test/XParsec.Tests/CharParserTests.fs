@@ -15,7 +15,7 @@ open XParsec.Parsers
 let expectedOneOf (candidates: string list) =
     candidates |> Seq.map (fun s -> s :> char seq) |> ExpectedSeqOneOf
 
-let confirm msg input expected (parser: Parser<_, _, _, _, _>) =
+let confirm msg input expected (parser: Parser<_, _, _, _>) =
     let reader = Reader.ofString input ()
 
     match expected with
@@ -45,7 +45,7 @@ let confirm msg input expected (parser: Parser<_, _, _, _, _>) =
                 | _ -> failwithf "%s: Expected ExpectedSeqOneOf error but got %A" msg err.Errors
             | _ -> msg |> Expect.equal err.Errors expected
 
-let confirmAt msg input expected endIndex (parser: Parser<_, _, _, _, _>) =
+let confirmAt msg input expected endIndex (parser: Parser<_, _, _, _>) =
     let reader = Reader.ofString input ()
 
     match expected with

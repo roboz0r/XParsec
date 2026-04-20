@@ -837,7 +837,7 @@ module Docs =
     // A helper to parse an operator token and skip any trailing whitespace.
     let op p = p .>> spaces
 
-    let operators: Operators<string, unit, Expr, char, unit, ReadableString, ReadableStringSlice> =
+    let operators: Operators<string, unit, Expr, char, unit, ReadableString> =
         [
             // P1: Addition and Subtraction (Left-associative)
             Operator.infixLeftAssoc "+" P1 (op (pchar '+') >>% "+") (fun l _ r -> Add(l, r))

@@ -77,19 +77,19 @@ let isAsciiLetter c =
 let isDigit c = c >= '0' && c <= '9'
 
 /// Succeeds if the next char in the input is equal to the given char, and consumes one char. Returns the char, otherwise fails with the Expected char.
-let pchar (c: char) (reader: Reader<char, 'State, 'Input, 'InputSlice>) = pitem c reader
+let pchar (c: char) (reader: Reader<char, 'State, 'Input>) = pitem c reader
 
 /// Succeeds if the next char in the input is equal to the given char, and consumes one char. Returns unit, otherwise fails with the Expected char.
-let skipChar (c: char) (reader: Reader<char, 'State, 'Input, 'InputSlice>) = skipItem c reader
+let skipChar (c: char) (reader: Reader<char, 'State, 'Input>) = skipItem c reader
 
 /// Succeeds if the next char in the input is equal to the given char, and consumes one char. Returns the `result`, otherwise fails with the Expected char.
-let charReturn (c: char) (result) (reader: Reader<char, 'State, 'Input, 'InputSlice>) = itemReturn c result reader
+let charReturn (c: char) (result) (reader: Reader<char, 'State, 'Input>) = itemReturn c result reader
 
 /// Succeeds if the Reader position is not at the end of the input, and consumes one char.
-let anyChar (reader: Reader<char, 'State, 'Input, 'InputSlice>) = pid reader
+let anyChar (reader: Reader<char, 'State, 'Input>) = pid reader
 
 /// Succeeds if the Reader position is not at the end of the input, and consumes one char. Returns unit.
-let skipAnyChar (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
+let skipAnyChar (reader: Reader<char, 'State, 'Input>) =
     match reader.Peek() with
     | ValueSome _ ->
         reader.Skip()
@@ -97,7 +97,7 @@ let skipAnyChar (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
     | _ -> fail EndOfInput reader
 
 /// Succeeds if the next characters in the reader match the given string, and consumes the characters. Returns the string, otherwise fails with the Expected string.
-let pstring (s: string) (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
+let pstring (s: string) (reader: Reader<char, 'State, 'Input>) =
     let span = reader.PeekN(s.Length)
 
     if span.IsEmpty then
@@ -109,7 +109,7 @@ let pstring (s: string) (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
         fail (ExpectedSeq s) reader
 
 /// Succeeds if the next characters in the reader match the given string (case insensitive), and consumes the characters. Returns `result`.
-let stringCIReturn (s: string) (result) (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
+let stringCIReturn (s: string) (result) (reader: Reader<char, 'State, 'Input>) =
     let span = reader.PeekN(s.Length)
 
     if span.IsEmpty then
@@ -121,7 +121,7 @@ let stringCIReturn (s: string) (result) (reader: Reader<char, 'State, 'Input, 'I
         fail (ExpectedSeq s) reader
 
 /// Succeeds if the next characters in the reader match the given string (case insensitive), and consumes the characters. Returns `result`.
-let stringReturn (s: string) (result) (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
+let stringReturn (s: string) (result) (reader: Reader<char, 'State, 'Input>) =
     let span = reader.PeekN(s.Length)
 
     if span.IsEmpty then
@@ -133,7 +133,7 @@ let stringReturn (s: string) (result) (reader: Reader<char, 'State, 'Input, 'Inp
         fail (ExpectedSeq s) reader
 
 /// Succeeds if the next character in the reader is an ASCII letter, and consumes one char. Returns the char.
-let asciiLetter (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
+let asciiLetter (reader: Reader<char, 'State, 'Input>) =
     match reader.Peek() with
     | ValueSome c ->
         if isAsciiLetter c then
@@ -144,7 +144,7 @@ let asciiLetter (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
     | _ -> fail EndOfInput reader
 
 /// Succeeds if the next character in the reader is an ASCII digit, and consumes one char. Returns the char.
-let digit (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
+let digit (reader: Reader<char, 'State, 'Input>) =
     match reader.Peek() with
     | ValueSome(c) ->
         if isDigit c then
@@ -162,7 +162,7 @@ type internal ManyMode =
 
 /// Matches zero or more characters that satisfy the given parser `p1`, and returns the string of matched characters.
 /// This parser always succeeds, even if no characters are matched, returning an empty string.
-let manyChars (p1: Parser<_, char, _, _, _>) (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
+let manyChars (p1: Parser<_, char, _, _>) (reader: Reader<char, 'State, 'Input>) =
     let pos = reader.Position
 
     match p1 reader with
@@ -197,7 +197,7 @@ let manyChars (p1: Parser<_, char, _, _, _>) (reader: Reader<char, 'State, 'Inpu
 
 /// Matches one or more characters that satisfy the given parser `p1`, and returns the string of matched characters.
 /// This parser fails if no characters are matched.
-let many1Chars (p1: Parser<_, char, _, _, _>) (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
+let many1Chars (p1: Parser<_, char, _, _>) (reader: Reader<char, 'State, 'Input>) =
     match p1 reader with
     | Ok s1 ->
         let sb = StringBuilder()
@@ -227,7 +227,7 @@ let many1Chars (p1: Parser<_, char, _, _, _>) (reader: Reader<char, 'State, 'Inp
     | Error err -> Error err
 
 /// Matches zero or more whitespace characters (space, tab, carriage return, newline) and returns unit.
-let spaces (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
+let spaces (reader: Reader<char, 'State, 'Input>) =
     (manyChars (
         satisfyL
             (function
@@ -242,7 +242,7 @@ let spaces (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
     <| reader
 
 /// Matches one or more whitespace characters (space, tab, carriage return, newline) and returns unit.
-let spaces1 (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
+let spaces1 (reader: Reader<char, 'State, 'Input>) =
     (many1Chars (
         satisfyL
             (function
@@ -259,11 +259,7 @@ let spaces1 (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
 /// Matches one character that satisfies the parser `p1`, and then zero or more characters that satisfy the parser `p`.
 /// Returns the string of matched characters.
 /// This parser fails if no characters are matched by `p1`.
-let many1Chars2
-    (p1: Parser<_, char, _, _, _>)
-    (p: Parser<_, char, _, _, _>)
-    (reader: Reader<char, 'State, 'Input, 'InputSlice>)
-    =
+let many1Chars2 (p1: Parser<_, char, _, _>) (p: Parser<_, char, _, _>) (reader: Reader<char, 'State, 'Input>) =
     match p1 reader with
     | Ok s1 ->
         let sb = StringBuilder()
@@ -285,11 +281,7 @@ let many1Chars2
 
 /// Matches zero or more characters that satisfy the parser `p`, until the parser `pEnd` succeeds.
 /// Returns the string of matched characters and the parsed value of `pEnd`.
-let manyCharsTill
-    (p: Parser<'A, _, _, _, _>)
-    (pEnd: Parser<'B, _, _, _, _>)
-    (reader: Reader<char, 'State, 'Input, 'InputSlice>)
-    =
+let manyCharsTill (p: Parser<'A, _, _, _>) (pEnd: Parser<'B, _, _, _>) (reader: Reader<char, 'State, 'Input>) =
     let xs = StringBuilder()
     // let mutable reader = reader
     let mutable endTok = None
@@ -308,7 +300,7 @@ let manyCharsTill
     | Some err -> Error err
 
 /// Matches any of "\n", "\r", or "\r\n" (newline) and returns the provided `result`.
-let newlineReturn result (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
+let newlineReturn result (reader: Reader<char, 'State, 'Input>) =
     let s = reader.PeekN(2)
 
     if s.IsEmpty then
@@ -328,10 +320,10 @@ let newlineReturn result (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
         | _ -> fail ParseError.expectedNewline reader
 
 /// Matches any of "\n", "\r", or "\r\n" (newline) and returns the value '\n'.
-let newline (reader: Reader<char, 'State, 'Input, 'InputSlice>) = newlineReturn '\n' reader
+let newline (reader: Reader<char, 'State, 'Input>) = newlineReturn '\n' reader
 
 /// Matches any of "\n", "\r", or "\r\n" (newline) and returns unit.
-let skipNewline (reader: Reader<char, 'State, 'Input, 'InputSlice>) = newlineReturn () reader
+let skipNewline (reader: Reader<char, 'State, 'Input>) = newlineReturn () reader
 
 /// Matches any of the characters in the given sequence, and returns the character.
 let anyOf (chars: char seq) =
@@ -348,7 +340,7 @@ let anyOf (chars: char seq) =
     satisfyL (fun c -> chars.Contains(string c)) err
 #endif
 
-let private pint minValue maxValue (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
+let private pint minValue maxValue (reader: Reader<char, 'State, 'Input>) =
     let int0 = int '0'
     let inta = int 'a'
     let intA = int 'A'
@@ -462,7 +454,7 @@ let private pint minValue maxValue (reader: Reader<char, 'State, 'Input, 'InputS
                         preturn v reader
             | Error e -> Error e
 
-let private puint maxValue (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
+let private puint maxValue (reader: Reader<char, 'State, 'Input>) =
     let int0 = int '0'
     let inta = int 'a'
     let intA = int 'A'
@@ -656,7 +648,7 @@ module internal BigIntParsers =
     let inta = int 'a'
     let intA = int 'A'
 
-    let psign (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
+    let psign (reader: Reader<char, 'State, 'Input>) =
         match reader.Peek() with
         | ValueSome '-' ->
             reader.Skip()
@@ -666,7 +658,7 @@ module internal BigIntParsers =
             1I
         | _ -> 1I
 
-    let rec parseHexDigits value (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
+    let rec parseHexDigits value (reader: Reader<char, 'State, 'Input>) =
         match reader.Peek() with
         | ValueSome c when (c >= '0' && c <= '9') ->
             reader.Skip()
@@ -685,7 +677,7 @@ module internal BigIntParsers =
 
         | _ -> value
 
-    let rec parseOctalDigits value (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
+    let rec parseOctalDigits value (reader: Reader<char, 'State, 'Input>) =
         match reader.Peek() with
         | ValueSome c when (c >= '0' && c <= '7') ->
             reader.Skip()
@@ -693,7 +685,7 @@ module internal BigIntParsers =
             parseOctalDigits next reader
         | _ -> value
 
-    let rec parseBinaryDigits value (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
+    let rec parseBinaryDigits value (reader: Reader<char, 'State, 'Input>) =
         match reader.Peek() with
         | ValueSome '0' ->
             reader.Skip()
@@ -705,7 +697,7 @@ module internal BigIntParsers =
             parseBinaryDigits next reader
         | _ -> value
 
-    let rec parseDecimalDigits value (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
+    let rec parseDecimalDigits value (reader: Reader<char, 'State, 'Input>) =
         match reader.Peek() with
         | ValueSome c when isDigit c ->
             reader.Skip()
@@ -722,7 +714,7 @@ module internal BigIntParsers =
 /// - if no digit comes after the format specifier,
 /// - if the value represented by the input string is greater than System.Int64.MaxValue or less than System.Int64.MinValue.
 /// </remarks>
-let pbigint (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
+let pbigint (reader: Reader<char, 'State, 'Input>) =
     let sign = BigIntParsers.psign reader
 
     if reader.AtEnd then
@@ -825,7 +817,7 @@ module internal FloatParsers =
                         | Error e -> fail ParseError.floatInvalid reader
                 | _ -> convertToFloat (sign * significand) sigExponent reader
 
-    let parseHexOrDecFloat (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
+    let parseHexOrDecFloat (reader: Reader<char, 'State, 'Input>) =
         let pos = reader.Position
         let sign = BigIntParsers.psign reader
 
@@ -905,7 +897,7 @@ module internal FloatParsers =
             reader.Position <- pos
             parseDecimalFloat reader
 
-    let parseFloat (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
+    let parseFloat (reader: Reader<char, 'State, 'Input>) =
         if reader.AtEnd then
             fail EndOfInput reader
         else
@@ -926,7 +918,7 @@ module internal FloatParsers =
                 | Ok v -> Ok v
                 | Error _ -> parseHexOrDecFloat reader
 
-let pfloat (reader: Reader<char, 'State, 'Input, 'InputSlice>) = FloatParsers.parseFloat reader
+let pfloat (reader: Reader<char, 'State, 'Input>) = FloatParsers.parseFloat reader
 
 let private anyStringByReturnImpl (comp: StringComparison) (xs: (string * 'T) seq) (maybeMessage: string option) =
     // Sort by length (greedy first), then by lexicographic order
@@ -960,7 +952,7 @@ let private anyStringByReturnImpl (comp: StringComparison) (xs: (string * 'T) se
 
         fun pos -> ParseError.create payload pos
 
-    fun (reader: Reader<char, 'State, 'Input, 'InputSlice>) ->
+    fun (reader: Reader<char, 'State, 'Input>) ->
         let span = reader.PeekN maxLen
 
         if span.IsEmpty then

@@ -7,17 +7,16 @@ open XParsec.Parsers
 open XParsec.CharParsers
 
 [<AbstractClass; Sealed>]
-type LineEndings<'Input, 'InputSlice
-    when 'Input :> IReadable<char, 'InputSlice> and 'InputSlice :> IReadable<char, 'InputSlice>>() =
+type LineEndings<'Input when 'Input :> IReadable<char, 'Input>>() =
 
-    static let lineEndingParser: Parser<_, _, _, 'Input, 'InputSlice> =
+    static let lineEndingParser: Parser<_, _, _, 'Input> =
         parser {
             let! _ = skipManyTill pid newline
             let! pos = getPosition
             return pos.Index - 1
         }
 
-    static let lineEndings: Parser<_, _, _, 'Input, 'InputSlice> = many lineEndingParser
+    static let lineEndings: Parser<_, _, _, 'Input> = many lineEndingParser
 
     static member Parser = lineEndings
 
@@ -105,7 +104,7 @@ type LineIndex(endings: ImmutableArray<int>, maxIndex) =
 
 module ErrorFormatting =
     type StringBuilder with
-        member this.Append(input: #IReadable<char, 'InputSlice>, start: int, count: int) =
+        member this.Append(input: #IReadable<char, _>, start: int, count: int) =
             let span = input.SpanSlice(start, count)
 #if !FABLE_COMPILER && NET8_0_OR_GREATER
             this.Append(span)
@@ -116,7 +115,7 @@ module ErrorFormatting =
             this
 #endif
 
-        member this.Append(input: #IReadable<char, 'InputSlice>) =
+        member this.Append(input: #IReadable<char, _>) =
             if input.Length > Int32.MaxValue then
                 invalidOp "StringBuilder.Append: input is too long"
 
@@ -142,7 +141,7 @@ module ErrorFormatting =
     [<Literal>]
     let private VerticalRight = '\u251C'
 
-    let private findIndexBack (input: #IReadable<char, 'InputSlice>) (index: int) (backLimit: int) =
+    let private findIndexBack (input: #IReadable<char, _>) (index: int) (backLimit: int) =
         let backLimit = backLimit
 
         let rec loop i =
@@ -158,7 +157,7 @@ module ErrorFormatting =
 
         loop index
 
-    let private findIndexForward (input: #IReadable<char, 'InputSlice>) (index: int) (forwardLimit: int) =
+    let private findIndexForward (input: #IReadable<char, _>) (index: int) (forwardLimit: int) =
         let forwardLimit = forwardLimit
 
         let rec loop i =
@@ -186,7 +185,7 @@ module ErrorFormatting =
 
     let formatErrorsLine
         (lineIndex: LineIndex)
-        (input: #IReadable<char, 'InputSlice>)
+        (input: #IReadable<char, _>)
         (index: int)
         (sb: StringBuilder)
         : StringBuilder =
@@ -260,7 +259,7 @@ module ErrorFormatting =
 
     let formatStringError (input: string) (error: ParseError<char, 'State>) =
         let index = LineIndex.OfString input
-        let readable = ReadableString input
+        let readable = ReadableString(input, 0, input.Length)
 
         let formatOne (x: char) (sb: StringBuilder) = sb.Append(''').Append(x).Append(''')
 
