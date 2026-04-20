@@ -515,7 +515,7 @@ type WriterTraceCallback(lexed: Lexed, writer: System.IO.TextWriter) =
 
 [<RequireQualifiedAccess>]
 module Reader =
-    let ofLexed (lexed: Lexed) (input: string) (definedSymbols: Set<string>) : Reader<_, ParseState, _, _> =
+    let ofLexed (lexed: Lexed) (input: string) (definedSymbols: Set<string>) : Reader<_, ParseState, _> =
         let initialState = ParseState.create lexed input definedSymbols
         Reader.ofImmutableArray (lexed.Tokens.AsImmutableArray()) initialState
 
@@ -524,6 +524,6 @@ module Reader =
         (input: string)
         (definedSymbols: Set<string>)
         (trace: TraceCallback)
-        : Reader<_, ParseState, _, _> =
+        : Reader<_, ParseState, _> =
         let initialState = ParseState.createWithTracing lexed input definedSymbols trace
         Reader.ofImmutableArray (lexed.Tokens.AsImmutableArray()) initialState

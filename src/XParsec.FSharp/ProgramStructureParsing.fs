@@ -70,7 +70,7 @@ module FSharpAst =
             "FSharpAst"
 
     /// Skips all remaining non-EOF tokens, collecting them into a list.
-    let private skipToEof (reader: Reader<PositionedToken, ParseState, _, _>) =
+    let private skipToEof (reader: Reader<PositionedToken, ParseState, _>) =
         let skipped = ResizeArray<SyntaxToken>()
         let mutable keepGoing = true
 
@@ -111,7 +111,7 @@ module FSharpAst =
         | ImplementationFile.Namespaces _ -> ImplementationFile.AnonymousModule(ImmutableArray.Create(skipElem))
 
     /// Infallible top-level parser. Always returns Ok with errors captured as diagnostics.
-    let parse: Parser<FSharpAst<SyntaxToken>, PositionedToken, ParseState, _, _> =
+    let parse: Parser<FSharpAst<SyntaxToken>, PositionedToken, ParseState, _> =
         fun reader ->
             let startPos = reader.Position
 

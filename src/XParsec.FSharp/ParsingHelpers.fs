@@ -12,7 +12,7 @@ open XParsec.FSharp.Parser.ParseState
 
 [<AutoOpen>]
 module Parsing =
-    let tokenIndex (reader: Reader<PositionedToken, ParseState, _, _>) = reader.Index * 1<token>
+    let tokenIndex (reader: Reader<PositionedToken, ParseState, _>) = reader.Index * 1<token>
 
     /// Creates a PositionedToken with the IsVirtual flag set, for synthesized tokens
     /// (virtual delimiters, recovery placeholders, etc.).
@@ -24,7 +24,7 @@ module Parsing =
     ///   * matching #endif at depth 0 — always stops here,
     ///   * matching #else at depth 0 — only when `stopOnElse` is true.
     /// Returns true if the stop was a matching #else. Gracefully stops on EOF.
-    let private skipConditionalBranch (stopOnElse: bool) (reader: Reader<PositionedToken, ParseState, _, _>) =
+    let private skipConditionalBranch (stopOnElse: bool) (reader: Reader<PositionedToken, ParseState, _>) =
         let mutable depth = 0
         let mutable foundElse = false
         let mutable stop = false
@@ -72,9 +72,9 @@ module Parsing =
     /// to the matching #else/#endif.
     /// Must be called with the reader positioned at the #if token (not yet consumed).
     let processIfDirective
-        (nextNonTriviaToken: Parser<_, _, _, _, _>)
+        (nextNonTriviaToken: Parser<_, _, _, _>)
         (ifToken: PositionedToken)
-        (reader: Reader<PositionedToken, ParseState, _, _>)
+        (reader: Reader<PositionedToken, ParseState, _>)
         =
         let state = reader.State
         let lexed = state.Lexed
@@ -120,10 +120,10 @@ module Parsing =
             nextNonTriviaToken reader
 
     let processWarnDirective
-        (nextNonTriviaToken: Parser<_, _, _, _, _>)
+        (nextNonTriviaToken: Parser<_, _, _, _>)
         (isSuppress: bool)
         (_directiveToken: PositionedToken)
-        (reader: Reader<PositionedToken, ParseState, _, _>)
+        (reader: Reader<PositionedToken, ParseState, _>)
         =
         let state = reader.State
         let lexed = state.Lexed
@@ -541,7 +541,7 @@ module Parsing =
 
     let private errOffside: ErrorType<PositionedToken, ParseState> = Message "Offside"
 
-    let rec private nextNonTriviaTokenImpl isPeek (reader: Reader<PositionedToken, ParseState, _, _>) =
+    let rec private nextNonTriviaTokenImpl isPeek (reader: Reader<PositionedToken, ParseState, _>) =
         match reader.Peek() with
         | ValueNone -> fail EndOfInput reader
         | ValueSome token when token.Token = Token.IfDirective ->
@@ -640,19 +640,19 @@ module Parsing =
                     reader.Skip()
                     preturn t reader
 
-    let nextNonTriviaToken (reader: Reader<PositionedToken, ParseState, _, _>) = nextNonTriviaTokenImpl false reader
+    let nextNonTriviaToken (reader: Reader<PositionedToken, ParseState, _>) = nextNonTriviaTokenImpl false reader
 
     /// Advanced the reader to the next non-trivia token and returns it without consuming it.
     /// Allows parser to avoid re-skipping trivia tokens when it needs to look ahead at the next token to decide what to parse.
-    let peekNextNonTriviaToken (reader: Reader<PositionedToken, ParseState, _, _>) = nextNonTriviaTokenImpl true reader
+    let peekNextNonTriviaToken (reader: Reader<PositionedToken, ParseState, _>) = nextNonTriviaTokenImpl true reader
 
     /// Emits a trace message. Use with `do!` inside a `parser { }` CE for debugging.
-    let trace (msg: string) (reader: Reader<PositionedToken, ParseState, _, _>) =
+    let trace (msg: string) (reader: Reader<PositionedToken, ParseState, _>) =
         reader.State.Trace.Message msg
         preturn () reader
 
     /// Consumes the given token, which must have been previously returned by `peekNextNotTriviaToken`, and returns it.
-    let consumePeeked (token: SyntaxToken) (reader: Reader<PositionedToken, ParseState, _, _>) =
+    let consumePeeked (token: SyntaxToken) (reader: Reader<PositionedToken, ParseState, _>) =
         match token.Index with
         | TokenIndex.Virtual -> invalidOp "Cannot consume a virtual token"
         | TokenIndex.Regular tokenIdx ->
@@ -665,7 +665,7 @@ module Parsing =
     /// Peeks the next non-trivia token, asserts it matches the expected token,
     /// consumes it, and returns the token together with its column indent.
     /// Used by keyword expression parsers to capture the keyword's indent for offside context.
-    let assertKeywordToken (expected: Token) (reader: Reader<PositionedToken, ParseState, _, _>) =
+    let assertKeywordToken (expected: Token) (reader: Reader<PositionedToken, ParseState, _>) =
         match peekNextNonTriviaToken reader with
         | Ok t when t.Token = expected ->
             (consumePeeked t
@@ -680,7 +680,7 @@ module Parsing =
         | Ok t -> fail (Message $"Expected '{expected}' keyword") reader
         | Error e -> Error e
 
-    let assertKeywordTokens (expected1: Token) (expected2: Token) (reader: Reader<PositionedToken, ParseState, _, _>) =
+    let assertKeywordTokens (expected1: Token) (expected2: Token) (reader: Reader<PositionedToken, ParseState, _>) =
         match peekNextNonTriviaToken reader with
         | Ok t when t.Token = expected1 || t.Token = expected2 ->
             (consumePeeked t
@@ -703,7 +703,7 @@ module Parsing =
     let private nextNonTriviaTokenVirtualCore
         (mkDiag: PositionedToken -> DiagnosticCode voption)
         t
-        (reader: Reader<PositionedToken, ParseState, _, _>)
+        (reader: Reader<PositionedToken, ParseState, _>)
         =
         match peekNextNonTriviaToken reader with
         | Ok token when token.Token = t ->
@@ -807,7 +807,7 @@ module Parsing =
         | _ -> invalidOp $"Not a string fragment token: {t.Token}"
 
     /// Parses a plain (non-interpolated) string literal into StringKind * StringPart list * closing token.
-    let parsePlainStringLiteral msg (reader: Reader<PositionedToken, ParseState, _, _>) =
+    let parsePlainStringLiteral msg (reader: Reader<PositionedToken, ParseState, _>) =
         match peekNextNonTriviaToken reader with
         | Error e -> Error e
         | Ok token when isPlainStringOpen token.Token ->
@@ -850,7 +850,7 @@ module Parsing =
     /// Emits a diagnostic for unterminated backticked identifiers.
     /// Primary API — takes a pre-built err; callers should build Message statically at module level.
     let nextNonTriviaIdentifierL (err: ErrorType<PositionedToken, ParseState>) =
-        fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
+        fun (reader: Reader<PositionedToken, ParseState, _>) ->
             match peekNextNonTriviaToken reader with
             | Error e -> Error e
             | Ok token ->
@@ -869,7 +869,7 @@ module Parsing =
 
     let inline nextNonTriviaIdentifierLMsg (msg: string) = nextNonTriviaIdentifierL (Message msg)
 
-    let dispatchNextNonTriviaTokenFallback (routes: (Token * Parser<_, _, _, _, _>) list) pFallback =
+    let dispatchNextNonTriviaTokenFallback (routes: (Token * Parser<_, _, _, _>) list) pFallback =
         // Note: Routes are typically <20 items, so linear search is fine. Likely to be 5 or less in practice.
         // So an array is likely more efficient than a dictionary.
         let items = routes |> List.map fst |> Array.ofList
@@ -883,18 +883,18 @@ module Parsing =
             | ValueNone -> return! pFallback
         }
 
-    let dispatchNextNonTriviaTokenL (routes: (Token * Parser<_, _, _, _, _>) list) fallbackMsg =
+    let dispatchNextNonTriviaTokenL (routes: (Token * Parser<_, _, _, _>) list) fallbackMsg =
         dispatchNextNonTriviaTokenFallback routes (fail (Message fallbackMsg))
 
     /// Checks that the raw token immediately before the current reader position is not trivia.
     /// Used by adjacency-based parsers (high-precedence application, type application, measures)
     /// to confirm the upcoming token is truly adjacent to the preceding expression token,
     /// not just adjacent because peekNextNonTriviaToken consumed intervening trivia.
-    let isPrevTokenNonTrivia (reader: Reader<PositionedToken, ParseState, _, _>) =
+    let isPrevTokenNonTrivia (reader: Reader<PositionedToken, ParseState, _>) =
         let idx = reader.Index
         idx > 0 && not (ParseState.isTriviaToken reader.State reader.Input[idx - 1])
 
-    let currentIndent (reader: Reader<PositionedToken, ParseState, 'a, 'b>) =
+    let currentIndent (reader: Reader<PositionedToken, ParseState, 'a>) =
         let state = reader.State
         let index = int reader.Index * 1<token>
         let indent = ParseState.getIndent state index
@@ -902,7 +902,7 @@ module Parsing =
 
     /// Returns the column (0-based) of the next non-trivia token without consuming it.
     /// Returns -1 at EOF.
-    let peekNonTriviaIndent: Parser<int, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+    let peekNonTriviaIndent: Parser<int, PositionedToken, ParseState, ReadableImmutableArray<_>> =
         lookAhead (fun r ->
             match nextNonTriviaToken r with
             | Error _ -> preturn -1 r
@@ -916,7 +916,7 @@ module Parsing =
 
     /// Synthesises a VirtualSep (virtual `;`) token at the current reader position
     /// without consuming any input.
-    let makeVirtualSep (reader: Reader<PositionedToken, ParseState, _, _>) =
+    let makeVirtualSep (reader: Reader<PositionedToken, ParseState, _>) =
         match reader.Peek() with
         | ValueNone -> fail EndOfInput reader
         | ValueSome token ->
@@ -948,8 +948,8 @@ module Parsing =
     let recoverWithVirtualToken
         (expectedToken: Token)
         (diagMsg: string)
-        (p: Parser<SyntaxToken, PositionedToken, ParseState, _, _>)
-        : Parser<SyntaxToken, PositionedToken, ParseState, _, _> =
+        (p: Parser<SyntaxToken, PositionedToken, ParseState, _>)
+        : Parser<SyntaxToken, PositionedToken, ParseState, _> =
         fun reader ->
             match p reader with
             | Ok result -> Ok result
@@ -975,8 +975,8 @@ module Parsing =
     /// single-element virtual identifier. Used after committed keywords like `open`, `namespace`, `module`.
     let recoverLongIdent
         (diagMsg: string)
-        (p: Parser<LongIdent<SyntaxToken>, PositionedToken, ParseState, _, _>)
-        : Parser<LongIdent<SyntaxToken>, PositionedToken, ParseState, _, _> =
+        (p: Parser<LongIdent<SyntaxToken>, PositionedToken, ParseState, _>)
+        : Parser<LongIdent<SyntaxToken>, PositionedToken, ParseState, _> =
         fun reader ->
             match p reader with
             | Ok result -> Ok result
@@ -1103,8 +1103,8 @@ module Parsing =
         (severity: DiagnosticSeverity)
         (code: DiagnosticCode)
         (placeholder: ImArr<SyntaxToken> -> 'Parsed)
-        (p: Parser<'Parsed, PositionedToken, ParseState, _, _>)
-        : Parser<'Parsed, PositionedToken, ParseState, _, _> =
+        (p: Parser<'Parsed, PositionedToken, ParseState, _>)
+        : Parser<'Parsed, PositionedToken, ParseState, _> =
         fun reader ->
             match peekNextNonTriviaToken reader with
             | Error e -> Error e
@@ -1138,7 +1138,7 @@ module Parsing =
     /// to establish the offside column, pushes an Offside entry onto ParseState.Context, runs
     /// the inner parser, then pops the context on success or restores the full saved state on
     /// failure (keeping the operation safe for backtracking).
-    let withContext (ctx: OffsideContext) innerParser (reader: Reader<PositionedToken, ParseState, _, _>) =
+    let withContext (ctx: OffsideContext) innerParser (reader: Reader<PositionedToken, ParseState, _>) =
         let savedState = reader.State
 
         match peekNextNonTriviaToken reader with
@@ -1174,7 +1174,7 @@ module Parsing =
         (indent: int)
         (token: PositionedToken)
         innerParser
-        (reader: Reader<PositionedToken, ParseState, _, _>)
+        (reader: Reader<PositionedToken, ParseState, _>)
         =
         let savedState = reader.State
 
@@ -1197,7 +1197,7 @@ module Parsing =
 
     /// Record field separator: accepts a real ';' or emits a virtual separator when the next
     /// token is at the same indent as the enclosing SeqBlock context (spec §15.1.5: $sep insertion).
-    let pRecordFieldSep: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+    let pRecordFieldSep: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>> =
         let failSep = fail (Message "Expected ';' or newline at the same indent")
 
         parser {
@@ -1220,7 +1220,7 @@ module Parsing =
         }
 
     /// Fails if the next non-trivia token is 't'. Saves and restores reader position fully.
-    let notFollowedByNonTriviaToken t (reader: Reader<PositionedToken, ParseState, _, _>) =
+    let notFollowedByNonTriviaToken t (reader: Reader<PositionedToken, ParseState, _>) =
         let pos = reader.Position
 
         match peekNextNonTriviaToken reader with
@@ -1244,7 +1244,7 @@ module Parsing =
     let private errExpectedGtCloseTypeApp: ErrorType<PositionedToken, ParseState> =
         Message "Expected '>' to close type application"
 
-    let pCloseTypeParams: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+    let pCloseTypeParams: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>> =
         // 15.3 Lexical Analysis of Type Applications
         parser {
             let! state = getUserState
@@ -1305,8 +1305,7 @@ module Parsing =
     let private errNoOperatorToReprocess: ErrorType<PositionedToken, ParseState> =
         Message "No operator to reprocess after type parameters"
 
-    let reprocessedOperatorAfterTypeParams
-        : Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+    let reprocessedOperatorAfterTypeParams: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>> =
         parser {
             let! state = getUserState
             let charsConsumed = state.CharsConsumedAfterTypeParams
@@ -1350,13 +1349,13 @@ module Parsing =
         completeEnclosed
         missing
         skipsTokens
-        (pLeft: Parser<_, _, _, _, _>)
+        (pLeft: Parser<_, _, _, _>)
         (expectedRightTok: Token)
         (parenKindConstructor: SyntaxToken -> ParenKind<SyntaxToken>)
         (offsideCtx: OffsideContext)
         (diagCode: DiagnosticCode)
-        (pInner: Parser<_, _, _, _, _>)
-        : Parser<_, PositionedToken, ParseState, _, _> =
+        (pInner: Parser<_, _, _, _>)
+        : Parser<_, PositionedToken, ParseState, _> =
 
         fun reader ->
             match pLeft reader with

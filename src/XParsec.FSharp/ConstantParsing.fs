@@ -25,7 +25,7 @@ module Constant =
         || t = Token.KWNull
         || t = Token.CharLiteral
 
-    let private pLiteral: Parser<_, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+    let private pLiteral: Parser<_, PositionedToken, ParseState, ReadableImmutableArray<_>> =
         nextNonTriviaTokenSatisfiesLMsg
             (fun (synTok: SyntaxToken) -> isLiteralToken synTok.Token)
             "Expected constant literal"
@@ -114,7 +114,7 @@ module Constant =
         visit measure
         results
 
-    let validateMeasureNoTypars (measure: Measure<SyntaxToken>) (reader: Reader<_, _, _, _>) =
+    let validateMeasureNoTypars (measure: Measure<SyntaxToken>) (reader: Reader<_, _, _>) =
         let typars = collectTypars measure
 
         if typars.Count > 0 then
@@ -135,7 +135,7 @@ module Constant =
 
         preturn () reader
 
-    let parse: Parser<Constant<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+    let parse: Parser<Constant<_>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
         parser {
 
             let! literal = pLiteral
