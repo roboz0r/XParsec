@@ -321,6 +321,71 @@ module Parsing =
         | OffsideContext.Begin -> true
         | _ -> false
 
+    // Walks the stack looking for any matching closing-delimiter context.
+    // Hoisted out of isPermittedUndentation so no per-call closure is allocated.
+    let rec private anyMatchingClose (token: Token) (stack: Offside list) =
+        match stack with
+        | [] -> false
+        | ctx :: rest ->
+            if isMatchingClose token ctx.Context then
+                true
+            else
+                anyMatchingClose token rest
+
+    // Fun/Function-body undentation: walk past SeqBlock+Paren-like+Fun/Function frames
+    // to find the true enclosing offside line (F# spec §15.1.10.1).
+    let rec private findFunBodyEnclosingIndent (tokenCol: int) (stack: Offside list) =
+        match stack with
+        | [] -> true // No other context to violate
+        | ctx :: deeper ->
+            match ctx.Context with
+            | OffsideContext.SeqBlock
+            | OffsideContext.Paren
+            | OffsideContext.Bracket
+            | OffsideContext.BracketBar
+            | OffsideContext.BraceBar
+            | OffsideContext.Brace
+            | OffsideContext.Begin
+            | OffsideContext.Fun
+            | OffsideContext.Function -> findFunBodyEnclosingIndent tokenCol deeper
+            | _ -> tokenCol >= ctx.Indent
+
+    // MatchClauses-body undentation: same skip-past-containers rule, but also skips
+    // Match and MatchClauses frames (F# spec §15.1.10.1 extended).
+    let rec private findMatchBodyEnclosingIndent (tokenCol: int) (stack: Offside list) =
+        match stack with
+        | [] -> true
+        | ctx :: deeper ->
+            match ctx.Context with
+            | OffsideContext.SeqBlock
+            | OffsideContext.Paren
+            | OffsideContext.Bracket
+            | OffsideContext.BracketBar
+            | OffsideContext.BraceBar
+            | OffsideContext.Brace
+            | OffsideContext.Begin
+            | OffsideContext.Fun
+            | OffsideContext.Function
+            | OffsideContext.Match
+            | OffsideContext.MatchClauses -> findMatchBodyEnclosingIndent tokenCol deeper
+            | _ -> tokenCol >= ctx.Indent
+
+    // Used by the Match/Function/Try aligned-token rule (15.1.10 extended).
+    // Walks past Match/MatchClauses/Function/Try/SeqBlock frames looking for an
+    // enclosing paren-like frame.
+    let rec private hasEnclosingParenAroundMatch (stack: Offside list) =
+        match stack with
+        | [] -> false
+        | ctx :: deeper ->
+            match ctx.Context with
+            | OffsideContext.SeqBlock
+            | OffsideContext.Match
+            | OffsideContext.MatchClauses
+            | OffsideContext.Function
+            | OffsideContext.Try -> hasEnclosingParenAroundMatch deeper
+            | c when isParenLike c -> true
+            | _ -> false
+
     /// Determines whether a token at column `tokenCol` is permitted despite being
     /// strictly left of the innermost context's offside line.
     /// Implements F# spec sections 15.1.8 (Balancing), 15.1.9 (Exceptions to Offside Rules)
@@ -339,7 +404,7 @@ module Parsing =
             // Closing delimiters are never offside from their matching paren-like context (15.1.8)
             if isMatchingClose token head.Context then
                 ValueSome "15.1.8 MatchingClose"
-            elif rest |> List.exists (fun (ctx: Offside) -> isMatchingClose token ctx.Context) then
+            elif anyMatchingClose token rest then
                 ValueSome "15.1.8 MatchingClose"
 
             // --- 15.1.9: Exceptions to Offside Rules ---
@@ -375,23 +440,7 @@ module Parsing =
             // "Constructs enclosed in brackets may be undented" — so we skip past
             // SeqBlock+Paren pairs to find the true enclosing offside line.
             elif head.Context = OffsideContext.Fun || head.Context = OffsideContext.Function then
-                let rec findEnclosingIndent (stack: Offside list) =
-                    match stack with
-                    | [] -> true // No other context to violate
-                    | ctx :: deeper ->
-                        match ctx.Context with
-                        | OffsideContext.SeqBlock
-                        | OffsideContext.Paren
-                        | OffsideContext.Bracket
-                        | OffsideContext.BracketBar
-                        | OffsideContext.BraceBar
-                        | OffsideContext.Brace
-                        | OffsideContext.Begin
-                        | OffsideContext.Fun
-                        | OffsideContext.Function -> findEnclosingIndent deeper
-                        | _ -> tokenCol >= ctx.Indent
-
-                if findEnclosingIndent rest then
+                if findFunBodyEnclosingIndent tokenCol rest then
                     ValueSome "15.1.10.1 FunBody"
                 else
                     ValueNone
@@ -402,25 +451,7 @@ module Parsing =
             // enclosing Function/Match context, not the pattern column. Apply the
             // same skip-past-containers rule as FunBody.
             elif head.Context = OffsideContext.MatchClauses && token <> Token.OpBar then
-                let rec findEnclosingIndent (stack: Offside list) =
-                    match stack with
-                    | [] -> true
-                    | ctx :: deeper ->
-                        match ctx.Context with
-                        | OffsideContext.SeqBlock
-                        | OffsideContext.Paren
-                        | OffsideContext.Bracket
-                        | OffsideContext.BracketBar
-                        | OffsideContext.BraceBar
-                        | OffsideContext.Brace
-                        | OffsideContext.Begin
-                        | OffsideContext.Fun
-                        | OffsideContext.Function
-                        | OffsideContext.Match
-                        | OffsideContext.MatchClauses -> findEnclosingIndent deeper
-                        | _ -> tokenCol >= ctx.Indent
-
-                if findEnclosingIndent rest then
+                if findMatchBodyEnclosingIndent tokenCol rest then
                     ValueSome "15.1.10.1 MatchBody"
                 else
                     ValueNone
@@ -463,20 +494,7 @@ module Parsing =
                         && (head.Context = OffsideContext.Match || head.Context = OffsideContext.Try))
                     || (token = Token.KWFinally && head.Context = OffsideContext.Try))
             then
-                let rec hasEnclosingParen (stack: Offside list) =
-                    match stack with
-                    | [] -> false
-                    | ctx :: deeper ->
-                        match ctx.Context with
-                        | OffsideContext.SeqBlock
-                        | OffsideContext.Match
-                        | OffsideContext.MatchClauses
-                        | OffsideContext.Function
-                        | OffsideContext.Try -> hasEnclosingParen deeper
-                        | c when isParenLike c -> true
-                        | _ -> false
-
-                if hasEnclosingParen rest && checkCollectionUndent tokenCol rest then
+                if hasEnclosingParenAroundMatch rest && checkCollectionUndent tokenCol rest then
                     ValueSome "15.1.10 MatchParen"
                 else
                     ValueNone
