@@ -134,6 +134,12 @@ module ElifBranches =
         fun reader -> parseBranches (ResizeArray()) reader
 
 module Binding =
+    let private errNoTrailingTypeAnnotation: ErrorType<PositionedToken, ParseState> =
+        Message "no trailing type annotation"
+
+    let private errNotNamedFieldCtorHead: ErrorType<PositionedToken, ParseState> =
+        Message "not a named-field ctor head"
+
     let private pMutableTok =
         nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.KWMutable) "Expected 'mutable'"
 
@@ -233,7 +239,7 @@ module Binding =
                 match consumePeeked t reader with
                 | Ok colon -> Ok(struct (colon, col))
                 | Error e -> Error e
-            | Ok _ -> fail (Message "no trailing type annotation") reader
+            | Ok _ -> fail errNoTrailingTypeAnnotation reader
             | Error e -> Error e
 
         parser {
@@ -272,7 +278,7 @@ module Binding =
                 then
                     return ()
                 else
-                    return! fail (Message "not a named-field ctor head")
+                    return! fail errNotNamedFieldCtorHead
             }
         )
 
@@ -397,6 +403,9 @@ module FieldInitializer =
 
 [<RequireQualifiedAccess>]
 module ObjectConstruction =
+    let private errNoConstructorArguments: ErrorType<PositionedToken, ParseState> =
+        Message "No constructor arguments"
+
     // Dummy function to ensure the static constructor runs and initializes refObjectConstruction
     let mutable private x = 0
     let init () = x <- x + 1
@@ -421,7 +430,7 @@ module ObjectConstruction =
                         then
                             return! refExpr.Parser
                         else
-                            return! fail (Message "No constructor arguments")
+                            return! fail errNoConstructorArguments
                     }
                 )
 
@@ -498,6 +507,39 @@ type ExprAux =
 
 [<RequireQualifiedAccess>]
 module Expr =
+    let private errNoTrailingTypeAnnotation: ErrorType<PositionedToken, ParseState> =
+        Message "no trailing type annotation"
+
+    let private errExpectedInAtLetIndent: ErrorType<PositionedToken, ParseState> =
+        Message "Expected 'in' at the same indent as 'let'"
+
+    let private errExpectedRhsOperator: ErrorType<PositionedToken, ParseState> =
+        Message "Expected RHS operator"
+
+    let private errUnexpectedBarOp: ErrorType<PositionedToken, ParseState> =
+        Message "Unexpected '|' operator in expression context"
+
+    let private errUnexpectedDereferenceOp: ErrorType<PositionedToken, ParseState> =
+        Message "Unexpected dereference operator '!' in infix context"
+
+    let private errUnexpectedArrowOp: ErrorType<PositionedToken, ParseState> =
+        Message "Unexpected arrow operator '->' in infix context"
+
+    let private errUnexpectedPrefixKeywordRhs: ErrorType<PositionedToken, ParseState> =
+        Message "Unexpected prefix keyword in RHS expression context"
+
+    let private errLhsOnlyOpInInfix: ErrorType<PositionedToken, ParseState> =
+        Message "LHS-only operator cannot appear in infix position"
+
+    let private errExpectedSliceAll: ErrorType<PositionedToken, ParseState> =
+        Message "Expected ',' or ']' for slice all syntax"
+
+    let private errNotPrefixOp: ErrorType<PositionedToken, ParseState> =
+        Message "Not a prefix operator"
+
+    let private errNotCEBody: ErrorType<PositionedToken, ParseState> =
+        Message "Not a computation expression body"
+
     let bp x =
         LanguagePrimitives.ByteWithMeasure<bp> x
 
@@ -518,7 +560,7 @@ module Expr =
                 match consumePeeked t reader with
                 | Ok colon -> Ok(struct (colon, col))
                 | Error e -> Error e
-            | Ok _ -> fail (Message "no trailing type annotation") reader
+            | Ok _ -> fail errNoTrailingTypeAnnotation reader
             | Error e -> Error e
 
         parser {
@@ -1020,7 +1062,7 @@ module Expr =
                     // e.g. skip tokens until we find one that is at the correct indent
                     // or a valid separator (e.g. semicolon, newline with correct indent, or closing delimiter).
                     // Maybe still emit a virtual 'in' as well as a diagnostic error for the missing 'in' to allow parsing to continue and produce a more complete AST with error nodes.
-                    fail (Message "Expected 'in' at the same indent as 'let'") reader
+                    fail errExpectedInAtLetIndent reader
             | Error _ ->
                 // Peek failed (e.g., EOF offside or end of input).
                 // Emit a virtual 'in' — this handles `use _ = expr` at the end of a scope.
@@ -1638,12 +1680,12 @@ module Expr =
         let rhsParser =
             let handleToken token =
                 match OperatorInfo.TryCreate token.PositionedToken with
-                | ValueNone -> fail (Message "Expected RHS operator")
+                | ValueNone -> fail errExpectedRhsOperator
                 | ValueSome opInfo ->
                     match opInfo.Token with
-                    | Token.OpBar -> fail (Message "Unexpected '|' operator in expression context")
-                    | Token.OpDereference -> fail (Message "Unexpected dereference operator '!' in infix context")
-                    | Token.OpArrowRight -> fail (Message "Unexpected arrow operator '->' in infix context")
+                    | Token.OpBar -> fail errUnexpectedBarOp
+                    | Token.OpDereference -> fail errUnexpectedDereferenceOp
+                    | Token.OpArrowRight -> fail errUnexpectedArrowOp
                     | Token.KWLet
                     | Token.KWLetBang
                     | Token.KWUse
@@ -1661,7 +1703,7 @@ module Expr =
                     | Token.KWWhile
                     | Token.KWTry
                     | Token.KWFun
-                    | Token.KWFunction -> fail (Message "Unexpected prefix keyword in RHS expression context")
+                    | Token.KWFunction -> fail errUnexpectedPrefixKeywordRhs
                     | _ when
                         // These precedence levels are LHS-only (no RHS handler registered).
                         // When encountered in RHS position, fail so the Pratt parser stops
@@ -1677,7 +1719,7 @@ module Expr =
                          | PrecedenceLevel.Parens -> true
                          | _ -> false)
                         ->
-                        fail (Message "LHS-only operator cannot appear in infix position")
+                        fail errLhsOnlyOpInInfix
                     | _ -> preturn (getRhsOperatorHandler opInfo token)
 
             // First try type application, then whitespace application, then explicit operator.
@@ -1705,7 +1747,7 @@ module Expr =
                 | Token.KWRBracket
                 | Token.EOF
                 | Token.OpComma -> return ExprAux.SliceAll
-                | _ -> return! fail (Message "Expected ',' or ']' for slice all syntax")
+                | _ -> return! fail errExpectedSliceAll
             }
 
         let pOperatorPrefix (token: SyntaxToken) =
@@ -1796,7 +1838,7 @@ module Expr =
                     // so `-f x` still parses as `-(f x)`.
                     let power = BindingPower.fromLevel (int opInfo.Precedence) + 1uy<bp>
                     return Prefix(tok, preturn tok, power, Complete.prefix)
-                | _ -> return! fail (Message "Not a prefix operator")
+                | _ -> return! fail errNotPrefixOp
             }
 
         // Keyword-prefix dispatch table. Flattened to one entry per token for a simple
@@ -2325,7 +2367,7 @@ module Expr =
                                 let! rBrace = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome lBrace) Token.KWRBrace
 
                                 return Expr.EnclosedBlock(ParenKind.Brace lBrace, body, rBrace)
-                            | _ -> return! fail (Message "Not a computation expression body")
+                            | _ -> return! fail errNotCEBody
                         }
                         // '{' new base-call object-members interface-impls '}' -- object expression
                         parser {

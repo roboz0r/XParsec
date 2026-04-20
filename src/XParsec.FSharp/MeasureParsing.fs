@@ -11,6 +11,18 @@ open XParsec.FSharp.Parser.SyntaxToken
 open XParsec.FSharp.Parser.ParseState
 
 module Measure =
+    let private errExpectedIntegerExponent: ErrorType<PositionedToken, ParseState> =
+        Message "Expected integer exponent"
+
+    let private errNotPrefixMeasureOp: ErrorType<PositionedToken, ParseState> =
+        Message "Not a prefix measure operator"
+
+    let private errNotSplitPowerMinusOp: ErrorType<PositionedToken, ParseState> =
+        Message "Not a split ^- power operator"
+
+    let private errNotValidRhsMeasureOp: ErrorType<PositionedToken, ParseState> =
+        Message "Not a valid RHS measure operator"
+
     [<RequireQualifiedAccess>]
     type MeasureAux = | PowerOperand of neg: SyntaxToken voption * intTok: SyntaxToken
 
@@ -60,7 +72,7 @@ module Measure =
                 elif firstTok.Token.IsNumeric then
                     return MeasureAux.PowerOperand(ValueNone, firstTok)
                 else
-                    return! fail (Message "Expected integer exponent")
+                    return! fail errExpectedIntegerExponent
             }
 
         static let pJuxtapositionOp =
@@ -104,7 +116,7 @@ module Measure =
                     let op = Enclosed(token, p, parenPrecedence, rParen, pRParen, completeParen)
 
                     preturn op
-                | _ -> fail (Message "Not a prefix measure operator")
+                | _ -> fail errNotPrefixMeasureOp
 
         /// Detects a fused `^-` operator token (the lexer merges `^-` into a single custom
         /// operator at Append precedence when there is no whitespace between them). Sets
@@ -126,7 +138,7 @@ module Measure =
 
                     return virtualToken (PositionedToken.Create(Token.OpConcatenate, peeked.StartIndex))
                 else
-                    return! fail (Message "Not a split ^- power operator")
+                    return! fail errNotSplitPowerMinusOp
             }
 
         static let rhsParser =
@@ -156,7 +168,7 @@ module Measure =
 
                     preturn op
 
-                | _ -> fail (Message "Not a valid RHS measure operator")
+                | _ -> fail errNotValidRhsMeasureOp
 
         interface Operators<
             SyntaxToken,

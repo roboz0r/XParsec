@@ -54,6 +54,12 @@ module CompilerDirectiveDecl =
 [<RequireQualifiedAccess>]
 module ModuleFunctionOrValueDefn =
 
+    let private errTrailingInNoBody: ErrorType<PositionedToken, ParseState> =
+        Message "trailing 'in' at end of file has no body"
+
+    let private errExpectedLetOrDo: ErrorType<PositionedToken, ParseState> =
+        Message "Expected 'let' or 'do'"
+
     // Consume a trailing `in` only when another token follows. If the `in` is the last
     // meaningful token in the file, leave it for the existing missing-body diagnostic
     // to fire via the script-expression fallback in FSharpAst.parse.
@@ -63,7 +69,7 @@ module ModuleFunctionOrValueDefn =
 
             match! peekNextNonTriviaToken with
             | t when t.Token <> Token.EOF -> return inTok
-            | _ -> return! fail (Message "trailing 'in' at end of file has no body")
+            | _ -> return! fail errTrailingInNoBody
         }
 
     let private pLetBinding attrs letTok =
@@ -118,7 +124,7 @@ module ModuleFunctionOrValueDefn =
 
             | Token.KWLet -> return! pLetBinding attrs token
 
-            | _ -> return! fail (Message "Expected 'let' or 'do'")
+            | _ -> return! fail errExpectedLetOrDo
         }
 
 [<RequireQualifiedAccess>]
