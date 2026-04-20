@@ -37,7 +37,7 @@ module ModuleAbbrev =
 
 [<RequireQualifiedAccess>]
 module CompilerDirectiveDecl =
-    let parse: Parser<CompilerDirectiveDecl<SyntaxToken>, _, _, ReadableImmutableArray<_>, _> =
+    let parse: Parser<CompilerDirectiveDecl<SyntaxToken>, _, _, ReadableImmutableArray<_>> =
         parser {
             let! hash = pHash
             // Committed after consuming '#' — recover with virtual identifier if missing
@@ -132,8 +132,8 @@ module ModuleDefn =
 
     let parseBody
         (modTok: SyntaxToken)
-        (elementParser: Parser<ModuleElems<SyntaxToken>, _, _, _, _>)
-        : Parser<_, _, _, _, _> =
+        (elementParser: Parser<ModuleElems<SyntaxToken>, _, _, _>)
+        : Parser<_, _, _, _> =
         parser {
             let! state = getUserState
 
@@ -149,7 +149,7 @@ module ModuleDefn =
             return ModuleDefnBody(beginTok, elems, endTok)
         }
 
-    let parse (elementParser: Parser<ModuleElems<SyntaxToken>, _, _, _, _>) =
+    let parse (elementParser: Parser<ModuleElems<SyntaxToken>, _, _, _>) =
         parser {
             let! attrs = opt Attributes.parse
             let! modTok = pModule
@@ -170,7 +170,7 @@ module ModuleDefn =
 
 [<RequireQualifiedAccess>]
 module ModuleElem =
-    let private refModuleElem = RefParser<ModuleElem<SyntaxToken>, _, _, _, _>()
+    let private refModuleElem = RefParser<ModuleElem<SyntaxToken>, _, _, _>()
 
     // Forward reference setup to handle: ModuleElem -> ModuleDefn -> ModuleElem
     /// Plain parseElems: no recovery. Used in AnonymousModule where backtracking must remain possible.
@@ -179,7 +179,7 @@ module ModuleElem =
     /// parseElems with recovery: after `many` stops on failure, skips tokens to the next
     /// module-elem boundary and resumes. Only safe in committed contexts (after namespace/module keyword).
     /// Recovery happens *outside* `many` to avoid zero-width infinite loops.
-    let parseElemsWithRecovery: Parser<ModuleElems<SyntaxToken>, _, _, _, _> =
+    let parseElemsWithRecovery: Parser<ModuleElems<SyntaxToken>, _, _, _> =
         fun reader ->
             let result = ResizeArray<ModuleElem<SyntaxToken>>()
             let mutable keepGoing = true

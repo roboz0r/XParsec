@@ -77,7 +77,7 @@ module ElifBranches =
     // Anchoring at +1 (rather than the peeked expression token's column, which
     // is what plain `withContext` would use) is needed so multi-line conditions
     // that undent onto the following line remain within the If context.
-    let pConditionThen (indent: int) (armKeyword: SyntaxToken) (reader: Reader<PositionedToken, ParseState, _, _>) =
+    let pConditionThen (indent: int) (armKeyword: SyntaxToken) (reader: Reader<PositionedToken, ParseState, _>) =
         let pCond =
             withContextAt OffsideContext.If (indent + 1) armKeyword.PositionedToken refExpr.Parser
         // Grammar: THEN typedSeqExprBlock
@@ -97,12 +97,12 @@ module ElifBranches =
     // Grammar: ELSE typedSeqExprBlock
     let private pElseExpr = withContext OffsideContext.Else refTypedSeqExprBlock.Parser
 
-    let private getIndent (reader: Reader<PositionedToken, ParseState, _, _>) (tok: SyntaxToken) =
+    let private getIndent (reader: Reader<PositionedToken, ParseState, _>) (tok: SyntaxToken) =
         match tok.Index with
         | TokenIndex.Regular iT -> ParseState.getIndent reader.State iT
         | TokenIndex.Virtual -> 0
 
-    let rec private parseBranches (acc: ResizeArray<_>) (reader: Reader<PositionedToken, ParseState, _, _>) =
+    let rec private parseBranches (acc: ResizeArray<_>) (reader: Reader<PositionedToken, ParseState, _>) =
         match pElifOrElseIf reader with
         | Ok(ElIfTok.Elif elifTok) ->
             let indent = getIndent reader elifTok
@@ -130,7 +130,7 @@ module ElifBranches =
 
         | Error e -> Ok struct (ImmutableArray.CreateRange acc, ValueNone)
 
-    let parse: Parser<_, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+    let parse: Parser<_, PositionedToken, ParseState, ReadableImmutableArray<_>> =
         fun reader -> parseBranches (ResizeArray()) reader
 
 module Binding =
@@ -231,7 +231,7 @@ module Binding =
         // can be parsed inside a stricter offside context (col_of_colon + 1).
         // Without this, Type.parse would greedily slurp suffix identifiers from
         // following lines as type suffixes (`'T array` + `res` -> `res<'T array>`).
-        let pColonPeek (reader: Reader<PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, _>) =
+        let pColonPeek (reader: Reader<PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>>) =
             match peekNextNonTriviaToken reader with
             | Ok t when t.Token = Token.OpColon ->
                 let col = ParseState.getIndent reader.State (reader.Index * 1<token>)
@@ -353,7 +353,7 @@ module Binding =
         }
 
     /// Parse either a function or a value binding
-    let parse attrs : Parser<Binding<_>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+    let parse attrs : Parser<Binding<_>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
         choiceL [ parseFunction attrs; parseValue attrs ] "Binding"
 
     let parseSepByAnd1 attrs =
@@ -365,7 +365,7 @@ module Binding =
                 return struct (andTok, binding)
             }
 
-        fun (reader: Reader<_, _, _, _>) ->
+        fun (reader: Reader<_, _, _>) ->
             match parse attrs reader with
             | Error e -> Error e
             | Ok first ->
@@ -391,7 +391,7 @@ module private MemberHelpers =
 
 [<RequireQualifiedAccess>]
 module FieldInitializer =
-    let parse: Parser<FieldInitializer<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+    let parse: Parser<FieldInitializer<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
         parser {
             let! id = LongIdent.parse
             let! equals = pEquals
@@ -410,7 +410,7 @@ module ObjectConstruction =
     let mutable private x = 0
     let init () = x <- x + 1
 
-    let parse: Parser<ObjectConstruction<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+    let parse: Parser<ObjectConstruction<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
         parser {
             let! typ = Type.parse
 
@@ -443,7 +443,7 @@ module ObjectConstruction =
 
 [<RequireQualifiedAccess>]
 module BaseCall =
-    let parse: Parser<BaseCall<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+    let parse: Parser<BaseCall<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
         parser {
             // Note: This parser expects 'inherit' to be handled by the caller,
             // as the BaseCall AST type does not contain the 'inherit' token.
@@ -466,7 +466,7 @@ module BaseCall =
 
 [<RequireQualifiedAccess>]
 module ObjectMembers =
-    let parse: Parser<ObjectMembers<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+    let parse: Parser<ObjectMembers<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
         parser {
             let! withTok = pWith
 
@@ -479,7 +479,7 @@ module ObjectMembers =
 
 [<RequireQualifiedAccess>]
 module InterfaceImpl =
-    let parse: Parser<InterfaceImpl<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+    let parse: Parser<InterfaceImpl<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
         parser {
             let! interfaceTok = pInterface
             let! typ = Type.parse
@@ -552,7 +552,7 @@ module Expr =
     // parses inside a stricter offside context (colonCol + 1), preventing
     // Type.parse from greedily slurping suffix identifiers on following lines.
     let pTypedSeqExprBlock =
-        let pColonPeek (reader: Reader<PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, _>) =
+        let pColonPeek (reader: Reader<PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>>) =
             match peekNextNonTriviaToken reader with
             | Ok t when t.Token = Token.OpColon ->
                 let col = ParseState.getIndent reader.State (reader.Index * 1<token>)
@@ -772,7 +772,7 @@ module Expr =
             let parseMatchBody
                 (matchTok: SyntaxToken)
                 (indent: int)
-                (reader: Reader<PositionedToken, ParseState, _, _>)
+                (reader: Reader<PositionedToken, ParseState, _>)
                 : Result<ExprAux, _> =
                 let savedState = reader.State
 
@@ -816,7 +816,7 @@ module Expr =
                             reader.State <- ParseState.popOffside matchEntry reader.State
                             Ok(ExprAux.ForExpr(Expr.Match(matchTok, e, w, rules)))
 
-            fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
+            fun (reader: Reader<PositionedToken, ParseState, _>) ->
                 match assertKeywordTokens Token.KWMatch Token.KWMatchBang reader with
                 | Error e -> Error e
                 | Ok(matchTok, indent) -> parseMatchBody matchTok indent reader
@@ -889,7 +889,7 @@ module Expr =
 
             // Manually manage the Try context so it stays active through with/finally parsing,
             // similar to how parseMatchBody keeps Match context active for | undentation.
-            fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
+            fun (reader: Reader<PositionedToken, ParseState, _>) ->
                 match assertKeywordToken Token.KWTry reader with
                 | Error e -> Error e
                 | Ok(tryTok, indent) ->
@@ -1038,7 +1038,7 @@ module Expr =
                 return ExprAux.ForExpr(forBuilder forTok body doneTok)
             }
 
-        let pLetOrUseIn letIndent (reader: Reader<PositionedToken, ParseState, _, _>) =
+        let pLetOrUseIn letIndent (reader: Reader<PositionedToken, ParseState, _>) =
             match peekNextNonTriviaToken reader with
             | Ok t when t.Token = Token.KWIn -> consumePeeked t reader
             | Ok t ->
@@ -1124,7 +1124,7 @@ module Expr =
         /// add ~30 stack frames via the Pratt parser → SeqBlock → pLetOrUseBody chain,
         /// overflowing the stack on moderately nested code.
         let pLetOrUseBody =
-            fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
+            fun (reader: Reader<PositionedToken, ParseState, _>) ->
                 let bindings = ResizeArray()
                 let mutable cont = true
                 let mutable error = Unchecked.defaultof<ParseResult<ExprAux, _, _>>
@@ -1249,8 +1249,7 @@ module Expr =
         /// Direct-style type-application lookahead. Moved to module scope so the binding
         /// is initialized once as a static field (rather than re-evaluated for each generic
         /// instantiation of an enclosing class member).
-        let pTypeApplication
-            : Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, _> =
+        let pTypeApplication: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>> =
             fun reader ->
                 if not (isPrevTokenNonTrivia reader) then
                     fail pTypeApplicationErr reader
@@ -1290,7 +1289,7 @@ module Expr =
             let errMsg = Message $"Expected '{char}' for high precedence"
 
             let pSatisfy =
-                fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
+                fun (reader: Reader<PositionedToken, ParseState, _>) ->
                     match reader.Peek() with
                     | ValueNone -> fail EndOfInput reader
                     | ValueSome t ->
@@ -1300,7 +1299,7 @@ module Expr =
                         else
                             fail errMsg reader
 
-            let pFail (reader: Reader<PositionedToken, ParseState, _, _>) = fail errMsg reader
+            let pFail (reader: Reader<PositionedToken, ParseState, _>) = fail errMsg reader
 
             parser {
                 let! canBeHighPrec = isPrevTokenNonTrivia >> Ok
@@ -1325,7 +1324,7 @@ module Expr =
                     virtualToken (PositionedToken.Create(Token.OpHighPrecedenceIndexApp, pt.StartIndex))
                 | _ -> failwith "Unexpected token in peekHighPrecApp"
 
-        let parseHighPrecIndex: Parser<ExprAux, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, _> =
+        let parseHighPrecIndex: Parser<ExprAux, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>> =
             // Parse [ expr ] for F# 6+ dot-less indexing arr[i] — no whitespace before '['
             parser {
                 let! pos = getPosition
@@ -1342,7 +1341,7 @@ module Expr =
                     return ExprAux.HighPrecIndex(lBracket, argExpr, rBracket)
             }
 
-        let parseHighPrecApp: Parser<ExprAux, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>, _> =
+        let parseHighPrecApp: Parser<ExprAux, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>> =
             // Parse ( expr ) for high-precedence application f(x, y) — no whitespace before '('
             parser {
                 let! pos = getPosition
@@ -1495,7 +1494,7 @@ module Expr =
     /// Parses a subsequent tuple separator `,` for the Pratt parser's InfixNary
     /// loop. Unlike the first comma (which is identified by the full RHS
     /// operator dispatcher), this parser only needs to recognise another `,`.
-    let private pTupleComma: Parser<SyntaxToken, _, _, _, _> =
+    let private pTupleComma: Parser<SyntaxToken, _, _, _> =
         nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.OpComma) "','"
 
     /// Matches a real `;` or emits a layout-sensitive `VirtualSep` when the
@@ -1541,7 +1540,7 @@ module Expr =
 
         let pIdentAfterDot = nextNonTriviaIdentifierLMsg "Expected identifier after '.'"
 
-        let parseDotRhs: Parser<ExprAux, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
+        let parseDotRhs: Parser<ExprAux, PositionedToken, ParseState, ReadableImmutableArray<_>> =
             // Note: cannot use module-level pIdent here as that maps to Expr.Ident
             choiceL
                 [
@@ -1602,8 +1601,7 @@ module Expr =
                       Expr<SyntaxToken>,
                       PositionedToken,
                       ParseState,
-                      ReadableImmutableArray<PositionedToken>,
-                      ReadableImmutableArraySlice<PositionedToken>
+                      ReadableImmutableArray<PositionedToken>
                    >) array =
             Array.init
                 30
@@ -1855,7 +1853,7 @@ module Expr =
                 return PrefixMapped(tok, preturn tok, body, completer)
             }
 
-        let kwPrefixRoutes: struct (Token * (SyntaxToken -> Parser<_, _, _, _, _>))[] =
+        let kwPrefixRoutes: struct (Token * (SyntaxToken -> Parser<_, _, _, _>))[] =
             [|
                 struct (Token.KWLet, kwPrefixNoConsume KWBody.pLetOrUseBody Complete.keyword)
                 struct (Token.KWMatch, kwPrefixNoConsume KWBody.pMatchExpr Complete.forE)
@@ -1903,8 +1901,7 @@ module Expr =
             Expr<SyntaxToken>,
             PositionedToken,
             ParseState,
-            ReadableImmutableArray<PositionedToken>,
-            ReadableImmutableArraySlice<PositionedToken>
+            ReadableImmutableArray<PositionedToken>
          > with
             member _.LhsParser = lhsParser
             member _.RhsParser = rhsParser
@@ -2243,7 +2240,7 @@ module Expr =
         (openTok: SyntaxToken)
         (expectedClose: Token)
         (mismatchedClose: Token)
-        : Parser<SyntaxToken, PositionedToken, ParseState, _, _> =
+        : Parser<SyntaxToken, PositionedToken, ParseState, _> =
         fun reader ->
             match peekNextNonTriviaToken reader with
             | Ok tok when tok.Token = expectedClose -> consumePeeked tok reader
@@ -2305,11 +2302,11 @@ module Expr =
     /// Shared boilerplate: consume open delimiter, push offside context, run inner parser,
     /// pop context, and handle failure/restore.
     let private pBracedExpr
-        (pOpen: Parser<SyntaxToken, PositionedToken, ParseState, _, _>)
+        (pOpen: Parser<SyntaxToken, PositionedToken, ParseState, _>)
         (offsideCtx: OffsideContext)
-        (innerParser: SyntaxToken -> Parser<Expr<SyntaxToken>, PositionedToken, ParseState, _, _>)
+        (innerParser: SyntaxToken -> Parser<Expr<SyntaxToken>, PositionedToken, ParseState, _>)
         (label: string)
-        : Parser<_, PositionedToken, ParseState, _, _> =
+        : Parser<_, PositionedToken, ParseState, _> =
         fun reader ->
             match pOpen reader with
             | Error e -> Error e
@@ -2333,7 +2330,7 @@ module Expr =
                     reader.State <- savedState
                     fail (Message label) reader
 
-    let pRecordOrObjectExpr: Parser<_, PositionedToken, ParseState, _, _> =
+    let pRecordOrObjectExpr: Parser<_, PositionedToken, ParseState, _> =
         pBracedExpr
             pLBrace
             OffsideContext.Brace
@@ -2461,7 +2458,7 @@ module Expr =
             )
             "Record or RecordClone"
 
-    let pAnonRecordExpr: Parser<_, PositionedToken, ParseState, _, _> =
+    let pAnonRecordExpr: Parser<_, PositionedToken, ParseState, _> =
         pBracedExpr
             pLBraceBar
             OffsideContext.BraceBar
@@ -2472,7 +2469,7 @@ module Expr =
         // Structured IL intrinsic parser: (# "instr" type('T) args : retType #)
         let pAnyToken = nextNonTriviaTokenSatisfiesLMsg (fun _ -> true) "IL intrinsic token"
 
-        let pTypeArg (reader: Reader<PositionedToken, ParseState, _, _>) =
+        let pTypeArg (reader: Reader<PositionedToken, ParseState, _>) =
             // Parse type('T) or type ('T) — balanced parens after 'type' keyword
             match peekNextNonTriviaToken reader with
             | Error e -> Error e
@@ -2510,7 +2507,7 @@ module Expr =
                                 reader
             | _ -> preturn ValueNone reader
 
-        fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
+        fun (reader: Reader<PositionedToken, ParseState, _>) ->
             match nextNonTriviaTokenIsLMsg Token.KWLHashParen "(#" reader with
             | Error e -> Error e
             | Ok lHashParen ->

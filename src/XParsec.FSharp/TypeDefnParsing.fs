@@ -14,7 +14,7 @@ open XParsec.FSharp.Parser.ParseState
 
 [<RequireQualifiedAccess>]
 module PrimaryConstrArgs =
-    let parse: Parser<PrimaryConstrArgs<SyntaxToken>, _, _, _, _> =
+    let parse: Parser<PrimaryConstrArgs<SyntaxToken>, _, _, _> =
         parser {
             let! attrs = opt Attributes.parse
             let! access = opt pAccessModifier
@@ -27,7 +27,7 @@ module PrimaryConstrArgs =
 [<RequireQualifiedAccess>]
 module TypeName =
     /// Parse ML-style prefix type parameters: 'T or ('a, 'b)
-    let private pPrefixTypars: Parser<PrefixTypars<SyntaxToken>, _, _, _, _> =
+    let private pPrefixTypars: Parser<PrefixTypars<SyntaxToken>, _, _, _> =
         choiceL
             [
                 // ('a, 'b) — multiple prefix typars
@@ -43,7 +43,7 @@ module TypeName =
             "Prefix type parameters"
 
     /// Parses a TypeName using pre-parsed attributes (from before the `type` keyword).
-    let parseWithAttrs (attrs: Attributes<SyntaxToken> voption) : Parser<TypeName<SyntaxToken>, _, _, _, _> =
+    let parseWithAttrs (attrs: Attributes<SyntaxToken> voption) : Parser<TypeName<SyntaxToken>, _, _, _> =
         parser {
             let! access = opt pAccessModifier
             let! prefixTypars = opt pPrefixTypars
@@ -64,7 +64,7 @@ module TypeName =
             return TypeName(attrs, access, prefixTypars, ident, typars, postfixConstraints)
         }
 
-    let parse: Parser<TypeName<SyntaxToken>, _, _, _, _> =
+    let parse: Parser<TypeName<SyntaxToken>, _, _, _> =
         parser {
             let! attrs = opt Attributes.parse
             return! parseWithAttrs attrs
@@ -72,7 +72,7 @@ module TypeName =
 
 [<RequireQualifiedAccess>]
 module AsDefn =
-    let parse: Parser<AsDefn<SyntaxToken>, _, _, _, _> =
+    let parse: Parser<AsDefn<SyntaxToken>, _, _, _> =
         parser {
             let! asTok = pAs
             let! ident = pIdent
@@ -117,7 +117,7 @@ module CurriedSig =
 
     let private pArgsSpec = ArgsSpec.parse .>>. pArrowRight
 
-    let parse: Parser<CurriedSig<SyntaxToken>, _, _, _, _> =
+    let parse: Parser<CurriedSig<SyntaxToken>, _, _, _> =
         parser {
             // Use `many` (not `many1Till`) so properties with zero `->` are handled.
             // For each arg group, greedily try pArgsSpec (args -> ), stop when it fails.
@@ -130,7 +130,7 @@ module CurriedSig =
 [<RequireQualifiedAccess>]
 module UncurriedSig =
 
-    let parse: Parser<UncurriedSig<SyntaxToken>, _, _, _, _> =
+    let parse: Parser<UncurriedSig<SyntaxToken>, _, _, _> =
         parser {
             let! args = ArgsSpec.parse
             let! arrow = pArrowRight
@@ -220,7 +220,7 @@ member-sig :=
             return struct (withTok, getSet)
         }
 
-    let parse: Parser<MemberSig<SyntaxToken>, _, _, _, _> =
+    let parse: Parser<MemberSig<SyntaxToken>, _, _, _> =
         parser {
             let! ident = pIdent
             let! typars = opt TyparDefns.parse
@@ -259,7 +259,7 @@ module MethodOrPropDefn =
             return fun thisIdent -> MethodOrPropDefn.PropertyWithGetSet(thisIdent, ident, w, bindings, ands)
         }
 
-    let parse: Parser<MethodOrPropDefn<SyntaxToken>, _, _, _, _> =
+    let parse: Parser<MethodOrPropDefn<SyntaxToken>, _, _, _> =
         let buildMethodOrProp thisIdent (binding: Binding<SyntaxToken>) =
             if binding.argumentPats.IsEmpty then
                 MethodOrPropDefn.Property(thisIdent, binding)
@@ -468,7 +468,7 @@ module AdditionalConstrExpr =
 
 [<RequireQualifiedAccess>]
 module AutoPropDefn =
-    let parse: Parser<MethodOrPropDefn<SyntaxToken>, _, _, _, _> =
+    let parse: Parser<MethodOrPropDefn<SyntaxToken>, _, _, _> =
         parser {
             let! valTok = pVal
             let! access = opt pAccessModifier
@@ -723,7 +723,7 @@ module MemberDefn =
             pAdditionalConstrDefn
 
     // Implementation of the forward reference stub
-    let parse: Parser<MemberDefn<SyntaxToken>, _, _, _, _> =
+    let parse: Parser<MemberDefn<SyntaxToken>, _, _, _> =
         parser {
             let! attrs = opt Attributes.parse
 
@@ -811,7 +811,7 @@ module MemberDefn =
 
 [<RequireQualifiedAccess>]
 module TypeDefnElement =
-    let parse: Parser<TypeDefnElement<SyntaxToken>, _, _, _, _> =
+    let parse: Parser<TypeDefnElement<SyntaxToken>, _, _, _> =
         choiceL
             [
                 parser {
@@ -877,7 +877,7 @@ module TypeDefnElements =
 
 [<RequireQualifiedAccess>]
 module ClassInheritsDecl =
-    let parse: Parser<ClassInheritsDecl<SyntaxToken>, _, _, _, _> =
+    let parse: Parser<ClassInheritsDecl<SyntaxToken>, _, _, _> =
         parser {
             let! inh = pInherit
             let! t = Type.parse
@@ -888,7 +888,7 @@ module ClassInheritsDecl =
 
 [<RequireQualifiedAccess>]
 module ClassFunctionOrValueDefn =
-    let parse: Parser<ClassFunctionOrValueDefn<SyntaxToken>, _, _, _, _> =
+    let parse: Parser<ClassFunctionOrValueDefn<SyntaxToken>, _, _, _> =
         choiceL
             [
                 parser {
@@ -918,7 +918,7 @@ module ClassTypeBody =
 
     // Returns the body AND the consumed end token (from manyTill's terminator)
     // F# allows let/do bindings to appear after member definitions, so we interleave parsing.
-    let parse terminator : Parser<ObjectModelBody<SyntaxToken> * SyntaxToken, _, _, _, _> =
+    let parse terminator : Parser<ObjectModelBody<SyntaxToken> * SyntaxToken, _, _, _> =
         fun reader ->
             let inh =
                 match (opt ClassInheritsDecl.parse) reader with
@@ -960,7 +960,7 @@ module ClassTypeBody =
     /// Parses class body using offside rule. Use inside a withContext block.
     /// F# allows let/do bindings to appear after member definitions (e.g., instance lets after static members),
     /// so we interleave preamble and element parsing in a single loop.
-    let parseOffside: Parser<ObjectModelBody<SyntaxToken>, _, _, _, _> =
+    let parseOffside: Parser<ObjectModelBody<SyntaxToken>, _, _, _> =
         fun reader ->
             let inh =
                 match (opt ClassInheritsDecl.parse) reader with
@@ -990,7 +990,7 @@ module ClassTypeBody =
 [<RequireQualifiedAccess>]
 module StructTypeBody =
     // Returns the body AND the consumed end token (from manyTill's terminator)
-    let parse terminator : Parser<ObjectModelBody<SyntaxToken> * SyntaxToken, _, _, _, _> =
+    let parse terminator : Parser<ObjectModelBody<SyntaxToken> * SyntaxToken, _, _, _> =
         parser {
             let! elems, endTok = TypeDefnElements.parseTill terminator
 
@@ -1008,7 +1008,7 @@ module StructTypeBody =
 [<RequireQualifiedAccess>]
 module InterfaceTypeBody =
     // Returns the body AND the consumed end token (from manyTill's terminator)
-    let parse terminator : Parser<ObjectModelBody<SyntaxToken> * SyntaxToken, _, _, _, _> =
+    let parse terminator : Parser<ObjectModelBody<SyntaxToken> * SyntaxToken, _, _, _> =
         parser {
             let! elems, endTok = TypeDefnElements.parseTill terminator
 
@@ -1026,7 +1026,7 @@ module InterfaceTypeBody =
 
 [<RequireQualifiedAccess>]
 module UnionTypeField =
-    let parse: Parser<UnionTypeField<SyntaxToken>, _, _, _, _> =
+    let parse: Parser<UnionTypeField<SyntaxToken>, _, _, _> =
         // In union case field lists, `*` is a FIELD SEPARATOR, not a tuple operator.
         // So each individual field type must be parsed without tuple handling.
         choiceL
@@ -1052,7 +1052,7 @@ module UnionTypeCaseData =
     let private pCaseName = IdentOrOp.parse
 
     // | Name of field * field ...
-    let private parseNaryOf: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _, _> =
+    let private parseNaryOf: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _> =
         parser {
             let! name = pCaseName
             let! ofTok = pOf
@@ -1063,7 +1063,7 @@ module UnionTypeCaseData =
     // | Name : arg -> retType  (GADT-style with args)
     // Uses Type.parseNoUnion for the return type so a following `| NextCase`
     // is not swallowed as a `T | T` nullable-ref type union.
-    let private parseGadtNary: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _, _> =
+    let private parseGadtNary: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _> =
         parser {
             let! name = pCaseName
             let! colon = pColon
@@ -1074,7 +1074,7 @@ module UnionTypeCaseData =
         }
 
     // | Name : retType  (GADT-style nullary with explicit return type)
-    let private parseGadtNullary: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _, _> =
+    let private parseGadtNullary: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _> =
         parser {
             let! name = pCaseName
             let! colon = pColon
@@ -1083,10 +1083,10 @@ module UnionTypeCaseData =
         }
 
     // Non-nullary forms (used by ExceptionDefn which falls back to its own Nullary path)
-    let parseNary: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _, _> =
+    let parseNary: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _> =
         choiceL [ parseNaryOf; parseGadtNary; parseGadtNullary ] "Union Case (Nary)"
 
-    let parse: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _, _> =
+    let parse: Parser<UnionTypeCaseData<SyntaxToken>, _, _, _> =
         choiceL
             [
                 parseNaryOf
@@ -1101,7 +1101,7 @@ module UnionTypeCaseData =
 
 [<RequireQualifiedAccess>]
 module UnionTypeCase =
-    let parse: Parser<UnionTypeCase<SyntaxToken>, _, _, _, _> =
+    let parse: Parser<UnionTypeCase<SyntaxToken>, _, _, _> =
         parser {
             let! attrs = opt Attributes.parse
             let! caseData = UnionTypeCaseData.parse
@@ -1127,7 +1127,7 @@ module UnionTypeCases =
 
 [<RequireQualifiedAccess>]
 module RecordField =
-    let parse: Parser<RecordField<SyntaxToken>, _, _, _, _> =
+    let parse: Parser<RecordField<SyntaxToken>, _, _, _> =
         parser {
             let! attrs = opt Attributes.parse
             let! mut = opt pMutable
@@ -1142,7 +1142,7 @@ module RecordField =
 
 [<RequireQualifiedAccess>]
 module EnumTypeCase =
-    let parse: Parser<EnumTypeCase<SyntaxToken>, _, _, _, _> =
+    let parse: Parser<EnumTypeCase<SyntaxToken>, _, _, _> =
         parser {
             let! id = nextNonTriviaIdentifierLMsg "Enum Name"
             let! eq = pEquals
@@ -1169,7 +1169,7 @@ module EnumTypeCases =
 
 [<RequireQualifiedAccess>]
 module TypeExtensionElements =
-    let parse: Parser<TypeExtensionElements<SyntaxToken>, _, _, _, _> =
+    let parse: Parser<TypeExtensionElements<SyntaxToken>, _, _, _> =
         parser {
             let! withTok = pWith
             let! elems = withContext OffsideContext.WithAugment TypeDefnElements.parseMany
@@ -1179,7 +1179,7 @@ module TypeExtensionElements =
 
     /// Light-syntax variant: synthesizes a virtual 'with' when member tokens follow
     /// without an explicit 'with' keyword (e.g. record/union augmentations in light mode).
-    let parseLight: Parser<TypeExtensionElements<SyntaxToken>, _, _, _, _> =
+    let parseLight: Parser<TypeExtensionElements<SyntaxToken>, _, _, _> =
         parser {
             let! withTok = nextNonTriviaTokenVirtualIfNot Token.KWWith
             let! elems = withContext OffsideContext.WithAugment (many1 TypeDefnElement.parse)
@@ -1189,7 +1189,7 @@ module TypeExtensionElements =
 
 [<RequireQualifiedAccess>]
 module DelegateSig =
-    let parse: Parser<DelegateSig<SyntaxToken>, _, _, _, _> =
+    let parse: Parser<DelegateSig<SyntaxToken>, _, _, _> =
         parser {
             let! del = pDelegate
             let! ofTok = pOf
@@ -1321,7 +1321,7 @@ module TypeDefn =
         }
 
     /// Parses the body of a type definition after the leading keyword (type or and) has been consumed.
-    let private parseBody (attrs: Attributes<SyntaxToken> voption) : Parser<TypeDefn<SyntaxToken>, _, _, _, _> =
+    let private parseBody (attrs: Attributes<SyntaxToken> voption) : Parser<TypeDefn<SyntaxToken>, _, _, _> =
         parser {
 
             let! typeName = TypeName.parseWithAttrs attrs
@@ -1444,7 +1444,7 @@ module TypeDefn =
                             "Union or Type body"
         }
 
-    let parse: Parser<TypeDefn<SyntaxToken>, _, _, _, _> =
+    let parse: Parser<TypeDefn<SyntaxToken>, _, _, _> =
         parser {
             let! attrs = opt Attributes.parse
             let! _ = pType
@@ -1464,7 +1464,7 @@ module TypeDefn =
 
     /// Parses a type definition continuation starting with 'and' (for mutual recursion groups).
     /// In F# syntax: and [attrs] TypeName = ...  (attributes come after 'and')
-    let parseAndContinuation: Parser<TypeDefn<SyntaxToken>, _, _, _, _> =
+    let parseAndContinuation: Parser<TypeDefn<SyntaxToken>, _, _, _> =
         parser {
             let! _ = pAnd
             let! attrs = opt Attributes.parse
@@ -1473,7 +1473,7 @@ module TypeDefn =
 
 [<RequireQualifiedAccess>]
 module ExceptionDefn =
-    let parse: Parser<ExceptionDefn<SyntaxToken>, _, _, _, _> =
+    let parse: Parser<ExceptionDefn<SyntaxToken>, _, _, _> =
         parser {
             let! attrs = opt Attributes.parse
             let! exTok = pException

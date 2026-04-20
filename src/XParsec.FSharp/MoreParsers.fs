@@ -33,7 +33,7 @@ module MoreParsers =
     // let manySatisfiesSlice
     //     (predicate: 'T -> bool)
     //     (sliceState: 'SliceState)
-    //     (reader: Reader<'T, 'State, 'Input, 'InputSlice>)
+    //     (reader: Reader<'T, 'State, 'Input>)
     //     =
     //     let startPos = reader.Position
     //     let mutable length = 0
@@ -48,15 +48,15 @@ module MoreParsers =
 
     //     preturn (reader.Slice(startPos.Index, length, sliceState)) reader
 
-    let skip (reader: Reader<'T, 'State, 'Input, 'InputSlice>) =
+    let skip (reader: Reader<'T, 'State, 'Input>) =
         reader.Skip()
         preturn () reader
 
-    let skipN (n: int) (reader: Reader<'T, 'State, 'Input, 'InputSlice>) =
+    let skipN (n: int) (reader: Reader<'T, 'State, 'Input>) =
         reader.SkipN n
         preturn () reader
 
-    let skipNOf (n: int) (item: 'T) (reader: Reader<'T, 'State, 'Input, 'InputSlice>) =
+    let skipNOf (n: int) (item: 'T) (reader: Reader<'T, 'State, 'Input>) =
         let span = reader.PeekN n
 
         if span.Length = 0 then
@@ -69,7 +69,7 @@ module MoreParsers =
         else
             fail (UnexpectedSeq(span.ToArray())) reader
 
-    let peekAnyOf (candidates: 'T seq) (reader: Reader<'T, 'State, 'Input, 'InputSlice>) =
+    let peekAnyOf (candidates: 'T seq) (reader: Reader<'T, 'State, 'Input>) =
         let candidate = Array.ofSeq candidates
 
         match reader.Peek() with

@@ -176,8 +176,7 @@ module Measure =
             Measure<SyntaxToken>,
             PositionedToken,
             ParseState,
-            ReadableImmutableArray<PositionedToken>,
-            ReadableImmutableArraySlice<PositionedToken>
+            ReadableImmutableArray<PositionedToken>
          > with
             member _.LhsParser = lhsParser
             member _.RhsParser = rhsParser
@@ -198,12 +197,12 @@ module Measure =
     let pTypar = Typar.parse |>> Measure.Typar
     let pNamed = LongIdent.parse |>> Measure.Named
 
-    let atomMeasureParser: Parser<Measure<SyntaxToken>, _, _, _, _> =
+    let atomMeasureParser: Parser<Measure<SyntaxToken>, _, _, _> =
         choiceL [ pOneLiteral; pAnonymous; pTypar; pNamed ] "Measure Atom"
 
     let measureOperatorParser = MeasureOperatorParser()
 
-    let parse: Parser<Measure<SyntaxToken>, _, _, _, _> =
+    let parse: Parser<Measure<SyntaxToken>, _, _, _> =
         Operator.parser atomMeasureParser measureOperatorParser
 
     do refMeasure.Set parse

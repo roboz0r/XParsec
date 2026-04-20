@@ -27,7 +27,7 @@ let formatTokenError (error: ParseError<PositionedToken, ParseState>) =
 
     // 2. Setup the existing line/string helpers
     let index = LineIndex.OfString input
-    let readable = ReadableString input
+    let readable = ReadableString(input, 0, input.Length)
 
     // 3. Define how to format individual and multiple tokens
     let formatOne (x: PositionedToken) (sb: StringBuilder) =

@@ -493,7 +493,7 @@ module Lexing =
 
         let maxLen = sorted[0] |> String.length
 
-        fun (reader: Reader<char, _, ReadableString, _>) ->
+        fun (reader: Reader<char, _, ReadableString>) ->
             let span = reader.PeekN maxLen
 
             if span.IsEmpty then
@@ -540,7 +540,7 @@ module Lexing =
 
         let maxLen = sorted[0] |> fst |> String.length
 
-        fun (reader: Reader<char, _, ReadableString, _>) ->
+        fun (reader: Reader<char, _, ReadableString>) ->
             let span = reader.PeekN maxLen
 
             if span.IsEmpty then
@@ -756,7 +756,7 @@ module Lexing =
     /// Non-consuming span-based count of consecutive chars matching `predicate`
     /// starting at the reader's current position. Used in place of
     /// `lookAhead (many1Chars (pchar c))` to avoid allocating the run string.
-    let private peekCountSatisfies (predicate: char -> bool) (reader: Reader<char, LexBuilder, ReadableString, _>) =
+    let private peekCountSatisfies (predicate: char -> bool) (reader: Reader<char, LexBuilder, ReadableString>) =
         let mutable windowSize = 16
         let mutable finished = false
         let mutable count = 0
@@ -886,7 +886,7 @@ module Lexing =
     let private fSharpBlockCommentEnd1 = "F#*)"
     let private fSharpBlockCommentEnd2 = "ENDIF-FSHARP*)"
 
-    let pIdentifierOrKeywordToken (reader: Reader<char, LexBuilder, ReadableString, _>) =
+    let pIdentifierOrKeywordToken (reader: Reader<char, LexBuilder, ReadableString>) =
         let pos = reader.Position
         let source = reader.State.Source
         let startIdx = int pos.Index
@@ -967,8 +967,8 @@ module Lexing =
                     preturn () reader
 
 
-    let pBacktickedIdentifierToken (reader: Reader<char, LexBuilder, ReadableString, _>) =
-        let rec pRest (reader: Reader<char, LexBuilder, ReadableString, _>) =
+    let pBacktickedIdentifierToken (reader: Reader<char, LexBuilder, ReadableString>) =
+        let rec pRest (reader: Reader<char, LexBuilder, ReadableString>) =
             let span = reader.PeekN(2)
 
             match span.Length with
@@ -1025,7 +1025,7 @@ module Lexing =
             | _ -> fail expectedBacktickedIdent reader
 
 
-    let peekNewLine (reader: Reader<char, LexBuilder, ReadableString, _>) =
+    let peekNewLine (reader: Reader<char, LexBuilder, ReadableString>) =
         match reader.Peek() with
         | ValueSome('\n' | '\r') -> preturn () reader
         | _ -> fail expectedNewline reader
@@ -1106,7 +1106,7 @@ module Lexing =
         | Trigraph of c: char
         | InvalidTrigraph of i: int
 
-    let pCharChar (reader: Reader<char, LexBuilder, ReadableString, _>) =
+    let pCharChar (reader: Reader<char, LexBuilder, ReadableString>) =
         let span = reader.PeekN(2)
 
         match span.Length with
@@ -1247,7 +1247,7 @@ module Lexing =
         pToken pSkipVerbatimStringFragmentChars Token.StringFragment
 
     // Escape sequence inside a regular string: \n, \t, \xHH, \uXXXX, \UXXXXXXXX, \DDD, etc.
-    let pStringEscapeToken (reader: Reader<char, LexBuilder, ReadableString, _>) =
+    let pStringEscapeToken (reader: Reader<char, LexBuilder, ReadableString>) =
         let pos = reader.Position
         let span = reader.PeekN(2)
 
@@ -1360,7 +1360,7 @@ module Lexing =
                 do! updateUserState (LexBuilder.append Token.StringFragment pos CtxOp.NoOp)
         }
 
-    let pTypeParamToken (reader: Reader<char, LexBuilder, ReadableString, _>) =
+    let pTypeParamToken (reader: Reader<char, LexBuilder, ReadableString>) =
         let pos = reader.Position
 
         match reader.Peek() with
@@ -1414,7 +1414,7 @@ module Lexing =
     // A backslash consumes itself and the next character as an escape pair;
     // a bare backslash at EOF causes the whole fragment to fail (matches the
     // old `pchar '\\' >>. anyChar` behaviour).
-    let private pSkipInterpolatedFragmentChars (reader: Reader<char, LexBuilder, ReadableString, _>) =
+    let private pSkipInterpolatedFragmentChars (reader: Reader<char, LexBuilder, ReadableString>) =
         let mutable more = true
         let mutable consumedAny = false
 
@@ -1741,7 +1741,7 @@ module Lexing =
         }
 
     let pOperatorToken =
-        fun (reader: Reader<char, LexBuilder, ReadableString, _>) ->
+        fun (reader: Reader<char, LexBuilder, ReadableString>) ->
             let state = reader.State
             let startIdx = reader.Position.Index
             let inComment = state.IsInBlockComment || state.IsInOCamlBlockComment
@@ -1866,7 +1866,7 @@ module Lexing =
     let pRArrayBrack = pstring "|]"
 
     // This is a fallback, we shouldn't see any Other tokens in output
-    let private peekEndOfIdent (reader: Reader<char, LexBuilder, ReadableString, _>) =
+    let private peekEndOfIdent (reader: Reader<char, LexBuilder, ReadableString>) =
         match reader.Peek() with
         | ValueSome c when isIdentChar c -> fail expectedEndOfIdent reader
         | _ -> preturn () reader
@@ -1894,7 +1894,7 @@ module Lexing =
             success
             isDigitInBase
             backtrackTo
-            (reader: Reader<char, LexBuilder, ReadableString, _>)
+            (reader: Reader<char, LexBuilder, ReadableString>)
             =
             match reader.Peek() with
             | ValueSome '_' ->
@@ -1913,7 +1913,7 @@ module Lexing =
                 else
                     fail expectedOneDigit reader
 
-        let private pManyIntCharsWithBase isDigitInBase (reader: Reader<char, LexBuilder, ReadableString, _>) =
+        let private pManyIntCharsWithBase isDigitInBase (reader: Reader<char, LexBuilder, ReadableString>) =
             pManyIntCharsWithBaseLoop false isDigitInBase reader.Position reader
 
         let pIntBase = pManyIntCharsWithBase isDecimalDigit
@@ -1921,7 +1921,7 @@ module Lexing =
         let pOctalBase = pManyIntCharsWithBase isOctalDigit
         let pBinaryBase = pManyIntCharsWithBase isBinaryDigit
 
-        let pXIntBase (reader: Reader<char, LexBuilder, ReadableString, _>) =
+        let pXIntBase (reader: Reader<char, LexBuilder, ReadableString>) =
             // Parses an integer with optional base prefix
             // Returns the StringBuilder with the digits and the numeric base
             // Allows underscores in the digits
@@ -2079,7 +2079,7 @@ module Lexing =
 
         /// Consumes a run of identifier characters (the numeric-literal suffix)
         /// and returns its span. Zero chars is a success.
-        let inline private skipSuffixAndGetSpan (reader: Reader<char, LexBuilder, ReadableString, _>) =
+        let inline private skipSuffixAndGetSpan (reader: Reader<char, LexBuilder, ReadableString>) =
             let startIdx = int reader.Position.Index
             let mutable more = true
 
@@ -2091,11 +2091,11 @@ module Lexing =
             let len = int reader.Position.Index - startIdx
             reader.State.Source.AsSpan(startIdx, len)
 
-        let private parseDecimalIntToken (reader: Reader<char, LexBuilder, ReadableString, _>) =
+        let private parseDecimalIntToken (reader: Reader<char, LexBuilder, ReadableString>) =
             let span = skipSuffixAndGetSpan reader
             preturn (getIntTokenFromSpan NumericBase.Decimal span) reader
 
-        let private parseDecimalFloatSuffixToken (reader: Reader<char, LexBuilder, ReadableString, _>) =
+        let private parseDecimalFloatSuffixToken (reader: Reader<char, LexBuilder, ReadableString>) =
             let span = skipSuffixAndGetSpan reader
             preturn (getDecimalFloatTokenFromSpan span) reader
 
@@ -2123,7 +2123,7 @@ module Lexing =
         let private parseDecimalToken =
             choiceL [ parseDecimalFracFloatToken; parseDecimalExpFloatToken; parseDecimalIntToken ] "parseDecimalToken"
 
-        let private parseIntSuffixToken (numBase: NumericBase) (reader: Reader<char, LexBuilder, ReadableString, _>) =
+        let private parseIntSuffixToken (numBase: NumericBase) (reader: Reader<char, LexBuilder, ReadableString>) =
             let span = skipSuffixAndGetSpan reader
             preturn (getIntTokenFromSpan numBase span) reader
 
@@ -2245,7 +2245,7 @@ module Lexing =
     [<AutoOpen>]
     module internal FormatStrings =
 
-        let pFormatType (reader: Reader<char, 'State, 'Input, 'InputSlice>) =
+        let pFormatType (reader: Reader<char, 'State, 'Input>) =
             match reader.Peek() with
             | ValueNone -> fail EndOfInput reader
             | ValueSome 'b' ->
@@ -2298,7 +2298,7 @@ module Lexing =
                 preturn FormatType.Text reader
             | ValueSome c -> fail (Unexpected c) reader
 
-        let lFormatPlaceholder: Parser<_, _, _, ReadableString, _> =
+        let lFormatPlaceholder: Parser<_, _, _, ReadableString> =
             parser {
                 let! state = getUserState
                 // let level = LexBuilder.level state
@@ -2323,7 +2323,7 @@ module Lexing =
 
         // TODO: Rewrite to use updateUserState instead of directly manipulating the token list
         // This is tricky because we need to add multiple tokens in some cases
-        let pFormatSpecifierTokens: Parser<unit, _, _, ReadableString, _> =
+        let pFormatSpecifierTokens: Parser<unit, _, _, ReadableString> =
             parser {
                 let! pos = getPosition
                 let! percentCount = pPeekCountPercents
@@ -2538,7 +2538,7 @@ module Lexing =
     // | LineLineVerbatimStringDirective = (18us) // #line int verbatim-string
     // | InvalidDirective = (IsInvalid ||| 19us) // Any other invalid directive starting with #
 
-    let private isAtStartOfLineOrIndent (reader: Reader<char, LexBuilder, ReadableString, _>) =
+    let private isAtStartOfLineOrIndent (reader: Reader<char, LexBuilder, ReadableString>) =
         let pos = reader.Position.Index
         let state = reader.State
 
@@ -2634,7 +2634,7 @@ module Lexing =
         choiceL [ pOpenBraceBarExpressionContext; pOpenBraceExpressionContext ] "Left brace"
 
     [<TailCall>]
-    let rec lex (reader: Reader<char, LexBuilder, ReadableString, _>) =
+    let rec lex (reader: Reader<char, LexBuilder, ReadableString>) =
         let state = reader.State
 
         match reader.Peek() with

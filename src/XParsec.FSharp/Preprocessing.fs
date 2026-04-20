@@ -38,7 +38,7 @@ module IfExpr =
 
     /// Ignores trivia tokens and returns the next non-trivia token, or fails if the end of input is reached.
     /// Only for use on #if directive lines.
-    let rec nextNonTriviaIfToken (reader: Reader<PositionedToken, IfExprState, 'Input, 'InputSlice>) =
+    let rec nextNonTriviaIfToken (reader: Reader<PositionedToken, IfExprState, 'Input>) =
         match reader.Peek() with
         | ValueNone -> fail EndOfInput reader
         | ValueSome token when isTriviaToken token ->
@@ -55,10 +55,8 @@ module IfExpr =
     type IfExprAux = unit
 
     // The main expression type for #if expressions, with auxiliary data for operators.
-    // We use a generic type here to allow the parser to be generic over the input type (e.g. ReadableImmutableArray vs ReadableImmutableArraySlice).
-    type IfExprParser<'Input, 'InputSlice
-        when 'Input :> IReadable<PositionedToken, 'InputSlice>
-        and 'InputSlice :> IReadable<PositionedToken, 'InputSlice>>() =
+    // We use a generic type here to allow the parser to be generic over the input type (e.g. ReadableImmutableArray<PositionedToken>).
+    type IfExprParser<'Input when 'Input :> IReadable<PositionedToken, 'Input>>() =
         static let orPrecedence = BindingPower.fromLevel 1 // ||
         static let andPrecedence = BindingPower.fromLevel 2 // &&
         static let notPrecedence = BindingPower.fromLevel 3 // !
@@ -80,7 +78,7 @@ module IfExpr =
 
         // --- Operator Parsers ---
 
-        static let lhsParser: Parser<_, _, _, 'Input, 'InputSlice> =
+        static let lhsParser: Parser<_, _, _, 'Input> =
             nextNonTriviaIfToken
             >>= fun token ->
                 match token.Token with
@@ -100,7 +98,7 @@ module IfExpr =
                     preturn op
                 | _ -> fail errNotValidLhsIfOp
 
-        static let rhsParser: Parser<_, _, _, 'Input, 'InputSlice> =
+        static let rhsParser: Parser<_, _, _, 'Input> =
             nextNonTriviaIfToken
             >>= fun token ->
                 match token.Token with
@@ -114,7 +112,7 @@ module IfExpr =
                     preturn op
                 | _ -> fail errNotValidRhsIfOp
 
-        static let atomParser: Parser<_, _, _, 'Input, 'InputSlice> =
+        static let atomParser: Parser<_, _, _, 'Input> =
             nextNonTriviaIfToken
             >>= fun token ->
                 match token.Token with
@@ -122,35 +120,21 @@ module IfExpr =
                 | t when t.IsKeyword -> preturn (IfExpr.Term token)
                 | _ -> fail errNotValidIfTerm
 
-        static let ifDirectiveParser: Parser<_, _, _, 'Input, 'InputSlice> =
+        static let ifDirectiveParser: Parser<_, _, _, 'Input> =
             satisfyL (fun token -> token.Token = Token.IfDirective) "Not a #if directive"
 
-        interface Operators<
-            SyntaxToken,
-            IfExprAux,
-            IfExpr<SyntaxToken>,
-            PositionedToken,
-            IfExprState,
-            'Input,
-            'InputSlice
-         > with
+        interface Operators<SyntaxToken, IfExprAux, IfExpr<SyntaxToken>, PositionedToken, IfExprState, 'Input> with
             member _.LhsParser = lhsParser
             member _.RhsParser = rhsParser
 
         static member AtomParser = atomParser
         static member IfDirectiveParser = ifDirectiveParser
 
-    let parse: Parser<_, _, _, _, _> =
-        IfExprParser<ReadableImmutableArray<PositionedToken>, _>.IfDirectiveParser
+    let parseSlice: Parser<_, _, _, _> =
+        IfExprParser<ReadableImmutableArray<PositionedToken>>.IfDirectiveParser
         >>. Operator.parser
-                IfExprParser<ReadableImmutableArray<PositionedToken>, _>.AtomParser
-                (IfExprParser<ReadableImmutableArray<PositionedToken>, _>())
-
-    let parseSlice: Parser<_, _, _, _, _> =
-        IfExprParser<ReadableImmutableArraySlice<PositionedToken>, _>.IfDirectiveParser
-        >>. Operator.parser
-                IfExprParser<ReadableImmutableArraySlice<PositionedToken>, _>.AtomParser
-                (IfExprParser<ReadableImmutableArraySlice<PositionedToken>, _>())
+                IfExprParser<ReadableImmutableArray<PositionedToken>>.AtomParser
+                (IfExprParser<ReadableImmutableArray<PositionedToken>>())
 
     let evaluate (expr: IfExpr<SyntaxToken>) (isDefined: SyntaxToken -> bool) : bool =
         let rec eval e =

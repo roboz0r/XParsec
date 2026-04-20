@@ -10,14 +10,7 @@ open XParsec.FSharp.Parser.ParseState
 
 [<AutoOpen>]
 module internal Keywords =
-    type private KWParser =
-        Parser<
-            SyntaxToken,
-            PositionedToken,
-            ParseState,
-            ReadableImmutableArray<PositionedToken>,
-            ReadableImmutableArraySlice<PositionedToken>
-         >
+    type private KWParser = Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>>
 
     // Construct the ErrorType.Message statically per binding so each `pX` allocates
     // it exactly once at module load and captures it in the returned closure.
