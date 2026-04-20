@@ -632,22 +632,22 @@ module Pat =
     let parseAtomic =
         dispatchNextNonTriviaTokenFallback
             [
-                Token.Wildcard, pWildcardPat
-                Token.KWNull, pNullPat
-                Token.OpTypeTest, pTypeTestPat
-                Token.OpDynamic, pOptionalPat
                 Token.Identifier, pNamed
-                Token.BacktickedIdentifier, pNamed
-                Token.UnterminatedBacktickedIdentifier, pNamed
+                Token.Wildcard, pWildcardPat
                 Token.KWLParen, pParenOrOpHeadPat
                 Token.KWLBracket, pListPat
-                Token.KWLArrayBracket, pArrayPat
-                Token.KWLBrace, pRecordPat
                 Token.KWLAttrBracket, pAttributesPat
+                Token.KWLBrace, pRecordPat
+                Token.KWLArrayBracket, pArrayPat
+                Token.KWNull, pNullPat
                 Token.KWStruct, pStructPat
                 Token.StringOpen, pStringPat
                 Token.VerbatimStringOpen, pStringPat
                 Token.String3Open, pStringPat
+                Token.BacktickedIdentifier, pNamed
+                Token.OpTypeTest, pTypeTestPat
+                Token.OpDynamic, pOptionalPat
+                Token.UnterminatedBacktickedIdentifier, pNamed
             ]
             pConstPat
 
@@ -679,22 +679,22 @@ module Pat =
     let parseAtomicBindingArg =
         dispatchNextNonTriviaTokenFallback
             [
-                Token.Wildcard, pWildcardPat
-                Token.KWNull, pNullPat
-                Token.OpTypeTest, pTypeTestPat
-                Token.OpDynamic, pOptionalPat
                 Token.Identifier, pNamedNoArgs
-                Token.BacktickedIdentifier, pNamedNoArgs
-                Token.UnterminatedBacktickedIdentifier, pNamedNoArgs
+                Token.Wildcard, pWildcardPat
                 Token.KWLParen, pParenOrOpHeadPat
                 Token.KWLBracket, pListPat
-                Token.KWLArrayBracket, pArrayPat
-                Token.KWLBrace, pRecordPat
                 Token.KWLAttrBracket, pAttributesPat
+                Token.KWLBrace, pRecordPat
+                Token.KWLArrayBracket, pArrayPat
+                Token.KWNull, pNullPat
                 Token.KWStruct, pStructPat
                 Token.StringOpen, pStringPat
                 Token.VerbatimStringOpen, pStringPat
                 Token.String3Open, pStringPat
+                Token.BacktickedIdentifier, pNamedNoArgs
+                Token.OpTypeTest, pTypeTestPat
+                Token.OpDynamic, pOptionalPat
+                Token.UnterminatedBacktickedIdentifier, pNamedNoArgs
             ]
             pConstPat
 
