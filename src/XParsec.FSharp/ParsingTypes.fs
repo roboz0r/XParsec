@@ -200,7 +200,7 @@ and [<Struct>] WarnDirective =
         Suppress: bool
     }
 
-and ParseState =
+and [<CustomEquality; NoComparison>] ParseState =
     // TODO: Refactor to separate the unchanged input/state from the mutable aspects like diagnostics and LastLine and frequently updated Context, to minimize the amount of data being copied on each state update.
     {
         Input: string
@@ -230,6 +230,16 @@ and ParseState =
         /// Shared across immutable record copies.
         Trace: TraceCallback
     }
+
+    // Reference equality: every field update replaces the record with a new instance, so
+    // ref equality is sufficient to detect "has the state changed since we saved a snapshot?".
+    // This avoids the deep field walk that the default structural equality would perform,
+    // which shows up as a major allocation hotspot through `reader.Position = pos` checks in
+    // XParsec's many/notFollowedBy/etc. combinators.
+    override this.Equals(other: obj) = obj.ReferenceEquals(this, other)
+
+    override this.GetHashCode() =
+        System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this)
 
 module SyntaxToken =
 
