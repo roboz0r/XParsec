@@ -142,6 +142,12 @@ module UncurriedSig =
 [<RequireQualifiedAccess>]
 module MemberSig =
 
+    let private errExpectedGet: ErrorType<PositionedToken, ParseState> =
+        Message "Expected 'get'"
+
+    let private errExpectedSet: ErrorType<PositionedToken, ParseState> =
+        Message "Expected 'set'"
+
     (*
 member-sig :=
     ident typar-defns~opt : curried-sig -- method or property signature
@@ -159,7 +165,7 @@ member-sig :=
             if tokenStringIs "get" getTok state then
                 return getTok
             else
-                return! fail (Message "Expected 'get'")
+                return! fail errExpectedGet
         }
 
     let private pSet =
@@ -170,7 +176,7 @@ member-sig :=
             if tokenStringIs "set" setTok state then
                 return setTok
             else
-                return! fail (Message "Expected 'set'")
+                return! fail errExpectedSet
         }
 
     let private pGetSet =
@@ -237,6 +243,9 @@ member-sig :=
 [<RequireQualifiedAccess>]
 module MethodOrPropDefn =
 
+    let private errExpectedDotAfterUnderscore: ErrorType<PositionedToken, ParseState> =
+        Message "Expected '.' after '_' in member definition"
+
     // Distinguishes:
     // member x.P = ... (Property)
     // member x.M args = ... (Method)
@@ -276,7 +285,7 @@ module MethodOrPropDefn =
                             ]
                             "MethodOrPropDefn after _."
 
-                | _ -> return! fail (Message "Expected '.' after '_' in member definition")
+                | _ -> return! fail errExpectedDotAfterUnderscore
 
             | _ ->
 
@@ -510,6 +519,9 @@ module AutoPropDefn =
 
 [<RequireQualifiedAccess>]
 module MemberDefn =
+    let private errExpectedMemberOrValAfterStatic: ErrorType<PositionedToken, ParseState> =
+        Message "Expected 'member' or 'val' after 'static'"
+
     // Ths spec has incorrect grammar for member definitions, so we need to
     // reverse-engineer it from examples and the F# spec text.
     // It seems like the grammar listing in the individual subsections are closed to correct than the
@@ -563,7 +575,7 @@ module MemberDefn =
 
                 return
                     (fun attrs -> MemberDefn.Value(attrs, ValueSome staticTok, valTok, mut, access, ident, colon, typ))
-            | _ -> return! fail (Message "Expected 'member' or 'val' after 'static'")
+            | _ -> return! fail errExpectedMemberOrValAfterStatic
         }
 
     let private pMemberDefn =
@@ -901,6 +913,9 @@ module ClassFunctionOrValueDefn =
 /// Parses the body of a class or anonymous type definition.
 [<RequireQualifiedAccess>]
 module ClassTypeBody =
+    let private errExpectedEndOfTypeBody: ErrorType<PositionedToken, ParseState> =
+        Message "Expected end of type body"
+
     // Returns the body AND the consumed end token (from manyTill's terminator)
     // F# allows let/do bindings to appear after member definitions, so we interleave parsing.
     let parse terminator : Parser<ObjectModelBody<SyntaxToken> * SyntaxToken, _, _, _, _> =
@@ -940,7 +955,7 @@ module ClassTypeBody =
                 )
             | ValueNone ->
                 // Terminator not found — fail with a descriptive error
-                fail (Message "Expected end of type body") reader
+                fail errExpectedEndOfTypeBody reader
 
     /// Parses class body using offside rule. Use inside a withContext block.
     /// F# allows let/do bindings to appear after member definitions (e.g., instance lets after static members),
@@ -1190,6 +1205,15 @@ module DelegateSig =
 [<RequireQualifiedAccess>]
 module TypeDefn =
 
+    let private errNotImplicit: ErrorType<PositionedToken, ParseState> =
+        Message "Not implicit"
+
+    let private errRetryAsMeasureType: ErrorType<PositionedToken, ParseState> =
+        Message "Retry as measure type"
+
+    let private errSingleNullaryUnionCaseIsAbbrev: ErrorType<PositionedToken, ParseState> =
+        Message "Single nullary union case is a type abbreviation"
+
     // Helper to detect specific type bodies based on lookahead or specific tokens
 
     let private pRecordField =
@@ -1238,7 +1262,7 @@ module TypeDefn =
                             (if primaryConstr.IsSome || asDefn.IsSome then
                                  preturn (Unchecked.defaultof<_>)
                              else
-                                 fail (Message "Not implicit"))
+                                 fail errNotImplicit)
                         ]
                         "Implicit check"
                 )
@@ -1278,7 +1302,7 @@ module TypeDefn =
                                     || peekAfter.Token = Token.OpMultiply
                                     || startsWithCaret
                                 then
-                                    return! fail (Message "Retry as measure type")
+                                    return! fail errRetryAsMeasureType
                                 else
                                     return tNormal
                             }
@@ -1404,7 +1428,7 @@ module TypeDefn =
                                          | _ -> false)
                                         ->
                                         // Single nullary case without '|' is a type abbreviation, not a DU
-                                        return! fail (Message "Single nullary union case is a type abbreviation")
+                                        return! fail errSingleNullaryUnionCaseIsAbbrev
                                     | _ ->
                                         let! ext =
                                             opt (

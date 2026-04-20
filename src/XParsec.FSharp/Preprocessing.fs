@@ -17,6 +17,15 @@ module IfExpr =
     open SyntaxToken
     // Operator precedence parser for #if expressions
 
+    let private errNotValidLhsIfOp: ErrorType<PositionedToken, IfExprState> =
+        Message "Not a valid LHS #if operator"
+
+    let private errNotValidRhsIfOp: ErrorType<PositionedToken, IfExprState> =
+        Message "Not a valid RHS #if operator"
+
+    let private errNotValidIfTerm: ErrorType<PositionedToken, IfExprState> =
+        Message "Not a valid #if term"
+
     let isTriviaToken (token: PositionedToken) =
         if token.InComment then
             true
@@ -89,7 +98,7 @@ module IfExpr =
 
                     let op = Enclosed(token, p, parenPrecedence, rParen, p, completeParen)
                     preturn op
-                | _ -> fail (Message "Not a valid LHS #if operator")
+                | _ -> fail errNotValidLhsIfOp
 
         static let rhsParser: Parser<_, _, _, 'Input, 'InputSlice> =
             nextNonTriviaIfToken
@@ -103,7 +112,7 @@ module IfExpr =
                     let p = preturn token
                     let op = InfixLeft(token, p, andPrecedence, completeInfix)
                     preturn op
-                | _ -> fail (Message "Not a valid RHS #if operator")
+                | _ -> fail errNotValidRhsIfOp
 
         static let atomParser: Parser<_, _, _, 'Input, 'InputSlice> =
             nextNonTriviaIfToken
@@ -111,7 +120,7 @@ module IfExpr =
                 match token.Token with
                 | Token.Identifier -> preturn (IfExpr.Term token)
                 | t when t.IsKeyword -> preturn (IfExpr.Term token)
-                | _ -> fail (Message "Not a valid #if term")
+                | _ -> fail errNotValidIfTerm
 
         static let ifDirectiveParser: Parser<_, _, _, 'Input, 'InputSlice> =
             satisfyL (fun token -> token.Token = Token.IfDirective) "Not a #if directive"

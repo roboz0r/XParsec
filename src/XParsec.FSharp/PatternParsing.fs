@@ -12,6 +12,18 @@ open XParsec.FSharp.Parser.SyntaxToken
 
 module Pat =
 
+    let private errNotPrefixPatOp: ErrorType<PositionedToken, ParseState> =
+        Message "Not a prefix pattern operator"
+
+    let private errNotValidRhsPatOp: ErrorType<PositionedToken, ParseState> =
+        Message "Not a valid RHS pattern operator"
+
+    let private errRecordPattern: ErrorType<PositionedToken, ParseState> =
+        Message "Record pattern"
+
+    let private errPositionalOnlyCtorPat: ErrorType<PositionedToken, ParseState> =
+        Message "positional-only ctor pattern"
+
     [<RequireQualifiedAccess>]
     type PatAux =
         | Type of Type<SyntaxToken>
@@ -135,7 +147,7 @@ module Pat =
                 // This will parse the immediate next pattern (e.g. Paren, or erroneously Literal/List)
                 let op = Prefix(token, p, structPrecedence, completeStruct)
                 return op
-            | _ -> return! fail (Message "Not a prefix pattern operator")
+            | _ -> return! fail errNotPrefixPatOp
         }
 
     // Shared token-to-operator dispatch for pattern Pratt parsing. Parameterized by
@@ -184,7 +196,7 @@ module Pat =
 
             preturn op
 
-        | _ -> fail (Message "Not a valid RHS pattern operator")
+        | _ -> fail errNotValidRhsPatOp
 
     let private patRhsParser (tokenToOp: SyntaxToken -> _) =
         choiceL [ pSepVirtPat >>= tokenToOp; nextNonTriviaToken >>= tokenToOp ] "RHS pattern operator"
@@ -365,7 +377,7 @@ module Pat =
                     Ok result
                 | Error _ ->
                     reader.State <- savedState
-                    fail (Message "Record pattern") reader
+                    fail errRecordPattern reader
 
     /// Parse a single named field in a union case pattern: fieldName = pat (excludes comma).
     let private pUnionNamedArgPat =
@@ -434,7 +446,7 @@ module Pat =
                             if hasNamed then
                                 return Pat.NamedFieldPats(lid, lParen, args, seps, rParen)
                             else
-                                return! fail (Message "positional-only ctor pattern")
+                                return! fail errPositionalOnlyCtorPat
                         }
 
                     match innerParser reader with

@@ -11,6 +11,12 @@ open XParsec.FSharp.Parser.SyntaxToken
 
 [<RequireQualifiedAccess>]
 module Constant =
+    let private errExpectedGtMeasure: ErrorType<PositionedToken, ParseState> =
+        Message "Expected '>' for measure"
+
+    let private errExpectedLtMeasure: ErrorType<PositionedToken, ParseState> =
+        Message "Expected '<' for measure"
+
     let isLiteralToken (t: Token) =
 
         t.IsNumeric
@@ -43,7 +49,7 @@ module Constant =
                     )
 
                 return virtualToken (PositionedToken.Create(Token.OpGreaterThan, t.StartIndex))
-            | _ -> return! fail (Message "Expected '>' for measure")
+            | _ -> return! fail errExpectedGtMeasure
         }
 
     let private pMeasure =
@@ -69,7 +75,7 @@ module Constant =
 
                 return struct (syntaxToken lAngle pos.Index, m, rAngle)
             else
-                return! fail (Message "Expected '<' for measure")
+                return! fail errExpectedLtMeasure
         }
 
     /// <summary>

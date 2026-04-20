@@ -521,6 +521,8 @@ module Parsing =
                 ValueNone
         | _ -> ValueNone
 
+    let private errOffside: ErrorType<PositionedToken, ParseState> = Message "Offside"
+
     let rec private nextNonTriviaTokenImpl isPeek (reader: Reader<PositionedToken, ParseState, _, _>) =
         match reader.Peek() with
         | ValueNone -> fail EndOfInput reader
@@ -593,7 +595,7 @@ module Parsing =
                 )
 
             if isOffside then
-                fail (Message "Offside") reader
+                fail errOffside reader
             else
                 let t = syntaxToken token reader.Index
 
@@ -1221,6 +1223,9 @@ module Parsing =
         choiceL p msg
 #endif
 
+    let private errExpectedGtCloseTypeApp: ErrorType<PositionedToken, ParseState> =
+        Message "Expected '>' to close type application"
+
     let pCloseTypeParams: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
         // 15.3 Lexical Analysis of Type Applications
         parser {
@@ -1272,9 +1277,15 @@ module Parsing =
 
                             return rAngle
                     else
-                        return! fail (Message "Expected '>' to close type application")
-            | _ -> return! fail (Message "Expected '>' to close type application")
+                        return! fail errExpectedGtCloseTypeApp
+            | _ -> return! fail errExpectedGtCloseTypeApp
         }
+
+    let private errExpectedOperatorAfterTypeParams: ErrorType<PositionedToken, ParseState> =
+        Message "Expected operator after type parameters"
+
+    let private errNoOperatorToReprocess: ErrorType<PositionedToken, ParseState> =
+        Message "No operator to reprocess after type parameters"
 
     let reprocessedOperatorAfterTypeParams
         : Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
@@ -1306,12 +1317,15 @@ module Parsing =
                                 PositionedToken = PositionedToken.Create(firstTok.Token, t.StartIndex + charsConsumed)
                             }
                     | Error _ -> return invalidOp "Failed to re-lex operator after type parameters"
-                | _ -> return! fail (Message "Expected operator after type parameters")
+                | _ -> return! fail errExpectedOperatorAfterTypeParams
             else
-                return! fail (Message "No operator to reprocess after type parameters")
+                return! fail errNoOperatorToReprocess
 
         }
 
+
+    let private errPEnclosedInnerFailed: ErrorType<PositionedToken, ParseState> =
+        Message "pEnclosed inner parser failed"
 
     let pEnclosed
         completeEmpty
@@ -1391,4 +1405,4 @@ module Parsing =
                     | Ok result -> popAndReturn (Ok result)
                     | Error _ ->
                         reader.State <- savedState
-                        fail (Message "pEnclosed inner parser failed") reader
+                        fail errPEnclosedInnerFailed reader

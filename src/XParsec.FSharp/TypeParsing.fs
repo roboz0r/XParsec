@@ -87,6 +87,15 @@ module StaticTypars =
 [<RequireQualifiedAccess>]
 module Constraint =
 
+    let private errExpectedStructOrNullAfterNot: ErrorType<PositionedToken, ParseState> =
+        Message "Expected 'struct' or 'null' after 'not'"
+
+    let private errUnknownParenConstraint: ErrorType<PositionedToken, ParseState> =
+        Message "Unknown parenthesized constraint"
+
+    let private errUnknownConstraintType: ErrorType<PositionedToken, ParseState> =
+        Message "Unknown constraint type"
+
     // Hoisted helpers — allocate Message once at module load instead of per invocation.
     let private pUnitIdent = nextNonTriviaIdentifierLMsg "Expected 'unit'"
 
@@ -193,7 +202,7 @@ module Constraint =
                     match next.Token with
                     | Token.KWStruct -> return Constraint.ReferenceType(typar, colon, token, next)
                     | Token.KWNull -> return Constraint.NotNull(typar, colon, token, next)
-                    | _ -> return! fail (Message "Expected 'struct' or 'null' after 'not'")
+                    | _ -> return! fail errExpectedStructOrNullAfterNot
                 | _ when tokenStringIs "enum" token state ->
                     let! lAngle = pLessThan
                     let! t = refType.Parser
@@ -206,8 +215,8 @@ module Constraint =
                     if next.Token = Token.KWNew then
                         return! pDefaultConstructor typar colon token next
                     else
-                        return! fail (Message "Unknown parenthesized constraint")
-                | _ -> return! fail (Message "Unknown constraint type")
+                        return! fail errUnknownParenConstraint
+                | _ -> return! fail errUnknownConstraintType
         }
 
     let private pDefaultConstraint =
