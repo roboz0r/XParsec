@@ -9,14 +9,14 @@ type CLOption<'T> =
     | CLBoolSetting of name: string * toResult: (bool -> 'T) * alias: char option * allowEqualsAssginment: bool
     | CLParsedSetting of
         name: string *
-        parser: Parser<'T, char, unit, ReadableString, ReadableStringSlice> *
+        parser: Parser<'T, char, unit, ReadableString> *
         alias: char option *
         allowEqualsAssginment: bool
 
 module NestedParser =
     open System.Text
 
-    let pNestedString innerState (pInner: Parser<_, _, _, _, _>) (reader: Reader<_, _, _, _>) : ParseResult<_, _, _> =
+    let pNestedString innerState (pInner: Parser<_, _, _, _>) (reader: Reader<_, _, _>) : ParseResult<_, _, _> =
         match reader.Peek() with
         | ValueSome(x: string) ->
             let innerReader = Reader.ofString x innerState
@@ -75,7 +75,7 @@ module CLParser =
         }
         |> choice
 
-    let ofOption (option: CLOption<'T>) : Parser<_, _, _, _, _> =
+    let ofOption (option: CLOption<'T>) : Parser<_, _, _, _> =
         match option with
         | CLFlag(name, result, alias) ->
             let flag = $"--%s{name}"
@@ -98,7 +98,7 @@ module CLParser =
         | CLParsedSetting(name, parser, alias, allowEqualsAssginment) ->
             parseSetting name parser alias allowEqualsAssginment
 
-    let ofOptions (options: CLOption<'T> list) : Parser<_, _, _, _, _> =
+    let ofOptions (options: CLOption<'T> list) : Parser<_, _, _, _> =
         let p = options |> List.map ofOption |> choice |> many
 
         p .>> eof

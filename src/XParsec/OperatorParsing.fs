@@ -137,23 +137,22 @@ type OperatorLookup<'Key, 'Value when 'Key: equality> =
             f this 0
 
 
-type RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
-    when 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
+type RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input when 'Input :> IReadable<'T, 'Input>> =
     | InfixLeft of
         op: 'Op *
-        parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
+        parseOp: Parser<'Op, 'T, 'State, 'Input> *
         leftPower: byte<bp> *
         completeInfix: ('Expr -> 'Op -> 'Expr -> 'Expr)
 
     | InfixRight of
         op: 'Op *
-        parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
+        parseOp: Parser<'Op, 'T, 'State, 'Input> *
         leftPower: byte<bp> *
         completeInfix: ('Expr -> 'Op -> 'Expr -> 'Expr)
 
     | InfixNonAssociative of
         op: 'Op *
-        parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
+        parseOp: Parser<'Op, 'T, 'State, 'Input> *
         leftPower: byte<bp> *
         completeInfix: ('Expr -> 'Op -> 'Expr -> 'Expr)
 
@@ -162,7 +161,7 @@ type RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
     /// require chaining in the parser.
     | InfixNary of
         op: 'Op *
-        parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
+        parseOp: Parser<'Op, 'T, 'State, 'Input> *
         leftPower: byte<bp> *
         allowTrailingOp: bool *
         completeNary: (ResizeArray<'Expr> -> ResizeArray<'Op> -> 'Expr)
@@ -172,56 +171,55 @@ type RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
     /// Used for Member Access (.), Type Checks (is/as), or rigid syntax.
     | InfixMapped of
         op: 'Op *
-        parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
+        parseOp: Parser<'Op, 'T, 'State, 'Input> *
         leftPower: byte<bp> *
-        parseRight: Parser<'Aux, 'T, 'State, 'Input, 'InputSlice> *  // <--- Custom Parser
+        parseRight: Parser<'Aux, 'T, 'State, 'Input> *  // <--- Custom Parser
         complete: ('Expr -> 'Op -> 'Aux -> 'Expr)
 
     | Postfix of
         op: 'Op *
-        parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
+        parseOp: Parser<'Op, 'T, 'State, 'Input> *
         leftPower: byte<bp> *
         completePostfix: ('Expr -> 'Op -> 'Expr)
 
     | Indexer of
         op: 'Op *
-        parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
+        parseOp: Parser<'Op, 'T, 'State, 'Input> *
         leftPower: byte<bp> *
         closeOp: 'Op *
-        parseCloseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
-        parseInnerExpr: Parser<'Aux, 'T, 'State, 'Input, 'InputSlice> *
+        parseCloseOp: Parser<'Op, 'T, 'State, 'Input> *
+        parseInnerExpr: Parser<'Aux, 'T, 'State, 'Input> *
         completeIndexer: ('Expr -> 'Op -> 'Aux -> 'Op -> 'Expr)
 
     | Ternary of
         op: 'Op *
-        parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
+        parseOp: Parser<'Op, 'T, 'State, 'Input> *
         leftPower: byte<bp> *
-        parseTernaryOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
+        parseTernaryOp: Parser<'Op, 'T, 'State, 'Input> *
         completeTernary: ('Expr -> 'Op -> 'Expr -> 'Op -> 'Expr -> 'Expr)
 
-type LHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
-    when 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
+type LHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input when 'Input :> IReadable<'T, 'Input>> =
     | Prefix of
         op: 'Op *
-        parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
+        parseOp: Parser<'Op, 'T, 'State, 'Input> *
         rightPower: byte<bp> *
         completePrefix: ('Op -> 'Expr -> 'Expr)
 
     | Enclosed of
         op: 'Op *
-        parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
+        parseOp: Parser<'Op, 'T, 'State, 'Input> *
         rightPower: byte<bp> *
         closeOp: 'Op *
-        parseCloseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
+        parseCloseOp: Parser<'Op, 'T, 'State, 'Input> *
         complete: ('Op -> 'Expr -> 'Op -> 'Expr)
 
     /// Used for control flow constructs like "if <expr> then <expr>" or "while <expr> do <expr>"
     | LHSTernary of
         op: 'Op *
-        parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
+        parseOp: Parser<'Op, 'T, 'State, 'Input> *
         rightPower: byte<bp> *  // Binding power for the 'condition' (middle expr)
         delimiter: 'Op *
-        parseDelimiter: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
+        parseDelimiter: Parser<'Op, 'T, 'State, 'Input> *
         complete: ('Op -> 'Expr -> 'Op -> 'Expr -> 'Expr)
 
     /// A prefix operator whose right-hand side is fully handled by a custom parser rather than
@@ -229,40 +227,33 @@ type LHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
     /// structure and context.
     | PrefixMapped of
         op: 'Op *
-        parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice> *
-        parseRight: Parser<'Aux, 'T, 'State, 'Input, 'InputSlice> *
+        parseOp: Parser<'Op, 'T, 'State, 'Input> *
+        parseRight: Parser<'Aux, 'T, 'State, 'Input> *
         complete: ('Op -> 'Aux -> 'Expr)
 
 
-type Operator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
-    when 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
-    | RHS of RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>
-    | LHS of LHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>
+type Operator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input when 'Input :> IReadable<'T, 'Input>> =
+    | RHS of RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input>
+    | LHS of LHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input>
 
 /// A collection of operators used for parsing expressions.
 /// It contains both left-hand side (LHS) and right-hand side (RHS) operators, along with their associated parsers.
 /// Use `Operator.create` to create an instance of this type.
-type Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
-    when 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
-    abstract LhsParser:
-        Parser<LHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>, 'T, 'State, 'Input, 'InputSlice>
+type Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input when 'Input :> IReadable<'T, 'Input>> =
+    abstract LhsParser: Parser<LHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input>, 'T, 'State, 'Input>
 
-    abstract RhsParser:
-        Parser<RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>, 'T, 'State, 'Input, 'InputSlice>
+    abstract RhsParser: Parser<RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input>, 'T, 'State, 'Input>
 
-type OperatorsCollection<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice
-    when 'Op: equality and 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
+type OperatorsCollection<'Op, 'Aux, 'Expr, 'T, 'State, 'Input when 'Op: equality and 'Input :> IReadable<'T, 'Input>> =
     internal
         {
-            LhsOperators: OperatorLookup<'Op, LHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>>
-            RhsOperators: OperatorLookup<'Op, RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>>
-            LhsParserImpl:
-                Parser<LHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>, 'T, 'State, 'Input, 'InputSlice>
-            RhsParserImpl:
-                Parser<RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>, 'T, 'State, 'Input, 'InputSlice>
+            LhsOperators: OperatorLookup<'Op, LHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input>>
+            RhsOperators: OperatorLookup<'Op, RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input>>
+            LhsParserImpl: Parser<LHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input>, 'T, 'State, 'Input>
+            RhsParserImpl: Parser<RHSOperator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input>, 'T, 'State, 'Input>
         }
 
-    interface Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice> with
+    interface Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input> with
         member this.LhsParser = this.LhsParserImpl
         member this.RhsParser = this.RhsParserImpl
 
@@ -354,7 +345,7 @@ module internal rec Pratt =
         | hardErr, ValueSome s -> ParseError.createNested failure [ hardErr; s ] hardErr.Position
         | hardErr, ValueNone -> hardErr
 
-    let inline private ensureAdvanced (pos: Position<'State>) (reader: Reader<_, _, _, _>) : unit =
+    let inline private ensureAdvanced (pos: Position<'State>) (reader: Reader<_, _, _>) : unit =
         if reader.Index = pos.Index then
             raise (InfiniteLoopException(pos))
 
@@ -372,7 +363,7 @@ module internal rec Pratt =
         rightPower
         op
         completeInfix
-        (reader: Reader<_, _, _, _>)
+        (reader: Reader<_, _, _>)
         =
         match parseLhsInternal pExpr ops rightPower reader with
         | Ok { Expr = rhs; Error = errRhs } ->
@@ -383,15 +374,15 @@ module internal rec Pratt =
 
     let private rhsInfixNary
         pExpr
-        (ops: Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>)
+        (ops: Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input>)
         minBinding
         lhs
         leftPower
         op
-        (parseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice>)
+        (parseOp: Parser<'Op, 'T, 'State, 'Input>)
         allowTrailingOp
         completeNary
-        (reader: Reader<_, _, _, _>)
+        (reader: Reader<_, _, _>)
         =
         let rec loopNary (items: ResizeArray<'Expr>) (parsedOps: ResizeArray<'Op>) accumulatedErr =
             let rightPower = leftPower + 1uy<bp>
@@ -457,9 +448,9 @@ module internal rec Pratt =
         (errAcc: ParseError<'T, 'State> voption)
         pos
         op
-        (parseRight: Parser<_, 'T, 'State, 'Input, 'InputSlice>)
+        (parseRight: Parser<_, 'T, 'State, 'Input>)
         complete
-        (reader: Reader<_, _, _, _>)
+        (reader: Reader<_, _, _>)
         =
         match parseRight reader with
         | Ok rightContent ->
@@ -475,10 +466,10 @@ module internal rec Pratt =
         (errAcc: ParseError<'T, 'State> voption)
         pos
         op
-        (parseCloseOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice>)
-        (innerParser: Parser<_, 'T, 'State, 'Input, 'InputSlice>)
+        (parseCloseOp: Parser<'Op, 'T, 'State, 'Input>)
+        (innerParser: Parser<_, 'T, 'State, 'Input>)
         completeIndexer
-        (reader: Reader<_, _, _, _>)
+        (reader: Reader<_, _, _>)
         =
         match innerParser reader with
         | Ok inner ->
@@ -500,9 +491,9 @@ module internal rec Pratt =
         pos
         op
         rightPower
-        (parseTernaryOp: Parser<'Op, 'T, 'State, 'Input, 'InputSlice>)
+        (parseTernaryOp: Parser<'Op, 'T, 'State, 'Input>)
         completeTernary
-        (reader: Reader<_, _, _, _>)
+        (reader: Reader<_, _, _>)
         =
         match parseLhsInternal pExpr ops rightPower reader with
         | Ok { Expr = mid; Error = errMid } ->
@@ -526,7 +517,7 @@ module internal rec Pratt =
 
     // ── LHS operator case helpers ──────────────────────────────────────
 
-    let private lhsPrefix pExpr ops minBinding op rightPower completePrefix (reader: Reader<_, _, _, _>) =
+    let private lhsPrefix pExpr ops minBinding op rightPower completePrefix (reader: Reader<_, _, _>) =
         match parseLhsInternal pExpr ops rightPower reader with
         | Ok { Expr = rhs; Error = errOpt } ->
             match parseRhsInternal pExpr ops minBinding (completePrefix op rhs) errOpt reader with
@@ -541,9 +532,9 @@ module internal rec Pratt =
         minBinding
         op
         (closeOp: 'Op)
-        (closeOpParser: Parser<'Op, 'T, 'State, 'Input, 'InputSlice>)
+        (closeOpParser: Parser<'Op, 'T, 'State, 'Input>)
         completeBracket
-        (reader: Reader<_, _, _, _>)
+        (reader: Reader<_, _, _>)
         =
         match parseLhsInternal pExpr ops Precedence.MinP reader with
         | Ok { Expr = inner; Error = errOpt } ->
@@ -570,9 +561,9 @@ module internal rec Pratt =
         op
         rightPower
         (delim: 'Op)
-        (parseDelim: Parser<'Op, 'T, 'State, 'Input, 'InputSlice>)
+        (parseDelim: Parser<'Op, 'T, 'State, 'Input>)
         complete
-        (reader: Reader<_, _, _, _>)
+        (reader: Reader<_, _, _>)
         =
         match parseLhsInternal pExpr ops rightPower reader with
         | Ok { Expr = condition; Error = errCond } ->
@@ -608,12 +599,12 @@ module internal rec Pratt =
 
     [<TailCall>]
     let rec private parseRhsInternal
-        (pExpr: Parser<'Expr, 'T, _, _, _>)
-        (ops: Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>)
+        (pExpr: Parser<'Expr, 'T, _, _>)
+        (ops: Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input>)
         minBinding
         lhs
         (errAcc: ParseError<'T, 'State> voption)
-        (reader: Reader<_, _, _, _>)
+        (reader: Reader<_, _, _>)
         : ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _> =
 
         let pos = reader.Position
@@ -814,7 +805,7 @@ module Operator =
 
     /// Creates an `Operators` instance from a collection of operators.
     /// The returned instance can be used to parse expressions using the defined operators.
-    let create (ops: Operator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice> seq) =
+    let create (ops: Operator<'Op, 'Aux, 'Expr, 'T, 'State, 'Input> seq) =
         let lhsOps = OperatorLookupBuilder()
         let mutable lhsParsers = []
         let rhsOps = OperatorLookupBuilder()
@@ -849,7 +840,7 @@ module Operator =
             LhsParserImpl = choiceL lhsParsers "LHS did not match any known operator"
             RhsParserImpl = choiceL rhsParsers "RHS did not match any known operator"
         }
-        :> Operators<_, _, _, _, _, _, _>
+        :> Operators<_, _, _, _, _, _>
 
     /// Creates a left-associative infix operator with the specified properties.
     let infixLeftAssoc op precedence parseOp complete =
@@ -921,9 +912,9 @@ module Operator =
 
     /// Parses an expression using the provided expression parser and operator definitions.
     let parser
-        (pExpr: Parser<'Expr, _, _, _, _>)
-        (operators: Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>)
-        : Parser<'Expr, _, _, _, _> =
+        (pExpr: Parser<'Expr, _, _, _>)
+        (operators: Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input>)
+        : Parser<'Expr, _, _, _> =
         Pratt.parseLhs pExpr operators Precedence.MinP
 
     /// Parses an expression starting at a specific minimum precedence.
@@ -931,7 +922,7 @@ module Operator =
     /// where you want to stop parsing before consuming the delimiter.
     let parserAt
         (minBindingPower: byte<bp>)
-        (pExpr: Parser<'Expr, _, _, _, _>)
-        (operators: Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input, 'InputSlice>)
-        : Parser<'Expr, _, _, _, _> =
+        (pExpr: Parser<'Expr, _, _, _>)
+        (operators: Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input>)
+        : Parser<'Expr, _, _, _> =
         Pratt.parseLhs pExpr operators minBindingPower

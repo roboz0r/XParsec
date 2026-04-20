@@ -46,9 +46,7 @@ type Position<'State> =
 /// It is used by the parser to read from the input and manage state.
 /// </summary>
 [<Sealed>]
-type Reader<'T, 'State, 'Input, 'InputSlice
-    when 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>>
-    (input: 'Input, state: 'State, index: int) =
+type Reader<'T, 'State, 'Input when 'Input :> IReadable<'T, 'Input>>(input: 'Input, state: 'State, index: int) =
 
     let mutable index = index
     let mutable state = state
@@ -155,9 +153,8 @@ module ParseError =
     let allChoicesFailed = Message "All choices failed."
     let bothFailed = Message "Both parsers failed."
 
-type Parser<'Parsed, 'T, 'State, 'Input, 'InputSlice
-    when 'Input :> IReadable<'T, 'InputSlice> and 'InputSlice :> IReadable<'T, 'InputSlice>> =
-    Reader<'T, 'State, 'Input, 'InputSlice> -> ParseResult<'Parsed, 'T, 'State>
+type Parser<'Parsed, 'T, 'State, 'Input when 'Input :> IReadable<'T, 'Input>> =
+    Reader<'T, 'State, 'Input> -> ParseResult<'Parsed, 'T, 'State>
 
 type InfiniteLoopException<'State>(pos: Position<'State>, innerException) =
     inherit Exception("Infinite loop detected in parser.", innerException)

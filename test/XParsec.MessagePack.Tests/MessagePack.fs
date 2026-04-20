@@ -76,7 +76,7 @@ module ArrayParsers =
 
     type PState = unit
 
-    let pFormat () : Parser<_, byte, _, _, _> =
+    let pFormat () : Parser<_, byte, _, _> =
         parser {
             let! x = pid
 
@@ -123,12 +123,12 @@ module ArrayParsers =
         }
 
 
-    let pUInt8 (reader: Reader<byte, PState, _, _>) = pid reader
+    let pUInt8 (reader: Reader<byte, PState, _>) = pid reader
 
     let gotFewerBytes (expected: int) (actual: int) =
         Message(sprintf "Expected %d bytes but only %d bytes are available." expected actual)
 
-    let pUInt16 (reader: Reader<byte, PState, _, _>) =
+    let pUInt16 (reader: Reader<byte, PState, _>) =
         let span = reader.PeekN 2
 
         if span.Length = 2 then
@@ -139,7 +139,7 @@ module ArrayParsers =
         else
             fail EndOfInput reader
 
-    let pUInt32 (reader: Reader<byte, PState, _, _>) =
+    let pUInt32 (reader: Reader<byte, PState, _>) =
         let span = reader.PeekN 4
 
         if span.Length = 4 then
@@ -150,7 +150,7 @@ module ArrayParsers =
         else
             fail (gotFewerBytes 4 span.Length) reader
 
-    let pUInt64 (reader: Reader<byte, PState, _, _>) =
+    let pUInt64 (reader: Reader<byte, PState, _>) =
         let span = reader.PeekN 8
 
         if span.Length = 8 then
@@ -161,12 +161,12 @@ module ArrayParsers =
         else
             fail (gotFewerBytes 8 span.Length) reader
 
-    let pInt8 (reader: Reader<byte, PState, _, _>) =
+    let pInt8 (reader: Reader<byte, PState, _>) =
         match reader.TryRead() with
         | ValueSome b -> preturn (int8 b) reader
         | ValueNone -> fail EndOfInput reader
 
-    let pInt16 (reader: Reader<byte, PState, _, _>) =
+    let pInt16 (reader: Reader<byte, PState, _>) =
         let span = reader.PeekN 2
 
         if span.Length = 2 then
@@ -177,7 +177,7 @@ module ArrayParsers =
         else
             fail EndOfInput reader
 
-    let pInt32 (reader: Reader<byte, PState, _, _>) =
+    let pInt32 (reader: Reader<byte, PState, _>) =
         let span = reader.PeekN 4
 
         if span.Length = 4 then
@@ -188,7 +188,7 @@ module ArrayParsers =
         else
             fail (gotFewerBytes 4 span.Length) reader
 
-    let pInt64 (reader: Reader<byte, PState, _, _>) =
+    let pInt64 (reader: Reader<byte, PState, _>) =
         let span = reader.PeekN 8
 
         if span.Length = 8 then
@@ -199,7 +199,7 @@ module ArrayParsers =
         else
             fail (gotFewerBytes 8 span.Length) reader
 
-    let pFloat32 (reader: Reader<byte, PState, _, _>) =
+    let pFloat32 (reader: Reader<byte, PState, _>) =
         let span = reader.PeekN 4
 
         if span.Length = 4 then
@@ -210,7 +210,7 @@ module ArrayParsers =
         else
             fail (gotFewerBytes 4 span.Length) reader
 
-    let pFloat64 (reader: Reader<byte, PState, _, _>) =
+    let pFloat64 (reader: Reader<byte, PState, _>) =
         let span = reader.PeekN 8
 
         if span.Length = 8 then
@@ -221,7 +221,7 @@ module ArrayParsers =
         else
             fail (gotFewerBytes 8 span.Length) reader
 
-    let private pStr (length: int) (reader: Reader<byte, PState, _, _>) =
+    let private pStr (length: int) (reader: Reader<byte, PState, _>) =
         let span = reader.PeekN length
 
         if span.Length = length then
@@ -232,25 +232,25 @@ module ArrayParsers =
         else
             fail (gotFewerBytes length span.Length) reader
 
-    let pFixStr (value: byte) (reader: Reader<byte, PState, _, _>) =
+    let pFixStr (value: byte) (reader: Reader<byte, PState, _>) =
         let length = int value &&& 0b00011111
         pStr length reader
 
-    let pStr8 () : Parser<_, byte, _, _, _> =
+    let pStr8 () : Parser<_, byte, _, _> =
         parser {
             let! length = pUInt8 |>> int
             let! value = pStr length
             return value
         }
 
-    let pStr16 () : Parser<_, byte, _, _, _> =
+    let pStr16 () : Parser<_, byte, _, _> =
         parser {
             let! length = pUInt16 |>> int
             let! value = pStr length
             return value
         }
 
-    let pStr32 () : Parser<_, byte, _, _, _> =
+    let pStr32 () : Parser<_, byte, _, _> =
         parser {
             let! length = pUInt32
 
@@ -260,7 +260,7 @@ module ArrayParsers =
                 return! pStr (int length)
         }
 
-    let private pBin (length: int) (reader: Reader<byte, PState, _, _>) =
+    let private pBin (length: int) (reader: Reader<byte, PState, _>) =
         let span = reader.PeekN length
 
         if span.Length = length then
@@ -271,21 +271,21 @@ module ArrayParsers =
         else
             fail (gotFewerBytes length span.Length) reader
 
-    let pBin8 () : Parser<_, byte, _, _, _> =
+    let pBin8 () : Parser<_, byte, _, _> =
         parser {
             let! length = pUInt8 |>> int
             let! value = pBin length
             return value
         }
 
-    let pBin16 () : Parser<_, byte, _, _, _> =
+    let pBin16 () : Parser<_, byte, _, _> =
         parser {
             let! length = pUInt16 |>> int
             let! value = pBin length
             return value
         }
 
-    let pBin32 () : Parser<_, byte, _, _, _> =
+    let pBin32 () : Parser<_, byte, _, _> =
         parser {
             let! length = pUInt32
 
@@ -295,7 +295,7 @@ module ArrayParsers =
                 return! pBin (int length)
         }
 
-    let rec pObject () : Parser<MsgPackValue, _, _, _, _> =
+    let rec pObject () : Parser<MsgPackValue, _, _, _> =
         parser {
             let pObject = pObject ()
             let! format = pFormat ()

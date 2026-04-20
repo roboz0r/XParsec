@@ -130,85 +130,85 @@ let tests =
 
             test "ReadableString" {
                 let str = "Hello World"
-                let readable = ReadableString(str)
+                let readable = ReadableString(str, 0, str.Length)
                 assertReadableSemantics "ReadableString" readable (str.ToCharArray())
             }
 
-            test "ReadableStringSlice" {
+            test "ReadableString slice" {
                 let str = "Pad_Hello World_Pad"
                 // Slice out "Hello World"
-                let slice = ReadableStringSlice(str, 4, 11)
-                assertReadableSemantics "ReadableStringSlice" slice ("Hello World".ToCharArray())
+                let slice = ReadableString(str, 4, 11)
+                assertReadableSemantics "ReadableString slice" slice ("Hello World".ToCharArray())
             }
 
             test "Empty ReadableString" {
-                let readable = ReadableString("")
+                let readable = ReadableString("", 0, 0)
                 assertReadableSemantics "Empty ReadableString" readable [||]
             }
 
-            test "Empty ReadableStringSlice" {
+            test "Empty ReadableString slice" {
                 let str = "Pad_Pad"
-                let slice = ReadableStringSlice(str, 3, 0)
-                assertReadableSemantics "Empty ReadableStringSlice" slice [||]
+                let slice = ReadableString(str, 3, 0)
+                assertReadableSemantics "Empty ReadableString slice" slice [||]
             }
 
             test "ReadableArray" {
                 let arr = [| 10; 20; 30; 40; 50 |]
-                let readable = ReadableArray(arr)
+                let readable = ReadableArray(arr, 0, arr.Length)
                 assertReadableSemantics "ReadableArray" readable arr
             }
 
-            test "ReadableArraySlice" {
+            test "ReadableArray slice" {
                 let arr = [| 0; 0; 10; 20; 30; 40; 50; 0; 0 |]
-                let slice = ReadableArraySlice(arr, 2, 5)
-                assertReadableSemantics "ReadableArraySlice" slice [| 10; 20; 30; 40; 50 |]
+                let slice = ReadableArray(arr, 2, 5)
+                assertReadableSemantics "ReadableArray slice" slice [| 10; 20; 30; 40; 50 |]
             }
 
             test "Empty ReadableArray" {
-                let readable = ReadableArray<int>([||])
+                let readable = ReadableArray<int>([||], 0, 0)
                 assertReadableSemantics "Empty ReadableArray" readable [||]
             }
 
-            test "Empty ReadableArraySlice" {
+            test "Empty ReadableArray slice" {
                 let arr = [| 1; 2; 3 |]
-                let slice = ReadableArraySlice(arr, 1, 0)
-                assertReadableSemantics "Empty ReadableArraySlice" slice [||]
+                let slice = ReadableArray(arr, 1, 0)
+                assertReadableSemantics "Empty ReadableArray slice" slice [||]
             }
 
             test "ReadableImmutableArray" {
                 let arr = ImmutableArray.CreateRange([| 10; 20; 30; 40; 50 |])
-                let readable = ReadableImmutableArray(arr)
+                let readable = ReadableImmutableArray(arr, 0, arr.Length)
                 assertReadableSemantics "ReadableImmutableArray" readable [| 10; 20; 30; 40; 50 |]
             }
 
-            test "ReadableImmutableArraySlice" {
+            test "ReadableImmutableArray slice" {
                 let arr = ImmutableArray.CreateRange([| 0; 0; 10; 20; 30; 40; 50; 0; 0 |])
-                let slice = ReadableImmutableArraySlice(arr, 2, 5)
-                assertReadableSemantics "ReadableImmutableArraySlice" slice [| 10; 20; 30; 40; 50 |]
+                let slice = ReadableImmutableArray(arr, 2, 5)
+                assertReadableSemantics "ReadableImmutableArray slice" slice [| 10; 20; 30; 40; 50 |]
             }
 
             test "Empty ReadableImmutableArray" {
                 let arr = ImmutableArray.CreateRange<int>([||])
-                let readable = ReadableImmutableArray(arr)
+                let readable = ReadableImmutableArray(arr, 0, arr.Length)
                 assertReadableSemantics "Empty ReadableImmutableArray" readable [||]
             }
 
 #if NET5_0_OR_GREATER
             test "ReadableResizeArray" {
                 let arr = ResizeArray<int>([| 10; 20; 30; 40; 50 |])
-                let readable = ReadableResizeArray(arr)
+                let readable = ReadableResizeArray(arr, 0, arr.Count)
                 assertReadableSemantics "ReadableResizeArray" readable [| 10; 20; 30; 40; 50 |]
             }
 
-            test "ReadableResizeArraySlice" {
+            test "ReadableResizeArray slice" {
                 let arr = ResizeArray<int>([| 0; 0; 10; 20; 30; 40; 50; 0; 0 |])
-                let slice = ReadableResizeArraySlice(arr, 2, 5)
-                assertReadableSemantics "ReadableResizeArraySlice" slice [| 10; 20; 30; 40; 50 |]
+                let slice = ReadableResizeArray(arr, 2, 5)
+                assertReadableSemantics "ReadableResizeArray slice" slice [| 10; 20; 30; 40; 50 |]
             }
 
             test "Empty ReadableResizeArray" {
                 let arr = ResizeArray<int>()
-                let readable = ReadableResizeArray(arr)
+                let readable = ReadableResizeArray(arr, 0, arr.Count)
                 assertReadableSemantics "Empty ReadableResizeArray" readable [||]
             }
 #endif
