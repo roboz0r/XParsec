@@ -1815,24 +1815,24 @@ module Expr =
 
         let kwPrefixRoutes: struct (Token * (SyntaxToken -> Parser<_, _, _, _, _>))[] =
             [|
-                struct (Token.KWIf, kwPrefixNoConsume KWBody.pIfExpr Complete.forE)
-                struct (Token.KWMatch, kwPrefixNoConsume KWBody.pMatchExpr Complete.forE)
-                struct (Token.KWMatchBang, kwPrefixNoConsume KWBody.pMatchExpr Complete.forE)
-                struct (Token.KWFunction, kwPrefixNoConsume KWBody.pFunctionExpr Complete.forE)
-                struct (Token.KWFun, kwPrefixNoConsume KWBody.pFunExpr Complete.forE)
-                struct (Token.KWTry, kwPrefixNoConsume KWBody.pTryExpr Complete.forE)
-                struct (Token.KWWhile, kwPrefixNoConsume KWBody.pWhileExpr Complete.forE)
-                struct (Token.KWFor, kwPrefixNoConsume KWBody.pForExpr Complete.forE)
                 struct (Token.KWLet, kwPrefixNoConsume KWBody.pLetOrUseBody Complete.keyword)
-                struct (Token.KWLetBang, kwPrefixNoConsume KWBody.pLetOrUseBody Complete.keyword)
-                struct (Token.KWUse, kwPrefixNoConsume KWBody.pLetOrUseBody Complete.keyword)
-                struct (Token.KWUseBang, kwPrefixNoConsume KWBody.pLetOrUseBody Complete.keyword)
+                struct (Token.KWMatch, kwPrefixNoConsume KWBody.pMatchExpr Complete.forE)
+                struct (Token.KWIf, kwPrefixNoConsume KWBody.pIfExpr Complete.forE)
+                struct (Token.KWFun, kwPrefixNoConsume KWBody.pFunExpr Complete.forE)
                 struct (Token.KWDo, kwPrefixConsume KWBody.pYieldReturnDoBody Complete.keyword)
-                struct (Token.KWDoBang, kwPrefixConsume KWBody.pYieldReturnDoBody Complete.keyword)
-                struct (Token.KWReturn, kwPrefixConsume KWBody.pYieldReturnDoBody Complete.keyword)
-                struct (Token.KWReturnBang, kwPrefixConsume KWBody.pYieldReturnDoBody Complete.keyword)
-                struct (Token.KWYield, kwPrefixConsume KWBody.pYieldReturnDoBody Complete.keyword)
+                struct (Token.KWFor, kwPrefixNoConsume KWBody.pForExpr Complete.forE)
                 struct (Token.KWYieldBang, kwPrefixConsume KWBody.pYieldReturnDoBody Complete.keyword)
+                struct (Token.KWYield, kwPrefixConsume KWBody.pYieldReturnDoBody Complete.keyword)
+                struct (Token.KWReturn, kwPrefixConsume KWBody.pYieldReturnDoBody Complete.keyword)
+                struct (Token.KWTry, kwPrefixNoConsume KWBody.pTryExpr Complete.forE)
+                struct (Token.KWFunction, kwPrefixNoConsume KWBody.pFunctionExpr Complete.forE)
+                struct (Token.KWUse, kwPrefixNoConsume KWBody.pLetOrUseBody Complete.keyword)
+                struct (Token.KWLetBang, kwPrefixNoConsume KWBody.pLetOrUseBody Complete.keyword)
+                struct (Token.KWDoBang, kwPrefixConsume KWBody.pYieldReturnDoBody Complete.keyword)
+                struct (Token.KWWhile, kwPrefixNoConsume KWBody.pWhileExpr Complete.forE)
+                struct (Token.KWReturnBang, kwPrefixConsume KWBody.pYieldReturnDoBody Complete.keyword)
+                struct (Token.KWMatchBang, kwPrefixNoConsume KWBody.pMatchExpr Complete.forE)
+                struct (Token.KWUseBang, kwPrefixNoConsume KWBody.pLetOrUseBody Complete.keyword)
             |]
 
         let lhsParser =
@@ -2546,34 +2546,35 @@ module Expr =
     let parseAtomic =
         dispatchNextNonTriviaTokenFallback
             [
-                // TODO: Performance, sort this by frequency and put most common cases first
-                Token.Identifier, pIdentExpr
-                Token.BacktickedIdentifier, pIdentExpr
-                Token.UnterminatedBacktickedIdentifier, pIdentExpr
-                //Token.Unit, pConst
+                // Ordered by approximate token frequency in idiomatic F# source (see
+                // keyword/token histogram over the F# compiler corpus). `dispatchNextNonTriviaTokenFallback`
+                // does a linear scan, so common cases should come first.
                 // Note: KWLet, KWIf, KWMatch, KWFunction, KWFun, KWTry, KWWhile, KWFor, KWUse
-                // are handled as PrefixMapped operators in ExprOperatorParser.lhsParser.
+                // are handled as PrefixMapped operators in ExprOperatorParser.lhsParser,
+                // not here.
+                Token.Identifier, pIdentExpr
                 Token.KWLParen, recoverExpr pParen
-                //Token.OpNil, recoverExpr pList
+                Token.StringOpen, pString
                 Token.KWLBracket, recoverExpr pList
-                Token.KWLArrayBracket, recoverExpr pArray
-                Token.KWBegin, recoverExpr pBeginEnd
-                Token.KWStruct, recoverExpr pStructTuple
-                Token.KWNew, recoverExpr pNewExpr
+                Token.VerbatimStringOpen, pString
                 Token.KWLBrace, recoverExpr pRecordOrObjectExpr
-                Token.KWLBraceBar, recoverExpr pAnonRecordExpr
-                Token.OpQuotationTypedLeft, recoverExpr pQuoteTyped
-                Token.OpQuotationUntypedLeft, recoverExpr pQuoteUntyped
+                Token.String3Open, pString
                 Token.InterpolatedStringOpen, pString
+                Token.KWLArrayBracket, recoverExpr pArray
+                Token.KWNew, recoverExpr pNewExpr
+                Token.KWLHashParen, pILIntrinsic
+                Token.Wildcard, (nextNonTriviaTokenIsL Token.Wildcard "_" |>> Expr.Wildcard)
+                Token.KWStruct, recoverExpr pStructTuple
+                Token.KWLBraceBar, recoverExpr pAnonRecordExpr
                 Token.VerbatimInterpolatedStringOpen, pString
                 Token.Interpolated3StringOpen, pString
-                Token.StringOpen, pString
-                Token.VerbatimStringOpen, pString
-                Token.String3Open, pString
-                Token.KWLHashParen, pILIntrinsic
-                Token.KWBase, (nextNonTriviaTokenIsL Token.KWBase "base" |>> Expr.Ident)
-                Token.Wildcard, (nextNonTriviaTokenIsL Token.Wildcard "_" |>> Expr.Wildcard)
+                Token.BacktickedIdentifier, pIdentExpr
                 Token.OpDynamic, pOptionalArgExpr
+                Token.KWBegin, recoverExpr pBeginEnd
+                Token.OpQuotationTypedLeft, recoverExpr pQuoteTyped
+                Token.OpQuotationUntypedLeft, recoverExpr pQuoteUntyped
+                Token.KWBase, (nextNonTriviaTokenIsL Token.KWBase "base" |>> Expr.Ident)
+                Token.UnterminatedBacktickedIdentifier, pIdentExpr
             ]
             pConst
 

@@ -701,12 +701,12 @@ module MemberDefn =
     let private memberDefnDispatcher =
         dispatchNextNonTriviaTokenFallback
             [
-                Token.KWStatic, pStaticMemberDefn
                 Token.KWMember, pMemberDefn
-                Token.KWAbstract, pAbstractMemberDefn
+                Token.KWStatic, pStaticMemberDefn
                 Token.KWOverride, pOverrideMemberDefn
-                Token.KWDefault, pDefaultMemberDefn
                 Token.KWVal, pValueMemberDefn
+                Token.KWAbstract, pAbstractMemberDefn
+                Token.KWDefault, pDefaultMemberDefn
             ]
             pAdditionalConstrDefn
 
