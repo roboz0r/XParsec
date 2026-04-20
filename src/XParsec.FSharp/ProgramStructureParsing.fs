@@ -54,7 +54,7 @@ module ImplementationFile =
 module FSharpAst =
     /// Succeeds at end-of-file by consuming the EOF sentinel token (skipping trivia and directives).
     /// We also check that the reader is indeed at EOF to avoid accepting spurious tokens after a successful parse.
-    let private pEof = nextNonTriviaTokenIsL Token.EOF "Expected end of file" .>> eof
+    let private pEof = nextNonTriviaTokenIsLMsg Token.EOF "Expected end of file" .>> eof
 
     let private pNormal =
         choiceL

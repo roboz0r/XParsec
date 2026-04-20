@@ -19,6 +19,21 @@ module internal Keywords =
             ReadableImmutableArraySlice<PositionedToken>
          >
 
+    // Construct the ErrorType.Message statically per binding so each `pX` allocates
+    // it exactly once at module load and captures it in the returned closure.
+    // Without this, `fail (Message msg)` re-allocated the Message on every failure.
+    let inline private mkKW (t: Token) (msg: string) : KWParser =
+        let err: ErrorType<PositionedToken, ParseState> = Message msg
+        nextNonTriviaTokenIsL t err
+
+    let inline private mkKWPred (pred: SyntaxToken -> bool) (msg: string) : KWParser =
+        let err: ErrorType<PositionedToken, ParseState> = Message msg
+        nextNonTriviaTokenSatisfiesL pred err
+
+    let inline private mkKWIdent (msg: string) : KWParser =
+        let err: ErrorType<PositionedToken, ParseState> = Message msg
+        nextNonTriviaIdentifierL err
+
     let isAccessModifier (token: SyntaxToken) =
         match token.Token with
         | Token.KWPrivate
@@ -26,149 +41,149 @@ module internal Keywords =
         | Token.KWInternal -> true
         | _ -> false
 
-    let pMutable: KWParser =
-        nextNonTriviaTokenIsL Token.KWMutable "Expected 'mutable' keyword"
+    let pMutable: KWParser = mkKW Token.KWMutable "Expected 'mutable' keyword"
 
-    let pWith: KWParser = nextNonTriviaTokenIsL Token.KWWith "Expected 'with' keyword"
+    let pWith: KWParser = mkKW Token.KWWith "Expected 'with' keyword"
 
-    let pThen: KWParser = nextNonTriviaTokenIsL Token.KWThen "Expected 'then' keyword"
+    let pThen: KWParser = mkKW Token.KWThen "Expected 'then' keyword"
 
-    let pElse: KWParser = nextNonTriviaTokenIsL Token.KWElse "Expected 'else' keyword"
+    let pElse: KWParser = mkKW Token.KWElse "Expected 'else' keyword"
 
-    let pDo: KWParser = nextNonTriviaTokenIsL Token.KWDo "Expected 'do' keyword"
+    let pDo: KWParser = mkKW Token.KWDo "Expected 'do' keyword"
 
     let pAccessModifier: KWParser =
-        nextNonTriviaTokenSatisfiesL isAccessModifier "Expected access modifier (private, public or internal)"
+        mkKWPred isAccessModifier "Expected access modifier (private, public or internal)"
 
-    let pEquals: KWParser = nextNonTriviaTokenIsL Token.OpEquality "Expected '=' symbol"
+    let pEquals: KWParser = mkKW Token.OpEquality "Expected '=' symbol"
 
-    let pIn: KWParser = nextNonTriviaTokenIsL Token.KWIn "Expected 'in' keyword"
+    let pIn: KWParser = mkKW Token.KWIn "Expected 'in' keyword"
 
     let pLet: KWParser =
         // TODO: Where does VirtualLet get inserted?
-        nextNonTriviaTokenIsL Token.KWLet "Expected 'let' keyword"
+        mkKW Token.KWLet "Expected 'let' keyword"
 
-    let pFor: KWParser = nextNonTriviaTokenIsL Token.KWFor "for"
+    let pFor: KWParser = mkKW Token.KWFor "for"
 
-    let pArrowRight: KWParser = nextNonTriviaTokenIsL Token.OpArrowRight "->"
+    let pArrowRight: KWParser = mkKW Token.OpArrowRight "->"
 
-    let pLetBang: KWParser = nextNonTriviaTokenIsL Token.KWLetBang "let!"
+    let pLetBang: KWParser = mkKW Token.KWLetBang "let!"
 
-    let pUseBang: KWParser = nextNonTriviaTokenIsL Token.KWUseBang "use!"
+    let pUseBang: KWParser = mkKW Token.KWUseBang "use!"
 
-    let pUse: KWParser = nextNonTriviaTokenIsL Token.KWUse "use"
-    let pDoBang: KWParser = nextNonTriviaTokenIsL Token.KWDoBang "do!"
+    let pUse: KWParser = mkKW Token.KWUse "use"
+    let pDoBang: KWParser = mkKW Token.KWDoBang "do!"
 
-    let pYieldBang: KWParser = nextNonTriviaTokenIsL Token.KWYieldBang "yield!"
-    let pReturnBang: KWParser = nextNonTriviaTokenIsL Token.KWReturnBang "return!"
+    let pYieldBang: KWParser = mkKW Token.KWYieldBang "yield!"
+    let pReturnBang: KWParser = mkKW Token.KWReturnBang "return!"
 
-    let pMatchBang: KWParser = nextNonTriviaTokenIsL Token.KWMatchBang "match!"
+    let pMatchBang: KWParser = mkKW Token.KWMatchBang "match!"
 
-    let pYield: KWParser = nextNonTriviaTokenIsL Token.KWYield "yield"
+    let pYield: KWParser = mkKW Token.KWYield "yield"
 
-    let pReturn: KWParser = nextNonTriviaTokenIsL Token.KWReturn "return"
+    let pReturn: KWParser = mkKW Token.KWReturn "return"
 
-    let pMatch: KWParser = nextNonTriviaTokenIsL Token.KWMatch "match"
-    let pIf: KWParser = nextNonTriviaTokenIsL Token.KWIf "if"
-    let pLazy: KWParser = nextNonTriviaTokenIsL Token.KWLazy "lazy"
-    let pAssert: KWParser = nextNonTriviaTokenIsL Token.KWAssert "assert"
-    let pTry: KWParser = nextNonTriviaTokenIsL Token.KWTry "try"
-    let pFinally: KWParser = nextNonTriviaTokenIsL Token.KWFinally "finally"
+    let pMatch: KWParser = mkKW Token.KWMatch "match"
+    let pIf: KWParser = mkKW Token.KWIf "if"
+    let pLazy: KWParser = mkKW Token.KWLazy "lazy"
+    let pAssert: KWParser = mkKW Token.KWAssert "assert"
+    let pTry: KWParser = mkKW Token.KWTry "try"
+    let pFinally: KWParser = mkKW Token.KWFinally "finally"
 
-    let pWhile: KWParser = nextNonTriviaTokenIsL Token.KWWhile "while"
-    let pFun: KWParser = nextNonTriviaTokenIsL Token.KWFun "fun"
-    let pFunction: KWParser = nextNonTriviaTokenIsL Token.KWFunction "function"
+    let pWhile: KWParser = mkKW Token.KWWhile "while"
+    let pFun: KWParser = mkKW Token.KWFun "fun"
+    let pFunction: KWParser = mkKW Token.KWFunction "function"
 
-    let pDone: KWParser = nextNonTriviaTokenIsL Token.KWDone "done"
+    let pDone: KWParser = mkKW Token.KWDone "done"
 
-    let pIdent: KWParser = nextNonTriviaIdentifierL "identifier"
+    let pIdent: KWParser = mkKWIdent "identifier"
 
     let pToOrDownTo: KWParser =
-        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWTo || t.Token = Token.KWDownto) "to/downto"
+        mkKWPred (fun t -> t.Token = Token.KWTo || t.Token = Token.KWDownto) "to/downto"
 
-    let pLParen: KWParser = nextNonTriviaTokenIsL Token.KWLParen "("
-    let pRParen: KWParser = nextNonTriviaTokenIsL Token.KWRParen ")"
-    let pOpConcatenate: KWParser = nextNonTriviaTokenIsL Token.OpConcatenate "^"
-    let pOpMultiply: KWParser = nextNonTriviaTokenIsL Token.OpMultiply "*"
+    let pLParen: KWParser = mkKW Token.KWLParen "("
+    let pRParen: KWParser = mkKW Token.KWRParen ")"
+    let pOpConcatenate: KWParser = mkKW Token.OpConcatenate "^"
+    let pOpMultiply: KWParser = mkKW Token.OpMultiply "*"
 
     // Symbol parsers
-    let pComma: KWParser = nextNonTriviaTokenIsL Token.OpComma ","
-    let pSemi: KWParser = nextNonTriviaTokenIsL Token.OpSemicolon ";"
-    let pColon: KWParser = nextNonTriviaTokenIsL Token.OpColon ":"
-    let pDot: KWParser = nextNonTriviaTokenIsL Token.OpDot "."
-    let pBar: KWParser = nextNonTriviaTokenIsL Token.OpBar "|"
+    let pComma: KWParser = mkKW Token.OpComma ","
+    let pSemi: KWParser = mkKW Token.OpSemicolon ";"
+    let pColon: KWParser = mkKW Token.OpColon ":"
+    let pDot: KWParser = mkKW Token.OpDot "."
+    let pBar: KWParser = mkKW Token.OpBar "|"
 
     let pLessThan: KWParser =
+        // Hoisted err — re-used across every invocation.
+        let err: ErrorType<PositionedToken, ParseState> = Message "<"
+
         parser {
             let! state = getUserState
-            return! nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpLessThan && tokenStringIs "<" t state) "<"
+            return! nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpLessThan && tokenStringIs "<" t state) err
         }
 
     let pGreaterThan: KWParser =
+        let err: ErrorType<PositionedToken, ParseState> = Message ">"
+
         parser {
             let! state = getUserState
 
             return!
-                nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpGreaterThan && tokenStringIs ">" t state) ">"
+                nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpGreaterThan && tokenStringIs ">" t state) err
         }
 
-    let pLBracket: KWParser = nextNonTriviaTokenIsL Token.KWLBracket "["
-    let pRBracket: KWParser = nextNonTriviaTokenIsL Token.KWRBracket "]"
-    let pLBrace: KWParser = nextNonTriviaTokenIsL Token.KWLBrace "{"
-    let pRBrace: KWParser = nextNonTriviaTokenIsL Token.KWRBrace "}"
-    let pRange: KWParser = nextNonTriviaTokenIsL Token.OpRange ".."
-    let pHash: KWParser = nextNonTriviaTokenIsL Token.KWHash "#"
-    let pWildcard: KWParser = nextNonTriviaTokenIsL Token.Wildcard "_"
+    let pLBracket: KWParser = mkKW Token.KWLBracket "["
+    let pRBracket: KWParser = mkKW Token.KWRBracket "]"
+    let pLBrace: KWParser = mkKW Token.KWLBrace "{"
+    let pRBrace: KWParser = mkKW Token.KWRBrace "}"
+    let pRange: KWParser = mkKW Token.OpRange ".."
+    let pHash: KWParser = mkKW Token.KWHash "#"
+    let pWildcard: KWParser = mkKW Token.Wildcard "_"
 
     // Additional keyword parsers
-    let pBegin: KWParser = nextNonTriviaTokenIsL Token.KWBegin "begin"
-    let pEnd: KWParser = nextNonTriviaTokenIsL Token.KWEnd "end"
-    let pStruct: KWParser = nextNonTriviaTokenIsL Token.KWStruct "struct"
-    let pClass: KWParser = nextNonTriviaTokenIsL Token.KWClass "class"
-    let pInterface: KWParser = nextNonTriviaTokenIsL Token.KWInterface "interface"
-    let pInherit: KWParser = nextNonTriviaTokenIsL Token.KWInherit "inherit"
-    let pNew: KWParser = nextNonTriviaTokenIsL Token.KWNew "new"
+    let pBegin: KWParser = mkKW Token.KWBegin "begin"
+    let pEnd: KWParser = mkKW Token.KWEnd "end"
+    let pStruct: KWParser = mkKW Token.KWStruct "struct"
+    let pClass: KWParser = mkKW Token.KWClass "class"
+    let pInterface: KWParser = mkKW Token.KWInterface "interface"
+    let pInherit: KWParser = mkKW Token.KWInherit "inherit"
+    let pNew: KWParser = mkKW Token.KWNew "new"
     // Uncomment when needed
-    let pModule: KWParser = nextNonTriviaTokenIsL Token.KWModule "module"
-    let pRec: KWParser = nextNonTriviaTokenIsL Token.KWRec "rec"
-    let pNamespace: KWParser = nextNonTriviaTokenIsL Token.KWNamespace "namespace"
-    let pGlobal: KWParser = nextNonTriviaTokenIsL Token.KWGlobal "global"
-    let pOpen: KWParser = nextNonTriviaTokenIsL Token.KWOpen "open"
-    let pAs: KWParser = nextNonTriviaTokenIsL Token.KWAs "as"
-    let pWhen: KWParser = nextNonTriviaTokenIsL Token.KWWhen "when"
-    let pAnd: KWParser = nextNonTriviaTokenIsL Token.KWAnd "and"
-    let pOr: KWParser = nextNonTriviaTokenIsL Token.KWOr "or"
-    let pStatic: KWParser = nextNonTriviaTokenIsL Token.KWStatic "static"
-    let pInline: KWParser = nextNonTriviaTokenIsL Token.KWInline "inline"
-    let pMember: KWParser = nextNonTriviaTokenIsL Token.KWMember "member"
-    let pOverride: KWParser = nextNonTriviaTokenIsL Token.KWOverride "override"
-    let pAbstract: KWParser = nextNonTriviaTokenIsL Token.KWAbstract "abstract"
-    let pDefault: KWParser = nextNonTriviaTokenIsL Token.KWDefault "default"
-    let pVal: KWParser = nextNonTriviaTokenIsL Token.KWVal "val"
-    let pType: KWParser = nextNonTriviaTokenIsL Token.KWType "type"
-    let pException: KWParser = nextNonTriviaTokenIsL Token.KWException "exception"
-    let pDelegate: KWParser = nextNonTriviaTokenIsL Token.KWDelegate "delegate"
-    let pOf: KWParser = nextNonTriviaTokenIsL Token.KWOf "of"
-    let pNull: KWParser = nextNonTriviaTokenIsL Token.KWNull "null"
-    let pElif: KWParser = nextNonTriviaTokenIsL Token.KWElif "elif"
-    let pQuestionMark: KWParser = nextNonTriviaTokenIsL Token.OpDynamic "?"
-    let pSingleQuote: KWParser = nextNonTriviaTokenIsL Token.KWSingleQuote "'"
+    let pModule: KWParser = mkKW Token.KWModule "module"
+    let pRec: KWParser = mkKW Token.KWRec "rec"
+    let pNamespace: KWParser = mkKW Token.KWNamespace "namespace"
+    let pGlobal: KWParser = mkKW Token.KWGlobal "global"
+    let pOpen: KWParser = mkKW Token.KWOpen "open"
+    let pAs: KWParser = mkKW Token.KWAs "as"
+    let pWhen: KWParser = mkKW Token.KWWhen "when"
+    let pAnd: KWParser = mkKW Token.KWAnd "and"
+    let pOr: KWParser = mkKW Token.KWOr "or"
+    let pStatic: KWParser = mkKW Token.KWStatic "static"
+    let pInline: KWParser = mkKW Token.KWInline "inline"
+    let pMember: KWParser = mkKW Token.KWMember "member"
+    let pOverride: KWParser = mkKW Token.KWOverride "override"
+    let pAbstract: KWParser = mkKW Token.KWAbstract "abstract"
+    let pDefault: KWParser = mkKW Token.KWDefault "default"
+    let pVal: KWParser = mkKW Token.KWVal "val"
+    let pType: KWParser = mkKW Token.KWType "type"
+    let pException: KWParser = mkKW Token.KWException "exception"
+    let pDelegate: KWParser = mkKW Token.KWDelegate "delegate"
+    let pOf: KWParser = mkKW Token.KWOf "of"
+    let pNull: KWParser = mkKW Token.KWNull "null"
+    let pElif: KWParser = mkKW Token.KWElif "elif"
+    let pQuestionMark: KWParser = mkKW Token.OpDynamic "?"
+    let pSingleQuote: KWParser = mkKW Token.KWSingleQuote "'"
 
-    let pQuotationTypedLeft: KWParser =
-        nextNonTriviaTokenIsL Token.OpQuotationTypedLeft "<@"
+    let pQuotationTypedLeft: KWParser = mkKW Token.OpQuotationTypedLeft "<@"
 
-    let pQuotationTypedRight: KWParser =
-        nextNonTriviaTokenIsL Token.OpQuotationTypedRight "@>"
+    let pQuotationTypedRight: KWParser = mkKW Token.OpQuotationTypedRight "@>"
 
-    let pQuotationUntypedLeft: KWParser =
-        nextNonTriviaTokenIsL Token.OpQuotationUntypedLeft "<@@"
+    let pQuotationUntypedLeft: KWParser = mkKW Token.OpQuotationUntypedLeft "<@@"
 
-    let pQuotationUntypedRight: KWParser =
-        nextNonTriviaTokenIsL Token.OpQuotationUntypedRight "@@>"
+    let pQuotationUntypedRight: KWParser = mkKW Token.OpQuotationUntypedRight "@@>"
 
-    //let pNil: KWParser = nextNonTriviaTokenIsL Token.OpNil "[]"
-    let pLArrayBracket: KWParser = nextNonTriviaTokenIsL Token.KWLArrayBracket "[|"
-    let pRArrayBracket: KWParser = nextNonTriviaTokenIsL Token.KWRArrayBracket "|]"
-    let pLBraceBar: KWParser = nextNonTriviaTokenIsL Token.KWLBraceBar "{|"
-    let pRBraceBar: KWParser = nextNonTriviaTokenIsL Token.KWRBraceBar "|}"
-    let pTypeTest: KWParser = nextNonTriviaTokenIsL Token.OpTypeTest ":?"
+    //let pNil: KWParser = mkKW Token.OpNil "[]"
+    let pLArrayBracket: KWParser = mkKW Token.KWLArrayBracket "[|"
+    let pRArrayBracket: KWParser = mkKW Token.KWRArrayBracket "|]"
+    let pLBraceBar: KWParser = mkKW Token.KWLBraceBar "{|"
+    let pRBraceBar: KWParser = mkKW Token.KWRBraceBar "|}"
+    let pTypeTest: KWParser = mkKW Token.OpTypeTest ":?"

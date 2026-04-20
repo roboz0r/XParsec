@@ -135,7 +135,7 @@ module ElifBranches =
 
 module Binding =
     let private pMutableTok =
-        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.KWMutable) "Expected 'mutable'"
+        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.KWMutable) "Expected 'mutable'"
 
     /// Build the Pat head from an IdentOrOp
     let private headPatOfIdentOrOp (identOrOp: IdentOrOp<SyntaxToken>) : Pat<SyntaxToken> =
@@ -655,7 +655,7 @@ module Expr =
                 p
 
         // Used for for-to and use identifiers (not the dot-access pIdent above)
-        let pIdentTok = nextNonTriviaIdentifierL "identifier"
+        let pIdentTok = nextNonTriviaIdentifierLMsg "identifier"
 
         let pDoneVirt reader =
             match peekNextNonTriviaToken reader with
@@ -1230,7 +1230,7 @@ module Expr =
 
         let pTypeAppRhs =
             parser {
-                let! lAngle = nextNonTriviaTokenIsL Token.OpLessThan "Expected '<' for type application"
+                let! lAngle = nextNonTriviaTokenIsLMsg Token.OpLessThan "Expected '<' for type application"
                 let! types, commas = sepBy Type.parse pComma
 
                 let! state = getUserState
@@ -1454,7 +1454,7 @@ module Expr =
     /// loop. Unlike the first comma (which is identified by the full RHS
     /// operator dispatcher), this parser only needs to recognise another `,`.
     let private pTupleComma: Parser<SyntaxToken, _, _, _, _> =
-        nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpComma) "','"
+        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.OpComma) "','"
 
     /// Matches a real `;` or emits a layout-sensitive `VirtualSep` when the
     /// next token can start an expression at the enclosing context's indent.
@@ -1497,7 +1497,7 @@ module Expr =
             printfn
                 $"Operator: {op.PositionedToken}({op.StartIndex}), Precedence: {op.Precedence}, Associativity: %A{op.Associativity}"
 
-        let pIdentAfterDot = nextNonTriviaIdentifierL "Expected identifier after '.'"
+        let pIdentAfterDot = nextNonTriviaIdentifierLMsg "Expected identifier after '.'"
 
         let parseDotRhs: Parser<ExprAux, PositionedToken, ParseState, ReadableImmutableArray<_>, _> =
             // Note: cannot use module-level pIdent here as that maps to Expr.Ident
@@ -1525,7 +1525,7 @@ module Expr =
                     // .N — positional DU field access (e.g. cons.( :: ).1)
                     parser {
                         let! intTok =
-                            nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.NumInt32) "integer field index"
+                            nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.NumInt32) "integer field index"
 
                         return ExprAux.Ident intTok
                     }
@@ -1970,7 +1970,9 @@ module Expr =
                                         ValueSome fc
                                     | _ -> ValueNone
 
-                                match nextNonTriviaTokenIsL Token.InterpolatedExpressionClose "Expected }" reader with
+                                match
+                                    nextNonTriviaTokenIsLMsg Token.InterpolatedExpressionClose "Expected }" reader
+                                with
                                 | Error e -> Error e
                                 | Ok rBrace ->
                                     parts.Add(StringPart.Expr(ValueSome formatSpec, lBrace, expr, formatClause, rBrace))
@@ -1998,7 +2000,7 @@ module Expr =
                                 ValueSome fc
                             | _ -> ValueNone
 
-                        match nextNonTriviaTokenIsL Token.InterpolatedExpressionClose "Expected }" reader with
+                        match nextNonTriviaTokenIsLMsg Token.InterpolatedExpressionClose "Expected }" reader with
                         | Error e -> Error e
                         | Ok rBrace ->
                             parts.Add(StringPart.Expr(ValueNone, lBrace, expr, formatClause, rBrace))
@@ -2013,7 +2015,7 @@ module Expr =
             | Ok _ -> Ok parts
 
         parser {
-            let! opening = nextNonTriviaTokenSatisfiesL (fun t -> isStringOpen t.Token) "Expected string open"
+            let! opening = nextNonTriviaTokenSatisfiesLMsg (fun t -> isStringOpen t.Token) "Expected string open"
 
             let kind = stringKindOfToken opening
 
@@ -2026,12 +2028,12 @@ module Expr =
 
             let! parts = loop isInterpolated (ResizeArray())
 
-            let! closing = nextNonTriviaTokenSatisfiesL (fun t -> isStringClose t.Token) "Expected string close"
+            let! closing = nextNonTriviaTokenSatisfiesLMsg (fun t -> isStringClose t.Token) "Expected string close"
 
             return Expr.String(kind, ImmutableArray.CreateRange parts, closing)
         }
 
-    let pIdentExpr = nextNonTriviaIdentifierL "Expected identifier" |>> Expr.Ident
+    let pIdentExpr = nextNonTriviaIdentifierLMsg "Expected identifier" |>> Expr.Ident
 
     let private pEnclosed =
         let completeEmpty l r = Expr.EmptyBlock(l, r)
@@ -2071,8 +2073,8 @@ module Expr =
                     let! staticTypars = StaticTypars.parse
                     let! colon = pColon
                     let! lParenMember = pLParen
-                    let! staticTok = opt (nextNonTriviaTokenIsL Token.KWStatic "static")
-                    let! memberTok = nextNonTriviaTokenIsL Token.KWMember "member"
+                    let! staticTok = opt pStatic
+                    let! memberTok = pMember
                     let! membersig = Constraint.pConstraintMemberSig
                     let! rParenMember = pRParen
                     let! expr = refExprSeqBlock.Parser
@@ -2219,7 +2221,7 @@ module Expr =
         parser {
             let! fields, seps = withContext OffsideContext.SeqBlock (sepBy1 FieldInitializer.parse pRecordFieldSep)
 
-            let! trailingSep = opt (nextNonTriviaTokenIsL Token.OpSemicolon ";")
+            let! trailingSep = opt pSemi
 
             let seps =
                 match trailingSep with
@@ -2334,7 +2336,7 @@ module Expr =
                                 opt (
                                     parser {
                                         let! asTok = pAs
-                                        let! ident = nextNonTriviaIdentifierL "identifier"
+                                        let! ident = pIdent
                                         return struct (asTok, ident)
                                     }
                                 )
@@ -2426,7 +2428,7 @@ module Expr =
 
     let private pILIntrinsic =
         // Structured IL intrinsic parser: (# "instr" type('T) args : retType #)
-        let pAnyToken = nextNonTriviaTokenSatisfiesL (fun _ -> true) "IL intrinsic token"
+        let pAnyToken = nextNonTriviaTokenSatisfiesLMsg (fun _ -> true) "IL intrinsic token"
 
         let pTypeArg (reader: Reader<PositionedToken, ParseState, _, _>) =
             // Parse type('T) or type ('T) — balanced parens after 'type' keyword
@@ -2436,7 +2438,7 @@ module Expr =
                 match consumePeeked tok reader with
                 | Error e -> Error e
                 | Ok typeKw ->
-                    match nextNonTriviaTokenIsL Token.KWLParen "(" reader with
+                    match nextNonTriviaTokenIsLMsg Token.KWLParen "(" reader with
                     | Error e -> Error e
                     | Ok lParen ->
                         let tokens = ResizeArray()
@@ -2467,7 +2469,7 @@ module Expr =
             | _ -> preturn ValueNone reader
 
         fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
-            match nextNonTriviaTokenIsL Token.KWLHashParen "(#" reader with
+            match nextNonTriviaTokenIsLMsg Token.KWLHashParen "(#" reader with
             | Error e -> Error e
             | Ok lHashParen ->
                 // Instruction string
@@ -2504,7 +2506,7 @@ module Expr =
                             match opt ReturnType.parse reader with
                             | Error e -> Error e
                             | Ok returnType ->
-                                match nextNonTriviaTokenIsL Token.KWRHashParen "#)" reader with
+                                match nextNonTriviaTokenIsLMsg Token.KWRHashParen "#)" reader with
                                 | Error e -> Error e
                                 | Ok rHashParen ->
                                     preturn
@@ -2539,7 +2541,7 @@ module Expr =
     let private pOptionalArgExpr =
         parser {
             let! qmark = pQuestionMark
-            let! ident = nextNonTriviaIdentifierL "Expected identifier after '?'"
+            let! ident = nextNonTriviaIdentifierLMsg "Expected identifier after '?'"
             return Expr.OptionalArgExpr(qmark, ident)
         }
 
@@ -2563,7 +2565,7 @@ module Expr =
                 Token.KWLArrayBracket, recoverExpr pArray
                 Token.KWNew, recoverExpr pNewExpr
                 Token.KWLHashParen, pILIntrinsic
-                Token.Wildcard, (nextNonTriviaTokenIsL Token.Wildcard "_" |>> Expr.Wildcard)
+                Token.Wildcard, (nextNonTriviaTokenIsLMsg Token.Wildcard "_" |>> Expr.Wildcard)
                 Token.KWStruct, recoverExpr pStructTuple
                 Token.KWLBraceBar, recoverExpr pAnonRecordExpr
                 Token.VerbatimInterpolatedStringOpen, pString
@@ -2573,7 +2575,7 @@ module Expr =
                 Token.KWBegin, recoverExpr pBeginEnd
                 Token.OpQuotationTypedLeft, recoverExpr pQuoteTyped
                 Token.OpQuotationUntypedLeft, recoverExpr pQuoteUntyped
-                Token.KWBase, (nextNonTriviaTokenIsL Token.KWBase "base" |>> Expr.Ident)
+                Token.KWBase, (nextNonTriviaTokenIsLMsg Token.KWBase "base" |>> Expr.Ident)
                 Token.UnterminatedBacktickedIdentifier, pIdentExpr
             ]
             pConst

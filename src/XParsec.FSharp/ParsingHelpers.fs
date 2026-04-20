@@ -718,17 +718,29 @@ module Parsing =
     let nextNonTriviaTokenVirtualIfNot t reader =
         nextNonTriviaTokenVirtualCore (fun _ -> ValueNone) t reader
 
-    let nextNonTriviaTokenSatisfiesL (predicate: SyntaxToken -> bool) msg reader =
-        match peekNextNonTriviaToken reader with
-        | Error e -> Error e
-        | Ok token ->
-            if predicate token then
-                consumePeeked token reader
-            else
-                fail (Message msg) reader
+    /// Primary API — takes a pre-built err. Callers are expected to build the `ErrorType.Message`
+    /// statically at their module level so it allocates exactly once, not per failure.
+    let nextNonTriviaTokenSatisfiesL (predicate: SyntaxToken -> bool) (err: ErrorType<PositionedToken, ParseState>) =
+        fun reader ->
+            match peekNextNonTriviaToken reader with
+            | Error e -> Error e
+            | Ok token ->
+                if predicate token then
+                    consumePeeked token reader
+                else
+                    fail err reader
 
-    let nextNonTriviaTokenIsL (t: Token) msg =
-        nextNonTriviaTokenSatisfiesL (fun synTok -> synTok.Token = t) msg
+    let nextNonTriviaTokenIsL (t: Token) (err: ErrorType<PositionedToken, ParseState>) =
+        nextNonTriviaTokenSatisfiesL (fun synTok -> synTok.Token = t) err
+
+    /// Convenience wrapper. Builds `Message msg` and delegates. Use this ONLY when the caller
+    /// binding is itself at module level (so the Message is allocated once per binding, not
+    /// per runtime invocation); inline uses inside a `parser { }` CE will re-allocate the
+    /// Message on every outer call.
+    let inline nextNonTriviaTokenSatisfiesLMsg (predicate: SyntaxToken -> bool) (msg: string) =
+        nextNonTriviaTokenSatisfiesL predicate (Message msg)
+
+    let inline nextNonTriviaTokenIsLMsg (t: Token) (msg: string) = nextNonTriviaTokenIsL t (Message msg)
 
     let isPlainStringOpen (tok: Token) =
         match tok with
@@ -816,22 +828,26 @@ module Parsing =
 
     /// Matches Token.Identifier, Token.BacktickedIdentifier, or Token.UnterminatedBacktickedIdentifier.
     /// Emits a diagnostic for unterminated backticked identifiers.
-    let nextNonTriviaIdentifierL msg (reader: Reader<PositionedToken, ParseState, _, _>) =
-        match peekNextNonTriviaToken reader with
-        | Error e -> Error e
-        | Ok token ->
-            match token.Token with
-            | Token.Identifier
-            | Token.BacktickedIdentifier -> consumePeeked token reader
-            | Token.UnterminatedBacktickedIdentifier ->
-                reader.State <-
-                    ParseState.addErrorDiagnostic
-                        (DiagnosticCode.Other "Unterminated backticked identifier")
-                        token.PositionedToken
-                        reader.State
+    /// Primary API — takes a pre-built err; callers should build Message statically at module level.
+    let nextNonTriviaIdentifierL (err: ErrorType<PositionedToken, ParseState>) =
+        fun (reader: Reader<PositionedToken, ParseState, _, _>) ->
+            match peekNextNonTriviaToken reader with
+            | Error e -> Error e
+            | Ok token ->
+                match token.Token with
+                | Token.Identifier
+                | Token.BacktickedIdentifier -> consumePeeked token reader
+                | Token.UnterminatedBacktickedIdentifier ->
+                    reader.State <-
+                        ParseState.addErrorDiagnostic
+                            (DiagnosticCode.Other "Unterminated backticked identifier")
+                            token.PositionedToken
+                            reader.State
 
-                consumePeeked token reader
-            | _ -> fail (Message msg) reader
+                    consumePeeked token reader
+                | _ -> fail err reader
+
+    let inline nextNonTriviaIdentifierLMsg (msg: string) = nextNonTriviaIdentifierL (Message msg)
 
     let dispatchNextNonTriviaTokenFallback (routes: (Token * Parser<_, _, _, _, _>) list) pFallback =
         // Note: Routes are typically <20 items, so linear search is fine. Likely to be 5 or less in practice.

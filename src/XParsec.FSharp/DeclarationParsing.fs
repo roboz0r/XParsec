@@ -29,7 +29,7 @@ module ModuleAbbrev =
     let parse =
         parser {
             let! modTok = pModule
-            let! ident = nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "Expected identifier"
+            let! ident = nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token.IsIdentifier) "Expected identifier"
             let! eq = pEquals
             let! lid = LongIdent.parse
             return ModuleAbbrev.ModuleAbbrev(modTok, ident, eq, lid)
@@ -45,9 +45,9 @@ module CompilerDirectiveDecl =
                 recoverWithVirtualToken
                     Token.Identifier
                     "Expected directive identifier after '#'"
-                    (nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "Directive identifier")
+                    (nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token.IsIdentifier) "Directive identifier")
 
-            let! strings = many (nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsText) "String argument")
+            let! strings = many (nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token.IsText) "String argument")
             return CompilerDirectiveDecl(hash, ident, strings)
         }
 
@@ -154,7 +154,7 @@ module ModuleDefn =
                 recoverWithVirtualToken
                     Token.Identifier
                     "Expected module identifier"
-                    (nextNonTriviaTokenSatisfiesL (fun t -> t.Token.IsIdentifier) "Module identifier")
+                    (nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token.IsIdentifier) "Module identifier")
 
             let! eq = recoverWithVirtualToken Token.OpEquality "Expected '=' after module identifier" pEquals
 
