@@ -143,15 +143,15 @@ The naive fix `opInfo.CanBePrefix` caused massive regression because `f + g` was
 ### 8. Parser: `#nowarn` / `#warnon` directives (ParsingHelpers.fs, ParsingTypes.fs) — RESOLVED
 
 **Symptom:** `#nowarn "9"` caused `UnexpectedTopLevel` parse error. Affected 5+ corpus files.
-**Root cause:** The lexer already emitted `Token.NoWarnDirective` / `Token.WarnOnDirective` tokens, but `nextNonTriviaTokenImpl` didn't handle them. They fell through as regular tokens.
+**Root cause:** The lexer already emitted `Token.NoWarnDirective` / `Token.WarnOnDirective` tokens, but `nextSyntaxTokenImpl` didn't handle them. They fell through as regular tokens.
 **Fix:** Added `processWarnDirective` function in `ParsingHelpers.fs` that:
 1. Scans the directive line for warning codes (bare integers like `#nowarn 6` or strings like `#nowarn "9"`)
 2. Accumulates `WarnDirective` entries in a new `ParseState.WarnDirectives` field
 3. Advances the reader past the directive line
-4. Tail-calls back to `nextNonTriviaTokenImpl`
+4. Tail-calls back to `nextSyntaxTokenImpl`
 
 Added `WarnDirective` struct type and `isWarningSuppressed` query helper in `ParsingTypes.fs`.
-Wired `NoWarnDirective`/`WarnOnDirective` dispatch into `nextNonTriviaTokenImpl` (after `EndIfDirective`, before trivia check).
+Wired `NoWarnDirective`/`WarnOnDirective` dispatch into `nextSyntaxTokenImpl` (after `EndIfDirective`, before trivia check).
 **Test:** `data/218_nowarn_directive.fs`
 **Corpus impact:** +3 clean files (ControlledExecution.fs, MutableTuple.fs, Nullable.fs)
 
@@ -375,12 +375,12 @@ type List<'T> =
    | ([])  :                  'T list
    | ( :: )  : Head: 'T * Tail: 'T list -> 'T list
 ```
-**Root cause:** After the GADT fix, DU cases accepted `ident : retType` / `ident : args -> retType`, but case names were parsed via `nextNonTriviaIdentifierL` — so `([])` and `( :: )` (FSharp.Core's internal `op_Nil` / `op_ColonColon` naming) failed on the leading `(`.
+**Root cause:** After the GADT fix, DU cases accepted `ident : retType` / `ident : args -> retType`, but case names were parsed via `nextSyntaxIdentifierL` — so `([])` and `( :: )` (FSharp.Core's internal `op_Nil` / `op_ColonColon` naming) failed on the leading `(`.
 
 **Fix:**
 - `src/XParsec.FSharp/Expr.fs` — added `OpName.NilOp(lBracket, rBracket)` for the `[]` operator form (not a symbolic op, so it didn't fit SymbolicOp/RangeOp/ActivePatternOp). Changed `UnionTypeCaseData` name fields from `'T` (raw ident token) to `IdentOrOp<'T>` across all four variants (`Nullary`, `Nary`, `GadtNary`, `GadtNullary`).
 - `src/XParsec.FSharp/PrimitivesParsing.fs` — added `pNilOp` (`[ ]`) to `OpName.parse`, tried between ActivePatternOp and SymbolicOp. Parenthesized forms flow through the existing `IdentOrOp.ParenOp` path. `::` is `KWColonColon`/`OpCons` (same numeric value), which is already in the `isOperatorKeyword` whitelist, so `pSymbolicOp` picks it up inside parens without extra work.
-- `src/XParsec.FSharp/TypeDefnParsing.fs` — swapped `nextNonTriviaIdentifierL "Union Case Name"` for `IdentOrOp.parse` in all four `UnionTypeCaseData` parsers. `ExceptionDefn` callsite wraps its plain ident in `IdentOrOp.Ident` to match.
+- `src/XParsec.FSharp/TypeDefnParsing.fs` — swapped `nextSyntaxIdentifierL "Union Case Name"` for `IdentOrOp.parse` in all four `UnionTypeCaseData` parsers. `ExceptionDefn` callsite wraps its plain ident in `IdentOrOp.Ident` to match.
 - `src/XParsec.FSharp/AstTraversal.fs` — added `OpName.NilOp` walker arm; `walkUnionCaseData` and the inline union-case walker now call `walkIdentOrOp` for the case name.
 
 **Test:** `data/370_gadt_operator_case_name.fs` — `type List<'T>` parses cleanly with `([])` → `ParenOp/NilOp` and `( :: )` → `ParenOp/SymbolicOp`.
@@ -469,7 +469,7 @@ All 32 previously-crashing files now parse successfully. The root cause was `pSe
 - `src/XParsec.FSharp/Lexing.fs` — `%%` fix, `$"""` quote fix, `KWHash` for standalone `#`, updated TODO comment for spec 3.8.1
 - `src/XParsec.FSharp/Token.fs` — `TokenInfo.canStartExpression` whitelist for virtual separator gating
 - `src/XParsec.FSharp/ExpressionParsing.fs` — RHS handler guard, `pApplication` prefix fix, `isAdjacentPrefixOp`, point-free active pattern in `Binding.parseFunction`, `pSepVirt` whitelist, `pTryExpr` restructured with manual Try context management
-- `src/XParsec.FSharp/ParsingHelpers.fs` — `trace` helper, `consumePeeked` tracing, `processWarnDirective`, `#nowarn`/`#warnon` dispatch in `nextNonTriviaTokenImpl`, `OpBar` as permitted undentation for Try context
+- `src/XParsec.FSharp/ParsingHelpers.fs` — `trace` helper, `consumePeeked` tracing, `processWarnDirective`, `#nowarn`/`#warnon` dispatch in `nextSyntaxTokenImpl`, `OpBar` as permitted undentation for Try context
 - `src/XParsec.FSharp/ParsingTypes.fs` — `TraceEvent.Message` case, `WarnDirective` type, `ParseState.WarnDirectives` field, `isWarningSuppressed` helper
 - `src/XParsec.FSharp/Debug.fs` — `printWarnDirectives` for golden file output
 - `src/XParsec.FSharp/KeywordParsing.fs` — `pHash` uses `KWHash` (was already correct, lexer was the issue)
@@ -609,10 +609,10 @@ These commits were made between sessions 4 and 5 and contributed to the corpus i
 
 ## Bugs Fixed — Session 5 (2026-04-05)
 
-### 27. Parser: High-precedence adjacency gating with `isPrevTokenNonTrivia` (ParsingHelpers.fs, ExpressionParsing.fs, ConstantParsing.fs) — RESOLVED
+### 27. Parser: High-precedence adjacency gating with `isPrevTokenSyntax` (ParsingHelpers.fs, ExpressionParsing.fs, ConstantParsing.fs) — RESOLVED
 **Symptom:** After `for...do...done` or `while...do...done`, the Pratt parser treated the next `(expr)` at the same indent as a high-precedence application argument, rather than a sequential expression. Also affected `<` for type application and measures.
-**Root cause:** `pHighPrecLParen`, `pHighPrecLBracket`, `pTypeApplication`, and `pMeasure` used `satisfy`/`satisfyL` to check the raw token, but by that point `peekNextNonTriviaToken` had already skipped intervening trivia. The raw token adjacency was an illusion — the previous consumed token could be trivia (whitespace/newline).
-**Fix:** Added `isPrevTokenNonTrivia` helper in `ParsingHelpers.fs` that checks `reader.Input[idx - 1]` against `isTriviaToken`. All four adjacency-sensitive parsers now gate on this check before attempting to match. Generalized `pHighPrecLParen`/`pHighPrecLBracket` into a single `pHighPrec` parameterized function.
+**Root cause:** `pHighPrecLParen`, `pHighPrecLBracket`, `pTypeApplication`, and `pMeasure` used `satisfy`/`satisfyL` to check the raw token, but by that point `peekNextSyntaxToken` had already skipped intervening trivia. The raw token adjacency was an illusion — the previous consumed token could be trivia (whitespace/newline).
+**Fix:** Added `isPrevTokenSyntax` helper in `ParsingHelpers.fs` that checks `reader.Input[idx - 1]` against `isTriviaToken`. All four adjacency-sensitive parsers now gate on this check before attempting to match. Generalized `pHighPrecLParen`/`pHighPrecLBracket` into a single `pHighPrec` parameterized function.
 **Test:** `data/304_for_loop_then_paren_expr.fs`
 
 ### 28. Parser: Nested fun body undentation past outer `Fun` contexts (ParsingHelpers.fs) — RESOLVED
@@ -658,7 +658,7 @@ These commits were made between sessions 4 and 5 and contributed to the corpus i
 ### Category F (resolved): Measure power with negative integer exponent
 **Syntax:** `type becquerel = second^-1`
 **Root cause:** `^-` is lexed as a fused custom operator at Append precedence (same as `**`), not as `OpConcatenate` + `OpSubtraction`. `pPowerRhs` never saw a power operator at all, and the retry-as-measure logic in `parseAbbrevOrImplicitClass` only checked for `OpConcatenate`.
-**Fix:** Mirrored the `>]` split pattern. Added `SplitPowerMinus: bool` flag to `ParseState`. `pSplitPowerOp` in `MeasureParsing.fs` peeks for a `^-` literal, sets the flag, and returns a virtual `^` so the Pratt parser dispatches to the power path. `nextNonTriviaTokenImpl` sees the flag on the next read and rewrites the `^-` token to `OpSubtraction` at `StartIndex + 1`, clearing the flag. `pPowerRhs` now accepts an optional leading `-` followed by the numeric exponent. `Measure.Power` gained an `neg: 'T voption` field. `parseAbbrevOrImplicitClass` retry-as-measure also checks for fused `^` via `tokenStringStartsWith "^"`.
+**Fix:** Mirrored the `>]` split pattern. Added `SplitPowerMinus: bool` flag to `ParseState`. `pSplitPowerOp` in `MeasureParsing.fs` peeks for a `^-` literal, sets the flag, and returns a virtual `^` so the Pratt parser dispatches to the power path. `nextSyntaxTokenImpl` sees the flag on the next read and rewrites the `^-` token to `OpSubtraction` at `StartIndex + 1`, clearing the flag. `pPowerRhs` now accepts an optional leading `-` followed by the numeric exponent. `Measure.Power` gained an `neg: 'T voption` field. `parseAbbrevOrImplicitClass` retry-as-measure also checks for fused `^` via `tokenStringStartsWith "^"`.
 **Files:** `src/XParsec.FSharp/MeasureParsing.fs`, `ParsingTypes.fs`, `ParsingHelpers.fs`, `Expr.fs`, `AstTraversal.fs`, `ConstantParsing.fs`, `TypeDefnParsing.fs`, `Debug.fs`.
 **Repro:** `data/330_measure_negative_exponent.fs` — parses cleanly.
 **Corpus impact:** SI.fs dropped from 1 diagnostic to 0 (clean).

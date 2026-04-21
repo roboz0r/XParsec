@@ -72,7 +72,7 @@ module Parsing =
     /// to the matching #else/#endif.
     /// Must be called with the reader positioned at the #if token (not yet consumed).
     let processIfDirective
-        (nextNonTriviaToken: Parser<_, _, _, _>)
+        (nextSyntaxToken: Parser<_, _, _, _>)
         (ifToken: PositionedToken)
         (reader: Reader<PositionedToken, ParseState, _>)
         =
@@ -85,7 +85,7 @@ module Parsing =
             if nextLine < lexed.LineStarts.LengthM then
                 lexed.LineStarts[nextLine]
             else
-                lexed.Tokens.LengthM - 1<_> // EOF, will be handled gracefully by nextNonTriviaToken
+                lexed.Tokens.LengthM - 1<_> // EOF, will be handled gracefully by nextSyntaxToken
 
         // Create a slice of just the #if directive line, carrying the absolute start index
         // so the IfExpr parser can compute absolute token indices for symbol name extraction.
@@ -99,17 +99,17 @@ module Parsing =
         | Ok ifExpr ->
             if IfExpr.evaluateStateful ifExpr reader.State then
                 // Condition is true: the then-branch is active.
-                // #else and #endif encountered later will be handled by nextNonTriviaToken.
-                nextNonTriviaToken reader
+                // #else and #endif encountered later will be handled by nextSyntaxToken.
+                nextSyntaxToken reader
             else if
                 // Condition is false: skip over the inactive then-branch.
                 skipInactiveBranch reader
             then
                 // Stopped at #else: the else-branch is now active
-                nextNonTriviaToken reader
+                nextSyntaxToken reader
             else
                 // Stopped at #endif: entire block skipped
-                nextNonTriviaToken reader
+                nextSyntaxToken reader
         | Error e ->
             // Invalid #if expression: record a diagnostic and treat the whole block as inactive
             let msg = $"Invalid #if expression: {e}"
@@ -117,10 +117,10 @@ module Parsing =
             reader.State <- addErrorDiagnostic (DiagnosticCode.Other msg) ifToken reader.State
 
             skipInactiveBranch reader |> ignore
-            nextNonTriviaToken reader
+            nextSyntaxToken reader
 
     let processWarnDirective
-        (nextNonTriviaToken: Parser<_, _, _, _>)
+        (nextSyntaxToken: Parser<_, _, _, _>)
         (isSuppress: bool)
         (_directiveToken: PositionedToken)
         (reader: Reader<PositionedToken, ParseState, _>)
@@ -194,7 +194,7 @@ module Parsing =
                 WarnDirectives = warnDirectives
             }
 
-        nextNonTriviaToken reader
+        nextSyntaxToken reader
 
     /// Returns the text length of the token at the given index in the lexed token array.
     let private getTokenLength (state: ParseState) (index: int<token>) =
@@ -541,29 +541,29 @@ module Parsing =
 
     let private errOffside: ErrorType<PositionedToken, ParseState> = Message "Offside"
 
-    let rec private nextNonTriviaTokenImpl isPeek (reader: Reader<PositionedToken, ParseState, _>) =
+    let rec private nextSyntaxTokenImpl isPeek (reader: Reader<PositionedToken, ParseState, _>) =
         match reader.Peek() with
         | ValueNone -> fail EndOfInput reader
         | ValueSome token when token.Token = Token.IfDirective ->
             // processIfDirective expects the reader to be positioned AT the #if token
-            processIfDirective (nextNonTriviaTokenImpl isPeek) token reader
+            processIfDirective (nextSyntaxTokenImpl isPeek) token reader
         | ValueSome token when token.Token = Token.ElseDirective ->
             // We are in an active then-branch that has reached its #else.
             // Skip the else-branch contents up to and including the matching #endif.
             reader.Skip() // consume #else
             skipElseBranch reader
-            nextNonTriviaTokenImpl isPeek reader
+            nextSyntaxTokenImpl isPeek reader
         | ValueSome token when token.Token = Token.EndIfDirective ->
             // End of a conditional block whose then-branch was active (no #else encountered).
             reader.Skip() // consume #endif
-            nextNonTriviaTokenImpl isPeek reader
+            nextSyntaxTokenImpl isPeek reader
         | ValueSome token when token.Token = Token.NoWarnDirective ->
-            processWarnDirective (nextNonTriviaTokenImpl isPeek) true token reader
+            processWarnDirective (nextSyntaxTokenImpl isPeek) true token reader
         | ValueSome token when token.Token = Token.WarnOnDirective ->
-            processWarnDirective (nextNonTriviaTokenImpl isPeek) false token reader
+            processWarnDirective (nextSyntaxTokenImpl isPeek) false token reader
         | ValueSome token when isTriviaToken reader.State token ->
             reader.Skip()
-            nextNonTriviaTokenImpl isPeek reader
+            nextSyntaxTokenImpl isPeek reader
         | ValueSome token ->
             // SplitRAttrBracket: when the measure parser consumed the `>` half of `>]`,
             // it sets this flag so the remaining `]` half is presented as KWRBracket.
@@ -640,18 +640,18 @@ module Parsing =
                     reader.Skip()
                     preturn t reader
 
-    let nextNonTriviaToken (reader: Reader<PositionedToken, ParseState, _>) = nextNonTriviaTokenImpl false reader
+    let nextSyntaxToken (reader: Reader<PositionedToken, ParseState, _>) = nextSyntaxTokenImpl false reader
 
     /// Advanced the reader to the next non-trivia token and returns it without consuming it.
     /// Allows parser to avoid re-skipping trivia tokens when it needs to look ahead at the next token to decide what to parse.
-    let peekNextNonTriviaToken (reader: Reader<PositionedToken, ParseState, _>) = nextNonTriviaTokenImpl true reader
+    let peekNextSyntaxToken (reader: Reader<PositionedToken, ParseState, _>) = nextSyntaxTokenImpl true reader
 
     /// Emits a trace message. Use with `do!` inside a `parser { }` CE for debugging.
     let trace (msg: string) (reader: Reader<PositionedToken, ParseState, _>) =
         reader.State.Trace.Message msg
         preturn () reader
 
-    /// Consumes the given token, which must have been previously returned by `peekNextNotTriviaToken`, and returns it.
+    /// Consumes the given token, which must have been previously returned by `peekNextSyntaxToken`, and returns it.
     let consumePeeked (token: SyntaxToken) (reader: Reader<PositionedToken, ParseState, _>) =
         match token.Index with
         | TokenIndex.Virtual -> invalidOp "Cannot consume a virtual token"
@@ -666,7 +666,7 @@ module Parsing =
     /// consumes it, and returns the token together with its column indent.
     /// Used by keyword expression parsers to capture the keyword's indent for offside context.
     let assertKeywordToken (expected: Token) (reader: Reader<PositionedToken, ParseState, _>) =
-        match peekNextNonTriviaToken reader with
+        match peekNextSyntaxToken reader with
         | Ok t when t.Token = expected ->
             (consumePeeked t
              |>> fun kwTok ->
@@ -681,7 +681,7 @@ module Parsing =
         | Error e -> Error e
 
     let assertKeywordTokens (expected1: Token) (expected2: Token) (reader: Reader<PositionedToken, ParseState, _>) =
-        match peekNextNonTriviaToken reader with
+        match peekNextSyntaxToken reader with
         | Ok t when t.Token = expected1 || t.Token = expected2 ->
             (consumePeeked t
              |>> fun kwTok ->
@@ -700,12 +700,12 @@ module Parsing =
     /// non-trivia token matches `t`, consume and return it. Otherwise produce a
     /// virtual token of kind `t` without consuming, optionally emitting an error
     /// diagnostic built by `mkDiag` from the token at the failure site.
-    let private nextNonTriviaTokenVirtualCore
+    let private nextSyntaxTokenVirtualCore
         (mkDiag: PositionedToken -> DiagnosticCode voption)
         t
         (reader: Reader<PositionedToken, ParseState, _>)
         =
-        match peekNextNonTriviaToken reader with
+        match peekNextSyntaxToken reader with
         | Ok token when token.Token = t ->
             // Real token matches: consume it and return it.
             consumePeeked token reader
@@ -735,14 +735,14 @@ module Parsing =
                 }
                 reader
 
-    let nextNonTriviaTokenVirtualIfNot t reader =
-        nextNonTriviaTokenVirtualCore (fun _ -> ValueNone) t reader
+    let nextSyntaxTokenVirtualIfNot t reader =
+        nextSyntaxTokenVirtualCore (fun _ -> ValueNone) t reader
 
     /// Primary API — takes a pre-built err. Callers are expected to build the `ErrorType.Message`
     /// statically at their module level so it allocates exactly once, not per failure.
-    let nextNonTriviaTokenSatisfiesL (predicate: SyntaxToken -> bool) (err: ErrorType<PositionedToken, ParseState>) =
+    let nextSyntaxTokenSatisfiesL (predicate: SyntaxToken -> bool) (err: ErrorType<PositionedToken, ParseState>) =
         fun reader ->
-            match peekNextNonTriviaToken reader with
+            match peekNextSyntaxToken reader with
             | Error e -> Error e
             | Ok token ->
                 if predicate token then
@@ -750,17 +750,17 @@ module Parsing =
                 else
                     fail err reader
 
-    let nextNonTriviaTokenIsL (t: Token) (err: ErrorType<PositionedToken, ParseState>) =
-        nextNonTriviaTokenSatisfiesL (fun synTok -> synTok.Token = t) err
+    let nextSyntaxTokenIsL (t: Token) (err: ErrorType<PositionedToken, ParseState>) =
+        nextSyntaxTokenSatisfiesL (fun synTok -> synTok.Token = t) err
 
     /// Convenience wrapper. Builds `Message msg` and delegates. Use this ONLY when the caller
     /// binding is itself at module level (so the Message is allocated once per binding, not
     /// per runtime invocation); inline uses inside a `parser { }` CE will re-allocate the
     /// Message on every outer call.
-    let inline nextNonTriviaTokenSatisfiesLMsg (predicate: SyntaxToken -> bool) (msg: string) =
-        nextNonTriviaTokenSatisfiesL predicate (Message msg)
+    let inline nextSyntaxTokenSatisfiesLMsg (predicate: SyntaxToken -> bool) (msg: string) =
+        nextSyntaxTokenSatisfiesL predicate (Message msg)
 
-    let inline nextNonTriviaTokenIsLMsg (t: Token) (msg: string) = nextNonTriviaTokenIsL t (Message msg)
+    let inline nextSyntaxTokenIsLMsg (t: Token) (msg: string) = nextSyntaxTokenIsL t (Message msg)
 
     let isPlainStringOpen (tok: Token) =
         match tok with
@@ -808,7 +808,7 @@ module Parsing =
 
     /// Parses a plain (non-interpolated) string literal into StringKind * StringPart list * closing token.
     let parsePlainStringLiteral msg (reader: Reader<PositionedToken, ParseState, _>) =
-        match peekNextNonTriviaToken reader with
+        match peekNextSyntaxToken reader with
         | Error e -> Error e
         | Ok token when isPlainStringOpen token.Token ->
             match consumePeeked token reader with
@@ -821,7 +821,7 @@ module Parsing =
                 let mutable error = ValueNone
 
                 while not finished do
-                    match peekNextNonTriviaToken reader with
+                    match peekNextSyntaxToken reader with
                     | Error e ->
                         error <- ValueSome e
                         finished <- true
@@ -849,9 +849,9 @@ module Parsing =
     /// Matches Token.Identifier, Token.BacktickedIdentifier, or Token.UnterminatedBacktickedIdentifier.
     /// Emits a diagnostic for unterminated backticked identifiers.
     /// Primary API — takes a pre-built err; callers should build Message statically at module level.
-    let nextNonTriviaIdentifierL (err: ErrorType<PositionedToken, ParseState>) =
+    let nextSyntaxIdentifierL (err: ErrorType<PositionedToken, ParseState>) =
         fun (reader: Reader<PositionedToken, ParseState, _>) ->
-            match peekNextNonTriviaToken reader with
+            match peekNextSyntaxToken reader with
             | Error e -> Error e
             | Ok token ->
                 match token.Token with
@@ -867,30 +867,30 @@ module Parsing =
                     consumePeeked token reader
                 | _ -> fail err reader
 
-    let inline nextNonTriviaIdentifierLMsg (msg: string) = nextNonTriviaIdentifierL (Message msg)
+    let inline nextSyntaxIdentifierLMsg (msg: string) = nextSyntaxIdentifierL (Message msg)
 
-    let dispatchNextNonTriviaTokenFallback (routes: (Token * Parser<_, _, _, _>) list) pFallback =
+    let dispatchNextSyntaxTokenFallback (routes: (Token * Parser<_, _, _, _>) list) pFallback =
         // Note: Routes are typically <20 items, so linear search is fine. Likely to be 5 or less in practice.
         // So an array is likely more efficient than a dictionary.
         let items = routes |> List.map fst |> Array.ofList
         let parsers = routes |> List.map snd |> Array.ofList
 
         parser {
-            let! next = peekNextNonTriviaToken
+            let! next = peekNextSyntaxToken
 
             match Array.tryFindIndexV (fun t -> next.Token = t) items with
             | ValueSome i -> return! parsers[i]
             | ValueNone -> return! pFallback
         }
 
-    let dispatchNextNonTriviaTokenL (routes: (Token * Parser<_, _, _, _>) list) fallbackMsg =
-        dispatchNextNonTriviaTokenFallback routes (fail (Message fallbackMsg))
+    let dispatchNextSyntaxTokenL (routes: (Token * Parser<_, _, _, _>) list) fallbackMsg =
+        dispatchNextSyntaxTokenFallback routes (fail (Message fallbackMsg))
 
     /// Checks that the raw token immediately before the current reader position is not trivia.
     /// Used by adjacency-based parsers (high-precedence application, type application, measures)
     /// to confirm the upcoming token is truly adjacent to the preceding expression token,
-    /// not just adjacent because peekNextNonTriviaToken consumed intervening trivia.
-    let isPrevTokenNonTrivia (reader: Reader<PositionedToken, ParseState, _>) =
+    /// not just adjacent because `peekNextSyntaxToken` consumed intervening trivia.
+    let isPrevTokenSyntax (reader: Reader<PositionedToken, ParseState, _>) =
         let idx = reader.Index
         idx > 0 && not (ParseState.isTriviaToken reader.State reader.Input[idx - 1])
 
@@ -902,9 +902,9 @@ module Parsing =
 
     /// Returns the column (0-based) of the next non-trivia token without consuming it.
     /// Returns -1 at EOF.
-    let peekNonTriviaIndent: Parser<int, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let peekSyntaxIndent: Parser<int, PositionedToken, ParseState, ReadableImmutableArray<_>> =
         lookAhead (fun r ->
-            match nextNonTriviaToken r with
+            match nextSyntaxToken r with
             | Error _ -> preturn -1 r
             | Ok token ->
                 match token.Index with
@@ -929,9 +929,9 @@ module Parsing =
                 }
                 reader
 
-    /// Like nextNonTriviaTokenVirtualIfNot but emits a UnclosedDelimiter diagnostic
+    /// Like nextSyntaxTokenVirtualIfNot but emits a UnclosedDelimiter diagnostic
     /// when the token must be synthesised.
-    let nextNonTriviaTokenVirtualWithDiagnostic (openTok: SyntaxToken voption) t reader =
+    let nextSyntaxTokenVirtualWithDiagnostic (openTok: SyntaxToken voption) t reader =
         let mkDiag _ =
             let code =
                 match openTok with
@@ -940,7 +940,7 @@ module Parsing =
 
             ValueSome code
 
-        nextNonTriviaTokenVirtualCore mkDiag t reader
+        nextSyntaxTokenVirtualCore mkDiag t reader
 
     /// Wraps a parser so that on failure, it emits a diagnostic and returns a virtual token
     /// of the given type. Used for committed-keyword recovery where the parser must not fail
@@ -954,7 +954,7 @@ module Parsing =
             match p reader with
             | Ok result -> Ok result
             | Error _ ->
-                match peekNextNonTriviaToken reader with
+                match peekNextSyntaxToken reader with
                 | Error e -> Error e
                 | Ok token ->
                     reader.State <-
@@ -981,7 +981,7 @@ module Parsing =
             match p reader with
             | Ok result -> Ok result
             | Error _ ->
-                match peekNextNonTriviaToken reader with
+                match peekNextSyntaxToken reader with
                 | Error e -> Error e
                 | Ok token ->
                     reader.State <-
@@ -1106,7 +1106,7 @@ module Parsing =
         (p: Parser<'Parsed, PositionedToken, ParseState, _>)
         : Parser<'Parsed, PositionedToken, ParseState, _> =
         fun reader ->
-            match peekNextNonTriviaToken reader with
+            match peekNextSyntaxToken reader with
             | Error e -> Error e
             | Ok startTok ->
                 let pos = reader.Position
@@ -1119,7 +1119,7 @@ module Parsing =
                     let mutable keepGoing = true
 
                     while keepGoing do
-                        match peekNextNonTriviaToken reader with
+                        match peekNextSyntaxToken reader with
                         | Error _ -> keepGoing <- false
                         | Ok tok ->
                             if stopping tok then
@@ -1141,7 +1141,7 @@ module Parsing =
     let withContext (ctx: OffsideContext) innerParser (reader: Reader<PositionedToken, ParseState, _>) =
         let savedState = reader.State
 
-        match peekNextNonTriviaToken reader with
+        match peekNextSyntaxToken reader with
         | Error e -> Error e
         | Ok peekTok ->
             let indent =
@@ -1201,7 +1201,7 @@ module Parsing =
         let failSep = fail (Message "Expected ';' or newline at the same indent")
 
         parser {
-            match! peekNextNonTriviaToken with
+            match! peekNextSyntaxToken with
             | t when t.Token = Token.OpSemicolon -> return! consumePeeked t
             | t when t.Token = Token.KWRBrace || t.Token = Token.KWRBraceBar -> return! failSep
             | t ->
@@ -1219,11 +1219,11 @@ module Parsing =
                     return! failSep
         }
 
-    /// Fails if the next non-trivia token is 't'. Saves and restores reader position fully.
-    let notFollowedByNonTriviaToken t (reader: Reader<PositionedToken, ParseState, _>) =
+    /// Fails if the next syntax token is 't'. Saves and restores reader position fully.
+    let notFollowedBySyntaxToken t (reader: Reader<PositionedToken, ParseState, _>) =
         let pos = reader.Position
 
-        match peekNextNonTriviaToken reader with
+        match peekNextSyntaxToken reader with
         | Ok tok when tok.Token = t ->
             reader.Position <- pos
             fail (Message(sprintf "Named module cannot be followed by '%A'" t)) reader
@@ -1249,7 +1249,7 @@ module Parsing =
         parser {
             let! state = getUserState
 
-            match! peekNextNonTriviaToken with
+            match! peekNextSyntaxToken with
             | t when t.Token = Token.OpGreaterThan ->
                 // We have a '>' that can close the type application, but we need to check if it's part of a larger operator like '>>' or '>>='.
                 // If it is, we need to reprocess it after consuming the type application.
@@ -1311,7 +1311,7 @@ module Parsing =
             let charsConsumed = state.CharsConsumedAfterTypeParams
 
             if charsConsumed > 0 then
-                match! peekNextNonTriviaToken with
+                match! peekNextSyntaxToken with
                 | t when t.Token = Token.OpGreaterThan ->
                     let! op = consumePeeked t
 
@@ -1381,7 +1381,7 @@ module Parsing =
                     reader.State <- ParseState.popOffside entry reader.State
                     result
 
-                match peekNextNonTriviaToken reader with
+                match peekNextSyntaxToken reader with
                 | Error e ->
                     reader.State <- savedState
                     Error e
@@ -1414,7 +1414,7 @@ module Parsing =
                             )
                             (parser {
                                 let! e = pInner
-                                let! r = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome l) expectedRightTok
+                                let! r = nextSyntaxTokenVirtualWithDiagnostic (ValueSome l) expectedRightTok
                                 return completeEnclosed (parenKindConstructor l) e r
                             })
 

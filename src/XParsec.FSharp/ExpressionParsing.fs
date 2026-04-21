@@ -19,7 +19,7 @@ module ElifBranches =
         | ElseIf of el: SyntaxToken * ifTok: SyntaxToken
 
     let private pElifOrElseIf =
-        dispatchNextNonTriviaTokenL
+        dispatchNextSyntaxTokenL
             [
                 Token.KWElif,
                 parser {
@@ -30,7 +30,7 @@ module ElifBranches =
                 parser {
                     let! elseTok = pElse
 
-                    match! peekNextNonTriviaToken with
+                    match! peekNextSyntaxToken with
                     | t when t.Token = Token.KWIf ->
                         // `else if` is collapsed into a single chain arm (matching
                         // F#'s LexFilter: `ELSE` immediately followed by `IF` becomes
@@ -141,7 +141,7 @@ module Binding =
         Message "not a named-field ctor head"
 
     let private pMutableTok =
-        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.KWMutable) "Expected 'mutable'"
+        nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.KWMutable) "Expected 'mutable'"
 
     /// Build the Pat head from an IdentOrOp
     let private headPatOfIdentOrOp (identOrOp: IdentOrOp<SyntaxToken>) : Pat<SyntaxToken> =
@@ -156,7 +156,7 @@ module Binding =
         parser {
             let! typar = Typar.parse
 
-            match! peekNextNonTriviaToken with
+            match! peekNextSyntaxToken with
             | t when t.Token = Token.KWStruct ->
                 // Bare `'T struct` — no colon
                 let! structTok = consumePeeked t
@@ -164,7 +164,7 @@ module Binding =
             | _ ->
                 let! colon = pColon
 
-                match! peekNextNonTriviaToken with
+                match! peekNextSyntaxToken with
                 | t when t.Token = Token.KWStruct ->
                     let! structTok = consumePeeked t
                     return StaticOptimizationConstraint.WhenTyparIsStruct(typar, ValueSome colon, structTok)
@@ -232,7 +232,7 @@ module Binding =
         // Without this, Type.parse would greedily slurp suffix identifiers from
         // following lines as type suffixes (`'T array` + `res` -> `res<'T array>`).
         let pColonPeek (reader: Reader<PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>>) =
-            match peekNextNonTriviaToken reader with
+            match peekNextSyntaxToken reader with
             | Ok t when t.Token = Token.OpColon ->
                 let col = ParseState.getIndent reader.State (reader.Index * 1<token>)
 
@@ -267,9 +267,9 @@ module Binding =
     let private pNamedFieldCtorArgHead =
         lookAhead (
             parser {
-                let! t1 = nextNonTriviaToken
-                let! t2 = nextNonTriviaToken
-                let! t3 = nextNonTriviaToken
+                let! t1 = nextSyntaxToken
+                let! t2 = nextSyntaxToken
+                let! t3 = nextSyntaxToken
 
                 if
                     t1.Token = Token.KWLParen
@@ -419,7 +419,7 @@ module ObjectConstruction =
             let! argExpr =
                 opt (
                     parser {
-                        let! token = lookAhead nextNonTriviaToken
+                        let! token = lookAhead nextSyntaxToken
 
                         if
                             token.Token = Token.KWLParen
@@ -553,7 +553,7 @@ module Expr =
     // Type.parse from greedily slurping suffix identifiers on following lines.
     let pTypedSeqExprBlock =
         let pColonPeek (reader: Reader<PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>>) =
-            match peekNextNonTriviaToken reader with
+            match peekNextSyntaxToken reader with
             | Ok t when t.Token = Token.OpColon ->
                 let col = ParseState.getIndent reader.State (reader.Index * 1<token>)
 
@@ -697,10 +697,10 @@ module Expr =
                 p
 
         // Used for for-to and use identifiers (not the dot-access pIdent above)
-        let pIdentTok = nextNonTriviaIdentifierLMsg "identifier"
+        let pIdentTok = nextSyntaxIdentifierLMsg "identifier"
 
         let pDoneVirt reader =
-            match peekNextNonTriviaToken reader with
+            match peekNextSyntaxToken reader with
             | Ok t when t.Token = Token.KWDone -> consumePeeked t reader
             | Ok t ->
                 let doneTok =
@@ -934,7 +934,7 @@ module Expr =
                             }
 
                         match
-                            dispatchNextNonTriviaTokenL
+                            dispatchNextSyntaxTokenL
                                 [ Token.KWWith, pWith'; Token.KWFinally, pFinally' ]
                                 "Expected 'with' or 'finally'"
                                 reader
@@ -1005,7 +1005,7 @@ module Expr =
 
             let assertFor reader =
                 // We throw here as `pForExpr` should only be called if we've already peeked and confirmed we have a 'for' token.
-                match peekNextNonTriviaToken reader with
+                match peekNextSyntaxToken reader with
                 | Ok t when t.Token = Token.KWFor ->
                     (consumePeeked t
                      |>> fun forTok ->
@@ -1039,7 +1039,7 @@ module Expr =
             }
 
         let pLetOrUseIn letIndent (reader: Reader<PositionedToken, ParseState, _>) =
-            match peekNextNonTriviaToken reader with
+            match peekNextSyntaxToken reader with
             | Ok t when t.Token = Token.KWIn -> consumePeeked t reader
             | Ok t ->
                 // Not 'in', but maybe we emit a virtual 'in' for offside rule in let bindings without 'in'.
@@ -1130,7 +1130,7 @@ module Expr =
                 let mutable error = Unchecked.defaultof<ParseResult<ExprAux, _, _>>
 
                 while cont do
-                    match peekNextNonTriviaToken reader with
+                    match peekNextSyntaxToken reader with
                     | Error e ->
                         if bindings.Count = 0 then
                             error <- Error e
@@ -1189,7 +1189,7 @@ module Expr =
                                 reader.State <-
                                     ParseState.addErrorDiagnosticWithError
                                         DiagnosticCode.MissingExpression
-                                        (match peekNextNonTriviaToken reader with
+                                        (match peekNextSyntaxToken reader with
                                          | Ok tok -> tok.PositionedToken
                                          | Error _ -> PositionedToken.Create(Token.EOF, 0))
                                         err
@@ -1251,7 +1251,7 @@ module Expr =
         /// instantiation of an enclosing class member).
         let pTypeApplication: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>> =
             fun reader ->
-                if not (isPrevTokenNonTrivia reader) then
+                if not (isPrevTokenSyntax reader) then
                     fail pTypeApplicationErr reader
                 else
                     match reader.Peek() with
@@ -1271,7 +1271,7 @@ module Expr =
 
         let pTypeAppRhs =
             parser {
-                let! lAngle = nextNonTriviaTokenIsLMsg Token.OpLessThan "Expected '<' for type application"
+                let! lAngle = nextSyntaxTokenIsLMsg Token.OpLessThan "Expected '<' for type application"
                 let! types, commas = sepBy Type.parse pComma
 
                 let! state = getUserState
@@ -1302,7 +1302,7 @@ module Expr =
             let pFail (reader: Reader<PositionedToken, ParseState, _>) = fail errMsg reader
 
             parser {
-                let! canBeHighPrec = isPrevTokenNonTrivia >> Ok
+                let! canBeHighPrec = isPrevTokenSyntax >> Ok
 
                 if canBeHighPrec then
 
@@ -1331,7 +1331,7 @@ module Expr =
                 let! lBracket = pHighPrecLBracket
                 let lBracket = syntaxToken lBracket pos.Index
                 // Special case: f[] with empty brackets → treat as f [] (application to empty list)
-                match! peekNextNonTriviaToken with
+                match! peekNextSyntaxToken with
                 | t when t.Token = Token.KWRBracket ->
                     let! rBracket = consumePeeked t
                     return ExprAux.HighPrecApp(lBracket, Expr.EmptyBlock(ParenKind.List lBracket, rBracket), rBracket)
@@ -1349,7 +1349,7 @@ module Expr =
                 let lParen = syntaxToken lParen pos.Index
 
                 // Handle f() — empty argument list
-                match! peekNextNonTriviaToken with
+                match! peekNextSyntaxToken with
                 | t when t.Token = Token.KWRParen ->
                     let! rParen = consumePeeked t
                     return ExprAux.HighPrecApp(lParen, Expr.EmptyBlock(ParenKind.Paren lParen, rParen), rParen)
@@ -1358,7 +1358,7 @@ module Expr =
 
                     let! argExpr =
                         parser {
-                            match! peekNextNonTriviaToken with
+                            match! peekNextSyntaxToken with
                             | t when t.Token = Token.OpColon ->
                                 let! colon = consumePeeked t
                                 let! typ = Type.parse
@@ -1436,7 +1436,7 @@ module Expr =
             let failApp = fail (Message "Expected expression after application")
             // Application is *juxtaposition* of two expressions with trivia in between, e.g. `f x` or `f (g y)` or `f(*comment*)x`.
             parser {
-                match! peekNextNonTriviaToken with
+                match! peekNextSyntaxToken with
                 | t when t.Token = Token.EOF -> return! failApp
                 | t ->
                     let! indent = currentIndent
@@ -1495,7 +1495,7 @@ module Expr =
     /// loop. Unlike the first comma (which is identified by the full RHS
     /// operator dispatcher), this parser only needs to recognise another `,`.
     let private pTupleComma: Parser<SyntaxToken, _, _, _> =
-        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.OpComma) "','"
+        nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.OpComma) "','"
 
     /// Matches a real `;` or emits a layout-sensitive `VirtualSep` when the
     /// next token can start an expression at the enclosing context's indent.
@@ -1506,7 +1506,7 @@ module Expr =
             fail (Message "Expected ';' or newline at the same indent for expression sequencing")
 
         parser {
-            match! peekNextNonTriviaToken with
+            match! peekNextSyntaxToken with
             | t when t.Token = Token.EOF -> return! failSep
             | t when t.Token = Token.OpSemicolon -> return! consumePeeked t
             | t ->
@@ -1538,7 +1538,7 @@ module Expr =
             printfn
                 $"Operator: {op.PositionedToken}({op.StartIndex}), Precedence: {op.Precedence}, Associativity: %A{op.Associativity}"
 
-        let pIdentAfterDot = nextNonTriviaIdentifierLMsg "Expected identifier after '.'"
+        let pIdentAfterDot = nextSyntaxIdentifierLMsg "Expected identifier after '.'"
 
         let parseDotRhs: Parser<ExprAux, PositionedToken, ParseState, ReadableImmutableArray<_>> =
             // Note: cannot use module-level pIdent here as that maps to Expr.Ident
@@ -1566,7 +1566,7 @@ module Expr =
                     // .N — positional DU field access (e.g. cons.( :: ).1)
                     parser {
                         let! intTok =
-                            nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.NumInt32) "integer field index"
+                            nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.NumInt32) "integer field index"
 
                         return ExprAux.Ident intTok
                     }
@@ -1574,7 +1574,7 @@ module Expr =
                 "Dot RHS (identifier or index)"
 
         let parseRangeRhs reader =
-            match peekNextNonTriviaToken reader with
+            match peekNextSyntaxToken reader with
             | Ok t ->
                 match t.Token with
                 | Token.KWRBracket
@@ -1721,7 +1721,7 @@ module Expr =
                     | _ -> preturn (getRhsOperatorHandler opInfo token)
 
             // First try type application, then whitespace application, then explicit operator.
-            // Using choiceL ensures that if nextNonTriviaToken consumes a token
+            // Using choiceL ensures that if nextSyntaxToken consumes a token
             // (e.g. '->') but handleToken fails (no expression-level handler for Arrow),
             // XParsec backtracks the consumed token so outer parsers (e.g. Rule.parse) see it.
             choiceL
@@ -1731,13 +1731,13 @@ module Expr =
                     HighPrec.peekHighPrecApp >>= handleToken
                     Application.parse >>= handleToken
                     pSepVirt >>= handleToken
-                    nextNonTriviaToken >>= handleToken
+                    nextSyntaxToken >>= handleToken
                 ]
                 "RHS operator"
 
         let peekIsSliceAll =
             parser {
-                let! token = peekNextNonTriviaToken
+                let! token = peekNextSyntaxToken
                 // We are in the middle of parsing a slice like A[0..1,*], and we've just parsed the '*' token.
                 // Now we peek to see if the next token is a ',' or ']' which would indicate slice-all syntax.
                 // Otherwise '*' is just a regular operator for multiplication.
@@ -1840,7 +1840,7 @@ module Expr =
             }
 
         // Keyword-prefix dispatch table. Flattened to one entry per token for a simple
-        // linear scan (same pattern as `dispatchNextNonTriviaTokenFallback`). Most entries
+        // linear scan (same pattern as `dispatchNextSyntaxTokenFallback`). Most entries
         // do NOT consume the keyword here — the body parser peeks the keyword to establish
         // offside indent, then consumes. The `do/do!/return/return!/yield/yield!` forms
         // consume up front because their body expects to start past the keyword.
@@ -1877,7 +1877,7 @@ module Expr =
 
         let lhsParser =
             parser {
-                let! token = peekNextNonTriviaToken
+                let! token = peekNextSyntaxToken
 
                 let mutable handler = ValueNone
                 let mutable i = 0
@@ -1973,7 +1973,7 @@ module Expr =
 
     let pString =
         let rec loop (isInterpolated: bool) (parts: ResizeArray<StringPart<SyntaxToken>>) reader =
-            match peekNextNonTriviaToken reader with
+            match peekNextSyntaxToken reader with
             | Error e -> Error e
             // Text fragments (plain and interpolated)
             | Ok t when isStringTextFragment t.Token ->
@@ -1994,7 +1994,7 @@ module Expr =
                 match consumePeeked t reader with
                 | Error e -> Error e
                 | Ok formatSpec ->
-                    match peekNextNonTriviaToken reader with
+                    match peekNextSyntaxToken reader with
                     | Ok next when next.Token = Token.InterpolatedExpressionOpen ->
                         match consumePeeked next reader with
                         | Error e -> Error e
@@ -2003,15 +2003,13 @@ module Expr =
                             | Error e -> Error e
                             | Ok expr ->
                                 let formatClause =
-                                    match peekNextNonTriviaToken reader with
+                                    match peekNextSyntaxToken reader with
                                     | Ok fc when fc.Token = Token.InterpolatedFormatClause ->
                                         consumePeeked fc reader |> ignore
                                         ValueSome fc
                                     | _ -> ValueNone
 
-                                match
-                                    nextNonTriviaTokenIsLMsg Token.InterpolatedExpressionClose "Expected }" reader
-                                with
+                                match nextSyntaxTokenIsLMsg Token.InterpolatedExpressionClose "Expected }" reader with
                                 | Error e -> Error e
                                 | Ok rBrace ->
                                     parts.Add(StringPart.Expr(ValueSome formatSpec, lBrace, expr, formatClause, rBrace))
@@ -2033,13 +2031,13 @@ module Expr =
                     | Error e -> Error e
                     | Ok expr ->
                         let formatClause =
-                            match peekNextNonTriviaToken reader with
+                            match peekNextSyntaxToken reader with
                             | Ok fc when fc.Token = Token.InterpolatedFormatClause ->
                                 consumePeeked fc reader |> ignore
                                 ValueSome fc
                             | _ -> ValueNone
 
-                        match nextNonTriviaTokenIsLMsg Token.InterpolatedExpressionClose "Expected }" reader with
+                        match nextSyntaxTokenIsLMsg Token.InterpolatedExpressionClose "Expected }" reader with
                         | Error e -> Error e
                         | Ok rBrace ->
                             parts.Add(StringPart.Expr(ValueNone, lBrace, expr, formatClause, rBrace))
@@ -2054,7 +2052,7 @@ module Expr =
             | Ok _ -> Ok parts
 
         parser {
-            let! opening = nextNonTriviaTokenSatisfiesLMsg (fun t -> isStringOpen t.Token) "Expected string open"
+            let! opening = nextSyntaxTokenSatisfiesLMsg (fun t -> isStringOpen t.Token) "Expected string open"
 
             let kind = stringKindOfToken opening
 
@@ -2067,12 +2065,12 @@ module Expr =
 
             let! parts = loop isInterpolated (ResizeArray())
 
-            let! closing = nextNonTriviaTokenSatisfiesLMsg (fun t -> isStringClose t.Token) "Expected string close"
+            let! closing = nextSyntaxTokenSatisfiesLMsg (fun t -> isStringClose t.Token) "Expected string close"
 
             return Expr.String(kind, ImmutableArray.CreateRange parts, closing)
         }
 
-    let pIdentExpr = nextNonTriviaIdentifierLMsg "Expected identifier" |>> Expr.Ident
+    let pIdentExpr = nextSyntaxIdentifierLMsg "Expected identifier" |>> Expr.Ident
 
     let private pEnclosed =
         let completeEmpty l r = Expr.EmptyBlock(l, r)
@@ -2086,7 +2084,7 @@ module Expr =
         parser {
             let! expr = pInnerExpr
 
-            match! peekNextNonTriviaToken with
+            match! peekNextSyntaxToken with
             | t when t.Token = Token.OpColon ->
                 let! colon = consumePeeked t
                 let! typ = Type.parse
@@ -2242,7 +2240,7 @@ module Expr =
         (mismatchedClose: Token)
         : Parser<SyntaxToken, PositionedToken, ParseState, _> =
         fun reader ->
-            match peekNextNonTriviaToken reader with
+            match peekNextSyntaxToken reader with
             | Ok tok when tok.Token = expectedClose -> consumePeeked tok reader
             | Ok tok when tok.Token = mismatchedClose ->
                 reader.State <-
@@ -2340,7 +2338,7 @@ module Expr =
                         // { CE keywords... } — computation expression body
                         // Detected by first token being a CE-specific keyword (not a valid record field name)
                         parser {
-                            let! peekTok = peekNextNonTriviaToken
+                            let! peekTok = peekNextSyntaxToken
 
                             match peekTok.Token with
                             | Token.KWLet
@@ -2361,7 +2359,7 @@ module Expr =
                             | Token.KWFor ->
                                 let! body = refExprSeqBlock.Parser
 
-                                let! rBrace = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome lBrace) Token.KWRBrace
+                                let! rBrace = nextSyntaxTokenVirtualWithDiagnostic (ValueSome lBrace) Token.KWRBrace
 
                                 return Expr.EnclosedBlock(ParenKind.Brace lBrace, body, rBrace)
                             | _ -> return! fail errNotCEBody
@@ -2401,7 +2399,7 @@ module Expr =
                                             let! intfMembers =
                                                 withContext OffsideContext.WithAugment (many refMemberDefn.Parser)
 
-                                            let! intfNextTokOpt = opt peekNextNonTriviaToken
+                                            let! intfNextTokOpt = opt peekNextSyntaxToken
 
                                             let intfVirtualEnd =
                                                 {
@@ -2423,7 +2421,7 @@ module Expr =
                                 )
 
                             // Synthesize virtual end for the main ObjectMembers
-                            let! nextTokOpt = opt peekNextNonTriviaToken
+                            let! nextTokOpt = opt peekNextSyntaxToken
 
                             let virtualEnd =
                                 {
@@ -2438,7 +2436,7 @@ module Expr =
 
                             let objMembers = ObjectMembers.ObjectMembers(withTok, members, virtualEnd)
 
-                            let! rBrace = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome lBrace) Token.KWRBrace
+                            let! rBrace = nextSyntaxTokenVirtualWithDiagnostic (ValueSome lBrace) Token.KWRBrace
 
                             return Expr.Object(lBrace, ValueSome newTok, baseCall, objMembers, interfaceImpls, rBrace)
                         }
@@ -2449,7 +2447,7 @@ module Expr =
                         parser {
                             let! body = refExprSeqBlock.Parser
 
-                            let! rBrace = nextNonTriviaTokenVirtualWithDiagnostic (ValueSome lBrace) Token.KWRBrace
+                            let! rBrace = nextSyntaxTokenVirtualWithDiagnostic (ValueSome lBrace) Token.KWRBrace
 
                             return Expr.EnclosedBlock(ParenKind.Brace lBrace, body, rBrace)
                         }
@@ -2467,17 +2465,17 @@ module Expr =
 
     let private pILIntrinsic =
         // Structured IL intrinsic parser: (# "instr" type('T) args : retType #)
-        let pAnyToken = nextNonTriviaTokenSatisfiesLMsg (fun _ -> true) "IL intrinsic token"
+        let pAnyToken = nextSyntaxTokenSatisfiesLMsg (fun _ -> true) "IL intrinsic token"
 
         let pTypeArg (reader: Reader<PositionedToken, ParseState, _>) =
             // Parse type('T) or type ('T) — balanced parens after 'type' keyword
-            match peekNextNonTriviaToken reader with
+            match peekNextSyntaxToken reader with
             | Error e -> Error e
             | Ok tok when tok.Token = Token.KWType ->
                 match consumePeeked tok reader with
                 | Error e -> Error e
                 | Ok typeKw ->
-                    match nextNonTriviaTokenIsLMsg Token.KWLParen "(" reader with
+                    match nextSyntaxTokenIsLMsg Token.KWLParen "(" reader with
                     | Error e -> Error e
                     | Ok lParen ->
                         let tokens = ResizeArray()
@@ -2508,7 +2506,7 @@ module Expr =
             | _ -> preturn ValueNone reader
 
         fun (reader: Reader<PositionedToken, ParseState, _>) ->
-            match nextNonTriviaTokenIsLMsg Token.KWLHashParen "(#" reader with
+            match nextSyntaxTokenIsLMsg Token.KWLHashParen "(#" reader with
             | Error e -> Error e
             | Ok lHashParen ->
                 // Instruction string
@@ -2527,7 +2525,7 @@ module Expr =
                         let mutable error = ValueNone
 
                         while not finished && error = ValueNone do
-                            match peekNextNonTriviaToken reader with
+                            match peekNextSyntaxToken reader with
                             | Error e -> error <- ValueSome e
                             | Ok tok ->
                                 match tok.Token with
@@ -2545,7 +2543,7 @@ module Expr =
                             match opt ReturnType.parse reader with
                             | Error e -> Error e
                             | Ok returnType ->
-                                match nextNonTriviaTokenIsLMsg Token.KWRHashParen "#)" reader with
+                                match nextSyntaxTokenIsLMsg Token.KWRHashParen "#)" reader with
                                 | Error e -> Error e
                                 | Ok rHashParen ->
                                     preturn
@@ -2580,15 +2578,15 @@ module Expr =
     let private pOptionalArgExpr =
         parser {
             let! qmark = pQuestionMark
-            let! ident = nextNonTriviaIdentifierLMsg "Expected identifier after '?'"
+            let! ident = nextSyntaxIdentifierLMsg "Expected identifier after '?'"
             return Expr.OptionalArgExpr(qmark, ident)
         }
 
     let parseAtomic =
-        dispatchNextNonTriviaTokenFallback
+        dispatchNextSyntaxTokenFallback
             [
                 // Ordered by approximate token frequency in idiomatic F# source (see
-                // keyword/token histogram over the F# compiler corpus). `dispatchNextNonTriviaTokenFallback`
+                // keyword/token histogram over the F# compiler corpus). `dispatchNextSyntaxTokenFallback`
                 // does a linear scan, so common cases should come first.
                 // Note: KWLet, KWIf, KWMatch, KWFunction, KWFun, KWTry, KWWhile, KWFor, KWUse
                 // are handled as PrefixMapped operators in ExprOperatorParser.lhsParser,
@@ -2604,7 +2602,7 @@ module Expr =
                 Token.KWLArrayBracket, recoverExpr pArray
                 Token.KWNew, recoverExpr pNewExpr
                 Token.KWLHashParen, pILIntrinsic
-                Token.Wildcard, (nextNonTriviaTokenIsLMsg Token.Wildcard "_" |>> Expr.Wildcard)
+                Token.Wildcard, (nextSyntaxTokenIsLMsg Token.Wildcard "_" |>> Expr.Wildcard)
                 Token.KWStruct, recoverExpr pStructTuple
                 Token.KWLBraceBar, recoverExpr pAnonRecordExpr
                 Token.VerbatimInterpolatedStringOpen, pString
@@ -2614,7 +2612,7 @@ module Expr =
                 Token.KWBegin, recoverExpr pBeginEnd
                 Token.OpQuotationTypedLeft, recoverExpr pQuoteTyped
                 Token.OpQuotationUntypedLeft, recoverExpr pQuoteUntyped
-                Token.KWBase, (nextNonTriviaTokenIsLMsg Token.KWBase "base" |>> Expr.Ident)
+                Token.KWBase, (nextSyntaxTokenIsLMsg Token.KWBase "base" |>> Expr.Ident)
                 Token.UnterminatedBacktickedIdentifier, pIdentExpr
             ]
             pConst

@@ -12,7 +12,7 @@ module ImplementationFile =
     /// Parses: [attributes] module [access] LongIdent <module-elems>
     /// Distinguished from module abbreviation (module X = Y.Z) by the absence of '=' after the LongIdent.
     let private pNamedModule =
-        let notFollowedByEquals = notFollowedByNonTriviaToken Token.OpEquality
+        let notFollowedByEquals = notFollowedBySyntaxToken Token.OpEquality
         do ObjectConstruction.init () // Force static constructor to run and initialize refObjectConstruction
 
         parser {
@@ -29,7 +29,7 @@ module ImplementationFile =
         }
 
     let parse =
-        dispatchNextNonTriviaTokenFallback
+        dispatchNextSyntaxTokenFallback
             [
                 Token.KWNamespace, many1 NamespaceDeclGroup.parse |>> ImplementationFile.Namespaces
                 Token.KWModule,
@@ -54,7 +54,7 @@ module ImplementationFile =
 module FSharpAst =
     /// Succeeds at end-of-file by consuming the EOF sentinel token (skipping trivia and directives).
     /// We also check that the reader is indeed at EOF to avoid accepting spurious tokens after a successful parse.
-    let private pEof = nextNonTriviaTokenIsLMsg Token.EOF "Expected end of file" .>> eof
+    let private pEof = nextSyntaxTokenIsLMsg Token.EOF "Expected end of file" .>> eof
 
     let private pNormal =
         choiceL
@@ -75,7 +75,7 @@ module FSharpAst =
         let mutable keepGoing = true
 
         while keepGoing do
-            match peekNextNonTriviaToken reader with
+            match peekNextSyntaxToken reader with
             | Error _ -> keepGoing <- false
             | Ok tok ->
                 if tok.Token = Token.EOF then
@@ -118,7 +118,7 @@ module FSharpAst =
             // Push a file-level SeqBlock context so that collection/CE undentation rules
             // (checkCollectionUndent) always find a base offside line at the outermost level.
             let fileIndent =
-                match peekNextNonTriviaToken reader with
+                match peekNextSyntaxToken reader with
                 | Ok tok ->
                     match tok.Index with
                     | TokenIndex.Regular iT -> ParseState.getIndent reader.State iT

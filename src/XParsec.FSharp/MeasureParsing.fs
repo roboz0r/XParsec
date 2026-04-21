@@ -60,13 +60,11 @@ module Measure =
         static let pPowerRhs =
             parser {
                 // First token may be `-` (from a split `^-N` operator) or the numeric exponent.
-                let! firstTok = nextNonTriviaToken
+                let! firstTok = nextSyntaxToken
 
                 if firstTok.Token = Token.OpSubtraction then
                     let! intToken =
-                        nextNonTriviaTokenSatisfiesLMsg
-                            (fun t -> t.Token.IsNumeric)
-                            "Expected integer exponent after '-'"
+                        nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token.IsNumeric) "Expected integer exponent after '-'"
 
                     return MeasureAux.PowerOperand(ValueSome firstTok, intToken)
                 elif firstTok.Token.IsNumeric then
@@ -83,7 +81,7 @@ module Measure =
                 // Lookahead to confirm we are adjacent to a measure atom
                 let! _ =
                     lookAhead (
-                        nextNonTriviaTokenSatisfiesLMsg
+                        nextSyntaxTokenSatisfiesLMsg
                             (fun t ->
                                 t.Token.IsIdentifier
                                 || t.Token = Token.OpLessThan
@@ -101,7 +99,7 @@ module Measure =
         // --- Parsers ---
 
         static let lhsParser =
-            nextNonTriviaToken
+            nextSyntaxToken
             >>= fun token ->
                 match token.Token with
                 | Token.OpDivision ->
@@ -126,7 +124,7 @@ module Measure =
         /// is rewritten and advanced past by the subsequent `pPowerRhs` read.
         static let pSplitPowerOp =
             parser {
-                let! peeked = peekNextNonTriviaToken
+                let! peeked = peekNextSyntaxToken
                 let! state = getUserState
 
                 if ParseState.tokenStringIs "^-" peeked state then
@@ -144,7 +142,7 @@ module Measure =
         static let rhsParser =
             // Try the fused `^-` operator split first, then whitespace (juxtaposition),
             // then standard operator tokens.
-            (pSplitPowerOp <|> pJuxtapositionOp <|> nextNonTriviaToken)
+            (pSplitPowerOp <|> pJuxtapositionOp <|> nextSyntaxToken)
             >>= fun token ->
                 match token.Token with
                 | Token.OpMultiply
@@ -186,7 +184,7 @@ module Measure =
             let! state = getUserState
 
             let! t =
-                nextNonTriviaTokenSatisfiesLMsg
+                nextSyntaxTokenSatisfiesLMsg
                     (fun t -> t.Token = Token.NumInt32 && tokenStringIs "1" t state)
                     "Expected '1'"
 

@@ -159,7 +159,7 @@ member-sig :=
 
     let private pGet =
         parser {
-            let! getTok = nextNonTriviaTokenIsLMsg Token.Identifier "get"
+            let! getTok = nextSyntaxTokenIsLMsg Token.Identifier "get"
             let! state = getUserState
 
             if tokenStringIs "get" getTok state then
@@ -170,7 +170,7 @@ member-sig :=
 
     let private pSet =
         parser {
-            let! setTok = nextNonTriviaTokenIsLMsg Token.Identifier "set"
+            let! setTok = nextSyntaxTokenIsLMsg Token.Identifier "set"
             let! state = getUserState
 
             if tokenStringIs "set" setTok state then
@@ -267,12 +267,12 @@ module MethodOrPropDefn =
                 MethodOrPropDefn.Method(thisIdent, binding)
 
         parser {
-            match! peekNextNonTriviaToken with
+            match! peekNextSyntaxToken with
             | tWild when tWild.Token = Token.Wildcard ->
                 // `_` as self-identifier: must be followed by `.`
                 let! underscore = consumePeeked tWild
 
-                match! peekNextNonTriviaToken with
+                match! peekNextSyntaxToken with
                 | tDot when tDot.Token = Token.OpDot ->
                     let! dot = consumePeeked tDot
                     let thisIdent = ValueSome struct (underscore, dot)
@@ -291,7 +291,7 @@ module MethodOrPropDefn =
 
                 match! opt pIdent with
                 | ValueSome ident ->
-                    match! peekNextNonTriviaToken with
+                    match! peekNextSyntaxToken with
                     | t when t.Token = Token.OpDot ->
                         let! dot = consumePeeked t
                         let thisIdent = ValueSome struct (ident, dot)
@@ -488,7 +488,7 @@ module AutoPropDefn =
 
             // Handle post-expression type annotation: `val X = expr : Type with get, set`
             // The expression parser doesn't consume `:` at top level, so we handle it here.
-            let! colonOpt = opt peekNextNonTriviaToken
+            let! colonOpt = opt peekNextSyntaxToken
 
             let! expr =
                 match colonOpt with
@@ -530,12 +530,12 @@ module MemberDefn =
         parser {
             let! staticTok = pStatic
 
-            match! peekNextNonTriviaToken with
+            match! peekNextSyntaxToken with
             | t when t.Token = Token.KWMember ->
                 let! mem = consumePeeked t
                 let! inlineTok = opt pInline
 
-                match! peekNextNonTriviaToken with
+                match! peekNextSyntaxToken with
                 | t when t.Token = Token.KWVal ->
                     let! defn = AutoPropDefn.parse
 
@@ -583,7 +583,7 @@ module MemberDefn =
             let! memberTok = pMember
             let! inlineTok = opt pInline
 
-            match! peekNextNonTriviaToken with
+            match! peekNextSyntaxToken with
             | t when t.Token = Token.KWVal ->
                 let! defn = AutoPropDefn.parse
 
@@ -625,7 +625,7 @@ module MemberDefn =
         parser {
             let! overrideTok = pOverride
 
-            match! peekNextNonTriviaToken with
+            match! peekNextSyntaxToken with
             | t when t.Token = Token.KWVal ->
                 let! defn = AutoPropDefn.parse
 
@@ -661,7 +661,7 @@ module MemberDefn =
         parser {
             let! defaultTok = pDefault
 
-            match! peekNextNonTriviaToken with
+            match! peekNextSyntaxToken with
             | t when t.Token = Token.KWVal ->
                 let! defn = AutoPropDefn.parse
 
@@ -711,7 +711,7 @@ module MemberDefn =
         }
 
     let private memberDefnDispatcher =
-        dispatchNextNonTriviaTokenFallback
+        dispatchNextSyntaxTokenFallback
             [
                 Token.KWMember, pMemberDefn
                 Token.KWStatic, pStaticMemberDefn
@@ -833,7 +833,7 @@ module TypeDefnElement =
                         // Use `opt` so we never fail here: at EOF or when the next token is offside,
                         // `peekNextNonTriviaToken` would fail, which (via choiceL) would discard all
                         // the work done above. Falling back to position 0 is fine for a virtual token.
-                        let! nextTokOpt = opt peekNextNonTriviaToken
+                        let! nextTokOpt = opt peekNextSyntaxToken
 
                         let virtualEnd =
                             {
@@ -1144,7 +1144,7 @@ module RecordField =
 module EnumTypeCase =
     let parse: Parser<EnumTypeCase<SyntaxToken>, _, _, _> =
         parser {
-            let! id = nextNonTriviaIdentifierLMsg "Enum Name"
+            let! id = nextSyntaxIdentifierLMsg "Enum Name"
             let! eq = pEquals
             let! c = withContext OffsideContext.SeqBlock refExpr.Parser
             return EnumTypeCase.EnumTypeCase(id, eq, c)
@@ -1173,7 +1173,7 @@ module TypeExtensionElements =
         parser {
             let! withTok = pWith
             let! elems = withContext OffsideContext.WithAugment TypeDefnElements.parseMany
-            let! endTok = nextNonTriviaTokenVirtualIfNot Token.KWEnd
+            let! endTok = nextSyntaxTokenVirtualIfNot Token.KWEnd
             return TypeExtensionElements.TypeExtensionElements(withTok, elems, endTok)
         }
 
@@ -1181,9 +1181,9 @@ module TypeExtensionElements =
     /// without an explicit 'with' keyword (e.g. record/union augmentations in light mode).
     let parseLight: Parser<TypeExtensionElements<SyntaxToken>, _, _, _> =
         parser {
-            let! withTok = nextNonTriviaTokenVirtualIfNot Token.KWWith
+            let! withTok = nextSyntaxTokenVirtualIfNot Token.KWWith
             let! elems = withContext OffsideContext.WithAugment (many1 TypeDefnElement.parse)
-            let! endTok = nextNonTriviaTokenVirtualIfNot Token.KWEnd
+            let! endTok = nextSyntaxTokenVirtualIfNot Token.KWEnd
             return TypeExtensionElements.TypeExtensionElements(withTok, elems, endTok)
         }
 
@@ -1271,9 +1271,9 @@ module TypeDefn =
             match isImplicitClass with
             | ValueSome _ ->
                 // Implicit Class — no explicit begin/end; use offside rule to determine body extent
-                let! beginTok = nextNonTriviaTokenVirtualIfNot Token.KWBegin
+                let! beginTok = nextSyntaxTokenVirtualIfNot Token.KWBegin
                 let! body = withContext OffsideContext.Type ClassTypeBody.parseOffside
-                let! endTok = nextNonTriviaTokenVirtualIfNot Token.KWEnd
+                let! endTok = nextSyntaxTokenVirtualIfNot Token.KWEnd
                 return TypeDefn.Anon(typeName, primaryConstr, asDefn, equals, beginTok, body, endTok)
             | ValueNone ->
                 // Abbreviation — try normal type parsing first. If it leaves dangling
@@ -1288,7 +1288,7 @@ module TypeDefn =
                         [
                             parser {
                                 let! tNormal = Type.parse
-                                let! peekAfter = peekNextNonTriviaToken
+                                let! peekAfter = peekNextSyntaxToken
                                 let! state = getUserState
 
                                 // Also treat fused `^-` / `^+` operators (lexer merges
@@ -1333,7 +1333,7 @@ module TypeDefn =
             let! asDefn = opt AsDefn.parse
 
             // 2. Check for TypeExtension ('with' without '=') vs regular definition ('=')
-            let! next2 = peekNextNonTriviaToken
+            let! next2 = peekNextSyntaxToken
 
             if next2.Token = Token.KWWith && primaryConstr.IsNone then
                 let! elements = TypeExtensionElements.parse
@@ -1348,7 +1348,7 @@ module TypeDefn =
 
                 // 4. Branch based on what follows
 
-                let! next = peekNextNonTriviaToken
+                let! next = peekNextSyntaxToken
 
                 match next.Token with
                 | Token.KWStruct ->

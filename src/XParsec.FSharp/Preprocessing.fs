@@ -38,12 +38,12 @@ module IfExpr =
 
     /// Ignores trivia tokens and returns the next non-trivia token, or fails if the end of input is reached.
     /// Only for use on #if directive lines.
-    let rec nextNonTriviaIfToken (reader: Reader<PositionedToken, IfExprState, 'Input>) =
+    let rec nextSyntaxIfToken (reader: Reader<PositionedToken, IfExprState, 'Input>) =
         match reader.Peek() with
         | ValueNone -> fail EndOfInput reader
         | ValueSome token when isTriviaToken token ->
             reader.Skip()
-            nextNonTriviaIfToken reader
+            nextSyntaxIfToken reader
         | ValueSome token ->
             // AbsoluteStart + slice-relative index = absolute token index in the full Lexed.Tokens array.
             let absoluteIndex = reader.State.AbsoluteStart + reader.Index
@@ -79,7 +79,7 @@ module IfExpr =
         // --- Operator Parsers ---
 
         static let lhsParser: Parser<_, _, _, 'Input> =
-            nextNonTriviaIfToken
+            nextSyntaxIfToken
             >>= fun token ->
                 match token.Token with
                 | Token.OpDereference ->
@@ -99,7 +99,7 @@ module IfExpr =
                 | _ -> fail errNotValidLhsIfOp
 
         static let rhsParser: Parser<_, _, _, 'Input> =
-            nextNonTriviaIfToken
+            nextSyntaxIfToken
             >>= fun token ->
                 match token.Token with
                 | Token.OpBarBar ->
@@ -113,7 +113,7 @@ module IfExpr =
                 | _ -> fail errNotValidRhsIfOp
 
         static let atomParser: Parser<_, _, _, 'Input> =
-            nextNonTriviaIfToken
+            nextSyntaxIfToken
             >>= fun token ->
                 match token.Token with
                 | Token.Identifier -> preturn (IfExpr.Term token)

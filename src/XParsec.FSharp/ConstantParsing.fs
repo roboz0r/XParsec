@@ -26,7 +26,7 @@ module Constant =
         || t = Token.CharLiteral
 
     let private pLiteral: Parser<_, PositionedToken, ParseState, ReadableImmutableArray<_>> =
-        nextNonTriviaTokenSatisfiesLMsg
+        nextSyntaxTokenSatisfiesLMsg
             (fun (synTok: SyntaxToken) -> isLiteralToken synTok.Token)
             "Expected constant literal"
 
@@ -37,7 +37,7 @@ module Constant =
         parser {
             let! state = getUserState
 
-            match! peekNextNonTriviaToken with
+            match! peekNextSyntaxToken with
             | t when t.Token = Token.OpGreaterThan && ParseState.tokenStringIs ">" t state -> return! consumePeeked t
             | t when t.Token = Token.KWRAttrBracket ->
                 // Don't consume the >] token. Set the flag so the next read
@@ -56,7 +56,7 @@ module Constant =
         // '<' must be truly adjacent to the preceding literal — verify previous raw token is not trivia,
         // then check raw token (no trivia skip) and verify string is exactly "<"
         parser {
-            let! canBeMeasure = isPrevTokenNonTrivia >> Ok
+            let! canBeMeasure = isPrevTokenSyntax >> Ok
 
             if canBeMeasure then
                 let! state = getUserState
