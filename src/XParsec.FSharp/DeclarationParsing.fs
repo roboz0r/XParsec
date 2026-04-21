@@ -29,7 +29,7 @@ module ModuleAbbrev =
     let parse =
         parser {
             let! modTok = pModule
-            let! ident = nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token.IsIdentifier) "Expected identifier"
+            let! ident = nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token.IsIdentifier) "Expected identifier"
             let! eq = pEquals
             let! lid = LongIdent.parse
             return ModuleAbbrev.ModuleAbbrev(modTok, ident, eq, lid)
@@ -45,9 +45,9 @@ module CompilerDirectiveDecl =
                 recoverWithVirtualToken
                     Token.Identifier
                     "Expected directive identifier after '#'"
-                    (nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token.IsIdentifier) "Directive identifier")
+                    (nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token.IsIdentifier) "Directive identifier")
 
-            let! strings = many (nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token.IsText) "String argument")
+            let! strings = many (nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token.IsText) "String argument")
             return CompilerDirectiveDecl(hash, ident, strings)
         }
 
@@ -67,7 +67,7 @@ module ModuleFunctionOrValueDefn =
         parser {
             let! inTok = pIn
 
-            match! peekNextNonTriviaToken with
+            match! peekNextSyntaxToken with
             | t when t.Token <> Token.EOF -> return inTok
             | _ -> return! fail errTrailingInNoBody
         }
@@ -100,7 +100,7 @@ module ModuleFunctionOrValueDefn =
         parser {
             let! attrs = opt Attributes.parse
 
-            let! token = nextNonTriviaToken
+            let! token = nextSyntaxToken
 
             match token.Token with
             | Token.KWDo ->
@@ -142,10 +142,10 @@ module ModuleDefn =
                 | TokenIndex.Regular iT -> ParseState.getIndent state iT
                 | TokenIndex.Virtual -> 0
 
-            let! beginTok = nextNonTriviaTokenVirtualIfNot Token.KWBegin
+            let! beginTok = nextSyntaxTokenVirtualIfNot Token.KWBegin
             // Module body at module_col + 1, anchored to the keyword's column
             let! elems = withContextAt OffsideContext.Module (indent + 1) modTok.PositionedToken (opt elementParser)
-            let! endTok = nextNonTriviaTokenVirtualIfNot Token.KWEnd
+            let! endTok = nextSyntaxTokenVirtualIfNot Token.KWEnd
             return ModuleDefnBody(beginTok, elems, endTok)
         }
 
@@ -160,7 +160,7 @@ module ModuleDefn =
                 recoverWithVirtualToken
                     Token.Identifier
                     "Expected module identifier"
-                    (nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token.IsIdentifier) "Module identifier")
+                    (nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token.IsIdentifier) "Module identifier")
 
             let! eq = recoverWithVirtualToken Token.OpEquality "Expected '=' after module identifier" pEquals
 
@@ -193,7 +193,7 @@ module ModuleElem =
                 | Error _ -> ()
 
                 // Check if there are leftover non-EOF tokens
-                match peekNextNonTriviaToken reader with
+                match peekNextSyntaxToken reader with
                 | Error _ -> keepGoing <- false
                 | Ok tok ->
                     if tok.Token = Token.EOF then
@@ -204,7 +204,7 @@ module ModuleElem =
                         let mutable skipping = true
 
                         while skipping do
-                            match peekNextNonTriviaToken reader with
+                            match peekNextSyntaxToken reader with
                             | Error _ -> skipping <- false
                             | Ok tok ->
                                 if StoppingTokens.afterModuleElem tok then
@@ -238,7 +238,7 @@ module ModuleElem =
             Ok(ImmutableArray.CreateRange(result))
 
     let parse =
-        dispatchNextNonTriviaTokenFallback
+        dispatchNextSyntaxTokenFallback
             [
                 Token.KWOpen, ImportDecl.parse |>> ModuleElem.Import
                 Token.KWHash, CompilerDirectiveDecl.parse |>> ModuleElem.CompilerDirective

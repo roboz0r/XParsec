@@ -17,15 +17,15 @@ module internal Keywords =
     // Without this, `fail (Message msg)` re-allocated the Message on every failure.
     let inline private mkKW (t: Token) (msg: string) : KWParser =
         let err: ErrorType<PositionedToken, ParseState> = Message msg
-        nextNonTriviaTokenIsL t err
+        nextSyntaxTokenIsL t err
 
     let inline private mkKWPred (pred: SyntaxToken -> bool) (msg: string) : KWParser =
         let err: ErrorType<PositionedToken, ParseState> = Message msg
-        nextNonTriviaTokenSatisfiesL pred err
+        nextSyntaxTokenSatisfiesL pred err
 
     let inline private mkKWIdent (msg: string) : KWParser =
         let err: ErrorType<PositionedToken, ParseState> = Message msg
-        nextNonTriviaIdentifierL err
+        nextSyntaxIdentifierL err
 
     let isAccessModifier (token: SyntaxToken) =
         match token.Token with
@@ -111,7 +111,7 @@ module internal Keywords =
 
         parser {
             let! state = getUserState
-            return! nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpLessThan && tokenStringIs "<" t state) err
+            return! nextSyntaxTokenSatisfiesL (fun t -> t.Token = Token.OpLessThan && tokenStringIs "<" t state) err
         }
 
     let pGreaterThan: KWParser =
@@ -120,8 +120,7 @@ module internal Keywords =
         parser {
             let! state = getUserState
 
-            return!
-                nextNonTriviaTokenSatisfiesL (fun t -> t.Token = Token.OpGreaterThan && tokenStringIs ">" t state) err
+            return! nextSyntaxTokenSatisfiesL (fun t -> t.Token = Token.OpGreaterThan && tokenStringIs ">" t state) err
         }
 
     let pLBracket: KWParser = mkKW Token.KWLBracket "["

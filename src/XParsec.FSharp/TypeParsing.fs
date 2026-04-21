@@ -13,7 +13,7 @@ open XParsec.FSharp.Parser.ParseState
 module Typar =
 
     let private pIdent =
-        nextNonTriviaIdentifierLMsg "Expected identifier for type parameter"
+        nextSyntaxIdentifierLMsg "Expected identifier for type parameter"
 
     let pAnon = pWildcard |>> Typar.Anon
 
@@ -38,12 +38,12 @@ module Typar =
         }
 
     let parse: Parser<Typar<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
-        dispatchNextNonTriviaTokenL
+        dispatchNextSyntaxTokenL
             [
                 Token.Wildcard, pAnon
                 Token.KWSingleQuote, pNamed
                 // 'T lexed as a single TypeParameter token (not split into ' + T)
-                Token.TypeParameter, (nextNonTriviaToken |>> fun tok -> Typar.Named(tok, tok))
+                Token.TypeParameter, (nextSyntaxToken |>> fun tok -> Typar.Named(tok, tok))
                 Token.OpConcatenate, pStatic
             ]
             "Typar"
@@ -97,10 +97,10 @@ module Constraint =
         Message "Unknown constraint type"
 
     // Hoisted helpers — allocate Message once at module load instead of per invocation.
-    let private pUnitIdent = nextNonTriviaIdentifierLMsg "Expected 'unit'"
+    let private pUnitIdent = nextSyntaxIdentifierLMsg "Expected 'unit'"
 
     let private pUpcast =
-        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.OpUpcast) ":>"
+        nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.OpUpcast) ":>"
 
     // Parses the member name inside a constraint member sig: plain ident or parenthesized operator.
     // For operators like (=), we consume '(' op ')' and return the op token as the ident,
@@ -111,7 +111,7 @@ module Constraint =
                 pIdent
                 parser {
                     let! _lParen = pLParen
-                    let! op = nextNonTriviaToken
+                    let! op = nextSyntaxToken
                     let! _rParen = pRParen
                     return op
                 }
@@ -181,7 +181,7 @@ module Constraint =
 
                 // Branch based on next token
                 let! state = getUserState
-                let! token = nextNonTriviaToken
+                let! token = nextSyntaxToken
 
                 match token.Token with
                 | Token.KWNull -> return Constraint.Nullness(typar, colon, token)
@@ -197,7 +197,7 @@ module Constraint =
                 | _ when tokenStringIs "comparison" token state -> return Constraint.Comparison(typar, colon, token)
                 | _ when tokenStringIs "unmanaged" token state -> return Constraint.Unmanaged(typar, colon, token)
                 | _ when tokenStringIs "not" token state ->
-                    let! next = nextNonTriviaToken
+                    let! next = nextSyntaxToken
 
                     match next.Token with
                     | Token.KWStruct -> return Constraint.ReferenceType(typar, colon, token, next)
@@ -210,7 +210,7 @@ module Constraint =
                     return Constraint.Enum(typar, colon, token, lAngle, t, rAngle)
                 | Token.KWLParen ->
                     // Could be (new : unit -> 'T)
-                    let! next = nextNonTriviaToken
+                    let! next = nextSyntaxToken
 
                     if next.Token = Token.KWNew then
                         return! pDefaultConstructor typar colon token next
@@ -267,12 +267,12 @@ module TyparDefns =
 module Type =
 
     // Hoisted helpers — allocate Message + closure once at module load instead of per invocation.
-    let private pLHashParen = nextNonTriviaTokenIsLMsg Token.KWLHashParen "(#"
-    let private pRHashParen = nextNonTriviaTokenIsLMsg Token.KWRHashParen "#)"
-    let private pAnonRecFieldIdent = nextNonTriviaIdentifierLMsg "field name"
+    let private pLHashParen = nextSyntaxTokenIsLMsg Token.KWLHashParen "(#"
+    let private pRHashParen = nextSyntaxTokenIsLMsg Token.KWRHashParen "#)"
+    let private pAnonRecFieldIdent = nextSyntaxIdentifierLMsg "field name"
 
     let private pUpcast =
-        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.OpUpcast) ":>"
+        nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.OpUpcast) ":>"
 
     let private pTypeArg =
         // Placeholder handling for TypeArg variations
@@ -355,11 +355,11 @@ module Type =
 
     // Matches '[' or '[|' as an array-rank open bracket in postfix type position.
     let private pArrayOpenBracket =
-        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.KWLArrayBracket || t.Token = Token.KWLBracket) "["
+        nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.KWLArrayBracket || t.Token = Token.KWLBracket) "["
 
     // Matches ']' or '|]' as an array-rank close bracket in postfix type position.
     let private pArrayCloseBracket =
-        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.KWRArrayBracket || t.Token = Token.KWRBracket) "]"
+        nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.KWRArrayBracket || t.Token = Token.KWRBracket) "]"
 
     let private errExpectedDot: ErrorType<PositionedToken, ParseState> =
         Message "Expected '.'"

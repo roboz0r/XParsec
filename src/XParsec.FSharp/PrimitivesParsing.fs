@@ -18,7 +18,7 @@ module AttributeTarget =
             let! state = getUserState
 
             let! t =
-                nextNonTriviaTokenSatisfiesL
+                nextSyntaxTokenSatisfiesL
                     (fun t -> t.Token = Token.Identifier && ParseState.tokenStringIs s t state)
                     err
 
@@ -26,7 +26,7 @@ module AttributeTarget =
         }
 
     let private pKw k ctor =
-        nextNonTriviaTokenIsLMsg k (sprintf "Expected '%A'" k) |>> ctor
+        nextSyntaxTokenIsLMsg k (sprintf "Expected '%A'" k) |>> ctor
 
     let parse: Parser<AttributeTarget<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
         choiceL
@@ -66,10 +66,10 @@ module Attribute =
 [<RequireQualifiedAccess>]
 module AttributeSet =
     let private pLAttrBracket =
-        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.KWLAttrBracket) "Expected '[<'"
+        nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.KWLAttrBracket) "Expected '[<'"
 
     let private pRAttrBracket =
-        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.KWRAttrBracket) "Expected '>]'"
+        nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.KWRAttrBracket) "Expected '>]'"
 
     let private pAttributeItem =
         parser {
@@ -101,10 +101,10 @@ module RangeOpName =
     // can't span the whitespace/comments/newlines that may sit between the two `..`
     // pieces, so the parser fuses them here instead.
     let private pRangeFirst =
-        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.OpRange) "Expected '..'"
+        nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.OpRange) "Expected '..'"
 
     let private pRangeSecond =
-        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.OpRange) "'..'"
+        nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.OpRange) "'..'"
 
     let parse: Parser<RangeOpName<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
         parser {
@@ -119,7 +119,7 @@ module RangeOpName =
 
 [<RequireQualifiedAccess>]
 module ActivePatternOpName =
-    let private pIdent = nextNonTriviaIdentifierLMsg "Expected identifier"
+    let private pIdent = nextSyntaxIdentifierLMsg "Expected identifier"
 
     let parse: Parser<ActivePatternOpName<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
         // Recursive helper to parse segments: ident | ...
@@ -139,7 +139,7 @@ module ActivePatternOpName =
                     // Check for wildcard '_'
                     match! opt (lookAhead pWildcard) with
                     | ValueSome _ ->
-                        let! underscore = nextNonTriviaToken // Consume '_'
+                        let! underscore = nextSyntaxToken // Consume '_'
                         let! finalBar = pBar
                         return (builder.ToImmutable(), ValueSome underscore, finalBar)
                     | ValueNone ->
@@ -160,7 +160,7 @@ module ActivePatternOpName =
 [<RequireQualifiedAccess>]
 module OpName =
     let private pSymbolicOp =
-        nextNonTriviaTokenSatisfiesLMsg
+        nextSyntaxTokenSatisfiesLMsg
             (fun t -> t.Token.IsOperator || TokenInfo.isOperatorKeyword t.Token)
             "Expected symbolic operator"
         |>> OpName.SymbolicOp
@@ -186,10 +186,10 @@ module OpName =
 
 [<RequireQualifiedAccess>]
 module IdentOrOp =
-    let private pIdentOrOpIdent = nextNonTriviaIdentifierLMsg "Expected Identifier"
+    let private pIdentOrOpIdent = nextSyntaxIdentifierLMsg "Expected Identifier"
 
     let private pStarOpDecl =
-        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.KWOpDeclareMultiply) "Expected '(*)'"
+        nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.KWOpDeclareMultiply) "Expected '(*)'"
 
     let parse: Parser<IdentOrOp<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
         choiceL
@@ -287,7 +287,7 @@ module LongIdentOrOp =
 [<RequireQualifiedAccess>]
 module LongIdent =
     // Simple parser for A.B.C
-    let private pIdent = nextNonTriviaIdentifierLMsg "Expected Identifier"
+    let private pIdent = nextSyntaxIdentifierLMsg "Expected Identifier"
     let parse = sepBy1 pIdent pDot |>> fun struct (xs, dots) -> xs
 
 
@@ -296,7 +296,7 @@ module Access =
     let parse
         : Reader<PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>>
               -> ParseResult<Access<SyntaxToken>, PositionedToken, ParseState> =
-        nextNonTriviaTokenSatisfiesLMsg
+        nextSyntaxTokenSatisfiesLMsg
             (fun t ->
                 t.Token = Token.KWPrivate
                 || t.Token = Token.KWInternal

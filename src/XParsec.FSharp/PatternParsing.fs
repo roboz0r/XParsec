@@ -88,7 +88,7 @@ module Pat =
             fail (Message "Expected ';' or newline at the same indent for pattern sequencing")
 
         parser {
-            match! peekNextNonTriviaToken with
+            match! peekNextSyntaxToken with
             | t when t.Token = Token.EOF -> return! failSep
             | t when t.Token = Token.OpSemicolon -> return! failSep
             | t ->
@@ -111,27 +111,27 @@ module Pat =
 
     /// Subsequent-separator parser for InfixNary tuple patterns.
     let private pPatTupleComma: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>> =
-        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.OpComma) "','"
+        nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.OpComma) "','"
 
     /// Subsequent-separator parser for InfixNary element patterns. Matches a
     /// real `;` or a virtual one emitted by `pSepVirtPat`.
     let private pPatSemicolon: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>> =
-        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.OpSemicolon) "';'"
+        nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.OpSemicolon) "';'"
         <|> pSepVirtPat
 
     let private pTypeRhs = Type.parse |>> PatAux.Type
 
     let private pAsRhs =
         parser {
-            // NOTE: the 'as' token was already consumed by rhsParser's nextNonTriviaToken.
+            // NOTE: the 'as' token was already consumed by rhsParser's nextSyntaxToken.
             // We only need to consume the identifier that follows.
-            let! ident = nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token.IsIdentifier) "identifier after 'as'"
+            let! ident = nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token.IsIdentifier) "identifier after 'as'"
             return PatAux.AsIdent ident
         }
 
     let private patLhsParser =
         parser {
-            let! token = nextNonTriviaToken
+            let! token = nextSyntaxToken
 
             match token.Token with
             | Token.KWLParen ->
@@ -199,7 +199,7 @@ module Pat =
         | _ -> fail errNotValidRhsPatOp
 
     let private patRhsParser (tokenToOp: SyntaxToken -> _) =
-        choiceL [ pSepVirtPat >>= tokenToOp; nextNonTriviaToken >>= tokenToOp ] "RHS pattern operator"
+        choiceL [ pSepVirtPat >>= tokenToOp; nextSyntaxToken >>= tokenToOp ] "RHS pattern operator"
 
     /// Matches F#'s `parenPattern` grammar rule: includes `:` as a type-annotation
     /// operator so that `(x : int)`, `(x : int, y : float)`, etc. parse as
@@ -285,7 +285,7 @@ module Pat =
     // 'as' via their min-binding-power cutoff, so we reapply them manually
     // here around a parsed base pattern.
     let private pBarToken =
-        nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token = Token.OpBar) "'|'"
+        nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.OpBar) "'|'"
 
     let private pOrAsChain
         (altParser: Parser<Pat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>>)
@@ -317,7 +317,7 @@ module Pat =
                         let! asTok = pAs
 
                         let! ident =
-                            nextNonTriviaTokenSatisfiesLMsg (fun t -> t.Token.IsIdentifier) "identifier after 'as'"
+                            nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token.IsIdentifier) "identifier after 'as'"
 
                         return struct (asTok, ident)
                     }
@@ -550,7 +550,7 @@ module Pat =
 
     let pStringPat =
         let rec loop (parts: ResizeArray<StringPart<SyntaxToken>>) reader =
-            match peekNextNonTriviaToken reader with
+            match peekNextSyntaxToken reader with
             | Error e -> Error e
             | Ok t when isStringTextFragment t.Token ->
                 match consumePeeked t reader with
@@ -581,7 +581,7 @@ module Pat =
 
         parser {
             let! opening =
-                nextNonTriviaTokenSatisfiesLMsg
+                nextSyntaxTokenSatisfiesLMsg
                     (fun t ->
                         match t.Token with
                         | Token.StringOpen
@@ -594,7 +594,7 @@ module Pat =
             let kind = stringKindOfToken opening
             let! parts = loop (ResizeArray())
 
-            let! closing = nextNonTriviaTokenSatisfiesLMsg (fun t -> isStringClose t.Token) "Expected string close"
+            let! closing = nextSyntaxTokenSatisfiesLMsg (fun t -> isStringClose t.Token) "Expected string close"
 
             return Pat.String(kind, ImmutableArray.CreateRange(parts), closing)
         }
@@ -633,7 +633,7 @@ module Pat =
         }
 
     let parseAtomic =
-        dispatchNextNonTriviaTokenFallback
+        dispatchNextSyntaxTokenFallback
             [
                 Token.Identifier, pNamed
                 Token.Wildcard, pWildcardPat
@@ -680,7 +680,7 @@ module Pat =
     /// Atomic pattern parser for function/member binding argument positions.
     /// Identifiers are parsed as simple names without consuming trailing arguments.
     let parseAtomicBindingArg =
-        dispatchNextNonTriviaTokenFallback
+        dispatchNextSyntaxTokenFallback
             [
                 Token.Identifier, pNamedNoArgs
                 Token.Wildcard, pWildcardPat
