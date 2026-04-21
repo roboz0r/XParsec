@@ -2,7 +2,7 @@
 
 Every parser combinator library starts with a JSON example. XParsec did too — [a one-page recursive-descent parser](https://github.com/roboz0r/XParsec/blob/main/src/XParsec.Json/JsonParser.fs) small enough to fit on a slide.
 
-XParsec is my library. I'd spent more than a year on it, designing and redesigning the types and combinators until everything did exactly one thing, and a small but real F# community had started using it. The next milestone was 1.0, and I wasn't going to release 1.0 against a JSON example. Whether all that careful design held up to anything bigger than a configuration format was a question I had to answer for myself. Elegant I had. Real I wasn't sure of.
+[XParsec](https://github.com/roboz0r/XParsec) is my library. I'd spent more than a year on it, designing and redesigning the types and combinators until everything did exactly one thing, and a small but real F# community had started using it. The next milestone was 1.0, and I wasn't going to release 1.0 against a JSON example. Whether all that careful design held up to anything bigger than a configuration format was a question I had to answer for myself. Elegant I had. Real I wasn't sure of.
 
 So the bar I set was F#. Not "some F#" — the actual source of the F# compiler, 249 production files, clean, no diagnostics, no crashes. F# is written in F#; if a parser can hold up to the language's own self-hosting source, it can hold up to anything I would ever throw at it. Layout-sensitive grammar. Contextual lexing. Fused operators that split based on syntactic context. Preprocessor directives. Error recovery that keeps the rest of the file parseable after a broken declaration. A published specification the language has already outgrown.
 
@@ -25,7 +25,7 @@ The price is performance. Naive combinator libraries allocate a closure per `bin
 F# already has [FParsec](https://github.com/stephan-tolksdorf/fparsec), and FParsec is excellent — it was the inspiration for XParsec and the library I'd still point most F# developers to first. I started XParsec because I wanted four things FParsec wasn't going to give me without a substantial rewrite:
 
 - **Generic input, not just characters.** FParsec parses characters from a `CharStream`. XParsec's reader is generic over the collection (`string`, `'T array`, `ResizeArray<'T>`, `ImmutableArray<'T>`, `ReadOnlyMemory<'T>`) and over the element type. The same combinators that parse characters can parse tokens, which is exactly what a real compiler pipeline needs — and what XParsec.FSharp does throughout.
-- **Pure F#, Fable-compatible.** FParsec ships a mixture of F# and C#. XParsec is F# top to bottom, which means it can also be compiled by Fable: JavaScript compatibility is what I wanted. The same beautiful parsing code should run in your browser just as well as on .NET.
+- **Pure F#, Fable-compatible.** FParsec ships a mixture of F# and C#. XParsec is F# top to bottom, which means it can also be compiled by Fable: JavaScript compatibility is what I wanted. The same beautiful parsing code should run in your browser or node just as well as on .NET.
 - **Performance from the type design.** On a large JSON file, XParsec runs in about 2/3 the time of FParsec and allocates roughly 1/5 as much. The allocation gap is the bigger story — most of the choices that look strange in isolation (struct readers, inlined lambdas, no implicit error materialization on the hot path) exist to keep it.
 - **Pratt-style operator parsing as a first-class concept.** FParsec ships an `OperatorPrecedenceParser` that you build up imperatively. XParsec treats the operator table as data the parser is parameterized over. This is the piece that bent first under F#'s operator zoo and forced the 0.3 rewrite. Post 4.
 
@@ -33,7 +33,9 @@ A fifth thing, smaller but worth flagging: no line-number tracking by default. S
 
 The honest answer underneath all of this is that I wanted to know if I could build it. FParsec is the work of one person too — so is most of what I admire in this corner of the .NET ecosystem.
 
-## What about FsLexYacc?
+To understand why combinators were the only option that made sense here, it’s worth contrasting them with FsLexYacc.
+
+## FsLexYacc
 
 [FsLexYacc](https://fsprojects.github.io/FsLexYacc/) is the F# port of the venerable `lex` and `yacc` tools — separate languages for separate concerns. Token rules live in a `.fsl` file. Grammar productions live in a `.fsy` file. A build-time tool reads both and emits the F# code that actually runs. A grammar fragment looks like this:
 
@@ -55,29 +57,23 @@ The bar I held the parser to, in concrete terms:
 
 - **Coverage.** All 249 production files of the F# compiler source parse end-to-end. No file silently skipped, no file partially consumed.
 - **No crashes.** No exceptions, no infinite loops, no stack overflows. The parser must run to completion on every file in the corpus.
-- **Faithful AST.** The output preserves the syntactic information needed to reconstruct the source — tokens, trivia, accurate source ranges. Range accuracy in particular is a known historical pain point for FCS-backed tooling, and one I wanted XParsec.FSharp to get right from the start. No silent normalization, no information loss the user didn't ask for.
+- **Faithful AST.** The output preserves the syntactic information needed to reconstruct the source — tokens, trivia, accurate source ranges. Range accuracy in particular is a known historical pain point for F# Compiler Service (FCS) backed tooling, and one I wanted XParsec.FSharp to get right from the start. No silent normalization, no information loss the user didn't ask for.
 - **No diagnostics on valid input.** Zero parse errors against source the F# compiler itself accepts. If the compiler is happy with a file, so must this parser.
 - **Error recovery.** When given invalid input, the parser produces an error node and continues, so the rest of the file remains analyzable rather than discarded at the first broken declaration.
 
 Performance — what counts as "fast enough" — I deliberately left out of the success bar. Correctness first, then numbers. The benchmarks below are the starting line, not the goal.
 
-## Anchor commits
+**Parser combinators can parse real languages**. The trick is knowing which parts of the grammar deserve their own primitives — and that's the rest of the series.
 
-- `77cc5a2` — WIP: Creating an F# compatible lexer (the start)
-- `686f202` — Initial commit (XParsec itself)
-- `94875a0` — Light mode for record expressions and patterns
-
-## Takeaway
-
-Parser combinators can parse real languages. The trick is knowing which parts of the grammar deserve their own primitives — and that's the rest of the series.
-
-> **First-pass benchmarks.** On a large F# source file, XParsec.FSharp's lexer runs in roughly half the time of the F# Compiler Service's lexer (32 ms vs 65 ms) while allocating about 4× as much memory. End-to-end (lex + parse), XParsec is ~2× slower than FCS and allocates ~12× more. No profiling or tuning has been done yet — the lexer's lead is essentially free, and closing the parser's allocation gap is what the perf post will report on. Raw BenchmarkDotNet output below.
+Next, in Part 2, we dive deep into the lexer.
 
 ---
 
-## Benchmarks
+## Benchmarks at the starting line
 
-Run with BenchmarkDotNet v0.14.0 on .NET 10, ShortRun job (3 iterations, 3 warmup, in-process). `Large` is the F# compiler's `prim-types.fs` — a 7000+ line file that leans heavily on internal and obscure F# language features and is a worst-case stress test for any F# parser.
+> **First-pass benchmarks.** On a large F# source file, XParsec.FSharp's lexer runs in roughly half the time of the F# Compiler Service's lexer (32 ms vs 65 ms) while allocating about 4× as much memory. End-to-end (lex + parse), XParsec is ~2× slower than FCS and allocates ~12× more. No profiling or tuning has been done yet — the lexer's lead is essentially free, and closing the parser's allocation gap is what the perf post will report on. Raw BenchmarkDotNet output below.
+
+Run with BenchmarkDotNet v0.15.8 on .NET 10, ShortRun job (3 iterations, 3 warmup, in-process). `Large` is the F# compiler's `prim-types.fs` — a 7000+ line file that leans heavily on internal and obscure F# language features and is a worst-case stress test for any F# parser.
 
 ### End-to-end (lex + parse)
 
