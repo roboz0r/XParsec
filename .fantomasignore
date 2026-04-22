@@ -1,2 +1,3 @@
 test/XParsec.FSharp.Tests/data/
 bench/XParsec.FSharp.Benchmarks/fixtures/
+src/XParsec/Readables.fs
