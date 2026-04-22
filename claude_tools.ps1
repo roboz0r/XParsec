@@ -37,7 +37,13 @@ param(
     [switch]$UpdateSnapshots,
 
     [Parameter(Mandatory = $false)]
-    [string]$Filter
+    [string]$Filter,
+
+    # BenchmarkDotNet profiler (EP = EventPipe sampling; ETW = Windows-only event tracing).
+    # When set, BDN writes .speedscope.json trace files alongside the regular report.
+    [Parameter(Mandatory = $false)]
+    [ValidateSet("EP", "ETW")]
+    [string]$Profiler
 )
 
 $ErrorActionPreference = "Stop"
@@ -147,15 +153,30 @@ try {
             $BenchmarkProject = "bench/XParsec.FSharp.Benchmarks"
             Write-Host "Running benchmarks in $BenchmarkProject with filter '$Filter'..." -ForegroundColor Cyan
 
+            # BDN's EventPipe/ETW profilers require an isolated (out-of-process) benchmark
+            # runner, so drop `-i` when a profiler is requested. Profiling additionally
+            # needs BDN >= 0.15.x (0.14.0 doesn't recognize net10.0 as a runtime and fails
+            # validation) and FSharp.Core >= 10.1.202 centrally pinned (BDN regenerates a
+            # csproj out-of-process and the VersionOverride in the bench fsproj is not
+            # enough on its own). See reference_bdn_profiler_eventpipe memory for the
+            # full checklist before running with -Profiler.
             $benchArgs = @(
                 "run",
                 "--project", $BenchmarkProject,
                 "-c", "Release",
                 "--",
-                "-i",
                 "-j", "short",
                 "--filter", $Filter
             )
+
+            if (-not [string]::IsNullOrWhiteSpace($Profiler)) {
+                Write-Host "Profiler enabled: $Profiler (speedscope traces will be emitted alongside the report)" -ForegroundColor Yellow
+                $benchArgs += @("--profiler", $Profiler)
+            }
+            else {
+                # No profiler → keep the fast in-process toolchain to sidestep the FCS restore gotcha.
+                $benchArgs += "-i"
+            }
 
             & dotnet @benchArgs 2>&1 | Tee-Object -FilePath $LogFile
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
