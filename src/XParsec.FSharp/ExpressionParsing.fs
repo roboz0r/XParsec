@@ -1712,20 +1712,64 @@ module Expr =
                         fail errLhsOnlyOpInInfix
                     | _ -> preturn (getRhsOperatorHandler opInfo token)
 
-            // First try type application, then whitespace application, then explicit operator.
-            // Using choiceL ensures that if nextSyntaxToken consumes a token
-            // (e.g. '->') but handleToken fails (no expression-level handler for Arrow),
-            // XParsec backtracks the consumed token so outer parsers (e.g. Rule.parse) see it.
-            choiceL
-                [
-                    reprocessedOperatorAfterTypeParams >>= handleToken
-                    HighPrec.pTypeApplication >>= handleToken
-                    HighPrec.peekHighPrecApp >>= handleToken
-                    Application.parse >>= handleToken
-                    pSepVirt >>= handleToken
-                    nextSyntaxToken >>= handleToken
-                ]
-                "RHS operator"
+            // Peek once, then dispatch to the narrowest applicable sub-parser rather
+            // than trying all six alternatives in sequence. Preserves the exact priority
+            // of the prior `choiceL [ ... ]` trial order (first-success wins).
+            //
+            // Note on `Token.OpLessThan`: the Token enum packs `Kind ||| Precedence`, so
+            // all five comparison/bitwise operators (`<`, `>`, `<=`, `>=`, `<>`) share the
+            // same numeric value. A single arm therefore catches the whole family — the
+            // sub-parsers (`reprocessedOperatorAfterTypeParams`, `pTypeApplication`)
+            // disambiguate by string internally.
+            let rhsDispatch: FSParser<SyntaxToken> =
+                fun reader ->
+                    match peekNextSyntaxToken reader with
+                    | Error e -> Error e
+                    | Ok token ->
+                        let state = reader.State
+
+                        match token.Token with
+                        | Token.KWLParen
+                        | Token.KWLBracket ->
+                            // `(` and `[` are expression-starters per canStartExpression,
+                            // so if Application declines (e.g. indent does not qualify as an
+                            // application argument), pSepVirt can still emit a VirtualSep to
+                            // terminate a sequential expression at the context indent.
+                            match HighPrec.peekHighPrecApp reader with
+                            | Ok r -> Ok r
+                            | Error _ ->
+                                match Application.parse reader with
+                                | Ok r -> Ok r
+                                | Error _ ->
+                                    match pSepVirt reader with
+                                    | Ok r -> Ok r
+                                    | Error _ -> nextSyntaxToken reader
+
+                        | Token.OpSemicolon -> pSepVirt reader
+
+                        | Token.OpLessThan ->
+                            // Catches the comparison/bitwise family: < > <= >= <>
+                            if state.CharsConsumedAfterTypeParams > 0 then
+                                match reprocessedOperatorAfterTypeParams reader with
+                                | Ok r -> Ok r
+                                | Error _ ->
+                                    match HighPrec.pTypeApplication reader with
+                                    | Ok r -> Ok r
+                                    | Error _ -> nextSyntaxToken reader
+                            else
+                                match HighPrec.pTypeApplication reader with
+                                | Ok r -> Ok r
+                                | Error _ -> nextSyntaxToken reader
+
+                        | _ ->
+                            match Application.parse reader with
+                            | Ok r -> Ok r
+                            | Error _ ->
+                                match pSepVirt reader with
+                                | Ok r -> Ok r
+                                | Error _ -> nextSyntaxToken reader
+
+            rhsDispatch >>= handleToken
 
         let peekIsSliceAll =
             parser {
