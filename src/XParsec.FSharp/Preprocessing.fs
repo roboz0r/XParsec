@@ -55,7 +55,7 @@ module IfExpr =
     type IfExprAux = unit
 
     // The main expression type for #if expressions, with auxiliary data for operators.
-    // We use a generic type here to allow the parser to be generic over the input type (e.g. ReadableImmutableArray<PositionedToken>).
+    // We use a generic type here to allow the parser to be generic over the input type (e.g. FSReadable).
     type IfExprParser<'Input when 'Input :> IReadable<PositionedToken, 'Input>>() =
         static let orPrecedence = BindingPower.fromLevel 1 // ||
         static let andPrecedence = BindingPower.fromLevel 2 // &&
@@ -131,10 +131,8 @@ module IfExpr =
         static member IfDirectiveParser = ifDirectiveParser
 
     let parseSlice: Parser<_, _, _, _> =
-        IfExprParser<ReadableImmutableArray<PositionedToken>>.IfDirectiveParser
-        >>. Operator.parser
-                IfExprParser<ReadableImmutableArray<PositionedToken>>.AtomParser
-                (IfExprParser<ReadableImmutableArray<PositionedToken>>())
+        IfExprParser<FSReadable>.IfDirectiveParser
+        >>. Operator.parser IfExprParser<FSReadable>.AtomParser (IfExprParser<FSReadable>())
 
     let evaluate (expr: IfExpr<SyntaxToken>) (isDefined: SyntaxToken -> bool) : bool =
         let rec eval e =

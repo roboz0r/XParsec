@@ -168,14 +168,7 @@ module Measure =
 
                 | _ -> fail errNotValidRhsMeasureOp
 
-        interface Operators<
-            SyntaxToken,
-            MeasureAux,
-            Measure<SyntaxToken>,
-            PositionedToken,
-            ParseState,
-            ReadableImmutableArray<PositionedToken>
-         > with
+        interface Operators<SyntaxToken, MeasureAux, Measure<SyntaxToken>, PositionedToken, ParseState, FSReadable> with
             member _.LhsParser = lhsParser
             member _.RhsParser = rhsParser
 

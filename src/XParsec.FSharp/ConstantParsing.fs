@@ -25,7 +25,7 @@ module Constant =
         || t = Token.KWNull
         || t = Token.CharLiteral
 
-    let private pLiteral: Parser<_, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let private pLiteral: FSParser<_> =
         nextSyntaxTokenSatisfiesLMsg
             (fun (synTok: SyntaxToken) -> isLiteralToken synTok.Token)
             "Expected constant literal"
@@ -135,7 +135,7 @@ module Constant =
 
         preturn () reader
 
-    let parse: Parser<Constant<_>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let parse: FSParser<Constant<_>> =
         parser {
 
             let! literal = pLiteral

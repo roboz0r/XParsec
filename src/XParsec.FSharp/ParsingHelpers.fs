@@ -902,7 +902,7 @@ module Parsing =
 
     /// Returns the column (0-based) of the next non-trivia token without consuming it.
     /// Returns -1 at EOF.
-    let peekSyntaxIndent: Parser<int, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let peekSyntaxIndent: FSParser<int> =
         lookAhead (fun r ->
             match nextSyntaxToken r with
             | Error _ -> preturn -1 r
@@ -1197,7 +1197,7 @@ module Parsing =
 
     /// Record field separator: accepts a real ';' or emits a virtual separator when the next
     /// token is at the same indent as the enclosing SeqBlock context (spec §15.1.5: $sep insertion).
-    let pRecordFieldSep: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let pRecordFieldSep: FSParser<SyntaxToken> =
         let failSep = fail (Message "Expected ';' or newline at the same indent")
 
         parser {
@@ -1244,7 +1244,7 @@ module Parsing =
     let private errExpectedGtCloseTypeApp: ErrorType<PositionedToken, ParseState> =
         Message "Expected '>' to close type application"
 
-    let pCloseTypeParams: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let pCloseTypeParams: FSParser<SyntaxToken> =
         // 15.3 Lexical Analysis of Type Applications
         parser {
             let! state = getUserState
@@ -1305,7 +1305,7 @@ module Parsing =
     let private errNoOperatorToReprocess: ErrorType<PositionedToken, ParseState> =
         Message "No operator to reprocess after type parameters"
 
-    let reprocessedOperatorAfterTypeParams: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let reprocessedOperatorAfterTypeParams: FSParser<SyntaxToken> =
         parser {
             let! state = getUserState
             let charsConsumed = state.CharsConsumedAfterTypeParams

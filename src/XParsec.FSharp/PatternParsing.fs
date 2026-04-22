@@ -83,7 +83,7 @@ module Pat =
     /// Emits a virtual `;` in pattern SeqBlock contexts when the next non-trivia token
     /// is at the current offside indent and can start a pattern. Mirrors `pSepVirt` in
     /// ExpressionParsing.fs so list/array patterns accept newline-separated elements.
-    let private pSepVirtPat: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let private pSepVirtPat: FSParser<SyntaxToken> =
         let failSep =
             fail (Message "Expected ';' or newline at the same indent for pattern sequencing")
 
@@ -110,12 +110,12 @@ module Pat =
         }
 
     /// Subsequent-separator parser for InfixNary tuple patterns.
-    let private pPatTupleComma: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let private pPatTupleComma: FSParser<SyntaxToken> =
         nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.OpComma) "','"
 
     /// Subsequent-separator parser for InfixNary element patterns. Matches a
     /// real `;` or a virtual one emitted by `pSepVirtPat`.
-    let private pPatSemicolon: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let private pPatSemicolon: FSParser<SyntaxToken> =
         nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.OpSemicolon) "';'"
         <|> pSepVirtPat
 
@@ -208,14 +208,7 @@ module Pat =
         static let tokenToOp = patTokenToOp true true
         static let rhsParser = patRhsParser tokenToOp
 
-        interface Operators<
-            SyntaxToken,
-            PatAux,
-            Pat<SyntaxToken>,
-            PositionedToken,
-            ParseState,
-            ReadableImmutableArray<PositionedToken>
-         > with
+        interface Operators<SyntaxToken, PatAux, Pat<SyntaxToken>, PositionedToken, ParseState, FSReadable> with
             member _.LhsParser = patLhsParser
             member _.RhsParser = rhsParser
 
@@ -229,14 +222,7 @@ module Pat =
         static let tokenToOp = patTokenToOp false false
         static let rhsParser = patRhsParser tokenToOp
 
-        interface Operators<
-            SyntaxToken,
-            PatAux,
-            Pat<SyntaxToken>,
-            PositionedToken,
-            ParseState,
-            ReadableImmutableArray<PositionedToken>
-         > with
+        interface Operators<SyntaxToken, PatAux, Pat<SyntaxToken>, PositionedToken, ParseState, FSReadable> with
             member _.LhsParser = patLhsParser
             member _.RhsParser = rhsParser
 
@@ -287,10 +273,7 @@ module Pat =
     let private pBarToken =
         nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.OpBar) "'|'"
 
-    let private pOrAsChain
-        (altParser: Parser<Pat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>>)
-        (basePat: Pat<SyntaxToken>)
-        =
+    let private pOrAsChain (altParser: FSParser<Pat<SyntaxToken>>) (basePat: Pat<SyntaxToken>) =
         parser {
             let! orAlts =
                 many (
@@ -338,7 +321,7 @@ module Pat =
             return FieldPat(lid, eq, p)
         }
 
-    let pRecordPat: Parser<Pat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let pRecordPat: FSParser<Pat<SyntaxToken>> =
         fun reader ->
             match pLBrace reader with
             | Error e -> Error e
@@ -396,7 +379,7 @@ module Pat =
     /// commas, semicolons, or newline-at-indent. Commits to this AST shape only when at
     /// least one argument is a named field; otherwise fails so `pNamed`'s fallback can
     /// handle the positional-only case with the standard `Pat.Named(lid, param, arg)`.
-    let private pNamedFieldPats: Parser<Pat<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let private pNamedFieldPats: FSParser<Pat<SyntaxToken>> =
         fun reader ->
             match LongIdent.parse reader with
             | Error e -> Error e
@@ -712,7 +695,7 @@ module Pat =
 
 [<RequireQualifiedAccess>]
 module PatternGuard =
-    let parse: Parser<PatternGuard<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let parse: FSParser<PatternGuard<SyntaxToken>> =
         parser {
             let! w = pWhen
             // Use refExprGuard (bounded at Arrow precedence) so '->' is not consumed
@@ -735,7 +718,7 @@ module PatternGuard =
 
 [<RequireQualifiedAccess>]
 module Rule =
-    let parse: Parser<Rule<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let parse: FSParser<Rule<SyntaxToken>> =
         parser {
             let! pat =
                 Pat.parse
@@ -781,7 +764,7 @@ module Rules =
             Rule.parse
 
 
-    let parse: Parser<Rules<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let parse: FSParser<Rules<SyntaxToken>> =
         parser {
             let! firstBar = opt pBar
             let! rules, bars = sepBy1 pRule pBar

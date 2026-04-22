@@ -37,7 +37,7 @@ module Typar =
             return Typar.Static(caret, ident)
         }
 
-    let parse: Parser<Typar<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let parse: FSParser<Typar<SyntaxToken>> =
         dispatchNextSyntaxTokenL
             [
                 Token.Wildcard, pAnon
@@ -399,9 +399,7 @@ module Type =
         }
 
     // Suffix continuation: list (as in `int list`)
-    let private pPostfixSuffixCont
-        : Parser<LongIdent<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
-        LongIdent.parse
+    let private pPostfixSuffixCont: FSParser<LongIdent<SyntaxToken>> = LongIdent.parse
 
     // Postfix operators: [] (Array), .Ident (Dotted), ident (Suffixed e.g. int list)
     let private pPostfixType =
@@ -568,7 +566,7 @@ module Type =
     do refType.Set parse
 
 module ReturnType =
-    let parse: Parser<ReturnType<_>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let parse: FSParser<ReturnType<_>> =
         parser {
             let! colon = pColon
 

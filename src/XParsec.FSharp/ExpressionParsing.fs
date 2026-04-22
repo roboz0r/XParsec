@@ -130,8 +130,7 @@ module ElifBranches =
 
         | Error e -> Ok struct (ImmutableArray.CreateRange acc, ValueNone)
 
-    let parse: Parser<_, PositionedToken, ParseState, ReadableImmutableArray<_>> =
-        fun reader -> parseBranches (ResizeArray()) reader
+    let parse: FSParser<_> = fun reader -> parseBranches (ResizeArray()) reader
 
 module Binding =
     let private errNoTrailingTypeAnnotation: ErrorType<PositionedToken, ParseState> =
@@ -231,7 +230,7 @@ module Binding =
         // can be parsed inside a stricter offside context (col_of_colon + 1).
         // Without this, Type.parse would greedily slurp suffix identifiers from
         // following lines as type suffixes (`'T array` + `res` -> `res<'T array>`).
-        let pColonPeek (reader: Reader<PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>>) =
+        let pColonPeek (reader: FSReader) =
             match peekNextSyntaxToken reader with
             | Ok t when t.Token = Token.OpColon ->
                 let col = ParseState.getIndent reader.State (reader.Index * 1<token>)
@@ -353,7 +352,7 @@ module Binding =
         }
 
     /// Parse either a function or a value binding
-    let parse attrs : Parser<Binding<_>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let parse attrs : FSParser<Binding<_>> =
         choiceL [ parseFunction attrs; parseValue attrs ] "Binding"
 
     let parseSepByAnd1 attrs =
@@ -391,7 +390,7 @@ module private MemberHelpers =
 
 [<RequireQualifiedAccess>]
 module FieldInitializer =
-    let parse: Parser<FieldInitializer<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let parse: FSParser<FieldInitializer<SyntaxToken>> =
         parser {
             let! id = LongIdent.parse
             let! equals = pEquals
@@ -410,7 +409,7 @@ module ObjectConstruction =
     let mutable private x = 0
     let init () = x <- x + 1
 
-    let parse: Parser<ObjectConstruction<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let parse: FSParser<ObjectConstruction<SyntaxToken>> =
         parser {
             let! typ = Type.parse
 
@@ -443,7 +442,7 @@ module ObjectConstruction =
 
 [<RequireQualifiedAccess>]
 module BaseCall =
-    let parse: Parser<BaseCall<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let parse: FSParser<BaseCall<SyntaxToken>> =
         parser {
             // Note: This parser expects 'inherit' to be handled by the caller,
             // as the BaseCall AST type does not contain the 'inherit' token.
@@ -466,7 +465,7 @@ module BaseCall =
 
 [<RequireQualifiedAccess>]
 module ObjectMembers =
-    let parse: Parser<ObjectMembers<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let parse: FSParser<ObjectMembers<SyntaxToken>> =
         parser {
             let! withTok = pWith
 
@@ -479,7 +478,7 @@ module ObjectMembers =
 
 [<RequireQualifiedAccess>]
 module InterfaceImpl =
-    let parse: Parser<InterfaceImpl<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let parse: FSParser<InterfaceImpl<SyntaxToken>> =
         parser {
             let! interfaceTok = pInterface
             let! typ = Type.parse
@@ -552,7 +551,7 @@ module Expr =
     // parses inside a stricter offside context (colonCol + 1), preventing
     // Type.parse from greedily slurping suffix identifiers on following lines.
     let pTypedSeqExprBlock =
-        let pColonPeek (reader: Reader<PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>>) =
+        let pColonPeek (reader: FSReader) =
             match peekNextSyntaxToken reader with
             | Ok t when t.Token = Token.OpColon ->
                 let col = ParseState.getIndent reader.State (reader.Index * 1<token>)
@@ -1249,7 +1248,7 @@ module Expr =
         /// Direct-style type-application lookahead. Moved to module scope so the binding
         /// is initialized once as a static field (rather than re-evaluated for each generic
         /// instantiation of an enclosing class member).
-        let pTypeApplication: Parser<SyntaxToken, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>> =
+        let pTypeApplication: FSParser<SyntaxToken> =
             fun reader ->
                 if not (isPrevTokenSyntax reader) then
                     fail pTypeApplicationErr reader
@@ -1324,7 +1323,7 @@ module Expr =
                     virtualToken (PositionedToken.Create(Token.OpHighPrecedenceIndexApp, pt.StartIndex))
                 | _ -> failwith "Unexpected token in peekHighPrecApp"
 
-        let parseHighPrecIndex: Parser<ExprAux, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>> =
+        let parseHighPrecIndex: FSParser<ExprAux> =
             // Parse [ expr ] for F# 6+ dot-less indexing arr[i] — no whitespace before '['
             parser {
                 let! pos = getPosition
@@ -1341,7 +1340,7 @@ module Expr =
                     return ExprAux.HighPrecIndex(lBracket, argExpr, rBracket)
             }
 
-        let parseHighPrecApp: Parser<ExprAux, PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>> =
+        let parseHighPrecApp: FSParser<ExprAux> =
             // Parse ( expr ) for high-precedence application f(x, y) — no whitespace before '('
             parser {
                 let! pos = getPosition
@@ -1540,7 +1539,7 @@ module Expr =
 
         let pIdentAfterDot = nextSyntaxIdentifierLMsg "Expected identifier after '.'"
 
-        let parseDotRhs: Parser<ExprAux, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+        let parseDotRhs: FSParser<ExprAux> =
             // Note: cannot use module-level pIdent here as that maps to Expr.Ident
             choiceL
                 [
@@ -1595,14 +1594,7 @@ module Expr =
 
         let rhsOperators
             : (SyntaxToken
-                  -> RHSOperator<
-                      SyntaxToken,
-                      ExprAux,
-                      Expr<SyntaxToken>,
-                      PositionedToken,
-                      ParseState,
-                      ReadableImmutableArray<PositionedToken>
-                   >) array =
+                  -> RHSOperator<SyntaxToken, ExprAux, Expr<SyntaxToken>, PositionedToken, ParseState, FSReadable>) array =
             Array.init
                 30
                 (fun i ->
@@ -1895,14 +1887,7 @@ module Expr =
                 | ValueNone -> return! pOperatorPrefix token
             }
 
-        interface Operators<
-            SyntaxToken,
-            ExprAux,
-            Expr<SyntaxToken>,
-            PositionedToken,
-            ParseState,
-            ReadableImmutableArray<PositionedToken>
-         > with
+        interface Operators<SyntaxToken, ExprAux, Expr<SyntaxToken>, PositionedToken, ParseState, FSReadable> with
             member _.LhsParser = lhsParser
             member _.RhsParser = rhsParser
 
