@@ -9,6 +9,19 @@ type ImmutableArrayBuilder<'T> = ResizeArray<'T>
 type ImmutableArrayBuilder<'T> = System.Collections.Immutable.ImmutableArray<'T>.Builder
 #endif
 
+// netstandard2.0 doesn't expose IsByRefLikeAttribute in the BCL; define it here so the
+// compiler recognises `[<IsByRefLike>]` on struct declarations. Both C# and F# compilers
+// match the attribute by fully-qualified name rather than requiring it to live in corelib.
+#if NETSTANDARD2_0 && !FABLE_COMPILER
+namespace System.Runtime.CompilerServices
+
+open System
+
+[<AttributeUsage(AttributeTargets.Struct, Inherited = false)>]
+type IsByRefLikeAttribute() =
+    inherit Attribute()
+#endif
+
 #if FABLE_COMPILER
 namespace System
 
@@ -134,6 +147,9 @@ type ImmutableArray<'T> =
 
 type ImmutableArray =
     static member inline Create<'T>(x: 'T) = { Array = [| x |] }
+    static member inline Create<'T>(a: 'T, b: 'T) = { Array = [| a; b |] }
+    static member inline Create<'T>(a: 'T, b: 'T, c: 'T) = { Array = [| a; b; c |] }
+    static member inline Create<'T>(a: 'T, b: 'T, c: 'T, d: 'T) = { Array = [| a; b; c; d |] }
     static member inline CreateRange<'T>(xs: 'T seq) = { Array = Array.ofSeq<'T> xs }
     static member inline CreateBuilder<'T>() = ResizeArray<'T>()
     static member inline CreateBuilder<'T>(initialCapacity: int) = ResizeArray<'T>(initialCapacity)

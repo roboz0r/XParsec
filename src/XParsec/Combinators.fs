@@ -596,7 +596,7 @@ module Combinators =
     /// Applies the parser `p` zero or more times. If it succeeds, returns the results as an ImmutableArray.
     /// This parser always succeeds.
     let many (p: Parser<'A, 'T, 'State, 'Input>) (reader: Reader<_, _, _>) =
-        let xs = ImmutableArray.CreateBuilder()
+        let mutable xs = SmallArrayBuilder<_>()
         let mutable ok = true
 
         while ok do
@@ -620,7 +620,7 @@ module Combinators =
         pOneThen
             p
             (fun x0 ->
-                let xs = ImmutableArray.CreateBuilder()
+                let mutable xs = SmallArrayBuilder<_>()
                 xs.Add(x0)
                 let mutable ok = true
 
@@ -752,8 +752,8 @@ module Combinators =
 
         match p reader with
         | Ok s ->
-            let xs = ImmutableArray.CreateBuilder()
-            let seps = ImmutableArray.CreateBuilder()
+            let mutable xs = SmallArrayBuilder<_>()
+            let mutable seps = SmallArrayBuilder<_>()
             xs.Add(s)
 
             let mutable ok = true
@@ -793,8 +793,8 @@ module Combinators =
         match p reader with
         | Error e -> ParseError.createNested ParseError.expectedAtLeastOne [ e ] startPos
         | Ok s ->
-            let xs = ImmutableArray.CreateBuilder()
-            let seps = ImmutableArray.CreateBuilder()
+            let mutable xs = SmallArrayBuilder<_>()
+            let mutable seps = SmallArrayBuilder<_>()
             xs.Add(s)
 
             let mutable ok = true
@@ -889,8 +889,8 @@ module Combinators =
 
         match p reader with
         | Ok s ->
-            let xs = ImmutableArray.CreateBuilder()
-            let seps = ImmutableArray.CreateBuilder()
+            let mutable xs = SmallArrayBuilder<_>()
+            let mutable seps = SmallArrayBuilder<_>()
             xs.Add(s)
 
             let mutable ok = true
@@ -927,8 +927,8 @@ module Combinators =
         pOneThen
             p
             (fun s ->
-                let xs = ImmutableArray.CreateBuilder()
-                let seps = ImmutableArray.CreateBuilder()
+                let mutable xs = SmallArrayBuilder<_>()
+                let mutable seps = SmallArrayBuilder<_>()
                 xs.Add(s)
 
                 let mutable ok = true
@@ -1041,7 +1041,7 @@ module Combinators =
 
             match p reader with
             | Ok s1 ->
-                let xs = ImmutableArray.CreateBuilder()
+                let mutable xs = SmallArrayBuilder<_>()
                 xs.Add(s1)
                 let mutable endTok = ValueNone
                 let mutable err = []
@@ -1078,7 +1078,7 @@ module Combinators =
         pOneThen
             p
             (fun s1 reader ->
-                let xs = ImmutableArray.CreateBuilder()
+                let mutable xs = SmallArrayBuilder<_>()
                 xs.Add(s1)
                 let mutable endTok = ValueNone
                 let mutable err = []
@@ -1279,9 +1279,8 @@ module Combinators =
         pOneThen
             p1
             (fun s1 ->
-                let xs = ImmutableArray.CreateBuilder()
-                let inline append (c) = xs.Add(c)
-                append s1
+                let mutable xs = SmallArrayBuilder<_>()
+                xs.Add(s1)
                 let mutable ok = true
 
                 while ok do
@@ -1292,7 +1291,7 @@ module Combinators =
                         if reader.Position = pos then
                             raise (InfiniteLoopException pos)
 
-                        append sx
+                        xs.Add(sx)
                     | Error _ ->
                         reader.Position <- pos
                         ok <- false
