@@ -2,9 +2,85 @@ namespace XParsec
 
 open System
 open System.Collections.Immutable
+open System.Runtime.CompilerServices
 #if !FABLE_COMPILER
 open System.Runtime.InteropServices
 #endif
+
+/// Stack-allocated builder for small ImmutableArray results (<= 4 items).
+/// Holds four inline slots and spills to an ImmutableArray.Builder on the 5th item.
+/// ToImmutable() dispatches to the exact-size ImmutableArray.Create overload for
+/// small counts, avoiding both the Builder allocation and the size-fitting copy.
+///
+/// Use as a mutable local:
+///     let mutable xs = SmallArrayBuilder<'T>()
+///     xs.Add(item)
+///     ...
+///     xs.ToImmutable()
+///
+/// Single-shot: do not reuse after ToImmutable().
+/// IsByRefLike forces the struct to stay on the stack — it can't be boxed, captured in
+/// a closure, stored in a heap field, or cross an async boundary. This prevents the
+/// silent-copy bugs typical of mutable value types.
+[<Struct; IsByRefLike>]
+type SmallArrayBuilder<'T> =
+    [<DefaultValue(false)>]
+    val mutable private count: int
+
+    [<DefaultValue(false)>]
+    val mutable private t0: 'T
+
+    [<DefaultValue(false)>]
+    val mutable private t1: 'T
+
+    [<DefaultValue(false)>]
+    val mutable private t2: 'T
+
+    [<DefaultValue(false)>]
+    val mutable private t3: 'T
+
+    [<DefaultValue(false)>]
+    val mutable private overflow: ImmutableArrayBuilder<'T>
+
+    member this.Count = this.count
+
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    member this.Add(item: 'T) =
+        match this.count with
+        | 0 ->
+            this.t0 <- item
+            this.count <- 1
+        | 1 ->
+            this.t1 <- item
+            this.count <- 2
+        | 2 ->
+            this.t2 <- item
+            this.count <- 3
+        | 3 ->
+            this.t3 <- item
+            this.count <- 4
+        | 4 ->
+            let b = ImmutableArray.CreateBuilder<'T>(8)
+            b.Add(this.t0)
+            b.Add(this.t1)
+            b.Add(this.t2)
+            b.Add(this.t3)
+            b.Add(item)
+            this.overflow <- b
+            this.count <- 5
+        | _ ->
+            this.overflow.Add(item)
+            this.count <- this.count + 1
+
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    member this.ToImmutable() : ImmutableArray<'T> =
+        match this.count with
+        | 0 -> ImmutableArray.Empty
+        | 1 -> ImmutableArray.Create(this.t0)
+        | 2 -> ImmutableArray.Create(this.t0, this.t1)
+        | 3 -> ImmutableArray.Create(this.t0, this.t1, this.t2)
+        | 4 -> ImmutableArray.Create(this.t0, this.t1, this.t2, this.t3)
+        | _ -> this.overflow.ToImmutable()
 
 type ImmutableArrayCE() =
     member inline _.Yield(x) =
