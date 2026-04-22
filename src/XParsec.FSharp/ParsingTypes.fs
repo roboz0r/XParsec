@@ -241,6 +241,18 @@ and [<CustomEquality; NoComparison>] ParseState =
     override this.GetHashCode() =
         System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this)
 
+
+/// The concrete Readable slice type the F# parser reads from.
+/// Future input-representation swaps should only change this alias.
+type FSReadable = ReadableArray<PositionedToken>
+
+/// An F# parser: produces 'T from the token stream.
+type FSParser<'T> = Parser<'T, PositionedToken, ParseState, FSReadable>
+
+/// An F# reader over the token stream.
+type FSReader = Reader<PositionedToken, ParseState, FSReadable>
+
+
 module SyntaxToken =
 
     let syntaxToken token (index: int) =
@@ -517,7 +529,7 @@ type WriterTraceCallback(lexed: Lexed, writer: System.IO.TextWriter) =
 module Reader =
     let ofLexed (lexed: Lexed) (input: string) (definedSymbols: Set<string>) : Reader<_, ParseState, _> =
         let initialState = ParseState.create lexed input definedSymbols
-        Reader.ofImmutableArray (lexed.Tokens.AsImmutableArray()) initialState
+        Reader.ofReadableArray (lexed.Tokens.AsReadableArray()) initialState
 
     let ofLexedWithTracing
         (lexed: Lexed)
@@ -526,4 +538,4 @@ module Reader =
         (trace: TraceCallback)
         : Reader<_, ParseState, _> =
         let initialState = ParseState.createWithTracing lexed input definedSymbols trace
-        Reader.ofImmutableArray (lexed.Tokens.AsImmutableArray()) initialState
+        Reader.ofReadableArray (lexed.Tokens.AsReadableArray()) initialState

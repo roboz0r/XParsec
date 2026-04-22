@@ -28,7 +28,7 @@ module AttributeTarget =
     let private pKw k ctor =
         nextSyntaxTokenIsLMsg k (sprintf "Expected '%A'" k) |>> ctor
 
-    let parse: Parser<AttributeTarget<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let parse: FSParser<AttributeTarget<SyntaxToken>> =
         choiceL
             [
                 pContextualKeyword "assembly" AttributeTarget.Assembly
@@ -45,7 +45,7 @@ module AttributeTarget =
 
 [<RequireQualifiedAccess>]
 module Attribute =
-    let parse: Parser<Attribute<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let parse: FSParser<Attribute<SyntaxToken>> =
         parser {
             // Attempt to parse the target (e.g. "assembly:")
             // We need `opt` because "assembly" could also be the start of the ObjectConstruction (the Attribute Type name)
@@ -80,7 +80,7 @@ module AttributeSet =
 
     let private pAttributeItems = many pAttributeItem
 
-    let parse: Parser<AttributeSet<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let parse: FSParser<AttributeSet<SyntaxToken>> =
         parser {
             let! lBracket = pLAttrBracket
             let! attributes = pAttributeItems
@@ -90,8 +90,7 @@ module AttributeSet =
 
 [<RequireQualifiedAccess>]
 module Attributes =
-    let parse: Parser<Attributes<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
-        many1 AttributeSet.parse
+    let parse: FSParser<Attributes<SyntaxToken>> = many1 AttributeSet.parse
 
 [<RequireQualifiedAccess>]
 module RangeOpName =
@@ -106,7 +105,7 @@ module RangeOpName =
     let private pRangeSecond =
         nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.OpRange) "'..'"
 
-    let parse: Parser<RangeOpName<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let parse: FSParser<RangeOpName<SyntaxToken>> =
         parser {
             let! first = pRangeFirst
 
@@ -121,7 +120,7 @@ module RangeOpName =
 module ActivePatternOpName =
     let private pIdent = nextSyntaxIdentifierLMsg "Expected identifier"
 
-    let parse: Parser<ActivePatternOpName<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let parse: FSParser<ActivePatternOpName<SyntaxToken>> =
         // Recursive helper to parse segments: ident | ...
         let rec parseSegments (builder: ImmutableArray<_>.Builder) =
             parser {
@@ -173,7 +172,7 @@ module OpName =
             return OpName.NilOp(lBracket, rBracket)
         }
 
-    let parse: Parser<OpName<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let parse: FSParser<OpName<SyntaxToken>> =
         choiceL
             [
                 RangeOpName.parse |>> OpName.RangeOp
@@ -191,7 +190,7 @@ module IdentOrOp =
     let private pStarOpDecl =
         nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.KWOpDeclareMultiply) "Expected '(*)'"
 
-    let parse: Parser<IdentOrOp<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let parse: FSParser<IdentOrOp<SyntaxToken>> =
         choiceL
             [
                 // Case 1: Simple Identifier (including backticked)
@@ -269,7 +268,7 @@ module LongIdentOrOp =
                 return LongIdentOrOp.LongIdent longIdent
         }
 
-    let parse: Parser<LongIdentOrOp<SyntaxToken>, PositionedToken, ParseState, ReadableImmutableArray<_>> =
+    let parse: FSParser<LongIdentOrOp<SyntaxToken>> =
         parser {
             let! first = IdentOrOp.parse
 
@@ -293,9 +292,7 @@ module LongIdent =
 
 [<RequireQualifiedAccess>]
 module Access =
-    let parse
-        : Reader<PositionedToken, ParseState, ReadableImmutableArray<PositionedToken>>
-              -> ParseResult<Access<SyntaxToken>, PositionedToken, ParseState> =
+    let parse: FSReader -> ParseResult<Access<SyntaxToken>, PositionedToken, ParseState> =
         nextSyntaxTokenSatisfiesLMsg
             (fun t ->
                 t.Token = Token.KWPrivate

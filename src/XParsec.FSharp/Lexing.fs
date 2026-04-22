@@ -4,6 +4,7 @@ open System
 open System.Globalization
 open System.Collections.Generic
 open System.Collections.Immutable
+open XParsec
 open XParsec.FSharp
 
 [<Measure>]
@@ -14,8 +15,8 @@ type line
 
 type Lexed =
     {
-        Tokens: ImmutableArrayM<PositionedToken, token>
-        LineStarts: ImmutableArrayM<int<token>, line>
+        Tokens: ReadableArrayM<PositionedToken, token>
+        LineStarts: ReadableArrayM<int<token>, line>
     }
 
     member this.FirstTokenOnLine(lineIndex: int<line>) =
@@ -162,7 +163,7 @@ type LexContext =
 type LexBuilder =
     {
         Source: string
-        Tokens: ImmutableArray<PositionedToken>.Builder
+        Tokens: ReadableArrayBuilder<PositionedToken>
         mutable AtStartOfLine: bool
         mutable Context: LexContext list
         // Track whether we are inside a block comment
@@ -172,7 +173,7 @@ type LexBuilder =
         mutable IsInBlockComment: bool
         mutable IsInOCamlBlockComment: bool
         mutable LastTokenWasNewLine: int<token> voption
-        LineStarts: ImmutableArray<int<token>>.Builder // indices of tokens that start lines
+        LineStarts: ReadableArrayBuilder<int<token>> // indices of tokens that start lines
     }
 
 open XParsec
@@ -238,7 +239,7 @@ module LexBuilder =
     let complete idx (state: LexBuilder) =
         emitUnterminatedStrings idx state
         state.Tokens.Add(PositionedToken.Create(Token.EOF, idx))
-        let tokens = ImmutableArrayM(state.Tokens.ToImmutable())
+        let tokens = ReadableArrayM(state.Tokens.ToReadableArray())
 
         let lineStarts =
             match state.LastTokenWasNewLine with
@@ -247,7 +248,7 @@ module LexBuilder =
                 state.LastTokenWasNewLine <- ValueNone
             | ValueNone -> ()
 
-            ImmutableArrayM(state.LineStarts.ToImmutable())
+            ReadableArrayM(state.LineStarts.ToReadableArray())
 
         {
             Tokens = tokens
@@ -261,13 +262,13 @@ module LexBuilder =
         let x =
             {
                 Source = input
-                Tokens = ImmutableArray.CreateBuilder(tokenCapacity)
+                Tokens = ReadableArrayBuilder(tokenCapacity)
                 AtStartOfLine = true
                 Context = []
                 IsInBlockComment = false
                 IsInOCamlBlockComment = false
                 LastTokenWasNewLine = ValueNone
-                LineStarts = ImmutableArray.CreateBuilder(lineCapacity)
+                LineStarts = ReadableArrayBuilder(lineCapacity)
             }
 
         x.LineStarts.Add(0<_>) // The first line starts at the beginning of the file

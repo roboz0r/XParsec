@@ -37,7 +37,7 @@ module ModuleAbbrev =
 
 [<RequireQualifiedAccess>]
 module CompilerDirectiveDecl =
-    let parse: Parser<CompilerDirectiveDecl<SyntaxToken>, _, _, ReadableImmutableArray<_>> =
+    let parse: FSParser<CompilerDirectiveDecl<SyntaxToken>> =
         parser {
             let! hash = pHash
             // Committed after consuming '#' — recover with virtual identifier if missing
