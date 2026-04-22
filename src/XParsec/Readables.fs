@@ -132,6 +132,57 @@ type ReadableArray<'T>(arr: 'T array, start: int, length: int) =
         member this.Slice(newStart: int, newLength: int) = this.Slice(newStart, newLength)
 
 
+/// Append-only builder that materialises into a ReadableArray without copying.
+/// Single-shot: after ToReadableArray the builder releases its buffer.
+type ReadableArrayBuilder<'T>(initialCapacity: int) =
+    let mutable arr: 'T array = Array.zeroCreate (max 4 initialCapacity)
+    let mutable count = 0
+
+    new() = ReadableArrayBuilder(16)
+
+    member _.Count = count
+    member _.Capacity = arr.Length
+
+    member _.Item
+        with get (index: int) =
+            if uint index >= uint count then
+                raise (IndexOutOfRangeException())
+
+            arr.[index]
+        and set (index: int) (value: 'T) =
+            if uint index >= uint count then
+                raise (IndexOutOfRangeException())
+
+            arr.[index] <- value
+
+    // Fast-path/slow-path split (mirrors System.Collections.Generic.List<T>.Add):
+    // the hot path is small enough to inline; growth is factored out behind
+    // NoInlining so it never inflates the caller's icache footprint.
+    member this.Add(item: 'T) =
+        let a = arr
+        let c = count
+
+        if uint c < uint a.Length then
+            count <- c + 1
+            a.[c] <- item
+        else
+            this.AddWithResize(item)
+
+    [<System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)>]
+    member private this.AddWithResize(item: 'T) =
+        Array.Resize(&arr, arr.Length * 2)
+        arr.[count] <- item
+        count <- count + 1
+
+    /// Zero-copy: returns a ReadableArray viewing the first `count` slots of the
+    /// backing buffer. The builder releases its reference — do not reuse.
+    member _.ToReadableArray() : ReadableArray<'T> =
+        let result = ReadableArray(arr, 0, count)
+        arr <- Array.empty
+        count <- 0
+        result
+
+
 /// An immutable array slice that can be read as input by the parser.
 [<Struct>]
 type ReadableImmutableArray<'T>(arr: ImmutableArray<'T>, start: int, length: int) =
@@ -331,6 +382,9 @@ module Reader =
     /// Creates a new reader from the input immutable array and state.
     let ofImmutableArray (a: ImmutableArray<'T>) state =
         Reader(ReadableImmutableArray(a, 0, a.Length), state, 0)
+
+    /// Creates a new reader from an existing ReadableArray slice and state.
+    let ofReadableArray (a: ReadableArray<'T>) state = Reader(a, state, 0)
 
 #if NET5_0_OR_GREATER
     /// Creates a new reader from the input resize array and state.
