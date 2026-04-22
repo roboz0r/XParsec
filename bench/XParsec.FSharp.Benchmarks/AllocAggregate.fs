@@ -41,8 +41,7 @@ let private isAllocationEvent (name: string) =
 /// most useful diagnostic — leaf stack attribution says where, this says what).
 let aggregateTypesAt (tracePath: string) (targetSubstring: string) (topN: int) =
     printfn "Opening %s ..." tracePath
-    let etlxPath = TraceLog.CreateFromEventPipeDataFile(tracePath)
-    use traceLog = new TraceLog(etlxPath)
+    use traceLog = openTraceLog tracePath
     let byType = Dictionary<string, int64>()
     let mutable matched = 0L
 
@@ -81,8 +80,7 @@ let aggregateTypesAt (tracePath: string) (targetSubstring: string) (topN: int) =
 /// frame contains `targetSubstring`. Shows frame names from leaf to root one per line.
 let dumpStacks (tracePath: string) (targetSubstring: string) (maxStacks: int) =
     printfn "Opening %s ..." tracePath
-    let etlxPath = TraceLog.CreateFromEventPipeDataFile(tracePath)
-    use traceLog = new TraceLog(etlxPath)
+    use traceLog = openTraceLog tracePath
     let mutable printed = 0
 
     for ev in traceLog.Events do
@@ -118,8 +116,7 @@ let dumpStacks (tracePath: string) (targetSubstring: string) (maxStacks: int) =
 /// whose leaf frame matches, bucket by the immediate caller and report totals.
 let aggregateCallers (tracePath: string) (targetSubstring: string) (topN: int) =
     printfn "Opening %s ..." tracePath
-    let etlxPath = TraceLog.CreateFromEventPipeDataFile(tracePath)
-    use traceLog = new TraceLog(etlxPath)
+    use traceLog = openTraceLog tracePath
     printfn "Loaded. %d events, %d processes." traceLog.EventCount traceLog.Processes.Count
 
     let callerBytes = Dictionary<string, int64>()
@@ -187,8 +184,7 @@ let aggregateCallers (tracePath: string) (targetSubstring: string) (topN: int) =
 /// to frames whose name contains the substring (pass "*" to disable filtering).
 let aggregate (tracePath: string) (filter: string) =
     printfn "Opening %s ..." tracePath
-    let etlxPath = TraceLog.CreateFromEventPipeDataFile(tracePath)
-    use traceLog = new TraceLog(etlxPath)
+    use traceLog = openTraceLog tracePath
     printfn "Loaded. %d events, %d processes." traceLog.EventCount traceLog.Processes.Count
 
     let selfBytes = Dictionary<string, int64>()
