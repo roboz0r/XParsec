@@ -544,101 +544,102 @@ module Parsing =
     let rec private nextSyntaxTokenImpl isPeek (reader: Reader<PositionedToken, ParseState, _>) =
         match reader.Peek() with
         | ValueNone -> fail EndOfInput reader
-        | ValueSome token when token.Token = Token.IfDirective ->
-            // processIfDirective expects the reader to be positioned AT the #if token
-            processIfDirective (nextSyntaxTokenImpl isPeek) token reader
-        | ValueSome token when token.Token = Token.ElseDirective ->
-            // We are in an active then-branch that has reached its #else.
-            // Skip the else-branch contents up to and including the matching #endif.
-            reader.Skip() // consume #else
-            skipElseBranch reader
-            nextSyntaxTokenImpl isPeek reader
-        | ValueSome token when token.Token = Token.EndIfDirective ->
-            // End of a conditional block whose then-branch was active (no #else encountered).
-            reader.Skip() // consume #endif
-            nextSyntaxTokenImpl isPeek reader
-        | ValueSome token when token.Token = Token.NoWarnDirective ->
-            processWarnDirective (nextSyntaxTokenImpl isPeek) true token reader
-        | ValueSome token when token.Token = Token.WarnOnDirective ->
-            processWarnDirective (nextSyntaxTokenImpl isPeek) false token reader
-        | ValueSome token when isTriviaToken reader.State token ->
-            reader.Skip()
-            nextSyntaxTokenImpl isPeek reader
         | ValueSome token ->
-            // SplitRAttrBracket: when the measure parser consumed the `>` half of `>]`,
-            // it sets this flag so the remaining `]` half is presented as KWRBracket.
-            // SplitPowerMinus: when the measure parser consumed the `^` half of a fused
-            // `^-N` operator, it sets this flag so the remaining `-` half is presented
-            // as OpSubtraction at StartIndex+1 (the numeric `N` follows as its own token).
-            let token =
-                if reader.State.SplitRAttrBracket && token.Token = Token.KWRAttrBracket then
-                    reader.State.Trace.SplitRAttrBracketConsumed(token.StartIndex)
-                    PositionedToken.Create(Token.KWRBracket, token.StartIndex + 1)
-                elif reader.State.SplitPowerMinus then
-                    let span =
-                        reader.State.Lexed.GetTokenSpan(reader.Index * 1<token>, reader.State.Input)
+            let state = reader.State
 
-                    if span.Length >= 2 && span.[0] = '^' && span.[1] = '-' then
-                        reader.State.Trace.SplitPowerMinusConsumed(token.StartIndex)
-                        PositionedToken.Create(Token.OpSubtraction, token.StartIndex + 1)
+            match token.Token with
+            | Token.IfDirective ->
+                // processIfDirective expects the reader to be positioned AT the #if token
+                processIfDirective (nextSyntaxTokenImpl isPeek) token reader
+            | Token.ElseDirective ->
+                // We are in an active then-branch that has reached its #else.
+                // Skip the else-branch contents up to and including the matching #endif.
+                reader.Skip() // consume #else
+                skipElseBranch reader
+                nextSyntaxTokenImpl isPeek reader
+            | Token.EndIfDirective ->
+                // End of a conditional block whose then-branch was active (no #else encountered).
+                reader.Skip() // consume #endif
+                nextSyntaxTokenImpl isPeek reader
+            | Token.NoWarnDirective -> processWarnDirective (nextSyntaxTokenImpl isPeek) true token reader
+            | Token.WarnOnDirective -> processWarnDirective (nextSyntaxTokenImpl isPeek) false token reader
+            | _ when isTriviaToken state token ->
+                reader.Skip()
+                nextSyntaxTokenImpl isPeek reader
+            | _ ->
+                // SplitRAttrBracket: when the measure parser consumed the `>` half of `>]`,
+                // it sets this flag so the remaining `]` half is presented as KWRBracket.
+                // SplitPowerMinus: when the measure parser consumed the `^` half of a fused
+                // `^-N` operator, it sets this flag so the remaining `-` half is presented
+                // as OpSubtraction at StartIndex+1 (the numeric `N` follows as its own token).
+                let token =
+                    if state.SplitRAttrBracket && token.Token = Token.KWRAttrBracket then
+                        state.Trace.SplitRAttrBracketConsumed(token.StartIndex)
+                        PositionedToken.Create(Token.KWRBracket, token.StartIndex + 1)
+                    elif state.SplitPowerMinus then
+                        let span = state.Lexed.GetTokenSpan(reader.Index * 1<token>, state.Input)
+
+                        if span.Length >= 2 && span.[0] = '^' && span.[1] = '-' then
+                            state.Trace.SplitPowerMinusConsumed(token.StartIndex)
+                            PositionedToken.Create(Token.OpSubtraction, token.StartIndex + 1)
+                        else
+                            token
                     else
                         token
-                else
-                    token
 
-            // Offside check (Light syntax only): fail if the token is strictly left of the
-            // innermost context's offside line, unless a permitted undentation applies.
-            let isOffside =
-                reader.State.IndentationMode = Syntax.Light
-                && (
-                    match reader.State.Context with
-                    | {
-                          Indent = contextIndent
-                          Context = ctx
-                      } :: _ as context ->
-                        let tokenCol = ParseState.getIndent reader.State (reader.Index * 1<token>)
+                // Compute the column once: the offside check and the trace callbacks
+                // below both need it. `getIndent` is a top-3 self-CPU frame, so
+                // eliminating the second call per token is worth the unconditional
+                // compute in Verbose or empty-context cases (both rare).
+                let tokenCol = ParseState.getIndent state (reader.Index * 1<token>)
 
-                        if tokenCol < contextIndent then
-                            match isPermittedUndentation token.Token tokenCol context reader.State reader.Index with
-                            | ValueSome rule ->
-                                reader.State.Trace.PermittedUndentation(token, tokenCol, contextIndent, rule)
+                // Offside check (Light syntax only): fail if the token is strictly left of the
+                // innermost context's offside line, unless a permitted undentation applies.
+                let isOffside =
+                    state.IndentationMode = Syntax.Light
+                    && (
+                        match state.Context with
+                        | {
+                              Indent = contextIndent
+                              Context = ctx
+                          } :: _ as context ->
+                            if tokenCol < contextIndent then
+                                match isPermittedUndentation token.Token tokenCol context state reader.Index with
+                                | ValueSome rule ->
+                                    state.Trace.PermittedUndentation(token, tokenCol, contextIndent, rule)
+                                    false
+                                | ValueNone ->
+                                    state.Trace.OffsideFail(token, tokenCol, contextIndent, ctx)
+                                    true
+                            else
+                                state.Trace.OffsideOk(token, tokenCol, contextIndent, ctx)
                                 false
-                            | ValueNone ->
-                                reader.State.Trace.OffsideFail(token, tokenCol, contextIndent, ctx)
-                                true
-                        else
-                            reader.State.Trace.OffsideOk(token, tokenCol, contextIndent, ctx)
-                            false
-                    | [] -> false
-                )
+                        | [] -> false
+                    )
 
-            if isOffside then
-                fail errOffside reader
-            else
-                let t = syntaxToken token reader.Index
-
-                if isPeek then
-                    let col = ParseState.getIndent reader.State (reader.Index * 1<token>)
-                    reader.State.Trace.TokenPeeked(token, int reader.Index, col)
-                    preturn t reader
+                if isOffside then
+                    fail errOffside reader
                 else
-                    let col = ParseState.getIndent reader.State (reader.Index * 1<token>)
-                    reader.State.Trace.TokenConsumed(token, int reader.Index, col)
+                    let t = syntaxToken token reader.Index
 
-                    if reader.State.SplitRAttrBracket then
-                        reader.State <-
-                            { reader.State with
-                                SplitRAttrBracket = false
-                            }
+                    if isPeek then
+                        state.Trace.TokenPeeked(token, int reader.Index, tokenCol)
+                        preturn t reader
+                    else
+                        state.Trace.TokenConsumed(token, int reader.Index, tokenCol)
 
-                    if reader.State.SplitPowerMinus then
-                        reader.State <-
-                            { reader.State with
-                                SplitPowerMinus = false
-                            }
+                        // Clear both split flags in a single record copy when either is set.
+                        // Original code issued two separate updates which allocated twice
+                        // when both flags were true; one copy produces the same final state.
+                        if state.SplitRAttrBracket || state.SplitPowerMinus then
+                            reader.State <-
+                                { state with
+                                    SplitRAttrBracket = false
+                                    SplitPowerMinus = false
+                                }
 
-                    reader.Skip()
-                    preturn t reader
+                        reader.Skip()
+                        preturn t reader
 
     let nextSyntaxToken (reader: Reader<PositionedToken, ParseState, _>) = nextSyntaxTokenImpl false reader
 
