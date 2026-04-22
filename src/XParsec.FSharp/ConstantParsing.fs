@@ -44,7 +44,7 @@ module Constant =
                 // rewrites it from KWRAttrBracket to KWRBracket (yielding `]`).
                 do!
                     updateUserState (fun s ->
-                        s.Trace.SplitRAttrBracketSet(t.StartIndex)
+                        ParseState.ifTrace s (fun tc -> tc.SplitRAttrBracketSet(t.StartIndex))
                         { s with SplitRAttrBracket = true }
                     )
 

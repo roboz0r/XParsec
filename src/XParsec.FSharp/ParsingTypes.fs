@@ -138,14 +138,13 @@ and [<RequireQualifiedAccess>] Syntax =
     | Light
     | Verbose
 
-/// Receives structured parse-trace events. The default base class has empty `default`
-/// impls for every hook — so `TraceCallback.Empty` and any unoverridden subclass allocate
-/// nothing on the hot parse path. Override only the hooks you care about. A reference
-/// type so it doesn't affect ParseState equality and is shared across immutable record copies.
-and TraceCallback() =
-    static let empty = TraceCallback()
-    static member Empty = empty
-
+/// Receives structured parse-trace events. Attached to `ParseState.Trace` as a
+/// nullable reference (`null` = no tracing). `ParseState.ifTrace` is the only
+/// blessed access path: it performs a single null check and skips the callback
+/// entirely when unset, so every hot-path trace site pays at most a test + branch
+/// and zero virtual-call overhead in the common case. A reference type so it
+/// doesn't affect ParseState equality and is shared across immutable record copies.
+and [<AllowNullLiteral>] TraceCallback() =
     abstract ContextPush: context: OffsideContext * indent: int * token: PositionedToken * stackDepth: int -> unit
 
     default _.ContextPush(_, _, _, _) = ()
@@ -226,8 +225,9 @@ and [<CustomEquality; NoComparison>] ParseState =
         SplitPowerMinus: bool
         /// Accumulated #nowarn / #warnon directives (most recent first).
         WarnDirectives: WarnDirective list
-        /// Callback for structured parse tracing. Default is no-op.
-        /// Shared across immutable record copies.
+        /// Callback for structured parse tracing. `null` (the default) means no
+        /// tracing — each call site is a single null check via `ifTrace`. Assigned
+        /// via `createWithTracing`. Shared across immutable record copies.
         Trace: TraceCallback
     }
 
@@ -268,6 +268,14 @@ module SyntaxToken =
         }
 
 module ParseState =
+    /// Invokes `action` with the attached trace callback when one is present.
+    /// The `null` fast path compiles to a single test + branch on the reference
+    /// field, and `[<InlineIfLambda>]` inlines the action body so no closure
+    /// allocates per call.
+    let inline ifTrace (state: ParseState) ([<InlineIfLambda>] action: TraceCallback -> unit) =
+        if not (isNull state.Trace) then
+            action state.Trace
+
     let createWithTracing (lexed: Lexed) input definedSymbols (trace: TraceCallback) =
         {
             Input = input
@@ -287,7 +295,21 @@ module ParseState =
         }
 
     let create (lexed: Lexed) input definedSymbols =
-        createWithTracing lexed input definedSymbols TraceCallback.Empty
+        {
+            Input = input
+            Lexed = lexed
+            Context = []
+            Diagnostics = []
+            DefinedSymbols = definedSymbols
+            IndentationMode = Syntax.Light
+            LastLine = 0<line>
+            CharsConsumedAfterTypeParams = 0
+            ConditionalCompilationStack = []
+            SplitRAttrBracket = false
+            SplitPowerMinus = false
+            WarnDirectives = []
+            Trace = null
+        }
 
     let setIndentOn (state: ParseState) =
         { state with
@@ -307,7 +329,7 @@ module ParseState =
 
         let stackDepth = newState.Context.Length
 
-        newState.Trace.ContextPush(offsideCtx.Context, offsideCtx.Indent, offsideCtx.Token, stackDepth)
+        ifTrace newState (fun t -> t.ContextPush(offsideCtx.Context, offsideCtx.Indent, offsideCtx.Token, stackDepth))
 
         newState
 
@@ -318,11 +340,11 @@ module ParseState =
             if head <> current then
                 invalidOp $"Attempted to pop context {current} but top of stack was {head}"
 
-            state.Trace.ContextPop(head.Context, state.Context.Length)
+            ifTrace state (fun t -> t.ContextPop(head.Context, state.Context.Length))
             { state with Context = tail }
 
     let addDiagnostic code severity startToken endToken error (state: ParseState) =
-        state.Trace.DiagnosticEmitted(code, severity, startToken)
+        ifTrace state (fun t -> t.DiagnosticEmitted(code, severity, startToken))
 
         let diag =
             {
