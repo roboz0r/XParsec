@@ -40,7 +40,7 @@
 258, Indent
 262, Identifier
 263, Whitespace
-264, Operator 0b1000000000001111 ComparisonAndBitwise
+264, Operator 0b1000000011001111 ComparisonAndBitwise
 266, Whitespace
 267, Identifier
 274, Newline
@@ -107,7 +107,7 @@
 572, Indent
 576, Identifier
 577, Whitespace
-578, Operator 0b1000000000001111 ComparisonAndBitwise
+578, Operator 0b1000000011001111 ComparisonAndBitwise
 580, Whitespace
 581, Identifier
 588, Newline

@@ -17,12 +17,12 @@
 87, KWType
 91, Whitespace
 92, Identifier
-97, Operator 0b1000000000001111 ComparisonAndBitwise
+97, Operator 0b1000000001001111 ComparisonAndBitwise
 98, TypeParameter
 100, OpComma
 101, Whitespace
 102, TypeParameter
-106, Operator 0b1000000000001111 ComparisonAndBitwise
+106, Operator 0b1000000010001111 ComparisonAndBitwise
 107, Whitespace
 108, KWWhen
 112, Whitespace
@@ -31,17 +31,17 @@
 118, OpUpcast
 120, Whitespace
 121, Identifier
-130, Operator 0b1000000000001111 ComparisonAndBitwise
+130, Operator 0b1000000001001111 ComparisonAndBitwise
 131, TypeParameter
-133, Operator 0b1000000000001111 ComparisonAndBitwise
+133, Operator 0b1000000010001111 ComparisonAndBitwise
 134, KWLParen
 135, Identifier
 143, OpColon
 144, Whitespace
 145, Identifier
-154, Operator 0b1000000000001111 ComparisonAndBitwise
+154, Operator 0b1000000001001111 ComparisonAndBitwise
 155, TypeParameter
-157, Operator 0b1000000000001111 ComparisonAndBitwise
+157, Operator 0b1000000010001111 ComparisonAndBitwise
 158, KWRParen
 159, Whitespace
 160, OpEquality
@@ -65,7 +65,7 @@
 247, KWInline
 253, Whitespace
 254, Identifier
-264, Operator 0b1000000000001111 ComparisonAndBitwise
+264, Operator 0b1000000001001111 ComparisonAndBitwise
 265, TypeParameter
 267, Whitespace
 268, KWWhen
@@ -74,20 +74,20 @@
 275, OpColon
 276, Whitespace
 277, Identifier
-285, Operator 0b1000000000001111 ComparisonAndBitwise
+285, Operator 0b1000000010001111 ComparisonAndBitwise
 286, Whitespace
 287, OpColon
 288, Whitespace
 289, Identifier
-306, Operator 0b1000000000001111 ComparisonAndBitwise
+306, Operator 0b1000000001001111 ComparisonAndBitwise
 307, TypeParameter
-309, Operator 0b1000000000001111 ComparisonAndBitwise
+309, Operator 0b1000000010001111 ComparisonAndBitwise
 310, Whitespace
 311, OpEquality
 312, Newline
 313, Indent
 317, Identifier
-333, Operator 0b1000000000001111 ComparisonAndBitwise
+333, Operator 0b1000000001001111 ComparisonAndBitwise
 334, TypeParameter
 336, Operator 0b1000000000001111 ComparisonAndBitwise
 338, Identifier

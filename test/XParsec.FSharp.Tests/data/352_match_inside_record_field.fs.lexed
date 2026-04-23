@@ -126,7 +126,7 @@
 501, KWLParen
 502, Identifier
 503, Whitespace
-504, Operator 0b1000000001010011 InfixAdd (can be prefix)
+504, Operator 0b1000010110110011 InfixAdd (can be prefix)
 505, Whitespace
 506, NumInt32
 507, KWRParen
@@ -152,7 +152,7 @@
 554, OpDot
 555, Identifier
 561, Whitespace
-562, Operator 0b1000000000001111 ComparisonAndBitwise
+562, Operator 0b1000010010001111 ComparisonAndBitwise
 564, Whitespace
 565, Identifier
 569, OpDot
@@ -169,7 +169,7 @@
 596, OpDot
 597, Identifier
 604, Whitespace
-605, Operator 0b1000000000001111 ComparisonAndBitwise
+605, Operator 0b1000010010001111 ComparisonAndBitwise
 607, Whitespace
 608, Identifier
 612, OpDot

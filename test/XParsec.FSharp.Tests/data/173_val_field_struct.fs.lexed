@@ -74,7 +74,7 @@
 195, Whitespace
 196, Identifier
 206, Whitespace
-207, Operator 0b1000000000001111 ComparisonAndBitwise
+207, Operator 0b1000001000001111 ComparisonAndBitwise
 210, Whitespace
 211, NumInt32
 213, Newline
@@ -94,7 +94,7 @@
 267, KWLParen
 268, Identifier
 277, Whitespace
-278, Operator 0b1000000000001111 ComparisonAndBitwise
+278, Operator 0b1000001110001111 ComparisonAndBitwise
 281, Whitespace
 282, Identifier
 291, KWRParen
@@ -139,7 +139,7 @@
 390, OpDot
 391, Identifier
 396, Whitespace
-397, Operator 0b1000000000001111 ComparisonAndBitwise
+397, Operator 0b1000001001001111 ComparisonAndBitwise
 400, Whitespace
 401, NumInt32
 403, KWRParen

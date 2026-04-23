@@ -31,7 +31,7 @@
 290, Indent
 295, Identifier
 296, Whitespace
-297, Operator 0b1000000001010011 InfixAdd (can be prefix)
+297, Operator 0b1000010110110011 InfixAdd (can be prefix)
 298, Whitespace
 299, NumInt32
 300, Newline
@@ -61,7 +61,7 @@
 523, Whitespace
 524, Identifier
 525, Whitespace
-526, Operator 0b1000000001010011 InfixAdd (can be prefix)
+526, Operator 0b1000010110110011 InfixAdd (can be prefix)
 527, Whitespace
 528, NumInt32
 529, Whitespace
@@ -93,7 +93,7 @@
 821, Indent
 826, Identifier
 827, Whitespace
-828, Operator 0b1000000001010011 InfixAdd (can be prefix)
+828, Operator 0b1000010110110011 InfixAdd (can be prefix)
 829, Whitespace
 830, NumInt32
 831, Whitespace
@@ -132,7 +132,7 @@
 1276, Indent
 1277, Identifier
 1278, Whitespace
-1279, Operator 0b1000000001010011 InfixAdd (can be prefix)
+1279, Operator 0b1000010110110011 InfixAdd (can be prefix)
 1280, Whitespace
 1281, NumInt32
 1282, KWRParen
@@ -159,7 +159,7 @@
 1440, Indent
 1442, Identifier
 1443, Whitespace
-1444, Operator 0b1000000001010011 InfixAdd (can be prefix)
+1444, Operator 0b1000010110110011 InfixAdd (can be prefix)
 1445, Whitespace
 1446, NumInt32
 1447, KWRParen
@@ -200,7 +200,7 @@
 1614, Indent
 1619, Identifier
 1620, Whitespace
-1621, Operator 0b1000000001010011 InfixAdd (can be prefix)
+1621, Operator 0b1000010110110011 InfixAdd (can be prefix)
 1622, Whitespace
 1623, NumInt32
 1624, KWRParen
@@ -241,7 +241,7 @@
 2003, Indent
 2008, Identifier
 2009, Whitespace
-2010, Operator 0b1000000001010011 InfixAdd (can be prefix)
+2010, Operator 0b1000010110110011 InfixAdd (can be prefix)
 2011, Whitespace
 2012, Identifier
 2013, Newline

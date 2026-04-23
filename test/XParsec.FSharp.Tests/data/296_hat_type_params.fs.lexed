@@ -30,7 +30,7 @@
 162, KWInline
 168, Whitespace
 169, Identifier
-180, Operator 0b1000000000001111 ComparisonAndBitwise
+180, Operator 0b1000000001001111 ComparisonAndBitwise
 181, Whitespace
 182, OpConcatenate
 183, Identifier
@@ -102,7 +102,7 @@
 383, Whitespace
 384, TypeParameter
 392, KWRParen
-393, Operator 0b1000000000001111 ComparisonAndBitwise
+393, Operator 0b1000000010001111 ComparisonAndBitwise
 394, Newline
 395, Indent
 403, KWLParen

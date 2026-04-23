@@ -17,7 +17,7 @@ TypeDefn.Abbrev:
         Measure.Named:
           Ident  'second'          Identifier          tok=  19  pos=  54
                  <virt>            OpConcatenate       tok=virt  pos=  60
-                 '-'               OpSubtractionAssignment  tok=  20  pos=  61
+                 '-'               OpSubtraction       tok=  20  pos=  61
                  '1'               NumInt32            tok=  21  pos=  62
 TypeDefn.Abbrev:
   [<             '[<'              KWLAttrBracket      tok=  24  pos=  65
@@ -31,5 +31,5 @@ TypeDefn.Abbrev:
         Measure.Named:
           Ident  'second'          Identifier          tok=  34  pos=  88
                  <virt>            OpConcatenate       tok=virt  pos=  94
-                 '-'               OpSubtractionAssignment  tok=  35  pos=  95
+                 '-'               OpSubtraction       tok=  35  pos=  95
                  '2'               NumInt32            tok=  36  pos=  96

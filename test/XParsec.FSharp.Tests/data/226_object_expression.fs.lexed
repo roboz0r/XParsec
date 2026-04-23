@@ -62,9 +62,9 @@
 223, Identifier
 230, OpDot
 231, Identifier
-239, Operator 0b1000000000001111 ComparisonAndBitwise
+239, Operator 0b1000000001001111 ComparisonAndBitwise
 240, Identifier
-243, Operator 0b1000000000001111 ComparisonAndBitwise
+243, Operator 0b1000000010001111 ComparisonAndBitwise
 244, KWLParen
 245, KWRParen
 246, Whitespace
@@ -87,7 +87,7 @@
 284, Whitespace
 285, Identifier
 286, Whitespace
-287, Operator 0b1000000001010011 InfixAdd (can be prefix)
+287, Operator 0b1000010111110011 InfixAdd (can be prefix)
 288, Whitespace
 289, Identifier
 290, Whitespace

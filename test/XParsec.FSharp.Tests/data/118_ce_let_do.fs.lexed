@@ -80,7 +80,7 @@
 239, Whitespace
 240, Identifier
 241, Whitespace
-242, Operator 0b1000000001010011 InfixAdd (can be prefix)
+242, Operator 0b1000010110110011 InfixAdd (can be prefix)
 243, Whitespace
 244, Identifier
 245, Newline

@@ -18,7 +18,7 @@
 322, Whitespace
 323, Identifier
 324, Whitespace
-325, Operator 0b1000000000001111 ComparisonAndBitwise
+325, Operator 0b1000000010001111 ComparisonAndBitwise
 326, Whitespace
 327, NumInt32
 328, Newline
@@ -34,11 +34,11 @@
 344, Whitespace
 345, Identifier
 346, Whitespace
-347, Operator 0b1000000001010011 InfixAdd (can be prefix)
+347, Operator 0b1000010110110011 InfixAdd (can be prefix)
 348, Whitespace
 349, Identifier
 350, Whitespace
-351, Operator 0b1000000000001111 ComparisonAndBitwise
+351, Operator 0b1000000010001111 ComparisonAndBitwise
 352, Whitespace
 353, NumInt32
 354, Newline
@@ -140,7 +140,7 @@
 635, KWLParen
 636, Identifier
 642, Whitespace
-643, Operator 0b1000000000001111 ComparisonAndBitwise
+643, Operator 0b1000010010001111 ComparisonAndBitwise
 645, Whitespace
 646, Identifier
 650, OpDot
@@ -250,7 +250,7 @@
 934, KWLParen
 935, Identifier
 941, Whitespace
-942, Operator 0b1000000000001111 ComparisonAndBitwise
+942, Operator 0b1000010010001111 ComparisonAndBitwise
 944, Whitespace
 945, Identifier
 949, OpDot

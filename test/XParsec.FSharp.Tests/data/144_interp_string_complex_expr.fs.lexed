@@ -8,7 +8,7 @@
 10, InterpolatedExpressionOpen
 11, Identifier
 12, Whitespace
-13, Operator 0b1000000001010011 InfixAdd (can be prefix)
+13, Operator 0b1000010110110011 InfixAdd (can be prefix)
 14, Whitespace
 15, NumInt32
 16, InterpolatedExpressionClose
@@ -26,7 +26,7 @@
 32, Whitespace
 33, Identifier
 34, Whitespace
-35, Operator 0b1000000000001111 ComparisonAndBitwise
+35, Operator 0b1000000010001111 ComparisonAndBitwise
 36, Whitespace
 37, NumInt32
 38, Whitespace
@@ -54,7 +54,7 @@
 73, InterpolatedExpressionOpen
 74, Identifier
 78, Whitespace
-79, Operator 0b1000000000001111 ComparisonAndBitwise
+79, Operator 0b1000010010001111 ComparisonAndBitwise
 81, Whitespace
 82, Identifier
 86, OpDot

@@ -42,7 +42,7 @@
 99, OpDot
 100, Identifier
 106, Whitespace
-107, Operator 0b1000000000001111 ComparisonAndBitwise
+107, Operator 0b1000000010001111 ComparisonAndBitwise
 108, Whitespace
 109, NumInt32
 110, Whitespace
@@ -102,7 +102,7 @@
 233, OpDot
 234, Identifier
 240, Whitespace
-241, Operator 0b1000000000001111 ComparisonAndBitwise
+241, Operator 0b1000000010001111 ComparisonAndBitwise
 242, Whitespace
 243, NumInt32
 244, Newline

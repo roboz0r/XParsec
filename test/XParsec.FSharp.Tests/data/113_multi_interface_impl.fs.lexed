@@ -40,9 +40,9 @@
 110, Identifier
 116, OpDot
 117, Identifier
-127, Operator 0b1000000000001111 ComparisonAndBitwise
+127, Operator 0b1000000001001111 ComparisonAndBitwise
 128, Identifier
-131, Operator 0b1000000000001111 ComparisonAndBitwise
+131, Operator 0b1000000010001111 ComparisonAndBitwise
 132, Whitespace
 133, KWWith
 137, Newline

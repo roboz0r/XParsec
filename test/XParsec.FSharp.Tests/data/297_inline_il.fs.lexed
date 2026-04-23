@@ -109,9 +109,9 @@
 481, KWInline
 487, Whitespace
 488, Identifier
-497, Operator 0b1000000000001111 ComparisonAndBitwise
+497, Operator 0b1000000001001111 ComparisonAndBitwise
 498, TypeParameter
-500, Operator 0b1000000000001111 ComparisonAndBitwise
+500, Operator 0b1000000010001111 ComparisonAndBitwise
 501, Whitespace
 502, OpColon
 503, Whitespace
@@ -154,9 +154,9 @@
 591, StringClose
 592, Whitespace
 593, Identifier
-602, Operator 0b1000000000001111 ComparisonAndBitwise
+602, Operator 0b1000000001001111 ComparisonAndBitwise
 603, Identifier
-606, Operator 0b1000000000001111 ComparisonAndBitwise
+606, Operator 0b1000000010001111 ComparisonAndBitwise
 607, Whitespace
 608, Identifier
 615, Whitespace

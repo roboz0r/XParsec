@@ -6,7 +6,7 @@
 7, Whitespace
 8, Identifier
 9, Whitespace
-10, Operator 0b1000000001011001 Prefix (can be prefix)
+10, Operator 0b1000000000111001 Prefix (can be prefix)
 12, Identifier
 13, Newline
 14, KWLet
@@ -17,10 +17,10 @@
 21, Whitespace
 22, Identifier
 23, Whitespace
-24, Operator 0b1000000001011001 Prefix (can be prefix)
+24, Operator 0b1000000000111001 Prefix (can be prefix)
 26, Identifier
 27, Whitespace
-28, Operator 0b1000000001011001 Prefix (can be prefix)
+28, Operator 0b1000000000111001 Prefix (can be prefix)
 30, Identifier
 31, Newline
 32, KWLet
@@ -32,12 +32,12 @@
 40, Identifier
 41, Whitespace
 42, KWLParen
-43, Operator 0b1000000001011001 Prefix (can be prefix)
+43, Operator 0b1000000000111001 Prefix (can be prefix)
 45, Identifier
 46, KWRParen
 47, Whitespace
 48, KWLParen
-49, Operator 0b1000000001011001 Prefix (can be prefix)
+49, Operator 0b1000000000111001 Prefix (can be prefix)
 51, Identifier
 52, KWRParen
 53, Newline

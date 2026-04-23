@@ -1252,57 +1252,85 @@ module Parsing =
         Message "Expected '>' to close type application"
 
     let pCloseTypeParams: FSParser<SyntaxToken> =
-        // 15.3 Lexical Analysis of Type Applications
+        // 15.3 Lexical Analysis of Type Applications.
+        //
+        // Closes a type application with a `>` that may be fused inside a larger
+        // operator like `>>`, `>>>`, `>=`, `>>=`, `>=.`, etc. When fused, we emit
+        // a virtual `>` at the current char offset and advance CharsConsumedAfterTypeParams
+        // so reprocessedOperatorAfterTypeParams can re-lex the tail.
+        //
+        // The well-known `>`-starting operator tokens (OpGreaterThan, OpComposeRight,
+        // OpRightShift, OpGreaterThanOrEqual) each dispatch on their enum value. Other
+        // `>`-starting custom ops (`>>=`, `>=.`, `>..`, `>->`, `>?>`, `>|`, ...) share
+        // the generic ComparisonAndBitwise slot and fall back to the span check.
         parser {
             let! state = getUserState
+            let charsConsumed = state.CharsConsumedAfterTypeParams
+
+            let emitVirtualGt (t: SyntaxToken) =
+                parser {
+                    let rAngle =
+                        virtualToken (PositionedToken.Create(Token.OpGreaterThan, t.StartIndex + charsConsumed))
+
+                    do!
+                        updateUserState (fun s ->
+                            { s with
+                                CharsConsumedAfterTypeParams = charsConsumed + 1
+                            }
+                        )
+
+                    return rAngle
+                }
+
+            let consumeAndReset (t: SyntaxToken) =
+                parser {
+                    let! rAngle = consumePeeked t
+
+                    do!
+                        updateUserState (fun s ->
+                            { s with
+                                CharsConsumedAfterTypeParams = 0
+                            }
+                        )
+
+                    return rAngle
+                }
 
             match! peekNextSyntaxToken with
-            | t when t.Token = Token.OpGreaterThan ->
-                // We have a '>' that can close the type application, but we need to check if it's part of a larger operator like '>>' or '>>='.
-                // If it is, we need to reprocess it after consuming the type application.
+            | t when t.Token = Token.OpGreaterThan && charsConsumed = 0 ->
+                // Bare `>` — consume directly.
+                let! rAngle = consumePeeked t
+                return rAngle
+
+            | t when t.Token = Token.OpComposeRight ->
+                // `>>` — two `>` chars.
+                if charsConsumed < 1 then return! emitVirtualGt t
+                elif charsConsumed = 1 then return! consumeAndReset t
+                else return! fail errExpectedGtCloseTypeApp
+
+            | t when t.Token = Token.OpRightShift ->
+                // `>>>` — three `>` chars.
+                if charsConsumed < 2 then return! emitVirtualGt t
+                elif charsConsumed = 2 then return! consumeAndReset t
+                else return! fail errExpectedGtCloseTypeApp
+
+            | t when t.Token = Token.OpGreaterThanOrEqual && charsConsumed = 0 ->
+                // `>=` — first char is `>`, tail is `=`.
+                return! emitVirtualGt t
+
+            | t when TokenInfo.isOperator t.Token ->
+                // Generic `>`-starting custom ops (`>>=`, `>=.`, `>..`, etc.) share the
+                // OpGeneric slot, so we still need to look at the span text.
                 let opString = tokenString t state
 
-                match opString, state.CharsConsumedAfterTypeParams with
-                | ">", 0 ->
-                    // It's a standalone '>', we can consume it as the closing token for the type application.
-                    let! rAngle = consumePeeked t
-                    return rAngle
-                | _ ->
-                    // It's part of a larger operator, we need to reprocess it
-                    if opString.[state.CharsConsumedAfterTypeParams] = '>' then
-                        // We can have a '>' for the type application, but we need to set the state to reprocess the remaining operator string.
-                        if opString.Length = state.CharsConsumedAfterTypeParams + 1 then
-                            // The operator is exactly '>' plus some consumed chars, so we can consume the '>' now.
-                            let! rAngle = consumePeeked t
-
-                            do!
-                                updateUserState (fun s ->
-                                    { s with
-                                        CharsConsumedAfterTypeParams = 0
-                                    }
-                                )
-
-                            return rAngle
-                        else
-                            // The operator has more chars after the '>', we consume the '>' and update the state to reprocess the rest.
-                            let rAngle =
-                                virtualToken (
-                                    PositionedToken.Create(
-                                        Token.OpGreaterThan,
-                                        t.StartIndex + state.CharsConsumedAfterTypeParams
-                                    )
-                                )
-
-                            do!
-                                updateUserState (fun s ->
-                                    { s with
-                                        CharsConsumedAfterTypeParams = s.CharsConsumedAfterTypeParams + 1
-                                    }
-                                )
-
-                            return rAngle
+                if opString.Length > charsConsumed && opString.[charsConsumed] = '>' then
+                    if opString.Length = charsConsumed + 1 then
+                        return! consumeAndReset t
                     else
-                        return! fail errExpectedGtCloseTypeApp
+                        return! emitVirtualGt t
+                else
+                    return! fail errExpectedGtCloseTypeApp
+
             | _ -> return! fail errExpectedGtCloseTypeApp
         }
 
@@ -1319,7 +1347,11 @@ module Parsing =
 
             if charsConsumed > 0 then
                 match! peekNextSyntaxToken with
-                | t when t.Token = Token.OpGreaterThan ->
+                // Any `>`-starting operator — well-known (OpGreaterThan, OpComposeRight,
+                // OpRightShift, OpGreaterThanOrEqual) or generic `>`-starting custom op —
+                // is a candidate for reprocessing. We verify the char at charsConsumed
+                // offset after consuming.
+                | t when TokenInfo.isOperator t.Token ->
                     let! op = consumePeeked t
 
                     do!
@@ -1330,7 +1362,7 @@ module Parsing =
                         )
 
                     let opString = tokenString t state
-                    let opStringRest = opString.Substring(state.CharsConsumedAfterTypeParams)
+                    let opStringRest = opString.Substring(charsConsumed)
 
                     match Lexing.lexString opStringRest with
                     | Ok lexed ->

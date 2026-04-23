@@ -35,10 +35,10 @@ module Constant =
     // and set SplitRAttrBracket so the next token read yields ']' for the enclosing indexer.
     let private pMeasureRAngle =
         parser {
-            let! state = getUserState
-
             match! peekNextSyntaxToken with
-            | t when t.Token = Token.OpGreaterThan && ParseState.tokenStringIs ">" t state -> return! consumePeeked t
+            // Token.OpGreaterThan has a unique family-ID value, so matching by
+            // enum identity is sufficient — no need to check the span text.
+            | t when t.Token = Token.OpGreaterThan -> return! consumePeeked t
             | t when t.Token = Token.KWRAttrBracket ->
                 // Don't consume the >] token. Set the flag so the next read
                 // rewrites it from KWRAttrBracket to KWRBracket (yielding `]`).
@@ -59,16 +59,12 @@ module Constant =
             let! canBeMeasure = isPrevTokenSyntax >> Ok
 
             if canBeMeasure then
-                let! state = getUserState
                 let! pos = getPosition
 
                 let! lAngle =
-                    satisfyL
-                        (fun (t: PositionedToken) ->
-                            t.Token = Token.OpLessThan
-                            && state.Lexed.GetTokenSpan(pos.Index * 1<token>, state.Input).SequenceEqual("<".AsSpan())
-                        )
-                        "Expected '<' for measure"
+                    // Token.OpLessThan carries its unique family-ID, so the enum
+                    // value distinguishes `<` from `<<`, `<=`, `<|`, etc.
+                    satisfyL (fun (t: PositionedToken) -> t.Token = Token.OpLessThan) "Expected '<' for measure"
 
                 let! m = Measure.parse
                 let! rAngle = pMeasureRAngle

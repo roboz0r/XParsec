@@ -72,7 +72,7 @@
 660, Indent
 661, Identifier
 662, Whitespace
-663, Operator 0b1000000001010011 InfixAdd (can be prefix)
+663, Operator 0b1000010110110011 InfixAdd (can be prefix)
 664, Whitespace
 665, NumInt32
 666, Whitespace
@@ -110,7 +110,7 @@
 1050, Indent
 1054, Identifier
 1055, Whitespace
-1056, Operator 0b1000000001010011 InfixAdd (can be prefix)
+1056, Operator 0b1000010110110011 InfixAdd (can be prefix)
 1057, Whitespace
 1058, NumInt32
 1059, Whitespace
@@ -140,7 +140,7 @@
 1199, Indent
 1203, Identifier
 1204, Whitespace
-1205, Operator 0b1000000001010011 InfixAdd (can be prefix)
+1205, Operator 0b1000010110110011 InfixAdd (can be prefix)
 1206, Whitespace
 1207, NumInt32
 1208, Newline
@@ -189,7 +189,7 @@
 1574, Indent
 1578, Identifier
 1579, Whitespace
-1580, Operator 0b1000000001010011 InfixAdd (can be prefix)
+1580, Operator 0b1000010110110011 InfixAdd (can be prefix)
 1581, Whitespace
 1582, Identifier
 1583, Whitespace

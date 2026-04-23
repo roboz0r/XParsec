@@ -36,7 +36,7 @@
 460, NumInt32
 461, Newline
 462, Indent
-467, Operator 0b1000000000001111 ComparisonAndBitwise
+467, Operator 0b1000010010001111 ComparisonAndBitwise
 469, Whitespace
 470, Identifier
 476, Whitespace
@@ -54,7 +54,7 @@
 563, Identifier
 569, Newline
 570, Indent
-575, Operator 0b1000000000001111 ComparisonAndBitwise
+575, Operator 0b1000001010001111 ComparisonAndBitwise
 577, Whitespace
 578, NumInt32
 579, Whitespace
@@ -111,7 +111,7 @@
 877, Indent
 882, Identifier
 883, Newline
-884, Operator 0b1000000000001111 ComparisonAndBitwise
+884, Operator 0b1000010100001111 ComparisonAndBitwise
 888, Whitespace
 889, Identifier
 890, Whitespace
@@ -147,7 +147,7 @@
 1263, NumInt32
 1264, Newline
 1265, Indent
-1268, Operator 0b1000000001010011 InfixAdd (can be prefix)
+1268, Operator 0b1000010110110011 InfixAdd (can be prefix)
 1269, Whitespace
 1270, NumInt32
 1271, Whitespace
@@ -165,7 +165,7 @@
 1361, NumInt32
 1362, Newline
 1363, Indent
-1369, Operator 0b1000000001010011 InfixAdd (can be prefix)
+1369, Operator 0b1000010111110011 InfixAdd (can be prefix)
 1370, Whitespace
 1371, NumInt32
 1372, Whitespace
@@ -215,12 +215,12 @@
 1583, Identifier
 1584, Newline
 1585, Indent
-1590, Operator 0b1000000001010011 InfixAdd (can be prefix)
+1590, Operator 0b1000010110110011 InfixAdd (can be prefix)
 1591, Whitespace
 1592, Identifier
 1593, Newline
 1594, Indent
-1598, Operator 0b1000000000001111 ComparisonAndBitwise
+1598, Operator 0b1000010010001111 ComparisonAndBitwise
 1600, Whitespace
 1601, Identifier
 1602, Whitespace

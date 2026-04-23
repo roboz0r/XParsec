@@ -105,23 +105,11 @@ module internal Keywords =
     let pDot: KWParser = mkKW Token.OpDot "."
     let pBar: KWParser = mkKW Token.OpBar "|"
 
-    let pLessThan: KWParser =
-        // Hoisted err — re-used across every invocation.
-        let err: ErrorType<PositionedToken, ParseState> = Message "<"
+    // `<` and `>` carry unique family-ID bits in the Token enum, so the value
+    // alone disambiguates them from `<<`, `<=`, `<|`, `>>`, `>=`, etc.
+    let pLessThan: KWParser = mkKW Token.OpLessThan "<"
 
-        parser {
-            let! state = getUserState
-            return! nextSyntaxTokenSatisfiesL (fun t -> t.Token = Token.OpLessThan && tokenStringIs "<" t state) err
-        }
-
-    let pGreaterThan: KWParser =
-        let err: ErrorType<PositionedToken, ParseState> = Message ">"
-
-        parser {
-            let! state = getUserState
-
-            return! nextSyntaxTokenSatisfiesL (fun t -> t.Token = Token.OpGreaterThan && tokenStringIs ">" t state) err
-        }
+    let pGreaterThan: KWParser = mkKW Token.OpGreaterThan ">"
 
     let pLBracket: KWParser = mkKW Token.KWLBracket "["
     let pRBracket: KWParser = mkKW Token.KWRBracket "]"

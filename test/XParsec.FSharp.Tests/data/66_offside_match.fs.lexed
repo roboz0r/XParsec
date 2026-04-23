@@ -22,7 +22,7 @@
 34, Indent
 38, Identifier
 39, Whitespace
-40, Operator 0b1000000001010011 InfixAdd (can be prefix)
+40, Operator 0b1000010110110011 InfixAdd (can be prefix)
 41, Whitespace
 42, NumInt32
 43, Newline

@@ -191,9 +191,9 @@
 456, KWType
 460, Whitespace
 461, BacktickedIdentifier
-467, Operator 0b1000000000001111 ComparisonAndBitwise
+467, Operator 0b1000000001001111 ComparisonAndBitwise
 468, TypeParameter
-470, Operator 0b1000000000001111 ComparisonAndBitwise
+470, Operator 0b1000000010001111 ComparisonAndBitwise
 471, Whitespace
 472, OpEquality
 473, Whitespace
@@ -209,9 +209,9 @@
 491, KWType
 495, Whitespace
 496, BacktickedIdentifier
-503, Operator 0b1000000000001111 ComparisonAndBitwise
+503, Operator 0b1000000001001111 ComparisonAndBitwise
 504, TypeParameter
-506, Operator 0b1000000000001111 ComparisonAndBitwise
+506, Operator 0b1000000010001111 ComparisonAndBitwise
 507, Whitespace
 508, OpEquality
 509, Whitespace
@@ -321,9 +321,9 @@
 848, OpColon
 849, Whitespace
 850, Identifier
-861, Operator 0b1000000000001111 ComparisonAndBitwise
+861, Operator 0b1000000001001111 ComparisonAndBitwise
 862, Identifier
-865, Operator 0b1000000000001111 ComparisonAndBitwise
+865, Operator 0b1000000010001111 ComparisonAndBitwise
 866, KWRParen
 867, Newline
 868, Indent
@@ -360,9 +360,9 @@
 985, OpColon
 986, Whitespace
 987, Identifier
-996, Operator 0b1000000000001111 ComparisonAndBitwise
+996, Operator 0b1000000001001111 ComparisonAndBitwise
 997, TypeParameter
-999, Operator 0b1000000000001111 ComparisonAndBitwise
+999, Operator 0b1000000010001111 ComparisonAndBitwise
 1000, Whitespace
 1001, OpEquality
 1002, Whitespace
@@ -378,17 +378,17 @@
 1024, OpMultiply
 1025, Whitespace
 1026, Identifier
-1032, Operator 0b1000000000001111 ComparisonAndBitwise
+1032, Operator 0b1000000001001111 ComparisonAndBitwise
 1033, TypeParameter
-1035, Operator 0b1000000000001111 ComparisonAndBitwise
+1035, Operator 0b1000000010001111 ComparisonAndBitwise
 1036, KWRParen
 1037, Whitespace
 1038, OpColon
 1039, Whitespace
 1040, Identifier
-1049, Operator 0b1000000000001111 ComparisonAndBitwise
+1049, Operator 0b1000000001001111 ComparisonAndBitwise
 1050, TypeParameter
-1052, Operator 0b1000000000001111 ComparisonAndBitwise
+1052, Operator 0b1000000010001111 ComparisonAndBitwise
 1053, Whitespace
 1054, KWRHashParen
 1056, Newline
@@ -399,9 +399,9 @@
 1066, KWInline
 1072, Whitespace
 1073, Identifier
-1079, Operator 0b1000000000001111 ComparisonAndBitwise
+1079, Operator 0b1000000001001111 ComparisonAndBitwise
 1080, TypeParameter
-1082, Operator 0b1000000000001111 ComparisonAndBitwise
+1082, Operator 0b1000000010001111 ComparisonAndBitwise
 1083, Whitespace
 1084, OpEquality
 1085, Newline

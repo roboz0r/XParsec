@@ -61,7 +61,7 @@
 602, Whitespace
 603, Identifier
 604, Whitespace
-605, Operator 0b1000000000001111 ComparisonAndBitwise
+605, Operator 0b1000000010001111 ComparisonAndBitwise
 606, Whitespace
 607, NumInt32
 608, Newline
@@ -75,7 +75,7 @@
 676, Indent
 680, KWElse
 684, Whitespace
-685, Operator 0b1000000001010011 InfixAdd (can be prefix)
+685, Operator 0b1000010111110011 InfixAdd (can be prefix)
 686, Identifier
 687, Whitespace
 694, LineComment
@@ -94,7 +94,7 @@
 770, Whitespace
 771, Identifier
 772, Whitespace
-773, Operator 0b1000000000001111 ComparisonAndBitwise
+773, Operator 0b1000000010001111 ComparisonAndBitwise
 774, Whitespace
 775, NumInt32
 776, Whitespace
@@ -156,7 +156,7 @@
 1323, Whitespace
 1324, Identifier
 1325, Whitespace
-1326, Operator 0b1000000000001111 ComparisonAndBitwise
+1326, Operator 0b1000000010001111 ComparisonAndBitwise
 1327, Whitespace
 1328, NumInt32
 1329, Whitespace
@@ -171,7 +171,7 @@
 1387, KWElse
 1391, Newline
 1392, Indent
-1397, Operator 0b1000000001010011 InfixAdd (can be prefix)
+1397, Operator 0b1000010111110011 InfixAdd (can be prefix)
 1398, Identifier
 1399, Whitespace
 1410, LineComment
@@ -192,7 +192,7 @@
 1531, Whitespace
 1532, Identifier
 1533, Whitespace
-1534, Operator 0b1000000000001111 ComparisonAndBitwise
+1534, Operator 0b1000000010001111 ComparisonAndBitwise
 1535, Whitespace
 1536, NumInt32
 1537, Newline
@@ -208,7 +208,7 @@
 1629, KWElse
 1633, Newline
 1634, Indent
-1639, Operator 0b1000000001010011 InfixAdd (can be prefix)
+1639, Operator 0b1000010111110011 InfixAdd (can be prefix)
 1640, Identifier
 1641, Whitespace
 1652, LineComment
@@ -238,7 +238,7 @@
 2022, Whitespace
 2023, Identifier
 2024, Whitespace
-2025, Operator 0b1000000000001111 ComparisonAndBitwise
+2025, Operator 0b1000000010001111 ComparisonAndBitwise
 2026, Whitespace
 2027, NumInt32
 2028, Newline
@@ -252,7 +252,7 @@
 2087, Indent
 2091, KWElse
 2095, Whitespace
-2096, Operator 0b1000000001010011 InfixAdd (can be prefix)
+2096, Operator 0b1000010111110011 InfixAdd (can be prefix)
 2097, Identifier
 2098, Newline
 2099, Newline
@@ -280,7 +280,7 @@
 2317, Whitespace
 2318, Identifier
 2319, Whitespace
-2320, Operator 0b1000000000001111 ComparisonAndBitwise
+2320, Operator 0b1000000010001111 ComparisonAndBitwise
 2321, Whitespace
 2322, NumInt32
 2323, Whitespace
@@ -291,7 +291,7 @@
 2339, Whitespace
 2340, Identifier
 2341, Whitespace
-2342, Operator 0b1000000000001111 ComparisonAndBitwise
+2342, Operator 0b1000000010001111 ComparisonAndBitwise
 2343, Whitespace
 2344, NumInt32
 2345, Whitespace

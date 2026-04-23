@@ -50,7 +50,7 @@
 224, Whitespace
 225, Identifier
 228, Whitespace
-229, Operator 0b1000000001010011 InfixAdd (can be prefix)
+229, Operator 0b1000010110110011 InfixAdd (can be prefix)
 230, Whitespace
 231, Identifier
 232, Whitespace
@@ -87,7 +87,7 @@
 291, Whitespace
 292, Identifier
 293, Whitespace
-294, Operator 0b1000000000001111 ComparisonAndBitwise
+294, Operator 0b1000000001001111 ComparisonAndBitwise
 295, Whitespace
 296, NumInt32
 297, Whitespace
@@ -100,7 +100,7 @@
 313, Whitespace
 314, Identifier
 315, Whitespace
-316, Operator 0b1000000001010011 InfixAdd (can be prefix)
+316, Operator 0b1000010110110011 InfixAdd (can be prefix)
 317, Whitespace
 318, NumInt32
 319, Whitespace

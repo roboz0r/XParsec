@@ -3,7 +3,7 @@
 7, KWLParen
 8, Identifier
 9, Whitespace
-10, Operator 0b1000000000001111 ComparisonAndBitwise
+10, Operator 0b1000000010001111 ComparisonAndBitwise
 11, Whitespace
 12, NumInt32
 13, KWRParen

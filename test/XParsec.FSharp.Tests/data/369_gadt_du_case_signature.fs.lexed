@@ -15,9 +15,9 @@
 290, KWType
 294, Whitespace
 295, Identifier
-301, Operator 0b1000000000001111 ComparisonAndBitwise
+301, Operator 0b1000000001001111 ComparisonAndBitwise
 302, TypeParameter
-304, Operator 0b1000000000001111 ComparisonAndBitwise
+304, Operator 0b1000000010001111 ComparisonAndBitwise
 305, Whitespace
 306, OpEquality
 307, Newline
@@ -53,12 +53,12 @@
 373, KWType
 377, Whitespace
 378, Identifier
-384, Operator 0b1000000000001111 ComparisonAndBitwise
+384, Operator 0b1000000001001111 ComparisonAndBitwise
 385, TypeParameter
 388, OpComma
 389, Whitespace
 390, TypeParameter
-393, Operator 0b1000000000001111 ComparisonAndBitwise
+393, Operator 0b1000000010001111 ComparisonAndBitwise
 394, Whitespace
 395, OpEquality
 396, Newline
@@ -74,12 +74,12 @@
 420, OpArrowRight
 422, Whitespace
 423, Identifier
-429, Operator 0b1000000000001111 ComparisonAndBitwise
+429, Operator 0b1000000001001111 ComparisonAndBitwise
 430, TypeParameter
 433, OpComma
 434, Whitespace
 435, TypeParameter
-438, Operator 0b1000000000001111 ComparisonAndBitwise
+438, Operator 0b1000000010001111 ComparisonAndBitwise
 439, Newline
 440, Indent
 444, OpBar
@@ -93,11 +93,11 @@
 463, OpArrowRight
 465, Whitespace
 466, Identifier
-472, Operator 0b1000000000001111 ComparisonAndBitwise
+472, Operator 0b1000000001001111 ComparisonAndBitwise
 473, TypeParameter
 476, OpComma
 477, Whitespace
 478, TypeParameter
-481, Operator 0b1000000000001111 ComparisonAndBitwise
+481, Operator 0b1000000010001111 ComparisonAndBitwise
 482, Newline
 483, EOF

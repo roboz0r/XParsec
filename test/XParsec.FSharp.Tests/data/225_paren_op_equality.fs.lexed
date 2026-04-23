@@ -29,7 +29,7 @@
 89, NumInt32
 90, KWRBracket
 91, Whitespace
-92, Operator 0b1000000000001111 ComparisonAndBitwise
+92, Operator 0b1000010010001111 ComparisonAndBitwise
 94, Whitespace
 95, Identifier
 99, OpDot

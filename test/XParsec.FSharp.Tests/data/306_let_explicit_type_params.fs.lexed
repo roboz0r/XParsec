@@ -13,9 +13,9 @@
 201, KWLet
 204, Whitespace
 205, Identifier
-216, Operator 0b1000000000001111 ComparisonAndBitwise
+216, Operator 0b1000000001001111 ComparisonAndBitwise
 217, TypeParameter
-219, Operator 0b1000000000001111 ComparisonAndBitwise
+219, Operator 0b1000000010001111 ComparisonAndBitwise
 220, Whitespace
 221, OpColon
 222, Whitespace
@@ -35,7 +35,7 @@
 264, KWInline
 270, Whitespace
 271, Identifier
-280, Operator 0b1000000000001111 ComparisonAndBitwise
+280, Operator 0b1000000001001111 ComparisonAndBitwise
 281, TypeParameter
 283, Whitespace
 284, KWWhen
@@ -45,7 +45,7 @@
 292, OpColon
 293, Whitespace
 294, KWStruct
-300, Operator 0b1000000000001111 ComparisonAndBitwise
+300, Operator 0b1000000010001111 ComparisonAndBitwise
 301, Whitespace
 302, OpColon
 303, Whitespace
@@ -56,9 +56,9 @@
 309, Identifier
 318, OpDot
 319, Identifier
-328, Operator 0b1000000000001111 ComparisonAndBitwise
+328, Operator 0b1000000001001111 ComparisonAndBitwise
 329, TypeParameter
-331, Operator 0b1000000000001111 ComparisonAndBitwise
+331, Operator 0b1000000010001111 ComparisonAndBitwise
 332, Newline
 333, Newline
 334, LineComment
@@ -68,9 +68,9 @@
 452, KWLet
 455, Whitespace
 456, Identifier
-464, Operator 0b1000000000001111 ComparisonAndBitwise
+464, Operator 0b1000000001001111 ComparisonAndBitwise
 465, TypeParameter
-467, Operator 0b1000000000001111 ComparisonAndBitwise
+467, Operator 0b1000000010001111 ComparisonAndBitwise
 468, Whitespace
 469, KWLParen
 470, Identifier
