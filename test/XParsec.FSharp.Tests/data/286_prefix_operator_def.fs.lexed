@@ -6,7 +6,7 @@
 13, KWLet
 16, Whitespace
 17, KWLParen
-18, Operator 0b1000000001011001 Prefix (can be prefix)
+18, Operator 0b1000000000111001 Prefix (can be prefix)
 20, KWRParen
 21, Whitespace
 22, KWLParen
@@ -27,7 +27,7 @@
 41, KWLet
 44, Whitespace
 45, KWLParen
-46, Operator 0b1000000001011001 Prefix (can be prefix)
+46, Operator 0b1000000000111001 Prefix (can be prefix)
 49, KWRParen
 50, Whitespace
 51, KWLParen
@@ -48,7 +48,7 @@
 70, KWLet
 73, Whitespace
 74, KWLParen
-75, Operator 0b1000000001011001 Prefix (can be prefix)
+75, Operator 0b1000000000111001 Prefix (can be prefix)
 77, KWRParen
 78, Whitespace
 79, KWLParen
@@ -69,7 +69,7 @@
 98, KWLet
 101, Whitespace
 102, KWLParen
-103, Operator 0b1000000001011001 Prefix (can be prefix)
+103, Operator 0b1000000000111001 Prefix (can be prefix)
 106, KWRParen
 107, Whitespace
 108, KWLParen

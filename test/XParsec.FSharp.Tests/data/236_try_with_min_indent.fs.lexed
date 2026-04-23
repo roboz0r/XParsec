@@ -390,7 +390,7 @@
 2567, Indent
 2571, Identifier
 2572, Whitespace
-2573, Operator 0b1000000001010011 InfixAdd (can be prefix)
+2573, Operator 0b1000010110110011 InfixAdd (can be prefix)
 2574, Whitespace
 2575, NumInt32
 2576, Whitespace

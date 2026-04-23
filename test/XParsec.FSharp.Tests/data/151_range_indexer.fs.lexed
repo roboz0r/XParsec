@@ -14,7 +14,7 @@
 40, Whitespace
 41, Identifier
 44, Whitespace
-45, Operator 0b1000000000001111 ComparisonAndBitwise
+45, Operator 0b1000000010001111 ComparisonAndBitwise
 46, Whitespace
 47, NumInt32
 49, Whitespace
@@ -30,12 +30,12 @@
 80, Whitespace
 81, Identifier
 88, Whitespace
-89, Operator 0b1000000001010011 InfixAdd (can be prefix)
+89, Operator 0b1000010110110011 InfixAdd (can be prefix)
 90, Whitespace
 91, NumInt32
 92, KWRBracket
 93, Whitespace
-94, Operator 0b1000000001010011 InfixAdd (can be prefix)
+94, Operator 0b1000010110110011 InfixAdd (can be prefix)
 95, Whitespace
 96, StringOpen
 97, StringFragment

@@ -2,7 +2,7 @@
 2, Whitespace
 3, Identifier
 4, Whitespace
-5, Operator 0b1000000000001111 ComparisonAndBitwise
+5, Operator 0b1000000001001111 ComparisonAndBitwise
 6, Whitespace
 7, NumInt32
 8, Whitespace

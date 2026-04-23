@@ -32,7 +32,7 @@
 43, Indent
 47, Identifier
 48, Whitespace
-49, Operator 0b1000000001010011 InfixAdd (can be prefix)
+49, Operator 0b1000010110110011 InfixAdd (can be prefix)
 50, Whitespace
 51, Identifier
 52, Newline
@@ -64,7 +64,7 @@
 85, Indent
 89, Identifier
 90, Whitespace
-91, Operator 0b1000000001010011 InfixAdd (can be prefix)
+91, Operator 0b1000010111110011 InfixAdd (can be prefix)
 92, Whitespace
 93, Identifier
 94, Newline

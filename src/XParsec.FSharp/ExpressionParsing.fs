@@ -1748,18 +1748,29 @@ module Expr =
                         | Token.OpSemicolon -> pSepVirt reader
 
                         | Token.OpLessThan ->
-                            // Catches the comparison/bitwise family: < > <= >= <>
-                            if state.CharsConsumedAfterTypeParams > 0 then
-                                match reprocessedOperatorAfterTypeParams reader with
+                            // Bare `<` — try type-application lookahead (e.g. `Foo<int>`).
+                            match HighPrec.pTypeApplication reader with
+                            | Ok r -> Ok r
+                            | Error _ -> nextSyntaxToken reader
+
+                        | _ when
+                            // After closing a type-app with a virtual `>` from a fused
+                            // operator like `>>`, `>>>`, `>=`, `>.`, `>>=`, the original
+                            // token is still unconsumed with CharsConsumedAfterTypeParams > 0.
+                            // Any `>`-starting operator token here needs to be re-lexed
+                            // past the consumed chars so the tail (`>`, `=`, `.`, etc.)
+                            // advances the stream correctly.
+                            state.CharsConsumedAfterTypeParams > 0 && TokenInfo.isOperator token.Token
+                            ->
+                            match reprocessedOperatorAfterTypeParams reader with
+                            | Ok r -> Ok r
+                            | Error _ ->
+                                match Application.parse reader with
                                 | Ok r -> Ok r
                                 | Error _ ->
-                                    match HighPrec.pTypeApplication reader with
+                                    match pSepVirt reader with
                                     | Ok r -> Ok r
                                     | Error _ -> nextSyntaxToken reader
-                            else
-                                match HighPrec.pTypeApplication reader with
-                                | Ok r -> Ok r
-                                | Error _ -> nextSyntaxToken reader
 
                         | _ ->
                             match Application.parse reader with

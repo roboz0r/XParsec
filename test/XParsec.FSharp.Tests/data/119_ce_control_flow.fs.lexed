@@ -377,7 +377,7 @@
 1237, Whitespace
 1238, Identifier
 1239, Whitespace
-1240, Operator 0b1000000000001111 ComparisonAndBitwise
+1240, Operator 0b1000000010001111 ComparisonAndBitwise
 1241, Whitespace
 1242, NumInt32
 1243, Whitespace

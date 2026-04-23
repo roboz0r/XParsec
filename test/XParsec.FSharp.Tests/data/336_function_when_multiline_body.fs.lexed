@@ -39,7 +39,7 @@
 273, Identifier
 274, Newline
 275, Indent
-279, Operator 0b1000000000001111 ComparisonAndBitwise
+279, Operator 0b1000010010001111 ComparisonAndBitwise
 281, Whitespace
 282, KWLParen
 283, KWFunction

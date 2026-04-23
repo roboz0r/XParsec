@@ -1,6 +1,6 @@
 0, NumInt32
 1, Whitespace
-2, Operator 0b1000000001010011 InfixAdd (can be prefix)
+2, Operator 0b1000010110110011 InfixAdd (can be prefix)
 3, Whitespace
 4, NumInt32
 5, Whitespace

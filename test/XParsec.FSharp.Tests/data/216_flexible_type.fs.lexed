@@ -8,9 +8,9 @@
 9, Whitespace
 10, KWHash
 11, Identifier
-14, Operator 0b1000000000001111 ComparisonAndBitwise
+14, Operator 0b1000000001001111 ComparisonAndBitwise
 15, Identifier
-18, Operator 0b1000000000001111 ComparisonAndBitwise
+18, Operator 0b1000000010001111 ComparisonAndBitwise
 19, KWRParen
 20, Whitespace
 21, OpEquality
@@ -27,16 +27,16 @@
 34, Whitespace
 35, KWHash
 36, Identifier
-39, Operator 0b1000000000001111 ComparisonAndBitwise
+39, Operator 0b1000000001001111 ComparisonAndBitwise
 40, Identifier
 46, Whitespace
 47, OpMultiply
 48, Whitespace
 49, KWHash
 50, Identifier
-53, Operator 0b1000000000001111 ComparisonAndBitwise
+53, Operator 0b1000000001001111 ComparisonAndBitwise
 54, Identifier
-57, Operator 0b1000000000001111 ComparisonAndBitwise
+57, Operator 0b1000000111001111 ComparisonAndBitwise
 59, KWRParen
 60, Whitespace
 61, OpEquality

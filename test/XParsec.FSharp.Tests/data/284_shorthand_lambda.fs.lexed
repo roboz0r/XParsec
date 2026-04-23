@@ -14,7 +14,7 @@
 27, Indent
 31, Identifier
 33, Whitespace
-34, Operator 0b1000000000001111 ComparisonAndBitwise
+34, Operator 0b1000010010001111 ComparisonAndBitwise
 36, Whitespace
 37, Identifier
 42, OpDot

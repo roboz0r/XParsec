@@ -74,15 +74,15 @@
 587, Indent
 591, Identifier
 592, Whitespace
-593, Operator 0b1000000001010011 InfixAdd (can be prefix)
+593, Operator 0b1000010110110011 InfixAdd (can be prefix)
 594, Whitespace
 595, Identifier
 596, Whitespace
-597, Operator 0b1000000001010011 InfixAdd (can be prefix)
+597, Operator 0b1000010110110011 InfixAdd (can be prefix)
 598, Whitespace
 599, Identifier
 600, Whitespace
-601, Operator 0b1000000001010011 InfixAdd (can be prefix)
+601, Operator 0b1000010110110011 InfixAdd (can be prefix)
 602, Whitespace
 603, Identifier
 604, Newline

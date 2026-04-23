@@ -37,9 +37,9 @@
 73, OpColon
 74, Whitespace
 75, Identifier
-78, Operator 0b1000000000001111 ComparisonAndBitwise
+78, Operator 0b1000000001001111 ComparisonAndBitwise
 79, Identifier
-82, Operator 0b1000000000001111 ComparisonAndBitwise
+82, Operator 0b1000000010001111 ComparisonAndBitwise
 83, Whitespace
 84, OpEquality
 85, Newline
@@ -58,9 +58,9 @@
 130, Identifier
 137, OpDot
 138, Identifier
-149, Operator 0b1000000000001111 ComparisonAndBitwise
+149, Operator 0b1000000001001111 ComparisonAndBitwise
 150, Identifier
-153, Operator 0b1000000000001111 ComparisonAndBitwise
+153, Operator 0b1000000010001111 ComparisonAndBitwise
 154, Whitespace
 155, KWWith
 159, Newline

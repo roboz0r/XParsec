@@ -43,7 +43,7 @@
 146, Whitespace
 147, Identifier
 148, Whitespace
-149, Operator 0b1000000001010011 InfixAdd (can be prefix)
+149, Operator 0b1000010110110011 InfixAdd (can be prefix)
 150, Whitespace
 151, NumInt32
 152, Newline
@@ -74,11 +74,11 @@
 211, KWLParen
 212, KWRParen
 213, Whitespace
-214, Operator 0b1000000001010011 InfixAdd (can be prefix)
+214, Operator 0b1000010110110011 InfixAdd (can be prefix)
 215, Whitespace
 216, Identifier
 217, Whitespace
-218, Operator 0b1000000001010011 InfixAdd (can be prefix)
+218, Operator 0b1000010110110011 InfixAdd (can be prefix)
 219, Whitespace
 220, Identifier
 221, Newline

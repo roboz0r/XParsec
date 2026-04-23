@@ -18,7 +18,7 @@
 254, Whitespace
 255, Identifier
 256, Whitespace
-257, Operator 0b1000000000001111 ComparisonAndBitwise
+257, Operator 0b1000000001001111 ComparisonAndBitwise
 258, Whitespace
 259, NumInt32
 260, Whitespace

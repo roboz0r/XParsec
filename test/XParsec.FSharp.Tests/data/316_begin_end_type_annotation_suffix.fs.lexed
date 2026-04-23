@@ -18,7 +18,7 @@
 122, Whitespace
 123, NumInt32
 124, Whitespace
-125, Operator 0b1000000001010011 InfixAdd (can be prefix)
+125, Operator 0b1000010110110011 InfixAdd (can be prefix)
 126, Whitespace
 127, NumInt32
 128, Whitespace
@@ -41,7 +41,7 @@
 158, Indent
 166, NumInt32
 167, Whitespace
-168, Operator 0b1000000001010011 InfixAdd (can be prefix)
+168, Operator 0b1000010110110011 InfixAdd (can be prefix)
 169, Whitespace
 170, NumInt32
 171, Whitespace

@@ -99,7 +99,7 @@
 466, OpColon
 467, Identifier
 469, Whitespace
-470, Operator 0b1000000001010011 InfixAdd (can be prefix)
+470, Operator 0b1000010110110011 InfixAdd (can be prefix)
 471, Whitespace
 472, NumIEEE64
 475, OpColon

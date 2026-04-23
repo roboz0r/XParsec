@@ -11,9 +11,9 @@
 150, KWType
 154, Whitespace
 155, Identifier
-159, Operator 0b1000000000001111 ComparisonAndBitwise
+159, Operator 0b1000000001001111 ComparisonAndBitwise
 160, TypeParameter
-162, Operator 0b1000000000001111 ComparisonAndBitwise
+162, Operator 0b1000000010001111 ComparisonAndBitwise
 163, Whitespace
 164, OpEquality
 165, Newline
@@ -25,9 +25,9 @@
 181, KWOf
 183, Whitespace
 184, Identifier
-188, Operator 0b1000000000001111 ComparisonAndBitwise
+188, Operator 0b1000000001001111 ComparisonAndBitwise
 189, TypeParameter
-191, Operator 0b1000000000001111 ComparisonAndBitwise
+191, Operator 0b1000000010001111 ComparisonAndBitwise
 192, Whitespace
 193, Identifier
 197, Newline

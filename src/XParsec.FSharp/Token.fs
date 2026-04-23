@@ -112,7 +112,7 @@ module TokenRepresentation =
     let TokenMask = 0xFFFFUL // Lower 16 bits for token ID and flags
 
     // Bits: 15-13 (Kind) | 12-11 (Flags) | 10-8 (Spare) | 7-0 (Payload)
-    //  000          | 00            | 000          | 00010101 (ID = 21)
+    // 000                | 00            | 000          | 00010101 (ID = 21)
 
     // ==========================================================
     // SECTION 1: Token Kind (Bits 15-13)
@@ -223,13 +223,26 @@ module TokenRepresentation =
     [<Literal>]
     let TextTypeIDMask = 0b00111111us
 
-    // 3. Operators (Payload Bits 0-6)
-    // Bit 6: Prefix Flag
+    // 3. Operators
+    // Layout:
+    //   Bits 10-6: within-family operator ID (5 bits, 0-31) — distinguishes specific
+    //     well-known operators that share a precedence class. ID 0 is the "generic
+    //     custom op" slot, shared by any operator in this family whose text does not
+    //     match a well-known string. See the OpFamily module below.
+    //   Bit 5: CanBePrefix
+    //   Bits 0-4: Precedence (0-31; current max is HighTypeApplication = 29)
     [<Literal>]
-    let CanBePrefix = 0b0100_0000us
-    // Bits 0-5: Precedence (0-63)
+    let CanBePrefix = 0b0010_0000us
+
     [<Literal>]
-    let PrecedenceMask = 0b0011_1111us
+    let PrecedenceMask = 0b0001_1111us
+
+    // Within-family operator ID lives in bits 10-6.
+    [<Literal>]
+    let OpFamilyShift = 6
+
+    [<Literal>]
+    let OpFamilyMask = 0b0000_0111_1100_0000us
 
 
     module internal KW =
@@ -1192,6 +1205,113 @@ module TokenRepresentation =
         [<Literal>]
         let HighTypeApplication = 29us
 
+    /// Within-family operator IDs — bits 10-6 of the Token value, 5 bits, 32 slots.
+    /// IDs are globally unique across the whole Token enum: when an operator's
+    /// declared precedence does not match the family of its leading char (e.g.
+    /// the `OpPipeRight` variants end up at ComparisonAndBitwise precedence today),
+    /// collision-free pattern matching still requires unique IDs. ID 0 is the
+    /// "generic custom op at this precedence" slot — the long tail collapses here.
+    ///
+    /// Constants are already shifted (<<< 6) so they can be OR'd directly into
+    /// the Token value alongside Precedence.
+    module internal OpFamily =
+        [<Literal>]
+        let OpGeneric = 0x0000us
+
+        [<Literal>]
+        let OpLt = 0x0040us // <   (ID 1)
+
+        [<Literal>]
+        let OpGt = 0x0080us // >   (ID 2)
+
+        [<Literal>]
+        let OpNe = 0x00C0us // <>  (ID 3)
+
+        [<Literal>]
+        let OpLe = 0x0100us // <=  (ID 4)
+
+        [<Literal>]
+        let OpGe = 0x0140us // >=  (ID 5)
+
+        [<Literal>]
+        let OpLtLt = 0x0180us // <<  (ID 6)
+
+        [<Literal>]
+        let OpGtGt = 0x01C0us // >>  (ID 7)
+
+        [<Literal>]
+        let OpLtLtLt = 0x0200us // <<< (ID 8)
+
+        [<Literal>]
+        let OpGtGtGt = 0x0240us // >>> (ID 9)
+
+        [<Literal>]
+        let OpPipeLt = 0x0280us // <|   (ID 10)
+
+        [<Literal>]
+        let OpPipeLtLt = 0x02C0us // <||  (ID 11)
+
+        [<Literal>]
+        let OpPipeLtLtLt = 0x0300us // <||| (ID 12)
+
+        [<Literal>]
+        let OpAmpAmpAmp = 0x0340us // &&& (ID 13)
+
+        [<Literal>]
+        let OpBarBarBar = 0x0380us // ||| (ID 14)
+
+        [<Literal>]
+        let OpHatHatHat = 0x03C0us // ^^^ (ID 15)
+
+        [<Literal>]
+        let OpBangEq = 0x0400us // !=  (ID 16)
+
+        [<Literal>]
+        let OpTildeTildeTilde = 0x0440us // ~~~ (ID 17)
+
+        [<Literal>]
+        let OpPipeGt = 0x0480us // |>   (ID 18)
+
+        [<Literal>]
+        let OpPipeGtGt = 0x04C0us // ||>  (ID 19)
+
+        [<Literal>]
+        let OpPipeGtGtGt = 0x0500us // |||> (ID 20)
+
+        [<Literal>]
+        let OpAt = 0x0540us // @    (ID 21)
+
+        [<Literal>]
+        let OpPlus = 0x0580us // +    (ID 22)
+
+        [<Literal>]
+        let OpMinus = 0x05C0us // -    (ID 23)
+
+        [<Literal>]
+        let OpPlusEq = 0x0600us // +=   (ID 24)
+
+        [<Literal>]
+        let OpMinusEq = 0x0640us // -=   (ID 25)
+
+        [<Literal>]
+        let OpPct = 0x0680us // %    (ID 26)
+
+        [<Literal>]
+        let OpStarEq = 0x06C0us // *=   (ID 27)
+
+        [<Literal>]
+        let OpSlashEq = 0x0700us // /=   (ID 28)
+
+        [<Literal>]
+        let OpStarStar = 0x0740us // **   (ID 29)
+
+        [<Literal>]
+        let OpUnaryPlus = 0x0780us // ~+   (ID 30)
+
+        [<Literal>]
+        let OpUnaryMinus = 0x07C0us // ~-   (ID 31)
+    // 32 IDs used (0 = Generic) — full 5-bit payload
+
     module internal Invalid =
 
 
@@ -1539,53 +1659,63 @@ type Token =
     // ==============================================================================
     // 5. OPERATORS (KindOperator 0x8000)
     // ==============================================================================
-    // Payload = Precedence (bits 0-5) | CanBePrefix (bit 6)
-
-    // Custom / Generic Operator
-    // (Used when the lexer finds an unknown sequence like +*+)
-    // Standard Operators (Lexer usually calculates these, but here are the prototypes)
-    // Note: We use the helper module `Precedence` defined above
+    // Payload = WithinFamily ID (bits 10-6) | CanBePrefix (bit 5) | Precedence (bits 0-4)
+    //
+    // Well-known operators in the same precedence family share precedence+prefix bits
+    // but get distinct WithinFamily IDs (see the OpFamily module). ID 0 is reserved
+    // for "generic custom op at this precedence" — anything lexed via
+    // Token.ofCustomOperator that doesn't match a well-known string collapses to 0.
 
     // 4.1 Operator Names
-    // These operators are not keywords, but regular operators with names
-    // The values in this section define their precedence and properties, they are not unique IDs
-    | OpAddition = (KindOperator ||| CanBePrefix ||| Precedence.InfixAdd) // +
-    | OpSubtraction = (KindOperator ||| CanBePrefix ||| Precedence.InfixAdd) // -
-    | OpExponentiation = (KindOperator ||| Precedence.Exponentiation) // **
-    | OpAppend = (KindOperator ||| Precedence.Append) // @ precedence is not documented, assuming Concatenate level
-    | OpModulus = (KindOperator ||| CanBePrefix ||| Precedence.InfixMultiply) // %
-    | OpBitwiseAnd = (KindOperator ||| Precedence.ComparisonAndBitwise) // &&&
-    | OpBitwiseOr = (KindOperator ||| Precedence.ComparisonAndBitwise) // |||
-    | OpExclusiveOr = (KindOperator ||| Precedence.ComparisonAndBitwise) // ^^^
-    | OpLeftShift = (KindOperator ||| Precedence.ComparisonAndBitwise) // <<<
-    | OpLogicalNot = (KindOperator ||| CanBePrefix ||| Precedence.ComparisonAndBitwise) // ~~~
-    | OpRightShift = (KindOperator ||| Precedence.ComparisonAndBitwise) // >>>
-    | OpUnaryPlus = (KindOperator ||| CanBePrefix ||| Precedence.Prefix) // ~+
-    | OpUnaryNegation = (KindOperator ||| CanBePrefix ||| Precedence.Prefix) // ~-
-    | OpInequality = (KindOperator ||| Precedence.ComparisonAndBitwise) // <>
-    | OpLessThanOrEqual = (KindOperator ||| Precedence.ComparisonAndBitwise) // <=
-    | OpGreaterThanOrEqual = (KindOperator ||| Precedence.ComparisonAndBitwise) // >=
-    | OpLessThan = (KindOperator ||| Precedence.ComparisonAndBitwise) // <
-    | OpGreaterThan = (KindOperator ||| Precedence.ComparisonAndBitwise) // >
-    | OpPipeRight = (KindOperator ||| Precedence.Pipe) // |>
-    | OpPipeRight2 = (KindOperator ||| Precedence.Pipe) // ||>
-    | OpPipeRight3 = (KindOperator ||| Precedence.Pipe) // |||>
-    | OpPipeLeft = (KindOperator ||| Precedence.ComparisonAndBitwise) // <| didn't find official precedence, assuming LogicalAndBitwise level as first char is <
-    | OpPipeLeft2 = (KindOperator ||| Precedence.ComparisonAndBitwise) // <||
-    | OpPipeLeft3 = (KindOperator ||| Precedence.ComparisonAndBitwise) // <|||
-    | OpComposeRight = (KindOperator ||| Precedence.ComparisonAndBitwise) // >>
-    | OpComposeLeft = (KindOperator ||| Precedence.ComparisonAndBitwise) // <<
-    | OpSplice = (KindOperator ||| CanBePrefix ||| Precedence.Dot) // ~% (used in F# quotations)
-    | OpSpliceUntyped = (KindOperator ||| CanBePrefix ||| Precedence.Dot) // ~%%
-    | OpAddressOf = (KindOperator ||| CanBePrefix ||| Precedence.Dot) // ~&
-    | OpIntegerAddressOf = (KindOperator ||| CanBePrefix ||| Precedence.Dot) // ~&&
-    | OpBooleanOr = (KindOperator ||| Precedence.LogicalOr) // ||
-    | OpBooleanAnd = (KindOperator ||| Precedence.LogicalAnd) // &&
-    | OpAdditionAssignment = (KindOperator ||| CanBePrefix ||| Precedence.InfixAdd) // +=
-    | OpSubtractionAssignment = (KindOperator ||| CanBePrefix ||| Precedence.InfixAdd) // -=
-    | OpMultiplyAssignment = (KindOperator ||| Precedence.InfixMultiply) // *=
-    | OpDivisionAssignment = (KindOperator ||| Precedence.InfixMultiply) // /=
-    | OpNotEqual = (KindOperator ||| Precedence.ComparisonAndBitwise) // != (F# uses <> but != is in the spec too)
+    | OpAddition = (KindOperator ||| OpFamily.OpPlus ||| CanBePrefix ||| Precedence.InfixAdd) // +
+    | OpSubtraction = (KindOperator ||| OpFamily.OpMinus ||| CanBePrefix ||| Precedence.InfixAdd) // -
+    | OpExponentiation = (KindOperator ||| OpFamily.OpStarStar ||| Precedence.Exponentiation) // **
+    | OpAppend = (KindOperator ||| OpFamily.OpAt ||| Precedence.Append) // @
+    | OpModulus = (KindOperator ||| OpFamily.OpPct ||| CanBePrefix ||| Precedence.InfixMultiply) // %
+    | OpBitwiseAnd = (KindOperator ||| OpFamily.OpAmpAmpAmp ||| Precedence.ComparisonAndBitwise) // &&&
+    | OpBitwiseOr = (KindOperator ||| OpFamily.OpBarBarBar ||| Precedence.ComparisonAndBitwise) // |||
+    | OpExclusiveOr = (KindOperator ||| OpFamily.OpHatHatHat ||| Precedence.ComparisonAndBitwise) // ^^^
+    | OpLeftShift = (KindOperator ||| OpFamily.OpLtLtLt ||| Precedence.ComparisonAndBitwise) // <<<
+    | OpLogicalNot = (KindOperator
+                      ||| OpFamily.OpTildeTildeTilde
+                      ||| CanBePrefix
+                      ||| Precedence.ComparisonAndBitwise) // ~~~
+    | OpRightShift = (KindOperator ||| OpFamily.OpGtGtGt ||| Precedence.ComparisonAndBitwise) // >>>
+    | OpUnaryPlus = (KindOperator ||| OpFamily.OpUnaryPlus ||| CanBePrefix ||| Precedence.Prefix) // ~+
+    | OpUnaryNegation = (KindOperator ||| OpFamily.OpUnaryMinus ||| CanBePrefix ||| Precedence.Prefix) // ~-
+    | OpInequality = (KindOperator ||| OpFamily.OpNe ||| Precedence.ComparisonAndBitwise) // <>
+    | OpLessThanOrEqual = (KindOperator ||| OpFamily.OpLe ||| Precedence.ComparisonAndBitwise) // <=
+    | OpGreaterThanOrEqual = (KindOperator ||| OpFamily.OpGe ||| Precedence.ComparisonAndBitwise) // >=
+    | OpLessThan = (KindOperator ||| OpFamily.OpLt ||| Precedence.ComparisonAndBitwise) // <
+    | OpGreaterThan = (KindOperator ||| OpFamily.OpGt ||| Precedence.ComparisonAndBitwise) // >
+    // |>, ||>, |||> — the F# spec classifies these at Pipe precedence, but the
+    // current lexer/parser pipeline has treated them at ComparisonAndBitwise since
+    // inception. Preserve today's emitted value for behavioral parity; the
+    // within-family ID still makes each uniquely identifiable.
+    | OpPipeRight = (KindOperator ||| OpFamily.OpPipeGt ||| Precedence.ComparisonAndBitwise) // |>
+    | OpPipeRight2 = (KindOperator ||| OpFamily.OpPipeGtGt ||| Precedence.ComparisonAndBitwise) // ||>
+    | OpPipeRight3 = (KindOperator ||| OpFamily.OpPipeGtGtGt ||| Precedence.ComparisonAndBitwise) // |||>
+    | OpPipeLeft = (KindOperator ||| OpFamily.OpPipeLt ||| Precedence.ComparisonAndBitwise) // <|
+    | OpPipeLeft2 = (KindOperator ||| OpFamily.OpPipeLtLt ||| Precedence.ComparisonAndBitwise) // <||
+    | OpPipeLeft3 = (KindOperator ||| OpFamily.OpPipeLtLtLt ||| Precedence.ComparisonAndBitwise) // <|||
+    | OpComposeRight = (KindOperator ||| OpFamily.OpGtGt ||| Precedence.ComparisonAndBitwise) // >>
+    | OpComposeLeft = (KindOperator ||| OpFamily.OpLtLt ||| Precedence.ComparisonAndBitwise) // <<
+    // These six cases share duplicate enum values today because the lexer never
+    // actually emits them (|| and && lex as KindKeyword OpBarBar/OpAmpAmp; ~% etc.
+    // lex at Prefix precedence via the generic slot). Keep them as aliases in the
+    // OpGeneric slot so any future pattern match still compiles but continues to
+    // be unreachable, matching the pre-refactor behavior.
+    | OpSplice = (KindOperator ||| OpFamily.OpGeneric ||| CanBePrefix ||| Precedence.Dot) // ~%
+    | OpSpliceUntyped = (KindOperator ||| OpFamily.OpGeneric ||| CanBePrefix ||| Precedence.Dot) // ~%%
+    | OpAddressOf = (KindOperator ||| OpFamily.OpGeneric ||| CanBePrefix ||| Precedence.Dot) // ~&
+    | OpIntegerAddressOf = (KindOperator ||| OpFamily.OpGeneric ||| CanBePrefix ||| Precedence.Dot) // ~&&
+    | OpBooleanOr = (KindOperator ||| OpFamily.OpGeneric ||| Precedence.LogicalOr) // ||
+    | OpBooleanAnd = (KindOperator ||| OpFamily.OpGeneric ||| Precedence.LogicalAnd) // &&
+    | OpAdditionAssignment = (KindOperator ||| OpFamily.OpPlusEq ||| CanBePrefix ||| Precedence.InfixAdd) // +=
+    | OpSubtractionAssignment = (KindOperator ||| OpFamily.OpMinusEq ||| CanBePrefix ||| Precedence.InfixAdd) // -=
+    | OpMultiplyAssignment = (KindOperator ||| OpFamily.OpStarEq ||| Precedence.InfixMultiply) // *=
+    | OpDivisionAssignment = (KindOperator ||| OpFamily.OpSlashEq ||| Precedence.InfixMultiply) // /=
+    | OpNotEqual = (KindOperator ||| OpFamily.OpBangEq ||| Precedence.ComparisonAndBitwise) // !=
 
 
     | OpCons = (KindKeyword ||| KW.ColonColon) // :: is Structural (KindKeyword), not Operator
@@ -1765,24 +1895,112 @@ module internal Token =
             Token.ReservedOperator
 
         else
+            // Well-known operator strings get unique Token values (via OpFamily IDs);
+            // custom ops fall through to the family's "generic" (ID 0) slot.
+            // Exact-match fast path requires no ignored prefix chars and exact length.
+            let isBare = trimIgnored.Length = span.Length
+
             //!%&*+-./<=>@^|~
             match trimIgnored[0] with
             | '!' ->
                 if trimIgnored.Length >= 2 && trimIgnored[1] = '=' then
-                    ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise) // !=
+                    if isBare && trimIgnored.Length = 2 then
+                        Token.OpNotEqual
+                    else
+                        ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise) // !=-like
                 else
                     ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.Prefix) // !
-            | '%' -> ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.InfixMultiply)
-            | '&' -> ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.ComparisonAndBitwise)
-            | '*' -> ofUInt16 (KindOperator ||| Precedence.InfixMultiply)
-            | '+' -> ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.InfixAdd)
-            | '-' -> ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.InfixAdd)
-            | '/' -> ofUInt16 (KindOperator ||| Precedence.InfixMultiply)
+            | '%' ->
+                if isBare && trimIgnored.Length = 1 then
+                    Token.OpModulus
+                else
+                    ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.InfixMultiply)
+            | '&' ->
+                if isBare && trimIgnored.Length = 3 && trimIgnored[1] = '&' && trimIgnored[2] = '&' then
+                    Token.OpBitwiseAnd
+                else
+                    ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.ComparisonAndBitwise)
+            | '*' ->
+                if isBare && trimIgnored.Length = 2 then
+                    match trimIgnored[1] with
+                    | '*' -> Token.OpExponentiation
+                    | '=' -> Token.OpMultiplyAssignment
+                    | _ -> ofUInt16 (KindOperator ||| Precedence.InfixMultiply)
+                else
+                    ofUInt16 (KindOperator ||| Precedence.InfixMultiply)
+            | '+' ->
+                if isBare && trimIgnored.Length = 1 then
+                    Token.OpAddition
+                elif isBare && trimIgnored.Length = 2 && trimIgnored[1] = '=' then
+                    Token.OpAdditionAssignment
+                else
+                    ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.InfixAdd)
+            | '-' ->
+                if isBare && trimIgnored.Length = 1 then
+                    Token.OpSubtraction
+                elif isBare && trimIgnored.Length = 2 && trimIgnored[1] = '=' then
+                    Token.OpSubtractionAssignment
+                else
+                    ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.InfixAdd)
+            | '/' ->
+                if isBare && trimIgnored.Length = 2 && trimIgnored[1] = '=' then
+                    Token.OpDivisionAssignment
+                else
+                    ofUInt16 (KindOperator ||| Precedence.InfixMultiply)
+            | '<' when isBare ->
+                match trimIgnored.Length with
+                | 1 -> Token.OpLessThan
+                | 2 ->
+                    match trimIgnored[1] with
+                    | '<' -> Token.OpComposeLeft // <<
+                    | '=' -> Token.OpLessThanOrEqual // <=
+                    | '>' -> Token.OpInequality // <>
+                    | '|' -> Token.OpPipeLeft // <|
+                    | _ -> ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise)
+                | 3 ->
+                    if trimIgnored[1] = '<' && trimIgnored[2] = '<' then
+                        Token.OpLeftShift // <<<
+                    elif trimIgnored[1] = '|' && trimIgnored[2] = '|' then
+                        Token.OpPipeLeft2 // <||
+                    else
+                        ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise)
+                | 4 when trimIgnored[1] = '|' && trimIgnored[2] = '|' && trimIgnored[3] = '|' -> Token.OpPipeLeft3 // <|||
+                | _ -> ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise)
             | '<' -> ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise)
             | '=' -> ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise)
+            | '>' when isBare ->
+                match trimIgnored.Length with
+                | 1 -> Token.OpGreaterThan
+                | 2 ->
+                    match trimIgnored[1] with
+                    | '>' -> Token.OpComposeRight // >>
+                    | '=' -> Token.OpGreaterThanOrEqual // >=
+                    | _ -> ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise)
+                | 3 when trimIgnored[1] = '>' && trimIgnored[2] = '>' -> Token.OpRightShift // >>>
+                | _ -> ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise)
             | '>' -> ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise)
-            | '@' -> ofUInt16 (KindOperator ||| Precedence.Append) // TODO https://github.com/fsharp/fslang-spec/issues/70
-            | '^' -> ofUInt16 (KindOperator ||| Precedence.Append)
+            | '@' ->
+                if isBare && trimIgnored.Length = 1 then
+                    Token.OpAppend
+                else
+                    ofUInt16 (KindOperator ||| Precedence.Append)
+            | '^' ->
+                if isBare && trimIgnored.Length = 3 && trimIgnored[1] = '^' && trimIgnored[2] = '^' then
+                    Token.OpExclusiveOr // ^^^ lives in ComparisonAndBitwise, not Append
+                else
+                    ofUInt16 (KindOperator ||| Precedence.Append)
+            | '|' when isBare ->
+                match trimIgnored.Length with
+                | 2 when trimIgnored[1] = '>' -> Token.OpPipeRight // |>
+                | 3 ->
+                    if trimIgnored[1] = '|' && trimIgnored[2] = '>' then
+                        Token.OpPipeRight2 // ||>
+                    elif trimIgnored[1] = '|' && trimIgnored[2] = '|' then
+                        Token.OpBitwiseOr // |||
+                    else
+                        ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise)
+                | 4 when trimIgnored[1] = '|' && trimIgnored[2] = '|' && trimIgnored[3] = '>' -> Token.OpPipeRight3 // |||>
+                | _ -> ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise)
             | '|' -> ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise)
             | '~' ->
                 if

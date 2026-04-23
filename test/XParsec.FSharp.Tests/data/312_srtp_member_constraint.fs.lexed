@@ -142,7 +142,7 @@
 483, Wildcard
 484, OpDot
 485, Identifier
-490, Operator 0b1000000000001111 ComparisonAndBitwise
+490, Operator 0b1000000001001111 ComparisonAndBitwise
 491, TypeParameter
 493, OpComma
 494, Whitespace
@@ -161,7 +161,7 @@
 528, OpColon
 529, Whitespace
 530, Identifier
-540, Operator 0b1000000000001111 ComparisonAndBitwise
+540, Operator 0b1000000010001111 ComparisonAndBitwise
 541, Whitespace
 542, KWLParen
 543, Identifier
@@ -187,7 +187,7 @@
 573, Indent
 581, Identifier
 583, Whitespace
-584, Operator 0b1000000000001111 ComparisonAndBitwise
+584, Operator 0b1000010010001111 ComparisonAndBitwise
 586, Whitespace
 587, Identifier
 591, OpDot
