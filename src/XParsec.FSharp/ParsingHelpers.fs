@@ -747,7 +747,10 @@ module Parsing =
 
     /// Primary API — takes a pre-built err. Callers are expected to build the `ErrorType.Message`
     /// statically at their module level so it allocates exactly once, not per failure.
-    let nextSyntaxTokenSatisfiesL (predicate: SyntaxToken -> bool) (err: ErrorType<PositionedToken, ParseState>) =
+    let inline nextSyntaxTokenSatisfiesL
+        ([<InlineIfLambda>] predicate: SyntaxToken -> bool)
+        (err: ErrorType<PositionedToken, ParseState>)
+        =
         fun reader ->
             match peekNextSyntaxToken reader with
             | Error e -> Error e
@@ -757,14 +760,14 @@ module Parsing =
                 else
                     fail err reader
 
-    let nextSyntaxTokenIsL (t: Token) (err: ErrorType<PositionedToken, ParseState>) =
+    let inline nextSyntaxTokenIsL (t: Token) (err: ErrorType<PositionedToken, ParseState>) =
         nextSyntaxTokenSatisfiesL (fun synTok -> synTok.Token = t) err
 
     /// Convenience wrapper. Builds `Message msg` and delegates. Use this ONLY when the caller
     /// binding is itself at module level (so the Message is allocated once per binding, not
     /// per runtime invocation); inline uses inside a `parser { }` CE will re-allocate the
     /// Message on every outer call.
-    let inline nextSyntaxTokenSatisfiesLMsg (predicate: SyntaxToken -> bool) (msg: string) =
+    let inline nextSyntaxTokenSatisfiesLMsg ([<InlineIfLambda>] predicate: SyntaxToken -> bool) (msg: string) =
         nextSyntaxTokenSatisfiesL predicate (Message msg)
 
     let inline nextSyntaxTokenIsLMsg (t: Token) (msg: string) = nextSyntaxTokenIsL t (Message msg)
