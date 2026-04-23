@@ -401,26 +401,61 @@ module Type =
     // Suffix continuation: list (as in `int list`)
     let private pPostfixSuffixCont: FSParser<LongIdent<SyntaxToken>> = LongIdent.parse
 
-    // Postfix operators: [] (Array), .Ident (Dotted), ident (Suffixed e.g. int list)
-    let private pPostfixType =
-        parser {
-            let! atom = parseAtomic
-            let mutable acc = atom
-            let mutable keepGoing = true
+    // Postfix operators: [] (Array), .Ident (Dotted), ident (Suffixed e.g. int list).
+    // Peek once per iteration and dispatch to the single matching sub-parser rather than
+    // trying all three via `opt` (which re-peeks the same token inside each attempt).
+    // The three leading-token sets are disjoint, so the peeked token uniquely selects
+    // at most one branch; anything else terminates the postfix chain.
+    //
+    // One extra case: when a generic type application consumed a virtual `>` from a fused
+    // operator (e.g. `>.` in `Foo<int>.Bar`), the reader is still positioned at the fused
+    // token with CharsConsumedAfterTypeParams > 0. `pPostfixDottedCont`'s inner `pPostfixDot`
+    // knows how to reprocess such a token into `.`, but it can also legitimately fail (e.g.
+    // if the tail is `>>` not `>.`), in which case the postfix chain must terminate cleanly.
+    // For that case we use `opt pPostfixDottedCont` so a non-dot reprocessed operator rolls
+    // back instead of propagating as a parse error.
+    let private pPostfixType: FSParser<Type<SyntaxToken>> =
+        fun reader ->
+            match parseAtomic reader with
+            | Error e -> Error e
+            | Ok atom ->
+                let mutable acc = atom
+                let mutable errOpt = ValueNone
+                let mutable keepGoing = true
 
-            while keepGoing do
-                match! opt pPostfixArrayCont with
-                | ValueSome(struct (l, commas, r)) -> acc <- Type.ArrayType(acc, l, commas, r)
-                | ValueNone ->
-                    match! opt pPostfixDottedCont with
-                    | ValueSome(struct (dot, lid)) -> acc <- Type.DottedType(acc, dot, lid)
-                    | ValueNone ->
-                        match! opt pPostfixSuffixCont with
-                        | ValueSome lid -> acc <- Type.SuffixedType(acc, lid)
-                        | ValueNone -> keepGoing <- false
+                while keepGoing && errOpt.IsNone do
+                    match peekNextSyntaxToken reader with
+                    | Error _ -> keepGoing <- false
+                    | Ok peeked ->
+                        let state = reader.State
 
-            return acc
-        }
+                        if state.CharsConsumedAfterTypeParams > 0 && TokenInfo.isOperator peeked.Token then
+                            match opt pPostfixDottedCont reader with
+                            | Ok(ValueSome(struct (dot, lid))) -> acc <- Type.DottedType(acc, dot, lid)
+                            | Ok ValueNone -> keepGoing <- false
+                            | Error e -> errOpt <- ValueSome e
+                        else
+                            match peeked.Token with
+                            | Token.KWLBracket
+                            | Token.KWLArrayBracket ->
+                                match pPostfixArrayCont reader with
+                                | Ok(struct (l, commas, r)) -> acc <- Type.ArrayType(acc, l, commas, r)
+                                | Error e -> errOpt <- ValueSome e
+                            | Token.OpDot ->
+                                match pPostfixDottedCont reader with
+                                | Ok(struct (dot, lid)) -> acc <- Type.DottedType(acc, dot, lid)
+                                | Error e -> errOpt <- ValueSome e
+                            | Token.Identifier
+                            | Token.BacktickedIdentifier
+                            | Token.UnterminatedBacktickedIdentifier ->
+                                match pPostfixSuffixCont reader with
+                                | Ok lid -> acc <- Type.SuffixedType(acc, lid)
+                                | Error e -> errOpt <- ValueSome e
+                            | _ -> keepGoing <- false
+
+                match errOpt with
+                | ValueSome e -> Error e
+                | ValueNone -> Ok acc
 
     // Subtype constraint: 'T :> IDisposable (flexible type annotation)
     let private pSubtypeType =
