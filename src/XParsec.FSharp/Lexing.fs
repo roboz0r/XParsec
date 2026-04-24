@@ -699,6 +699,15 @@ module Lexing =
     // Per https://github.com/dotnet/fsharp/pull/15923 `:` in operators is deprecated *unless* the operator starts with '>'
     let private customOperatorChars = "><+-*/=~$%.&|@^!?:"
 
+    let private customOperatorSearchValues =
+        Buffers.SearchValues.Create(customOperatorChars)
+    // Same set minus `:` — used by pOperatorToken's span-scan path outside block comments,
+    // where `:` is only valid as the first char (handled as a separate special case).
+    let private customOperatorCharsNoColon = "><+-*/=~$%.&|@^!?"
+
+    let private customOperatorSearchValuesNoColon =
+        Buffers.SearchValues.Create(customOperatorCharsNoColon)
+
     // let (><-*/=~%.&|@^!?:) a b = a + b
 
     let private parenChars = [| '('; ')'; '{'; '}'; '['; ']' |]
@@ -1760,6 +1769,94 @@ module Lexing =
             do! updateUserState (fun state -> LexBuilder.append Token.Newline pos CtxOp.NoOp state)
         }
 
+    // Well-known non-`:`-prefix operator strings, in length-major order. The `:`-starting
+    // operators (`:`, `::`, `:?`, `:>`, `:=`, `:?>`) are reachable only via the first-char
+    // special-case branch in `pOperatorToken`, which emits their tokens directly and never
+    // touches this table. The `.. ..` arm that existed in the prior literal match was dead
+    // code — the consumption phase stops at whitespace, and `OpRangeStep` is fused in the
+    // parser (see memory: pattern_range_step_op_name).
+    let private wellKnownOps =
+        [|
+            // length 1 (indices 0..9)
+            "|"
+            "."
+            "?"
+            "!"
+            "="
+            "&"
+            "*"
+            "/"
+            "^"
+            "~"
+            // length 2 (indices 10..17) — ordered by expected frequency
+            "->"
+            "<-"
+            ".."
+            "||"
+            "&&"
+            "??"
+            "<@"
+            "@>"
+            // length 3 (indices 18..21)
+            "?<-"
+            "~~~"
+            "<@@"
+            "@@>"
+        |]
+
+    let private wellKnownOpTokens =
+        [|
+            // length 1
+            Token.OpBar
+            Token.OpDot
+            Token.OpDynamic
+            Token.OpDereference
+            Token.OpEquality
+            Token.OpAmp
+            Token.OpMultiply
+            Token.OpDivision
+            Token.OpConcatenate
+            Token.KWReservedTwiddle
+            // length 2
+            Token.OpArrowRight
+            Token.OpArrowLeft
+            Token.OpRange
+            Token.OpBarBar
+            Token.OpAmpAmp
+            Token.OpQMarkQMark
+            Token.OpQuotationTypedLeft
+            Token.OpQuotationTypedRight
+            // length 3
+            Token.OpDynamicAssignment
+            Token.OpLogicalNot
+            Token.OpQuotationUntypedLeft
+            Token.OpQuotationUntypedRight
+        |]
+
+    [<Literal>]
+    let private wkLen1Start = 0
+
+    [<Literal>]
+    let private wkLen2Start = 10
+
+    [<Literal>]
+    let private wkLen3Start = 18
+
+    [<Literal>]
+    let private wkLen3End = 22
+
+    let inline private findWellKnownOp (s: int) (e: int) (span: ReadOnlySpan<char>) =
+        let mutable i = s
+        let mutable found = -1
+
+        while found < 0 && i < e do
+            if span.SequenceEqual(wellKnownOps.[i].AsSpan()) then
+                found <- i
+
+            i <- i + 1
+
+        found
+
     let pOperatorToken =
         fun (reader: Reader<char, LexBuilder, ReadableString>) ->
             let state = reader.State
@@ -1775,84 +1872,93 @@ module Lexing =
             match reader.Peek() with
             | ValueSome ':' when not inComment ->
                 reader.Skip()
+                let mutable token = Token.OpColon
 
                 match reader.Peek() with
-                | ValueSome ':' -> reader.Skip()
-                | ValueSome '=' -> reader.Skip()
-                | ValueSome '>' -> reader.Skip()
+                | ValueSome ':' ->
+                    reader.Skip()
+                    token <- Token.OpCons
+                | ValueSome '=' ->
+                    reader.Skip()
+                    token <- Token.OpColonEquals
+                | ValueSome '>' ->
+                    reader.Skip()
+                    token <- Token.OpUpcast
                 | ValueSome '?' ->
                     reader.Skip()
 
                     match reader.Peek() with
-                    | ValueSome '>' -> reader.Skip()
-                    | _ -> ()
+                    | ValueSome '>' ->
+                        reader.Skip()
+                        token <- Token.OpDowncast
+                    | _ -> token <- Token.OpTypeTest
                 | _ -> ()
-            | _ ->
-                // Imperatively consume operator chars, stopping at `:` (only valid as first
-                // char, handled above) except inside block comments, and before `*)` when
-                // inside a block comment.
-                let mutable cont = true
 
-                while cont do
-                    match reader.Peek() with
-                    | ValueSome ':' when not inComment -> cont <- false
-                    | ValueSome c when customOperatorChars.Contains c ->
-                        if inComment && c = '*' then
-                            let peek2 = reader.PeekN(2)
-
-                            if peek2.Length >= 2 && peek2[1] = ')' then
-                                cont <- false // stop before `*)`
-                            else
-                                reader.Skip()
-                        else
-                            reader.Skip()
-                    | _ -> cont <- false
-
-            let endIdx = reader.Position.Index
-
-            if endIdx = startIdx then
-                fail expectedOperator reader
-            else
-
-                let op = state.Source.Substring(startIdx, endIdx - startIdx)
-
-                let token, ctx =
-                    match op with
-                    | "|" -> Token.OpBar, CtxOp.NoOp
-                    | "->" -> Token.OpArrowRight, CtxOp.NoOp
-                    | "<-" -> Token.OpArrowLeft, CtxOp.NoOp
-                    | ":" -> Token.OpColon, CtxOp.NoOp
-                    | "::" -> Token.OpCons, CtxOp.NoOp
-                    | ":?" -> Token.OpTypeTest, CtxOp.NoOp
-                    | ":>" -> Token.OpUpcast, CtxOp.NoOp
-                    | ":?>" -> Token.OpDowncast, CtxOp.NoOp
-                    | ".." -> Token.OpRange, CtxOp.NoOp
-                    | ".. .." -> Token.OpRangeStep, CtxOp.NoOp
-                    | ":=" -> Token.OpColonEquals, CtxOp.NoOp
-                    | "~" -> Token.KWReservedTwiddle, CtxOp.NoOp
-                    | "<@" -> Token.OpQuotationTypedLeft, (CtxOp.Push LexContext.QuotedExpression)
-                    | "@>" -> Token.OpQuotationTypedRight, (CtxOp.Pop LexContext.QuotedExpression)
-                    | "<@@" -> Token.OpQuotationUntypedLeft, (CtxOp.Push LexContext.TypedQuotedExpression)
-                    | "@@>" -> Token.OpQuotationUntypedRight, (CtxOp.Pop LexContext.TypedQuotedExpression)
-                    | "." -> Token.OpDot, CtxOp.NoOp
-                    | "?" -> Token.OpDynamic, CtxOp.NoOp
-                    | "?<-" -> Token.OpDynamicAssignment, CtxOp.NoOp
-                    | "!" -> Token.OpDereference, CtxOp.NoOp
-                    | "??" -> Token.OpQMarkQMark, CtxOp.NoOp
-                    | "=" -> Token.OpEquality, CtxOp.NoOp
-                    | "&&" -> Token.OpAmpAmp, CtxOp.NoOp
-                    | "&" -> Token.OpAmp, CtxOp.NoOp
-                    | "*" -> Token.OpMultiply, CtxOp.NoOp
-                    | "/" -> Token.OpDivision, CtxOp.NoOp
-                    | "^" -> Token.OpConcatenate, CtxOp.NoOp
-                    | "~~~" -> Token.OpLogicalNot, CtxOp.NoOp
-                    | "||" -> Token.OpBarBar, CtxOp.NoOp
-                    | _ ->
-                        let token = Token.ofCustomOperator (op.AsSpan())
-                        token, CtxOp.NoOp
-
-                reader.State <- LexBuilder.appendI token startIdx ctx state
+                reader.State <- LexBuilder.appendI token startIdx CtxOp.NoOp state
                 preturn () reader
+            | _ ->
+                // Greedy span scan. Outside block comments, treat `:` as a stopping char
+                // (it is only valid as the first char, handled above). Inside block comments,
+                // `:` is allowed in the scan but we must not cross a `*)` boundary.
+                let fullSpan = reader.PeekN(Int32.MaxValue)
+
+                let idx =
+                    let sv =
+                        if inComment then
+                            customOperatorSearchValues
+                        else
+                            customOperatorSearchValuesNoColon
+
+                    fullSpan.IndexOfAnyExcept(sv)
+
+                let rawLen = if idx < 0 then fullSpan.Length else idx
+
+                let len =
+                    if inComment then
+                        // Probe one char past rawLen to catch the `* | )` boundary case:
+                        // operator span ends at `*`, the char that stopped the scan is `)`.
+                        let probeLen = min (rawLen + 1) fullSpan.Length
+                        let probe = fullSpan.Slice(0, probeLen)
+                        let starIdx = probe.IndexOf("*)".AsSpan())
+
+                        if starIdx >= 0 && starIdx <= rawLen then
+                            starIdx
+                        else
+                            rawLen
+                    else
+                        rawLen
+
+                if len = 0 then
+                    fail expectedOperator reader
+                else
+                    reader.SkipN(len)
+                    let span = state.Source.AsSpan(startIdx, len)
+
+                    let found =
+                        match len with
+                        | 1 -> findWellKnownOp wkLen1Start wkLen2Start span
+                        | 2 -> findWellKnownOp wkLen2Start wkLen3Start span
+                        | 3 -> findWellKnownOp wkLen3Start wkLen3End span
+                        | _ -> -1
+
+                    let token, ctx =
+                        if found >= 0 then
+                            let t = wellKnownOpTokens.[found]
+
+                            let c =
+                                match t with
+                                | Token.OpQuotationTypedLeft -> CtxOp.Push LexContext.QuotedExpression
+                                | Token.OpQuotationTypedRight -> CtxOp.Pop LexContext.QuotedExpression
+                                | Token.OpQuotationUntypedLeft -> CtxOp.Push LexContext.TypedQuotedExpression
+                                | Token.OpQuotationUntypedRight -> CtxOp.Pop LexContext.TypedQuotedExpression
+                                | _ -> CtxOp.NoOp
+
+                            t, c
+                        else
+                            Token.ofCustomOperator span, CtxOp.NoOp
+
+                    reader.State <- LexBuilder.appendI token startIdx ctx state
+                    preturn () reader
 
     let pSpecialDotOperatorToken =
         let specialOperators =
