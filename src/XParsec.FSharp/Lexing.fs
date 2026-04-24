@@ -351,30 +351,27 @@ module LexBuilder =
     /// Check if the current numeric token should be merged with a preceding `-` token
     /// to form a negative literal. Returns true if the merge was performed.
     let private tryMergeNegativeLiteral (token: Token) (idx: int) (state: LexBuilder) =
-        if not token.IsNumeric then
+        let tokenCount = state.Tokens.Count
+
+        if tokenCount < 1 then
             false
         else
-            let tokenCount = state.Tokens.Count
+            let prevIdx = tokenCount - 1
+            let prev = state.Tokens[prevIdx]
 
-            if tokenCount < 1 then
+            if
+                prev.Token <> Token.OpSubtraction
+                || idx - prev.StartIndex <> 1
+                || state.Source[prev.StartIndex] <> '-'
+            then
                 false
+            elif prevIdx = 0 || allowsNegativeLiteral state.Tokens[prevIdx - 1] then
+                state.Tokens[prevIdx] <- PositionedToken.Create(token, prev.StartIndex)
+                true
             else
-                let prevIdx = tokenCount - 1
-                let prev = state.Tokens[prevIdx]
+                false
 
-                if
-                    prev.Token <> Token.OpSubtraction
-                    || idx - prev.StartIndex <> 1
-                    || state.Source[prev.StartIndex] <> '-'
-                then
-                    false
-                elif prevIdx = 0 || allowsNegativeLiteral state.Tokens[prevIdx - 1] then
-                    state.Tokens[prevIdx] <- PositionedToken.Create(token, prev.StartIndex)
-                    true
-                else
-                    false
-
-    let appendI token (idx: int) ctxOp (state: LexBuilder) =
+    let appendI (token: Token) (idx: int) ctxOp (state: LexBuilder) =
         // Coalesce adjacent string fragments
         // ADJACENT_PREFIX_OP handling is done in the parser (isAdjacentPrefixOp in ExpressionParsing.fs)
         // https://fsharp.github.io/fslang-spec/lexical-analysis/#381-post-filtering-of-adjacent-prefix-tokens
@@ -382,7 +379,7 @@ module LexBuilder =
         let tokenIdx = tokenCount * 1<token>
 
         let addToken =
-            if tryMergeNegativeLiteral token idx state then
+            if token.IsNumeric && tryMergeNegativeLiteral token idx state then
                 false
             elif tokenCount > 0 then
                 match token, state.Tokens[tokenCount - 1] with
