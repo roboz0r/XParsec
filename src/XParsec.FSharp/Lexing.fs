@@ -782,26 +782,35 @@ module Lexing =
     let private pPeekCountRBraces = peekCountSatisfies isRBrace
     let private pPeekCountPercents = peekCountSatisfies isPercent
 
-    let private pToken p token =
-        parser {
-            let! pos = getPosition
-            let! _ = p
-            do! updateUserState (LexBuilder.append token pos CtxOp.NoOp)
-        }
+    let private pToken (p: Parser<_, char, LexBuilder, ReadableString>) (token: Token) =
+        fun (reader: Reader<char, LexBuilder, ReadableString>) ->
+            let pos = reader.Position
 
-    let private pTokenPushCtx p token ctx =
-        parser {
-            let! pos = getPosition
-            let! _ = p
-            do! updateUserState (LexBuilder.append token pos (CtxOp.Push ctx))
-        }
+            match p reader with
+            | Ok _ ->
+                reader.State <- LexBuilder.append token pos CtxOp.NoOp reader.State
+                Ok()
+            | Error e -> Error e
 
-    let private pTokenPopCtx p token ctx =
-        parser {
-            let! pos = getPosition
-            let! _ = p
-            do! updateUserState (LexBuilder.append token pos (CtxOp.Pop ctx))
-        }
+    let private pTokenPushCtx (p: Parser<_, char, LexBuilder, ReadableString>) (token: Token) (ctx: LexContext) =
+        fun (reader: Reader<char, LexBuilder, ReadableString>) ->
+            let pos = reader.Position
+
+            match p reader with
+            | Ok _ ->
+                reader.State <- LexBuilder.append token pos (CtxOp.Push ctx) reader.State
+                Ok()
+            | Error e -> Error e
+
+    let private pTokenPopCtx (p: Parser<_, char, LexBuilder, ReadableString>) (token: Token) (ctx: LexContext) =
+        fun (reader: Reader<char, LexBuilder, ReadableString>) ->
+            let pos = reader.Position
+
+            match p reader with
+            | Ok _ ->
+                reader.State <- LexBuilder.append token pos (CtxOp.Pop ctx) reader.State
+                Ok()
+            | Error e -> Error e
 
     let pIndentOrWhitespaceToken =
         parser {
