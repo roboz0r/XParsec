@@ -1301,14 +1301,25 @@ module Lexing =
                 reader.SkipN(2)
                 updateUserState (LexBuilder.append Token.EscapeSequence pos CtxOp.NoOp) reader
 
-    // Close tokens for plain strings
+    // Close tokens for plain strings: "B (byte array) vs " (string).
     let pPlainStringCloseToken =
-        choiceL
-            [
-                pTokenPopCtx (pstring "\"B") Token.ByteArrayClose LexContext.PlainString
-                pTokenPopCtx (pchar '"') Token.StringClose LexContext.PlainString
-            ]
-            "string close"
+        fun (reader: Reader<char, LexBuilder, ReadableString>) ->
+            let span = reader.PeekN(2)
+            let pos = reader.Position
+
+            if span.Length >= 2 && span.[1] = 'B' then
+                reader.SkipN(2)
+
+                reader.State <-
+                    LexBuilder.append Token.ByteArrayClose pos (CtxOp.Pop LexContext.PlainString) reader.State
+
+                Ok()
+            else
+                reader.Skip()
+
+                reader.State <- LexBuilder.append Token.StringClose pos (CtxOp.Pop LexContext.PlainString) reader.State
+
+                Ok()
 
     // Verbatim string: "" is an escape, "B is byte array close, " is close
     let pVerbatimStringQuoteToken2 =
@@ -1854,9 +1865,6 @@ module Lexing =
             do! updateUserState (fun state -> LexBuilder.append token pos ctxOp state)
         }
 
-    let pLAttrBrack = pstring "[<"
-    let pLArrayBrack = pstring "[|"
-    let pRAttrBrack = pstring ">]"
 
     // This is a fallback, we shouldn't see any Other tokens in output
     let private peekEndOfIdent (reader: Reader<char, LexBuilder, ReadableString>) =
@@ -2416,55 +2424,101 @@ module Lexing =
     let pTabToken = pToken (pchar '\t') Token.Tab
     let pCommaToken = pToken (pchar ',') Token.OpComma
 
-    // Parenthesized `*` operator: `(*)` is the only form where `(*` does not
-    // start a block comment. Emits three tokens (KWLParen, OpMultiply, KWRParen)
-    // and balances the paren context stack.
-    let pParenStarOperator =
-        parser {
-            let! pos = getPosition
-            let! _ = pstring "(*)"
-            let idx = int pos.Index
-
-            do!
-                updateUserState (fun state ->
-                    state
-                    |> LexBuilder.appendI Token.KWLParen idx (CtxOp.Push LexContext.ParenthesExpression)
-                    |> LexBuilder.appendI Token.OpMultiply (idx + 1) CtxOp.NoOp
-                    |> LexBuilder.appendI Token.KWRParen (idx + 2) (CtxOp.Pop LexContext.ParenthesExpression)
-                )
-        }
-
     let pLParenToken =
-        choiceL
-            [
-                // 19.1 Conditional Compilation for ML Compatibility
-                pToken (pstring "(*ENDIF-OCAML*)") Token.EndOCamlBlockComment
-                pToken (pstring "(*IF-OCAML*)") Token.StartOCamlBlockComment
-                pToken (pstring "(*IF-FSHARP") Token.StartFSharpBlockComment
-                pToken (pstring "(*F#") Token.StartFSharpBlockComment
-                // Parenthesized star operator — must precede `(*` block-comment match
-                pParenStarOperator
-                // 3.2 Comments
-                pToken (pstring "(*") Token.BlockCommentStart
-                // IL intrinsic literal opening
-                pToken (pstring "(#") Token.KWLHashParen
-                //pToken (pstring "()") Token.Unit
-                pOpenParenExpressionContext
-            ]
-            "Left parenthesis or unit"
+        // Dispatch on span[1]: `*` → block-comment / ML-compat prefixes, then (*) then (*;
+        //                     `#` → (# IL intrinsic; else (  expression open (hot path).
+        // For the `*` branch, PeekN(15) once and use span.StartsWith on each alternative
+        // rather than letting each pstring do its own PeekN.
+        fun (reader: Reader<char, LexBuilder, ReadableString>) ->
+            let span = reader.PeekN(15)
+
+            if span.Length < 2 then
+                pOpenParenExpressionContext reader
+            else
+                match span.[1] with
+                | '*' ->
+                    let pos = reader.Position
+
+                    if span.StartsWith("(*ENDIF-OCAML*)".AsSpan()) then
+                        reader.SkipN(15)
+                        reader.State <- LexBuilder.append Token.EndOCamlBlockComment pos CtxOp.NoOp reader.State
+                        Ok()
+                    elif span.StartsWith("(*IF-OCAML*)".AsSpan()) then
+                        reader.SkipN(12)
+
+                        reader.State <- LexBuilder.append Token.StartOCamlBlockComment pos CtxOp.NoOp reader.State
+
+                        Ok()
+                    elif span.StartsWith("(*IF-FSHARP".AsSpan()) then
+                        reader.SkipN(11)
+
+                        reader.State <- LexBuilder.append Token.StartFSharpBlockComment pos CtxOp.NoOp reader.State
+
+                        Ok()
+                    elif span.StartsWith("(*F#".AsSpan()) then
+                        reader.SkipN(4)
+
+                        reader.State <- LexBuilder.append Token.StartFSharpBlockComment pos CtxOp.NoOp reader.State
+
+                        Ok()
+                    elif span.StartsWith("(*)".AsSpan()) then
+                        // Parenthesized * operator — emits 3 tokens (LParen, *, RParen).
+                        let idx = int pos.Index
+                        reader.SkipN(3)
+
+                        reader.State <-
+                            reader.State
+                            |> LexBuilder.appendI Token.KWLParen idx (CtxOp.Push LexContext.ParenthesExpression)
+                            |> LexBuilder.appendI Token.OpMultiply (idx + 1) CtxOp.NoOp
+                            |> LexBuilder.appendI Token.KWRParen (idx + 2) (CtxOp.Pop LexContext.ParenthesExpression)
+
+                        Ok()
+                    else
+                        // (* block comment start (span[1] = '*' guaranteed).
+                        reader.SkipN(2)
+                        reader.State <- LexBuilder.append Token.BlockCommentStart pos CtxOp.NoOp reader.State
+                        Ok()
+                | '#' ->
+                    // (#  IL intrinsic literal opening
+                    let pos = reader.Position
+                    reader.SkipN(2)
+                    reader.State <- LexBuilder.append Token.KWLHashParen pos CtxOp.NoOp reader.State
+                    Ok()
+                | _ -> pOpenParenExpressionContext reader
 
     let pLBacketToken =
-        choiceL
-            [
-                pToken pLAttrBrack Token.KWLAttrBracket
-                pToken pLArrayBrack Token.KWLArrayBracket
-                //pToken (pstring "[]") Token.OpNil
-                pOpenBracketExpressionContext
-            ]
-            "Left bracket or empty array"
+        // [< (attr), [| (array), [ (default) — dispatch on second char.
+        fun (reader: Reader<char, LexBuilder, ReadableString>) ->
+            let span = reader.PeekN(2)
+
+            if span.Length >= 2 then
+                match span.[1] with
+                | '<' ->
+                    let pos = reader.Position
+                    reader.SkipN(2)
+                    reader.State <- LexBuilder.append Token.KWLAttrBracket pos CtxOp.NoOp reader.State
+                    Ok()
+                | '|' ->
+                    let pos = reader.Position
+                    reader.SkipN(2)
+                    reader.State <- LexBuilder.append Token.KWLArrayBracket pos CtxOp.NoOp reader.State
+                    Ok()
+                | _ -> pOpenBracketExpressionContext reader
+            else
+                pOpenBracketExpressionContext reader
 
     let pGreaterThanToken =
-        choiceL [ pToken pRAttrBrack Token.KWRAttrBracket; pOperatorToken ] "Right bracket or operator"
+        // >] (measure/attr close) vs operator — dispatch on second char.
+        fun (reader: Reader<char, LexBuilder, ReadableString>) ->
+            let span = reader.PeekN(2)
+
+            if span.Length >= 2 && span.[1] = ']' then
+                let pos = reader.Position
+                reader.SkipN(2)
+                reader.State <- LexBuilder.append Token.KWRAttrBracket pos CtxOp.NoOp reader.State
+                Ok()
+            else
+                pOperatorToken reader
 
     let pDoubleQuoteToken =
         // Peek 3 chars: """ (triple) vs " (single). Span-dispatch avoids the
@@ -2492,9 +2546,16 @@ module Lexing =
             "Interpolated string or operator"
 
     let pAtToken =
-        choiceL
-            [ pVerbatimInterpolatedStartToken; pVerbatimStringOpenToken; pOperatorToken ]
-            "Verbatim string or operator"
+        // @$" → verbatim interpolated; @" → verbatim string; else operator.
+        fun (reader: Reader<char, LexBuilder, ReadableString>) ->
+            let span = reader.PeekN(3)
+
+            if span.Length >= 3 && span.[1] = '$' && span.[2] = '"' then
+                pVerbatimInterpolatedStartToken reader
+            elif span.Length >= 2 && span.[1] = '"' then
+                pVerbatimStringOpenToken reader
+            else
+                pOperatorToken reader
 
     let pSlashToken =
         // 3.2 Comments — dispatch on next char instead of try/fallback via choiceL.
@@ -2660,18 +2721,36 @@ module Lexing =
 
 
     let pHashToken =
-        choiceL
-            [
-                pDirectiveToken
-                // IL intrinsic literal closing
-                pToken (pstring "#)") Token.KWRHashParen
-                pToken (pchar '#') Token.KWHash
-            ]
-            "Hash or Directive"
+        // #) (IL intrinsic close) wins outright; otherwise try directive (start-of-line
+        // check happens inside pDirectiveToken), fall back to bare #.
+        fun (reader: Reader<char, LexBuilder, ReadableString>) ->
+            let span = reader.PeekN(2)
+            let pos = reader.Position
 
-    // Hoisted out of the `lex` dispatch so the list/closure is built once, not per iteration.
+            if span.Length >= 2 && span.[1] = ')' then
+                reader.SkipN(2)
+                reader.State <- LexBuilder.append Token.KWRHashParen pos CtxOp.NoOp reader.State
+                Ok()
+            else
+                match pDirectiveToken reader with
+                | Ok() -> Ok()
+                | Error _ ->
+                    // Directive failed (not at start of line, or not a recognized directive).
+                    // pDirectiveToken's body may have consumed — reset position.
+                    reader.Position <- pos
+                    reader.Skip()
+                    reader.State <- LexBuilder.append Token.KWHash pos CtxOp.NoOp reader.State
+                    Ok()
+
+    // {| (anonymous record) vs { (braced expression) — dispatch on second char.
     let private pLBraceExpressionToken =
-        choiceL [ pOpenBraceBarExpressionContext; pOpenBraceExpressionContext ] "Left brace"
+        fun (reader: Reader<char, LexBuilder, ReadableString>) ->
+            let span = reader.PeekN(2)
+
+            if span.Length >= 2 && span.[1] = '|' then
+                pOpenBraceBarExpressionContext reader
+            else
+                pOpenBraceExpressionContext reader
 
     // Fast-path dispatch for the dominant ExpressionCtx (non-Interpolated) bucket:
     // String.IndexOf(char) is SIMD-vectorized; a hit returns an index into the
