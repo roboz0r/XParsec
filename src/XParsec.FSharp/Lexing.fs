@@ -140,7 +140,7 @@ type FormatPlaceholder =
         Type: FormatType
     }
 
-[<RequireQualifiedAccess>]
+[<RequireQualifiedAccess; Struct>]
 type LexContext =
     | Normal
     | InterpolatedString
@@ -165,7 +165,7 @@ type LexBuilder =
         Source: string
         Tokens: ReadableArrayBuilder<PositionedToken>
         mutable AtStartOfLine: bool
-        mutable Context: LexContext list
+        Context: Stack<LexContext>
         // Track whether we are inside a block comment
         // These flags are used to mark tokens as being inside a block comment
         // The lexer doesn't care if we are in a block comment or not
@@ -211,30 +211,23 @@ module LexBuilder =
         roundUpToPowerOf2 (max 16 (sourceLength / 32))
 
     let private emitUnterminatedStrings idx (state: LexBuilder) =
-        let rec unwindContext (ctx: LexContext list) =
-            // TODO: Handle other unclosed contexts (e.g. unterminated #if) — currently we just ignore them and let the parser handle any resulting errors
+        // TODO: Handle other unclosed contexts (e.g. unterminated #if) — currently we just ignore them and let the parser handle any resulting errors
+        // Stack enumerates top-to-bottom, matching the old head-first list traversal.
+        for ctx in state.Context do
             match ctx with
-            | [] -> ()
-            | LexContext.PlainString :: rest ->
-                state.Tokens.Add(PositionedToken.Create(Token.UnterminatedStringLiteral, idx))
-                unwindContext rest
-            | LexContext.VerbatimString :: rest ->
+            | LexContext.PlainString -> state.Tokens.Add(PositionedToken.Create(Token.UnterminatedStringLiteral, idx))
+            | LexContext.VerbatimString ->
                 state.Tokens.Add(PositionedToken.Create(Token.UnterminatedVerbatimStringLiteral, idx))
-                unwindContext rest
-            | LexContext.TripleQuotedString :: rest ->
+            | LexContext.TripleQuotedString ->
                 state.Tokens.Add(PositionedToken.Create(Token.UnterminatedString3Literal, idx))
-                unwindContext rest
-            | LexContext.InterpolatedString :: rest
-            | LexContext.VerbatimInterpolatedString :: rest
-            | LexContext.Interpolated3String _ :: rest ->
+            | LexContext.InterpolatedString
+            | LexContext.VerbatimInterpolatedString
+            | LexContext.Interpolated3String _ ->
                 state.Tokens.Add(PositionedToken.Create(Token.UnterminatedInterpolatedString, idx))
-                unwindContext rest
-            | _ :: rest ->
+            | _ ->
                 // InterpolatedExpression, BracedExpression, ParenthesExpression, etc.
                 // are expression contexts nested inside an interpolated string — skip past them
-                unwindContext rest
-
-        unwindContext state.Context
+                ()
 
     let complete idx (state: LexBuilder) =
         emitUnterminatedStrings idx state
@@ -264,7 +257,7 @@ module LexBuilder =
                 Source = input
                 Tokens = ReadableArrayBuilder(tokenCapacity)
                 AtStartOfLine = true
-                Context = []
+                Context = Stack<LexContext>()
                 IsInBlockComment = false
                 IsInOCamlBlockComment = false
                 LastTokenWasNewLine = ValueNone
@@ -275,40 +268,41 @@ module LexBuilder =
         x
 
     let currentContext (x: LexBuilder) =
-        match x.Context with
-        | [] -> LexContext.Normal
-        | ctx :: _ -> ctx
+        if x.Context.Count = 0 then
+            LexContext.Normal
+        else
+            x.Context.Peek()
 
     let pushContext (ctx: LexContext) (x: LexBuilder) =
-        x.Context <- ctx :: x.Context
+        x.Context.Push(ctx)
         x
 
     let popExactContext expected (x: LexBuilder) =
         // Only pop if the expected context is on top of the stack
         // In other cases, leave the context unchanged
         // In lexing, we may encounter unmatched closing braces etc.
-        match x.Context with
-        | [] -> x // Cannot pop context from empty context stack
-        | ctx :: ctxTail when ctx = expected ->
-            x.Context <- ctxTail
-            x
-        | _ -> x // Cannot pop context {expected} from stack
+        if x.Context.Count > 0 && x.Context.Peek() = expected then
+            x.Context.Pop() |> ignore
+
+        x
 
     let level (x: LexBuilder) =
-        let rec findLevel ctx =
-            match ctx with
-            | [] -> invalidOp "Cannot get level from empty context stack"
-            | ctx :: tail ->
-                match ctx with
-                | LexContext.Interpolated3String level -> level
-                | LexContext.InterpolatedString -> 1
-                | LexContext.VerbatimInterpolatedString -> 1
-                | LexContext.PlainString -> 1
-                | LexContext.VerbatimString -> 1
-                | LexContext.TripleQuotedString -> 1
-                | _ -> findLevel tail
+        let mutable result = ValueNone
+        let mutable e = x.Context.GetEnumerator()
 
-        findLevel x.Context
+        while result.IsNone && e.MoveNext() do
+            match e.Current with
+            | LexContext.Interpolated3String level -> result <- ValueSome level
+            | LexContext.InterpolatedString
+            | LexContext.VerbatimInterpolatedString
+            | LexContext.PlainString
+            | LexContext.VerbatimString
+            | LexContext.TripleQuotedString -> result <- ValueSome 1
+            | _ -> ()
+
+        match result with
+        | ValueSome v -> v
+        | ValueNone -> invalidOp "Cannot get level from empty context stack"
 
     let (|CoalescableToken|_|) (token: Token) =
         // Tokens that can be coalesced if adjacent
