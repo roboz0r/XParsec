@@ -701,12 +701,6 @@ module Lexing =
 
     let private customOperatorSearchValues =
         Buffers.SearchValues.Create(customOperatorChars)
-    // Same set minus `:` — used by pOperatorToken's span-scan path outside block comments,
-    // where `:` is only valid as the first char (handled as a separate special case).
-    let private customOperatorCharsNoColon = "><+-*/=~$%.&|@^!?"
-
-    let private customOperatorSearchValuesNoColon =
-        Buffers.SearchValues.Create(customOperatorCharsNoColon)
 
     // let (><-*/=~%.&|@^!?:) a b = a + b
 
@@ -1857,108 +1851,103 @@ module Lexing =
 
         found
 
+    // Fast-path parser for `:`-first-char. The six predefined colon-starting operators
+    // (`:`, `::`, `:?`, `:?>`, `:>`, `:=`) are emitted as distinct KindKeyword tokens.
+    // Dispatched via `exprCtxDispatchChars`/`exprCtxDispatchers` so `pOperatorToken` never
+    // sees `:` as the first char; mid-operator `:` is still consumed by `pOperatorToken`'s
+    // scan and the span is classified as `Token.ReservedOperator` per dotnet/fsharp#15923.
+    let pColonToken =
+        fun (reader: Reader<char, LexBuilder, ReadableString>) ->
+            let state = reader.State
+            let startIdx = reader.Position.Index
+            reader.Skip() // consume leading `:`
+            let mutable token = Token.OpColon
+
+            match reader.Peek() with
+            | ValueSome ':' ->
+                reader.Skip()
+                token <- Token.OpCons
+            | ValueSome '=' ->
+                reader.Skip()
+                token <- Token.OpColonEquals
+            | ValueSome '>' ->
+                reader.Skip()
+                token <- Token.OpUpcast
+            | ValueSome '?' ->
+                reader.Skip()
+
+                match reader.Peek() with
+                | ValueSome '>' ->
+                    reader.Skip()
+                    token <- Token.OpDowncast
+                | _ -> token <- Token.OpTypeTest
+            | _ -> ()
+
+            reader.State <- LexBuilder.appendI token startIdx CtxOp.NoOp state
+            preturn () reader
+
     let pOperatorToken =
+        // First char is never `:` — that case is handled by `pColonToken` via the
+        // `exprCtxDispatchChars` fast-path. Mid-operator `:` IS consumed greedily by the
+        // scan and the span is classified as `Token.ReservedOperator` by
+        // `Token.ofCustomOperator` (per dotnet/fsharp#15923, unless the op starts with `>`).
+        // Inside a block comment we additionally truncate at `*)` to avoid crossing the
+        // close delimiter.
         fun (reader: Reader<char, LexBuilder, ReadableString>) ->
             let state = reader.State
             let startIdx = reader.Position.Index
             let inComment = state.IsInBlockComment || state.IsInOCamlBlockComment
 
-            // `:` is only permitted as the first char of the predefined colon-starting
-            // operators (`:`, `::`, `:?`, `:?>`, `:>`, `:=`). It must never fuse with
-            // adjacent operator chars — e.g. `(x:^T)` must lex as `:` + `^T`, not `:^`.
-            // Skip this treatment inside block comments: the content there is discarded
-            // anyway, and splitting `://` in a URL would expose `//` to the line-comment
-            // lexer, which would then eat past the closing `*)`.
-            match reader.Peek() with
-            | ValueSome ':' when not inComment ->
-                reader.Skip()
-                let mutable token = Token.OpColon
+            let fullSpan = reader.PeekN(Int32.MaxValue)
+            let idx = fullSpan.IndexOfAnyExcept(customOperatorSearchValues)
+            let rawLen = if idx < 0 then fullSpan.Length else idx
 
-                match reader.Peek() with
-                | ValueSome ':' ->
-                    reader.Skip()
-                    token <- Token.OpCons
-                | ValueSome '=' ->
-                    reader.Skip()
-                    token <- Token.OpColonEquals
-                | ValueSome '>' ->
-                    reader.Skip()
-                    token <- Token.OpUpcast
-                | ValueSome '?' ->
-                    reader.Skip()
+            let len =
+                if inComment then
+                    // Probe one char past rawLen to catch the `* | )` boundary case:
+                    // operator span ends at `*`, the char that stopped the scan is `)`.
+                    let probeLen = min (rawLen + 1) fullSpan.Length
+                    let probe = fullSpan.Slice(0, probeLen)
+                    let starIdx = probe.IndexOf("*)".AsSpan())
 
-                    match reader.Peek() with
-                    | ValueSome '>' ->
-                        reader.Skip()
-                        token <- Token.OpDowncast
-                    | _ -> token <- Token.OpTypeTest
-                | _ -> ()
-
-                reader.State <- LexBuilder.appendI token startIdx CtxOp.NoOp state
-                preturn () reader
-            | _ ->
-                // Greedy span scan. Outside block comments, treat `:` as a stopping char
-                // (it is only valid as the first char, handled above). Inside block comments,
-                // `:` is allowed in the scan but we must not cross a `*)` boundary.
-                let fullSpan = reader.PeekN(Int32.MaxValue)
-
-                let idx =
-                    let sv =
-                        if inComment then
-                            customOperatorSearchValues
-                        else
-                            customOperatorSearchValuesNoColon
-
-                    fullSpan.IndexOfAnyExcept(sv)
-
-                let rawLen = if idx < 0 then fullSpan.Length else idx
-
-                let len =
-                    if inComment then
-                        // Probe one char past rawLen to catch the `* | )` boundary case:
-                        // operator span ends at `*`, the char that stopped the scan is `)`.
-                        let probeLen = min (rawLen + 1) fullSpan.Length
-                        let probe = fullSpan.Slice(0, probeLen)
-                        let starIdx = probe.IndexOf("*)".AsSpan())
-
-                        if starIdx >= 0 && starIdx <= rawLen then
-                            starIdx
-                        else
-                            rawLen
+                    if starIdx >= 0 && starIdx <= rawLen then
+                        starIdx
                     else
                         rawLen
-
-                if len = 0 then
-                    fail expectedOperator reader
                 else
-                    reader.SkipN(len)
-                    let span = state.Source.AsSpan(startIdx, len)
+                    rawLen
 
-                    let found =
-                        match len with
-                        | 1 -> findWellKnownOp wkLen1Start wkLen2Start span
-                        | 2 -> findWellKnownOp wkLen2Start wkLen3Start span
-                        | 3 -> findWellKnownOp wkLen3Start wkLen3End span
-                        | _ -> -1
+            if len = 0 then
+                fail expectedOperator reader
+            else
+                reader.SkipN(len)
+                let span = state.Source.AsSpan(startIdx, len)
 
-                    let token, ctx =
-                        if found >= 0 then
-                            let t = wellKnownOpTokens.[found]
+                let found =
+                    match len with
+                    | 1 -> findWellKnownOp wkLen1Start wkLen2Start span
+                    | 2 -> findWellKnownOp wkLen2Start wkLen3Start span
+                    | 3 -> findWellKnownOp wkLen3Start wkLen3End span
+                    | _ -> -1
 
-                            let c =
-                                match t with
-                                | Token.OpQuotationTypedLeft -> CtxOp.Push LexContext.QuotedExpression
-                                | Token.OpQuotationTypedRight -> CtxOp.Pop LexContext.QuotedExpression
-                                | Token.OpQuotationUntypedLeft -> CtxOp.Push LexContext.TypedQuotedExpression
-                                | Token.OpQuotationUntypedRight -> CtxOp.Pop LexContext.TypedQuotedExpression
-                                | _ -> CtxOp.NoOp
+                let token, ctx =
+                    if found >= 0 then
+                        let t = wellKnownOpTokens.[found]
 
-                            t, c
-                        else
-                            Token.ofCustomOperator span, CtxOp.NoOp
+                        let c =
+                            match t with
+                            | Token.OpQuotationTypedLeft -> CtxOp.Push LexContext.QuotedExpression
+                            | Token.OpQuotationTypedRight -> CtxOp.Pop LexContext.QuotedExpression
+                            | Token.OpQuotationUntypedLeft -> CtxOp.Push LexContext.TypedQuotedExpression
+                            | Token.OpQuotationUntypedRight -> CtxOp.Pop LexContext.TypedQuotedExpression
+                            | _ -> CtxOp.NoOp
 
-                    reader.State <- LexBuilder.appendI token startIdx ctx state
-                    preturn () reader
+                        t, c
+                    else
+                        Token.ofCustomOperator span, CtxOp.NoOp
+
+                reader.State <- LexBuilder.appendI token startIdx ctx state
+                preturn () reader
 
     let pSpecialDotOperatorToken =
         let specialOperators =
@@ -2681,12 +2670,19 @@ module Lexing =
     let pSlashToken =
         // 3.2 Comments — dispatch on next char instead of try/fallback via choiceL.
         fun (reader: Reader<char, LexBuilder, ReadableString>) ->
-            let span = reader.PeekN(2)
+            let state = reader.State
+            let inComment = state.IsInBlockComment || state.IsInOCamlBlockComment
 
-            if span.Length >= 2 && span.[1] = '/' then
-                pLineCommentToken reader
-            else
+            if inComment then
+                // Inside a block comment, '/' is just an operator char (line comments don't exist).
                 pOperatorToken reader
+            else
+                let span = reader.PeekN(2)
+
+                if span.Length >= 2 && span.[1] = '/' then
+                    pLineCommentToken reader
+                else
+                    pOperatorToken reader
 
     let pSemicolonToken =
         // We know span[0] = ';' from the outer dispatch; check span[1] for `;;`.
@@ -2875,34 +2871,42 @@ module Lexing =
 
     // Fast-path dispatch for the dominant ExpressionCtx (non-Interpolated) bucket:
     // String.IndexOf(char) is SIMD-vectorized; a hit returns an index into the
-    // parallel `exprCtxDispatchers` array. Keep the two arrays aligned — order
-    // of chars MUST match order of parsers.
-    let private exprCtxDispatchChars = "\r\n \t,()[>]{}\"'$@/;.#`"
-
-    let private exprCtxDispatchers: Parser<unit, char, LexBuilder, ReadableString> array =
+    // parallel `exprCtxDispatchers` array. The pair list keeps the two in sync.
+    //
+    // Order is by expected first-char frequency in idiomatic F# source: the top 16
+    // chars land in the first SIMD chunk (single vector comparison); rarer chars in
+    // the tail pay one extra chunk scan. `:` moved to the first chunk (index 7) —
+    // it's extremely common in type annotations (Small/Medium fixtures) and was the
+    // index-21 regression after hoisting `pColonToken`.
+    let private exprCtxDispatchChars, (exprCtxDispatchers: Parser<unit, char, LexBuilder, ReadableString> array) =
         [|
-            pNewlineToken // \r
-            pNewlineToken // \n
-            pIndentOrWhitespaceToken // ' '
-            pTabToken // \t
-            pCommaToken // ,
-            pLParenToken // (
-            pCloseParenExpressionContext // )
-            pLBacketToken // [
-            pGreaterThanToken // >
-            pCloseBracketExpressionContext // ]
-            pLBraceExpressionToken // {
-            pCloseBraceExpressionContext // }
-            pDoubleQuoteToken // "
-            pSingleQuoteToken // '
-            pDollarToken // $
-            pAtToken // @
-            pSlashToken // /
-            pSemicolonToken // ;
-            pDotToken // .
-            pHashToken // #
-            pBacktickedIdentifierToken // `
+            // First SIMD chunk (indices 0..15)
+            ' ', pIndentOrWhitespaceToken
+            '\n', pNewlineToken
+            '\r', pNewlineToken
+            '.', pDotToken
+            '(', pLParenToken
+            ')', pCloseParenExpressionContext
+            ',', pCommaToken
+            ':', pColonToken
+            ';', pSemicolonToken
+            '"', pDoubleQuoteToken
+            '[', pLBacketToken
+            ']', pCloseBracketExpressionContext
+            '{', pLBraceExpressionToken
+            '}', pCloseBraceExpressionContext
+            '>', pGreaterThanToken
+            '/', pSlashToken
+            // Tail (indices 16..21) — rarer chars, one extra SIMD chunk
+            ''', pSingleQuoteToken
+            '@', pAtToken
+            '\t', pTabToken
+            '$', pDollarToken
+            '#', pHashToken
+            '`', pBacktickedIdentifierToken
         |]
+        |> Array.unzip
+        |> fun (chars, parsers) -> String(chars), parsers
 
     let inline private dispatchExprCtx (c: char) =
         // ASCII letters / digits / underscore dominate expression-context chars
