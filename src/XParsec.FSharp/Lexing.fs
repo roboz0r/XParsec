@@ -1857,7 +1857,6 @@ module Lexing =
     let pLAttrBrack = pstring "[<"
     let pLArrayBrack = pstring "[|"
     let pRAttrBrack = pstring ">]"
-    let pRArrayBrack = pstring "|]"
 
     // This is a fallback, we shouldn't see any Other tokens in output
     let private peekEndOfIdent (reader: Reader<char, LexBuilder, ReadableString>) =
@@ -2468,7 +2467,15 @@ module Lexing =
         choiceL [ pToken pRAttrBrack Token.KWRAttrBracket; pOperatorToken ] "Right bracket or operator"
 
     let pDoubleQuoteToken =
-        choiceL [ pString3OpenToken; pStringOpenToken ] "String literal"
+        // Peek 3 chars: """ (triple) vs " (single). Span-dispatch avoids the
+        // pstring "\"\"\"" PeekN inside the choiceL's first alternative.
+        fun (reader: Reader<char, LexBuilder, ReadableString>) ->
+            let span = reader.PeekN(3)
+
+            if span.Length >= 3 && span.[1] = '"' && span.[2] = '"' then
+                pString3OpenToken reader
+            else
+                pStringOpenToken reader
 
     let pSingleQuoteToken =
         choiceL [ pCharToken; pTypeParamToken; pToken (pchar '\'') Token.KWSingleQuote ] "Single quote"
@@ -2490,30 +2497,69 @@ module Lexing =
             "Verbatim string or operator"
 
     let pSlashToken =
-        // 3.2 Comments
-        choiceL [ pLineCommentToken; pOperatorToken ] "Line comment or operator"
+        // 3.2 Comments — dispatch on next char instead of try/fallback via choiceL.
+        fun (reader: Reader<char, LexBuilder, ReadableString>) ->
+            let span = reader.PeekN(2)
+
+            if span.Length >= 2 && span.[1] = '/' then
+                pLineCommentToken reader
+            else
+                pOperatorToken reader
 
     let pSemicolonToken =
-        choiceL
-            [
-                pToken (pstring ";;") Token.OpDoubleSemicolon
-                pToken (pchar ';') Token.OpSemicolon
-            ]
-            "Semicolon"
+        // We know span[0] = ';' from the outer dispatch; check span[1] for `;;`.
+        fun (reader: Reader<char, LexBuilder, ReadableString>) ->
+            let pos = reader.Position
+            let span = reader.PeekN(2)
+
+            if span.Length >= 2 && span.[1] = ';' then
+                reader.SkipN(2)
+                reader.State <- LexBuilder.append Token.OpDoubleSemicolon pos CtxOp.NoOp reader.State
+                Ok()
+            else
+                reader.Skip()
+                reader.State <- LexBuilder.append Token.OpSemicolon pos CtxOp.NoOp reader.State
+                Ok()
 
     let pDotToken =
-        choiceL [ pSpecialDotOperatorToken; pOperatorToken ] "Dot operator or operator"
+        // Special dot operators (.[], .[]<-, .(), .()<-, etc.) all have `[` or `(` as the second char.
+        // Skip the trial if it can't possibly match.
+        fun (reader: Reader<char, LexBuilder, ReadableString>) ->
+            let span = reader.PeekN(2)
+
+            if span.Length >= 2 && (span.[1] = '[' || span.[1] = '(') then
+                match pSpecialDotOperatorToken reader with
+                | Ok() -> Ok()
+                | Error _ -> pOperatorToken reader
+            else
+                pOperatorToken reader
 
     let pCustomOperatorToken =
-        choiceL
-            [
-                pToken pRArrayBrack Token.KWRArrayBracket
-                pCloseBraceBarExpressionContext
-                // 3.2 Comments
-                pToken (pstring "*)") Token.BlockCommentEnd
-                pOperatorToken
-            ]
-            "Operator"
+        // The only prefix-specific alternatives start with `|` or `*` — dispatch on span[0..1]
+        // to skip 3 trial parses on every operator char.
+        fun (reader: Reader<char, LexBuilder, ReadableString>) ->
+            let span = reader.PeekN(2)
+
+            if span.Length >= 2 then
+                let c0 = span.[0]
+                let c1 = span.[1]
+
+                if c0 = '|' && c1 = ']' then
+                    let pos = reader.Position
+                    reader.SkipN(2)
+                    reader.State <- LexBuilder.append Token.KWRArrayBracket pos CtxOp.NoOp reader.State
+                    Ok()
+                elif c0 = '|' && c1 = '}' then
+                    pCloseBraceBarExpressionContext reader
+                elif c0 = '*' && c1 = ')' then
+                    let pos = reader.Position
+                    reader.SkipN(2)
+                    reader.State <- LexBuilder.append Token.BlockCommentEnd pos CtxOp.NoOp reader.State
+                    Ok()
+                else
+                    pOperatorToken reader
+            else
+                pOperatorToken reader
     // TODO: Preprocessor directives
     // 3.3 Conditional Compilation
     // | IfDirective = (9us) // #if if-expression-text
