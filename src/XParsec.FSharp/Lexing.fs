@@ -1860,29 +1860,22 @@ module Lexing =
         fun (reader: Reader<char, LexBuilder, ReadableString>) ->
             let state = reader.State
             let startIdx = reader.Position.Index
-            reader.Skip() // consume leading `:`
-            let mutable token = Token.OpColon
+            // span[0] = ':' by dispatch contract. Examine span[1] (and span[2] when span[1]='?').
+            let span = reader.PeekN(3)
 
-            match reader.Peek() with
-            | ValueSome ':' ->
-                reader.Skip()
-                token <- Token.OpCons
-            | ValueSome '=' ->
-                reader.Skip()
-                token <- Token.OpColonEquals
-            | ValueSome '>' ->
-                reader.Skip()
-                token <- Token.OpUpcast
-            | ValueSome '?' ->
-                reader.Skip()
+            let token, len =
+                if span.Length < 2 then
+                    Token.OpColon, 1
+                else
+                    match span.[1] with
+                    | ':' -> Token.OpCons, 2
+                    | '=' -> Token.OpColonEquals, 2
+                    | '>' -> Token.OpUpcast, 2
+                    | '?' when span.Length >= 3 && span.[2] = '>' -> Token.OpDowncast, 3
+                    | '?' -> Token.OpTypeTest, 2
+                    | _ -> Token.OpColon, 1
 
-                match reader.Peek() with
-                | ValueSome '>' ->
-                    reader.Skip()
-                    token <- Token.OpDowncast
-                | _ -> token <- Token.OpTypeTest
-            | _ -> ()
-
+            reader.SkipN(len)
             reader.State <- LexBuilder.appendI token startIdx CtxOp.NoOp state
             preturn () reader
 
