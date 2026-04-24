@@ -4,21 +4,21 @@ Post 2 ended with the lexer's materialised output: two immutable arrays: `Tokens
 
 XParsec.FSharp folds those stages into a single lazy step on top of the eager lexer.
 
-> The name lexical filter comes from the spec, but it undersells what the layer actually does. A more accurate description is **whitespace sensitivity and virtual token synthesis**. Whitespace sensitivity is the offside rule: a token’s column determines whether it continues the current construct, starts a nested one, or is rejected outright. Virtual token synthesis inserts tokens the grammar requires but the source does not contain: record-field separators, the `in` closing a `let` binding, and recovery tokens like a missing `)`.
+> The name lexical filter comes from the spec, but it undersells what the layer actually does. A more accurate description is *whitespace sensitivity and virtual token synthesis*. Whitespace sensitivity is the offside rule: a token's column determines whether it continues the current construct, starts a nested one, or is rejected outright. Virtual token synthesis inserts tokens the grammar requires but the source does not contain: record-field separators, the `in` closing a `let` binding, and recovery tokens like a missing `)`.
 
 I decided both belong here, rather than in the AST parsers, for the same reason: the decision depends on **position in the token stream**, not on **which grammar rule happens to be running**.
 
-Conceptually, this layer is a portal. What enters it is the lexer’s full‑fidelity token stream: trivia, fused operators, unevaluated directives, positional information intact. What emerges is not the same stream:
+Conceptually, this layer is a portal. What enters it is the lexer's full-fidelity token stream: trivia, fused operators, unevaluated directives, positional information intact. What emerges is not the same stream:
 
 - whitespace has been removed,
 - inactive preprocessing branches have vanished,
 - virtual delimiters have appeared,
-- context‑dependent tokens have been split or rewritten,
+- context-dependent tokens have been split or rewritten,
 - and offside violations have been rejected.
 
-The parsers never observe the lexical stream directly. They consume only the tokens that emerge on the other side: a clean, layout‑respecting stream that lets the grammar read like a textbook parser combinator.
+The parsers never observe the lexical stream directly. They consume only the tokens that emerge on the other side: a clean, layout-respecting stream that lets the grammar read like a textbook parser combinator.
 
-This post is about that layer: what it does, why collapsing multiple passes into one lazy view over an eager lexer is worth it, and what the AST parsers get to not worry about because of it. It's dense by necessity and written to be returnable: most readers will not absorb it in one pass, the implementation certainly wasn't, and it is intended to be reread alongside the code.
+This post is about that layer: what it does, why collapsing multiple passes into one lazy view over an eager lexer is worth it, and what the AST parsers get to not worry about because of it.
 
 ## One match, seven jobs
 
@@ -82,7 +82,7 @@ let x = 1
 x + 2
 ```
 
-In verbose syntax these parse differently — the second one is `let x = 1 x + 2` with and error telling you `1` isn't a function. In light syntax they're the same code: `in` is synthesised at the boundary between the binding and the body based on layout. Because almost every F# expression is reached through a `let` or `use`, the virtual `in` is among the most common token in a light-syntax parse, and it isn't in the source at all.
+In verbose syntax these parse differently: only the first has an `in`, so the second becomes `let x = 1 x + 2` — an error saying `1` isn't a function. In light syntax they're the same code: `in` is synthesised at the boundary between the binding and the body based on layout. Because almost every F# expression is reached through a `let` or `use`, the virtual `in` is among the most common tokens in a light-syntax parse, and it isn't in the source at all.
 
 The synthesiser is `pLetOrUseIn` in `ExpressionParsing.fs`, called once per `let`/`use` binding after the RHS has been parsed:
 
@@ -121,7 +121,7 @@ It's a grammar-level question, not a lexer question. The lexer can't synthesise 
 
 It's three rules in trenchcoat. If the next token really is `in`, consume it — verbose-syntax files work unchanged. If the next token is at the `let`'s column, or at the enclosing block's column, synthesise. If neither — if the next token is indented *past* the `let` — something else is going on: the RHS parse stopped too early, and synthesising `in` would be wrong. The parser fails and lets the enclosing recovery rule handle it.
 
-Paren-like contexts short-circuit the check. Inside `(...)` or `[...]`, the paren-like context is pushed with `Indent = 0` (post 5's territory) as a pure stack marker, because the delimiter itself bounds the scope. In that case the offside check wouldn't fire anyway; `pLetOrUseIn` short-circuits and emits the virtual `in` unconditionally. `let x = 1 in x + 2` and `(let x = 1 in x + 2)` both parse via this path, with different reasons for reaching it.
+Paren-like contexts short-circuit the check. Inside `(...)` or `[...]` the delimiter itself bounds the scope, so the offside check can't fire — `pLetOrUseIn` emits the virtual `in` unconditionally. `let x = 1 in x + 2` and `(let x = 1 in x + 2)` both parse via this path, with different reasons for reaching it. Post 5 covers why paren-like contexts sit on the stack as markers rather than offside lines.
 
 The `EOF` branch at the bottom is the tail case: `use _ = disposable` as the last expression of a module. Peek fails (no tokens left after the binding's RHS), and without the synthesis the enclosing scope would never see a body. The virtual `in` closes it cleanly.
 
@@ -158,7 +158,7 @@ let private nextSyntaxTokenVirtualCore mkDiag t reader =
 
 Two thin wrappers sit over the core. `nextSyntaxTokenVirtualIfNot` synthesises silently (no diagnostic). `nextSyntaxTokenVirtualWithDiagnostic` — used by `pEnclosed` for every paren-like construct — records an `UnclosedDelimiter` error that carries both the opening and the missing closing tokens, so the message downstream can say "`(` on line 12 was never closed" rather than just "expected `)`".
 
-The `TokenIndex.Virtual` discriminator on the returned token matters. Real tokens carry their index into `Lexed.Tokens`, which lets later code extract the source span or walk around them in the array. Virtual tokens carry no index because they have no source span. `consumePeeked` protects the reader and me, the writer, from consuming anything else (`invalidOp "Cannot consume a virtual token"`) if the reader isn't still at the peek position, I made a mistake and the parser cannot continue.
+The `TokenIndex.Virtual` discriminator on the returned token matters. Real tokens carry their index into `Lexed.Tokens`, which lets later code extract the source span or walk around them in the array. Virtual tokens carry no index because they have no source span. `consumePeeked` throws (`invalidOp "Cannot consume a virtual token"`) if the reader is no longer at the peek position — an internal invariant violation that the parser can't continue from.
 
 `nextSyntaxTokenVirtualIfNot Token.KWEnd` synthesises the `end` that closes a class or `begin` block when it's not present. `nextSyntaxTokenVirtualWithDiagnostic` does the same for `)`, `]`, `}`, `|]`, `|}` whenever `pEnclosed` hits a failed inner parse. `makeVirtualSep` synthesises a virtual `;` between record fields when the offside rule says a new field has started.
 
@@ -198,39 +198,15 @@ let token =
 
 The rewrite is positional: the returned `KWRBracket` starts one character past the original `>]`, so downstream code that extracts a source span for the `]` gets the right byte. Once the rewritten token is consumed, the flag is cleared so it affects exactly one token.
 
-The `SplitPowerMinus` case is the same idea for unit-of-measure exponents: `kg^-1` arrives as `^-` plus `1`, and the measure parser wants the `^` to be interpreted on its own. It takes the `^`, sets the flag, and the next read rewrites the same bytes into `OpSubtraction` for the `-1` to fall into. The measure parser's rule is: take the left half of a fused operator as a virtual token, leave the right half on the reader, and let the enclosing parser consume it through the normal path.
+The `SplitPowerMinus` case is the same idea for unit-of-measure exponents: `kg^-1` arrives as `^-` plus `1`, and the measure parser wants the `^` to be interpreted on its own. It takes the `^`, sets the flag, and the next read rewrites the remaining bytes as `OpSubtraction`, which the enclosing parser consumes through the normal path. The measure parser's rule: take the left half of a fused operator as a virtual token, leave the right half on the reader, and let the enclosing parser pick it up.
 
 Fuse-and-defer at the lexer was a simplification. Split-on-demand at the filter is its symmetric cost. Together they push the question "what does this operator mean?" to the one layer that has the context to answer it — and leave every other layer dealing with one-token-at-a-time without lookahead.
 
-## The offside check, at the event horizon
+## The offside check
 
-The offside rule gets two full posts of its own (posts 5 and 6). The check itself — *is this token permitted at this column given the enclosing contexts?* — runs here, on every token that survives the earlier branches:
+One more thing happens on every token that survives the earlier branches: the offside check. The mechanics — the context stack, the push/pop discipline, and the permitted-undentation rules that let real F# parse at all — fill two posts of their own (posts 5 and 6). What matters here is *where* the check lives: in the same function, in front of every token the parser sees.
 
-```fsharp
-let isOffside =
-    reader.State.IndentationMode = Syntax.Light
-    && (
-        match reader.State.Context with
-        | { Indent = contextIndent; Context = ctx } :: _ as context ->
-            let tokenCol = ParseState.getIndent reader.State (reader.Index * 1<token>)
-            if tokenCol < contextIndent then
-                match isPermittedUndentation token.Token tokenCol context reader.State reader.Index with
-                | ValueSome rule -> false   // undentation explicitly allowed
-                | ValueNone      -> true    // offside, fail
-            else
-                false
-        | [] -> false
-    )
-
-if isOffside then
-    fail (Message "Offside") reader
-else
-    ...
-```
-
-The *context stack* is pushed and popped by the syntactic parsers upstairs — `withContext`, `withContextAt`, and a handful of manual pushes in `pEnclosed` and the record/object expression parser. The stack knows which keyword opened the current scope and at what column it lived. The *check* — comparing the next token's column against the topmost context's offside line, and consulting the `isPermittedUndentation` arbiter when the token is strictly left of it — happens here, once per token fetched, with no per-parser ceremony.
-
-The reason the check is here and not in the AST parsers is the same reason virtual tokens are here: it's uniform, it's unconditional, and lifting it into every parsing rule would both cost performance and risk forgetting it in one place. One enforcement point, one source of truth. Posts 5 and 6 cover the permitted-undentation rules in detail; this post is just flagging that this is where the portal is.
+The reason is the same as for virtual tokens. The enforcement is uniform and unconditional, and lifting it into every parsing rule would both cost performance and risk forgetting it in one place. One enforcement point, one source of truth.
 
 ## `#if`, evaluated lazily
 
@@ -269,8 +245,6 @@ let processIfDirective nextSyntaxToken (ifToken: PositionedToken) reader =
         nextSyntaxToken reader
 ```
 
-Three things are worth pointing at.
-
 The first is the slice. `reader.Slice` hands the expression parser its own bounded `Reader` whose index 0 is the `#if` token itself. The inner parser can't run off the end of the directive line because the slice ends where the line ends. The `AbsoluteStart` in the slice's user state preserves the outer token index so that when the expression parser reads an identifier token, it can still extract the source text and check whether the symbol is defined. The F# compiler does this with a separate tokeniser mode; XParsec does it with a slice and a two-word user-state struct.
 
 The second is the expression parser itself. `IfExpr.parseSlice` (in `Preprocessing.fs`) is a full Pratt parser — `&&`, `||`, `!`, parenthesised sub-expressions, identifier terms. Four binding powers, a half-dozen completion functions. The same Pratt machinery the real expression parser uses, applied to a ten-token sub-grammar. It's a small but load-bearing demonstration that the library's operator primitives aren't only for the big grammar they were built for.
@@ -281,20 +255,20 @@ Both skip functions share `skipConditionalBranch`, parameterised on whether `#el
 
 ## Peek and consume share the same path
 
-The lexical filter has a single entry point: `nextSyntaxTokenImpl`. Both peeking and consuming go through it. The entire pipeline runs either way: preprocessor directives, trivia skipping, virtual token synthesis, split‑flag rewrites, offside checks. The difference between peek and consume is minimal and intentional:
+The lexical filter has a single entry point: `nextSyntaxTokenImpl`. Both peeking and consuming go through it. The entire pipeline runs either way: preprocessor directives, trivia skipping, virtual token synthesis, split-flag rewrites, offside checks. The difference between peek and consume is minimal and intentional:
 
 - Peek stops with the reader positioned on the next meaningful token.
-- Consume advances past that token and clears any one‑shot rewrite flags.
+- Consume advances past that token and clears any one-shot rewrite flags.
 
 Everything else is shared.
 
-That design makes “peek” semantics here different from what many parsers assume. In most systems, peeking is strictly side‑effect free. Here it is not. A peek over `// comment\n    foo` advances the reader past the comment and whitespace, then returns `foo`. The reader has moved. The mutation is safe because all the skipped tokens are trivia: they carry no grammatical meaning, and skipping them only makes future reads cheaper.
+That design makes "peek" semantics here different from what many parsers assume. In most systems, peeking is strictly side-effect free. Here it is not. A peek over `// comment\n    foo` advances the reader past the comment and whitespace, then returns `foo`. The reader has moved. The mutation is safe because all the skipped tokens are trivia: they carry no grammatical meaning, and skipping them only makes future reads cheaper.
 
 That cheapness is the point.
 
 ### Peek is allowed to mutate so the grammar can stay cheap
 
-Once `peekNextSyntaxToken` has landed on foo, subsequent peeks are O(1). They inspect the same token and return immediately. This common dispatch pattern already only peeks once:
+Once `peekNextSyntaxToken` has landed on `foo`, subsequent peeks are O(1). They inspect the same token and return immediately. This common dispatch pattern already only peeks once:
 
 ```fsharp
 match! peekNextSyntaxToken with
@@ -305,9 +279,9 @@ match! peekNextSyntaxToken with
 
 But what about peeks made by adjacent parsers? We don't want them to have to pay twice. The initial peek pays the cost of filtering; `consumePeeked` advances one token.
 
-If peek were required to be side‑effect free, every peek would have to re-walk trivia from the last committed position. On real F# code, where a large fraction of tokens are whitespace, that would introduce a linear factor into almost every parsing rule.
+If peek were required to be side-effect free, every peek would have to re-walk trivia from the last committed position. On real F# code, where a large fraction of tokens are whitespace, that would introduce a linear factor into almost every parsing rule.
 
-The crucial invariant is that **peek’s side effects are idempotent with respect to the grammar**. They only affect:
+The crucial invariant is that **peek's side effects are idempotent with respect to the grammar**. They only affect:
 
 - trivia removal,
 - virtual synthesis bookkeeping,
@@ -317,9 +291,9 @@ They never change which significant token is next. Repeated peeks always return 
 
 ### Backtracking still works
 
-Even with mutating peeks, backtracking remains cheap. The reader’s entire observable state is its `Position` the index and the `ParseState`. Saving and restoring `reader.Position` rewinds both trivia skips and token consumption in one assignment. There’s no log to replay and no auxiliary cursor to reset.
+Even with mutating peeks, backtracking remains cheap. The reader's entire observable state is its `Position` the index and the `ParseState`. Saving and restoring `reader.Position` rewinds both trivia skips and token consumption in one assignment. There's no log to replay and no auxiliary cursor to reset.
 
-Because of that, there’s no separate “skip whitespace” primitive in the API. Filtering is how you see tokens at all. Consuming is explicit; skipping trivia is implicit and shared.
+Because of that, there's no separate "skip whitespace" primitive in the API. Filtering is how you see tokens at all. Consuming is explicit; skipping trivia is implicit and shared.
 
 ### Dispatch builds on the same invariant
 
@@ -339,25 +313,25 @@ let dispatchNextSyntaxTokenFallback (routes: (Token * Parser<_,_,_,_,_>) list) p
 
 Routes are mostly five items or fewer, so a linear scan beats a dictionary. More importantly, dispatch operates on the **filtered stream**. Every decision is based on a meaningful token: never trivia, never something that should already have been rejected for layout.
 
-The parsers above this layer can be written as if whitespace didn’t exist, preprocessing didn’t exist, and layout were someone else’s problem—because it is. All of that is enforced once, here, at the point where tokens become syntax.
+The parsers above this layer can be written as if whitespace didn't exist, preprocessing didn't exist, and layout were someone else's problem—because it is. All of that is enforced once, here, at the point where tokens become syntax.
 
 ## Why lazy, not materialised
 
-Lexing itself is *not* lazy. The `Tokens` and `LineStarts` arrays are built eagerly in a single sweep before a parser ever runs. That choice pays for itself everywhere post 2 touched it: derived token lengths, binary‑search diagnostic rendering, and O(1) indexed reads from whichever grammar rule happens to be active. Materialising the lexer's output is the right call—and in a full implementation, it’s also an obvious caching boundary.
+Lexing itself is *not* lazy. The `Tokens` and `LineStarts` arrays are built eagerly in a single sweep before a parser ever runs. That choice pays for itself everywhere post 2 touched it: derived token lengths, binary-search diagnostic rendering, and O(1) indexed reads from whichever grammar rule happens to be active. Materialising the lexer's output is the right call.
 
 The obvious next step would be to materialise the following stages too: evaluate all `#if` directives up front, build a filtered token array, and hand that array to the parser. That is, in fact, what the reference F# compiler does, and it would simplify several of the functions described above.
 
 XParsec does not, for three reasons.
 
-**First: error recovery.** When a parse rule fails partway through, `recoverWith` rewinds the reader’s position and skips forward until it reaches a stopping token. Those tokens must flow through the filter *again*, because recovery can change the surrounding context: a virtual closer may have been pushed, or the failed rule may have installed its own offside frame. With a materialised filtered array, the implementation would either need to re‑run the filter from the recovery point or maintain parallel indices into “raw” and “filtered” streams. Lazy filtering avoids the problem entirely: one reader position is the whole truth.
+**First: error recovery.** When a parse rule fails partway through, `recoverWith` rewinds the reader's position and skips forward until it reaches a stopping token. Those tokens must flow through the filter *again*, because recovery can change the surrounding context: a virtual closer may have been pushed, or the failed rule may have installed its own offside frame. With a materialised filtered array, the implementation would either need to re-run the filter from the recovery point or maintain parallel indices into "raw" and "filtered" streams. Lazy filtering avoids the problem entirely: one reader position is the whole truth.
 
-**Second: context‑sensitive rewrites.** The split flags are the clearest example. `SplitRAttrBracket` is set by the measure parser because it has determined—*during parsing*—that `>]` must be split into `>` and `]`. A pre‑materialised filter has no access to that information: the decision is discovered after filtering would have completed. Lazy filtering allows the parser upstairs to mutate shared state that the filter consults on the *next* token. The mechanism is small: two booleans ad an integer for types, but it only works because the filter and parser share a reader, not a buffer.
+**Second: context-sensitive rewrites.** The split flags are the clearest example. `SplitRAttrBracket` is set by the measure parser because it has determined—*during parsing*—that `>]` must be split into `>` and `]`. A pre-materialised filter has no access to that information: the decision is discovered after filtering would have completed. Lazy filtering allows the parser upstairs to mutate shared state that the filter consults on the *next* token. The mechanism is small: two booleans and an integer for types, but it only works because filter and parser share one reader, not one buffer.
 
 Both of these are direct consequences of using combinators. The reference compiler stages its pipeline because its passes do not share mutable state beyond what they explicitly serialise. A combinator pipeline naturally *does* share state: the reader and its context, so letting the filter consult that state is essentially free. Eager lexing, lazy filtering: each stage pays only for what it actually needs.
 
-**Third: performance.** `#if` directives are rare in real code, so a fully materialised preprocessor pass would mostly duplicate the lexed array. Trivia, by contrast, is densely interspersed; almost every significant token is preceded by whitespace, but at eight bytes per token the next non‑trivia token is usually in the same cache line and a mere handful of cycles away. Filtering lazily trades an occasional branch for avoiding whole‑array copies and extra indirection.
+**Third: performance.** `#if` directives are rare in real code, so a fully materialised preprocessor pass would mostly duplicate the lexed array. Trivia, by contrast, is densely interspersed; almost every significant token is preceded by whitespace, but at eight bytes per token the next non-trivia token is usually in the same cache line and a mere handful of cycles away. Filtering lazily trades an occasional branch for avoiding whole-array copies and extra indirection.
 
-Taken together, these reasons point in the same direction. The lexer benefits from being eager and indexable. The filter benefits from being stateful, replayable, and context‑aware. Making the former materialised and the latter lazy keeps each stage honest about what it actually knows—and avoids inventing an intermediate representation solely to throw it away again.
+Taken together, these reasons point in the same direction. The lexer benefits from being eager and indexable. The filter benefits from being stateful, replayable, and context-aware. Making the former materialised and the latter lazy keeps each stage honest about what it actually knows—and avoids inventing an intermediate representation solely to throw it away again.
 
 ## The public surface
 
@@ -375,7 +349,7 @@ Roughly a dozen entry points. Everything in `ExpressionParsing.fs`, `PatternPars
 
 Three passes become one fat helper function. The helper does one thing — hand the next meaningful token to the parser — and happens to do whatever bookkeeping that takes: preprocessor, trivia, virtual synthesis, operator splitting, offside enforcement. Each concern earns a few lines in one `match`, not a pass of its own.
 
-The architectural payoff is that half the project's hardest features become invisible visible to the most important part. Preprocessor handling, virtual tokens, offside, none of them appear in the AST-parser files. They're enforced at the door. The parsers beyond can look *almost* exactly like a textbook parser combinator grammar, because every place where F# breaks the textbook model is enforced once, at the portal.
+The architectural payoff is that half the project's hardest features become invisible to the most important part. Preprocessor handling, virtual tokens, offside, none of them appear in the AST-parser files. They're enforced at the door. The parsers beyond can look *almost* exactly like a textbook parser combinator grammar, because every place where F# breaks the textbook model is enforced once, at the portal.
 
 It's also the smallest piece of the project by line count that has the highest leverage. `ParsingHelpers.fs` is ~1,400 lines, maybe ~500 of which are the filter proper. Every one of the hundreds of parsing rules in the rest of `XParsec.FSharp` runs through those 500 lines on every token.
 
@@ -390,3 +364,19 @@ Post 4 moves firmly to the other side: Pratt-style operator parsing over the tra
 - `8faaf58 Fix #if directive parsing`, `2f374be Add #if true test`, `153294a Add IfExprState` — iteration on the slice/user-state design.
 - `83baaf0 Merge skipInactiveBranch and skipElseBranch` — the skip helpers fold into one.
 - `a9899c9 Add virtual tokens`, `67787e4 Merge nextSyntaxTokenVirtualIfNot and nextSyntaxTokenVirtualWithDiagnostic` — virtual synthesis consolidates.
+
+## Takeaway
+
+Five ideas hold this layer up.
+
+**One function, many passes folded.** Preprocessing, trivia removal, virtual synthesis, operator splitting, and the offside check all share a single `match`. Each concern earns a few lines, not a pass.
+
+**Lazy filter over eager lexer.** The lexer materialises because the array is indexed and shared. The filter stays lazy because it needs to see state the parser is still mutating — split flags and context frames that didn't exist at lex time.
+
+**Virtual tokens carry source positions.** Every invented token gets a `StartIndex` and an `IsVirtual` bit, so formatters and error messages can tell user-written tokens from parser-invented ones without reparsing.
+
+**Split-on-demand is the price of fuse-and-defer.** Fused operators keep the lexer simple; two booleans in `ParseState` and a character counter let the filter hand back the halves the grammar asks for.
+
+**Peek is allowed to mutate, carefully.** Skipping trivia and advancing past filtered tokens keep repeated peeks O(1), and one `reader.Position` assignment still rewinds everything for backtracking.
+
+The filter is the smallest piece of the project by line count — maybe 500 lines of `ParsingHelpers.fs` — but everything downstream runs through it on every token. Getting it right once meant every parser above it could be written as if the problems it solves didn't exist.
