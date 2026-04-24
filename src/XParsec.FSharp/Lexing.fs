@@ -881,23 +881,91 @@ module Lexing =
     let private fSharpBlockCommentEnd1 = "F#*)"
     let private fSharpBlockCommentEnd2 = "ENDIF-FSHARP*)"
 
+    // Scan an identifier body starting at `reader.Position` (caller has verified
+    // the first char is an ident-start char — we consume it and the following
+    // ident chars, then look up the resulting span in `keywordsDict`.
+    let private lexIdentifierBody
+        (reader: Reader<char, LexBuilder, ReadableString>)
+        (pos: Position<LexBuilder>)
+        (source: string)
+        (startIdx: int)
+        =
+        // Consume the first char (caller has verified isIdentStartChar), then
+        // span-scan the rest in one shot: PeekN grabs all remaining input as a
+        // ReadOnlySpan (clamped to input length), we count matching ident chars
+        // with direct indexing, and SkipN bumps the reader once.
+        reader.Skip()
+        let span = reader.PeekN(Int32.MaxValue)
+        let mutable i = 0
+
+        while i < span.Length && isIdentChar span.[i] do
+            i <- i + 1
+
+        reader.SkipN(i)
+
+        let baseLen = int (reader.Position.Index - pos.Index)
+
+        // Peek for ! / # suffix
+        let suffix =
+            match reader.Peek() with
+            | ValueSome '!' -> ValueSome '!'
+            | ValueSome '#' -> ValueSome '#'
+            | _ -> ValueNone
+
+        let token, consumedSuffix =
+            match suffix with
+            | ValueSome c ->
+                // Suffix is always consumed if present. The full `id+c`
+                // is looked up first; on miss, fall back to the
+                // suffix-based token (OpDereference / ReservedIdentifierHash).
+                let key = source.Substring(startIdx, baseLen + 1)
+
+                match keywordsDict.TryGetValue(key) with
+                | true, tok -> tok, true
+                | false, _ ->
+                    let fallback =
+                        match c with
+                        | '!' -> Token.OpDereference
+                        | '#' -> Token.ReservedIdentifierHash
+                        | _ -> Token.Identifier
+
+                    fallback, true
+            | ValueNone ->
+                let key = source.Substring(startIdx, baseLen)
+
+                match keywordsDict.TryGetValue(key) with
+                | true, tok -> tok, false
+                | false, _ -> Token.Identifier, false
+
+        if consumedSuffix then
+            reader.Skip()
+
+        reader.State <- LexBuilder.append token pos CtxOp.NoOp reader.State
+        Ok()
+
     let pIdentifierOrKeywordToken (reader: Reader<char, LexBuilder, ReadableString>) =
         let pos = reader.Position
         let source = reader.State.Source
         let startIdx = int pos.Index
 
-        // Check F#*) sentinel first
-        let peek1 = reader.PeekN(fSharpBlockCommentEnd1.Length)
+        match reader.Peek() with
+        | ValueNone -> fail EndOfInput reader
+        // Sentinel fast path: F#*) and ENDIF-FSHARP*) can only start with F or E.
+        // Skip the 2 long PeekN calls entirely for the 99%+ of identifiers that
+        // don't start with one of those letters.
+        | ValueSome 'F' ->
+            let peek1 = reader.PeekN(fSharpBlockCommentEnd1.Length)
 
-        if
-            peek1.Length = fSharpBlockCommentEnd1.Length
-            && peek1.SequenceEqual(fSharpBlockCommentEnd1.AsSpan())
-        then
-            reader.SkipN(fSharpBlockCommentEnd1.Length)
-            reader.State <- LexBuilder.append Token.EndFSharpBlockComment pos CtxOp.NoOp reader.State
-            preturn () reader
-        else
-            // Check ENDIF-FSHARP*) sentinel
+            if
+                peek1.Length = fSharpBlockCommentEnd1.Length
+                && peek1.SequenceEqual(fSharpBlockCommentEnd1.AsSpan())
+            then
+                reader.SkipN(fSharpBlockCommentEnd1.Length)
+                reader.State <- LexBuilder.append Token.EndFSharpBlockComment pos CtxOp.NoOp reader.State
+                Ok()
+            else
+                lexIdentifierBody reader pos source startIdx
+        | ValueSome 'E' ->
             let peek2 = reader.PeekN(fSharpBlockCommentEnd2.Length)
 
             if
@@ -906,60 +974,10 @@ module Lexing =
             then
                 reader.SkipN(fSharpBlockCommentEnd2.Length)
                 reader.State <- LexBuilder.append Token.EndFSharpBlockComment pos CtxOp.NoOp reader.State
-                preturn () reader
+                Ok()
             else
-                // Regular identifier
-                match reader.Peek() with
-                | ValueNone -> fail EndOfInput reader
-                | ValueSome c when not (isIdentStartChar c) -> fail expectedIdentStartChar reader
-                | ValueSome _ ->
-                    reader.Skip()
-                    let mutable more = true
-
-                    while more do
-                        match reader.Peek() with
-                        | ValueSome ic when isIdentChar ic -> reader.Skip()
-                        | _ -> more <- false
-
-                    let baseLen = int (reader.Position.Index - pos.Index)
-
-                    // Peek for ! / # suffix
-                    let suffix =
-                        match reader.Peek() with
-                        | ValueSome '!' -> ValueSome '!'
-                        | ValueSome '#' -> ValueSome '#'
-                        | _ -> ValueNone
-
-                    let token, consumedSuffix =
-                        match suffix with
-                        | ValueSome c ->
-                            // Suffix is always consumed if present. The full `id+c`
-                            // is looked up first; on miss, fall back to the
-                            // suffix-based token (OpDereference / ReservedIdentifierHash).
-                            let key = source.Substring(startIdx, baseLen + 1)
-
-                            match keywordsDict.TryGetValue(key) with
-                            | true, tok -> tok, true
-                            | false, _ ->
-                                let fallback =
-                                    match c with
-                                    | '!' -> Token.OpDereference
-                                    | '#' -> Token.ReservedIdentifierHash
-                                    | _ -> Token.Identifier
-
-                                fallback, true
-                        | ValueNone ->
-                            let key = source.Substring(startIdx, baseLen)
-
-                            match keywordsDict.TryGetValue(key) with
-                            | true, tok -> tok, false
-                            | false, _ -> Token.Identifier, false
-
-                    if consumedSuffix then
-                        reader.Skip()
-
-                    reader.State <- LexBuilder.append token pos CtxOp.NoOp reader.State
-                    preturn () reader
+                lexIdentifierBody reader pos source startIdx
+        | ValueSome _ -> lexIdentifierBody reader pos source startIdx
 
 
     let pBacktickedIdentifierToken (reader: Reader<char, LexBuilder, ReadableString>) =
@@ -2784,18 +2802,24 @@ module Lexing =
         |]
 
     let inline private dispatchExprCtx (c: char) =
-        let i = exprCtxDispatchChars.IndexOf(c)
-
-        if i >= 0 then
-            exprCtxDispatchers.[i]
-        elif NumericLiterals.isDecimalDigit c then
-            NumericLiterals.parseToken
-        elif customOperatorChars.Contains c then
-            pCustomOperatorToken
-        elif isIdentStartChar c then
+        // ASCII letters / digits / underscore dominate expression-context chars
+        // in real F# source. Short-circuit before the IndexOf + Contains + BCL chain.
+        if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c = '_' then
             pIdentifierOrKeywordToken
+        elif c >= '0' && c <= '9' then
+            NumericLiterals.parseToken
         else
-            pOtherToken
+            let i = exprCtxDispatchChars.IndexOf(c)
+
+            if i >= 0 then
+                exprCtxDispatchers.[i]
+            elif customOperatorChars.Contains c then
+                pCustomOperatorToken
+            elif isIdentStartChar c then
+                // Non-ASCII ident start (rare).
+                pIdentifierOrKeywordToken
+            else
+                pOtherToken
 
     [<TailCall>]
     let rec lex (reader: Reader<char, LexBuilder, ReadableString>) =
