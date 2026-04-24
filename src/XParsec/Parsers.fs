@@ -7,31 +7,31 @@ module Parsers =
 
     /// Always succeeds and returns the given value.
     /// This parser does not consume any input.
-    let preturn x (reader: Reader<'T, 'State, 'Input>) : ParseResult<'Parsed, 'T, 'State> = Ok x
+    let inline preturn x (reader: Reader<'T, 'State, 'Input>) : ParseResult<'Parsed, 'T, 'State> = Ok x
 
     /// Always fails with the zero error.
     /// This parser does not consume any input.
-    let pzero (reader: Reader<'T, 'State, 'Input>) : ParseResult<'Parsed, 'T, 'State> =
+    let inline pzero (reader: Reader<'T, 'State, 'Input>) : ParseResult<'Parsed, 'T, 'State> =
         ParseError.create ParseError.zero reader.Position
 
     /// Always fails with the given error.
     /// This parser does not consume any input.
-    let fail x (reader: Reader<'T, 'State, 'Input>) : ParseResult<'Parsed, 'T, 'State> =
+    let inline fail x (reader: Reader<'T, 'State, 'Input>) : ParseResult<'Parsed, 'T, 'State> =
         ParseError.create x reader.Position
 
     /// Return the current user state.
     /// This parser does not consume any input.
-    let getUserState (reader: Reader<'T, 'State, 'Input>) = preturn reader.State reader
+    let inline getUserState (reader: Reader<'T, 'State, 'Input>) = preturn reader.State reader
 
     /// Set the user state to the given value.
     /// This parser does not consume any input.
-    let setUserState state (reader: Reader<'T, 'State, 'Input>) =
+    let inline setUserState state (reader: Reader<'T, 'State, 'Input>) =
         reader.State <- state
         preturn () reader
 
     /// Update the user state using the given function.
     /// This parser does not consume any input.
-    let updateUserState mapper (reader: Reader<'T, 'State, 'Input>) =
+    let inline updateUserState ([<InlineIfLambda>] mapper) (reader: Reader<'T, 'State, 'Input>) =
         let state = reader.State
         let newState = mapper state
         reader.State <- newState
@@ -47,11 +47,11 @@ module Parsers =
 
     /// Return the current Reader position.
     /// This parser does not consume any input.
-    let getPosition (reader: Reader<'T, 'State, 'Input>) = preturn reader.Position reader
+    let inline getPosition (reader: Reader<'T, 'State, 'Input>) = preturn reader.Position reader
 
     /// Set the Reader position to the given value.
     /// An exception is thrown if the ReaderId is inconsistent with the Reader.
-    let setPosition (position: Position<_>) (reader: Reader<'T, 'State, 'Input>) =
+    let inline setPosition (position: Position<_>) (reader: Reader<'T, 'State, 'Input>) =
         reader.Position <- position
         preturn () reader
 
@@ -70,7 +70,7 @@ module Parsers =
         | ValueNone -> fail EndOfInput reader
 
     /// Succeeds if the Reader position is not at the end of the input, and consumes one item, returning unit.
-    let skip (reader: Reader<'T, 'State, 'Input>) =
+    let inline skip (reader: Reader<'T, 'State, 'Input>) =
         if reader.AtEnd then
             fail EndOfInput reader
         else
