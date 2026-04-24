@@ -287,21 +287,17 @@ type ReadableArrayBuilder<'T>(initialCapacity: int) =
         count <- count + 1
 
     /// Returns a ReadableArray viewing the first `count` slots of the backing buffer.
-    /// Zero-copy when the buffer is at least half full; right-sizes otherwise so
-    /// the resulting array doesn't retain significant unused capacity.
+    /// Always zero-copy: parsing consumers typically work with reasonably-sized
+    /// buffers and the result is one-shot, so retaining some unused capacity is
+    /// cheaper than allocating a fresh array + copy (which also punishes LOH-sized
+    /// buffers by round-tripping through the Gen2 heap).
     /// Single-shot: releases the builder's reference — do not reuse.
     member _.ToReadableArray() : ReadableArray<'T> =
         let result =
             if count = 0 then
                 ReadableArray<'T>.Empty
-            elif count >= (arr.Length >>> 1) then
-                // Buffer is at least half full — skip the copy; at most 2x bytes retained.
-                ReadableArray(arr, 0, count)
             else
-                // Wasteful — right-size so we don't keep the oversized buffer alive.
-                let resized = Array.zeroCreate count
-                Array.Copy(arr, 0, resized, 0, count)
-                ReadableArray(resized, 0, count)
+                ReadableArray(arr, 0, count)
 
         arr <- Array.empty
         count <- 0
