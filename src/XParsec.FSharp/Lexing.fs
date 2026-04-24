@@ -428,7 +428,7 @@ module LexBuilder =
         | CtxOp.Pop ctx -> popExactContext ctx state
         | CtxOp.NoOp -> state
 
-    let append token pos ctxOp (state: LexBuilder) =
+    let inline append token pos ctxOp (state: LexBuilder) =
         appendI token (int pos.Index) ctxOp state
 
 
@@ -776,35 +776,26 @@ module Lexing =
     let private pPeekCountRBraces = peekCountSatisfies isRBrace
     let private pPeekCountPercents = peekCountSatisfies isPercent
 
-    let private pToken (p: Parser<_, char, LexBuilder, ReadableString>) (token: Token) =
-        fun (reader: Reader<char, LexBuilder, ReadableString>) ->
-            let pos = reader.Position
+    let private pToken p token =
+        parser {
+            let! pos = getPosition
+            let! _ = p
+            do! updateUserState (fun state -> LexBuilder.append token pos CtxOp.NoOp state)
+        }
 
-            match p reader with
-            | Ok _ ->
-                reader.State <- LexBuilder.append token pos CtxOp.NoOp reader.State
-                Ok()
-            | Error e -> Error e
+    let private pTokenPushCtx p token ctx =
+        parser {
+            let! pos = getPosition
+            let! _ = p
+            do! updateUserState (fun state -> LexBuilder.append token pos (CtxOp.Push ctx) state)
+        }
 
-    let private pTokenPushCtx (p: Parser<_, char, LexBuilder, ReadableString>) (token: Token) (ctx: LexContext) =
-        fun (reader: Reader<char, LexBuilder, ReadableString>) ->
-            let pos = reader.Position
-
-            match p reader with
-            | Ok _ ->
-                reader.State <- LexBuilder.append token pos (CtxOp.Push ctx) reader.State
-                Ok()
-            | Error e -> Error e
-
-    let private pTokenPopCtx (p: Parser<_, char, LexBuilder, ReadableString>) (token: Token) (ctx: LexContext) =
-        fun (reader: Reader<char, LexBuilder, ReadableString>) ->
-            let pos = reader.Position
-
-            match p reader with
-            | Ok _ ->
-                reader.State <- LexBuilder.append token pos (CtxOp.Pop ctx) reader.State
-                Ok()
-            | Error e -> Error e
+    let private pTokenPopCtx p token ctx =
+        parser {
+            let! pos = getPosition
+            let! _ = p
+            do! updateUserState (fun state -> LexBuilder.append token pos (CtxOp.Pop ctx) state)
+        }
 
     let pIndentOrWhitespaceToken =
         parser {
@@ -1092,8 +1083,7 @@ module Lexing =
             parser {
                 let! pos = getPosition
                 do! pSkipSpaces
-
-                do! updateUserState (LexBuilder.append Token.Whitespace pos CtxOp.NoOp)
+                do! updateUserState (fun state -> LexBuilder.append Token.Whitespace pos CtxOp.NoOp state)
             }
 
         let pRParenToken =
@@ -1222,7 +1212,7 @@ module Lexing =
         parser {
             let! pos = getPosition
             let! token = pLiteral
-            do! updateUserState (LexBuilder.append token pos CtxOp.NoOp)
+            do! updateUserState (fun state -> LexBuilder.append token pos CtxOp.NoOp state)
         }
 
     // ======================================================================
@@ -1741,7 +1731,7 @@ module Lexing =
         parser {
             let! pos = getPosition
             do! skipNewline
-            do! updateUserState (LexBuilder.append Token.Newline pos CtxOp.NoOp)
+            do! updateUserState (fun state -> LexBuilder.append Token.Newline pos CtxOp.NoOp state)
         }
 
     let pOperatorToken =
@@ -1861,7 +1851,7 @@ module Lexing =
         parser {
             let! pos = getPosition
             let! (token, ctxOp) = pSpecialOperatorToken
-            do! updateUserState (LexBuilder.append token pos ctxOp)
+            do! updateUserState (fun state -> LexBuilder.append token pos ctxOp state)
         }
 
     let pLAttrBrack = pstring "[<"
