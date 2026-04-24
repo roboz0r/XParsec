@@ -2627,6 +2627,51 @@ module Lexing =
     let private pLBraceExpressionToken =
         choiceL [ pOpenBraceBarExpressionContext; pOpenBraceExpressionContext ] "Left brace"
 
+    // Fast-path dispatch for the dominant ExpressionCtx (non-Interpolated) bucket:
+    // String.IndexOf(char) is SIMD-vectorized; a hit returns an index into the
+    // parallel `exprCtxDispatchers` array. Keep the two arrays aligned — order
+    // of chars MUST match order of parsers.
+    let private exprCtxDispatchChars = "\r\n \t,()[>]{}\"'$@/;.#`"
+
+    let private exprCtxDispatchers: Parser<unit, char, LexBuilder, ReadableString> array =
+        [|
+            pNewlineToken // \r
+            pNewlineToken // \n
+            pIndentOrWhitespaceToken // ' '
+            pTabToken // \t
+            pCommaToken // ,
+            pLParenToken // (
+            pCloseParenExpressionContext // )
+            pLBacketToken // [
+            pGreaterThanToken // >
+            pCloseBracketExpressionContext // ]
+            pLBraceExpressionToken // {
+            pCloseBraceExpressionContext // }
+            pDoubleQuoteToken // "
+            pSingleQuoteToken // '
+            pDollarToken // $
+            pAtToken // @
+            pSlashToken // /
+            pSemicolonToken // ;
+            pDotToken // .
+            pHashToken // #
+            pBacktickedIdentifierToken // `
+        |]
+
+    let inline private dispatchExprCtx (c: char) =
+        let i = exprCtxDispatchChars.IndexOf(c)
+
+        if i >= 0 then
+            exprCtxDispatchers.[i]
+        elif NumericLiterals.isDecimalDigit c then
+            NumericLiterals.parseToken
+        elif customOperatorChars.Contains c then
+            pCustomOperatorToken
+        elif isIdentStartChar c then
+            pIdentifierOrKeywordToken
+        else
+            pOtherToken
+
     [<TailCall>]
     let rec lex (reader: Reader<char, LexBuilder, ReadableString>) =
         let state = reader.State
@@ -2638,89 +2683,78 @@ module Lexing =
             let ctx = LexBuilder.currentContext state
             // printfn "At %A, Context: %A, Next char: %A" reader.Position.Index ctx c
             let p =
-                match c, ctx with
-                | ('\r' | '\n'), LexContext.IfDirective -> IfDirective.pNewlineToken
-                | '(', LexContext.IfDirective -> IfDirective.pLParenToken
-                | ')', LexContext.IfDirective -> IfDirective.pRParenToken
-                | '&', LexContext.IfDirective -> IfDirective.pAnd
-                | '|', LexContext.IfDirective -> IfDirective.pOr
-                | '!', LexContext.IfDirective -> IfDirective.pNot
-                | ' ', LexContext.IfDirective -> IfDirective.pWhitespaceToken
-                | _, LexContext.IfDirective -> IfDirective.pIdentifierOrOther
-                | ('\r' | '\n'), ExpressionCtx -> pNewlineToken
-                | ' ', ExpressionCtx -> pIndentOrWhitespaceToken
-                | '\t', ExpressionCtx -> pTabToken
-                | ',', ExpressionCtx -> pCommaToken
-                | '(', ExpressionCtx -> pLParenToken
-                | ')', ExpressionCtx -> pCloseParenExpressionContext
-                | '[', ExpressionCtx -> pLBacketToken
-                | '>', ExpressionCtx -> pGreaterThanToken
-                | ']', ExpressionCtx -> pCloseBracketExpressionContext
-                | '{', LexContext.InterpolatedString ->
-                    // In an interpolated string, { starts an expression or is escaped as {{
-                    pInterpolatedExpressionStartToken
-                | '{', LexContext.VerbatimInterpolatedString ->
-                    // In a verbatim interpolated string, { starts an expression or is escaped as {{
-                    pInterpolatedExpressionStartToken
-                | '{', LexContext.Interpolated3String level ->
-                    // In a triple-quoted interpolated string, { * level starts an expression or is escaped as {{
-                    pInterpolated3ExpressionStartToken
-                | '{', ExpressionCtx -> pLBraceExpressionToken
-                | '}', LexContext.InterpolatedString ->
-                    // In an interpolated string, } is escaped as }}
-                    pInterpolatedStringFragmentRBraces
-                | '}', LexContext.VerbatimInterpolatedString ->
-                    // In a verbatim interpolated string, } is escaped as }}
-                    pInterpolatedStringFragmentRBraces
-                | '}', LexContext.Interpolated3String level ->
-                    // In a triple-quoted interpolated string, required } depends on level
-                    pInterpolated3StringFragmentRBraces
-                | '}', LexContext.InterpolatedExpression ->
-                    // In an interpolated expression, } ends the expression
-                    pInterpolatedExpressionEndToken
-                | '}', NonInterpolatedExpressionCtx -> pCloseBraceExpressionContext
-                | '"', LexContext.InterpolatedString -> pInterpolatedStringEndToken
-                | '"', LexContext.VerbatimInterpolatedString -> pVerbatimInterpolatedStringQuoteToken
-                | '"', LexContext.Interpolated3String _ -> pInterpolated3QuoteOrFragment
-                // Plain string contexts
-                | '"', LexContext.PlainString -> pPlainStringCloseToken
-                | '"', LexContext.VerbatimString -> pVerbatimStringQuoteToken2
-                | '"', LexContext.TripleQuotedString -> pTripleStringQuoteOrFragment
-                | '\\', LexContext.PlainString -> pStringEscapeToken
-                | '"', _ ->
-                    // String or triple-quoted string literals
-                    pDoubleQuoteToken
-                | ''', ExpressionCtx ->
-                    // Char literals, type parameters, or a single quote
-                    pSingleQuoteToken
-                | '$', ExpressionCtx ->
-                    // Interpolated strings
-                    pDollarToken
-                | '@', ExpressionCtx ->
-                    // Verbatim strings
-                    pAtToken
-                | '/', ExpressionCtx -> pSlashToken
-                | '%',
-                  (LexContext.InterpolatedString | LexContext.VerbatimInterpolatedString | LexContext.Interpolated3String _) ->
-                    pFormatSpecifierTokens
-                | '%', (LexContext.PlainString | LexContext.VerbatimString | LexContext.TripleQuotedString) ->
-                    pFormatSpecifierTokens
-                | _, LexContext.InterpolatedString -> pInterpolatedStringFragmentToken
-                | _, LexContext.VerbatimInterpolatedString -> pVerbatimInterpolatedStringFragmentToken
-                | _, LexContext.Interpolated3String _ -> pInterpolated3StringFragmentToken
-                // Plain string fragment fallthroughs
-                | _, LexContext.PlainString -> pPlainStringFragmentToken
-                | _, LexContext.VerbatimString -> pVerbatimStringFragmentToken2
-                | _, LexContext.TripleQuotedString -> pTripleStringFragmentToken
-                | ':', LexContext.InterpolatedExpression -> pInterpolatedFormatClause
-                | ';', ExpressionCtx -> pSemicolonToken
-                | '.', ExpressionCtx -> pDotToken
-                | '#', ExpressionCtx -> pHashToken
-                | c, ExpressionCtx when NumericLiterals.isDecimalDigit c -> NumericLiterals.parseToken
-                | c, ExpressionCtx when customOperatorChars.Contains c -> pCustomOperatorToken
-                | c, ExpressionCtx when isIdentStartChar c -> pIdentifierOrKeywordToken
-                | '`', ExpressionCtx -> pBacktickedIdentifierToken
-                | _, _ -> pOtherToken
+                match ctx with
+                // Hot path: vanilla expression contexts (no special handling for } or :).
+                | LexContext.Normal
+                | LexContext.BracedExpression
+                | LexContext.BraceBarExpression
+                | LexContext.ParenthesExpression
+                | LexContext.BracketedExpression
+                | LexContext.QuotedExpression
+                | LexContext.TypedQuotedExpression -> dispatchExprCtx c
+
+                | LexContext.InterpolatedExpression ->
+                    // Same as vanilla ExpressionCtx except `}` ends the expression
+                    // and `:` opens a format clause.
+                    match c with
+                    | '}' -> pInterpolatedExpressionEndToken
+                    | ':' -> pInterpolatedFormatClause
+                    | _ -> dispatchExprCtx c
+
+                | LexContext.IfDirective ->
+                    match c with
+                    | '\r'
+                    | '\n' -> IfDirective.pNewlineToken
+                    | '(' -> IfDirective.pLParenToken
+                    | ')' -> IfDirective.pRParenToken
+                    | '&' -> IfDirective.pAnd
+                    | '|' -> IfDirective.pOr
+                    | '!' -> IfDirective.pNot
+                    | ' ' -> IfDirective.pWhitespaceToken
+                    | _ -> IfDirective.pIdentifierOrOther
+
+                | LexContext.InterpolatedString ->
+                    match c with
+                    | '{' -> pInterpolatedExpressionStartToken
+                    | '}' -> pInterpolatedStringFragmentRBraces
+                    | '"' -> pInterpolatedStringEndToken
+                    | '%' -> pFormatSpecifierTokens
+                    | _ -> pInterpolatedStringFragmentToken
+
+                | LexContext.VerbatimInterpolatedString ->
+                    match c with
+                    | '{' -> pInterpolatedExpressionStartToken
+                    | '}' -> pInterpolatedStringFragmentRBraces
+                    | '"' -> pVerbatimInterpolatedStringQuoteToken
+                    | '%' -> pFormatSpecifierTokens
+                    | _ -> pVerbatimInterpolatedStringFragmentToken
+
+                | LexContext.Interpolated3String _ ->
+                    match c with
+                    | '{' -> pInterpolated3ExpressionStartToken
+                    | '}' -> pInterpolated3StringFragmentRBraces
+                    | '"' -> pInterpolated3QuoteOrFragment
+                    | '%' -> pFormatSpecifierTokens
+                    | _ -> pInterpolated3StringFragmentToken
+
+                | LexContext.PlainString ->
+                    match c with
+                    | '"' -> pPlainStringCloseToken
+                    | '\\' -> pStringEscapeToken
+                    | '%' -> pFormatSpecifierTokens
+                    | _ -> pPlainStringFragmentToken
+
+                | LexContext.VerbatimString ->
+                    match c with
+                    | '"' -> pVerbatimStringQuoteToken2
+                    | '%' -> pFormatSpecifierTokens
+                    | _ -> pVerbatimStringFragmentToken2
+
+                | LexContext.TripleQuotedString ->
+                    match c with
+                    | '"' -> pTripleStringQuoteOrFragment
+                    | '%' -> pFormatSpecifierTokens
+                    | _ -> pTripleStringFragmentToken
 
             match p reader with
             | Ok() -> lex reader
