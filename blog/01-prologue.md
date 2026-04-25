@@ -50,7 +50,7 @@ typedSequentialExpr:
       SynExpr.Typed($1, ty, unionRanges $1.Range mColon) }
 
   | sequentialExpr
-    { $1 }                        { Var($1) }
+    { $1 }
 ```
 
 The generator produces a table-driven LALR(1) parser, the parsing strategy that powers most of the world's compiled languages. For a grammar that fits cleanly into LALR(1), the result is fast, deterministic, and well-understood.

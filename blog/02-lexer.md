@@ -82,7 +82,7 @@ At 8 bytes per token, the same 50,000-token stream is 400 KB and fits comfortabl
 
 ## Full Fidelity Token Streams
 
-Every space, every newline, every line comment, every block comment emits a token. The token stream is a *complete cover* of the source, index 0 to EOF. Most lexers throw trivia away. Keeping it can almost double the token count tokens on real F# files. Why pay?
+Every space, every newline, every line comment, every block comment emits a token. The token stream is a *complete cover* of the source, index 0 to EOF. Most lexers throw trivia away. Keeping it can almost double the token count on real F# files. Why pay?
 
 Three reasons:
 
@@ -190,7 +190,7 @@ let inline dispatchWithState
 
 `InlineIfLambda` on the function parameter means the call site's `match t with ...` or array lookup is inlined into the dispatcher body. Nothing is allocated, and the call to the picked parser is a direct invocation; the combinator collapses to the same machine code the hand-written version would emit. The caller gets to write their dispatch as `dispatch (fun t -> match t with …)` and compose it with any other XParsec parser.
 
-This is a small example of the thesis from the prologue, but it's a clean one. XParsec didn't have `dispatch` until the F# parsers demanded it; once the primitive was there, every other parser that wanted single-token lookahead got the same hand-written speed without dropping out of combinator style. Most of what landed in the XParsec 0.3 release came in via this same loop: a parser in XParsec.FSharp got written raw because the existing combinators didnt' quite fit, when the same shape appeared a few more times, then it became a primitive that every later parser could use cheaply.
+This is a small example of the thesis from the prologue, but it's a clean one. XParsec didn't have `dispatch` until the F# parsers demanded it; once the primitive was there, every other parser that wanted single-token lookahead got the same hand-written speed without dropping out of combinator style. Most of what landed in the XParsec 0.3 release came in via this same loop: a parser in XParsec.FSharp got written raw because the existing combinators didn't quite fit, when the same shape appeared a few more times, then it became a primitive that every later parser could use cheaply.
 
 ## Fused operators, split later
 
