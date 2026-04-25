@@ -81,7 +81,7 @@ Next, in Part 2, we dive deep into the lexer.
 
 > **First-pass benchmarks.** On a large F# source file, XParsec.FSharp's lexer runs in roughly half the time of the F# Compiler Service's lexer (32 ms vs 65 ms) while allocating about 4× as much memory. End-to-end (lex + parse), XParsec is ~2× slower than FCS and allocates ~12× more. No profiling or tuning has been done yet. The lexer's lead is essentially free, and closing the parser's allocation gap is what the perf post will report on. Raw BenchmarkDotNet output below.
 
-Run with BenchmarkDotNet v0.15.8 on .NET 10, ShortRun job (3 iterations, 3 warmup, in-process). `Large` is the F# compiler's `prim-types.fs`: a 7000+ line file that leans heavily on internal and obscure F# language features and is a worst-case stress test for any F# parser.
+Run with BenchmarkDotNet v0.15.8 on .NET 10. `Large` is the F# compiler's `prim-types.fs`: a 7000+ line file that leans heavily on internal and obscure F# language features and is a worst-case stress test for any F# parser.
 
 ### End-to-end (lex + parse)
 

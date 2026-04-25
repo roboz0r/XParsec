@@ -1,4 +1,4 @@
-# 4. The lexical filter: An invisible pass behind the parsers
+# 4. An invisible pass behind the parsers
 
 Post 2 ended with the lexer's materialised output: two immutable arrays: `Tokens` and `LineStarts`, sitting in memory and ready to be consumed. Post 3 took a detour through the most contextual corner of that lexer — interpolated strings — and the state machine that produces the token stream this post operates on. The reference F# compiler would now run two more passes over them. One evaluates `#if` directives and removes inactive branches. The next pass, what the spec calls the *Lexical Filter*, tracks indentation, enforces the offside rule, and inserts virtual delimiters so the syntactic grammar can stay context-free over layout. Each pass materialises its own output before handing it to the next.
 
