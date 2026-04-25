@@ -318,36 +318,6 @@ let parseToken = parser {
 
 Decimal-only suffixes like `M` produce `ReservedNumericLiteral` (rather than failing) when applied to a hex literal, the spec reserves them, and a `0xFFM` is more likely to be a typo than a valid construct under some future revision. Underscores between digits are skipped silently. The `.` in `1.0` has to *not* be followed by another `.`, otherwise it's the range operator (`1..10`) and the integer parse needs to hand back without consuming the dot. All of these were corpus-test bugs at one point or another, and `e89a38a Fix lexing of floating point literals` is a representative entry on that list.
 
-### Strings as fragments
-
-Originally a simple `"hello"` was one `StringLiteral` token. But eventually I realised compilers and tooling needs to know what's in the characters. So, I rewrote string lexing so that *every* string literal (plain, verbatim, triple-quoted, interpolated) emits the same token shape: an opener, a sequence of fragments and escape sequences, a closer. Commit `17172d4 Parse all string literals as fragments`.
-
-The token kinds a string expands into:
-
-- `StringOpen` / `StringClose`: the boundary tokens, carrying the syntax (plain, verbatim, triple, interpolated, …)
-- `StringFragment`: a run of plain characters between escapes/holes
-- `EscapeSequence`: `\n`, `\u0041`, `\x41`, etc.
-- `FormatPlaceholder`: the `%d` family in `printf`-style strings (interpolated strings carry these for type-checked formatting)
-- `InterpolatedExpressionOpen` / `InterpolatedExpressionClose`: the `{` and `}` around an interpolation hole
-
-A plain string `"hello"` lexes as:
-
-```
-StringOpen("\"")  StringFragment("hello")  StringClose("\"")
-```
-
-A simple interpolation `$"x = {x}"` lexes as:
-
-```
-StringOpen("$\"")  StringFragment("x = ")
-InterpolatedExpressionOpen("{")  Identifier("x")  InterpolatedExpressionClose("}")
-StringClose("\"")
-```
-
-Everything inside the holes is regular F# tokens, lexed by the same dispatch loop, with `InterpolatedExpression` pushed onto the context stack so `}` knows to close the hole instead of being a record-end. Triple-quoted interpolated strings (`$"""..."""`) carry an extra "level" parameter on the context to track how many `{` braces start a hole vs. how many are literal. That's an irritating piece of detail that gets its own post (post 3).
-
-The unification matters more than it looks. Parsers downstream just consume `StringOpen ... StringClose` and the contents are uniform. No need to distinguish "plain string" from "interpolated string". Tools that build expressions out of string contents (JSON or DSL-ish embeddings, custom operators that take strings) get the same token shape regardless of which surface syntax the user wrote.
-
 ## Anchor commits / files
 
 - `src/XParsec.FSharp/Token.fs` (2,443 lines: the `Token` enum, the bit-packing helpers, `TokenInfo` queries)
