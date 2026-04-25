@@ -2,7 +2,7 @@
 
 A lexer sounds simple until you open the F# spec. Nested block comments. Interpolated strings whose holes contain further F# source. Fused multi-character operators whose shape only disambiguates at parse time. Numeric literal forms for every integer size in .NET plus BigInteger, decimal, and native-sized integer. And every bit of source text has to come out with a position, because every diagnostic downstream needs one.
 
-This post is about the *pure* lexer: `Token.fs` and `Lexing.fs`. It doesn't cover preprocessor directive evaluation, virtual tokens for layout, or the offside rule. Those live in the lexical filter; that's the next post.
+This post is about the *pure* lexer: `Token.fs` and `Lexing.fs`. It doesn't cover preprocessor directive evaluation, virtual tokens for layout, or the offside rule. Those live in the lexical filter (post 4). The intervening post 3 is a deep dive on the most contextual corner of this lexer, interpolated strings, and why they make the lexer a state machine rather than a simple function.
 
 ## Tokens fit in 16 bits
 
@@ -90,7 +90,7 @@ First, the no-length-field trick from the previous section depends on it. If tri
 
 Second, F#'s grammar has *adjacency-sensitive* rules. `f x` and `f(x)` parse differently. `f[i]` is high-precedence indexer access; `f [i]` is application of a list to function `f`. `f<T>` is generic instantiation only when there's no whitespace before `<`. These tokens must all behave differently based on whether two tokens touch. With trivia in the stream, "are these two tokens adjacent?" simply becomes "is the previous array slot a non-trivia token?" (see `isPrevTokenSyntax` in `ParsingHelpers.fs`). Without trivia, the parser would need to carry column deltas through every rule.
 
-Third, formatters, refactoring tools, and syntax highlighters all need trivia. There's no point producing two different token streams for two different consumers when one stream serves both. Especially when "the parser shouldn't see trivia" can be solved cheaply at one layer up. The lexical filter (post 3) hides trivia from the parsers' point of view; the parsers consume `nextSyntaxToken` and never know it's there.
+Third, formatters, refactoring tools, and syntax highlighters all need trivia. There's no point producing two different token streams for two different consumers when one stream serves both. Especially when "the parser shouldn't see trivia" can be solved cheaply at one layer up. The lexical filter (post 4) hides trivia from the parsers' point of view; the parsers consume `nextSyntaxToken` and never know it's there.
 
 ## The lexical dispatch loop
 
@@ -198,7 +198,7 @@ The most-encountered example of this is `>>`. Inside an expression it's the func
 
 The same call applies further afield. `>]` could be the close of an attribute target (`[<Foo>]`) or array indexer with units of measure `xs.[1<token>]`, where `>]` is ambiguous and the source of many hours searching for failures in the early days of the parser.
 
-The tracking lives in `ParseState`. The filter and the parsers carry explicit state to track partial consumption: `SplitRAttrBracket` and `SplitPowerMinus` flags for the binary cases (the fused token has been half-eaten by an inner parser; the next read should yield the other half), and a `CharsConsumedAfterTypeParams` counter for the `>>` family, where any number of `>`s might need to be peeled off in sequence. Post 3 is where that story actually lands.
+The tracking lives in `ParseState`. The filter and the parsers carry explicit state to track partial consumption: `SplitRAttrBracket` and `SplitPowerMinus` flags for the binary cases (the fused token has been half-eaten by an inner parser; the next read should yield the other half), and a `CharsConsumedAfterTypeParams` counter for the `>>` family, where any number of `>`s might need to be peeled off in sequence. Post 4 is where that story actually lands.
 
 ## Context the lexer does keep
 
@@ -206,7 +206,7 @@ The rule so far has been *lex now, decide later*. Fuse what's ambiguous, defer d
 
 The clearest case is `#`. F#'s preprocessor directives: `#if`, `#else`, `#endif`, `#nowarn`, `#warnon`, `#load`, `#r`, and the rest, are only directives when they appear as *the first non-trivia token of a line*. A `#` anywhere else is lexed as `Token.ReservedHash`. The kind isn't recoverable from the source span; a parser doesn't want to reach back to ask whether the `#` was line-leading. The decision has to be right when the token is emitted.
 
-The lexer carries one bit of state to support this: `LexBuilder.AtStartOfLine`. It's set when a newline token is emitted and cleared the first time a non-trivia token is emitted on the line. When the dispatcher sees `'#'` and `AtStartOfLine` is true, it routes to the directive parser; otherwise it falls into the invalid-token path. The *lex-now* part is just identification; the lexer only records that an `IfDirective` token sat at the start of a line. Evaluation of `#if FOO` is still the filter's job (post 3).
+The lexer carries one bit of state to support this: `LexBuilder.AtStartOfLine`. It's set when a newline token is emitted and cleared the first time a non-trivia token is emitted on the line. When the dispatcher sees `'#'` and `AtStartOfLine` is true, it routes to the directive parser; otherwise it falls into the invalid-token path. The *lex-now* part is just identification; the lexer only records that an `IfDirective` token sat at the start of a line. Evaluation of `#if FOO` is still the filter's job (post 4).
 
 That position-tracking flag is the only piece of context sensitivity in the lexer outside the `LexContext` stack covered earlier. Both kinds of state exist for the same reason: the token's identity depends on where it occurs, and only the lexer is in a position to record that.
 
@@ -259,7 +259,7 @@ let pLParenToken =
 
 The (*) bug is a one-paragraph story, but it’s representative of the whole lexing phase. The lexer is a pile of small ordering-and-precedence decisions, each correct in isolation. A 7,000-line file is how you find the exact spot where two of them collide.
 
-At this point, we have a dense, CPU friendly stream of 8-byte tokens. But it's full of whitespace, comments, un-evaluated `#if` directives, and ambiguous operators that haven't been split yet. To turn this raw stream into something the parser can actually understand, we need to process it. That’s the Lexical Filter, and the offside rule, which is coming up in Post 3.
+At this point, we have a dense, CPU friendly stream of 8-byte tokens. But it's full of whitespace, comments, un-evaluated `#if` directives, and ambiguous operators that haven't been split yet. To turn this raw stream into something the parser can actually understand, we need to process it. That’s the Lexical Filter, and the offside rule, which is coming up in Post 4.
 
 ## Going deeper on the details
 
@@ -344,7 +344,7 @@ InterpolatedExpressionOpen("{")  Identifier("x")  InterpolatedExpressionClose("}
 StringClose("\"")
 ```
 
-Everything inside the holes is regular F# tokens, lexed by the same dispatch loop, with `InterpolatedExpression` pushed onto the context stack so `}` knows to close the hole instead of being a record-end. Triple-quoted interpolated strings (`$"""..."""`) carry an extra "level" parameter on the context to track how many `{` braces start a hole vs. how many are literal. That's an irritating piece of detail that gets its own post (post 7).
+Everything inside the holes is regular F# tokens, lexed by the same dispatch loop, with `InterpolatedExpression` pushed onto the context stack so `}` knows to close the hole instead of being a record-end. Triple-quoted interpolated strings (`$"""..."""`) carry an extra "level" parameter on the context to track how many `{` braces start a hole vs. how many are literal. That's an irritating piece of detail that gets its own post (post 3).
 
 The unification matters more than it looks. Parsers downstream just consume `StringOpen ... StringClose` and the contents are uniform. No need to distinguish "plain string" from "interpolated string". Tools that build expressions out of string contents (JSON or DSL-ish embeddings, custom operators that take strings) get the same token shape regardless of which surface syntax the user wrote.
 

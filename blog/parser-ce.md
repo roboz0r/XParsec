@@ -1,4 +1,4 @@
-# 12. Hardening the ParserCE
+# Hardening the ParserCE
 
 ## Hook
 

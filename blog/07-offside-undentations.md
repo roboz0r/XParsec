@@ -1,4 +1,4 @@
-# 6. The offside rule, part 2 — allowed undentations
+# 7. The offside rule, part 2 — allowed undentations
 
 ## Hook
 
@@ -7,7 +7,7 @@ If F# strictly enforced "no token below the offside line," a lot of idiomatic F#
 ## What this post covers
 
 - **The spec rules, plain-English.** §15.1.8 (undentation of braces), §15.1.9 (parentheses and begin-end), §15.1.10.1–4 (undentation of expressions and the exceptions for `fun`/`function` bodies). Make each concrete with a small example.
-- **The function that does all the work.** `isPermittedUndentation` in `ParsingHelpers.fs` is the heart of the system, called by the lexical filter (post 3) every time a token's column is left of the innermost context's offside line: given the token and the context stack (post 5), can this undentation be permitted? Walk through the signature, the rule dispatching, and *why the other rules keep turning out to be dead code.*
+- **The function that does all the work.** `isPermittedUndentation` in `ParsingHelpers.fs` is the heart of the system, called by the lexical filter (post 4) every time a token's column is left of the innermost context's offside line: given the token and the context stack (post 6), can this undentation be permitted? Walk through the signature, the rule dispatching, and *why the other rules keep turning out to be dead code.*
 - **The dead-code discovery.** Commits `0ee9fa9 Eliminate undentation rule 15.1.10.3 as dead code` and `d261f35 Eliminate undentation rule 15.1.10.2 as dead code` are instructive. The rules were implemented faithfully; then the corpus showed they never actually fired — every real case was already covered by 15.1.10.4 or by structural context checks. Great story about trusting the tests.
 - **Walking the stack for SeqBlock+Paren pairs.** The trickiest case. Inside a paren, an expression's effective offside line is *not* the paren's `Indent=0`; it's the enclosing `let` or `match` or top-level declaration, which may be several `SeqBlock+Paren` frames up. `checkCollectionUndent` (and the fun/function body path) walk past arbitrarily many `SeqBlock`-then-`Paren` pairs to find it. Show the loop. Call out how this interacts with computation expressions.
 - **`fun` and `function` as undentation anchors.** Commit `a67b3cf Allow undentation rule 15.1.10.4 for fun and function keywords` fixed a long-tail of multi-line lambdas. Reveals that the anchor of an undentation isn't always a keyword the reader would name (`let`, `match`) — sometimes it's the expression-introducing keyword itself.

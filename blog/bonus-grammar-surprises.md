@@ -112,7 +112,7 @@ let f a b c =
   |> c
 ```
 
-Each continuation line's leading operator is *further left* than the previous line. To anyone reading this with a brace-language brain it looks like malformed code. It is, in fact, perfectly legal F#: spec rule §15.1.9 lets an infix operator be offside by up to `(tokenLength + 1)` characters. `+` (length 1) can hang one column left; `|>` (length 2) can hang two columns left. The indentation lines the *values* up, not the operators. Post 5 covers the offside machinery; mentioning it here because visually it's one of the most unexpected things F# allows.
+Each continuation line's leading operator is *further left* than the previous line. To anyone reading this with a brace-language brain it looks like malformed code. It is, in fact, perfectly legal F#: spec rule §15.1.9 lets an infix operator be offside by up to `(tokenLength + 1)` characters. `+` (length 1) can hang one column left; `|>` (length 2) can hang two columns left. The indentation lines the *values* up, not the operators. Post 6 covers the offside machinery; mentioning it here because visually it's one of the most unexpected things F# allows.
 
 - Fix: `isPermittedUndentation` in `ParsingHelpers.fs` — the `15.1.9 InfixUndent` arm
 

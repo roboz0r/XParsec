@@ -1,4 +1,4 @@
-# 13. LLM-assisted parser development: a harness that pays off
+# 12. LLM-assisted parser development: a harness that pays off
 
 ## Hook
 
@@ -25,6 +25,12 @@ This is a post about the *scaffolding* that turns a good code assistant into som
 - **Why this works.** Parser fixes have tight feedback loops: a build takes seconds, a test pass a few more, and the `.fs.parsed` diff *is* the specification. The agent is effectively doing end-to-end TDD with me as the designer of the tests. The harness makes this cheap per iteration and safe per side effect.
 
 - **What the agent is bad at.** Deciding which bug is worth fixing. Choosing whether to merge two AST variants. Noticing when a repeated symptom is actually one root cause in another file. The triage and architectural calls still sit with me. But "reproduce, fix, verify" is not what I want to be spending my evenings on anymore.
+
+- **A lexer worked example.** Commit `91f1db2 Fix lexing some interpolated strings` (2026-03-21) is the cleanest small-scale demonstration in the repo. Two long-standing lexer bugs in `Lexing.fs` resolved in a single change:
+  1. `pFormatSpecifierTokens` consumed the `%`s with `many1Chars (pchar '%')` and then ran `skipN percents.Length` after emitting `EscapePercent` tokens — advancing past the closing quote. The fix is `lookAhead (many1Chars ...)` to count without consuming, then explicit `skipN`. A textbook lookahead-vs-consume distinction that's easy to miss.
+  2. A lone `"` inside `$"""..."""` was routed to `pInterpolated3EndToken`, which required `"""` and failed. The fix introduces `pInterpolated3QuoteOrFragment`, which tries `"""` first and falls back to treating the `"`s as fragment content.
+
+  Both bugs were diagnosed from `.fs.parsed` failures on the existing fixtures `lo_210_interp_escape_percent.fs` and `lo_211_interp_triple_quote_embed.fs`. The fixtures predated the bugs by months — they were checked in October 2025 (post 3) when the lexer state machine was first written; the parser only started exercising the failing arms once enough downstream code was in place to notice. This is the loop's bread and butter: a fixture that tests a documented spec corner, a `.fs.parsed` diff that pins the failure, a fix-and-snapshot session, done.
 
 - **What the agent is surprisingly good at.** Designing instrumentation. The stack probe in post 11 — dedicated-thread parse with explicit stack size, SP captured via `&&marker` at every context push/pop, deepest `StackTrace` snapshotted on depth increase, `.fs.stack` output with SP deltas per frame — came out of one prompt with Claude. Both the design and the output format. The probe is now a load-bearing piece of the test infrastructure, and reading its output (matching up the SP-delta column with the deepest trace) is itself something I hand back to Claude. Instrumentation is a good fit for the model because the inputs are narrow (what do I want to see?), the outputs have clear right answers (did the format surface the bug?), and nothing depends on taste.
 
@@ -54,7 +60,7 @@ This is a post about the *scaffolding* that turns a good code assistant into som
 
   The prompt names the file, names the suspect function, and specifies the remedy in one sentence. The agent did the rest — mechanical refactoring across 1,300 lines of pattern-match arms, one small function per arm. I reviewed the diff for correctness and committed. This is what the harness-plus-memory-plus-pattern-recognition combination looks like at full stride: the human supplies the diagnosis and the shape of the fix; the agent supplies the hours of careful mechanical work.
 
-- **What I wouldn't hand off.** Anything that touches the AST shape (post 8), the offside rule (posts 5–6), the ParserCE (post 12), or the recovery policy (post 9). Those are architectural; getting them wrong costs weeks, and the tight-feedback loop doesn't exist. Everything downstream of them — concrete parser productions, golden-file maintenance, diagnostic wording — is fair game.
+- **What I wouldn't hand off.** Anything that touches the AST shape (post 8), the offside rule (posts 6–7), the ParserCE, or the recovery policy (post 9). Those are architectural; getting them wrong costs weeks, and the tight-feedback loop doesn't exist. Everything downstream of them — concrete parser productions, golden-file maintenance, diagnostic wording — is fair game.
 
 - **The honest caveat.** This works for a parser. Parsers have exceptionally strong test ergonomics: inputs are text, outputs are trees, errors are positions. Not every project is shaped like this. A project that can't produce a golden-file loop this tight would need a different harness, or a different role for the agent.
 

@@ -10,17 +10,17 @@ Each post is a self-contained outline: a hook, the key commits and files, the co
 
 1. [Prologue: Why build an F# parser with XParsec?](01-prologue.md)
 2. [Building the lexer: tokens, strings, fused operators](02-lexer.md)
-3. [The lexical filter: one invisible pass behind the parsers](03-lexical-filter.md)
-4. [Pratt parsing for F#'s operator zoo](04-pratt.md)
-5. [The offside rule, part 1 — context stacks](05-offside-context-stacks.md)
-6. [The offside rule, part 2 — allowed undentations](06-offside-undentations.md)
-7. [Interpolated strings and contextual lexing](07-interpolated-strings.md)
+3. [Lexing the awkward bits: interpolated strings](03-string-lexing.md)
+4. [The lexical filter: one invisible pass behind the parsers](04-lexical-filter.md)
+5. [Pratt parsing for F#'s operator zoo](05-pratt.md)
+6. [The offside rule, part 1 — context stacks](06-offside-context-stacks.md)
+7. [The offside rule, part 2 — allowed undentations](07-offside-undentations.md)
 8. [AST design through consolidation](08-ast-consolidation.md)
 9. [Error recovery you can actually ship](09-error-recovery.md)
-10. [The corpus test: where theory meets reality](10-corpus-test.md)
-11. [Taming the stack: tracing, probing, and a second operator rewrite](11-taming-the-stack.md)
-12. [Hardening the ParserCE](12-parser-ce.md)
-13. [LLM-assisted parser development: a harness that pays off](13-llm-assisted-development.md)
+10. [The corpus test](10-corpus-test.md)
+11. [Taming the stack](11-taming-the-stack.md)
+12. [LLM-assisted parser development](12-llm-assisted-development.md)
+13. Performance Tuning
 
 ## Bonus
 

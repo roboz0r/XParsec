@@ -1,6 +1,6 @@
-# 3. The lexical filter: An invisible pass behind the parsers
+# 4. The lexical filter: An invisible pass behind the parsers
 
-Post 2 ended with the lexer's materialised output: two immutable arrays: `Tokens` and `LineStarts`, sitting in memory and ready to be consumed. The reference F# compiler would now run two more passes over them. One evaluates `#if` directives and removes inactive branches. The next pass, what the spec calls the *Lexical Filter*, tracks indentation, enforces the offside rule, and inserts virtual delimiters so the syntactic grammar can stay context-free over layout. Each pass materialises its own output before handing it to the next.
+Post 2 ended with the lexer's materialised output: two immutable arrays: `Tokens` and `LineStarts`, sitting in memory and ready to be consumed. Post 3 took a detour through the most contextual corner of that lexer — interpolated strings — and the state machine that produces the token stream this post operates on. The reference F# compiler would now run two more passes over them. One evaluates `#if` directives and removes inactive branches. The next pass, what the spec calls the *Lexical Filter*, tracks indentation, enforces the offside rule, and inserts virtual delimiters so the syntactic grammar can stay context-free over layout. Each pass materialises its own output before handing it to the next.
 
 XParsec.FSharp folds those stages into a single lazy step on top of the eager lexer.
 
@@ -121,7 +121,7 @@ It's a grammar-level question, not a lexer question. The lexer can't synthesise 
 
 It's three rules in trenchcoat. If the next token really is `in`, consume it — verbose-syntax files work unchanged. If the next token is at the `let`'s column, or at the enclosing block's column, synthesise. If neither — if the next token is indented *past* the `let` — something else is going on: the RHS parse stopped too early, and synthesising `in` would be wrong. The parser fails and lets the enclosing recovery rule handle it.
 
-Paren-like contexts short-circuit the check. Inside `(...)` or `[...]` the delimiter itself bounds the scope, so the offside check can't fire — `pLetOrUseIn` emits the virtual `in` unconditionally. `let x = 1 in x + 2` and `(let x = 1 in x + 2)` both parse via this path, with different reasons for reaching it. Post 5 covers why paren-like contexts sit on the stack as markers rather than offside lines.
+Paren-like contexts short-circuit the check. Inside `(...)` or `[...]` the delimiter itself bounds the scope, so the offside check can't fire — `pLetOrUseIn` emits the virtual `in` unconditionally. `let x = 1 in x + 2` and `(let x = 1 in x + 2)` both parse via this path, with different reasons for reaching it. Post 6 covers why paren-like contexts sit on the stack as markers rather than offside lines.
 
 The `EOF` branch at the bottom is the tail case: `use _ = disposable` as the last expression of a module. Peek fails (no tokens left after the binding's RHS), and without the synthesis the enclosing scope would never see a body. The virtual `in` closes it cleanly.
 
@@ -353,7 +353,7 @@ The architectural payoff is that half the project's hardest features become invi
 
 It's also the smallest piece of the project by line count that has the highest leverage. `ParsingHelpers.fs` is ~1,400 lines, maybe ~500 of which are the filter proper. Every one of the hundreds of parsing rules in the rest of `XParsec.FSharp` runs through those 500 lines on every token.
 
-Post 4 moves firmly to the other side: Pratt-style operator parsing over the transformed stream, and the operator zoo of F# forced the library to grow a second time.
+Post 5 moves firmly to the other side: Pratt-style operator parsing over the transformed stream, and the operator zoo of F# forced the library to grow a second time.
 
 ## Anchor commits / files
 

@@ -1,10 +1,10 @@
-# 5. The offside rule, part 1 — context stacks
+# 6. The offside rule, part 1 — context stacks
 
 ## Hook
 
 The F# language specification devotes an entire chapter (§15) to layout. Lightweight syntax — the mode essentially every F# programmer writes in — turns indentation and newlines into syntactic tokens. Implementing it isn't optional. It's also where parser combinator libraries traditionally give up.
 
-The offside work is split across two layers: the *check* happens in the lexical filter (post 3), invisibly, on every token fetch. This post is about the other layer — the *context stack* that the filter consults, which is maintained by the syntactic parsers as they recognize structural keywords.
+The offside work is split across two layers: the *check* happens in the lexical filter (post 4), invisibly, on every token fetch. This post is about the other layer — the *context stack* that the filter consults, which is maintained by the syntactic parsers as they recognize structural keywords.
 
 ## What this post covers
 
