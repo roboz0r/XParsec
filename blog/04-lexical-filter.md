@@ -204,7 +204,7 @@ Fuse-and-defer at the lexer was a simplification. Split-on-demand at the filter 
 
 ## The offside check
 
-One more thing happens on every token that survives the earlier branches: the offside check. The mechanics — the context stack, the push/pop discipline, and the permitted-undentation rules that let real F# parse at all — fill two posts of their own (posts 5 and 6). What matters here is *where* the check lives: in the same function, in front of every token the parser sees.
+One more thing happens on every token that survives the earlier branches: the offside check. The mechanics — the context stack, the push/pop discipline, and the permitted-undentation rules that let real F# parse at all — fill two posts of their own (posts 6 and 7). What matters here is *where* the check lives: in the same function, in front of every token the parser sees.
 
 The reason is the same as for virtual tokens. The enforcement is uniform and unconditional, and lifting it into every parsing rule would both cost performance and risk forgetting it in one place. One enforcement point, one source of truth.
 

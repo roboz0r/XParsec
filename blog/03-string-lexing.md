@@ -12,7 +12,7 @@ Triple-dollar interpolation, triple-quoted multiline body, single/double/triple 
 
 ## What this post covers
 
-- **Why this story is post 3, not post 7.** Most of the famous bugs in interpolated-string lexing surfaced six months later, in the corpus loop (post 10) and the agentic-loop sessions (post 12). The *state machine* underneath was designed and tested up front. This post is about the design; the bugs belong with the loop that found them.
+- **Why this story is post 3, not post 7.** Most of the famous bugs in interpolated-string lexing surfaced six months later, in the corpus (post 10) and the agentic-loop sessions (posts 11 and 13). The *state machine* underneath was designed and tested up front. This post is about the design, which survived contact with reality; the bugs belong with the loop that found them.
 
 - **The spec didn't help.** The published F# spec predates interpolated strings by years and doesn't describe them at all. The triple-dollar and improved triple-quoted variants don't exist in any reference grammar. My working sources were two:
 

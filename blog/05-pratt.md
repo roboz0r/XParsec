@@ -225,13 +225,13 @@ Ordering again matters. `pParenOpExpr` comes first because `OpName.parse` accept
 
 The related `adb41f3 Parse parenthesised operators in active patterns` is the same idea for active-pattern identifiers, which also accept parenthesised operators as binding names.
 
-## A preview: stack-bounded Pratt is post 11
+## A preview: stack-bounded Pratt is post 12
 
 The 0.3 redesign covered *features*. It did not cover stack consumption. The Pratt loop as described above still recurses along the left spine of the expression tree: every infix operator in a chain opens a new stack frame, because the recursive call into `parseLhsInternal` happens before the current frame has a chance to unwind. `1 + 2 + 3 + … + 500` opens 500 stack frames on the way down, unwinds 500 on the way back.
 
 F#'s `prim-types.fs` has expressions with more than 1,000 consecutive operators. Parsing that file on .NET's default stack size — and especially on Fable-compiled JavaScript in a browser, where the stack budget is smaller and much less predictable — meant a stack overflow somewhere in the high hundreds. The fix is a second rewrite, same feature set, but transforming the left-recursion into a loop with an explicit operand stack. It's mechanical once you see it, and tedious to get right because the soft-error merging from the original recursive implementation has to thread through the new loop.
 
-That story is post 11. The operator-parsing story as of XParsec 0.3 sits across the two — this post is *what the parser knows how to parse*, post 11 is *how the parser survives doing it*.
+That story is post 12. The operator-parsing story as of XParsec 0.3 sits across the two — this post is *what the parser knows how to parse*, post 12 is *how the parser survives doing it*.
 
 ## Anchor commits / files
 
