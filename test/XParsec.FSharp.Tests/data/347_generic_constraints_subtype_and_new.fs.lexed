@@ -25,7 +25,7 @@
 257, Wildcard
 258, OpDot
 259, Identifier
-272, Operator 0b1000000001001111 ComparisonAndBitwise
+272, OpLessThan
 273, TypeParameter
 275, OpComma
 276, Whitespace
@@ -82,7 +82,7 @@
 522, OpUpcast
 524, Whitespace
 525, Identifier
-534, Operator 0b1000000010001111 ComparisonAndBitwise
+534, OpGreaterThan
 535, Whitespace
 536, KWLParen
 537, Identifier
@@ -99,9 +99,9 @@
 557, OpArrowRight
 559, Whitespace
 560, Identifier
-568, Operator 0b1000000001001111 ComparisonAndBitwise
+568, OpLessThan
 569, TypeParameter
-573, Operator 0b1000000010001111 ComparisonAndBitwise
+573, OpGreaterThan
 574, KWRParen
 575, Whitespace
 576, OpEquality

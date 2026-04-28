@@ -30,9 +30,9 @@
 122, OpColon
 123, Whitespace
 124, Identifier
-133, Operator 0b1000000001001111 ComparisonAndBitwise
+133, OpLessThan
 134, Identifier
-137, Operator 0b1000000010001111 ComparisonAndBitwise
+137, OpGreaterThan
 138, Whitespace
 139, KWRHashParen
 141, Newline
@@ -40,9 +40,9 @@
 143, KWType
 147, Whitespace
 148, BacktickedIdentifier
-154, Operator 0b1000000001001111 ComparisonAndBitwise
+154, OpLessThan
 155, TypeParameter
-157, Operator 0b1000000010001111 ComparisonAndBitwise
+157, OpGreaterThan
 158, Whitespace
 159, OpEquality
 160, Whitespace

@@ -23,11 +23,11 @@
 84, OpEquality
 85, Whitespace
 86, Identifier
-96, Operator 0b1000000001001111 ComparisonAndBitwise
+96, OpLessThan
 97, Identifier
 114, Whitespace
 115, Identifier
-122, Operator 0b1000000010001111 ComparisonAndBitwise
+122, OpGreaterThan
 123, KWLParen
 124, KWRParen
 125, Newline

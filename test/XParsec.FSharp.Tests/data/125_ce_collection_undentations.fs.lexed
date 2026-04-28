@@ -300,7 +300,7 @@
 774, Whitespace
 775, Identifier
 776, Whitespace
-777, Operator 0b1000010110110011 InfixAdd (can be prefix)
+777, OpAddition
 778, Whitespace
 779, NumInt32
 780, Newline

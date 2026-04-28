@@ -1,7 +1,7 @@
 0, KWType
 4, Whitespace
 5, Identifier
-8, Operator 0b1000000001001111 ComparisonAndBitwise
+8, OpLessThan
 9, TypeParameter
 15, OpComma
 16, Whitespace
@@ -15,12 +15,12 @@
 45, OpUpcast
 47, Whitespace
 48, Identifier
-57, Operator 0b1000000001001111 ComparisonAndBitwise
+57, OpLessThan
 58, Identifier
 61, OpComma
 62, Whitespace
 63, TypeParameter
-74, Operator 0b1000000010001111 ComparisonAndBitwise
+74, OpGreaterThan
 75, Newline
 76, Indent
 80, KWAnd
@@ -30,12 +30,12 @@
 96, OpUpcast
 98, Whitespace
 99, Identifier
-108, Operator 0b1000000001001111 ComparisonAndBitwise
+108, OpLessThan
 109, Identifier
 112, OpComma
 113, Whitespace
 114, TypeParameter
-125, Operator 0b1000000111001111 ComparisonAndBitwise
+125, OpComposeRight
 127, KWLParen
 128, KWRParen
 129, Whitespace

@@ -7,16 +7,16 @@
 8, Indent
 16, Identifier
 20, Whitespace
-21, Operator 0b1000010110110011 InfixAdd (can be prefix)
+21, OpAddition
 22, Whitespace
 23, Identifier
 27, Newline
 28, Indent
-34, Operator 0b1000010110110011 InfixAdd (can be prefix)
+34, OpAddition
 35, Whitespace
 36, Identifier
 40, Whitespace
-41, Operator 0b1000010110110011 InfixAdd (can be prefix)
+41, OpAddition
 42, Whitespace
 43, Identifier
 47, Newline
@@ -30,14 +30,14 @@
 64, Identifier
 68, Newline
 69, Indent
-74, Operator 0b1000010010001111 ComparisonAndBitwise
+74, OpPipeRight
 76, Whitespace
 77, Identifier
 78, Whitespace
 79, Identifier
 83, Newline
 84, Indent
-89, Operator 0b1000010010001111 ComparisonAndBitwise
+89, OpPipeRight
 91, Whitespace
 92, Identifier
 93, Whitespace

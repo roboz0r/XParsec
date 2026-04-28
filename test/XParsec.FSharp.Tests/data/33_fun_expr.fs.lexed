@@ -6,7 +6,7 @@
 8, Whitespace
 9, Identifier
 10, Whitespace
-11, Operator 0b1000010110110011 InfixAdd (can be prefix)
+11, OpAddition
 12, Whitespace
 13, NumInt32
 14, Newline

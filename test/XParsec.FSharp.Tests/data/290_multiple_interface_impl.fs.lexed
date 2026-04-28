@@ -24,9 +24,9 @@
 63, KWInterface
 72, Whitespace
 73, Identifier
-84, Operator 0b1000000001001111 ComparisonAndBitwise
+84, OpLessThan
 85, Identifier
-88, Operator 0b1000000010001111 ComparisonAndBitwise
+88, OpGreaterThan
 89, Whitespace
 90, KWWith
 94, Newline
@@ -49,9 +49,9 @@
 152, OpEquality
 153, Whitespace
 154, Identifier
-158, Operator 0b1000000001001111 ComparisonAndBitwise
+158, OpLessThan
 159, Identifier
-162, Operator 0b1000000010001111 ComparisonAndBitwise
+162, OpGreaterThan
 163, KWLParen
 164, KWRParen
 165, Newline
@@ -92,9 +92,9 @@
 307, OpUpcast
 309, Whitespace
 310, Identifier
-321, Operator 0b1000000001001111 ComparisonAndBitwise
+321, OpLessThan
 322, Identifier
-325, Operator 0b1000000010001111 ComparisonAndBitwise
+325, OpGreaterThan
 326, KWRParen
 327, OpDot
 328, Identifier

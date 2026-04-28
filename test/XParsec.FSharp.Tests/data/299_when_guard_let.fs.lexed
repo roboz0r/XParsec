@@ -68,7 +68,7 @@
 254, Indent
 262, Identifier
 265, Whitespace
-266, Operator 0b1000000011001111 ComparisonAndBitwise
+266, OpInequality
 268, Whitespace
 269, KWNull
 273, Whitespace

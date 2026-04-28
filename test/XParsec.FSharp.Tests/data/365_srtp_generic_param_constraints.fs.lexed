@@ -47,7 +47,7 @@
 982, Wildcard
 983, OpDot
 984, Identifier
-997, Operator 0b1000000001001111 ComparisonAndBitwise
+997, OpLessThan
 998, Whitespace
 999, TypeParameter
 1001, OpComma
@@ -116,7 +116,7 @@
 1285, Whitespace
 1286, KWLParen
 1287, Whitespace
-1288, Operator 0b1000010110110011 InfixAdd (can be prefix)
+1288, OpAddition
 1289, Whitespace
 1290, KWRParen
 1291, Whitespace
@@ -168,7 +168,7 @@
 1461, OpColon
 1462, Whitespace
 1463, Identifier
-1466, Operator 0b1000000010001111 ComparisonAndBitwise
+1466, OpGreaterThan
 1467, Newline
 1468, Indent
 1486, KWLParen
@@ -176,14 +176,14 @@
 1493, OpColon
 1494, Whitespace
 1495, Identifier
-1506, Operator 0b1000000001001111 ComparisonAndBitwise
+1506, OpLessThan
 1507, Whitespace
 1508, TypeParameter
 1510, OpComma
 1511, Whitespace
 1512, TypeParameter
 1514, Whitespace
-1515, Operator 0b1000000010001111 ComparisonAndBitwise
+1515, OpGreaterThan
 1516, KWRParen
 1517, Whitespace
 1518, OpColon
@@ -191,12 +191,12 @@
 1520, Identifier
 1526, OpDot
 1527, Identifier
-1535, Operator 0b1000000001001111 ComparisonAndBitwise
+1535, OpLessThan
 1536, Whitespace
 1537, OpConcatenate
 1538, Identifier
 1543, Whitespace
-1544, Operator 0b1000000010001111 ComparisonAndBitwise
+1544, OpGreaterThan
 1545, Whitespace
 1546, OpEquality
 1547, Newline

@@ -39,7 +39,7 @@
 67, Whitespace
 68, Identifier
 69, Whitespace
-70, Operator 0b1000011010110100 InfixMultiply (can be prefix)
+70, OpModulus
 71, Whitespace
 72, NumInt32
 73, Whitespace

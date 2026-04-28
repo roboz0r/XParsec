@@ -60,7 +60,7 @@
 311, Indent
 315, Identifier
 322, Whitespace
-323, Operator 0b1000001110001111 ComparisonAndBitwise
+323, OpBitwiseOr
 326, Newline
 327, Indent
 331, KWLParen
@@ -68,7 +68,7 @@
 334, Whitespace
 335, Identifier
 342, Whitespace
-343, Operator 0b1000000010001111 ComparisonAndBitwise
+343, OpGreaterThan
 344, Whitespace
 345, NumInt32
 346, Whitespace
@@ -81,7 +81,7 @@
 364, NumByteHex
 370, KWRParen
 371, Whitespace
-372, Operator 0b1000001110001111 ComparisonAndBitwise
+372, OpBitwiseOr
 375, Newline
 376, Indent
 380, KWLParen

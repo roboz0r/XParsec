@@ -71,7 +71,7 @@
 522, Indent
 528, Identifier
 532, Whitespace
-533, Operator 0b1000010010001111 ComparisonAndBitwise
+533, OpPipeRight
 535, Whitespace
 536, Identifier
 540, OpDot

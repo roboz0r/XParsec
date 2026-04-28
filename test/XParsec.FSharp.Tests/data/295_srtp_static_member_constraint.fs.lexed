@@ -13,7 +13,7 @@
 97, KWInline
 103, Whitespace
 104, Identifier
-106, Operator 0b1000000001001111 ComparisonAndBitwise
+106, OpLessThan
 107, TypeParameter
 109, Whitespace
 110, KWWhen
@@ -48,7 +48,7 @@
 166, Whitespace
 167, Identifier
 171, KWRParen
-172, Operator 0b1000000010001111 ComparisonAndBitwise
+172, OpGreaterThan
 173, Whitespace
 174, KWLParen
 175, Identifier
@@ -79,7 +79,7 @@
 236, KWType
 240, Whitespace
 241, Identifier
-249, Operator 0b1000000001001111 ComparisonAndBitwise
+249, OpLessThan
 250, TypeParameter
 252, Whitespace
 253, KWWhen
@@ -107,7 +107,7 @@
 292, Whitespace
 293, Identifier
 297, KWRParen
-298, Operator 0b1000000010001111 ComparisonAndBitwise
+298, OpGreaterThan
 299, KWLParen
 300, KWRParen
 301, Whitespace

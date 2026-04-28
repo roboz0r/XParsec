@@ -18,7 +18,7 @@
 31, Whitespace
 32, Identifier
 33, Whitespace
-34, Operator 0b1000000010001111 ComparisonAndBitwise
+34, OpGreaterThan
 35, Whitespace
 36, NumInt32
 37, Whitespace
@@ -78,7 +78,7 @@
 162, Indent
 166, Identifier
 167, Whitespace
-168, Operator 0b1000000010001111 ComparisonAndBitwise
+168, OpGreaterThan
 169, Whitespace
 170, NumInt32
 171, Whitespace
@@ -87,7 +87,7 @@
 175, Indent
 179, Identifier
 180, Whitespace
-181, Operator 0b1000000010001111 ComparisonAndBitwise
+181, OpGreaterThan
 182, Whitespace
 183, NumInt32
 184, Newline

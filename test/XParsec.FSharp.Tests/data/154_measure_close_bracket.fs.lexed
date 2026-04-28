@@ -15,10 +15,10 @@
 205, KWLBracket
 206, Identifier
 207, Whitespace
-208, Operator 0b1000010110110011 InfixAdd (can be prefix)
+208, OpAddition
 209, Whitespace
 210, NumInt32
-211, Operator 0b1000000001001111 ComparisonAndBitwise
+211, OpLessThan
 212, Wildcard
 213, KWRAttrBracket
 215, Newline

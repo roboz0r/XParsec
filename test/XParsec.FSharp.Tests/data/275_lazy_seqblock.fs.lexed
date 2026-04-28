@@ -24,7 +24,7 @@
 48, Indent
 56, Identifier
 57, Whitespace
-58, Operator 0b1000010110110011 InfixAdd (can be prefix)
+58, OpAddition
 59, Whitespace
 60, NumInt32
 61, Newline
@@ -35,9 +35,9 @@
 68, OpColon
 69, Whitespace
 70, Identifier
-73, Operator 0b1000000001001111 ComparisonAndBitwise
+73, OpLessThan
 74, Identifier
-77, Operator 0b1000000010001111 ComparisonAndBitwise
+77, OpGreaterThan
 78, Whitespace
 79, OpEquality
 80, Newline
@@ -87,7 +87,7 @@
 170, KWLParen
 171, NumInt32
 172, Whitespace
-173, Operator 0b1000010110110011 InfixAdd (can be prefix)
+173, OpAddition
 174, Whitespace
 175, NumInt32
 176, KWRParen

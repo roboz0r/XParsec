@@ -38,15 +38,15 @@
 146, OpColon
 147, Whitespace
 148, Identifier
-153, Operator 0b1000000001001111 ComparisonAndBitwise
+153, OpLessThan
 154, Identifier
-159, Operator 0b1000000010001111 ComparisonAndBitwise
+159, OpGreaterThan
 160, Whitespace
 161, OpEquality
 162, Whitespace
 163, NumIEEE64
-168, Operator 0b1000000001001111 ComparisonAndBitwise
+168, OpLessThan
 169, Identifier
-174, Operator 0b1000000010001111 ComparisonAndBitwise
+174, OpGreaterThan
 175, Newline
 176, EOF

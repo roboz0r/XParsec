@@ -22,7 +22,7 @@
 130, Whitespace
 131, Identifier
 132, Whitespace
-133, Operator 0b1000010110110011 InfixAdd (can be prefix)
+133, OpAddition
 134, Whitespace
 135, NumInt32
 136, Whitespace
@@ -53,7 +53,7 @@
 180, Whitespace
 181, Identifier
 182, Whitespace
-183, Operator 0b1000010110110011 InfixAdd (can be prefix)
+183, OpAddition
 184, Whitespace
 185, NumInt32
 186, Newline

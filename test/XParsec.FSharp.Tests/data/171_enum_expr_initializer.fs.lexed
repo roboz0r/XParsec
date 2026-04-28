@@ -62,7 +62,7 @@
 147, KWLParen
 148, Identifier
 159, Whitespace
-160, Operator 0b1000001110001111 ComparisonAndBitwise
+160, OpBitwiseOr
 163, Whitespace
 164, Identifier
 171, OpDot

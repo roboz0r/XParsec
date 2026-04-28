@@ -43,7 +43,7 @@
 125, OpDot
 126, Identifier
 131, Whitespace
-132, Operator 0b1000010110110011 InfixAdd (can be prefix)
+132, OpAddition
 133, Whitespace
 134, NumInt32
 135, Newline

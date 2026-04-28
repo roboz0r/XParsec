@@ -53,7 +53,7 @@
 112, Whitespace
 113, Identifier
 118, Whitespace
-119, Operator 0b1000010010001111 ComparisonAndBitwise
+119, OpPipeRight
 121, Whitespace
 122, Identifier
 126, OpDot
@@ -84,7 +84,7 @@
 176, Whitespace
 177, KWRBracket
 178, Whitespace
-179, Operator 0b1000010010001111 ComparisonAndBitwise
+179, OpPipeRight
 181, Whitespace
 182, Identifier
 186, OpDot

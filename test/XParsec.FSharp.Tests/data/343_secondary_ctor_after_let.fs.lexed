@@ -52,12 +52,12 @@
 420, Identifier
 427, OpDot
 428, Identifier
-438, Operator 0b1000000001001111 ComparisonAndBitwise
+438, OpLessThan
 439, Identifier
 442, OpComma
 443, Whitespace
 444, Identifier
-447, Operator 0b1000000010001111 ComparisonAndBitwise
+447, OpGreaterThan
 448, KWLParen
 449, KWRParen
 450, Newline

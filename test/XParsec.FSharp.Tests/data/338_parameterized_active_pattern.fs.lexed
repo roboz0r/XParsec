@@ -50,7 +50,7 @@
 202, Whitespace
 203, KWLParen
 204, KWLParen
-205, Operator 0b1000010111110011 InfixAdd (can be prefix)
+205, OpSubtraction
 206, KWRParen
 207, Whitespace
 208, Identifier
