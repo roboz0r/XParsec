@@ -1895,9 +1895,19 @@ module internal Token =
             Token.ReservedOperator
 
         else
-            // Well-known operator strings get unique Token values (via OpFamily IDs);
-            // custom ops fall through to the family's "generic" (ID 0) slot.
-            // Exact-match fast path requires no ignored prefix chars and exact length.
+            // Bare operators with parsing implications (`<`, `>`, `>>`, `>>>`, `>=`,
+            // `+`, `-`, `%`, `+=`, `-=`) are emitted by `pOperatorToken`'s wellKnownOps
+            // fast path (Lexing.fs) and never reach this function. Other bare named
+            // operators (`<>`, `<=`, `<|`, `|>`, `<<`, `**`, `*=`, `/=`, `!=`, `&&&`,
+            // `|||`, `^^^`, `<<<`, `||>`, `<||`, `|||>`, `<|||`, `@`, `^^^`) are
+            // emitted here with their named Token (with OpFamily ID) for diagnostic
+            // and `isInfixToken` arm-list purposes — they have no parser-side
+            // dispatch by name, so the lex fast-path entry would be dead weight.
+            //
+            // `isBare = trimIgnored.Length = span.Length` distinguishes a bare
+            // operator from one with ignored-prefix chars (`.`, `?`); ignored-prefix
+            // variants always fall through to the family's generic (OpFamily.OpGeneric,
+            // ID 0) slot at the appropriate precedence for the leading char.
             let isBare = trimIgnored.Length = span.Length
 
             //!%&*+-./<=>@^|~
@@ -1909,12 +1919,8 @@ module internal Token =
                     else
                         ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise) // !=-like
                 else
-                    ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.Prefix) // !
-            | '%' ->
-                if isBare && trimIgnored.Length = 1 then
-                    Token.OpModulus
-                else
-                    ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.InfixMultiply)
+                    ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.Prefix) // !-like
+            | '%' -> ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.InfixMultiply)
             | '&' ->
                 if isBare && trimIgnored.Length = 3 && trimIgnored[1] = '&' && trimIgnored[2] = '&' then
                     Token.OpBitwiseAnd
@@ -1928,20 +1934,8 @@ module internal Token =
                     | _ -> ofUInt16 (KindOperator ||| Precedence.InfixMultiply)
                 else
                     ofUInt16 (KindOperator ||| Precedence.InfixMultiply)
-            | '+' ->
-                if isBare && trimIgnored.Length = 1 then
-                    Token.OpAddition
-                elif isBare && trimIgnored.Length = 2 && trimIgnored[1] = '=' then
-                    Token.OpAdditionAssignment
-                else
-                    ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.InfixAdd)
-            | '-' ->
-                if isBare && trimIgnored.Length = 1 then
-                    Token.OpSubtraction
-                elif isBare && trimIgnored.Length = 2 && trimIgnored[1] = '=' then
-                    Token.OpSubtractionAssignment
-                else
-                    ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.InfixAdd)
+            | '+' -> ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.InfixAdd)
+            | '-' -> ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.InfixAdd)
             | '/' ->
                 if isBare && trimIgnored.Length = 2 && trimIgnored[1] = '=' then
                     Token.OpDivisionAssignment
@@ -1949,7 +1943,6 @@ module internal Token =
                     ofUInt16 (KindOperator ||| Precedence.InfixMultiply)
             | '<' when isBare ->
                 match trimIgnored.Length with
-                | 1 -> Token.OpLessThan
                 | 2 ->
                     match trimIgnored[1] with
                     | '<' -> Token.OpComposeLeft // <<
@@ -1968,16 +1961,6 @@ module internal Token =
                 | _ -> ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise)
             | '<' -> ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise)
             | '=' -> ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise)
-            | '>' when isBare ->
-                match trimIgnored.Length with
-                | 1 -> Token.OpGreaterThan
-                | 2 ->
-                    match trimIgnored[1] with
-                    | '>' -> Token.OpComposeRight // >>
-                    | '=' -> Token.OpGreaterThanOrEqual // >=
-                    | _ -> ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise)
-                | 3 when trimIgnored[1] = '>' && trimIgnored[2] = '>' -> Token.OpRightShift // >>>
-                | _ -> ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise)
             | '>' -> ofUInt16 (KindOperator ||| Precedence.ComparisonAndBitwise)
             | '@' ->
                 if isBare && trimIgnored.Length = 1 then
@@ -2014,7 +1997,8 @@ module internal Token =
                 else
                     let s = span.ToString()
                     // 4.4.1 Categorization of Symbolic Operators
-                    // Only these prefix operators are valid, the spec doesn't list ~%% ~?+ ~?- but they will compile
+                    // Only these prefix operators are valid, the spec doesn't list ~%% ~?+ ~?- but they will compile.
+                    // `~~~` is caught by the wellKnownOps fast path before reaching here.
                     // TODO: Use SearchValues?
                     match s with
                     | "~+"
@@ -2026,7 +2010,6 @@ module internal Token =
                     | "~?-"
                     | "~+."
                     | "~-."
-                    | "~~~"
                     | "~%%"
                     | "~&&" -> ofUInt16 (KindOperator ||| CanBePrefix ||| Precedence.Prefix)
                     | _ -> Token.InvalidPrefixOperator

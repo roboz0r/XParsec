@@ -1255,17 +1255,16 @@ module Expr =
                 else
                     match reader.Peek() with
                     | ValueSome t when t.Token = Token.OpLessThan ->
+                        // OpLessThan has a unique OpFamily ID, so it identifies bare `<` exactly —
+                        // no span check needed. Custom `<`-starting ops emit a different enum value.
                         let st = syntaxToken t reader.Index
 
-                        if tokenStringIs "<" st reader.State then
-                            let typeAngle =
-                                { st with
-                                    PositionedToken = PositionedToken.Create(Token.VirtualTyApp, t.StartIndex)
-                                }
+                        let typeAngle =
+                            { st with
+                                PositionedToken = PositionedToken.Create(Token.VirtualTyApp, t.StartIndex)
+                            }
 
-                            preturn typeAngle reader
-                        else
-                            fail pTypeApplicationErr reader
+                        preturn typeAngle reader
                     | _ -> fail pTypeApplicationErr reader
 
         let pTypeAppRhs =
