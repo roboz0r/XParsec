@@ -2358,23 +2358,31 @@ type PositionedToken =
         | TokenKind.Invalid
         | TokenKind.Spare -> sprintf "%d, %O%s%s" this.StartIndex tokNoFlags inComment isVirtual
         | TokenKind.Operator ->
-            // For operators, print the binary representation to see flags
-            let precedence = TokenInfo.operatorPrecedence this.Token
+            // Named operators (non-zero OpFamily ID) have unique enum values, so %O resolves
+            // to the F# case name (e.g. "OpAddition"). Generic-slot ops share enum values
+            // across multiple cases — fall back to the binary representation in that case
+            // so the precedence and prefix flag remain visible.
+            let opFamily = uint16 tokNoFlags &&& OpFamilyMask
 
-            let maybePrefix =
-                if TokenInfo.canBePrefix this.Token then
-                    " (can be prefix)"
-                else
-                    ""
+            if opFamily <> 0us then
+                sprintf "%d, %O%s%s" this.StartIndex tokNoFlags inComment isVirtual
+            else
+                let precedence = TokenInfo.operatorPrecedence this.Token
 
-            sprintf
-                "%d, Operator 0b%016B %O%s%s%s"
-                this.StartIndex
-                (uint16 tokNoFlags)
-                precedence
-                maybePrefix
-                inComment
-                isVirtual
+                let maybePrefix =
+                    if TokenInfo.canBePrefix this.Token then
+                        " (can be prefix)"
+                    else
+                        ""
+
+                sprintf
+                    "%d, Operator 0b%016B %O%s%s%s"
+                    this.StartIndex
+                    (uint16 tokNoFlags)
+                    precedence
+                    maybePrefix
+                    inComment
+                    isVirtual
         | _ -> sprintf "%d, %O%s%s" this.StartIndex tokNoFlags inComment isVirtual
 
 [<AutoOpen>]

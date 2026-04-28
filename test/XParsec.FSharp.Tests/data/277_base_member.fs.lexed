@@ -41,7 +41,7 @@
 100, StringFragment
 107, StringClose
 108, Whitespace
-109, Operator 0b1000010110110011 InfixAdd (can be prefix)
+109, OpAddition
 110, Whitespace
 111, Identifier
 115, Newline
@@ -91,7 +91,7 @@
 225, Indent
 233, Identifier
 243, Whitespace
-244, Operator 0b1000010110110011 InfixAdd (can be prefix)
+244, OpAddition
 245, Whitespace
 246, StringOpen
 247, StringFragment

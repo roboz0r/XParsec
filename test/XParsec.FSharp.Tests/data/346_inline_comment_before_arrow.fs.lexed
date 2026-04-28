@@ -32,7 +32,7 @@
 239, Identifier
 241, Newline
 242, Indent
-246, Operator 0b1000010010001111 ComparisonAndBitwise
+246, OpPipeRight
 248, Whitespace
 249, Identifier
 253, OpDot
@@ -121,7 +121,7 @@
 475, BlockCommentStart
 477, Whitespace (in comment)
 478, Identifier (in comment)
-481, Operator 0b1000010111110011 InfixAdd (can be prefix) (in comment)
+481, OpSubtraction (in comment)
 482, NumInt32 (in comment)
 486, Whitespace (in comment)
 487, Identifier (in comment)

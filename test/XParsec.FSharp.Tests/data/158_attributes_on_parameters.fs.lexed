@@ -63,7 +63,7 @@
 142, Whitespace
 143, Identifier
 144, Whitespace
-145, Operator 0b1000010110110011 InfixAdd (can be prefix)
+145, OpAddition
 146, Whitespace
 147, Identifier
 148, Newline

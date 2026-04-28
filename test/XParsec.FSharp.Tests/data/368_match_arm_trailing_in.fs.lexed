@@ -43,7 +43,7 @@
 93, Whitespace
 94, Identifier
 95, Whitespace
-96, Operator 0b1000000101001111 ComparisonAndBitwise
+96, OpGreaterThanOrEqual
 98, Whitespace
 99, Identifier
 100, Whitespace
@@ -115,7 +115,7 @@
 222, Whitespace
 223, Identifier
 224, Whitespace
-225, Operator 0b1000010110110011 InfixAdd (can be prefix)
+225, OpAddition
 226, Whitespace
 227, NumUInt32
 229, Newline

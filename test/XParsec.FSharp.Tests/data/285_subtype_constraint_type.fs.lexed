@@ -65,9 +65,9 @@
 136, Whitespace
 137, KWHash
 138, Identifier
-141, Operator 0b1000000001001111 ComparisonAndBitwise
+141, OpLessThan
 142, TypeParameter
-144, Operator 0b1000000010001111 ComparisonAndBitwise
+144, OpGreaterThan
 145, KWRParen
 146, Whitespace
 147, OpEquality

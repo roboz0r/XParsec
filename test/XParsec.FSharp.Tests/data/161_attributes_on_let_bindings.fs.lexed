@@ -37,7 +37,7 @@
 97, Whitespace
 98, Identifier
 99, Whitespace
-100, Operator 0b1000010110110011 InfixAdd (can be prefix)
+100, OpAddition
 101, Whitespace
 102, NumInt32
 103, Newline
@@ -63,7 +63,7 @@
 153, Whitespace
 154, Identifier
 155, Whitespace
-156, Operator 0b1000000100001111 ComparisonAndBitwise
+156, OpLessThanOrEqual
 158, Whitespace
 159, NumInt32
 160, Whitespace
@@ -83,7 +83,7 @@
 191, KWLParen
 192, Identifier
 193, Whitespace
-194, Operator 0b1000010111110011 InfixAdd (can be prefix)
+194, OpSubtraction
 195, Whitespace
 196, NumInt32
 197, KWRParen

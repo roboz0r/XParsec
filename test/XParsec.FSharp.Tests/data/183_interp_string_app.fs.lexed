@@ -31,7 +31,7 @@
 70, InterpolatedExpressionOpen
 71, Identifier
 72, Whitespace
-73, Operator 0b1000010110110011 InfixAdd (can be prefix)
+73, OpAddition
 74, Whitespace
 75, NumInt32
 76, InterpolatedExpressionClose

@@ -18,7 +18,7 @@
 203, Whitespace
 204, Identifier
 205, Whitespace
-206, Operator 0b1000000001001111 ComparisonAndBitwise
+206, OpLessThan
 207, Whitespace
 208, NumInt32
 209, Whitespace
@@ -50,7 +50,7 @@
 272, Whitespace
 273, Identifier
 274, Whitespace
-275, Operator 0b1000000001001111 ComparisonAndBitwise
+275, OpLessThan
 276, Whitespace
 277, NumInt32
 279, Whitespace

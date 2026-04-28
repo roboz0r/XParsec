@@ -48,9 +48,9 @@
 298, OpEquality
 299, Whitespace
 300, Identifier
-304, Operator 0b1000000001001111 ComparisonAndBitwise
+304, OpLessThan
 305, Wildcard
-306, Operator 0b1000000010001111 ComparisonAndBitwise
+306, OpGreaterThan
 307, KWLParen
 308, KWRParen
 309, Newline

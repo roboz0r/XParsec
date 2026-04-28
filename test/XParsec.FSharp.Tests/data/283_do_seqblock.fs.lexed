@@ -28,7 +28,7 @@
 70, Whitespace
 71, Identifier
 77, Whitespace
-78, Operator 0b1000000001001111 ComparisonAndBitwise
+78, OpLessThan
 79, Whitespace
 80, NumInt32
 81, Whitespace
@@ -36,7 +36,7 @@
 84, Whitespace
 85, Identifier
 91, Whitespace
-92, Operator 0b1000000010001111 ComparisonAndBitwise
+92, OpGreaterThan
 93, Whitespace
 94, Identifier
 99, OpDot

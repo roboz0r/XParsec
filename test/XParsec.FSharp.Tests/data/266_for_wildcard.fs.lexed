@@ -57,7 +57,7 @@
 110, Whitespace
 111, Identifier
 116, Whitespace
-117, Operator 0b1000010111110011 InfixAdd (can be prefix)
+117, OpSubtraction
 118, Whitespace
 119, NumInt32
 120, Whitespace

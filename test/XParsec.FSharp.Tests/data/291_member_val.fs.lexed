@@ -90,7 +90,7 @@
 197, OpDot
 198, Identifier
 203, Whitespace
-204, Operator 0b1000010110110011 InfixAdd (can be prefix)
+204, OpAddition
 205, Whitespace
 206, NumInt32
 207, Newline

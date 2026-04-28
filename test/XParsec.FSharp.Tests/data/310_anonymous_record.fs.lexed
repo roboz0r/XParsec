@@ -44,7 +44,7 @@
 163, Whitespace
 164, Identifier
 168, Whitespace
-169, Operator 0b1000010111110011 InfixAdd (can be prefix)
+169, OpSubtraction
 170, Whitespace
 171, NumInt32
 172, Newline
@@ -116,13 +116,13 @@
 336, OpDot
 337, Identifier
 346, Whitespace
-347, Operator 0b1000010110110011 InfixAdd (can be prefix)
+347, OpAddition
 348, Whitespace
 349, Identifier
 352, OpDot
 353, Identifier
 361, Whitespace
-362, Operator 0b1000010110110011 InfixAdd (can be prefix)
+362, OpAddition
 363, Whitespace
 364, Identifier
 367, OpDot

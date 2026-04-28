@@ -90,7 +90,7 @@
 378, OpColon
 379, Whitespace
 380, Identifier
-383, Operator 0b1000000001001111 ComparisonAndBitwise
+383, OpLessThan
 384, Identifier
 390, OpComma
 391, Whitespace
@@ -99,7 +99,7 @@
 396, OpBar
 397, Whitespace
 398, KWNull
-402, Operator 0b1000000010001111 ComparisonAndBitwise
+402, OpGreaterThan
 403, Whitespace
 404, OpEquality
 405, Whitespace

@@ -26,7 +26,7 @@
 458, Indent
 462, Identifier
 476, Whitespace
-477, Operator 0b1000010010001111 ComparisonAndBitwise
+477, OpPipeRight
 479, Whitespace
 480, Identifier
 484, OpDot
@@ -66,12 +66,12 @@
 557, KWLParen
 558, Identifier
 561, Whitespace
-562, Operator 0b1000010110110011 InfixAdd (can be prefix)
+562, OpAddition
 563, Whitespace
 564, Identifier
 567, KWRParen
 568, Whitespace
-569, Operator 0b1000010111110011 InfixAdd (can be prefix)
+569, OpSubtraction
 570, Whitespace
 571, Identifier
 579, Whitespace
@@ -91,12 +91,12 @@
 619, KWLParen
 620, Identifier
 623, Whitespace
-624, Operator 0b1000010110110011 InfixAdd (can be prefix)
+624, OpAddition
 625, Whitespace
 626, Identifier
 629, KWRParen
 630, Whitespace
-631, Operator 0b1000010111110011 InfixAdd (can be prefix)
+631, OpSubtraction
 632, Whitespace
 633, Identifier
 641, Whitespace

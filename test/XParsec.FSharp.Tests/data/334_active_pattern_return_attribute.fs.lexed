@@ -156,7 +156,7 @@
 577, Whitespace
 578, Identifier
 579, Whitespace
-580, Operator 0b1000010110110011 InfixAdd (can be prefix)
+580, OpAddition
 581, Whitespace
 582, NumInt32
 583, Newline
