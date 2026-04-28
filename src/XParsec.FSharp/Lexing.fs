@@ -1769,9 +1769,16 @@ module Lexing =
     // touches this table. The `.. ..` arm that existed in the prior literal match was dead
     // code — the consumption phase stops at whitespace, and `OpRangeStep` is fused in the
     // parser (see memory: pattern_range_step_op_name).
+    // wellKnownOps contains structural-keyword tokens (KindKeyword) and operator-family
+    // tokens (KindOperator with unique OpFamily IDs) that the parser distinguishes by
+    // enum value. Adding a token here costs one slot in the SIMD `SequenceEqual` linear
+    // scan per same-length operator lex; only add tokens with parsing implications (a
+    // parser site matching by enum, or a CanBePrefix infix op load-bearing for
+    // `isInfixToken`'s arm-list). Tokens whose Token.fs case exists for diagnostic
+    // reasons but isn't matched by the parser stay in `Token.ofCustomOperator`.
     let private wellKnownOps =
         [|
-            // length 1 (indices 0..9)
+            // length 1 (indices 0..14)
             "|"
             "."
             "?"
@@ -1782,16 +1789,26 @@ module Lexing =
             "/"
             "^"
             "~"
-            // length 2 (indices 10..17) — ordered by expected frequency
+            "<" // pTypeApplication, pMeasure, MeasureParsing.fs:87
+            ">" // pCloseTypeParams, pMeasure
+            "+" // isInfixToken CanBePrefix
+            "-" // negative-literal merge (Lexing.fs), MeasureParsing.fs:65, isInfixToken CanBePrefix
+            "%" // isInfixToken CanBePrefix
+            // length 2 (indices 15..26) — ordered by expected frequency
             "->"
             "<-"
             ".."
             "||"
             "&&"
             "??"
+            ">>" // pCloseTypeParams (fused close)
+            ">=" // pCloseTypeParams (fused close)
+            "+=" // isInfixToken CanBePrefix
+            "-=" // isInfixToken CanBePrefix
             "<@"
             "@>"
-            // length 3 (indices 18..21)
+            // length 3 (indices 27..31)
+            ">>>" // pCloseTypeParams (fused close)
             "?<-"
             "~~~"
             "<@@"
@@ -1811,6 +1828,11 @@ module Lexing =
             Token.OpDivision
             Token.OpConcatenate
             Token.KWReservedTwiddle
+            Token.OpLessThan
+            Token.OpGreaterThan
+            Token.OpAddition
+            Token.OpSubtraction
+            Token.OpModulus
             // length 2
             Token.OpArrowRight
             Token.OpArrowLeft
@@ -1818,9 +1840,14 @@ module Lexing =
             Token.OpBarBar
             Token.OpAmpAmp
             Token.OpQMarkQMark
+            Token.OpComposeRight
+            Token.OpGreaterThanOrEqual
+            Token.OpAdditionAssignment
+            Token.OpSubtractionAssignment
             Token.OpQuotationTypedLeft
             Token.OpQuotationTypedRight
             // length 3
+            Token.OpRightShift
             Token.OpDynamicAssignment
             Token.OpLogicalNot
             Token.OpQuotationUntypedLeft
@@ -1831,13 +1858,13 @@ module Lexing =
     let private wkLen1Start = 0
 
     [<Literal>]
-    let private wkLen2Start = 10
+    let private wkLen2Start = 15
 
     [<Literal>]
-    let private wkLen3Start = 18
+    let private wkLen3Start = 27
 
     [<Literal>]
-    let private wkLen3End = 22
+    let private wkLen3End = 32
 
     let inline private findWellKnownOp (s: int) (e: int) (span: ReadOnlySpan<char>) =
         let mutable i = s
@@ -1850,6 +1877,27 @@ module Lexing =
             i <- i + 1
 
         found
+
+    /// Classifies a bare operator span to a Token by consulting the wellKnownOps table
+    /// first and falling back to `Token.ofCustomOperator`. Pure span-to-Token mapping
+    /// with no lex-state side effects — use this when the source text is already known
+    /// to be a single operator and you want its Token without invoking the full lexer.
+    /// Used by `pOperatorToken` and by parser code that needs to re-classify a residual
+    /// after splitting a fused operator (e.g. `>>=` after a type-application close).
+    let classifyOpSpan (span: ReadOnlySpan<char>) : Token =
+        let len = span.Length
+
+        let found =
+            match len with
+            | 1 -> findWellKnownOp wkLen1Start wkLen2Start span
+            | 2 -> findWellKnownOp wkLen2Start wkLen3Start span
+            | 3 -> findWellKnownOp wkLen3Start wkLen3End span
+            | _ -> -1
+
+        if found >= 0 then
+            wellKnownOpTokens.[found]
+        else
+            Token.ofCustomOperator span
 
     // Fast-path parser for `:`-first-char. The six predefined colon-starting operators
     // (`:`, `::`, `:?`, `:?>`, `:>`, `:=`) are emitted as distinct KindKeyword tokens.
@@ -1916,28 +1964,15 @@ module Lexing =
                 reader.SkipN(len)
                 let span = state.Source.AsSpan(startIdx, len)
 
-                let found =
-                    match len with
-                    | 1 -> findWellKnownOp wkLen1Start wkLen2Start span
-                    | 2 -> findWellKnownOp wkLen2Start wkLen3Start span
-                    | 3 -> findWellKnownOp wkLen3Start wkLen3End span
-                    | _ -> -1
+                let token = classifyOpSpan span
 
-                let token, ctx =
-                    if found >= 0 then
-                        let t = wellKnownOpTokens.[found]
-
-                        let c =
-                            match t with
-                            | Token.OpQuotationTypedLeft -> CtxOp.Push LexContext.QuotedExpression
-                            | Token.OpQuotationTypedRight -> CtxOp.Pop LexContext.QuotedExpression
-                            | Token.OpQuotationUntypedLeft -> CtxOp.Push LexContext.TypedQuotedExpression
-                            | Token.OpQuotationUntypedRight -> CtxOp.Pop LexContext.TypedQuotedExpression
-                            | _ -> CtxOp.NoOp
-
-                        t, c
-                    else
-                        Token.ofCustomOperator span, CtxOp.NoOp
+                let ctx =
+                    match token with
+                    | Token.OpQuotationTypedLeft -> CtxOp.Push LexContext.QuotedExpression
+                    | Token.OpQuotationTypedRight -> CtxOp.Pop LexContext.QuotedExpression
+                    | Token.OpQuotationUntypedLeft -> CtxOp.Push LexContext.TypedQuotedExpression
+                    | Token.OpQuotationUntypedRight -> CtxOp.Pop LexContext.TypedQuotedExpression
+                    | _ -> CtxOp.NoOp
 
                 reader.State <- LexBuilder.appendI token startIdx ctx state
                 preturn () reader

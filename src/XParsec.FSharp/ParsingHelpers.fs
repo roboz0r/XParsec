@@ -1299,29 +1299,35 @@ module Parsing =
                     return rAngle
                 }
 
-            match! peekNextSyntaxToken with
-            | t when t.Token = Token.OpGreaterThan && charsConsumed = 0 ->
-                // Bare `>` — consume directly.
-                let! rAngle = consumePeeked t
-                return rAngle
+            // Bind `t.Token` once and dispatch on the enum directly; F# emits a jumptable
+            // for plain enum patterns. The prior `match t with | t when t.Token = ...`
+            // form re-loaded `t.Token` per `when` clause and compiled to a sequential
+            // chain of conditional branches.
+            let! t = peekNextSyntaxToken
+            let token = t.Token
 
-            | t when t.Token = Token.OpComposeRight ->
+            match token with
+            | Token.OpGreaterThan when charsConsumed = 0 ->
+                // Bare `>` — consume directly.
+                return! consumePeeked t
+
+            | Token.OpComposeRight ->
                 // `>>` — two `>` chars.
                 if charsConsumed < 1 then return! emitVirtualGt t
                 elif charsConsumed = 1 then return! consumeAndReset t
                 else return! fail errExpectedGtCloseTypeApp
 
-            | t when t.Token = Token.OpRightShift ->
+            | Token.OpRightShift ->
                 // `>>>` — three `>` chars.
                 if charsConsumed < 2 then return! emitVirtualGt t
                 elif charsConsumed = 2 then return! consumeAndReset t
                 else return! fail errExpectedGtCloseTypeApp
 
-            | t when t.Token = Token.OpGreaterThanOrEqual && charsConsumed = 0 ->
+            | Token.OpGreaterThanOrEqual when charsConsumed = 0 ->
                 // `>=` — first char is `>`, tail is `=`.
                 return! emitVirtualGt t
 
-            | t when TokenInfo.isOperator t.Token ->
+            | _ when TokenInfo.isOperator token ->
                 // Generic `>`-starting custom ops (`>>=`, `>=.`, `>..`, etc.) share the
                 // OpGeneric slot, so we still need to look at the span text.
                 let opString = tokenString t state
@@ -1352,8 +1358,10 @@ module Parsing =
                 match! peekNextSyntaxToken with
                 // Any `>`-starting operator — well-known (OpGreaterThan, OpComposeRight,
                 // OpRightShift, OpGreaterThanOrEqual) or generic `>`-starting custom op —
-                // is a candidate for reprocessing. We verify the char at charsConsumed
-                // offset after consuming.
+                // is a candidate for reprocessing. The residual span is reclassified
+                // directly via `Lexing.classifyOpSpan` instead of the full lex pipeline,
+                // which would allocate a Substring + a Lexed (Tokens/LineStarts arrays)
+                // per call.
                 | t when TokenInfo.isOperator t.Token ->
                     let! op = consumePeeked t
 
@@ -1364,18 +1372,17 @@ module Parsing =
                             }
                         )
 
-                    let opString = tokenString t state
-                    let opStringRest = opString.Substring(charsConsumed)
-
-                    match Lexing.lexString opStringRest with
-                    | Ok lexed ->
-                        let firstTok = lexed.Tokens[0<token>]
+                    match t.Index with
+                    | TokenIndex.Regular iT ->
+                        let opSpan = state.Lexed.GetTokenSpan(iT, state.Input)
+                        let residual = opSpan.Slice(charsConsumed)
+                        let residualTok = Lexing.classifyOpSpan residual
 
                         return
                             { op with
-                                PositionedToken = PositionedToken.Create(firstTok.Token, t.StartIndex + charsConsumed)
+                                PositionedToken = PositionedToken.Create(residualTok, t.StartIndex + charsConsumed)
                             }
-                    | Error _ -> return invalidOp "Failed to re-lex operator after type parameters"
+                    | TokenIndex.Virtual -> return! fail errExpectedOperatorAfterTypeParams
                 | _ -> return! fail errExpectedOperatorAfterTypeParams
             else
                 return! fail errNoOperatorToReprocess
