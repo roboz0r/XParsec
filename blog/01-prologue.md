@@ -63,10 +63,10 @@ For the F# compiler team this is a reasonable tradeoff. The grammar is largely s
 
 The bar I held the parser to, in concrete terms:
 
-- **Coverage.** All 249 production files of the F# compiler source parse end-to-end. No file silently skipped, no file partially consumed.
-- **No crashes.** No exceptions, no infinite loops, no stack overflows. The parser must run to completion on every file in the corpus.
-- **Faithful AST.** The output preserves the syntactic information needed to reconstruct the source: tokens, trivia, accurate source ranges. Range accuracy in particular is a known historical pain point for F# Compiler Service (FCS) backed tooling, and one I wanted XParsec.FSharp to get right from the start. No silent normalization, no information loss the user didn't ask for.
-- **No diagnostics on valid input.** Zero parse errors against source the F# compiler itself accepts. If the compiler is happy with a file, so must this parser.
+- **Coverage.** All 249 production files of the F# compiler source parse end-to-end.
+- **No crashes.** No exceptions, infinite loops, or stack overflows. The parser must run to completion on every file in the corpus.
+- **Faithful AST.** The output preserves the syntactic information needed to reconstruct the source: tokens, trivia, accurate source ranges. Range accuracy in particular is a known historical pain point for F# Compiler Service (FCS) backed tooling, and one I wanted XParsec.FSharp to get right from the start.
+- **No diagnostics on valid input.** Zero parse errors against source the F# compiler itself accepts.
 - **Error recovery.** When given invalid input, the parser produces an error node and continues, so the rest of the file remains analyzable rather than discarded at the first broken declaration.
 
 Performance, what counts as "fast enough", I deliberately left out of the success bar. Correctness first, then numbers. The benchmarks below are the starting line, not the goal.

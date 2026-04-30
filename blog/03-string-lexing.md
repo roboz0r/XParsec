@@ -6,22 +6,23 @@ Five days into the project the lexer didn't yet recognise a `for`, but it could 
 $$$"""This string has {a} set of curlies, and {{a}} set of curlies, and an interpolated value: {{{a}}}"""
 ```
 
-Triple-dollar interpolation, triple-quoted multiline body, single/double/triple curlies, only the third pair is a hole. That fixture (`test/XParsec.FSharp.Tests/data/lex-only/04_triple_dollar_with_curlies.fs`) was one of twenty interpolated-string variants checked in on **2025-10-02**, before the AST parser, before offside, before any operator parsing. The pure lexer *was* the project at that point; interpolated strings were interesting and complex. I knew they would set the upper bound for lexer complexity and validate my architectural concept.
+Triple-dollar interpolation, triple-quoted multiline body, single/double/triple curlies, only the third pair is a hole. That fixture (`test/XParsec.FSharp.Tests/data/lex-only/04_triple_dollar_with_curlies.fs`) was one of twenty interpolated-string variants checked in on **2025-10-02**, before the AST parser, offside, or any operator parsing. At that point, the pure lexer was the entire project. I knew these complex string variants would set the upper bound for lexer complexity and validate my architectural concept.
 
-Post 2 introduced the eight-byte `PositionedToken`, the bit-packed `Token` enum, and the dispatch loop. It also gestured at strings as fragments and promised the contextual-lexing story would arrive here. This post is that story: why the lexer is a state machine rather than a memoryless function, what the state actually contains, and how the FS-1132 dollar/brace rule encodes itself directly into the type of one of the contexts on the stack.
+Post 2 introduced the eight-byte `PositionedToken`, the bit-packed `Token` enum, and the dispatch loop. It also gestured at strings as fragments and promised the contextual-lexing story would arrive here. This post is that story: why the lexer is a state machine rather than a pure function, what the state actually contains, and how the [FS-1132](https://github.com/fsharp/fslang-design/blob/main/FSharp-8.0/FS-1132-better-interpolated-triple-quoted-strings.md) dollar/brace rule encodes itself directly into the type of one of the contexts on the stack.
 
-The bugs surfaced six months later under the corpus harness (post 10) and the agentic-loop sessions (posts 11 and 13). The state machine underneath was designed and tested up front. This post is about the design, which survived contact with reality; the bugs belong with the loop that found them.
+Subtle bugs surfaced six months later under the corpus harness (post 10) and the agentic-loop sessions (posts 11 and 13). The state machine underneath was designed and tested up front. This post is about the design, which survived contact with reality.
 
 ## The spec didn't help
 
-The published [F# language specification](https://fsharp.github.io/fslang-spec/) predates interpolated strings by years. It doesn't describe `$"..."` at all, and the triple-dollar and improved triple-quoted variants don't exist in any reference grammar. My working sources were two:
+The published [F# language specification](https://fsharp.github.io/fslang-spec/) predates interpolated strings. It doesn't describe `$"..."` at all, nor the improved triple-quoted variants. My working sources were:
 
-- [*New syntax for string interpolation in F#*](https://devblogs.microsoft.com/dotnet/new-syntax-for-string-interpolation-in-fsharp/): the original devblog announcement, which gave the high-level shape: `$"text {expr}"`, verbatim variants, format specifiers.
-- [*FS-1132: Better interpolated triple-quoted strings*](https://github.com/fsharp/fslang-design/blob/main/FSharp-8.0/FS-1132-better-interpolated-triple-quoted-strings.md): the F# 8 design document for `$$"..."`, `$$$"..."`, and the variable-arity brace rule. This is the only place the dollar/brace counting rule is written down.
+- [*-1001 - String Interpolation*](https://github.com/fsharp/fslang-design/blob/main/FSharp-5.0/FS-1001-StringInterpolation.md): The original design for interpolated strings.
+- [*New syntax for string interpolation in F#*](https://devblogs.microsoft.com/dotnet/new-syntax-for-string-interpolation-in-fsharp/): the devblog announcement, which announced triple quoted strings: `$"""text {expr}"""`.
+- [*FS-1132 - Extended interpolation syntax for triple quoted string literals*](https://github.com/fsharp/fslang-design/blob/main/FSharp-8.0/FS-1132-better-interpolated-triple-quoted-strings.md): the F# 8 design document for `$$"""..."""`, `$$$"""..."""`, and the variable-arity brace rule. This is the only place the dollar/brace counting rule is written down.
 
-Everything else came from the F# REPL. Type a candidate string, see whether it compiles, then write the matching fixture. A pleasant change of pace from the rest of the project, where the spec is the source of truth and the implementation is the cross-check; here the implementation *was* the truth and I was reverse-engineering it.
+Everything else came from the F# REPL. Type a candidate string, see whether it compiles, then write the matching fixture. This was a pleasant change of pace from the rest of the project. Usually, the spec is the source of truth and my implementation is the cross-check; here, the Microsoft compiler's behavior was the truth, and I was reverse-engineering it.
 
-## A lexer with no state is a tokenizer
+## Why standard tokenization fails here
 
 Pure F# tokens (`let`, `42`, `+`) yield to a memoryless function: read the next characters, emit a token, repeat. Interpolated strings break that. The same `{` character can be:
 
@@ -30,7 +31,7 @@ Pure F# tokens (`let`, `42`, `+`) yield to a memoryless function: read the next 
 - half of an escape (`{{`) that produces one literal `{` in the output,
 - one of N curlies in a triple-arity hole opener (`{{{`) inside a `$$$"""..."""` string.
 
-The lexer cannot decide which without remembering *where it is*. That memory is what makes the code non-trivial. In post 2 the dispatch loop was a flat `match` on `(character, context)`. The character side is easy: F# is written in unicode but all the key switches are in a subset of ASCII. The context side is what this post is about.
+The lexer cannot decide which without remembering *where it is*. That memory is what makes the code non-trivial. In post 2 the dispatch loop was a flat `match` on `(character, context)`. F# is written in unicode but all the key switches are in a subset of ASCII, with an extra dimension of checking based on the context that character is observed.
 
 ## The `LexContext` cases
 
@@ -56,9 +57,14 @@ A context is *pushed* when the lexer enters an environment with different rules 
 $"""value = "{x}" done"""
 ```
 
-The opening `$"""` pushes `Interpolated3String 1`. Inside, the lone `"` is text, the `Interpolated3String` rules treat lone double-quotes as fragment characters. Then `{x}`: `{` pushes `InterpolatedExpression`, lexes the identifier `x`, pops the expression on `}`, and the lexer is back in `Interpolated3String`. The lone `"` after `}` is text again, then `"""` closes the whole thing.
+- The opening `$"""` pushes `Interpolated3String 1`.
+- The lone `"` is treated as a character, inside the string text.
+- The `{` pushes `InterpolatedExpression`.
+- `x` is an identifier inside the expression.
+- The `}` pops the expression, returning to `Interpolated3String`.
+- The `"""` closes the string, popping `Interpolated3String`.
 
-A hole can contain a string can contain a hole, ad infinitum:
+An expression hole can contain a string can contain a hole, ad infinitum:
 
 ```fsharp
 $"outer {if b then $"inner {x}" else "none"} done"
@@ -66,15 +72,19 @@ $"outer {if b then $"inner {x}" else "none"} done"
 
 The outermost `$"..."` pushes `InterpolatedString`. The `{` after `outer` pushes `InterpolatedExpression`. Inside that expression, the `$"inner {x}"` pushes a fresh `InterpolatedString`, lexes through to its own `"`, and pops. The `"none"` after `else` is a plain string in expression context, no special arm for `"` inside `InterpolatedExpression`, so the fallback `'"', _ -> pDoubleQuoteToken` fires and pushes `PlainString`. Each layer is an element on `LexBuilder`'s `Context` stack. The seven cases above plus the discipline of push/pop are the complete state model for string lexing.
 
-Note: F# doesn't allow arbitrary nesting for single-quote interpolated strings, but the lexer can handle it regardless. Emitting an error for this is the responsibility of downstream compiler passes.
+```fsharp
+// Peak stack state at 'x' with the head at element 0
+[ InterpolatedExpression; InterpolatedString; InterpolatedExpression; InterpolatedString ]
+```
 
-`InterpolatedExpression` deserves a brief note. Inside it, the lexer is back in expression context: the same dispatch arms that lex `let`, `42`, and `+` outside the string apply unchanged. The main special arm is `}`, which pops the frame and returns to whichever string context was below. The `:` arm routes to `pInterpolatedFormatClause`, which consumes a .NET-style format specifier like `{x:F2}` up to the closing `}` and emits it as `InterpolatedFormatClause`.
+Note: F# doesn't allow arbitrary nesting for single-quote interpolated strings, but the lexer can handle it regardless. Emitting an error for this is the responsibility of downstream semantic analysis.
+
+Inside `InterpolatedExpression`, the lexer is back in expression context: the same dispatch arms that lex `let`, `42`, and `+` outside the string apply unchanged. The main special arm is `}`, which pops the frame and returns to whichever string context was below. The `:` arm routes to `pInterpolatedFormatClause`, which consumes a .NET-style format specifier like `{x:F2}` up to the closing `}` and emits it as `InterpolatedFormatClause`.
 
 ### Push and pop, mechanically
 
-The stack is an F# list. From `Lexing.fs:377-395`:
-
 ```fsharp
+// The stack is an F# list. From `Lexing.fs:377-395`:
 let currentContext (x: LexBuilder) =
     match x.Context with
     | [] -> LexContext.Normal
@@ -93,15 +103,14 @@ let popExactContext expected (x: LexBuilder) =
     | _ -> x                                       // top doesn't match: leave unchanged
 ```
 
-Three calls and a head-of-list. Push is `ctx :: x.Context`; pop is the tail; peek is the head with `Normal` as the default for an empty stack. The `Context` field is a mutable `LexContext list` on `LexBuilder` (post 2 line 120), so each operation rebinds the head and the rest of the list is shared structurally. F#'s persistent list gives the right semantics for free: a stack with O(1) push/pop, no allocation per pop, and a snapshot just by holding onto the head.
+Three simple functions control the context stack: Push is `ctx :: x.Context`, pop is taking the tail, peek is observing the head, with `Normal` as the default for an empty stack. The `Context` field is a mutable `LexContext list` on `LexBuilder`, so each operation rebinds the head and the rest of the list is shared structurally. F#'s persistent list gives the right semantics for free: a stack with O(1) push/pop, no allocation per pop, and a snapshot just by holding onto the head.
 
-The interesting one is `popExactContext`. It only pops if the top of the stack matches the `expected` context, otherwise it leaves the stack alone. That's a defence against malformed input: a stray `}` outside any hole or an extra `"""` after the lexer has already popped a triple-quoted string, anything where the closer doesn't actually correspond to the opener on top. Silently leaving the stack unchanged means the lexer keeps making forward progress and the diagnostic shows up as a token kind (`UnmatchedInterpolatedRBrace` and friends) rather than a stack-corruption bug that surfaces three thousand tokens later.
+`popExactContext` is slightly unusual. It only pops if the top of the stack matches the `expected` context, otherwise it leaves the stack alone. That's a defence against malformed input: a stray `}` outside any hole or an extra `"""` after the lexer has already popped a triple-quoted string, anything where the closer doesn't actually correspond to the opener on top. Silently leaving the stack unchanged means the lexer keeps making forward progress and the error just shows up as an extra token (`UnmatchedInterpolatedRBrace` and friends) rather than a stack-corruption bug that surfaces three thousand tokens later.
 
-Sub-parsers don't manipulate the stack themselves. They declare their intent via a small struct discriminated union returned alongside the token (`Lexing.fs:202-207`):
+Sub-parsers don't manipulate the stack themselves. They declare their intent via a small struct returned alongside the token (`Lexing.fs:202-207`):
 
 ```fsharp
-[<RequireQualifiedAccess>]
-[<Struct>]
+[<RequireQualifiedAccess; Struct>]
 type CtxOp =
     | Push of LexContext
     | Pop of LexContext
@@ -117,11 +126,11 @@ match ctxOp with
 | CtxOp.NoOp -> state
 ```
 
-The separation is what makes the rest of the lexer readable. A sub-parser like `pInterpolated3StartToken` says "emit `Interpolated3StringOpen` and push `Interpolated3String dollars.Length`," all in one `LexBuilder.append` call. It doesn't touch the list. It doesn't have to remember to push before it returns or risk forgetting on an error path. Every push is paired with a token; every pop is paired with a token; the `CtxOp` is what wires them together.
+The separation is what makes the rest of the lexer readable. A sub-parser like `pInterpolated3StartToken` says "emit `Interpolated3StringOpen` and push `Interpolated3String dollars.Length`," all in one `LexBuilder.append` call. It doesn't touch the list or have to remember to push before it returns or risk forgetting on an error path. Every token just get paired with an operation and `append` takes care of it.
 
 ## A look at the dispatch table
 
-The dispatch loop from post 2 grew most of its string handling into the `(character, context)` table. The string-relevant arms (from `Lexing.fs:2548-2605`):
+The dispatch loop from post 2 grew most by adding string handling into the `(character, context)` table. The string-relevant arms (from `Lexing.fs:2548-2605`):
 
 ```fsharp
 | '{', LexContext.InterpolatedString          -> pInterpolatedExpressionStartToken
@@ -179,6 +188,16 @@ let pInterpolated3StartToken =
 
 The opener counts dollars, asserts a `"""` follows, and pushes `Interpolated3String dollars.Length`. The `level: int` is now part of the context's identity; every subsequent dispatch can read it.
 
+Note: `updateUserState` is a core library function to update the reader's `State` property, written as a parser that always succeeds and returns unit.
+
+```fs
+let updateUserState mapper (reader: Reader<'T, 'State, 'Input, 'InputSlice>) =
+    let state = reader.State
+    let newState = mapper state
+    reader.State <- newState
+    preturn () reader
+```
+
 The `{` arm inside `Interpolated3String` does the work. From `Lexing.fs:1408-1443`:
 
 ```fsharp
@@ -214,16 +233,16 @@ let pInterpolated3ExpressionStartToken =
     }
 ```
 
-A decision on `diff = count - level`. Walk it through `$$$"""...{{{a}}}"""` (level = 3):
+A decision on **`diff = count - level`**. Walk it through `$$$"""...{{{a}}}"""` (level = 3):
 
-- The lexer sees `{{{` (count = 3). `diff = 0`, so it emits `InterpolatedExpressionOpen` and pushes `InterpolatedExpression`. The `a` lexes as an identifier in expression context. Then `}}}` (handled by the symmetric `}` arm) emits `InterpolatedExpressionClose` and pops back to `Interpolated3String`.
+- The lexer sees `{{{` (count = 3). **`diff = 0`**, so it emits `InterpolatedExpressionOpen` and pushes `InterpolatedExpression`. The `a` lexes as an identifier in expression context. Then `}}}` (handled by the symmetric `}` arm) emits `InterpolatedExpressionClose` and pops back to `Interpolated3String`.
 
 Now walk `{a}` and `{{a}}` from the same fixture:
 
-- `{` (count = 1). `diff = -2 < 0`, so it emits a single `Interpolated3StringFragment` token covering the `{`. The `a` lexes as a fragment character. Then `}` (count = 1) emits another fragment.
-- `{{` (count = 2). `diff = -1 < 0`, fragment. The same for `}}`.
+- `{` (count = 1). **`diff = -2 < 0`**, so it emits a single `Interpolated3StringFragment` token covering the `{`. The `a` lexes as a fragment character. Then `}` (count = 1) emits another fragment.
+- `{{` (count = 2). **`diff = -1 < 0`**, fragment. The same for `}}`.
 
-The "too many" branch (`diff >= level`) catches inputs like `{{{{{{` in a level-3 string, six leading `{`s with the assumption that the user meant three literals followed by three openers, but ambiguity makes it safer to reject. The maximum valid run is `2 * level - 1`: enough leading literals to need splitting, but never enough to exceed one full extra hole opener. (At level 3, a run of 5 curlies means 2 literals followed by 3 openers; a run of 6 is rejected as ambiguous.) `TooManyLBracesInInterpolated3String` and the symmetric `TooManyRBracesInInterpolated3String` are the diagnostic carriers; downstream tooling can report them with full source position.
+The "too many" branch (**`diff >= level`**) catches inputs like `{{{{{{` in a level-3 string, six leading `{`s with the assumption that the user meant three literals followed by three openers, but ambiguity makes it safer to reject. The maximum valid run is `2 * level - 1`: enough leading literals to need splitting, but never enough to exceed one full extra hole opener. (At level 3, a run of 5 curlies means 2 literals followed by 3 openers; a run of 6 is rejected as ambiguous.) `TooManyLBracesInInterpolated3String` and the symmetric `TooManyRBracesInInterpolated3String` are the diagnostic carriers; downstream tooling can report them with full source position.
 
 The symmetric `}` arm runs the same decision in reverse.
 
@@ -257,7 +276,7 @@ let pInterpolatedExpressionStartToken =
     }
 ```
 
-`{{` is one `EscapeLBrace`. `{{{` is one `EscapeLBrace` followed by an `InterpolatedExpressionOpen`. `{{{{` is two `EscapeLBrace`s. The parity of the run decides how many escapes and whether a hole follows. This is the rule from the original devblog post, and it predates the more general arity rule that `Interpolated3String` uses. Because F# preserves backward compatibility, every existing single-dollar string in the wild has to keep lexing the same way; therefore, the lexer supports both rules simultaneously. The dispatcher routes to the right one based on whether the current context is `InterpolatedString` (parity) or `Interpolated3String` (arity).
+`{{` is one `EscapeLBrace`. `{{{` is one `EscapeLBrace` followed by an `InterpolatedExpressionOpen`. `{{{{` is two `EscapeLBrace`s. The parity of the run decides how many escapes and whether a hole follows. This is the rule from the original devblog post, and it predates the more general arity rule that `Interpolated3String` uses. F# preserves backward compatibility, meaning every existing single-dollar string in the wild has to keep lexing the same way. Therefore, the lexer supports both rules simultaneously. The dispatcher routes to the right one based on whether the current context is `InterpolatedString` (parity) or `Interpolated3String` (arity).
 
 The reason FS-1132 needed a different rule is exactly the JSON-embedding case. With parity, embedding a `{ "key": "value" }` inside a `$"..."` string forces every brace to be doubled. With arity, you bump the dollar count once and write JSON literally. The parity rule is fine when the host text rarely contains braces; it falls over the moment the host text *is* a brace-heavy template.
 
@@ -307,7 +326,7 @@ type FormatPlaceholder =
     }
 ```
 
-`FormatType` is a discriminated union over the printf type characters (`d`, `i`, `f`, `A`, `O`, etc.). The width and precision are `bigint voption` because F#'s printf accepts arbitrary integer widths in theory; in practice anything past 32 bits is silly, but the parsed AST shouldn't bake in a limit the language doesn't enforce.
+`FormatType` is a discriminated union over the printf type characters (`d`, `i`, `f`, `A`, `O`, etc.). The width and precision are `bigint voption` because F#'s printf accepts arbitrary integer widths in theory; in practice anything beyond an integer width is silly, but the parsed AST shouldn't bake in a limit the language doesn't enforce.
 
 What's interesting is that `pFormatSpecifierTokens` (from `Lexing.fs:2217-2289`) reuses the same arity rule the brace handler uses. At level 1 (a single `$`), `%%` is an `EscapePercent` and a final lone `%` opens a `FormatPlaceholder`. At level N ≥ 2, `(count - level)` leading `%` chars are emitted as fragment tokens; the remainder forms a `FormatPlaceholder`. If `leading >= level`, the run is rejected as `InvalidFormatPercents`.
 
@@ -315,7 +334,7 @@ The `%` rule is structurally identical to the `{` rule. Same dollar-count drives
 
 ## What this layer hands downstream
 
-Every interpolated string emerges from the lexer with the same shape:
+With the rules for braces, quotes, and format specifiers encoded, the internal complexity collapses into a single, uniform output stream. Every string, interpolated or not, emerges from the lexer with the same shape:
 
 - `InterpolatedStringOpen` / `Interpolated3StringOpen` / `VerbatimInterpolatedStringOpen`: the boundary, carrying the syntax flavour.
 - `InterpolatedStringFragment` / `Interpolated3StringFragment` / `VerbatimInterpolatedStringFragment`: runs of plain characters between escapes and holes.
@@ -336,11 +355,11 @@ InterpolatedExpressionClose(})
 InterpolatedStringClose    (")
 ```
 
-Plain non-interpolated strings emit the same shape with different token names: `StringOpen`, `StringFragment`, `EscapeSequence`, `StringClose`. That uniformity wasn't designed in from day one. The original implementation had a single `StringLiteral` token containing the entire string body, and only interpolated strings used the fragment-based shape. The unification landed much later, in `17172d4 Parse all string literals as fragments`. The motivation was concrete: a formatter walking the AST can reconstruct the source character-for-character only if escapes and fragments are first-class tokens; a syntax highlighter wants to colour `\n` differently from the surrounding text; when the type checker errors about unused `printf` specifiers, it needs to find them without reparsing string contents. Once interpolated strings had the shape, plain strings followed.
+Plain non-interpolated strings emit the same shape with different token names: `StringOpen`, `StringFragment`, `EscapeSequence`, `StringClose`. That uniformity wasn't designed in from day one. The original implementation had a single `StringLiteral` token containing the entire string body, and only interpolated strings used the fragment-based shape. The unification landed much later, in `17172d4 Parse all string literals as fragments`. The motivation was concrete: a formatter walking the AST can reconstruct the source character-for-character only if escapes and fragments are first-class tokens; a syntax highlighter wants to colour `\n` and `%f` differently from the surrounding text; when the type checker errors about unused `printf` specifiers, it needs to find them without reparsing string contents.
 
 The lexer also emits explicit broken-input tokens when something goes wrong: `UnterminatedInterpolatedString` for an opener with no matching close before EOF, `UnmatchedInterpolatedRBrace` for a single `}` outside a hole, plus the `TooManyLBracesInInterpolated3String` and `TooManyRBracesInInterpolated3String` arms covered above. The handling of unterminated interpolated strings was particularly fiddly because the string might leave the context stack with stale entries: a `$"` pushes `InterpolatedString`, and if the closing `"` is missing, the stack has to be unwound at EOF. `LexBuilder.complete` walks the remaining contexts and emits an `Unterminated*` token for each unclosed opener. That's `bb959c3 Handle unterminated interpolated strings`, which simplified a recovery story that would otherwise have had to live in the parser.
 
-## Nineteen fixtures as a spec-coverage strategy
+## Twenty fixtures as a spec-coverage strategy
 
 `6fd50c3 Fully lex some basic files` introduced files numbered 00 through 19. They aren't the cells of a Cartesian product; I didn't sit down and enumerate `(plain | verbatim | triple) × (with | without curlies) × …` and then write the survivors. I wrote the cases I could think of from reading the devblog and FS-1132, plus whatever the REPL surprised me with that afternoon. Single-dollar variants, double-dollar, triple-dollar; with curlies, without; with a format specifier, without; multiline. The number twenty has no significance beyond "what was in my head when I committed."
 
@@ -360,10 +379,6 @@ Reading the directory listing tells you what *I* was thinking the lexer needed t
 08_triple_dollar_escaping.fs                  18_interpolated_verbatim_with_quotes.fs
 09_multiline_double_dollar.fs                 19_interpolated_string_with_escapes.fs          
 ```
-
-The mechanics are simple enough to describe in a sentence: write the smallest fixture that demonstrates the case, add a `.lexed` snapshot of what the lexer currently produces, run the test, commit both if the snapshot looks right or fix the lexer if it doesn't. The fixture is the input contract; the snapshot is the lexer's current claim about its behaviour on that input.
-
-Write a fixture, snapshot the result, regenerate when the lexer changes.
 
 This is the same pattern that scales up to the corpus harness in post 10, which runs the lexer-and-parser against all 249 files of the F# compiler source. The corpus is what happens when the same idea runs against a real codebase instead of a developer's best guess at what to test.
 
@@ -399,7 +414,7 @@ Five ideas hold this layer up.
 
 **Encode the spec rule in the type.** `Interpolated3String of int` makes FS-1132's brace arity a parameter of the context, not a flag stored elsewhere. The opener counts dollars once and the level travels with the frame; every dispatch that needs it reads it directly off the stack.
 
-**One arity rule, two grammars.** Braces and `%` runs share the same `level`-driven ternary. The format-specifier handler is structurally identical to the brace handler: fewer-than-`level` is fragment, exactly-`level` opens, more-than-`level` errors. Reusing the design once paid for itself.
+**One arity rule, two grammars.** Braces and `%` runs share the same `level`-driven ternary. The format-specifier handler is structurally identical to the brace handler: fewer-than-`level` is fragment, exactly-`level` opens, more-than-`level` errors. Reusing the design paid for itself immediately.
 
 **Unify the output shape across string flavours.** Every string emits `Open` → fragments / escapes / holes / format placeholders → `Close`. Plain, verbatim, triple, interpolated, all the same shape. Downstream tools see one structure to walk regardless of which surface syntax the user wrote.
 
