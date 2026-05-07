@@ -16,7 +16,7 @@ Subtle bugs surfaced six months later under the corpus harness (post 10) and the
 
 The published [F# language specification](https://fsharp.github.io/fslang-spec/) predates interpolated strings. It doesn't describe `$"..."` at all, nor the improved triple-quoted variants. My working sources were:
 
-- [*-1001 - String Interpolation*](https://github.com/fsharp/fslang-design/blob/main/FSharp-5.0/FS-1001-StringInterpolation.md): The original design for interpolated strings.
+- [*FS-1001 - String Interpolation*](https://github.com/fsharp/fslang-design/blob/main/FSharp-5.0/FS-1001-StringInterpolation.md): The original design for interpolated strings.
 - [*New syntax for string interpolation in F#*](https://devblogs.microsoft.com/dotnet/new-syntax-for-string-interpolation-in-fsharp/): the devblog announcement, which announced triple quoted strings: `$"""text {expr}"""`.
 - [*FS-1132 - Extended interpolation syntax for triple quoted string literals*](https://github.com/fsharp/fslang-design/blob/main/FSharp-8.0/FS-1132-better-interpolated-triple-quoted-strings.md): the F# 8 design document for `$$"""..."""`, `$$$"""..."""`, and the variable-arity brace rule. This is the only place the dollar/brace counting rule is written down.
 

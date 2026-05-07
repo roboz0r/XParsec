@@ -343,4 +343,4 @@ Five decisions carried the weight.
 
 **Distinct kinds for broken inputs** instead of failures kept the lexer running across malformed files and let the rest of the pipeline produce useful diagnostics.
 
-I started with the unglamorous parts: keywords, integers, line comments, block comments. The interesting design decisions all came later, often from corpus tests. None of them would read as load-bearing on their own. Together they set the ceiling for the entire rest of the parser.
+I started with the unglamorous parts: keywords, integers, line comments, block comments. The interesting design decisions all came later, often from corpus tests. None of them would read as load-bearing on their own. Together they set the foundation for the entire rest of the parser.
