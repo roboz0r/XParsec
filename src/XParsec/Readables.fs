@@ -15,16 +15,18 @@ open XParsec
 module RaiseHelpers =
     // NoInlining keeps this cold code out of your fast-path loops
     [<MethodImpl(MethodImplOptions.NoInlining)>]
-    let raiseIndexOutOfRange () = 
-        raise (IndexOutOfRangeException())
+    let raiseIndexOutOfRange () = raise (IndexOutOfRangeException())
 
 /// A string slice that can be read as input by the parser.
 [<Struct>]
 type ReadableString(s: string, start: int, length: int) =
+    /// Construct a view over the whole string.
+    new(s: string) = ReadableString(s, 0, s.Length)
+
     member _.Item
         with get index =
             if uint index >= uint length then
-                raiseIndexOutOfRange()
+                raiseIndexOutOfRange ()
 
             s.[start + index]
 
@@ -80,12 +82,15 @@ type ReadableString(s: string, start: int, length: int) =
 /// An array slice that can be read as input by the parser.
 [<Struct; CustomEquality; NoComparison>]
 type ReadableArray<'T>(arr: 'T array, start: int, length: int) =
+    /// Construct a view over the whole array.
+    new(arr: 'T array) = ReadableArray(arr, 0, arr.Length)
+
     static member Empty: ReadableArray<'T> = ReadableArray(Array.empty, 0, 0)
 
     member _.Item
         with [<MethodImpl(MethodImplOptions.AggressiveInlining)>] get index =
             if uint index >= uint length then
-                raiseIndexOutOfRange()
+                raiseIndexOutOfRange ()
 
             arr.[start + index]
 
@@ -208,7 +213,7 @@ type ReadableArray<'T>(arr: 'T array, start: int, length: int) =
         member _.Item
             with get (i: int) =
                 if uint i >= uint length then
-                    raiseIndexOutOfRange()
+                    raiseIndexOutOfRange ()
 
                 arr.[start + i]
 
@@ -257,12 +262,12 @@ type ReadableArrayBuilder<'T>(initialCapacity: int) =
     member _.Item
         with [<MethodImpl(MethodImplOptions.AggressiveInlining)>] get (index: int) =
             if uint index >= uint count then
-                raiseIndexOutOfRange()
+                raiseIndexOutOfRange ()
 
             arr.[index]
         and [<MethodImpl(MethodImplOptions.AggressiveInlining)>] set (index: int) (value: 'T) =
             if uint index >= uint count then
-                raiseIndexOutOfRange()
+                raiseIndexOutOfRange ()
 
             arr.[index] <- value
 
@@ -307,10 +312,13 @@ type ReadableArrayBuilder<'T>(initialCapacity: int) =
 /// An immutable array slice that can be read as input by the parser.
 [<Struct>]
 type ReadableImmutableArray<'T>(arr: ImmutableArray<'T>, start: int, length: int) =
+    /// Construct a view over the whole immutable array.
+    new(arr: ImmutableArray<'T>) = ReadableImmutableArray(arr, 0, arr.Length)
+
     member _.Item
         with get index =
             if uint index >= uint length then
-                raiseIndexOutOfRange()
+                raiseIndexOutOfRange ()
 
             arr.[start + index]
 
@@ -368,10 +376,13 @@ type ReadableImmutableArray<'T>(arr: ImmutableArray<'T>, start: int, length: int
 /// A ResizeArray slice that can be read as input by the parser.
 [<Struct>]
 type ReadableResizeArray<'T>(arr: ResizeArray<'T>, start: int, length: int) =
+    /// Construct a view over the whole ResizeArray.
+    new(arr: ResizeArray<'T>) = ReadableResizeArray(arr, 0, arr.Count)
+
     member _.Item
         with get index =
             if uint index >= uint length then
-                raiseIndexOutOfRange()
+                raiseIndexOutOfRange ()
 
             arr.[start + index]
 
@@ -437,7 +448,7 @@ type ReadableMemory<'T>(memory: ReadOnlyMemory<'T>) =
     member _.Item
         with get index =
             if uint index >= uint memory.Length then
-                raiseIndexOutOfRange()
+                raiseIndexOutOfRange ()
 
             memory.Span[index]
 
