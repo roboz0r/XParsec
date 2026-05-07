@@ -23,13 +23,16 @@ type ReadableString(s: string, start: int, length: int) =
     /// Construct a view over the whole string.
     new(s: string) = ReadableString(s, 0, s.Length)
 
+    static member Empty: ReadableString = ReadableString(String.Empty, 0, 0)
+
     member _.Item
-        with get index =
+        with [<MethodImpl(MethodImplOptions.AggressiveInlining)>] get index =
             if uint index >= uint length then
                 raiseIndexOutOfRange ()
 
             s.[start + index]
 
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     member _.TryItem(index) =
         // uint cast safely checks 0 <= index < length
         if uint index < uint length then
@@ -37,6 +40,7 @@ type ReadableString(s: string, start: int, length: int) =
         else
             ValueNone
 
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     member _.SpanSlice(index, count) =
         if index < 0 then
             invalidArg "index" "Index must be non-negative."
@@ -51,8 +55,13 @@ type ReadableString(s: string, start: int, length: int) =
             let safeCount = min count (length - index)
             s.AsSpan(start + index, safeCount)
 
-    member _.Length = length
+    member _.Length
+        with [<MethodImpl(MethodImplOptions.AggressiveInlining)>] get () = length
 
+    member _.IsEmpty
+        with [<MethodImpl(MethodImplOptions.AggressiveInlining)>] get () = length = 0
+
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     member _.Slice(newStart: int, newLength: int) =
         if newStart < 0 then
             invalidArg "newStart" "New start must be non-negative."
@@ -67,6 +76,11 @@ type ReadableString(s: string, start: int, length: int) =
             let safeLength = min newLength (length - newStart)
             ReadableString(s, start + newStart, safeLength)
 
+    /// Materialises this view into a String. Allocates a fresh substring.
+    override _.ToString() : string =
+        if length = 0 then String.Empty
+        else s.Substring(start, length)
+
     interface IReadable<char, ReadableString> with
         member this.Item
             with get index = this.Item index
@@ -79,8 +93,47 @@ type ReadableString(s: string, start: int, length: int) =
 
         member this.Slice(newStart: int, newLength: int) = this.Slice(newStart, newLength)
 
+    interface IReadOnlyCollection<char> with
+        member _.Count = length
+
+    interface IReadOnlyList<char> with
+        member _.Item
+            with get (i: int) =
+                if uint i >= uint length then
+                    raiseIndexOutOfRange ()
+
+                s.[start + i]
+
+    interface IEnumerable<char> with
+        member _.GetEnumerator() : IEnumerator<char> =
+            let str = s
+            let st = start
+            let len = length
+            let mutable i = 0
+
+            { new IEnumerator<char> with
+                member _.Current = str.[st + i - 1]
+              interface System.Collections.IEnumerator with
+                  member _.Current = box str.[st + i - 1]
+
+                  member _.MoveNext() =
+                      if i < len then
+                          i <- i + 1
+                          true
+                      else
+                          false
+
+                  member _.Reset() = i <- 0
+              interface IDisposable with
+                  member _.Dispose() = ()
+            }
+
+    interface System.Collections.IEnumerable with
+        member this.GetEnumerator() =
+            (this :> IEnumerable<char>).GetEnumerator() :> System.Collections.IEnumerator
+
 /// An array slice that can be read as input by the parser.
-[<Struct; CustomEquality; NoComparison>]
+[<Struct>]
 type ReadableArray<'T>(arr: 'T array, start: int, length: int) =
     /// Construct a view over the whole array.
     new(arr: 'T array) = ReadableArray(arr, 0, arr.Length)
@@ -142,17 +195,6 @@ type ReadableArray<'T>(arr: 'T array, start: int, length: int) =
             let safeLength = min newLength (length - newStart)
             ReadableArray(arr, start + newStart, safeLength)
 
-    /// True if any element equals `item` (uses EqualityComparer&lt;'T&gt;.Default).
-    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
-    member _.Contains(item: 'T) : bool =
-        let cmp = EqualityComparer<'T>.Default
-        let mutable i = 0
-
-        while i < length && not (cmp.Equals(arr.[start + i], item)) do
-            i <- i + 1
-
-        i < length
-
     /// Materialises this view into an ImmutableArray. Escape hatch for consumers
     /// that specifically need an ImmutableArray; allocates a fresh copy.
     member _.ToImmutableArray() : ImmutableArray<'T> =
@@ -165,34 +207,6 @@ type ReadableArray<'T>(arr: 'T array, start: int, length: int) =
                 builder.Add(arr.[start + i])
 
             builder.MoveToImmutable()
-
-    override this.Equals(other: obj) =
-        match other with
-        | :? ReadableArray<'T> as other -> (this :> IEquatable<ReadableArray<'T>>).Equals(other)
-        | _ -> false
-
-    override _.GetHashCode() =
-        let cmp = EqualityComparer<'T>.Default
-        let mutable h = 17
-
-        for i in 0 .. length - 1 do
-            let v = arr.[start + i]
-            h <- (h * 31) + (if isNull (box v) then 0 else cmp.GetHashCode(v))
-
-        h
-
-    interface IEquatable<ReadableArray<'T>> with
-        member _.Equals(other) =
-            if length <> other.Length then
-                false
-            else
-                let cmp = EqualityComparer<'T>.Default
-                let mutable i = 0
-
-                while i < length && cmp.Equals(arr.[start + i], other.[i]) do
-                    i <- i + 1
-
-                i = length
 
     interface IReadable<'T, ReadableArray<'T>> with
         member this.Item
@@ -315,13 +329,16 @@ type ReadableImmutableArray<'T>(arr: ImmutableArray<'T>, start: int, length: int
     /// Construct a view over the whole immutable array.
     new(arr: ImmutableArray<'T>) = ReadableImmutableArray(arr, 0, arr.Length)
 
+    static member Empty: ReadableImmutableArray<'T> = ReadableImmutableArray(ImmutableArray<'T>.Empty, 0, 0)
+
     member _.Item
-        with get index =
+        with [<MethodImpl(MethodImplOptions.AggressiveInlining)>] get index =
             if uint index >= uint length then
                 raiseIndexOutOfRange ()
 
             arr.[start + index]
 
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     member _.TryItem(index) =
         // uint cast safely checks 0 <= index < length
         if uint index < uint length then
@@ -329,6 +346,7 @@ type ReadableImmutableArray<'T>(arr: ImmutableArray<'T>, start: int, length: int
         else
             ValueNone
 
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     member _.SpanSlice(index, count) =
         if index < 0 then
             invalidArg "index" "Index must be non-negative."
@@ -343,8 +361,13 @@ type ReadableImmutableArray<'T>(arr: ImmutableArray<'T>, start: int, length: int
             let safeCount = min count (length - index)
             arr.AsSpan(start + index, safeCount)
 
-    member _.Length = length
+    member _.Length
+        with [<MethodImpl(MethodImplOptions.AggressiveInlining)>] get () = length
 
+    member _.IsEmpty
+        with [<MethodImpl(MethodImplOptions.AggressiveInlining)>] get () = length = 0
+
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     member _.Slice(newStart: int, newLength: int) =
         if newStart < 0 then
             invalidArg "newStart" "New start must be non-negative."
@@ -359,6 +382,21 @@ type ReadableImmutableArray<'T>(arr: ImmutableArray<'T>, start: int, length: int
             let safeLength = min newLength (length - newStart)
             ReadableImmutableArray(arr, start + newStart, safeLength)
 
+    /// Materialises this view into an ImmutableArray. Zero-copy when the view
+    /// covers the whole backing array; otherwise allocates a fresh copy.
+    member _.ToImmutableArray() : ImmutableArray<'T> =
+        if length = 0 then
+            ImmutableArray<'T>.Empty
+        elif start = 0 && length = arr.Length then
+            arr
+        else
+            let builder = ImmutableArray.CreateBuilder<'T>(length)
+
+            for i in 0 .. length - 1 do
+                builder.Add(arr.[start + i])
+
+            builder.MoveToImmutable()
+
     interface IReadable<'T, ReadableImmutableArray<'T>> with
         member this.Item
             with get index = this.Item index
@@ -371,6 +409,45 @@ type ReadableImmutableArray<'T>(arr: ImmutableArray<'T>, start: int, length: int
 
         member this.Slice(newStart: int, newLength: int) = this.Slice(newStart, newLength)
 
+    interface IReadOnlyCollection<'T> with
+        member _.Count = length
+
+    interface IReadOnlyList<'T> with
+        member _.Item
+            with get (i: int) =
+                if uint i >= uint length then
+                    raiseIndexOutOfRange ()
+
+                arr.[start + i]
+
+    interface IEnumerable<'T> with
+        member _.GetEnumerator() : IEnumerator<'T> =
+            let a = arr
+            let s = start
+            let len = length
+            let mutable i = 0
+
+            { new IEnumerator<'T> with
+                member _.Current = a.[s + i - 1]
+              interface System.Collections.IEnumerator with
+                  member _.Current = box a.[s + i - 1]
+
+                  member _.MoveNext() =
+                      if i < len then
+                          i <- i + 1
+                          true
+                      else
+                          false
+
+                  member _.Reset() = i <- 0
+              interface IDisposable with
+                  member _.Dispose() = ()
+            }
+
+    interface System.Collections.IEnumerable with
+        member this.GetEnumerator() =
+            (this :> IEnumerable<'T>).GetEnumerator() :> System.Collections.IEnumerator
+
 
 #if NET5_0_OR_GREATER // No good way to get a span from a ResizeArray in .NET Standard 2.0
 /// A ResizeArray slice that can be read as input by the parser.
@@ -379,13 +456,16 @@ type ReadableResizeArray<'T>(arr: ResizeArray<'T>, start: int, length: int) =
     /// Construct a view over the whole ResizeArray.
     new(arr: ResizeArray<'T>) = ReadableResizeArray(arr, 0, arr.Count)
 
+    static member Empty: ReadableResizeArray<'T> = ReadableResizeArray(ResizeArray<'T>(0), 0, 0)
+
     member _.Item
-        with get index =
+        with [<MethodImpl(MethodImplOptions.AggressiveInlining)>] get index =
             if uint index >= uint length then
                 raiseIndexOutOfRange ()
 
             arr.[start + index]
 
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     member _.TryItem(index) =
         // uint cast safely checks 0 <= index < length
         if uint index < uint length then
@@ -393,6 +473,7 @@ type ReadableResizeArray<'T>(arr: ResizeArray<'T>, start: int, length: int) =
         else
             ValueNone
 
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     member _.SpanSlice(index, count) =
         if index < 0 then
             invalidArg "index" "Index must be non-negative."
@@ -412,8 +493,13 @@ type ReadableResizeArray<'T>(arr: ResizeArray<'T>, start: int, length: int) =
             Span.op_Implicit (span.Slice(start + index, safeCount))
 #endif
 
-    member _.Length = length
+    member _.Length
+        with [<MethodImpl(MethodImplOptions.AggressiveInlining)>] get () = length
 
+    member _.IsEmpty
+        with [<MethodImpl(MethodImplOptions.AggressiveInlining)>] get () = length = 0
+
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     member _.Slice(newStart: int, newLength: int) =
         if newStart < 0 then
             invalidArg "newStart" "New start must be non-negative."
@@ -428,6 +514,18 @@ type ReadableResizeArray<'T>(arr: ResizeArray<'T>, start: int, length: int) =
             let safeLength = min newLength (length - newStart)
             ReadableResizeArray(arr, start + newStart, safeLength)
 
+    /// Materialises this view into an ImmutableArray. Allocates a fresh copy.
+    member _.ToImmutableArray() : ImmutableArray<'T> =
+        if length = 0 then
+            ImmutableArray<'T>.Empty
+        else
+            let builder = ImmutableArray.CreateBuilder<'T>(length)
+
+            for i in 0 .. length - 1 do
+                builder.Add(arr.[start + i])
+
+            builder.MoveToImmutable()
+
     interface IReadable<'T, ReadableResizeArray<'T>> with
         member this.Item
             with get index = this.Item index
@@ -439,25 +537,70 @@ type ReadableResizeArray<'T>(arr: ResizeArray<'T>, start: int, length: int) =
         member this.Length = this.Length
 
         member this.Slice(newStart: int, newLength: int) = this.Slice(newStart, newLength)
+
+    interface IReadOnlyCollection<'T> with
+        member _.Count = length
+
+    interface IReadOnlyList<'T> with
+        member _.Item
+            with get (i: int) =
+                if uint i >= uint length then
+                    raiseIndexOutOfRange ()
+
+                arr.[start + i]
+
+    interface IEnumerable<'T> with
+        member _.GetEnumerator() : IEnumerator<'T> =
+            let a = arr
+            let s = start
+            let len = length
+            let mutable i = 0
+
+            { new IEnumerator<'T> with
+                member _.Current = a.[s + i - 1]
+              interface System.Collections.IEnumerator with
+                  member _.Current = box a.[s + i - 1]
+
+                  member _.MoveNext() =
+                      if i < len then
+                          i <- i + 1
+                          true
+                      else
+                          false
+
+                  member _.Reset() = i <- 0
+              interface IDisposable with
+                  member _.Dispose() = ()
+            }
+
+    interface System.Collections.IEnumerable with
+        member this.GetEnumerator() =
+            (this :> IEnumerable<'T>).GetEnumerator() :> System.Collections.IEnumerator
 #endif
 
 #if !FABLE_COMPILER
 /// A memory slice that can be read as input by the parser.
 [<Struct>]
 type ReadableMemory<'T>(memory: ReadOnlyMemory<'T>) =
+    new(memory: Memory<'T>) = ReadableMemory(memory)
+
+    static member Empty: ReadableMemory<'T> = ReadableMemory(ReadOnlyMemory<'T>.Empty)
+
     member _.Item
-        with get index =
+        with [<MethodImpl(MethodImplOptions.AggressiveInlining)>] get index =
             if uint index >= uint memory.Length then
                 raiseIndexOutOfRange ()
 
             memory.Span[index]
 
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     member _.TryItem(index) =
         if uint index < uint memory.Length then
             ValueSome(memory.Span[index])
         else
             ValueNone
 
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     member _.SpanSlice(index, count) =
         if index < 0 then
             invalidArg "index" "Index must be non-negative."
@@ -471,8 +614,13 @@ type ReadableMemory<'T>(memory: ReadOnlyMemory<'T>) =
             let safeCount = min count (memory.Length - index)
             memory.Span.Slice(index, safeCount)
 
-    member _.Length = memory.Length
+    member _.Length
+        with [<MethodImpl(MethodImplOptions.AggressiveInlining)>] get () = memory.Length
 
+    member _.IsEmpty
+        with [<MethodImpl(MethodImplOptions.AggressiveInlining)>] get () = memory.IsEmpty
+
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     member _.Slice(newStart: int, newLength: int) =
         if newStart < 0 then
             invalidArg "newStart" "New start must be non-negative."
@@ -486,7 +634,20 @@ type ReadableMemory<'T>(memory: ReadOnlyMemory<'T>) =
             let safeLength = min newLength (memory.Length - newStart)
             ReadableMemory(memory.Slice(newStart, safeLength))
 
-    new(memory: Memory<'T>) = ReadableMemory(memory)
+    /// Materialises this view into an ImmutableArray. Allocates a fresh copy.
+    member _.ToImmutableArray() : ImmutableArray<'T> =
+        let len = memory.Length
+
+        if len = 0 then
+            ImmutableArray<'T>.Empty
+        else
+            let span = memory.Span
+            let builder = ImmutableArray.CreateBuilder<'T>(len)
+
+            for i in 0 .. len - 1 do
+                builder.Add(span[i])
+
+            builder.MoveToImmutable()
 
     interface IReadable<'T, ReadableMemory<'T>> with
         member this.Item
@@ -499,6 +660,44 @@ type ReadableMemory<'T>(memory: ReadOnlyMemory<'T>) =
         member this.Length = this.Length
 
         member this.Slice(newStart: int, newLength: int) = this.Slice(newStart, newLength)
+
+    interface IReadOnlyCollection<'T> with
+        member _.Count = memory.Length
+
+    interface IReadOnlyList<'T> with
+        member _.Item
+            with get (i: int) =
+                if uint i >= uint memory.Length then
+                    raiseIndexOutOfRange ()
+
+                memory.Span[i]
+
+    interface IEnumerable<'T> with
+        member _.GetEnumerator() : IEnumerator<'T> =
+            let m = memory
+            let len = m.Length
+            let mutable i = 0
+
+            { new IEnumerator<'T> with
+                member _.Current = m.Span[i - 1]
+              interface System.Collections.IEnumerator with
+                  member _.Current = box m.Span[i - 1]
+
+                  member _.MoveNext() =
+                      if i < len then
+                          i <- i + 1
+                          true
+                      else
+                          false
+
+                  member _.Reset() = i <- 0
+              interface IDisposable with
+                  member _.Dispose() = ()
+            }
+
+    interface System.Collections.IEnumerable with
+        member this.GetEnumerator() =
+            (this :> IEnumerable<'T>).GetEnumerator() :> System.Collections.IEnumerator
 
 #endif
 
