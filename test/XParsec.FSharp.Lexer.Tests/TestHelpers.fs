@@ -36,10 +36,29 @@ let printLexed (input: string) (x: Lexed) =
                 |> Option.map (fun pt1 -> int pt1.StartIndex)
                 |> Option.defaultValue input.Length
 
+            let isBlockComment =
+                if pt.Token.InBlockComment then
+                    " (in block comment)"
+                else
+                    ""
+
+            let isInOCamlBlockComment =
+                if pt.Token.InOCamlBlockComment then
+                    " (in OCaml block comment)"
+                else
+                    ""
+
             match pt.TokenWithoutCommentFlags with
             | t when t.IsOperator ->
                 let id = input.AsSpan(p, p1 - p).ToString()
-                printfn "%d, %s (%s)" p (Operator.generateOperatorName t id) id
+
+                printfn
+                    "%d, %s (%s) %s %s"
+                    p
+                    (Operator.generateOperatorName t id)
+                    id
+                    isBlockComment
+                    isInOCamlBlockComment
             | Token.InvalidOperator
             | Token.Identifier
             | Token.OtherUnlexed
@@ -58,10 +77,10 @@ let printLexed (input: string) (x: Lexed) =
             | Token.VerbatimInterpolatedStringOpen
             | Token.VerbatimInterpolatedStringClose as t ->
                 let id = input.AsSpan(p, p1 - p).ToString()
-                printfn "%d, %A (%s)" p t id
+                printfn "%d, %A (%s) %s %s" p t id isBlockComment isInOCamlBlockComment
             | t when t.IsNumeric ->
                 let id = input.AsSpan(p, p1 - p).ToString()
-                printfn "%d, %A (%s)" p t id
+                printfn "%d, %A (%s) %s %s" p t id isBlockComment isInOCamlBlockComment
             | Token.StringLiteral
             | Token.UnterminatedStringLiteral
             | Token.VerbatimStringLiteral
@@ -75,9 +94,9 @@ let printLexed (input: string) (x: Lexed) =
                 let id = input.AsSpan(p, p1 - p).ToString()
                 let id = escapeSpecialCharacters id
                 let id = truncateMiddle 40 id
-                printfn "%d, %A (%s)" p t id
+                printfn "%d, %A (%s) %s %s" p t id isBlockComment isInOCamlBlockComment
 
-            | t -> printfn "%d, %A" p t
+            | t -> printfn "%d, %A %s %s" p t isBlockComment isInOCamlBlockComment
 
             f (i + 1)
 
@@ -102,7 +121,13 @@ let pToken =
         // printfn "Creating parser for %O" case
         pstring (case.ToString()) >>% case
     )
-    |> fun ps -> choiceL ps "token"
+    |> fun ps ->
+        choiceL
+            (seq {
+                yield! ps
+                yield puint16 |>> LanguagePrimitives.EnumOfValue // Fallback for any missing cases e.g. flagged with block comments
+            })
+            "token"
 
 
 let readLexed (path: string) =
