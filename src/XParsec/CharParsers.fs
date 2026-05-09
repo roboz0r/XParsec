@@ -166,14 +166,10 @@ let digit (reader: Reader<char, 'State, 'Input>) =
             fail ParseError.digit reader
     | _ -> fail EndOfInput reader
 
-[<RequireQualifiedAccess>]
-type internal ManyMode =
-    | Continue
-    | Stop
-    | InfiniteLoop
-
 /// Matches zero or more characters that satisfy the given parser `p1`, and returns the string of matched characters.
 /// This parser always succeeds, even if no characters are matched, returning an empty string.
+/// Raises `InfiniteLoopException` if `p1` succeeds without consuming input — matches the
+/// behaviour of `many`, `sepBy*`, `manyTill`, and `chainl1`.
 let manyChars (p1: Parser<_, char, _, _>) (reader: Reader<char, 'State, 'Input>) =
     let pos = reader.Position
 
@@ -182,60 +178,52 @@ let manyChars (p1: Parser<_, char, _, _>) (reader: Reader<char, 'State, 'Input>)
         let sb = StringBuilder()
         let inline append (c: char) = sb.Append(c) |> ignore
         append s1
-        let mutable ok = ManyMode.Continue
+        let mutable ok = true
 
-        while ok = ManyMode.Continue do
+        while ok do
             let pos = reader.Position
 
             match p1 reader with
             | Ok sx ->
                 if pos = reader.Position then
-                    ok <- ManyMode.InfiniteLoop
+                    raise (InfiniteLoopException pos)
 
                 append sx
             | Error _ ->
                 reader.Position <- pos
-                ok <- ManyMode.Stop
+                ok <- false
 
-        match ok with
-        | ManyMode.InfiniteLoop -> fail ParseError.infiniteLoop reader
-        | ManyMode.Stop -> preturn (sb.ToString()) reader
-        | ManyMode.Continue ->
-            // This should never happen, but we handle it just in case.
-            invalidOp "Unexpected state in manyChars parser."
+        preturn (sb.ToString()) reader
     | Error err ->
         reader.Position <- pos
         preturn "" reader
 
 /// Matches one or more characters that satisfy the given parser `p1`, and returns the string of matched characters.
 /// This parser fails if no characters are matched.
+/// Raises `InfiniteLoopException` if `p1` succeeds without consuming input — matches the
+/// behaviour of `many1`, `sepBy1`, `many1Till`, and `chainl1`.
 let many1Chars (p1: Parser<_, char, _, _>) (reader: Reader<char, 'State, 'Input>) =
     match p1 reader with
     | Ok s1 ->
         let sb = StringBuilder()
         let inline append (c: char) = sb.Append(c) |> ignore
         append s1
-        let mutable ok = ManyMode.Continue
+        let mutable ok = true
 
-        while ok = ManyMode.Continue do
+        while ok do
             let pos = reader.Position
 
             match p1 reader with
             | Ok sx ->
                 if pos = reader.Position then
-                    ok <- ManyMode.InfiniteLoop
+                    raise (InfiniteLoopException pos)
 
                 append sx
             | Error _ ->
                 reader.Position <- pos
-                ok <- ManyMode.Stop
+                ok <- false
 
-        match ok with
-        | ManyMode.InfiniteLoop -> fail ParseError.infiniteLoop reader
-        | ManyMode.Stop -> preturn (sb.ToString()) reader
-        | ManyMode.Continue ->
-            // This should never happen, but we handle it just in case.
-            invalidOp "Unexpected state in manyChars parser."
+        preturn (sb.ToString()) reader
     | Error err -> Error err
 
 /// Matches zero or more whitespace characters (space, tab, carriage return, newline) and returns unit.
