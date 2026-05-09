@@ -5,8 +5,6 @@ open System.Collections.Immutable
 open System.Collections.Generic
 open XParsec
 
-#nowarn "44" // Suppress warning for obsolete member usage
-
 /// Operator precedence is used to determine the order of operations in expressions.
 /// Operators with higher precedence are evaluated first, resulting in the higher value appearing in the inner expression.
 type Precedence =
@@ -878,11 +876,6 @@ module Operator =
     let enclosedBy op closeOp precedence parseOp parseCloseOp complete =
         let power = Precedence.bindingPower precedence
         LHS(Enclosed(op, parseOp, power, closeOp, parseCloseOp, complete))
-
-    /// Creates an operator defining a pair of brackets with the specified properties.
-    [<Obsolete("Use 'enclosedBy' for clarity.")>]
-    let brackets op closeOp precedence parseOp parseCloseOp complete =
-        enclosedBy op closeOp precedence parseOp parseCloseOp complete
 
     /// Creates an indexer operator with the specified properties.
     let indexer op closeOp precedence parseOp innerParser parseCloseOp complete =
