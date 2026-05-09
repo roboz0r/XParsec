@@ -61,6 +61,8 @@ let pNum = pint32
 These combinators allow you to try different parsing paths or handle optional parts of a grammar.
 
 > **Note on Backtracking:** Unlike some other parser libraries, XParsec's `choice` and `<|>` operators **imply backtracking**. If a parser fails after consuming input, the stream is automatically rewound to the start position before trying the next alternative.
+>
+> **For FParsec users:** XParsec has no `attempt` combinator because every `<|>`, `choice`, and `choiceL` already behaves like one. The reader's position (and user state) are saved before each branch runs and restored on failure, regardless of how much input was consumed. Drop `attempt` calls when migrating; the position-save itself is just a struct copy. If you specifically need "fail in place when input was consumed", use `notFollowedBy`/`<?>` to guard or relabel.
 
 For these examples, we'll use:
 
