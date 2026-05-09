@@ -92,7 +92,7 @@ type LineIndex(endings: ImmutableArray<int>, maxIndex) =
             invalidArg "maxLength" "maxLength must be non-negative"
 
         if maxLength > input.Length then
-            raise (ArgumentOutOfRangeException $"maxLength must be less than or equal to {input.Length}")
+            raise (ArgumentOutOfRangeException(nameof maxLength))
 
         let reader = Reader.ofString input ()
         let reader = reader.Slice(0, maxLength)
