@@ -1,10 +1,9 @@
 name: Publish to NuGet
 
 on:
-  workflow_run:
-    workflows: [Build main]
-    types:
-      - completed
+  push:
+    tags:
+      - 'v*'
 
 env:
   CONFIGURATION: Release
@@ -13,8 +12,6 @@ env:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' && (github.event.workflow_run.event == 'push' || (github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.pull_request.merged == true)) }}
-
 
     steps:
       - uses: actions/checkout@v4
@@ -29,14 +26,21 @@ jobs:
           [xml]$BuildProps = Get-Content ./Directory.Build.props
           $PackageVersion = $BuildProps.Project.PropertyGroup.PackageVersion
           [semver]$PackageVersion = "$PackageVersion".Trim()
-          Write-Output "Current branch is '$env:GITHUB_REF_NAME'"
+          $TagName = $env:GITHUB_REF_NAME
+          $TagVersion = $TagName -replace '^v', ''
+          Write-Output "Pushed tag is '$TagName' (version: '$TagVersion')"
+          Write-Output "PackageVersion in Directory.Build.props is '$PackageVersion'"
+          if ("$PackageVersion" -ne "$TagVersion") {
+            Write-Error "Tag version '$TagVersion' does not match PackageVersion '$PackageVersion' in Directory.Build.props"
+            exit 1
+          }
           Write-Output "Creating Packages with version='$PackageVersion'"
           Write-Output "PACKAGE_VERSION=$PackageVersion" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Pack Published Projects
         shell: pwsh
         run: |
-          $Project = "./src/XParsec/XParsec.fsproj" 
+          $Project = "./src/XParsec/XParsec.fsproj"
           dotnet restore $Project
           dotnet list $Project package
           dotnet pack $Project
