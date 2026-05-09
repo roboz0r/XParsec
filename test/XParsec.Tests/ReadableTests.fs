@@ -239,4 +239,42 @@ let tests =
                 assertReadableSemantics "Empty ReadableMemory" readable [||]
             }
 #endif
+
+            test "Reader.Slice 2-arg resets state to unit" {
+                let reader = Reader.ofString "hello world" 42
+                reader.SkipN 6
+                let child = reader.Slice(0, 5)
+                "Child reader's state should be unit" |> Expect.equal child.State ()
+                "Child reader's index should start at 0" |> Expect.equal child.Index 0
+                "Child reader's length should match the slice" |> Expect.equal child.Length 5
+            }
+
+            test "Reader.Slice 3-arg seeds explicit state" {
+                let reader = Reader.ofString "hello world" 42
+                reader.SkipN 6
+                let child = reader.Slice(0, 5, "child-state")
+                "Child reader's state should be the explicit value"
+                |> Expect.equal child.State "child-state"
+                "Child reader's index should start at 0" |> Expect.equal child.Index 0
+            }
+
+            test "Reader.SkipN rejects negative count" {
+                let reader = Reader.ofString "hello" ()
+                reader.SkipN 3
+
+                let mutable threw = false
+
+                try
+                    reader.SkipN(-2)
+                with
+#if !FABLE_COMPILER
+                | :? ArgumentException -> threw <- true
+#else
+                | _ -> threw <- true
+#endif
+
+                "Negative SkipN should throw" |> Expect.isTrue threw
+                "Reader index should be unchanged after the rejected call"
+                |> Expect.equal reader.Index 3
+            }
         ]

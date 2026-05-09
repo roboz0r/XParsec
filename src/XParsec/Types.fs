@@ -113,7 +113,9 @@ type Reader<'T, 'State, 'Input when 'Input :> IReadable<'T, 'Input>>(input: 'Inp
             invalidOp "Attempted to skip past end of input"
 
     member _.SkipN(count) =
-        if index + count > input.Length then
+        if count < 0 then
+            invalidArg (nameof count) "count must be non-negative; rewind by setting Index directly."
+        elif index + count > input.Length then
             invalidOp "Attempted to skip past end of input"
         else
             index <- index + count
@@ -127,12 +129,31 @@ type Reader<'T, 'State, 'Input when 'Input :> IReadable<'T, 'Input>>(input: 'Inp
 
         x
 
-    member _.Current = input.TryItem(index)
     member _.AtEnd = index >= input.Length
 
+    /// <summary>
+    /// Creates a child Reader over a slice of the current input, starting at
+    /// <paramref name="newStart"/> items past the current position and spanning
+    /// <paramref name="newLength"/> items. The child reader's state is reset to
+    /// <c>unit</c> — use the three-arg overload to seed an explicit state.
+    /// </summary>
+    /// <remarks>
+    /// Slicing is the standard way to run a sub-parser over a bounded region with
+    /// a fresh (and possibly differently-typed) state. The child reader has its
+    /// own <c>ReaderId</c>; <c>Position</c> values cross between parent and child
+    /// readers will be rejected by the position setter.
+    /// </remarks>
     member _.Slice(newStart, newLength) =
         Reader(input.Slice(index + newStart, newLength), (), 0)
 
+    /// <summary>
+    /// Creates a child Reader over a slice of the current input with an explicit
+    /// initial state. The state type may differ from the parent reader's.
+    /// </summary>
+    /// <remarks>
+    /// See the two-arg <c>Slice</c> for slicing semantics. The child reader has
+    /// its own <c>ReaderId</c> and is independent of the parent.
+    /// </remarks>
     member _.Slice(newStart, newLength, newState) =
         Reader(input.Slice(index + newStart, newLength), newState, 0)
 
