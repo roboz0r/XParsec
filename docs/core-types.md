@@ -86,7 +86,7 @@ let reader = Reader.ofString input ()
 
 // 4. Run the parser on the reader
 let result = myParser reader
-// val result : Result<char, ParseError<...>> = Ok { Parsed = 'h' }
+// val result : Result<char, ParseError<...>> = Ok 'h'
 ```
 
 The `Reader` module includes helpers for the most common input types:
@@ -104,18 +104,10 @@ The `Reader` module includes helpers for the most common input types:
 A parser returns a `ParseResult`, which is a standard F# `Result` type. This makes it easy to handle both success and failure using pattern matching.
 
 ```fsharp
-type ParseResult<'Parsed, 'T, 'State> = Result<ParseSuccess<'Parsed>, ParseError<'T, 'State>>
+type ParseResult<'Parsed, 'T, 'State> = Result<'Parsed, ParseError<'T, 'State>>
 ```
 
-### ParseSuccess
-
-On success, the result is `Ok` containing a `ParseSuccess` value.
-
-```fsharp
-type ParseSuccess<'Parsed> = { Parsed: 'Parsed }
-```
-
-- `Parsed`: The value that was successfully parsed.
+On success, the result is `Ok` carrying the parsed value directly. On failure, it's `Error` carrying a `ParseError`.
 
 ### ParseError
 
@@ -143,10 +135,15 @@ type IReadable<'T, 'Slice when 'Slice :> IReadable<'T, 'Slice>> =
     // 'Slice is the type of a readable slice
     abstract Item: int -> 'T with get
     abstract TryItem: index: int -> 'T voption
-    abstract SpanSlice: start: int * length: int -> ReadOnlySpan<'T>
+    // BCL-shaped overloads: throw ArgumentOutOfRangeException on overflow.
+    abstract AsSpan: unit -> ReadOnlySpan<'T>
+    abstract AsSpan: start: int -> ReadOnlySpan<'T>
+    abstract AsSpan: start: int * length: int -> ReadOnlySpan<'T>
     abstract Length: int
     abstract Slice: newStart: int * newLength: int -> 'Slice
 ```
+
+> **Note for Fable consumers:** Call sites are identical on both targets — `readable.AsSpan()`, `readable.AsSpan(start)`, and `readable.AsSpan(start, length)` all work. Internally, because JS classes can't dispatch by arity, the Fable build collapses the three abstract overloads into a single optional-arg member (`abstract AsSpan: ?start: int * ?length: int -> ReadOnlySpan<'T>`). If you implement a custom `IReadable`, gate the three explicit overloads behind `#if !FABLE_COMPILER` and provide a single `member _.AsSpan(?start, ?length)` under `#if FABLE_COMPILER` that defaults missing args via `defaultArg` (typically to `0` and `Length - start`).
 
 ### Position: A Snapshot in Time
 
