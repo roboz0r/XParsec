@@ -603,7 +603,7 @@ let pint8 reader =
 /// The parser fails
 /// - in place, if not at least one digit (including the 0 in the format specifiers 0x etc.) can be parsed,
 /// - if no digit comes after the format specifier,
-/// - if the value represented by the input string is greater than System.Int64.MaxValue or less than System.Int64.MinValue.
+/// - if the value represented by the input string is greater than UInt64.MaxValue.
 /// </remarks>
 let puint64 reader = puint UInt64.MaxValue reader
 
@@ -614,7 +614,7 @@ let puint64 reader = puint UInt64.MaxValue reader
 /// The parser fails
 /// - in place, if not at least one digit (including the 0 in the format specifiers 0x etc.) can be parsed,
 /// - if no digit comes after the format specifier,
-/// - if the value represented by the input string is greater than System.Int64.MaxValue or less than System.Int64.MinValue.
+/// - if the value represented by the input string is greater than UInt32.MaxValue.
 /// </remarks>
 let puint32 reader =
     puint (uint64 UInt32.MaxValue) |>> uint32 <| reader
@@ -626,7 +626,7 @@ let puint32 reader =
 /// The parser fails
 /// - in place, if not at least one digit (including the 0 in the format specifiers 0x etc.) can be parsed,
 /// - if no digit comes after the format specifier,
-/// - if the value represented by the input string is greater than System.Int64.MaxValue or less than System.Int64.MinValue.
+/// - if the value represented by the input string is greater than UInt16.MaxValue.
 /// </remarks>
 let puint16 reader =
     puint (uint64 UInt16.MaxValue) |>> uint16 <| reader
@@ -638,7 +638,7 @@ let puint16 reader =
 /// The parser fails
 /// - in place, if not at least one digit (including the 0 in the format specifiers 0x etc.) can be parsed,
 /// - if no digit comes after the format specifier,
-/// - if the value represented by the input string is greater than System.Int64.MaxValue or less than System.Int64.MinValue.
+/// - if the value represented by the input string is greater than Byte.MaxValue.
 /// </remarks>
 let puint8 reader =
     puint (uint64 Byte.MaxValue) |>> uint8 <| reader
@@ -706,13 +706,13 @@ module internal BigIntParsers =
         | _ -> value
 
 /// <summary>
-/// Parses a signed or unsigned integer in decimal, hexadecimal, octal or binary format.
+/// Parses a signed integer of arbitrary precision in decimal, hexadecimal (0[xX]),
+/// octal (0[oO]) or binary (0[bB]) format. The result is unbounded — there is no overflow.
 /// </summary>
 /// <remarks>
 /// The parser fails
 /// - in place, if not at least one digit (including the 0 in the format specifiers 0x etc.) can be parsed,
-/// - if no digit comes after the format specifier,
-/// - if the value represented by the input string is greater than System.Int64.MaxValue or less than System.Int64.MinValue.
+/// - if no digit comes after the format specifier.
 /// </remarks>
 let pbigint (reader: Reader<char, 'State, 'Input>) =
     let sign = BigIntParsers.psign reader
