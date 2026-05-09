@@ -155,6 +155,31 @@ let tests =
                     confirm msg input expected (stringReturn "Hello" 1)
             }
 
+            test "pstring empty matches everywhere without consuming" {
+                // An empty needle vacuously matches at any position, including end-of-input.
+                let cases = [ "abc", Ok ""; "", Ok "" ]
+
+                for input, expected in cases do
+                    let msg = $"Parsing '{input}' with pstring \"\" failed."
+                    confirmAt msg input expected 0 (pstring "")
+            }
+
+            test "stringCIReturn empty matches everywhere without consuming" {
+                let cases = [ "abc", Ok 42; "", Ok 42 ]
+
+                for input, expected in cases do
+                    let msg = $"Parsing '{input}' with stringCIReturn \"\" 42 failed."
+                    confirmAt msg input expected 0 (stringCIReturn "" 42)
+            }
+
+            test "stringReturn empty matches everywhere without consuming" {
+                let cases = [ "abc", Ok 42; "", Ok 42 ]
+
+                for input, expected in cases do
+                    let msg = $"Parsing '{input}' with stringReturn \"\" 42 failed."
+                    confirmAt msg input expected 0 (stringReturn "" 42)
+            }
+
             test "asciiLetter" {
                 let cases =
                     [
@@ -187,20 +212,41 @@ let tests =
             }
 
             test "manyChars infinite loop protection" {
-                let cases = [ "Hello", Error ParseError.infiniteLoop ]
+                // A parser that succeeds without consuming should make manyChars
+                // throw InfiniteLoopException, matching `many` and friends.
+                let p =
+                    parser {
+                        let! pos = getPosition
+                        let! result = anyChar
+                        do! setPosition pos
+                        return result
+                    }
 
-                for input, expected in cases do
-                    let msg = $"Parsing '{input}' with manyChars failed."
+                let reader = Reader.ofString "Hello" ()
+#if FABLE_COMPILER
+                "Inf Loop" |> Expect.throws (fun () -> manyChars p reader |> ignore)
+#else
+                "Inf Loop"
+                |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> manyChars p reader |> ignore)
+#endif
+            }
 
-                    let p =
-                        parser {
-                            let! pos = getPosition
-                            let! result = anyChar
-                            do! setPosition pos
-                            return result
-                        }
+            test "many1Chars infinite loop protection" {
+                let p =
+                    parser {
+                        let! pos = getPosition
+                        let! result = anyChar
+                        do! setPosition pos
+                        return result
+                    }
 
-                    confirm msg input expected (manyChars p)
+                let reader = Reader.ofString "Hello" ()
+#if FABLE_COMPILER
+                "Inf Loop" |> Expect.throws (fun () -> many1Chars p reader |> ignore)
+#else
+                "Inf Loop"
+                |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> many1Chars p reader |> ignore)
+#endif
             }
 
             test "many1Chars" {

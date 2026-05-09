@@ -276,6 +276,33 @@ let tests =
                     "" |> Expect.equal reader.Index 5
                 | Error e -> failwithf "%A" e
             }
+
+            test "PSeq empty array matches without consuming" {
+                // Empty needle vacuously matches at any position, including end-of-input.
+                let inputs = [ "input"; "" ]
+
+                for input in inputs do
+                    let p = pseq (Array.empty<char>)
+                    let reader = Reader.ofString input ()
+
+                    match p reader with
+                    | Ok _ -> $"Reader should not advance for '{input}'." |> Expect.equal reader.Index 0
+                    | Error e -> failwithf "Empty pseq on '%s' failed: %A" input e
+            }
+
+            test "PSeqReturn empty array matches without consuming" {
+                let inputs = [ "input"; "" ]
+
+                for input in inputs do
+                    let p = pseqReturn (Array.empty<char>) 42
+                    let reader = Reader.ofString input ()
+
+                    match p reader with
+                    | Ok value ->
+                        $"Result mismatch for '{input}'." |> Expect.equal value 42
+                        $"Reader should not advance for '{input}'." |> Expect.equal reader.Index 0
+                    | Error e -> failwithf "Empty pseqReturn on '%s' failed: %A" input e
+            }
             test "fold - Summation" {
                 // Inputs: "123"
                 // Behavior: Parse digits as ints and sum them up

@@ -149,6 +149,27 @@ let tests =
                 |> Expect.equal actualIndices expectedIndices
             }
 
+            test "LineIndex.OfString rejects maxLength > input.Length" {
+                let input = "abc"
+
+                try
+                    let _ = LineIndex.OfString(input, 99)
+                    failwith "Should have thrown"
+                with
+#if !FABLE_COMPILER
+                | :? ArgumentOutOfRangeException as ex ->
+                    "ParamName should identify the offending argument, not carry the message"
+                    |> Expect.equal ex.ParamName "maxLength"
+#else
+                // Fable's runtime type test for ArgumentOutOfRangeException doesn't match,
+                // and ParamName isn't exposed — fall back to checking the exception message
+                // mentions the offending argument.
+                | ex ->
+                    "Exception message should mention maxLength"
+                    |> Expect.isTrue (ex.Message.Contains "maxLength")
+#endif
+            }
+
             test "Format Message" {
                 let input = Reader.ofString "test" ()
                 let p = (pchar 'a') <?> "Error message"

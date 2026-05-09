@@ -1458,6 +1458,36 @@ let tests =
 #endif
             }
 
+            test "ManyTill error position points to where p and pEnd both failed" {
+                // After consuming "ab", neither p ('a' or 'b') nor pEnd ("END") can match "X".
+                // The error position should be 2, not 0 (manyTill's start).
+                let input = "abX"
+                let p1 = pchar 'a' <|> pchar 'b'
+                let pEnd = pstring "END"
+                let p = manyTill p1 pEnd
+                let reader = Reader.ofString input ()
+
+                match p reader with
+                | Ok result -> failwithf "Should have failed but got %A" result
+                | Error e ->
+                    "Error should be reported at position 2 (after 'ab' was consumed)"
+                    |> Expect.equal e.Position.Index 2
+            }
+
+            test "SkipManyTill error position points to where p and pEnd both failed" {
+                let input = "abX"
+                let p1 = pchar 'a' <|> pchar 'b'
+                let pEnd = pstring "END"
+                let p = skipManyTill p1 pEnd
+                let reader = Reader.ofString input ()
+
+                match p reader with
+                | Ok result -> failwithf "Should have failed but got %A" result
+                | Error e ->
+                    "Error should be reported at position 2 (after 'ab' was consumed)"
+                    |> Expect.equal e.Position.Index 2
+            }
+
             test "ManyTill with ambiguous pEnd" {
                 let input = "aa"
                 let p1 = pchar 'a' <|> pchar 'b'
