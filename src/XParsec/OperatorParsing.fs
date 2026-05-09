@@ -569,19 +569,19 @@ module internal rec Pratt =
             | Ok delimTok ->
                 match parseLhsInternal pExpr ops Precedence.MinP reader with
                 | Ok { Expr = body; Error = errBody } ->
+                    // Compute the (errCond, errBody) merge once; the original code
+                    // recomputed it three times across the success/failure arms.
+                    let condBodyErr = mergeSoftErrors errCond errBody
+
                     match
-                        parseRhsInternal
-                            pExpr
-                            ops
-                            minBinding
-                            (complete op condition delimTok body)
-                            (mergeSoftErrors errCond errBody)
-                            reader
+                        parseRhsInternal pExpr ops minBinding (complete op condition delimTok body) condBodyErr reader
                     with
                     | Ok { Expr = finalExpr; Error = errFinal } ->
-                        let combined = mergeSoftErrors errCond errBody |> mergeSoftErrors errFinal
+                        // Argument order matters — `mergeSoftErrors` takes its position and
+                        // child-order from `e2`. Mirrors the original `condBodyErr |> mergeSoftErrors errFinal`.
+                        let combined = mergeSoftErrors errFinal condBodyErr
                         preturn (PrattParsed.withError finalExpr combined) reader
-                    | Error e -> Error(mergeWithError e (mergeSoftErrors errCond errBody))
+                    | Error e -> Error(mergeWithError e condBodyErr)
                 | Error e -> Error(mergeWithError e errCond)
             | Error e ->
                 let expectedMsg =
