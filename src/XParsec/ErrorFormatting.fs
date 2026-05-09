@@ -39,7 +39,7 @@ type LineIndex(endings: ImmutableArray<int>, maxIndex) =
             let minV = endings.[0]
 
             if index <= minV then
-                1, index + 1
+                struct (1, index + 1)
             else
                 // Binary search for the line number
                 let rec findIndex low high =
@@ -61,8 +61,8 @@ type LineIndex(endings: ImmutableArray<int>, maxIndex) =
                 let iLine = findIndex 0 (endings.Length - 1)
 
                 match index - endings.[iLine] with
-                | 0 -> iLine + 1, index - endings.[iLine - 1]
-                | col -> iLine + 2, col
+                | 0 -> struct (iLine + 1, index - endings.[iLine - 1])
+                | col -> struct (iLine + 2, col)
 
     member _.GetIndex(line: int, col: int) =
         if line < 1 then

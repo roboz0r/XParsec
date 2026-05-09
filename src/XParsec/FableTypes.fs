@@ -150,6 +150,10 @@ type ImmutableArray =
     static member inline Create<'T>(a: 'T, b: 'T) = { Array = [| a; b |] }
     static member inline Create<'T>(a: 'T, b: 'T, c: 'T) = { Array = [| a; b; c |] }
     static member inline Create<'T>(a: 'T, b: 'T, c: 'T, d: 'T) = { Array = [| a; b; c; d |] }
+
+    static member inline Create<'T>(items: 'T array, start: int, length: int) =
+        { Array = Array.sub items start length }
+
     static member inline CreateRange<'T>(xs: 'T seq) = { Array = Array.ofSeq<'T> xs }
     static member inline CreateBuilder<'T>() = ResizeArray<'T>()
     static member inline CreateBuilder<'T>(initialCapacity: int) = ResizeArray<'T>(initialCapacity)

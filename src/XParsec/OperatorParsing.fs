@@ -260,6 +260,11 @@ module internal rec Pratt =
     open Parsers
     // Pratt parsing based on https://matklad.github.io/2020/04/13/simple-but-powerful-pratt-parsing.html
 
+    // SENTINEL — `mergeSoftErrors` and `mergeWithError` use structural equality
+    // (`aParent = failure`) to recognise nests they themselves built and merge them
+    // flat. Editing this string changes that recognition silently — same-value
+    // `Message` values from elsewhere will start absorbing into the merged tree.
+    // If you need to rename, also update the `when ... = failure` guards below.
     let private failure = Message "Operator parsing failed"
     let private ambiguous = Message "Ambiguous operator associativity"
 
@@ -893,6 +898,10 @@ module Operator =
         let power = Precedence.bindingPower precedence
         LHS(LHSTernary(op, parseOp, power, delimiter, parseDelimiter, complete))
 
+    /// Creates a generalised infix operator whose right-hand side is parsed by a
+    /// custom <paramref name="parseRight"/> rather than by the Pratt expression
+    /// parser. Useful for syntax where the RHS is not itself an expression —
+    /// member access (`.member`), type tests (`is T` / `as T`), and similar.
     let infixMapped op precedence parseOp parseRight complete =
         let power = Precedence.bindingPower precedence
         RHS(InfixMapped(op, parseOp, power, parseRight, complete))

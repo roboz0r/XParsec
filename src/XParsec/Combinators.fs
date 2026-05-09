@@ -268,7 +268,26 @@ module Combinators =
             return f s1 s2 s3 s4 s5
         }
 
-    /// Applies the parser `p1` and, if it fails, applies the parser `p2`. Returns the result of the first parser that succeeds, or both errors if both fail.
+    /// <summary>
+    /// Applies the parser <paramref name="p1"/> and, if it fails, restores the reader
+    /// position and applies <paramref name="p2"/>. Returns the result of the first
+    /// parser that succeeds, or both errors if both fail.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// XParsec's <c>&lt;|&gt;</c> <strong>always backtracks</strong> on failure of
+    /// <paramref name="p1"/> — regardless of how much input <paramref name="p1"/>
+    /// consumed before failing. This is unlike FParsec, where <c>&lt;|&gt;</c> only
+    /// tries the right-hand side if the LHS failed without consuming input.
+    /// </para>
+    /// <para>
+    /// As a consequence, XParsec has <strong>no <c>attempt</c> combinator</strong>:
+    /// every alternative already behaves like one. The position-save is a struct
+    /// copy, so the always-backtrack default is cheap. If you need "fail fast when
+    /// input was consumed", reach for <c>notFollowedBy</c> or <c>&lt;?&gt;</c> to
+    /// gate or relabel instead.
+    /// </para>
+    /// </remarks>
     let inline (<|>)
         ([<InlineIfLambda>] p1: Parser<'A, 'T, 'State, 'Input>)
         ([<InlineIfLambda>] p2: Parser<'A, 'T, 'State, 'Input>)
@@ -293,10 +312,22 @@ module Combinators =
                 | false, false -> ParseError.createNested ParseError.bothFailed [ err1; err2 ] p
 
     /// <summary>
-    /// Applies the parsers `ps` in order. Returns the result of the first parser that succeeds, or all errors if all fail.
+    /// Applies the parsers <paramref name="ps"/> in order. Returns the result of
+    /// the first parser that succeeds, or a nested error containing every branch's
+    /// failure if all fail.
     /// </summary>
     /// <remarks>
-    /// Accumulating all errors may be costly, prefer `choiceL` if the errors are not needed.
+    /// <para>
+    /// Like <c>&lt;|&gt;</c>, <c>choice</c> <strong>always backtracks</strong>:
+    /// if a branch fails after consuming input, the reader position is restored
+    /// before the next branch runs. There is no per-branch <c>attempt</c> needed
+    /// — XParsec has no <c>attempt</c> at all. This is unlike FParsec, where
+    /// <c>choice</c> only continues if a branch failed without consuming input.
+    /// </para>
+    /// <para>
+    /// Accumulating every branch's error allocates a list per call; prefer
+    /// <c>choiceL</c> when the per-branch detail isn't needed.
+    /// </para>
     /// </remarks>
     let choice (ps: Parser<'A, 'T, 'State, 'Input> seq) : Parser<'A, 'T, 'State, 'Input> =
         let parsers = ps |> Seq.toArray
@@ -327,7 +358,18 @@ module Combinators =
                     ParseError.createNested ParseError.allChoicesFailed (List.ofSeq errs) p
             | ValueSome x -> Ok x
 
-    /// Applies the parsers `ps` in order. Returns the result of the first parser that succeeds, or fails with the given message if all fail.
+    /// <summary>
+    /// Applies the parsers <paramref name="ps"/> in order. Returns the result of
+    /// the first parser that succeeds, or fails with the given <paramref name="message"/>
+    /// if all fail — discarding the per-branch errors that <c>choice</c> would have
+    /// accumulated.
+    /// </summary>
+    /// <remarks>
+    /// Same backtracking semantics as <c>choice</c> and <c>&lt;|&gt;</c>: every
+    /// branch is tried with the reader rewound to the entry position. Use this
+    /// over <c>choice</c> when you can supply a clearer top-level error than the
+    /// nested per-branch tree.
+    /// </remarks>
     let choiceL (ps: Parser<'A, 'T, 'State, 'Input> seq) message : Parser<'A, 'T, 'State, 'Input> =
         let parsers = ps |> Seq.toArray
 
@@ -559,7 +601,17 @@ module Combinators =
             return struct (s1, s2, s3, s4, s5)
         }
 
-    /// Applies the parser `p` `n` times, if it always succeeds, returns the result of `p` as an ImmutableArray of size `n`.
+    /// <summary>
+    /// Applies the parser <paramref name="p"/> exactly <paramref name="n"/> times.
+    /// If every application succeeds, returns the results as an <c>ImmutableArray</c>
+    /// of length <paramref name="n"/>. Stops and propagates the inner error on the
+    /// first failure.
+    /// </summary>
+    /// <remarks>
+    /// Builds via <see cref="SmallArrayBuilder{T}"/>, so counts ≤ 4 avoid
+    /// allocating an <c>ImmutableArray.Builder</c>. Use
+    /// <see cref="skipArray"/> when you only need the side effect.
+    /// </remarks>
     let parray n (p: Parser<'A, 'T, 'State, 'Input>) (reader: Reader<_, _, _>) =
         let xs = ImmutableArray.CreateBuilder n
         let mutable i = 0
@@ -579,7 +631,15 @@ module Combinators =
             | ValueNone -> failwith "Unreachable"
             | ValueSome err -> Error err
 
-    /// Applies the parser `p` `n` times, if it always succeeds, returns unit.
+    /// <summary>
+    /// Applies the parser <paramref name="p"/> exactly <paramref name="n"/> times,
+    /// discarding the results. Returns <c>unit</c> on full success, or propagates
+    /// the inner error on the first failure.
+    /// </summary>
+    /// <remarks>
+    /// Equivalent to <c>parray n p |>> ignore</c> but without allocating the
+    /// intermediate result array. Use this when you only need to advance the reader.
+    /// </remarks>
     let skipArray n (p: Parser<'A, 'T, 'State, 'Input>) (reader: Reader<_, _, _>) =
         let mutable i = 0
         let mutable err = ValueNone

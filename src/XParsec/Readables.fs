@@ -244,12 +244,7 @@ type ReadableArray<'T>(arr: 'T array, start: int, length: int) =
         if length = 0 then
             ImmutableArray<'T>.Empty
         else
-            let builder = ImmutableArray.CreateBuilder<'T>(length)
-
-            for i in 0 .. length - 1 do
-                builder.Add(arr.[start + i])
-
-            builder.MoveToImmutable()
+            ImmutableArray.Create(arr, start, length)
 
     interface IReadable<'T, ReadableArray<'T>> with
         member this.Item

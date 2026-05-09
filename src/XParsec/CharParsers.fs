@@ -730,23 +730,6 @@ let pbigint (reader: Reader<char, 'State, 'Input>) =
             let v = value * sign
             preturn v reader
 
-// val pfloat: Parser<float,'u>
-// Parses a floating point number in the decimal format (in regular expression notation)
-
-// [0-9]+(\.[0-9]*)?([eE][+-]?[0-9]+)?
-// or the hexadecimal format
-
-// 0[xX][0-9a-fA-F]+(\.[0-9a-fA-F]*)?([pP][+-]?[0-9]+)?
-// (as supported by IEEE 754r, C99 and Java, where e.g. 0x1f.cP-5 represents 31.75 * 2‒5).
-
-// The special values NaN and Inf(inity)? (case‐insensitive) are also recognized. All recognized numbers may be prefixed with a plus or minus sign.
-
-// Fractions without a leading digit, as for example “.5”, are not supported.
-
-// The parser fails
-
-// without consuming input, if not at least one digit (including the 0 in 0x) can be parsed,
-// after consuming input, if no digit comes after an exponent marker or no hex digit comes after 0x.
 
 module internal FloatParsers =
     let convertToFloat (significand: bigint) (exponent: int) reader =
@@ -901,6 +884,21 @@ module internal FloatParsers =
                 | Ok v -> Ok v
                 | Error _ -> parseHexOrDecFloat reader
 
+/// <summary>
+/// Parses a floating-point number, accepting decimal, hexadecimal, and IEEE
+/// special-value forms.
+/// </summary>
+/// <remarks>
+/// Decimal: <c>[0-9]+(\.[0-9]*)?([eE][+-]?[0-9]+)?</c><br/>
+/// Hexadecimal: <c>0[xX][0-9a-fA-F]+(\.[0-9a-fA-F]*)?([pP][+-]?[0-9]+)?</c>
+/// (IEEE 754r / C99 / Java syntax, e.g. <c>0x1f.cP-5</c> = 31.75 * 2⁻⁵).<br/>
+/// Special values: <c>NaN</c>, <c>Inf(inity)?</c> (case-insensitive). All forms
+/// may be prefixed with <c>+</c> or <c>-</c>. Leading-dot fractions like
+/// <c>.5</c> are not accepted.
+///
+/// <para>Fails in place if no digit (including the 0 in 0x) is parsed.
+/// Fails after consuming input if a format prefix is followed by no digits.</para>
+/// </remarks>
 let pfloat (reader: Reader<char, 'State, 'Input>) = FloatParsers.parseFloat reader
 
 let private anyStringByReturnImpl (comp: StringComparison) (xs: (string * 'T) seq) (maybeMessage: string option) =
