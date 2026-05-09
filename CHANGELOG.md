@@ -75,7 +75,6 @@
 - `spaces` / `spaces1` no longer build a `StringBuilder` they immediately discard — they now drive `skipManySatisfies` / `skipMany1Satisfies` directly. `spaces1` keeps its labelled error via `<?>` for both the wrong-first-char and end-of-input failure paths.
 - `pchar`, `skipChar`, `charReturn`, `anyChar`, `skipAnyChar`, `pstring`, `stringReturn`, and `stringCIReturn` are now `inline`, so they don't discard the inlining work of the primitives they delegate to.
 - `Pratt.lhsTernary` computes `mergeSoftErrors errCond errBody` once and reuses it across the success and failure branches instead of recomputing it three times.
-- `parray` builds its result via `SmallArrayBuilder<'T>` — no `ImmutableArray.Builder` allocation for `n ≤ 4`.
 - `Pratt` module's soft-error accumulator now uses `ErrorType.Empty` directly instead of wrapping every `ParseError` in a `voption`. Removes one struct-of-struct layer through `mergeSoftErrors`, `mergeWithError`, `PrattParsed.Error`, and the per-case helpers (`rhsInfix`, `rhsInfixNary`, `rhsInfixMapped`, `rhsIndexer`, `rhsTernary`, `lhsPrefix`, `lhsEnclosed`, `lhsTernary`, `parseRhsInternal`, `parseLhsInternal`).
 - Fable workaround in `Operator.create` removed: `(rhsParseOp op >>% op)` and `(lhsParseOp op >>% op)` are no longer wrapped in lambdas to dodge fable-compiler/Fable#4031, which is fixed in Fable 5. Repo's Fable tool minimum bumped from 4.25.0 → 5.0.0.
 
