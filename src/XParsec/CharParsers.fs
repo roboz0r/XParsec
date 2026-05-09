@@ -97,40 +97,52 @@ let skipAnyChar (reader: Reader<char, 'State, 'Input>) =
     | _ -> fail EndOfInput reader
 
 /// Succeeds if the next characters in the reader match the given string, and consumes the characters. Returns the string, otherwise fails with the Expected string.
+/// An empty string vacuously matches at any position (including end-of-input) and consumes nothing.
 let pstring (s: string) (reader: Reader<char, 'State, 'Input>) =
-    let span = reader.PeekN(s.Length)
-
-    if span.IsEmpty then
-        fail EndOfInput reader
-    elif MemoryExtensions.Equals(s.AsSpan(), span, StringComparison.Ordinal) then
-        reader.SkipN(s.Length)
+    if s.Length = 0 then
         preturn s reader
     else
-        fail (ExpectedSeq s) reader
+        let span = reader.PeekN(s.Length)
+
+        if span.IsEmpty then
+            fail EndOfInput reader
+        elif MemoryExtensions.Equals(s.AsSpan(), span, StringComparison.Ordinal) then
+            reader.SkipN(s.Length)
+            preturn s reader
+        else
+            fail (ExpectedSeq s) reader
 
 /// Succeeds if the next characters in the reader match the given string (case insensitive), and consumes the characters. Returns `result`.
+/// An empty string vacuously matches at any position (including end-of-input) and consumes nothing.
 let stringCIReturn (s: string) (result) (reader: Reader<char, 'State, 'Input>) =
-    let span = reader.PeekN(s.Length)
-
-    if span.IsEmpty then
-        fail EndOfInput reader
-    elif MemoryExtensions.Equals(s.AsSpan(), span, StringComparison.OrdinalIgnoreCase) then
-        reader.SkipN(s.Length)
+    if s.Length = 0 then
         preturn result reader
     else
-        fail (ExpectedSeq s) reader
+        let span = reader.PeekN(s.Length)
 
-/// Succeeds if the next characters in the reader match the given string (case insensitive), and consumes the characters. Returns `result`.
+        if span.IsEmpty then
+            fail EndOfInput reader
+        elif MemoryExtensions.Equals(s.AsSpan(), span, StringComparison.OrdinalIgnoreCase) then
+            reader.SkipN(s.Length)
+            preturn result reader
+        else
+            fail (ExpectedSeq s) reader
+
+/// Succeeds if the next characters in the reader match the given string, and consumes the characters. Returns `result`.
+/// An empty string vacuously matches at any position (including end-of-input) and consumes nothing.
 let stringReturn (s: string) (result) (reader: Reader<char, 'State, 'Input>) =
-    let span = reader.PeekN(s.Length)
-
-    if span.IsEmpty then
-        fail EndOfInput reader
-    elif MemoryExtensions.Equals(s.AsSpan(), span, StringComparison.Ordinal) then
-        reader.SkipN(s.Length)
+    if s.Length = 0 then
         preturn result reader
     else
-        fail (ExpectedSeq s) reader
+        let span = reader.PeekN(s.Length)
+
+        if span.IsEmpty then
+            fail EndOfInput reader
+        elif MemoryExtensions.Equals(s.AsSpan(), span, StringComparison.Ordinal) then
+            reader.SkipN(s.Length)
+            preturn result reader
+        else
+            fail (ExpectedSeq s) reader
 
 /// Succeeds if the next character in the reader is an ASCII letter, and consumes one char. Returns the char.
 let asciiLetter (reader: Reader<char, 'State, 'Input>) =

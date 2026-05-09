@@ -121,61 +121,71 @@ module Parsers =
             | ValueNone -> fail EndOfInput reader
 
         let inline pArrayReturn (xs: 'T array) ret (reader: Reader<'T, 'State, 'Input>) =
-            let span = reader.PeekN xs.Length
-
-            if span.IsEmpty then
-                fail EndOfInput reader
-            else if MemoryExtensions.SequenceEqual(xs.AsSpan(), span) then
-                reader.SkipN xs.Length
+            // Empty needle vacuously matches at any position, including end-of-input.
+            if xs.Length = 0 then
                 preturn ret reader
             else
-                fail (ExpectedSeq xs) reader
+                let span = reader.PeekN xs.Length
 
-        let inline pImmArrayReturn (xs: ImmutableArray<'T>) ret (reader: Reader<'T, 'State, 'Input>) =
-            let span = reader.PeekN xs.Length
-
-            if span.IsEmpty then
-                fail EndOfInput reader
-            else if MemoryExtensions.SequenceEqual(xs.AsSpan(), span) then
-                reader.SkipN xs.Length
-                preturn ret reader
-            else
-                fail (ExpectedSeq xs) reader
-
-        let inline pResizeArrayReturn (xs: ResizeArray<'T>) ret (reader: Reader<'T, 'State, 'Input>) =
-            let span = reader.PeekN xs.Count
-
-            if span.IsEmpty then
-                fail EndOfInput reader
-            else
-#if !FABLE_COMPILER && NET5_0_OR_GREATER
-                let span1 = System.Runtime.InteropServices.CollectionsMarshal.AsSpan xs
-
-                if MemoryExtensions.SequenceEqual(span1, span) then
-                    reader.SkipN xs.Count
+                if span.IsEmpty then
+                    fail EndOfInput reader
+                else if MemoryExtensions.SequenceEqual(xs.AsSpan(), span) then
+                    reader.SkipN xs.Length
                     preturn ret reader
                 else
                     fail (ExpectedSeq xs) reader
-#else
-                let len = xs.Count
 
-                if span.Length <> len then
-                    fail (ExpectedSeq xs) reader
+        let inline pImmArrayReturn (xs: ImmutableArray<'T>) ret (reader: Reader<'T, 'State, 'Input>) =
+            if xs.Length = 0 then
+                preturn ret reader
+            else
+                let span = reader.PeekN xs.Length
+
+                if span.IsEmpty then
+                    fail EndOfInput reader
+                else if MemoryExtensions.SequenceEqual(xs.AsSpan(), span) then
+                    reader.SkipN xs.Length
+                    preturn ret reader
                 else
-                    let mutable i = 0
-                    let mutable success = true
+                    fail (ExpectedSeq xs) reader
 
-                    while success && i < xs.Count do
-                        if span.[i] <> xs.[i] then
-                            success <- false
+        let inline pResizeArrayReturn (xs: ResizeArray<'T>) ret (reader: Reader<'T, 'State, 'Input>) =
+            if xs.Count = 0 then
+                preturn ret reader
+            else
+                let span = reader.PeekN xs.Count
 
-                        i <- i + 1
+                if span.IsEmpty then
+                    fail EndOfInput reader
+                else
+#if !FABLE_COMPILER && NET5_0_OR_GREATER
+                    let span1 = System.Runtime.InteropServices.CollectionsMarshal.AsSpan xs
 
-                    if success then
-                        reader.SkipN len
+                    if MemoryExtensions.SequenceEqual(span1, span) then
+                        reader.SkipN xs.Count
                         preturn ret reader
                     else
                         fail (ExpectedSeq xs) reader
+#else
+                    let len = xs.Count
+
+                    if span.Length <> len then
+                        fail (ExpectedSeq xs) reader
+                    else
+                        let mutable i = 0
+                        let mutable success = true
+
+                        while success && i < xs.Count do
+                            if span.[i] <> xs.[i] then
+                                success <- false
+
+                            i <- i + 1
+
+                        if success then
+                            reader.SkipN len
+                            preturn ret reader
+                        else
+                            fail (ExpectedSeq xs) reader
 #endif
 
     /// Succeeds if the predicate is satisfied by the next item in the input, and consumes one item.
