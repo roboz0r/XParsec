@@ -815,22 +815,11 @@ module Operator =
             match op with
             | RHS op ->
                 rhsOps.Add(rhsOp op, op)
-#if FABLE_COMPILER
-                // Workaround for Fable compiler issue
-                // https://github.com/fable-compiler/Fable/issues/4031
-                // Fixed by https://github.com/fable-compiler/Fable/pull/4032 pending next release
-                rhsParsers <- (fun reader -> (rhsParseOp op >>% op) reader) :: rhsParsers
-#else
                 rhsParsers <- (rhsParseOp op >>% op) :: rhsParsers
-#endif
 
             | LHS op ->
                 lhsOps.Add(lhsOp op, op)
-#if FABLE_COMPILER
-                lhsParsers <- (fun reader -> (lhsParseOp op >>% op) reader) :: lhsParsers
-#else
                 lhsParsers <- (lhsParseOp op >>% op) :: lhsParsers
-#endif
 
         {
             LhsOperators = lhsOps.ToOperatorLookup()

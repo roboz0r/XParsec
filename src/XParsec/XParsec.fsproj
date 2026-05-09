@@ -35,7 +35,8 @@
     <!-- <PrivateAssets>all</PrivateAssets> -->
     <!-- </PackageReference> -->
     <PackageReference Include="FSharp.Core" />
-    <PackageReference Include="System.Collections.Immutable" />
+    <!-- net8+ ships System.Collections.Immutable in-box; only needed for netstandard2.0 -->
+    <PackageReference Include="System.Collections.Immutable" Condition="'$(TargetFramework)' == 'netstandard2.0'" />
   </ItemGroup>
   <Import Project="../Fable.Package.SDK/Fable.Package.SDK.props" />
   <Import Project="../Fable.Package.SDK/Fable.Package.SDK.targets" />

@@ -845,7 +845,12 @@ let tests =
                 let p = many p1
                 let reader = Reader.ofString input ()
 #if FABLE_COMPILER
-                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+                // Fable 5 rejects generic-arg type tests; check the message instead.
+                try
+                    let _ = p reader
+                    failwith "Should have thrown"
+                with ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
@@ -892,7 +897,12 @@ let tests =
                 let p = many1 p1
                 let reader = Reader.ofString input ()
 #if FABLE_COMPILER
-                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+                // Fable 5 rejects generic-arg type tests; check the message instead.
+                try
+                    let _ = p reader
+                    failwith "Should have thrown"
+                with ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
@@ -926,7 +936,12 @@ let tests =
                 let p = skipMany p1
                 let reader = Reader.ofString input ()
 #if FABLE_COMPILER
-                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+                // Fable 5 rejects generic-arg type tests; check the message instead.
+                try
+                    let _ = p reader
+                    failwith "Should have thrown"
+                with ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
@@ -965,7 +980,12 @@ let tests =
                 let p = skipMany1 p1
                 let reader = Reader.ofString input ()
 #if FABLE_COMPILER
-                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+                // Fable 5 rejects generic-arg type tests; check the message instead.
+                try
+                    let _ = p reader
+                    failwith "Should have thrown"
+                with ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
@@ -1114,7 +1134,12 @@ let tests =
                 let p = sepBy p1 p1
                 let reader = Reader.ofString input ()
 #if FABLE_COMPILER
-                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+                // Fable 5 rejects generic-arg type tests; check the message instead.
+                try
+                    let _ = p reader
+                    failwith "Should have thrown"
+                with ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
@@ -1158,7 +1183,12 @@ let tests =
                 let p = sepBy1 p1 p1
                 let reader = Reader.ofString input ()
 #if FABLE_COMPILER
-                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+                // Fable 5 rejects generic-arg type tests; check the message instead.
+                try
+                    let _ = p reader
+                    failwith "Should have thrown"
+                with ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
@@ -1193,7 +1223,12 @@ let tests =
                 let p = skipSepBy p1 p1
                 let reader = Reader.ofString input ()
 #if FABLE_COMPILER
-                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+                // Fable 5 rejects generic-arg type tests; check the message instead.
+                try
+                    let _ = p reader
+                    failwith "Should have thrown"
+                with ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
@@ -1233,7 +1268,12 @@ let tests =
                 let p = skipSepBy1 p1 p1
                 let reader = Reader.ofString input ()
 #if FABLE_COMPILER
-                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+                // Fable 5 rejects generic-arg type tests; check the message instead.
+                try
+                    let _ = p reader
+                    failwith "Should have thrown"
+                with ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
@@ -1294,7 +1334,12 @@ let tests =
                 let p = sepEndBy p1 p1
                 let reader = Reader.ofString input ()
 #if FABLE_COMPILER
-                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+                // Fable 5 rejects generic-arg type tests; check the message instead.
+                try
+                    let _ = p reader
+                    failwith "Should have thrown"
+                with ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
@@ -1339,7 +1384,12 @@ let tests =
                 let p = sepEndBy1 p1 p1
                 let reader = Reader.ofString input ()
 #if FABLE_COMPILER
-                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+                // Fable 5 rejects generic-arg type tests; check the message instead.
+                try
+                    let _ = p reader
+                    failwith "Should have thrown"
+                with ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
@@ -1374,7 +1424,12 @@ let tests =
                 let p = skipSepEndBy p1 p1
                 let reader = Reader.ofString input ()
 #if FABLE_COMPILER
-                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+                // Fable 5 rejects generic-arg type tests; check the message instead.
+                try
+                    let _ = p reader
+                    failwith "Should have thrown"
+                with ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
@@ -1414,7 +1469,12 @@ let tests =
                 let p = skipSepEndBy1 p1 p1
                 let reader = Reader.ofString input ()
 #if FABLE_COMPILER
-                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+                // Fable 5 rejects generic-arg type tests; check the message instead.
+                try
+                    let _ = p reader
+                    failwith "Should have thrown"
+                with ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
@@ -1451,7 +1511,12 @@ let tests =
                 let p = manyTill p1 p2
                 let reader = Reader.ofString input ()
 #if FABLE_COMPILER
-                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+                // Fable 5 rejects generic-arg type tests; check the message instead.
+                try
+                    let _ = p reader
+                    failwith "Should have thrown"
+                with ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
@@ -1549,7 +1614,12 @@ let tests =
                 let p = many1Till p1 p2
                 let reader = Reader.ofString input ()
 #if FABLE_COMPILER
-                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+                // Fable 5 rejects generic-arg type tests; check the message instead.
+                try
+                    let _ = p reader
+                    failwith "Should have thrown"
+                with ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
@@ -1584,7 +1654,12 @@ let tests =
                 let p = skipManyTill p1 p2
                 let reader = Reader.ofString input ()
 #if FABLE_COMPILER
-                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+                // Fable 5 rejects generic-arg type tests; check the message instead.
+                try
+                    let _ = p reader
+                    failwith "Should have thrown"
+                with ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
@@ -1658,7 +1733,12 @@ let tests =
                 let p = skipMany1Till p1 p2
                 let reader = Reader.ofString input ()
 #if FABLE_COMPILER
-                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+                // Fable 5 rejects generic-arg type tests; check the message instead.
+                try
+                    let _ = p reader
+                    failwith "Should have thrown"
+                with ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
@@ -1685,7 +1765,12 @@ let tests =
                 let p = chainl1 p1 p2
                 let reader = Reader.ofString input ()
 #if FABLE_COMPILER
-                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+                // Fable 5 rejects generic-arg type tests; check the message instead.
+                try
+                    let _ = p reader
+                    failwith "Should have thrown"
+                with ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
@@ -1720,7 +1805,12 @@ let tests =
                 let p = chainl p1 p2 (Num 0)
                 let reader = Reader.ofString input ()
 #if FABLE_COMPILER
-                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+                // Fable 5 rejects generic-arg type tests; check the message instead.
+                try
+                    let _ = p reader
+                    failwith "Should have thrown"
+                with ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
@@ -1746,7 +1836,12 @@ let tests =
                 let p = chainr1 p1 p2
                 let reader = Reader.ofString input ()
 #if FABLE_COMPILER
-                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+                // Fable 5 rejects generic-arg type tests; check the message instead.
+                try
+                    let _ = p reader
+                    failwith "Should have thrown"
+                with ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
@@ -1781,7 +1876,12 @@ let tests =
                 let p = chainr p1 p2 (Num 0)
                 let reader = Reader.ofString input ()
 #if FABLE_COMPILER
-                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+                // Fable 5 rejects generic-arg type tests; check the message instead.
+                try
+                    let _ = p reader
+                    failwith "Should have thrown"
+                with ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)
@@ -1823,7 +1923,12 @@ let tests =
                 let p = many1Items2 p1 p1
                 let reader = Reader.ofString input ()
 #if FABLE_COMPILER
-                "Inf Loop" |> Expect.throws (fun () -> p reader |> ignore)
+                // Fable 5 rejects generic-arg type tests; check the message instead.
+                try
+                    let _ = p reader
+                    failwith "Should have thrown"
+                with ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> p reader |> ignore)

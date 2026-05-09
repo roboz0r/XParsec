@@ -235,6 +235,11 @@ module Parsers =
     /// Succeeds if the next item in the input is equal to any of the given items, and consumes one item.
     /// Returns the item, otherwise fails with the Unexpected item.
     let inline anyOf (xs: 'T seq) =
+#if FABLE_COMPILER
+        // Fable rejects `:? ('T array)` (generic args erased in JS); always materialise to array.
+        let arr = Seq.toArray xs
+        Internal.anyOf Array.contains arr
+#else
         match xs with
         | :? ('T array) as xs -> Internal.anyOf Array.contains xs
         | :? ('T ResizeArray) as xs -> Internal.anyOf (fun c (xs: ResizeArray<_>) -> xs.Contains c) xs
@@ -244,11 +249,16 @@ module Parsers =
             // as we expect the parser is called multiple times
             let arr = Seq.toArray xs
             Internal.anyOf Array.contains arr
+#endif
 
 
     /// Succeeds if the next item in the input is equal to any of the given items, and consumes one item.
     /// Returns unit, otherwise fails with the Unexpected item.
     let inline skipAnyOf (xs: 'T seq) =
+#if FABLE_COMPILER
+        let arr = Seq.toArray xs
+        Internal.skipAnyOf Array.contains arr
+#else
         match xs with
         | :? ('T array) as xs -> Internal.skipAnyOf Array.contains xs
         | :? ('T ResizeArray) as xs -> Internal.skipAnyOf (fun c (xs: ResizeArray<_>) -> xs.Contains c) xs
@@ -258,11 +268,16 @@ module Parsers =
             // as we expect the parser is called multiple times
             let arr = Seq.toArray xs
             Internal.skipAnyOf Array.contains arr
+#endif
 
 
     /// Succeeds if the next item in the input is equal to none of the given items, and consumes one item.
     /// Returns the item, otherwise fails with the Unexpected item.
     let inline noneOf (xs: 'T seq) =
+#if FABLE_COMPILER
+        let arr = Seq.toArray xs
+        Internal.noneOf Array.contains arr
+#else
         match xs with
         | :? ('T array) as xs -> Internal.noneOf Array.contains xs
         | :? ('T ResizeArray) as xs -> Internal.noneOf (fun c (xs: ResizeArray<_>) -> xs.Contains c) xs
@@ -272,11 +287,16 @@ module Parsers =
             // as we expect the parser is called multiple times
             let arr = Seq.toArray xs
             Internal.noneOf Array.contains arr
+#endif
 
 
     /// Succeeds if the next item in the input is equal to none of the given items, and consumes one item.
     /// Returns unit, otherwise fails with the Unexpected item.
     let inline skipNoneOf (xs: 'T seq) =
+#if FABLE_COMPILER
+        let arr = Seq.toArray xs
+        Internal.skipNoneOf Array.contains arr
+#else
         match xs with
         | :? ('T array) as xs -> Internal.skipNoneOf Array.contains xs
         | :? ('T ResizeArray) as xs -> Internal.skipNoneOf (fun c (xs: ResizeArray<_>) -> xs.Contains c) xs
@@ -286,6 +306,7 @@ module Parsers =
             // as we expect the parser is called multiple times
             let arr = Seq.toArray xs
             Internal.skipNoneOf Array.contains arr
+#endif
 
 
     /// Succeeds if the next item in the input is in the given range (inclusive), and consumes one item.
@@ -315,6 +336,11 @@ module Parsers =
     /// Succeeds if the next items in the input are equal to the given items, and consumes them.
     /// Returns the items, otherwise fails with the Expected items.
     let pseq (xs: #seq<'T>) =
+#if FABLE_COMPILER
+        // Fable rejects generic-argument type tests; always materialise to array.
+        let arr = Seq.toArray xs
+        Internal.pArrayReturn arr xs
+#else
         match box xs with
         | :? ('T array) as arr -> Internal.pArrayReturn arr xs
         | :? ('T ResizeArray) as arr -> Internal.pResizeArrayReturn arr xs
@@ -324,10 +350,15 @@ module Parsers =
             // as we expect the parser is called multiple times
             let arr = Seq.toArray xs
             Internal.pArrayReturn arr xs
+#endif
 
     /// Succeeds if the next items in the input are equal to the given items, and consumes them.
     /// Returns the result, otherwise fails with the Expected items.
     let pseqReturn (xs: #seq<'T>) result =
+#if FABLE_COMPILER
+        let arr = Seq.toArray xs
+        Internal.pArrayReturn arr result
+#else
         match box xs with
         | :? ('T array) as arr -> Internal.pArrayReturn arr result
         | :? ('T ResizeArray) as arr -> Internal.pResizeArrayReturn arr result
@@ -337,6 +368,7 @@ module Parsers =
             // as we expect the parser is called multiple times
             let arr = Seq.toArray xs
             Internal.pArrayReturn arr result
+#endif
 
     /// Applies the `folder` function to each result of the given parser and the initial `state` zero or more times,
     /// accumulating a final result.

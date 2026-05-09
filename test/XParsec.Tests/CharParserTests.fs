@@ -224,7 +224,13 @@ let tests =
 
                 let reader = Reader.ofString "Hello" ()
 #if FABLE_COMPILER
-                "Inf Loop" |> Expect.throws (fun () -> manyChars p reader |> ignore)
+                // Fable 5 rejects generic-arg type tests (Expect.throwsT<InfiniteLoopException<_>>),
+                // so catch and assert on the message instead.
+                try
+                    let _ = manyChars p reader
+                    failwith "Should have thrown"
+                with ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> manyChars p reader |> ignore)
@@ -242,7 +248,11 @@ let tests =
 
                 let reader = Reader.ofString "Hello" ()
 #if FABLE_COMPILER
-                "Inf Loop" |> Expect.throws (fun () -> many1Chars p reader |> ignore)
+                try
+                    let _ = many1Chars p reader
+                    failwith "Should have thrown"
+                with ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
                 "Inf Loop"
                 |> Expect.throwsT<InfiniteLoopException<unit>> (fun () -> many1Chars p reader |> ignore)

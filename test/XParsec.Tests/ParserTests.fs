@@ -336,12 +336,13 @@ let tests =
                     let _ = p (Reader.ofString "input" ())
                     failwith "Should have thrown InfiniteLoopException"
                 with
-                | :? InfiniteLoopException<unit> -> () // Pass
-                | ex ->
 #if FABLE_COMPILER
-                    failwith $"Wrong exception {ex}"
+                // Fable 5 rejects generic-arg type tests; check the message instead.
+                | ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
-                    failwith $"Wrong exception {ex.GetType()} {ex.Message}"
+                | :? InfiniteLoopException<unit> -> () // Pass
+                | ex -> failwith $"Wrong exception {ex.GetType()} {ex.Message}"
 #endif
             }
 
@@ -416,12 +417,12 @@ let tests =
                     let _ = parser reader
                     failwith "Should have thrown"
                 with
-                | :? InfiniteLoopException<int> -> ()
-                | ex ->
 #if FABLE_COMPILER
-                    failwith $"Wrong exception {ex}"
+                | ex ->
+                    "Wrong exception" |> Expect.isTrue (ex.Message.Contains "Infinite loop")
 #else
-                    failwith $"Wrong exception {ex.GetType()} {ex.Message}"
+                | :? InfiniteLoopException<int> -> ()
+                | ex -> failwith $"Wrong exception {ex.GetType()} {ex.Message}"
 #endif
             }
 
