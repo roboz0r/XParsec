@@ -283,7 +283,14 @@ module Combinators =
 
             match p2 reader with
             | Ok s2 -> Ok s2
-            | Error err2 -> ParseError.createNested ParseError.bothFailed [ err1; err2 ] p
+            | Error err2 ->
+                // Drop Empty children (e.g. from `pzero`) — they carry no info.
+                // If both sides are Empty, propagate Empty rather than wrap an empty list.
+                match ParseError.isEmpty err1.Errors, ParseError.isEmpty err2.Errors with
+                | true, true -> ParseError.create Empty p
+                | true, false -> Error err2
+                | false, true -> Error err1
+                | false, false -> ParseError.createNested ParseError.bothFailed [ err1; err2 ] p
 
     /// <summary>
     /// Applies the parsers `ps` in order. Returns the result of the first parser that succeeds, or all errors if all fail.
@@ -305,12 +312,19 @@ module Combinators =
                 | Ok x -> success <- ValueSome x
                 | Error err ->
                     reader.Position <- p
-                    errs.Add(err)
+                    // Drop Empty children — they're noise in the nested error tree.
+                    if not (ParseError.isEmpty err.Errors) then
+                        errs.Add(err)
 
                 i <- i + 1
 
             match success with
-            | ValueNone -> ParseError.createNested ParseError.allChoicesFailed (List.ofSeq errs) p
+            | ValueNone ->
+                if errs.Count = 0 then
+                    // All branches were Empty (or there were no branches) — propagate Empty.
+                    ParseError.create Empty p
+                else
+                    ParseError.createNested ParseError.allChoicesFailed (List.ofSeq errs) p
             | ValueSome x -> Ok x
 
     /// Applies the parsers `ps` in order. Returns the result of the first parser that succeeds, or fails with the given message if all fail.
@@ -1071,7 +1085,12 @@ module Combinators =
 
                 match err with
                 | [] -> preturn struct (xs.ToImmutable(), endTok.Value) reader
-                | err -> ParseError.createNested ParseError.bothFailed err errPos
+                | err ->
+                    let kept = err |> List.filter (fun e -> not (ParseError.isEmpty e.Errors))
+
+                    match kept with
+                    | [] -> ParseError.create Empty errPos
+                    | _ -> ParseError.createNested ParseError.bothFailed kept errPos
             | Error _ ->
                 reader.Position <- ePos
                 Error eEnd
@@ -1109,7 +1128,12 @@ module Combinators =
 
                 match err with
                 | [] -> preturn struct (xs.ToImmutable(), endTok.Value) reader
-                | err -> ParseError.createNested ParseError.bothFailed err errPos
+                | err ->
+                    let kept = err |> List.filter (fun e -> not (ParseError.isEmpty e.Errors))
+
+                    match kept with
+                    | [] -> ParseError.create Empty errPos
+                    | _ -> ParseError.createNested ParseError.bothFailed kept errPos
             )
             reader
 
@@ -1155,10 +1179,21 @@ module Combinators =
 
                 match err with
                 | [] -> preturn () reader
-                | err -> ParseError.createNested ParseError.bothFailed err errPos
+                | err ->
+                    let kept = err |> List.filter (fun e -> not (ParseError.isEmpty e.Errors))
+
+                    match kept with
+                    | [] -> ParseError.create Empty errPos
+                    | _ -> ParseError.createNested ParseError.bothFailed kept errPos
             | Error e ->
                 reader.Position <- ePos
-                ParseError.createNested ParseError.bothFailed [ eEnd; e ] pos
+
+                let kept =
+                    [ eEnd; e ] |> List.filter (fun err -> not (ParseError.isEmpty err.Errors))
+
+                match kept with
+                | [] -> ParseError.create Empty pos
+                | _ -> ParseError.createNested ParseError.bothFailed kept pos
 
     /// Applies the parser `p` one or more times, until `pEnd` succeeds. If it succeeds, returns unit.
     /// If `p` fails on the first attempt, this parser fails.
@@ -1193,7 +1228,12 @@ module Combinators =
 
                 match err with
                 | [] -> preturn () reader
-                | err -> ParseError.createNested ParseError.bothFailed err errPos
+                | err ->
+                    let kept = err |> List.filter (fun e -> not (ParseError.isEmpty e.Errors))
+
+                    match kept with
+                    | [] -> ParseError.create Empty errPos
+                    | _ -> ParseError.createNested ParseError.bothFailed kept errPos
             )
             reader
 

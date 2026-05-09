@@ -274,74 +274,80 @@ module internal rec Pratt =
     type internal PrattParsed<'Expr, 'T, 'State> =
         {
             Expr: 'Expr
-            Error: ParseError<'T, 'State> voption
+            /// Accumulated soft error during parsing. `Errors = Empty` means
+            /// "no soft error yet" — there's no separate `voption` wrapper.
+            Error: ParseError<'T, 'State>
         }
 
     module PrattParsed =
-        let inline success expr : PrattParsed<'Expr, 'T, 'State> = { Expr = expr; Error = ValueNone }
+        let inline success pos expr : PrattParsed<'Expr, 'T, 'State> =
+            {
+                Expr = expr
+                Error = ParseError.empty pos
+            }
 
         let inline withError expr error : PrattParsed<'Expr, 'T, 'State> = { Expr = expr; Error = error }
 
-    // Combines two optional soft errors. Typically, you want to nest them
-    // or pick the furthest one depending on your exact ParseError design.
-    // Cases ordered hot-path-first: the steady-state success path is
-    // (ValueNone, ValueNone); the allocating nested cases are cold.
+    // Combines two soft errors. `Empty` is the identity element on either side.
+    // Hot path is (Empty, Empty) — return Empty without allocation.
     let inline private mergeSoftErrors
-        (e1: ParseError<'T, 'State> voption)
-        (e2: ParseError<'T, 'State> voption)
-        : ParseError<'T, 'State> voption =
-        match e1, e2 with
-        | ValueNone, ValueNone -> ValueNone
-        | _, ValueNone -> e1
-        | ValueNone, _ -> e2
-        | ValueSome {
-                        Position = aPos
-                        Errors = Nested(aParent, aErrs)
-                    },
-          ValueSome {
-                        Position = bPos
-                        Errors = Nested(bParent, bErrs)
-                    } when aParent = failure && bParent = failure ->
-            ValueSome(ParseError.createNested failure [ yield! bErrs; yield! aErrs ] bPos)
-        | ValueSome {
-                        Position = aPos
-                        Errors = Nested(aParent, aErrs)
-                    },
-          ValueSome b when aParent = failure -> ValueSome(ParseError.createNested failure [ b; yield! aErrs ] aPos)
-        | ValueSome a,
-          ValueSome {
-                        Position = bPos
-                        Errors = Nested(bParent, bErrs)
-                    } when bParent = failure -> ValueSome(ParseError.createNested failure [ yield! bErrs; a ] bPos)
-        | ValueSome a, ValueSome b ->
-            // Assuming a nested structure is desired when combining soft errors
-            ValueSome(ParseError.createNested failure [ b; a ] b.Position)
+        (e1: ParseError<'T, 'State>)
+        (e2: ParseError<'T, 'State>)
+        : ParseError<'T, 'State> =
+        match ParseError.isEmpty e1.Errors, ParseError.isEmpty e2.Errors with
+        | true, true -> e1
+        | false, true -> e1
+        | true, false -> e2
+        | false, false ->
+            match e1, e2 with
+            | {
+                  Position = aPos
+                  Errors = Nested(aParent, aErrs)
+              },
+              {
+                  Position = bPos
+                  Errors = Nested(bParent, bErrs)
+              } when aParent = failure && bParent = failure ->
+                ParseError.createNested failure [ yield! bErrs; yield! aErrs ] bPos
+            | {
+                  Position = aPos
+                  Errors = Nested(aParent, aErrs)
+              },
+              b when aParent = failure -> ParseError.createNested failure [ b; yield! aErrs ] aPos
+            | a,
+              {
+                  Position = bPos
+                  Errors = Nested(bParent, bErrs)
+              } when bParent = failure -> ParseError.createNested failure [ yield! bErrs; a ] bPos
+            | a, b -> ParseError.createNested failure [ b; a ] b.Position
 
-    // Injects a preceding soft error into a hard parser failure
-    let private mergeWithError (hardErr: ParseError<'T, 'State>) (softErr: _ voption) =
-        match hardErr, softErr with
-        | {
-              Position = hPos
-              Errors = Nested(hParent, hErrors)
-          },
-          ValueSome {
-                        Position = sPos
-                        Errors = Nested(sParent, sErrors)
-                    } when sParent = failure && hParent = failure ->
-            ParseError.createNested failure [ yield! hErrors; yield! sErrors ] hPos
-        | {
-              Position = hPos
-              Errors = Nested(hParent, hErrors)
-          },
-          ValueSome s when hParent = failure -> ParseError.createNested failure [ yield! hErrors; s ] hPos
-        | hardErr,
-          ValueSome {
-                        Position = sPos
-                        Errors = Nested(sParent, sErrors)
-                    } when sParent = failure ->
-            ParseError.createNested failure [ hardErr; yield! sErrors ] hardErr.Position
-        | hardErr, ValueSome s -> ParseError.createNested failure [ hardErr; s ] hardErr.Position
-        | hardErr, ValueNone -> hardErr
+    // Injects a preceding soft error into a hard parser failure. Empty soft errors
+    // are passed through untouched.
+    let private mergeWithError (hardErr: ParseError<'T, 'State>) (softErr: ParseError<'T, 'State>) =
+        if ParseError.isEmpty softErr.Errors then
+            hardErr
+        else
+            match hardErr, softErr with
+            | {
+                  Position = hPos
+                  Errors = Nested(hParent, hErrors)
+              },
+              {
+                  Position = sPos
+                  Errors = Nested(sParent, sErrors)
+              } when sParent = failure && hParent = failure ->
+                ParseError.createNested failure [ yield! hErrors; yield! sErrors ] hPos
+            | {
+                  Position = hPos
+                  Errors = Nested(hParent, hErrors)
+              },
+              s when hParent = failure -> ParseError.createNested failure [ yield! hErrors; s ] hPos
+            | hardErr,
+              {
+                  Position = sPos
+                  Errors = Nested(sParent, sErrors)
+              } when sParent = failure -> ParseError.createNested failure [ hardErr; yield! sErrors ] hardErr.Position
+            | hardErr, s -> ParseError.createNested failure [ hardErr; s ] hardErr.Position
 
     let inline private ensureAdvanced (pos: Position<'State>) (reader: Reader<_, _, _>) : unit =
         if reader.Index = pos.Index then
@@ -356,7 +362,7 @@ module internal rec Pratt =
         ops
         minBinding
         lhs
-        (errAcc: ParseError<'T, 'State> voption)
+        (errAcc: ParseError<'T, 'State>)
         pos
         rightPower
         op
@@ -382,7 +388,11 @@ module internal rec Pratt =
         completeNary
         (reader: Reader<_, _, _>)
         =
-        let rec loopNary (items: ResizeArray<'Expr>) (parsedOps: ResizeArray<'Op>) accumulatedErr =
+        let rec loopNary
+            (items: ResizeArray<'Expr>)
+            (parsedOps: ResizeArray<'Op>)
+            (accumulatedErr: ParseError<'T, 'State>)
+            =
             let rightPower = leftPower + 1uy<bp>
             let nextItemPos = reader.Position
 
@@ -393,7 +403,7 @@ module internal rec Pratt =
                 if parsedOps.Count > 0 then
                     parsedOps.RemoveAt(parsedOps.Count - 1)
 
-                preturn (items, ValueSome(mergeWithError e accumulatedErr)) reader
+                preturn (items, mergeWithError e accumulatedErr) reader
             | Error e -> Error(mergeWithError e accumulatedErr)
             | Ok { Expr = next; Error = errNext } ->
                 ensureAdvanced nextItemPos reader // Parsed item without consuming input - likely an infinite loop, so throw
@@ -410,7 +420,7 @@ module internal rec Pratt =
                     loopNary items parsedOps currentErr
                 | Error errOp ->
                     reader.Position <- nextOpPos
-                    preturn (items, mergeSoftErrors currentErr (ValueSome errOp)) reader
+                    preturn (items, mergeSoftErrors currentErr errOp) reader
 
         // Typical nary use — tuples, app chains, sequences — rarely exceeds 4 items.
         // Hint an initial capacity of 4 so `Add lhs` + up to three more adds don't
@@ -422,20 +432,20 @@ module internal rec Pratt =
         parsedOps.Add op
         let entryPos = reader.Position
 
-        match loopNary items parsedOps ValueNone with
-        | Ok(items, errOpt) ->
+        match loopNary items parsedOps (ParseError.empty entryPos) with
+        | Ok(items, accErr) ->
             let result = completeNary items parsedOps
 
             if reader.Position = entryPos then
                 // No progress was made (e.g. trailing separator with no following item).
                 // Return directly to prevent infinite recursion when virtual tokens
                 // can repeatedly fire at the same position.
-                preturn (PrattParsed.withError result errOpt) reader
+                preturn (PrattParsed.withError result accErr) reader
             else
-                match parseRhsInternal pExpr ops minBinding result errOpt reader with
+                match parseRhsInternal pExpr ops minBinding result accErr reader with
                 | Ok { Expr = finalExpr; Error = errFinal } ->
-                    preturn (PrattParsed.withError finalExpr (mergeSoftErrors errOpt errFinal)) reader
-                | Error e -> Error(mergeWithError e errOpt)
+                    preturn (PrattParsed.withError finalExpr (mergeSoftErrors accErr errFinal)) reader
+                | Error e -> Error(mergeWithError e accErr)
         | Error e -> Error e
 
     let private rhsInfixMapped
@@ -443,7 +453,7 @@ module internal rec Pratt =
         ops
         minBinding
         lhs
-        (errAcc: ParseError<'T, 'State> voption)
+        (errAcc: ParseError<'T, 'State>)
         pos
         op
         (parseRight: Parser<_, 'T, 'State, 'Input>)
@@ -461,7 +471,7 @@ module internal rec Pratt =
         ops
         minBinding
         lhs
-        (errAcc: ParseError<'T, 'State> voption)
+        (errAcc: ParseError<'T, 'State>)
         pos
         op
         (parseCloseOp: Parser<'Op, 'T, 'State, 'Input>)
@@ -485,7 +495,7 @@ module internal rec Pratt =
         ops
         minBinding
         lhs
-        (errAcc: ParseError<'T, 'State> voption)
+        (errAcc: ParseError<'T, 'State>)
         pos
         op
         rightPower
@@ -601,7 +611,7 @@ module internal rec Pratt =
         (ops: Operators<'Op, 'Aux, 'Expr, 'T, 'State, 'Input>)
         minBinding
         lhs
-        (errAcc: ParseError<'T, 'State> voption)
+        (errAcc: ParseError<'T, 'State>)
         (reader: Reader<_, _, _>)
         : ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _> =
 
@@ -628,7 +638,7 @@ module internal rec Pratt =
                 // InfixNonAssociative drops errAcc on the low-power branch; every
                 // other variant propagates it. Preserve that distinction.
                 match op with
-                | InfixNonAssociative _ -> preturn (PrattParsed.success lhs) reader
+                | InfixNonAssociative _ -> preturn (PrattParsed.success pos lhs) reader
                 | _ -> preturn (PrattParsed.withError lhs errAcc) reader
             elif leftPower = minBinding then
                 fail ambiguous reader
@@ -672,13 +682,13 @@ module internal rec Pratt =
 
         | Error eRhs ->
             reader.Position <- pos
-            preturn (PrattParsed.withError lhs (ValueSome eRhs)) reader
+            preturn (PrattParsed.withError lhs eRhs) reader
 
     let private parseLhsInternal pExpr ops minBinding reader : ParseResult<PrattParsed<'Expr, 'T, 'State>, _, _> =
         let pos = reader.Position
 
         match pExpr reader with
-        | Ok lhsSuccess -> parseRhsInternal pExpr ops minBinding lhsSuccess ValueNone reader
+        | Ok lhsSuccess -> parseRhsInternal pExpr ops minBinding lhsSuccess (ParseError.empty pos) reader
         | Error e0 ->
             reader.Position <- pos
 
@@ -696,7 +706,8 @@ module internal rec Pratt =
 
                 | PrefixMapped(op, _parseOp, parseRight, complete) ->
                     match parseRight reader with
-                    | Ok result -> parseRhsInternal pExpr ops minBinding (complete op result) ValueNone reader
+                    | Ok result ->
+                        parseRhsInternal pExpr ops minBinding (complete op result) (ParseError.empty pos) reader
                     | Error e -> Error e
 
             | Error e1 -> Error(ParseError.createNested failure [ e1; e0 ] pos)

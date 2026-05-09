@@ -158,6 +158,10 @@ type Reader<'T, 'State, 'Input when 'Input :> IReadable<'T, 'Input>>(input: 'Inp
         Reader(input.Slice(index + newStart, newLength), newState, 0)
 
 type ErrorType<'T, 'State> =
+    /// Unspecified failure — analogous to FParsec's "empty error message list".
+    /// Produced by `pzero`. Aggregating combinators filter `Empty` children before
+    /// constructing nested errors, and the default formatter renders nothing.
+    | Empty
     | Expected of 'T
     | ExpectedSeq of 'T seq
     | ExpectedOneOf of 'T seq
@@ -195,9 +199,23 @@ module ParseError =
     let unexpectedEnd = Message "Unexpected end of input"
     let expectedEnd = Message "Expected end of input"
     let expectedAtLeastOne = Message "Expected at least one item."
-    let zero = Message ""
+    /// Unspecified failure — emitted by `pzero`. Aggregating combinators drop
+    /// these from nested children; the default formatter renders nothing for them.
+    let zero = Empty
     let allChoicesFailed = Message "All choices failed."
     let bothFailed = Message "Both parsers failed."
+
+    /// True if the given error carries no specific information (`Empty`). Used by
+    /// aggregating combinators to filter out `pzero`-style siblings before nesting.
+    let inline isEmpty (e: ErrorType<'T, 'State>) =
+        match e with
+        | Empty -> true
+        | _ -> false
+
+    /// An "unspecified" error at the given position. Used as a sentinel by
+    /// internal soft-error accumulators where every code path needs a `ParseError`
+    /// value but most are "no error here yet".
+    let inline empty (position: Position<'State>) : ParseError<'T, 'State> = { Position = position; Errors = Empty }
 
 type Parser<'Parsed, 'T, 'State, 'Input when 'Input :> IReadable<'T, 'Input>> =
     Reader<'T, 'State, 'Input> -> ParseResult<'Parsed, 'T, 'State>

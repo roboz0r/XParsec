@@ -629,6 +629,7 @@ type SimpleError<'T> =
     | UnexpectedSeq of 'T list
     | Message of string
     | EndOfInput
+    | Empty
     | Nested of parent: SimpleError<'T> * children: SimpleError<'T> list
 
 [<RequireQualifiedAccess>]
@@ -637,6 +638,7 @@ module SimpleError =
     /// Recursively converts the complex ErrorType into a test-friendly SimpleError
     let rec ofErrorType (e: ErrorType<'T, 'State>) : SimpleError<'T> =
         match e with
+        | ErrorType.Empty -> SimpleError.Empty
         | Expected x -> SimpleError.Expected x
         | ExpectedSeq xs -> SimpleError.ExpectedSeq(List.ofSeq xs)
         | ExpectedOneOf xs -> SimpleError.ExpectedOneOf xs

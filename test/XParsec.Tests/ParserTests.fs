@@ -44,8 +44,32 @@ let tests =
                 | Ok result -> "Parser should fail" |> Expect.isFalse true
                 | Error e ->
                     "" |> Expect.equal e.Position.Index 0
-                    "" |> Expect.equal e.Errors ParseError.zero
+                    "pzero should produce ErrorType.Empty" |> Expect.equal e.Errors Empty
+                    "ParseError.zero should be Empty" |> Expect.equal e.Errors ParseError.zero
                     "" |> Expect.equal reader.Index 0
+            }
+
+            test "PZero <|> PZero collapses to Empty (not nested bothFailed)" {
+                // Empty children are filtered before constructing Nested(...), so two
+                // Empties on either side of <|> propagate as a single Empty rather than
+                // a Nested(bothFailed, [Empty; Empty]).
+                let p = pzero <|> pzero
+                let reader = Reader.ofString "input" ()
+
+                match p reader with
+                | Ok _ -> failwith "Should have failed"
+                | Error e -> "Should still be Empty" |> Expect.equal e.Errors Empty
+            }
+
+            test "PZero <|> p uses p's error when p fails" {
+                // Empty side is dropped from the bothFailed list — caller sees just
+                // the meaningful error rather than `Nested(bothFailed, [Empty; <real>])`.
+                let p = pzero <|> (pitem 'X' |>> ignore)
+                let reader = Reader.ofString "input" ()
+
+                match p reader with
+                | Ok _ -> failwith "Should have failed"
+                | Error e -> "Should be the pitem error" |> Expect.equal e.Errors (Expected 'X')
             }
 
             test "UserState" {

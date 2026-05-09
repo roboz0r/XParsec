@@ -38,7 +38,7 @@ module internal Patterns =
             false
 #endif
 
-    let (|Empty|_|) (span: ReadOnlySpan<char>) =
+    let (|EmptySpan|_|) (span: ReadOnlySpan<char>) =
         if span.IsEmpty then
 #if FABLE_COMPILER
             Some()
@@ -875,7 +875,7 @@ module internal FloatParsers =
         | CharsEqualCI "0" ->
             reader.Skip()
             preturn 0.0 reader
-        | Empty -> fail EndOfInput reader
+        | EmptySpan -> fail EndOfInput reader
         | _ ->
             reader.Position <- pos
             parseDecimalFloat reader

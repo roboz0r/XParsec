@@ -229,6 +229,10 @@ module ErrorFormatting =
 
         let rec f prefixes pos errors sb =
             match errors with
+            // Empty represents an unspecified failure (`pzero`); render nothing,
+            // not even the prefix. Aggregating combinators should already have
+            // filtered these out, but be defensive in case one slipped through.
+            | Empty -> sb
             | EndOfInput -> sb |> appendPrefixes prefixes |> appendString "Unexpected end of input"
             | Expected e -> sb |> appendPrefixes prefixes |> appendString "Expected " |> formatOne e
             | ExpectedOneOf es -> sb |> appendPrefixes prefixes |> appendString "Expected one of " |> formatSeq es
