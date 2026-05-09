@@ -40,20 +40,39 @@ type ReadableString(s: string, start: int, length: int) =
         else
             ValueNone
 
+#if !FABLE_COMPILER
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
-    member _.SpanSlice(index, count) =
-        if index < 0 then
-            invalidArg "index" "Index must be non-negative."
+    member _.AsSpan() : ReadOnlySpan<char> = s.AsSpan(start, length)
 
-        if count < 0 then
-            invalidArg "count" "Count must be non-negative."
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    member _.AsSpan(viewStart: int) : ReadOnlySpan<char> =
+        if uint viewStart > uint length then
+            raise (ArgumentOutOfRangeException(nameof viewStart))
 
-        if index >= length then
-            ReadOnlySpan.Empty
-        else
-            // Clamp the count to the remaining length of THIS slice
-            let safeCount = min count (length - index)
-            s.AsSpan(start + index, safeCount)
+        s.AsSpan(start + viewStart, length - viewStart)
+
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    member _.AsSpan(viewStart: int, viewLength: int) : ReadOnlySpan<char> =
+        if uint viewStart > uint length then
+            raise (ArgumentOutOfRangeException(nameof viewStart))
+
+        if uint viewLength > uint (length - viewStart) then
+            raise (ArgumentOutOfRangeException(nameof viewLength))
+
+        s.AsSpan(start + viewStart, viewLength)
+#else
+    member _.AsSpan(?viewStart: int, ?viewLength: int) : ReadOnlySpan<char> =
+        let viewStart = defaultArg viewStart 0
+        let viewLength = defaultArg viewLength (length - viewStart)
+
+        if uint viewStart > uint length then
+            raise (ArgumentOutOfRangeException(nameof viewStart))
+
+        if uint viewLength > uint (length - viewStart) then
+            raise (ArgumentOutOfRangeException(nameof viewLength))
+
+        s.AsSpan(start + viewStart, viewLength)
+#endif
 
     member _.Length
         with [<MethodImpl(MethodImplOptions.AggressiveInlining)>] get () = length
@@ -87,7 +106,16 @@ type ReadableString(s: string, start: int, length: int) =
 
         member this.TryItem(index) = this.TryItem index
 
-        member this.SpanSlice(index, count) = this.SpanSlice(index, count)
+#if !FABLE_COMPILER
+        member this.AsSpan() = this.AsSpan()
+
+        member this.AsSpan(start: int) = this.AsSpan(start)
+
+        member this.AsSpan(start: int, length: int) = this.AsSpan(start, length)
+#else
+        member this.AsSpan(?start: int, ?length: int) =
+            this.AsSpan(?viewStart = start, ?viewLength = length)
+#endif
 
         member this.Length = this.Length
 
@@ -155,23 +183,38 @@ type ReadableArray<'T>(arr: 'T array, start: int, length: int) =
         else
             ValueNone
 
+#if !FABLE_COMPILER
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
-    member _.SpanSlice(index, count) =
-        if index < 0 then
-            invalidArg "index" "Index must be non-negative."
+    member _.AsSpan() : ReadOnlySpan<'T> = ReadOnlySpan<'T>(arr, start, length)
 
-        if count < 0 then
-            invalidArg "count" "Count must be non-negative."
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    member _.AsSpan(viewStart: int) : ReadOnlySpan<'T> =
+        if uint viewStart > uint length then
+            raise (ArgumentOutOfRangeException(nameof viewStart))
 
-        if index >= length then
-            ReadOnlySpan.Empty
-        else
-            // Clamp the count to the remaining length of THIS slice
-            let safeCount = min count (length - index)
-#if FABLE_COMPILER
-            ArraySpan<'T>(arr, start + index, safeCount) :> ReadOnlySpan<'T>
+        ReadOnlySpan<'T>(arr, start + viewStart, length - viewStart)
+
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    member _.AsSpan(viewStart: int, viewLength: int) : ReadOnlySpan<'T> =
+        if uint viewStart > uint length then
+            raise (ArgumentOutOfRangeException(nameof viewStart))
+
+        if uint viewLength > uint (length - viewStart) then
+            raise (ArgumentOutOfRangeException(nameof viewLength))
+
+        ReadOnlySpan<'T>(arr, start + viewStart, viewLength)
 #else
-            ReadOnlySpan<'T>(arr, start + index, safeCount)
+    member _.AsSpan(?viewStart: int, ?viewLength: int) : ReadOnlySpan<'T> =
+        let viewStart = defaultArg viewStart 0
+        let viewLength = defaultArg viewLength (length - viewStart)
+
+        if uint viewStart > uint length then
+            raise (ArgumentOutOfRangeException(nameof viewStart))
+
+        if uint viewLength > uint (length - viewStart) then
+            raise (ArgumentOutOfRangeException(nameof viewLength))
+
+        ArraySpan<'T>(arr, start + viewStart, viewLength) :> ReadOnlySpan<'T>
 #endif
 
     member _.Length
@@ -214,7 +257,16 @@ type ReadableArray<'T>(arr: 'T array, start: int, length: int) =
 
         member this.TryItem(index) = this.TryItem index
 
-        member this.SpanSlice(index, count) = this.SpanSlice(index, count)
+#if !FABLE_COMPILER
+        member this.AsSpan() = this.AsSpan()
+
+        member this.AsSpan(start: int) = this.AsSpan(start)
+
+        member this.AsSpan(start: int, length: int) = this.AsSpan(start, length)
+#else
+        member this.AsSpan(?start: int, ?length: int) =
+            this.AsSpan(?viewStart = start, ?viewLength = length)
+#endif
 
         member this.Length = this.Length
 
@@ -346,20 +398,39 @@ type ReadableImmutableArray<'T>(arr: ImmutableArray<'T>, start: int, length: int
         else
             ValueNone
 
+#if !FABLE_COMPILER
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
-    member _.SpanSlice(index, count) =
-        if index < 0 then
-            invalidArg "index" "Index must be non-negative."
+    member _.AsSpan() : ReadOnlySpan<'T> = arr.AsSpan(start, length)
 
-        if count < 0 then
-            invalidArg "count" "Count must be non-negative."
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    member _.AsSpan(viewStart: int) : ReadOnlySpan<'T> =
+        if uint viewStart > uint length then
+            raise (ArgumentOutOfRangeException(nameof viewStart))
 
-        if index >= length then
-            ReadOnlySpan.Empty
-        else
-            // Clamp the count to the remaining length of THIS slice
-            let safeCount = min count (length - index)
-            arr.AsSpan(start + index, safeCount)
+        arr.AsSpan(start + viewStart, length - viewStart)
+
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    member _.AsSpan(viewStart: int, viewLength: int) : ReadOnlySpan<'T> =
+        if uint viewStart > uint length then
+            raise (ArgumentOutOfRangeException(nameof viewStart))
+
+        if uint viewLength > uint (length - viewStart) then
+            raise (ArgumentOutOfRangeException(nameof viewLength))
+
+        arr.AsSpan(start + viewStart, viewLength)
+#else
+    member _.AsSpan(?viewStart: int, ?viewLength: int) : ReadOnlySpan<'T> =
+        let viewStart = defaultArg viewStart 0
+        let viewLength = defaultArg viewLength (length - viewStart)
+
+        if uint viewStart > uint length then
+            raise (ArgumentOutOfRangeException(nameof viewStart))
+
+        if uint viewLength > uint (length - viewStart) then
+            raise (ArgumentOutOfRangeException(nameof viewLength))
+
+        arr.AsSpan(start + viewStart, viewLength)
+#endif
 
     member _.Length
         with [<MethodImpl(MethodImplOptions.AggressiveInlining)>] get () = length
@@ -403,7 +474,16 @@ type ReadableImmutableArray<'T>(arr: ImmutableArray<'T>, start: int, length: int
 
         member this.TryItem(index) = this.TryItem index
 
-        member this.SpanSlice(index, count) = this.SpanSlice(index, count)
+#if !FABLE_COMPILER
+        member this.AsSpan() = this.AsSpan()
+
+        member this.AsSpan(start: int) = this.AsSpan(start)
+
+        member this.AsSpan(start: int, length: int) = this.AsSpan(start, length)
+#else
+        member this.AsSpan(?start: int, ?length: int) =
+            this.AsSpan(?viewStart = start, ?viewLength = length)
+#endif
 
         member this.Length = this.Length
 
@@ -473,24 +553,42 @@ type ReadableResizeArray<'T>(arr: ResizeArray<'T>, start: int, length: int) =
         else
             ValueNone
 
+#if !FABLE_COMPILER
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
-    member _.SpanSlice(index, count) =
-        if index < 0 then
-            invalidArg "index" "Index must be non-negative."
+    member _.AsSpan() : ReadOnlySpan<'T> =
+        let span = CollectionsMarshal.AsSpan(arr)
+        Span.op_Implicit (span.Slice(start, length))
 
-        if count < 0 then
-            invalidArg "count" "Count must be non-negative."
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    member _.AsSpan(viewStart: int) : ReadOnlySpan<'T> =
+        if uint viewStart > uint length then
+            raise (ArgumentOutOfRangeException(nameof viewStart))
 
-        if index >= length then
-            ReadOnlySpan.Empty
-        else
-            // Clamp the count to the remaining length of THIS slice
-            let safeCount = min count (length - index)
-#if FABLE_COMPILER
-            ResizeArraySpan<'T>(arr, start + index, safeCount) :> ReadOnlySpan<'T>
+        let span = CollectionsMarshal.AsSpan(arr)
+        Span.op_Implicit (span.Slice(start + viewStart, length - viewStart))
+
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    member _.AsSpan(viewStart: int, viewLength: int) : ReadOnlySpan<'T> =
+        if uint viewStart > uint length then
+            raise (ArgumentOutOfRangeException(nameof viewStart))
+
+        if uint viewLength > uint (length - viewStart) then
+            raise (ArgumentOutOfRangeException(nameof viewLength))
+
+        let span = CollectionsMarshal.AsSpan(arr)
+        Span.op_Implicit (span.Slice(start + viewStart, viewLength))
 #else
-            let span = CollectionsMarshal.AsSpan(arr)
-            Span.op_Implicit (span.Slice(start + index, safeCount))
+    member _.AsSpan(?viewStart: int, ?viewLength: int) : ReadOnlySpan<'T> =
+        let viewStart = defaultArg viewStart 0
+        let viewLength = defaultArg viewLength (length - viewStart)
+
+        if uint viewStart > uint length then
+            raise (ArgumentOutOfRangeException(nameof viewStart))
+
+        if uint viewLength > uint (length - viewStart) then
+            raise (ArgumentOutOfRangeException(nameof viewLength))
+
+        ResizeArraySpan<'T>(arr, start + viewStart, viewLength) :> ReadOnlySpan<'T>
 #endif
 
     member _.Length
@@ -532,7 +630,16 @@ type ReadableResizeArray<'T>(arr: ResizeArray<'T>, start: int, length: int) =
 
         member this.TryItem(index) = this.TryItem index
 
-        member this.SpanSlice(index, count) = this.SpanSlice(index, count)
+#if !FABLE_COMPILER
+        member this.AsSpan() = this.AsSpan()
+
+        member this.AsSpan(start: int) = this.AsSpan(start)
+
+        member this.AsSpan(start: int, length: int) = this.AsSpan(start, length)
+#else
+        member this.AsSpan(?start: int, ?length: int) =
+            this.AsSpan(?viewStart = start, ?viewLength = length)
+#endif
 
         member this.Length = this.Length
 
@@ -600,19 +707,17 @@ type ReadableMemory<'T>(memory: ReadOnlyMemory<'T>) =
         else
             ValueNone
 
+    /// `ReadOnlyMemory<'T>.Span.Slice` already enforces BCL bounds — we delegate
+    /// directly. The interface validation contract is upheld by that BCL throw.
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
-    member _.SpanSlice(index, count) =
-        if index < 0 then
-            invalidArg "index" "Index must be non-negative."
+    member _.AsSpan() : ReadOnlySpan<'T> = memory.Span
 
-        if count < 0 then
-            invalidArg "count" "Count must be non-negative."
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    member _.AsSpan(viewStart: int) : ReadOnlySpan<'T> = memory.Span.Slice(viewStart)
 
-        if index >= memory.Length then
-            ReadOnlySpan.Empty
-        else
-            let safeCount = min count (memory.Length - index)
-            memory.Span.Slice(index, safeCount)
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    member _.AsSpan(viewStart: int, viewLength: int) : ReadOnlySpan<'T> =
+        memory.Span.Slice(viewStart, viewLength)
 
     member _.Length
         with [<MethodImpl(MethodImplOptions.AggressiveInlining)>] get () = memory.Length
@@ -655,7 +760,11 @@ type ReadableMemory<'T>(memory: ReadOnlyMemory<'T>) =
 
         member this.TryItem(index) = this.TryItem index
 
-        member this.SpanSlice(index, count) = this.SpanSlice(index, count)
+        member this.AsSpan() = this.AsSpan()
+
+        member this.AsSpan(start: int) = this.AsSpan(start)
+
+        member this.AsSpan(start: int, length: int) = this.AsSpan(start, length)
 
         member this.Length = this.Length
 

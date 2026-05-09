@@ -60,27 +60,35 @@ let assertReadableSemantics (name: string) (readable: #IReadable<'T, 'Slice>) (e
     Expect.throws (fun () -> readable.Item -1 |> ignore) $"{name}: Item(-1) must throw."
     Expect.throws (fun () -> readable.Item len |> ignore) $"{name}: Item({len}) must throw."
 
-    // 5. SpanSlice bounds and clamping
-    let fullSpan = readable.SpanSlice(0, len)
-    Expect.sequenceEqual (fullSpan.ToArray()) expected $"{name}: SpanSlice(0, {len}) should match the full input."
+    // 5. AsSpan bounds (BCL semantics: throw on overflow, no silent clamping)
+    let fullSpan = (readable :> IReadable<'T, 'Slice>).AsSpan(0, len)
+    Expect.sequenceEqual (fullSpan.ToArray()) expected $"{name}: AsSpan(0, {len}) should match the full input."
+
+    let fullSpanNoArgs = (readable :> IReadable<'T, 'Slice>).AsSpan()
+    Expect.sequenceEqual (fullSpanNoArgs.ToArray()) expected $"{name}: AsSpan() should match the full input."
 
     if len > 0 then
         let mid = len / 2
-        let clampedSpan = readable.SpanSlice(mid, len * 2) // Requesting way past the end
-        let expectedClamped = expected.[mid..]
+        let tail = (readable :> IReadable<'T, 'Slice>).AsSpan(mid)
+        let expectedTail = expected.[mid..]
 
-        Expect.sequenceEqual
-            (clampedSpan.ToArray())
-            expectedClamped
-            $"{name}: SpanSlice length should clamp to the end of the readable."
+        Expect.sequenceEqual (tail.ToArray()) expectedTail $"{name}: AsSpan({mid}) should return the trailing slice."
 
     Expect.throws
-        (fun () -> let _ = readable.SpanSlice(-1, 1) in ())
-        $"{name}: SpanSlice with negative index must throw."
+        (fun () -> let _ = (readable :> IReadable<'T, 'Slice>).AsSpan(-1, 1) in ())
+        $"{name}: AsSpan(-1, 1) must throw."
 
     Expect.throws
-        (fun () -> let _ = readable.SpanSlice(0, -1) in ())
-        $"{name}: SpanSlice with negative count must throw."
+        (fun () -> let _ = (readable :> IReadable<'T, 'Slice>).AsSpan(0, -1) in ())
+        $"{name}: AsSpan(0, -1) must throw."
+
+    Expect.throws
+        (fun () -> let _ = (readable :> IReadable<'T, 'Slice>).AsSpan(0, len + 1) in ())
+        $"{name}: AsSpan past end must throw (no clamping)."
+
+    Expect.throws
+        (fun () -> let _ = (readable :> IReadable<'T, 'Slice>).AsSpan(len + 1) in ())
+        $"{name}: AsSpan with start past Length must throw."
 
     // 6. Slice behavior (Returns 'Slice which is also IReadable)
     if len > 1 then

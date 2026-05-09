@@ -105,7 +105,7 @@ type LineIndex(endings: ImmutableArray<int>, maxIndex) =
 module ErrorFormatting =
     type StringBuilder with
         member this.Append(input: #IReadable<char, _>, start: int, count: int) =
-            let span = input.SpanSlice(start, count)
+            let span = input.AsSpan(start, count)
 #if !FABLE_COMPILER && NET8_0_OR_GREATER
             this.Append(span)
 #else
@@ -119,7 +119,7 @@ module ErrorFormatting =
             if input.Length > Int32.MaxValue then
                 invalidOp "StringBuilder.Append: input is too long"
 
-            let span = input.SpanSlice(0, input.Length)
+            let span = input.AsSpan()
 #if !FABLE_COMPILER && NET8_0_OR_GREATER
             this.Append(span)
 #else

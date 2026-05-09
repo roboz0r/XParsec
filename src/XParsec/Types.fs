@@ -10,7 +10,24 @@ open System
 type IReadable<'T, 'Slice when 'Slice :> IReadable<'T, 'Slice>> =
     abstract Item: int -> 'T with get
     abstract TryItem: index: int -> 'T voption
-    abstract SpanSlice: start: int * length: int -> ReadOnlySpan<'T>
+#if !FABLE_COMPILER
+    /// Returns a span over the entire view. Equivalent to `AsSpan(0, Length)`.
+    abstract AsSpan: unit -> ReadOnlySpan<'T>
+    /// Returns a span over `[start, Length)`. Throws `ArgumentOutOfRangeException`
+    /// if `start` is negative or greater than `Length` (matches BCL `AsSpan`).
+    abstract AsSpan: start: int -> ReadOnlySpan<'T>
+    /// Returns a span over `[start, start + length)`. Throws
+    /// `ArgumentOutOfRangeException` if `start` or `length` is negative or
+    /// `start + length > Length` (matches BCL `AsSpan`).
+    abstract AsSpan: start: int * length: int -> ReadOnlySpan<'T>
+#else
+    /// Single optional-arg form because JS classes can't dispatch by arity.
+    /// Callers may invoke `AsSpan()`, `AsSpan(start)`, or `AsSpan(start, length)`
+    /// — same call sites as the .NET branch — and the implementation defaults
+    /// missing arguments to `0` / `Length - start`. Throws
+    /// `ArgumentOutOfRangeException` on overflow (matches BCL `AsSpan`).
+    abstract AsSpan: ?start: int * ?length: int -> ReadOnlySpan<'T>
+#endif
     abstract Length: int
     abstract Slice: newStart: int * newLength: int -> 'Slice
 
@@ -78,7 +95,15 @@ type Reader<'T, 'State, 'Input when 'Input :> IReadable<'T, 'Input>>(input: 'Inp
             state <- p.State
 
     member _.Peek() = input.TryItem(index)
-    member _.PeekN(count) = input.SpanSlice(index, count)
+
+    /// Returns up to `count` items starting at the current position, clamped to the
+    /// remaining input. Use this for "peek as many as are there" lookups; for strict
+    /// BCL bounds semantics call `Input.AsSpan(index, length)` directly.
+    member _.PeekN(count) =
+        let remaining = input.Length - index
+        let safeCount = if count < remaining then count else remaining
+        input.AsSpan(index, safeCount)
+
     member _.Length = input.Length
 
     member _.Skip() =
