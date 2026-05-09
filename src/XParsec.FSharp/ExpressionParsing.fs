@@ -707,7 +707,7 @@ module Expr =
 
                 Ok doneTok
             | Error e ->
-                match reader.Current with
+                match reader.Peek() with
                 | ValueSome t ->
                     let doneTok = virtualToken (PositionedToken.Create(Token.VirtualDone, t.StartIndex))
                     Ok doneTok

@@ -11,8 +11,7 @@
       "xparsec": {
         "type": "Project",
         "dependencies": {
-          "FSharp.Core": "[8.0.300, )",
-          "System.Collections.Immutable": "[8.0.0, )"
+          "FSharp.Core": "[8.0.300, )"
         }
       },
       "FSharp.Core": {
