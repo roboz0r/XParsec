@@ -230,8 +230,7 @@ let private isSpaceChar c =
     c = ' ' || c = '\t' || c = '\r' || c = '\n'
 
 /// Matches zero or more whitespace characters (space, tab, carriage return, newline) and returns unit.
-let spaces (reader: Reader<char, 'State, 'Input>) =
-    skipManySatisfies isSpaceChar reader
+let spaces (reader: Reader<char, 'State, 'Input>) = skipManySatisfies isSpaceChar reader
 
 /// Matches one or more whitespace characters (space, tab, carriage return, newline) and returns unit.
 let spaces1 (reader: Reader<char, 'State, 'Input>) =

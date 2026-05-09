@@ -253,8 +253,10 @@ let tests =
                 let reader = Reader.ofString "hello world" 42
                 reader.SkipN 6
                 let child = reader.Slice(0, 5, "child-state")
+
                 "Child reader's state should be the explicit value"
                 |> Expect.equal child.State "child-state"
+
                 "Child reader's index should start at 0" |> Expect.equal child.Index 0
             }
 
@@ -268,12 +270,15 @@ let tests =
                     reader.SkipN(-2)
                 with
 #if !FABLE_COMPILER
-                | :? ArgumentException -> threw <- true
+                | :? ArgumentException ->
+                    threw <- true
 #else
-                | _ -> threw <- true
+                | _ ->
+                    threw <- true
 #endif
 
                 "Negative SkipN should throw" |> Expect.isTrue threw
+
                 "Reader index should be unchanged after the rejected call"
                 |> Expect.equal reader.Index 3
             }

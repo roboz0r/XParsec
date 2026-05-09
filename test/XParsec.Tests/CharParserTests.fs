@@ -278,7 +278,7 @@ let tests =
                         "   ", Ok(), 3
                         "  \n\r\t", Ok(), 5
                         "Hello", Error(Message ParseError.spaces1), 0
-                        "", Error EndOfInput, 0
+                        "", Error(Message ParseError.spaces1), 0
                     ]
 
                 for input, expected, endAt in cases do
