@@ -823,9 +823,6 @@ module Reader =
     let ofImmutableArray (a: ImmutableArray<'T>) state =
         Reader(ReadableImmutableArray(a, 0, a.Length), state, 0)
 
-    /// Creates a new reader from an existing ReadableArray slice and state.
-    let ofReadableArray (a: ReadableArray<'T>) state = Reader(a, state, 0)
-
 #if NET5_0_OR_GREATER
     /// Creates a new reader from the input resize array and state.
     let ofResizeArray (a: ResizeArray<'T>) state =
