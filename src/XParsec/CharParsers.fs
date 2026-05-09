@@ -77,19 +77,19 @@ let isAsciiLetter c =
 let isDigit c = c >= '0' && c <= '9'
 
 /// Succeeds if the next char in the input is equal to the given char, and consumes one char. Returns the char, otherwise fails with the Expected char.
-let pchar (c: char) (reader: Reader<char, 'State, 'Input>) = pitem c reader
+let inline pchar (c: char) (reader: Reader<char, 'State, 'Input>) = pitem c reader
 
 /// Succeeds if the next char in the input is equal to the given char, and consumes one char. Returns unit, otherwise fails with the Expected char.
-let skipChar (c: char) (reader: Reader<char, 'State, 'Input>) = skipItem c reader
+let inline skipChar (c: char) (reader: Reader<char, 'State, 'Input>) = skipItem c reader
 
 /// Succeeds if the next char in the input is equal to the given char, and consumes one char. Returns the `result`, otherwise fails with the Expected char.
-let charReturn (c: char) (result) (reader: Reader<char, 'State, 'Input>) = itemReturn c result reader
+let inline charReturn (c: char) (result) (reader: Reader<char, 'State, 'Input>) = itemReturn c result reader
 
 /// Succeeds if the Reader position is not at the end of the input, and consumes one char.
-let anyChar (reader: Reader<char, 'State, 'Input>) = pid reader
+let inline anyChar (reader: Reader<char, 'State, 'Input>) = pid reader
 
 /// Succeeds if the Reader position is not at the end of the input, and consumes one char. Returns unit.
-let skipAnyChar (reader: Reader<char, 'State, 'Input>) =
+let inline skipAnyChar (reader: Reader<char, 'State, 'Input>) =
     match reader.Peek() with
     | ValueSome _ ->
         reader.Skip()
@@ -98,7 +98,7 @@ let skipAnyChar (reader: Reader<char, 'State, 'Input>) =
 
 /// Succeeds if the next characters in the reader match the given string, and consumes the characters. Returns the string, otherwise fails with the Expected string.
 /// An empty string vacuously matches at any position (including end-of-input) and consumes nothing.
-let pstring (s: string) (reader: Reader<char, 'State, 'Input>) =
+let inline pstring (s: string) (reader: Reader<char, 'State, 'Input>) =
     if s.Length = 0 then
         preturn s reader
     else
@@ -114,7 +114,7 @@ let pstring (s: string) (reader: Reader<char, 'State, 'Input>) =
 
 /// Succeeds if the next characters in the reader match the given string (case insensitive), and consumes the characters. Returns `result`.
 /// An empty string vacuously matches at any position (including end-of-input) and consumes nothing.
-let stringCIReturn (s: string) (result) (reader: Reader<char, 'State, 'Input>) =
+let inline stringCIReturn (s: string) (result) (reader: Reader<char, 'State, 'Input>) =
     if s.Length = 0 then
         preturn result reader
     else
@@ -130,7 +130,7 @@ let stringCIReturn (s: string) (result) (reader: Reader<char, 'State, 'Input>) =
 
 /// Succeeds if the next characters in the reader match the given string, and consumes the characters. Returns `result`.
 /// An empty string vacuously matches at any position (including end-of-input) and consumes nothing.
-let stringReturn (s: string) (result) (reader: Reader<char, 'State, 'Input>) =
+let inline stringReturn (s: string) (result) (reader: Reader<char, 'State, 'Input>) =
     if s.Length = 0 then
         preturn result reader
     else
@@ -226,35 +226,19 @@ let many1Chars (p1: Parser<_, char, _, _>) (reader: Reader<char, 'State, 'Input>
         preturn (sb.ToString()) reader
     | Error err -> Error err
 
+let private isSpaceChar c =
+    c = ' ' || c = '\t' || c = '\r' || c = '\n'
+
 /// Matches zero or more whitespace characters (space, tab, carriage return, newline) and returns unit.
 let spaces (reader: Reader<char, 'State, 'Input>) =
-    (manyChars (
-        satisfyL
-            (function
-            | ' '
-            | '\t'
-            | '\r'
-            | '\n' -> true
-            | _ -> false)
-            ParseError.spaces
-    ))
-    >>% ()
-    <| reader
+    skipManySatisfies isSpaceChar reader
 
 /// Matches one or more whitespace characters (space, tab, carriage return, newline) and returns unit.
 let spaces1 (reader: Reader<char, 'State, 'Input>) =
-    (many1Chars (
-        satisfyL
-            (function
-            | ' '
-            | '\t'
-            | '\r'
-            | '\n' -> true
-            | _ -> false)
-            ParseError.spaces1
-    ))
-    >>% ()
-    <| reader
+    // `<?>` replaces the in-place `expectedAtLeastOne` nest with the friendlier
+    // labelled message — only fires when no input was consumed (i.e. on the first-char
+    // failure that defines spaces1's failure case).
+    (skipMany1Satisfies isSpaceChar <?> ParseError.spaces1) reader
 
 /// Matches one character that satisfies the parser `p1`, and then zero or more characters that satisfy the parser `p`.
 /// Returns the string of matched characters.
