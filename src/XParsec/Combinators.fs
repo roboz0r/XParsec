@@ -1045,6 +1045,10 @@ module Combinators =
                 xs.Add(s1)
                 let mutable endTok = ValueNone
                 let mutable err = []
+                // Captures the position at which the loop got stuck — both p and pEnd
+                // failed there. Reported instead of `pos` (manyTill's start), which
+                // would mis-locate the error to before any items were consumed.
+                let mutable errPos = reader.Position
 
                 while endTok.IsNone && err = [] do
                     let pos = reader.Position
@@ -1062,11 +1066,12 @@ module Combinators =
                             xs.Add(s)
                         | Error e ->
                             reader.Position <- pos
+                            errPos <- pos
                             err <- [ eEnd; e ]
 
                 match err with
                 | [] -> preturn struct (xs.ToImmutable(), endTok.Value) reader
-                | err -> ParseError.createNested ParseError.bothFailed err pos
+                | err -> ParseError.createNested ParseError.bothFailed err errPos
             | Error _ ->
                 reader.Position <- ePos
                 Error eEnd
@@ -1127,6 +1132,9 @@ module Combinators =
             | Ok s1 ->
                 let mutable endTok = ValueNone
                 let mutable err = []
+                // Position where p AND pEnd both failed; reported instead of the
+                // skipManyTill start position, which would mis-locate the error.
+                let mutable errPos = reader.Position
 
                 while endTok.IsNone && err = [] do
                     let pos = reader.Position
@@ -1142,11 +1150,12 @@ module Combinators =
                                 raise (InfiniteLoopException pos)
                         | Error e ->
                             reader.Position <- pos
+                            errPos <- pos
                             err <- [ eEnd; e ]
 
                 match err with
                 | [] -> preturn () reader
-                | err -> ParseError.createNested ParseError.bothFailed err pos
+                | err -> ParseError.createNested ParseError.bothFailed err errPos
             | Error e ->
                 reader.Position <- ePos
                 ParseError.createNested ParseError.bothFailed [ eEnd; e ] pos
