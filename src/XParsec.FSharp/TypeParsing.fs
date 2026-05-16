@@ -357,9 +357,35 @@ module Type =
     let private pUpcast =
         nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.OpUpcast) ":>"
 
+    let private errRetryAsMeasureArg: ErrorType<PositionedToken, ParseState> =
+        Message "Retry as measure argument"
+
+    // Generic type-argument parser. Tries Type first; if Type.parse leaves a measure
+    // operator dangling at the peek position (/, *, ^, fused ^- / ^+), backtracks and
+    // re-parses the slot as a Measure. Mirrors the abbrev measure-retry at
+    // TypeDefnParsing.fs:1219-1243. Single-identifier args (Foo<kg>) take the Type branch
+    // — the type checker resolves the measure-vs-type ambiguity using typar sort info.
     let private pTypeArg =
-        // Placeholder handling for TypeArg variations
-        refType.Parser |>> TypeArg.Type
+        choice
+            [
+                parser {
+                    let! tNormal = refType.Parser
+                    let! peekAfter = peekNextSyntaxToken
+                    let! state = getUserState
+                    let startsWithCaret = ParseState.tokenStringStartsWith "^" peekAfter state
+
+                    if
+                        peekAfter.Token = Token.OpDivision
+                        || peekAfter.Token = Token.OpConcatenate
+                        || peekAfter.Token = Token.OpMultiply
+                        || startsWithCaret
+                    then
+                        return! fail errRetryAsMeasureArg
+                    else
+                        return TypeArg.Type tNormal
+                }
+                (refMeasure.Parser |>> TypeArg.Measure)
+            ]
 
     // Hoisted: field-parser for anon record types. Previously defined inline inside
     // `parseAtomic`'s choiceL arm, which rebuilt it on every outer invocation.
@@ -418,20 +444,20 @@ module Type =
                 // LongIdent or LongIdent<Types>
                 parser {
                     let! lid = LongIdent.parse
-                    // Check for Generic arguments <...>
-                    let! genericPart =
-                        opt (
-                            parser {
-                                let! l = pLessThan
-                                let! args, commas = sepBy pTypeArg pComma
-                                let! r = pCloseTypeParams
-                                return (l, args, commas, r)
-                            }
-                        )
+                    // Commit to generic-args parsing once '<' is consumed: a failure inside
+                    // the args list (e.g. an unparseable arg, missing '>') should propagate
+                    // up so outer recoverWith (ReturnType.parse, etc.) can skip to the right
+                    // boundary. The previous shape wrapped the whole block in `opt`, which
+                    // silently fell back to `NamedType lid` and left the offending tokens in
+                    // the stream, causing the binding to fail at `pEquals` with no recovery.
+                    let! lessOpt = opt pLessThan
 
-                    match genericPart with
-                    | ValueSome(l, args, commas, r) -> return Type.GenericType(lid, l, args, commas, r)
+                    match lessOpt with
                     | ValueNone -> return Type.NamedType(lid)
+                    | ValueSome l ->
+                        let! args, commas = sepBy pTypeArg pComma
+                        let! r = pCloseTypeParams
+                        return Type.GenericType(lid, l, args, commas, r)
                 }
             ]
             "Atomic Type"

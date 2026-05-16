@@ -1,0 +1,82 @@
+module               'module'          KWModule            tok=   0  pos=   0
+                     'Test'            Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                'let'             KWLet               tok=  12  pos= 179
+    Pat.NamedSimple  'a'               Identifier          tok=  14  pos= 183
+    ReturnColon      ':'               OpColon             tok=  15  pos= 184
+    NamedType:
+      Ident          'int'             Identifier          tok=  17  pos= 186
+    =                '='               OpEquality          tok=  19  pos= 190
+      Const          '1'               NumInt32            tok=  21  pos= 192
+FunctionOrValue:
+  let                'let'             KWLet               tok=  28  pos= 334
+    Pat.NamedSimple  'bad1'            Identifier          tok=  30  pos= 338
+    ReturnColon      ':'               OpColon             tok=  31  pos= 342
+    SkipsTokens:
+      (skipped)      '999'             NumInt32            tok=  33  pos= 344
+    =                '='               OpEquality          tok=  35  pos= 348
+      Const          '2'               NumInt32            tok=  37  pos= 350
+FunctionOrValue:
+  let                'let'             KWLet               tok=  40  pos= 353
+    Pat.NamedSimple  'b'               Identifier          tok=  42  pos= 357
+    ReturnColon      ':'               OpColon             tok=  43  pos= 358
+    NamedType:
+      Ident          'string'          Identifier          tok=  45  pos= 360
+    =                '='               OpEquality          tok=  47  pos= 367
+      StringLiteral  '"'               StringOpen          tok=  49  pos= 369
+      Parts:
+        Text         'ok'              StringFragment      tok=  50  pos= 370
+                     '"'               StringClose         tok=  51  pos= 372
+FunctionOrValue:
+  let                'let'             KWLet               tok=  66  pos= 820
+    Pat.NamedSimple  'bad2'            Identifier          tok=  68  pos= 824
+    ReturnColon      ':'               OpColon             tok=  69  pos= 828
+    SkipsTokens:
+      (skipped)      'Vector'          Identifier          tok=  71  pos= 830
+      (skipped)      '<'               op_LessThan         tok=  72  pos= 836
+      (skipped)      'int'             Identifier          tok=  73  pos= 837
+    =                '='               OpEquality          tok=  75  pos= 841
+      Const          '3'               NumInt32            tok=  77  pos= 843
+FunctionOrValue:
+  let                'let'             KWLet               tok=  80  pos= 846
+    Pat.NamedSimple  'c'               Identifier          tok=  82  pos= 850
+    ReturnColon      ':'               OpColon             tok=  83  pos= 851
+    NamedType:
+      Ident          'float'           Identifier          tok=  85  pos= 853
+    =                '='               OpEquality          tok=  87  pos= 859
+      Const          '4.0'             NumIEEE64           tok=  89  pos= 861
+FunctionOrValue:
+  let                'let'             KWLet               tok=  96  pos= 972
+    Pat.NamedSimple  'bad3'            Identifier          tok=  98  pos= 976
+    ReturnColon      ':'               OpColon             tok=  99  pos= 980
+    Missing
+    =                '='               OpEquality          tok= 101  pos= 982
+      Const          '5'               NumInt32            tok= 103  pos= 984
+FunctionOrValue:
+  let                'let'             KWLet               tok= 106  pos= 987
+    Pat.NamedSimple  'd'               Identifier          tok= 108  pos= 991
+    ReturnColon      ':'               OpColon             tok= 109  pos= 992
+    NamedType:
+      Ident          'int'             Identifier          tok= 111  pos= 994
+    =                '='               OpEquality          tok= 113  pos= 998
+      Const          '6'               NumInt32            tok= 115  pos=1000
+---
+Diagnostics:
+  [error] MissingType at 344 (Ln 11, Col 11)
+    let bad1: 999 =
+              ^ At index 344 (Ln 11, Col 11)
+    Multiple errors:
+    ├───Expected at least one item.
+    └───Atomic Type
+  [error] MissingType at 830 (Ln 21, Col 11)
+    let bad2: Vector<int =
+              ^ At index 830 (Ln 21, Col 11)
+    Multiple errors:
+    ├───Expected at least one item.
+    └───Atomic Type
+  [error] MissingType at 982 (Ln 27, Col 11)
+    let bad3: =
+              ^ At index 982 (Ln 27, Col 11)
+    Multiple errors:
+    ├───Expected at least one item.
+    └───Atomic Type
