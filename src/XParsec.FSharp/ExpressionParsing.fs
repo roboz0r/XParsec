@@ -633,14 +633,26 @@ module Expr =
             | ExprAux.Ident ident ->
                 match expr with
                 | Expr.Ident firstIdent ->
-                    Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ImmutableArray.Create(firstIdent, ident)))
-                | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent longIdentOrOp) ->
-                    Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(longIdentOrOp.Add(ident)))
-                | _ -> Expr.DotLookup(expr, op, LongIdentOrOp.LongIdent(ImmutableArray.Create(ident)))
+                    let lid =
+                        {
+                            Idents = ImmutableArray.Create(firstIdent, ident)
+                            Dots = ImmutableArray.Create(op)
+                        }
+
+                    Expr.LongIdentOrOp(LongIdentOrOp.LongIdent lid)
+                | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent existing) ->
+                    let lid =
+                        {
+                            Idents = existing.Idents.Add(ident)
+                            Dots = existing.Dots.Add(op)
+                        }
+
+                    Expr.LongIdentOrOp(LongIdentOrOp.LongIdent lid)
+                | _ -> Expr.DotLookup(expr, op, LongIdentOrOp.LongIdent(LongIdent.single ident))
             | ExprAux.DotParenOp identOrOp ->
                 match expr with
                 | Expr.Ident firstIdent ->
-                    Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(ImmutableArray.Create(firstIdent), op, identOrOp))
+                    Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(LongIdent.single firstIdent, op, identOrOp))
                 | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent longIdent) ->
                     Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(longIdent, op, identOrOp))
                 | _ -> Expr.DotLookup(expr, op, LongIdentOrOp.Op identOrOp)

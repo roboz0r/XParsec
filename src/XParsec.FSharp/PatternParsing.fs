@@ -434,83 +434,95 @@ module Pat =
     /// Parse a union case argument: either a named field (tried first) or a positional pattern.
     let private pUnionArgPat = pUnionNamedArgPat <|> pUnionPositionalArgPat
 
-    /// Parse named field patterns: UnionCase(field1 = pat1, _, field2 = pat2, ...).
-    /// Accepts an arbitrary mix of named and positional args in any order, separated by
-    /// commas, semicolons, or newline-at-indent. Commits to this AST shape only when at
-    /// least one argument is a named field; otherwise fails so `pNamed`'s fallback can
-    /// handle the positional-only case with the standard `Pat.Named(lid, param, arg)`.
-    let private pNamedFieldPats: FSParser<Pat<SyntaxToken>> =
+    /// Parse named field patterns AFTER a long-ident has already been consumed:
+    /// `( field1 = pat1, _, field2 = pat2, ... )`. Accepts an arbitrary mix of named
+    /// and positional args in any order, separated by commas, semicolons, or
+    /// newline-at-indent. Commits to this AST shape only when at least one argument
+    /// is a named field; otherwise fails (restoring state + position) so the caller
+    /// can fall back to the standard `Pat.Named(lid, args)` positional shape with
+    /// the same already-parsed lid.
+    let private tryNamedFieldPatsAfterLid
+        (lid: LongIdent<SyntaxToken>)
+        (postLidPos: Position<ParseState>)
+        : FSParser<Pat<SyntaxToken>> =
+        fun reader ->
+            match pLParen reader with
+            | Error e -> Error e
+            | Ok lParen ->
+                // Push Paren context (indent=0) so inner args can appear at any column
+                // relative to any enclosing SeqBlock — matches pParenPat/pRecordPat. Without
+                // this, a recursive call from inside a RHS `withContext SeqBlock` (set by
+                // pUnionNamedArgPat to the RHS column) would offside-fail on inner fields
+                // indented below the RHS column.
+                let parenEntry: Offside =
+                    {
+                        Context = OffsideContext.Paren
+                        Indent = 0
+                        Token = lParen.PositionedToken
+                    }
+
+                let savedState = reader.State
+                reader.State <- ParseState.pushOffside parenEntry reader.State
+
+                let innerParser =
+                    parser {
+                        let! args, seps =
+                            withContext OffsideContext.SeqBlock (sepBy1 pUnionArgPat (pComma <|> pRecordFieldSep))
+
+                        let! rParen = pRParen
+
+                        let hasNamed =
+                            args
+                            |> Seq.exists (
+                                function
+                                | UnionArgPat.Named _ -> true
+                                | _ -> false
+                            )
+
+                        if hasNamed then
+                            return Pat.NamedFieldPats(lid, lParen, args, seps, rParen)
+                        else
+                            return! fail errPositionalOnlyCtorPat
+                    }
+
+                match innerParser reader with
+                | Ok result ->
+                    reader.State <- ParseState.popOffside parenEntry reader.State
+                    Ok result
+                | Error _ as e ->
+                    // Roll back state + position so the caller's positional fallback can
+                    // re-parse the `(` as part of an atomic binding arg.
+                    reader.State <- savedState
+                    reader.Position <- postLidPos
+                    e
+
+    // pNamed shares one `LongIdent.parse` call between the named-field-pat path and the
+    // positional path — the prior `choiceL [pNamedFieldPats; …]` re-parsed the long-ident
+    // on backtrack (each alternative started with `let! lid = LongIdent.parse`). Every
+    // identifier-shaped pattern (match-arm variables, fn args, let-binding heads, record
+    // fields) goes through here, so the duplicated long-ident parse was hot.
+    let pNamed: FSParser<Pat<SyntaxToken>> =
         fun reader ->
             match LongIdent.parse reader with
             | Error e -> Error e
             | Ok lid ->
-                match pLParen reader with
-                | Error e -> Error e
-                | Ok lParen ->
-                    // Push Paren context (indent=0) so inner args can appear at any column
-                    // relative to any enclosing SeqBlock — matches pParenPat/pRecordPat. Without
-                    // this, a recursive call from inside a RHS `withContext SeqBlock` (set by
-                    // pUnionNamedArgPat to the RHS column) would offside-fail on inner fields
-                    // indented below the RHS column.
-                    let parenEntry: Offside =
-                        {
-                            Context = OffsideContext.Paren
-                            Indent = 0
-                            Token = lParen.PositionedToken
-                        }
+                let postLidPos = reader.Position
 
-                    let savedState = reader.State
-                    reader.State <- ParseState.pushOffside parenEntry reader.State
-
-                    let innerParser =
-                        parser {
-                            let! args, seps =
-                                withContext OffsideContext.SeqBlock (sepBy1 pUnionArgPat (pComma <|> pRecordFieldSep))
-
-                            let! rParen = pRParen
-
-                            let hasNamed =
-                                args
-                                |> Seq.exists (
-                                    function
-                                    | UnionArgPat.Named _ -> true
-                                    | _ -> false
-                                )
-
-                            if hasNamed then
-                                return Pat.NamedFieldPats(lid, lParen, args, seps, rParen)
-                            else
-                                return! fail errPositionalOnlyCtorPat
-                        }
-
-                    match innerParser reader with
-                    | Ok result ->
-                        reader.State <- ParseState.popOffside parenEntry reader.State
-                        Ok result
-                    | Error _ as e ->
-                        reader.State <- savedState
-                        e
-
-    let pNamed =
-        // Try named field patterns first (backtracking on failure),
-        // then fall back to standard named pattern parsing.
-        choiceL
-            [
-                pNamedFieldPats
-                parser {
-                    let! lid = LongIdent.parse
-                    // Parses a curried list of atomic argument patterns. This is what enables
-                    // parameterized active patterns like `CustomOpId (fn a) (fn b) boundVar`.
-                    let! args = many refPatAtomicBindingArg.Parser
-
-                    match lid.Length, args.IsEmpty with
-                    | 1, true ->
-                        // Simple named pattern (variable)
-                        return Pat.NamedSimple(lid[0])
-                    | _ -> return Pat.Named(lid, args)
-                }
-            ]
-            "Named pattern"
+                // Try named-field-pat shape first; on failure, fall through to positional
+                // with the same already-parsed lid (state + position restored to postLid).
+                match tryNamedFieldPatsAfterLid lid postLidPos reader with
+                | Ok result -> Ok result
+                | Error _ ->
+                    // Positional path: parses a curried list of atomic argument patterns.
+                    // This is what enables parameterized active patterns like
+                    // `CustomOpId (fn a) (fn b) boundVar`. `many` never fails — empty
+                    // results yield Pat.NamedSimple / Pat.Named with no args.
+                    match many refPatAtomicBindingArg.Parser reader with
+                    | Error e -> Error e
+                    | Ok args ->
+                        match lid.Idents.Length, args.IsEmpty with
+                        | 1, true -> Ok(Pat.NamedSimple(lid.Idents.[0]))
+                        | _ -> Ok(Pat.Named(lid, args))
 
     // Parses `(op) atomicArg*` in pattern position. Enables parameterized
     // active pattern calls whose parameter is an expression-shaped pattern, e.g.
@@ -670,8 +682,8 @@ module Pat =
         parser {
             let! lid = LongIdent.parse
 
-            match lid.Length with
-            | 1 -> return Pat.NamedSimple(lid[0])
+            match lid.Idents.Length with
+            | 1 -> return Pat.NamedSimple(lid.Idents.[0])
             | _ -> return Pat.Named(lid, ImmutableArray.Empty)
         }
 

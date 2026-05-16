@@ -240,54 +240,57 @@ module IdentOrOp =
             "IdentOrOp"
 
 [<RequireQualifiedAccess>]
-module LongIdentOrOp =
-    // Could be LongIdent or QualifiedOp
-    let rec private parseRest ident (builder: ImmutableArray<_>.Builder) =
-        parser {
-            // Look ahead for a dot
-            match! opt (lookAhead pDot) with
-            | ValueSome dot ->
-                // Consume the dot
-                let! dotConsumed = pDot
-
-                // Parse the next IdentOrOp
-                let! nextIdentOrOp = IdentOrOp.parse
-
-                match nextIdentOrOp with
-                | IdentOrOp.Ident identNext ->
-                    // Continue parsing the LongIdent
-                    builder.Add(identNext)
-                    return! parseRest ident builder
-                | _ ->
-                    // Found an operator, return QualifiedOp
-                    let longIdent = builder.ToImmutable()
-                    return LongIdentOrOp.QualifiedOp(longIdent, dotConsumed, nextIdentOrOp)
-            | ValueNone ->
-                // No more dots, return LongIdent
-                let longIdent = builder.ToImmutable()
-                return LongIdentOrOp.LongIdent longIdent
-        }
-
-    let parse: FSParser<LongIdentOrOp<SyntaxToken>> =
-        parser {
-            let! first = IdentOrOp.parse
-
-            match first with
-            | IdentOrOp.Ident ident ->
-                let builder = ImmutableArray.CreateBuilder()
-                builder.Add(ident)
-                return! parseRest ident builder
-            | _ ->
-                // Just an operator
-                return LongIdentOrOp.Op first
-        }
-
-
-[<RequireQualifiedAccess>]
 module LongIdent =
-    // Simple parser for A.B.C
+    // Simple parser for A.B.C — every identifier pattern, type reference, and module
+    // path goes through here, so this is hot.
     let private pIdent = nextSyntaxIdentifierLMsg "Expected Identifier"
-    let parse = sepBy1 pIdent pDot |>> fun struct (xs, dots) -> xs
+
+    /// Build a singleton LongIdent (one ident, no dots). For the common bare-identifier
+    /// case, lets callers avoid threading an empty dots array through manually.
+    let inline single (ident: 'T) : LongIdent<'T> =
+        {
+            Idents = ImmutableArray.Create(ident)
+            Dots = ImmutableArray.Empty
+        }
+
+    // Direct implementation rather than `sepBy1 pIdent pDot`: the dots ARE part of
+    // the AST (CST-style — kept for downstream tooling), but writing a single loop
+    // with two SmallArrayBuilders lets the common count=1 case stay entirely on the
+    // stack (single-ident lids get `ImmutableArray.Empty` for dots, no allocation).
+    let parse: FSParser<LongIdent<SyntaxToken>> =
+        fun reader ->
+            match pIdent reader with
+            | Error e -> Error e
+            | Ok first ->
+                let mutable idents = SmallArrayBuilder<_>()
+                let mutable dots = SmallArrayBuilder<_>()
+                idents.Add(first)
+                let mutable ok = true
+
+                while ok do
+                    let pos = reader.Position
+
+                    match pDot reader with
+                    | Ok dot ->
+                        match pIdent reader with
+                        | Ok ident ->
+                            if reader.Position = pos then
+                                raise (InfiniteLoopException pos)
+
+                            dots.Add(dot)
+                            idents.Add(ident)
+                        | Error _ ->
+                            reader.Position <- pos
+                            ok <- false
+                    | Error _ ->
+                        reader.Position <- pos
+                        ok <- false
+
+                Ok
+                    {
+                        Idents = idents.ToImmutable()
+                        Dots = dots.ToImmutable()
+                    }
 
 
 [<RequireQualifiedAccess>]

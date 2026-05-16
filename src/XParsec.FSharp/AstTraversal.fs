@@ -226,11 +226,14 @@ and walkActivePatternOpName (visitor: AstVisitor<'T>) (apn: ActivePatternOpName<
 
 and walkLongIdentOrOp (visitor: AstVisitor<'T>) (longIdentOrOp: LongIdentOrOp<'T>) : unit =
     match longIdentOrOp with
-    | LongIdentOrOp.LongIdent idents when idents.Length = 1 -> visitor.VisitToken "Ident" idents[0]
-    | LongIdentOrOp.LongIdent idents ->
+    | LongIdentOrOp.LongIdent lid when lid.Idents.Length = 1 -> visitor.VisitToken "Ident" lid.Idents.[0]
+    | LongIdentOrOp.LongIdent lid ->
         visitor.EnterSection "LongIdent"
 
-        for ident in idents do
+        // Walk only the idents — the dots live in lid.Dots for downstream tooling
+        // (formatters, refactoring tools) but aren't surfaced in the debug print so
+        // .parsed goldens stay terse.
+        for ident in lid.Idents do
             visitor.VisitToken "" ident
 
         visitor.ExitSection "LongIdent"
@@ -238,7 +241,7 @@ and walkLongIdentOrOp (visitor: AstVisitor<'T>) (longIdentOrOp: LongIdentOrOp<'T
     | LongIdentOrOp.QualifiedOp(longIdent, dot, identOrOp) ->
         visitor.EnterSection "QualifiedOp"
 
-        for ident in longIdent do
+        for ident in longIdent.Idents do
             visitor.VisitToken "" ident
 
         visitor.VisitToken "." dot
@@ -1951,7 +1954,7 @@ and walkTypeName (visitor: AstVisitor<'T>) (typeName: TypeName<'T>) : unit =
         visitor.ExitSection "PrefixTypars"
     | ValueNone -> ()
 
-    for tok in ident do
+    for tok in ident.Idents do
         visitor.VisitToken "TypeName" tok
 
     match typars with
@@ -2030,7 +2033,7 @@ and walkExceptionDefn (visitor: AstVisitor<'T>) (exnDefn: ExceptionDefn<'T>) : u
         visitor.VisitToken "ident" ident
         visitor.VisitToken "=" eq
 
-        for id in longIdent do
+        for id in longIdent.Idents do
             visitor.VisitToken "" id
 
         visitor.ExitSection "ExceptionDefn.Abbrev"
@@ -2283,13 +2286,13 @@ and walkImportDecl (visitor: AstVisitor<'T>) (decl: ImportDecl<'T>) : unit =
     | ImportDecl.ImportDecl(openToken, longIdent) ->
         visitor.VisitToken "open" openToken
 
-        for ident in longIdent do
+        for ident in longIdent.Idents do
             visitor.VisitToken "" ident
     | ImportDecl.ImportDeclType(openToken, typeToken, longIdent) ->
         visitor.VisitToken "open" openToken
         visitor.VisitToken "type" typeToken
 
-        for ident in longIdent do
+        for ident in longIdent.Idents do
             visitor.VisitToken "" ident
 
 and walkModuleAbbrev (visitor: AstVisitor<'T>) (abbrev: ModuleAbbrev<'T>) : unit =
@@ -2298,7 +2301,7 @@ and walkModuleAbbrev (visitor: AstVisitor<'T>) (abbrev: ModuleAbbrev<'T>) : unit
     visitor.VisitToken "ident" ident
     visitor.VisitToken "=" equals
 
-    for id in longIdent do
+    for id in longIdent.Idents do
         visitor.VisitToken "" id
 
 and walkCompilerDirective (visitor: AstVisitor<'T>) (decl: CompilerDirectiveDecl<'T>) : unit =
@@ -2378,7 +2381,7 @@ and walkNamespaceDeclGroup (visitor: AstVisitor<'T>) (group: NamespaceDeclGroup<
         visitor.VisitToken "namespace" nsTok
         visitTokenOpt visitor "rec" isRec
 
-        for id in longIdent do
+        for id in longIdent.Idents do
             visitor.VisitToken "" id
 
         visitor.EnterSection ""
@@ -2405,7 +2408,7 @@ and walkImplementationFile (visitor: AstVisitor<'T>) (file: ImplementationFile<'
         walkAccessOpt visitor access
         visitTokenOpt visitor "rec" isRec
 
-        for id in longIdent do
+        for id in longIdent.Idents do
             visitor.VisitToken "" id
 
         walkModuleElems visitor elems

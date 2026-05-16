@@ -51,8 +51,9 @@ and [<RequireQualifiedAccess>] RangeOpName<'T> =
 
 and ActivePatternOpName<'T> = | ActivePatternOp of lBar: 'T * idents: ImArr<'T> * finalUnderscore: 'T voption * rBar: 'T
 
-// Represents: long-ident and long-ident-or-op
-type LongIdent<'T> = ImArr<'T>
+// Represents: long-ident and long-ident-or-op.
+[<Struct>]
+type LongIdent<'T> = { Idents: ImArr<'T>; Dots: ImArr<'T> }
 
 [<RequireQualifiedAccess>]
 type LongIdentOrOp<'T> =

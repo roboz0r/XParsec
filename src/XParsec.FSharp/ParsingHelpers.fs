@@ -1007,7 +1007,13 @@ module Parsing =
                             Index = TokenIndex.Virtual
                         }
 
-                    preturn (ImmutableArray.Create(virtualIdent): LongIdent<SyntaxToken>) reader
+                    preturn
+                        ({
+                            Idents = ImmutableArray.Create(virtualIdent)
+                            Dots = ImmutableArray.Empty
+                        }
+                        : LongIdent<SyntaxToken>)
+                        reader
 
     module StoppingTokens =
         let afterType (tok: SyntaxToken) =
