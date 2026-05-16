@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="NodeKey.fs" />
+    <Compile Include="SemanticInfo.fs" />
+    <Compile Include="SideTables.fs" />
+    <Compile Include="UnionFind.fs" />
+    <Compile Include="Tast.fs" />
+    <Compile Include="Passes\Desugar.fs" />
+    <Compile Include="Passes\NameResolution.fs" />
+    <Compile Include="Passes\Unification.fs" />
+    <Compile Include="Passes\Regions.fs" />
+    <Compile Include="Passes\Validation.fs" />
+    <Compile Include="Freeze.fs" />
+    <Compile Include="Pipeline.fs" />
+    <None Include="README.md" />
+    <None Include="docs\architecture.md" />
+    <None Include="docs\nodekey.md" />
+    <None Include="docs\passes.md" />
+    <None Include="docs\typevar.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\XParsec.FSharp\XParsec.FSharp.fsproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+  </ItemGroup>
+</Project>
