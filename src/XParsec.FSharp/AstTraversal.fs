@@ -884,6 +884,7 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
     | Expr.InfixApp(left, op, right) -> walkExprInfixApp visitor left op right
     | Expr.PrefixApp(op, inner) -> walkExprPrefixApp visitor op inner
     | Expr.OptionalArgExpr(qmark, ident) -> walkExprOptionalArgExpr visitor qmark ident
+    | Expr.DynamicLookup(inner, qmark, ident) -> walkExprDynamicLookup visitor inner qmark ident
     | Expr.Sequential(exprs, _) -> walkExprSequential visitor exprs
     | Expr.Tuple(elements, _) -> walkExprTuple visitor elements
     | Expr.StructTuple(_, _, elements, _, _) -> walkExprStructTuple visitor elements
@@ -1021,6 +1022,15 @@ and walkExprOptionalArgExpr (visitor: AstVisitor<'T>) (qmark: 'T) (ident: 'T) : 
     visitor.VisitToken "?" qmark
     visitor.VisitToken "Ident" ident
     visitor.ExitSection "OptionalArg"
+
+and walkExprDynamicLookup (visitor: AstVisitor<'T>) (expr: Expr<'T>) (qmark: 'T) (ident: 'T) : unit =
+    visitor.EnterSection "DynamicLookup"
+    visitor.EnterSection "Expr"
+    walkExpr visitor expr
+    visitor.ExitSection "Expr"
+    visitor.VisitToken "?" qmark
+    visitor.VisitToken "Ident" ident
+    visitor.ExitSection "DynamicLookup"
 
 and walkExprSequential (visitor: AstVisitor<'T>) (exprs: ImArr<Expr<'T>>) : unit =
     visitor.EnterSection "Sequential"

@@ -268,6 +268,9 @@ type Expr<'T> =
     | InfixApp of leftExpr: Expr<'T> * infixOp: 'T * rightExpr: Expr<'T>
     | PrefixApp of prefixOp: 'T * expr: Expr<'T>
     | OptionalArgExpr of questionMark: 'T * ident: 'T
+    // Dynamic member lookup: expr ? ident — F# spec 6.4.5. Shorthand for `(?) expr ident`.
+    // The setter form `expr ? ident <- value` composes as Assignment(DynamicLookup(...), <-, value).
+    | DynamicLookup of expr: Expr<'T> * questionMark: 'T * ident: 'T
     | IndexedLookup of expr: Expr<'T> * dot: 'T voption * lBracket: 'T * indexExpr: Expr<'T> * rBracket: 'T
     // Data Structures
     | Assignment of leftExpr: Expr<'T> * arrow: 'T * rightExpr: Expr<'T>

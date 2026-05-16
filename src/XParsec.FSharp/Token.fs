@@ -2212,6 +2212,7 @@ module internal TokenInfo =
             | Token.OpConcatenate
             | Token.OpEquality
             | Token.OpDereference
+            | Token.OpDynamic
             | Token.OpRange
             | Token.KWLazy
             | Token.KWAssert
@@ -2288,7 +2289,8 @@ module internal TokenInfo =
             | Token.KWAssert
             | Token.KWFixed -> PrecedenceLevel.Function // same as function application
             | Token.OpBar -> PrecedenceLevel.PatternMatchBar // pattern match bar
-            | Token.OpDot -> PrecedenceLevel.Dot
+            | Token.OpDot
+            | Token.OpDynamic -> PrecedenceLevel.Dot
             | Token.OpAmp
             | Token.OpAmpAmp -> PrecedenceLevel.LogicalAnd
             | Token.OpMultiply

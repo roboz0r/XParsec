@@ -1,0 +1,66 @@
+module                     'module'          KWModule            tok=   0  pos=   0
+                           'TestDynami...'   Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                      'let'             KWLet               tok=   7  pos=  89
+    Pat.NamedSimple        'name'            Identifier          tok=   9  pos=  93
+    =                      '='               OpEquality          tok=  11  pos=  98
+      DynamicLookup:
+        Expr:
+          Ident            'row'             Identifier          tok=  13  pos= 100
+        ?                  '?'               OpDynamic           tok=  14  pos= 103
+        Ident              'Name'            Identifier          tok=  15  pos= 104
+FunctionOrValue:
+  let                      'let'             KWLet               tok=  20  pos= 173
+    Pat.NamedSimple        'setIt'           Identifier          tok=  22  pos= 177
+    Pats:
+      ParenBlock           '('               KWLParen            tok=  24  pos= 183
+                           ')'               KWRParen            tok=  25  pos= 184
+    =                      '='               OpEquality          tok=  27  pos= 186
+      Assignment           '<-'              OpArrowLeft         tok=  33  pos= 199
+        DynamicLookup:
+          Expr:
+            Ident          'obj'             Identifier          tok=  29  pos= 188
+          ?                '?'               OpDynamic           tok=  30  pos= 191
+          Ident            'Member'          Identifier          tok=  31  pos= 192
+        Const              '42'              NumInt32            tok=  35  pos= 202
+FunctionOrValue:
+  let                      'let'             KWLet               tok=  40  pos= 233
+    Pat.NamedSimple        'chained'         Identifier          tok=  42  pos= 237
+    =                      '='               OpEquality          tok=  44  pos= 245
+      DynamicLookup:
+        Expr:
+          DynamicLookup:
+            Expr:
+              Ident        'obj'             Identifier          tok=  46  pos= 247
+            ?              '?'               OpDynamic           tok=  47  pos= 250
+            Ident          'A'               Identifier          tok=  48  pos= 251
+        ?                  '?'               OpDynamic           tok=  49  pos= 252
+        Ident              'B'               Identifier          tok=  50  pos= 253
+FunctionOrValue:
+  let                      'let'             KWLet               tok=  55  pos= 288
+    Pat.NamedSimple        'mixed'           Identifier          tok=  57  pos= 292
+    =                      '='               OpEquality          tok=  59  pos= 298
+      DynamicLookup:
+        Expr:
+          LongIdentOrOp:
+            LongIdent:
+                           'obj'             Identifier          tok=  61  pos= 300
+                           'foo'             Identifier          tok=  63  pos= 304
+        ?                  '?'               OpDynamic           tok=  64  pos= 307
+        Ident              'Bar'             Identifier          tok=  65  pos= 308
+FunctionOrValue:
+  let                      'let'             KWLet               tok=  70  pos= 354
+    Pat.NamedSimple        'piped'           Identifier          tok=  72  pos= 358
+    =                      '='               OpEquality          tok=  74  pos= 364
+      InfixApp             '|>'              op_PipeRight        tok=  78  pos= 371
+        Ident              'data'            Identifier          tok=  76  pos= 366
+        Fun                'fun'             KWFun               tok=  80  pos= 374
+        Pats:
+          Pat.NamedSimple  'r'               Identifier          tok=  82  pos= 378
+        Arrow              '->'              OpArrowRight        tok=  84  pos= 380
+        Body:
+          DynamicLookup:
+            Expr:
+              Ident        'r'               Identifier          tok=  86  pos= 383
+            ?              '?'               OpDynamic           tok=  87  pos= 384
+            Ident          'Value'           Identifier          tok=  88  pos= 385

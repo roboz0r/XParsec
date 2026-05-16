@@ -648,6 +648,11 @@ module Expr =
                 Expr.IndexedLookup(expr, ValueSome op, lBracket, indexExpr, rBracket)
             | _ -> failwith "Unexpected Aux type for dot completion"
 
+        let dynamicLookup (expr: Expr<_>) (op: SyntaxToken) (aux: ExprAux) =
+            match aux with
+            | ExprAux.Ident ident -> Expr.DynamicLookup(expr, op, ident)
+            | _ -> failwith "Unexpected Aux type for dynamic lookup completion"
+
         let typeApp (expr: Expr<_>) (op: SyntaxToken) (aux: ExprAux) =
             match aux with
             | ExprAux.TypeApp(lAngle, types, commas, rAngle) -> Expr.TypeApp(expr, lAngle, types, commas, rAngle)
@@ -1590,6 +1595,18 @@ module Expr =
 
         let parseTypeCastRhs = Type.parse |>> ExprAux.TypeCast
 
+        // RHS of an infix `?` (dynamic member lookup) — expects a single identifier.
+        // F# spec 6.4.5: `expr ? ident` is shorthand for `(?) expr ident`.
+        let parseDynamicRhs: FSParser<ExprAux> =
+            parser {
+                let! ident = nextSyntaxIdentifierLMsg "Expected identifier after '?'"
+                return ExprAux.Ident ident
+            }
+
+        let dynamicLookupHandler: SyntaxToken -> RHSOperator<_, _, _, _, _, _> =
+            let power = BindingPower.fromLevel (int PrecedenceLevel.Dot)
+            fun op -> InfixMapped(op, preturn op, power, parseDynamicRhs, Complete.dynamicLookup)
+
 
         let rhsOperators
             : (SyntaxToken
@@ -1660,11 +1677,17 @@ module Expr =
                 )
 
         let getRhsOperatorHandler (opInfo: OperatorInfo) token =
-            // Note: Precedence gets bit-packed into the token and converted directly
-            // to RHS handler index for efficiency.
-            let pl = opInfo.Precedence
-            let handler = rhsOperators[LanguagePrimitives.EnumToValue pl]
-            handler token
+            // OpDynamic (`?`) shares PrecedenceLevel.Dot with `.` but produces a different
+            // AST shape (DynamicLookup, ident-only RHS) — dispatch by token before the
+            // precedence-level array lookup.
+            match opInfo.Token with
+            | Token.OpDynamic -> dynamicLookupHandler token
+            | _ ->
+                // Note: Precedence gets bit-packed into the token and converted directly
+                // to RHS handler index for efficiency.
+                let pl = opInfo.Precedence
+                let handler = rhsOperators[LanguagePrimitives.EnumToValue pl]
+                handler token
 
         let rhsParser =
             let handleToken token =
