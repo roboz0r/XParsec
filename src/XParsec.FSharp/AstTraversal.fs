@@ -421,6 +421,10 @@ and walkPat (visitor: AstVisitor<'T>) (pat: Pat<'T>) : unit =
         walkIdentOrOp visitor identOrOp
         visitor.ExitSection "Pat.Op"
     | Pat.String(kind, parts, closing) -> walkStringKindAndParts visitor kind parts closing
+    | Pat.Expr innerExpr ->
+        visitor.EnterSection "Pat.Expr"
+        walkExpr visitor innerExpr
+        visitor.ExitSection "Pat.Expr"
     | Pat.Missing -> visitor.WriteLine "Missing"
     | Pat.SkipsTokens(skippedTokens) ->
         visitor.EnterSection "SkipsTokens"

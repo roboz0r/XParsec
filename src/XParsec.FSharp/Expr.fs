@@ -449,6 +449,12 @@ and [<RequireQualifiedAccess>] Pat<'T> =
     | Optional of questionMark: 'T * pat: Pat<'T>
     | Op of IdentOrOp<'T> // For operator/active-pattern names in function binding heads
     | String of kind: StringKind<'T> * parts: ImArr<StringPart<'T>> * closing: 'T
+    /// An expression embedded in pattern position. The type checker
+    /// reinterprets the expression when binding the surrounding pattern
+    /// construct — currently emitted inside `Pat.EnclosedBlock(ParenKind.Quoted, …)`
+    /// for active-pattern quotation arguments per spec patterns:60-61.
+    /// Mirrors `Expr.Pat` on the expression side.
+    | Expr of expr: Expr<'T>
     | Missing
     | SkipsTokens of skippedTokens: ImArr<'T>
 

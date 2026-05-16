@@ -675,6 +675,32 @@ module Pat =
             return Pat.Optional(qmark, pat)
         }
 
+    // Active patterns can take quotation arguments: `MyPattern <@ x + 1 @> bound`.
+    // The quotation body is an *expression*; the type checker reinterprets it
+    // when binding the active-pattern parameter (spec patterns:60-61). The
+    // parser delegates to the existing expression-side seq-block parser and
+    // wraps the result in `Pat.Expr` so it can ride inside a regular
+    // `Pat.EnclosedBlock(ParenKind.Quoted | ParenKind.DoubleQuoted, …)`.
+    let private pInnerQuotedExpr = refExprSeqBlock.Parser |>> Pat.Expr
+
+    let private pQuoteTypedPat =
+        pEnclosed
+            pQuotationTypedLeft
+            Token.OpQuotationTypedRight
+            ParenKind.Quoted
+            OffsideContext.Quote
+            DiagnosticCode.ExpectedQuotationTypedRight
+            pInnerQuotedExpr
+
+    let private pQuoteUntypedPat =
+        pEnclosed
+            pQuotationUntypedLeft
+            Token.OpQuotationUntypedRight
+            ParenKind.DoubleQuoted
+            OffsideContext.Quote
+            DiagnosticCode.ExpectedQuotationUntypedRight
+            pInnerQuotedExpr
+
     /// Named pattern parser that does NOT consume trailing arguments.
     /// Used for function/member binding argument positions where each
     /// parameter should be an independent atomic pattern.
@@ -752,6 +778,8 @@ module Pat =
                 Token.BacktickedIdentifier, pNamedNoArgs
                 Token.OpTypeTest, pTypeTestPat
                 Token.OpDynamic, pOptionalPat
+                Token.OpQuotationTypedLeft, pQuoteTypedPat
+                Token.OpQuotationUntypedLeft, pQuoteUntypedPat
                 Token.UnterminatedBacktickedIdentifier, pNamedNoArgs
             ]
             pConstPat

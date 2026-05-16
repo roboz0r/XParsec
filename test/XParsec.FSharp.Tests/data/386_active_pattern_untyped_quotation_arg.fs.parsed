@@ -1,0 +1,47 @@
+AnonymousModule:
+FunctionOrValue:
+  let                            'let'             KWLet               tok=   6  pos= 195
+    Pat.NamedSimple              'classify'        Identifier          tok=   8  pos= 199
+    Pats:
+      Pat.NamedSimple            'e'               Identifier          tok=  10  pos= 208
+    =                            '='               OpEquality          tok=  12  pos= 210
+      Match:
+        MatchToken               'match'           KWMatch             tok=  15  pos= 216
+        MatchExpr:
+          Ident                  'e'               Identifier          tok=  17  pos= 222
+        WithToken                'with'            KWWith              tok=  19  pos= 224
+        Rule:
+          Bar                    '|'               OpBar               tok=  22  pos= 233
+          Pat:
+            Pat.OpNamed:
+              ParenOp:
+                                 '('               KWLParen            tok=  24  pos= 235
+                ActivePatternOp:
+                  ActivePatternOp:
+                                 '|'               OpBar               tok=  25  pos= 236
+                                 'Const'           Identifier          tok=  26  pos= 237
+                                 '_'               Wildcard            tok=  28  pos= 243
+                                 '|'               OpBar               tok=  29  pos= 244
+                                 ')'               KWRParen            tok=  30  pos= 245
+              Args:
+                <@@              '<@@'             OpQuotationUntypedLeft  tok=  32  pos= 247
+                  Pat.Expr:
+                    InfixApp     '+'               op_Addition         tok=  36  pos= 253
+                      Const      '1'               NumInt32            tok=  34  pos= 251
+                      Const      '1'               NumInt32            tok=  38  pos= 255
+                                 '@@>'             OpQuotationUntypedRight  tok=  40  pos= 257
+                Pat.NamedSimple  'x'               Identifier          tok=  42  pos= 261
+          Arrow                  '->'              OpArrowRight        tok=  44  pos= 263
+          Expr:
+            App:
+              Func:
+                Ident            'Some'            Identifier          tok=  46  pos= 266
+              Args:
+                Ident            'x'               Identifier          tok=  48  pos= 271
+        Rule:
+          Bar                    '|'               OpBar               tok=  51  pos= 277
+          Pat:
+            Pat.Wildcard         '_'               Wildcard            tok=  53  pos= 279
+          Arrow                  '->'              OpArrowRight        tok=  55  pos= 281
+          Expr:
+            Ident                'None'            Identifier          tok=  57  pos= 284
