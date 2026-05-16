@@ -83,6 +83,7 @@ module internal Keywords =
     let pFinally: KWParser = mkKW Token.KWFinally "finally"
 
     let pWhile: KWParser = mkKW Token.KWWhile "while"
+    let pWhileBang: KWParser = mkKW Token.KWWhileBang "while!"
     let pFun: KWParser = mkKW Token.KWFun "fun"
     let pFunction: KWParser = mkKW Token.KWFunction "function"
 

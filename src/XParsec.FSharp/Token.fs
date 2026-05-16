@@ -711,8 +711,13 @@ module TokenRepresentation =
         [<Literal>]
         let RHashParen = 175us // #)
 
+        // F# 7+ CE while-bang. Out of place with the other *Bang slots (129-135)
+        // because those are contiguous and 128 is reserved.
+        [<Literal>]
+        let WhileBang = 176us
+
         // ==========================================================
-        // Available 176-179us
+        // Available 177-179us
         // ==========================================================
 
         // 3.7 Symbolic Operators
@@ -1563,6 +1568,7 @@ type Token =
     | KWReturnBang = (KindKeyword ||| KW.ReturnBang)
     | KWUseBang = (KindKeyword ||| KW.UseBang)
     | KWYieldBang = (KindKeyword ||| KW.YieldBang)
+    | KWWhileBang = (KindKeyword ||| KW.WhileBang)
     | OpBar = (KindKeyword ||| KW.Bar)
     | OpArrowRight = (KindKeyword ||| KW.RightArrow)
     | OpArrowLeft = (KindKeyword ||| KW.LeftArrow)
@@ -2126,6 +2132,7 @@ module internal TokenInfo =
         | Token.KWFun
         | Token.KWTry
         | Token.KWWhile
+        | Token.KWWhileBang
         | Token.KWFor
         | Token.KWNew
         | Token.KWLet
@@ -2247,6 +2254,7 @@ module internal TokenInfo =
             | Token.KWIf
             | Token.KWFor
             | Token.KWWhile
+            | Token.KWWhileBang
             | Token.KWTry
             | Token.KWFun
             | Token.KWFunction -> true
@@ -2281,6 +2289,7 @@ module internal TokenInfo =
             | Token.KWYieldBang
             | Token.KWFor
             | Token.KWWhile
+            | Token.KWWhileBang
             | Token.KWTry -> PrecedenceLevel.Function
             | Token.KWIf -> PrecedenceLevel.If
             | Token.OpArrowRight -> PrecedenceLevel.RArrow
@@ -2630,6 +2639,7 @@ type OperatorInfo =
         | Token.KWIf
         | Token.KWFor
         | Token.KWWhile
+        | Token.KWWhileBang
         | Token.KWTry
         | Token.KWFun
         | Token.KWFunction

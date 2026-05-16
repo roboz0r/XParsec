@@ -650,6 +650,7 @@ module Lexing =
             "return!", Token.KWReturnBang
             "and!", Token.KWAndBang
             "match!", Token.KWMatchBang
+            "while!", Token.KWWhileBang
 
             // 19.2 Extra Syntactic Forms for ML Compatibility
             // ocaml-ident-keyword

@@ -951,8 +951,11 @@ module Expr =
                             Ok(ExprAux.ForExpr result)
 
         let pWhileExpr =
+            // Accepts both `while` and F# 7+ `while!` (CE-bang form). The keyword
+            // token carries the distinction via whileTok.Token; downstream consumers
+            // dispatch on that — mirrors how Match/MatchBang share Expr.Match.
             parser {
-                let! (whileTok, indent) = assertKeywordToken Token.KWWhile
+                let! (whileTok, indent) = assertKeywordTokens Token.KWWhile Token.KWWhileBang
                 // Condition at while_col + 1 (uses refExprNoSeq to prevent `do` from being consumed
                 // as a keyword expression via sequential composition)
                 let! cond =
@@ -1713,6 +1716,7 @@ module Expr =
                     | Token.KWIf
                     | Token.KWFor
                     | Token.KWWhile
+                    | Token.KWWhileBang
                     | Token.KWTry
                     | Token.KWFun
                     | Token.KWFunction -> fail errUnexpectedPrefixKeywordRhs
@@ -1939,6 +1943,7 @@ module Expr =
                 struct (Token.KWLetBang, kwPrefixNoConsume KWBody.pLetOrUseBody Complete.keyword)
                 struct (Token.KWDoBang, kwPrefixConsume KWBody.pYieldReturnDoBody Complete.keyword)
                 struct (Token.KWWhile, kwPrefixNoConsume KWBody.pWhileExpr Complete.forE)
+                struct (Token.KWWhileBang, kwPrefixNoConsume KWBody.pWhileExpr Complete.forE)
                 struct (Token.KWReturnBang, kwPrefixConsume KWBody.pYieldReturnDoBody Complete.keyword)
                 struct (Token.KWMatchBang, kwPrefixNoConsume KWBody.pMatchExpr Complete.forE)
                 struct (Token.KWUseBang, kwPrefixNoConsume KWBody.pLetOrUseBody Complete.keyword)
@@ -2418,6 +2423,7 @@ module Expr =
                             | Token.KWIf
                             | Token.KWTry
                             | Token.KWWhile
+                            | Token.KWWhileBang
                             | Token.KWFor ->
                                 let! body = refExprSeqBlock.Parser
 
