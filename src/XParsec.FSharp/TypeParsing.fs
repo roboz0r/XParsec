@@ -85,6 +85,85 @@ module StaticTypars =
     let parse = choiceL [ pOrList; pSingle ] "Static Type Parameters"
 
 [<RequireQualifiedAccess>]
+module WithClause =
+    // Parses the property-accessor clause shared by abstract member signatures and
+    // SRTP property-trait constraints:
+    //   with get | with set | with get,set | with set,get
+    // Lives in TypeParsing.fs (not TypeDefnParsing.fs) because pConstraintMemberSig
+    // here needs it, and TypeParsing.fs compiles earlier in the DAG.
+
+    let private errExpectedGet: ErrorType<PositionedToken, ParseState> =
+        Message "Expected 'get'"
+
+    let private errExpectedSet: ErrorType<PositionedToken, ParseState> =
+        Message "Expected 'set'"
+
+    let private pGet =
+        parser {
+            let! getTok = nextSyntaxTokenIsLMsg Token.Identifier "get"
+            let! state = getUserState
+
+            if tokenStringIs "get" getTok state then
+                return getTok
+            else
+                return! fail errExpectedGet
+        }
+
+    let private pSet =
+        parser {
+            let! setTok = nextSyntaxTokenIsLMsg Token.Identifier "set"
+            let! state = getUserState
+
+            if tokenStringIs "set" setTok state then
+                return setTok
+            else
+                return! fail errExpectedSet
+        }
+
+    let private pGetSet =
+        choiceL
+            [
+                parser {
+                    let! getTok = pGet
+
+                    let! maybeSet =
+                        opt (
+                            parser {
+                                let! comma = pComma
+                                let! setTok = pSet
+                                return setTok
+                            }
+                        )
+
+                    return getTok, maybeSet
+                }
+                parser {
+                    let! setTok = pSet
+
+                    let! maybeGet =
+                        opt (
+                            parser {
+                                let! comma = pComma
+                                let! getTok = pGet
+                                return getTok
+                            }
+                        )
+
+                    return setTok, maybeGet
+                }
+            ]
+            ""
+
+    /// Parses `with get` / `with set` / `with get,set` / `with set,get`.
+    /// Returns struct (withToken, (firstAccessor, optional second accessor)).
+    let parse =
+        parser {
+            let! withTok = pWith
+            let! getSet = pGetSet
+            return struct (withTok, getSet)
+        }
+
+[<RequireQualifiedAccess>]
 module Constraint =
 
     let private errExpectedStructOrNullAfterNot: ErrorType<PositionedToken, ParseState> =
@@ -118,7 +197,7 @@ module Constraint =
             ]
             "member name (identifier or parenthesized operator)"
 
-    // Parses the signature inside a constraint member: ident-or-(op) ':' Type
+    // Parses the signature inside a constraint member: ident-or-(op) ':' Type ('with' get/set)?
     // We parse a plain Type (not a CurriedSig) so that 'T * 'T -> bool is represented
     // as FunctionType(TupleType(...), bool) rather than a flattened CurriedSig arg-group.
     // The result is wrapped in a CurriedSig with no arg groups.
@@ -127,7 +206,12 @@ module Constraint =
             let! ident = pConstraintMemberName
             let! colon = pColon
             let! sigType = refType.Parser
-            return MemberSig.MethodOrPropSig(ident, ValueNone, colon, CurriedSig(ImmutableArray.Empty, sigType))
+            let! withClause = opt WithClause.parse
+            let sign = CurriedSig(ImmutableArray.Empty, sigType)
+
+            match withClause with
+            | ValueSome(withTok, getSet) -> return MemberSig.PropSig(ident, ValueNone, colon, sign, withTok, getSet)
+            | ValueNone -> return MemberSig.MethodOrPropSig(ident, ValueNone, colon, sign)
         }
 
     // static-typars ':' '(' ['static'] 'member' member-sig ')'

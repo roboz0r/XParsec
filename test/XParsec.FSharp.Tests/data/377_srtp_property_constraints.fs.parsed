@@ -1,0 +1,244 @@
+module                     'module'          KWModule            tok=   0  pos=   0
+                           'Test'            Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                      'let'             KWLet               tok=  14  pos= 261
+    inline                 'inline'          KWInline            tok=  16  pos= 265
+    Pat.NamedSimple        'lengthOf'        Identifier          tok=  18  pos= 272
+    Pats:
+      ParenBlock           '('               KWLParen            tok=  20  pos= 281
+        Pat.Typed:
+          Pat.NamedSimple  'x'               Identifier          tok=  21  pos= 282
+          Colon            ':'               OpColon             tok=  22  pos= 283
+          VarType:
+            Typar.Static:
+                           '^'               OpConcatenate       tok=  24  pos= 285
+                           'T'               Identifier          tok=  25  pos= 286
+                           ')'               KWRParen            tok=  26  pos= 287
+    =                      '='               OpEquality          tok=  28  pos= 289
+      StaticMemberInvocation:
+        (                  '('               KWLParen            tok=  31  pos= 295
+        Typar.Static:
+                           '^'               OpConcatenate       tok=  32  pos= 296
+                           'T'               Identifier          tok=  33  pos= 297
+        :                  ':'               OpColon             tok=  34  pos= 298
+        (                  '('               KWLParen            tok=  36  pos= 300
+        member             'member'          KWMember            tok=  37  pos= 301
+        ident              'Length'          Identifier          tok=  39  pos= 308
+        :                  ':'               OpColon             tok=  40  pos= 314
+        NamedType:
+          Ident            'int'             Identifier          tok=  42  pos= 316
+        with               'with'            KWWith              tok=  44  pos= 320
+        get/set            'get'             Identifier          tok=  46  pos= 325
+        )                  ')'               KWRParen            tok=  47  pos= 328
+        Ident              'x'               Identifier          tok=  49  pos= 330
+        )                  ')'               KWRParen            tok=  50  pos= 331
+FunctionOrValue:
+  let                      'let'             KWLet               tok=  55  pos= 361
+    inline                 'inline'          KWInline            tok=  57  pos= 365
+    Pat.NamedSimple        'setName'         Identifier          tok=  59  pos= 372
+    Pats:
+      ParenBlock           '('               KWLParen            tok=  61  pos= 380
+        Pat.Typed:
+          Pat.NamedSimple  'x'               Identifier          tok=  62  pos= 381
+          Colon            ':'               OpColon             tok=  63  pos= 382
+          VarType:
+            Typar.Static:
+                           '^'               OpConcatenate       tok=  65  pos= 384
+                           'T'               Identifier          tok=  66  pos= 385
+                           ')'               KWRParen            tok=  67  pos= 386
+      ParenBlock           '('               KWLParen            tok=  69  pos= 388
+        Pat.Typed:
+          Pat.NamedSimple  'v'               Identifier          tok=  70  pos= 389
+          Colon            ':'               OpColon             tok=  71  pos= 390
+          NamedType:
+            Ident          'string'          Identifier          tok=  73  pos= 392
+                           ')'               KWRParen            tok=  74  pos= 398
+    =                      '='               OpEquality          tok=  76  pos= 400
+      StaticMemberInvocation:
+        (                  '('               KWLParen            tok=  79  pos= 406
+        Typar.Static:
+                           '^'               OpConcatenate       tok=  80  pos= 407
+                           'T'               Identifier          tok=  81  pos= 408
+        :                  ':'               OpColon             tok=  82  pos= 409
+        (                  '('               KWLParen            tok=  84  pos= 411
+        member             'member'          KWMember            tok=  85  pos= 412
+        ident              'Name'            Identifier          tok=  87  pos= 419
+        :                  ':'               OpColon             tok=  88  pos= 423
+        NamedType:
+          Ident            'string'          Identifier          tok=  90  pos= 425
+        with               'with'            KWWith              tok=  92  pos= 432
+        get/set            'set'             Identifier          tok=  94  pos= 437
+        )                  ')'               KWRParen            tok=  95  pos= 440
+        ParenBlock         '('               KWLParen            tok=  97  pos= 442
+          Tuple:
+            Ident          'x'               Identifier          tok=  98  pos= 443
+            Ident          'v'               Identifier          tok= 101  pos= 446
+                           ')'               KWRParen            tok= 102  pos= 447
+        )                  ')'               KWRParen            tok= 103  pos= 448
+FunctionOrValue:
+  let                      'let'             KWLet               tok= 108  pos= 478
+    inline                 'inline'          KWInline            tok= 110  pos= 482
+    Pat.NamedSimple        'value1'          Identifier          tok= 112  pos= 489
+    Pats:
+      ParenBlock           '('               KWLParen            tok= 114  pos= 496
+        Pat.Typed:
+          Pat.NamedSimple  'x'               Identifier          tok= 115  pos= 497
+          Colon            ':'               OpColon             tok= 116  pos= 498
+          VarType:
+            Typar.Static:
+                           '^'               OpConcatenate       tok= 118  pos= 500
+                           'T'               Identifier          tok= 119  pos= 501
+                           ')'               KWRParen            tok= 120  pos= 502
+    =                      '='               OpEquality          tok= 122  pos= 504
+      StaticMemberInvocation:
+        (                  '('               KWLParen            tok= 125  pos= 510
+        Typar.Static:
+                           '^'               OpConcatenate       tok= 126  pos= 511
+                           'T'               Identifier          tok= 127  pos= 512
+        :                  ':'               OpColon             tok= 128  pos= 513
+        (                  '('               KWLParen            tok= 130  pos= 515
+        member             'member'          KWMember            tok= 131  pos= 516
+        ident              'Value'           Identifier          tok= 133  pos= 523
+        :                  ':'               OpColon             tok= 134  pos= 528
+        NamedType:
+          Ident            'int'             Identifier          tok= 136  pos= 530
+        with               'with'            KWWith              tok= 138  pos= 534
+        get/set            'get'             Identifier          tok= 140  pos= 539
+        set/get            'set'             Identifier          tok= 143  pos= 544
+        )                  ')'               KWRParen            tok= 144  pos= 547
+        Ident              'x'               Identifier          tok= 146  pos= 549
+        )                  ')'               KWRParen            tok= 147  pos= 550
+FunctionOrValue:
+  let                      'let'             KWLet               tok= 150  pos= 553
+    inline                 'inline'          KWInline            tok= 152  pos= 557
+    Pat.NamedSimple        'value2'          Identifier          tok= 154  pos= 564
+    Pats:
+      ParenBlock           '('               KWLParen            tok= 156  pos= 571
+        Pat.Typed:
+          Pat.NamedSimple  'x'               Identifier          tok= 157  pos= 572
+          Colon            ':'               OpColon             tok= 158  pos= 573
+          VarType:
+            Typar.Static:
+                           '^'               OpConcatenate       tok= 160  pos= 575
+                           'T'               Identifier          tok= 161  pos= 576
+                           ')'               KWRParen            tok= 162  pos= 577
+    =                      '='               OpEquality          tok= 164  pos= 579
+      StaticMemberInvocation:
+        (                  '('               KWLParen            tok= 167  pos= 585
+        Typar.Static:
+                           '^'               OpConcatenate       tok= 168  pos= 586
+                           'T'               Identifier          tok= 169  pos= 587
+        :                  ':'               OpColon             tok= 170  pos= 588
+        (                  '('               KWLParen            tok= 172  pos= 590
+        member             'member'          KWMember            tok= 173  pos= 591
+        ident              'Value'           Identifier          tok= 175  pos= 598
+        :                  ':'               OpColon             tok= 176  pos= 603
+        NamedType:
+          Ident            'int'             Identifier          tok= 178  pos= 605
+        with               'with'            KWWith              tok= 180  pos= 609
+        get/set            'set'             Identifier          tok= 182  pos= 614
+        set/get            'get'             Identifier          tok= 185  pos= 619
+        )                  ')'               KWRParen            tok= 186  pos= 622
+        Ident              'x'               Identifier          tok= 188  pos= 624
+        )                  ')'               KWRParen            tok= 189  pos= 625
+FunctionOrValue:
+  let                      'let'             KWLet               tok= 194  pos= 660
+    inline                 'inline'          KWInline            tok= 196  pos= 664
+    Pat.NamedSimple        'defaultOf'       Identifier          tok= 198  pos= 671
+    TyparDefns:
+      <                    '<'               op_LessThan         tok= 199  pos= 680
+      Typar.Static:
+                           '^'               OpConcatenate       tok= 201  pos= 682
+                           'T'               Identifier          tok= 202  pos= 683
+      when                 'when'            KWWhen              tok= 204  pos= 685
+      Constraint.MemberTrait:
+        Typar.Static:
+                           '^'               OpConcatenate       tok= 206  pos= 690
+                           'T'               Identifier          tok= 207  pos= 691
+        :                  ':'               OpColon             tok= 208  pos= 692
+        (                  '('               KWLParen            tok= 210  pos= 694
+        static             'static'          KWStatic            tok= 211  pos= 695
+        member             'member'          KWMember            tok= 213  pos= 702
+        ident              'Default'         Identifier          tok= 215  pos= 709
+        :                  ':'               OpColon             tok= 216  pos= 716
+        VarType:
+          Typar.Static:
+                           '^'               OpConcatenate       tok= 218  pos= 718
+                           'T'               Identifier          tok= 219  pos= 719
+        with               'with'            KWWith              tok= 221  pos= 721
+        get/set            'get'             Identifier          tok= 223  pos= 726
+        )                  ')'               KWRParen            tok= 224  pos= 729
+      >                    '>'               op_GreaterThan      tok= 225  pos= 730
+    Pats:
+      ParenBlock           '('               KWLParen            tok= 227  pos= 732
+                           ')'               KWRParen            tok= 228  pos= 733
+    =                      '='               OpEquality          tok= 230  pos= 735
+      StaticMemberInvocation:
+        (                  '('               KWLParen            tok= 233  pos= 741
+        Typar.Static:
+                           '^'               OpConcatenate       tok= 234  pos= 742
+                           'T'               Identifier          tok= 235  pos= 743
+        :                  ':'               OpColon             tok= 236  pos= 744
+        (                  '('               KWLParen            tok= 238  pos= 746
+        static             'static'          KWStatic            tok= 239  pos= 747
+        member             'member'          KWMember            tok= 241  pos= 754
+        ident              'Default'         Identifier          tok= 243  pos= 761
+        :                  ':'               OpColon             tok= 244  pos= 768
+        VarType:
+          Typar.Static:
+                           '^'               OpConcatenate       tok= 246  pos= 770
+                           'T'               Identifier          tok= 247  pos= 771
+        with               'with'            KWWith              tok= 249  pos= 773
+        get/set            'get'             Identifier          tok= 251  pos= 778
+        )                  ')'               KWRParen            tok= 252  pos= 781
+        ParenBlock         '('               KWLParen            tok= 254  pos= 783
+                           ')'               KWRParen            tok= 255  pos= 784
+        )                  ')'               KWRParen            tok= 256  pos= 785
+FunctionOrValue:
+  let                      'let'             KWLet               tok= 261  pos= 845
+    inline                 'inline'          KWInline            tok= 263  pos= 849
+    Pat.NamedSimple        'itemAt'          Identifier          tok= 265  pos= 856
+    Pats:
+      ParenBlock           '('               KWLParen            tok= 267  pos= 863
+        Pat.Typed:
+          Pat.NamedSimple  'x'               Identifier          tok= 268  pos= 864
+          Colon            ':'               OpColon             tok= 269  pos= 865
+          VarType:
+            Typar.Static:
+                           '^'               OpConcatenate       tok= 271  pos= 867
+                           'T'               Identifier          tok= 272  pos= 868
+                           ')'               KWRParen            tok= 273  pos= 869
+      ParenBlock           '('               KWLParen            tok= 275  pos= 871
+        Pat.Typed:
+          Pat.NamedSimple  'i'               Identifier          tok= 276  pos= 872
+          Colon            ':'               OpColon             tok= 277  pos= 873
+          NamedType:
+            Ident          'int'             Identifier          tok= 279  pos= 875
+                           ')'               KWRParen            tok= 280  pos= 878
+    =                      '='               OpEquality          tok= 282  pos= 880
+      StaticMemberInvocation:
+        (                  '('               KWLParen            tok= 285  pos= 886
+        Typar.Static:
+                           '^'               OpConcatenate       tok= 286  pos= 887
+                           'T'               Identifier          tok= 287  pos= 888
+        :                  ':'               OpColon             tok= 288  pos= 889
+        (                  '('               KWLParen            tok= 290  pos= 891
+        member             'member'          KWMember            tok= 291  pos= 892
+        ident              'Item'            Identifier          tok= 293  pos= 899
+        :                  ':'               OpColon             tok= 294  pos= 903
+        FunctionType:
+          NamedType:
+            Ident          'int'             Identifier          tok= 296  pos= 905
+          ->               '->'              OpArrowRight        tok= 298  pos= 909
+          VarType:
+            Typar.Named:
+                           ''V'              TypeParameter       tok= 300  pos= 912
+        with               'with'            KWWith              tok= 302  pos= 915
+        get/set            'get'             Identifier          tok= 304  pos= 920
+        )                  ')'               KWRParen            tok= 305  pos= 923
+        ParenBlock         '('               KWLParen            tok= 307  pos= 925
+          Tuple:
+            Ident          'x'               Identifier          tok= 308  pos= 926
+            Ident          'i'               Identifier          tok= 311  pos= 929
+                           ')'               KWRParen            tok= 312  pos= 930
+        )                  ')'               KWRParen            tok= 313  pos= 931

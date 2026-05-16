@@ -142,12 +142,6 @@ module UncurriedSig =
 [<RequireQualifiedAccess>]
 module MemberSig =
 
-    let private errExpectedGet: ErrorType<PositionedToken, ParseState> =
-        Message "Expected 'get'"
-
-    let private errExpectedSet: ErrorType<PositionedToken, ParseState> =
-        Message "Expected 'set'"
-
     (*
 member-sig :=
     ident typar-defns~opt : curried-sig -- method or property signature
@@ -157,69 +151,6 @@ member-sig :=
     ident typar-defns~opt : curried-sig with set,get -- property signature
 *)
 
-    let private pGet =
-        parser {
-            let! getTok = nextSyntaxTokenIsLMsg Token.Identifier "get"
-            let! state = getUserState
-
-            if tokenStringIs "get" getTok state then
-                return getTok
-            else
-                return! fail errExpectedGet
-        }
-
-    let private pSet =
-        parser {
-            let! setTok = nextSyntaxTokenIsLMsg Token.Identifier "set"
-            let! state = getUserState
-
-            if tokenStringIs "set" setTok state then
-                return setTok
-            else
-                return! fail errExpectedSet
-        }
-
-    let private pGetSet =
-        choiceL
-            [
-                parser {
-                    let! getTok = pGet
-
-                    let! maybeSet =
-                        opt (
-                            parser {
-                                let! comma = pComma
-                                let! setTok = pSet
-                                return setTok
-                            }
-                        )
-
-                    return getTok, maybeSet
-                }
-                parser {
-                    let! setTok = pSet
-
-                    let! maybeGet =
-                        opt (
-                            parser {
-                                let! comma = pComma
-                                let! getTok = pGet
-                                return getTok
-                            }
-                        )
-
-                    return setTok, maybeGet
-                }
-            ]
-            ""
-
-    let pWithClause =
-        parser {
-            let! withTok = pWith
-            let! getSet = pGetSet
-            return struct (withTok, getSet)
-        }
-
     let parse: Parser<MemberSig<SyntaxToken>, _, _, _> =
         parser {
             let! ident = pIdent
@@ -228,7 +159,7 @@ member-sig :=
             let! sigType = CurriedSig.parse
 
             // Check for optional 'with' get/set
-            let! withClause = opt pWithClause
+            let! withClause = opt WithClause.parse
 
             match withClause with
             | ValueSome(withTok, getSet) -> return MemberSig.PropSig(ident, typars, colon, sigType, withTok, getSet)
@@ -500,7 +431,7 @@ module AutoPropDefn =
                     }
                 | _ -> preturn expr
 
-            let! withClause = opt MemberSig.pWithClause
+            let! withClause = opt WithClause.parse
 
             return
                 match withClause with
