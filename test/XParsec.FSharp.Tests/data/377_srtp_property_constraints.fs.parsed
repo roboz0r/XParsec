@@ -226,12 +226,11 @@ FunctionOrValue:
         member             'member'          KWMember            tok= 291  pos= 892
         ident              'Item'            Identifier          tok= 293  pos= 899
         :                  ':'               OpColon             tok= 294  pos= 903
-        FunctionType:
-          NamedType:
-            Ident          'int'             Identifier          tok= 296  pos= 905
-          ->               '->'              OpArrowRight        tok= 298  pos= 909
-          VarType:
-            Typar.Named:
+        NamedType:
+          Ident            'int'             Identifier          tok= 296  pos= 905
+        ->                 '->'              OpArrowRight        tok= 298  pos= 909
+        VarType:
+          Typar.Named:
                            ''V'              TypeParameter       tok= 300  pos= 912
         with               'with'            KWWith              tok= 302  pos= 915
         get/set            'get'             Identifier          tok= 304  pos= 920

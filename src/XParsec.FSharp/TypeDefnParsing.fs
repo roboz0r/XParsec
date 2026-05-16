@@ -127,6 +127,8 @@ module CurriedSig =
             return CurriedSig(args, ret)
         }
 
+    do refCurriedSig.Set parse
+
 [<RequireQualifiedAccess>]
 module UncurriedSig =
 

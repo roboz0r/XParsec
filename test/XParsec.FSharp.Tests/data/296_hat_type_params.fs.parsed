@@ -34,12 +34,11 @@ TypeDefn.Anon:
         member               'member'          KWMember            tok=  52  pos= 237
         ident                'GetAwaiter'      Identifier          tok=  54  pos= 244
         :                    ':'               OpColon             tok=  55  pos= 254
-        FunctionType:
-          NamedType:
-            Ident            'unit'            Identifier          tok=  57  pos= 256
-          ->                 '->'              OpArrowRight        tok=  59  pos= 261
-          VarType:
-            Typar.Static:
+        NamedType:
+          Ident              'unit'            Identifier          tok=  57  pos= 256
+        ->                   '->'              OpArrowRight        tok=  59  pos= 261
+        VarType:
+          Typar.Static:
                              '^'               OpConcatenate       tok=  61  pos= 264
                              'Awaiter'         Identifier          tok=  62  pos= 265
         )                    ')'               KWRParen            tok=  63  pos= 272
@@ -53,12 +52,11 @@ TypeDefn.Anon:
         member               'member'          KWMember            tok=  73  pos= 297
         ident                'get_IsComp...'   Identifier          tok=  75  pos= 304
         :                    ':'               OpColon             tok=  76  pos= 319
-        FunctionType:
-          NamedType:
-            Ident            'unit'            Identifier          tok=  78  pos= 321
-          ->                 '->'              OpArrowRight        tok=  80  pos= 326
-          NamedType:
-            Ident            'bool'            Identifier          tok=  82  pos= 329
+        NamedType:
+          Ident              'unit'            Identifier          tok=  78  pos= 321
+        ->                   '->'              OpArrowRight        tok=  80  pos= 326
+        NamedType:
+          Ident              'bool'            Identifier          tok=  82  pos= 329
         )                    ')'               KWRParen            tok=  83  pos= 333
       and                    'and'             KWAnd               tok=  86  pos= 343
       Constraint.MemberTrait:
@@ -70,12 +68,11 @@ TypeDefn.Anon:
         member               'member'          KWMember            tok=  93  pos= 358
         ident                'GetResult'       Identifier          tok=  95  pos= 365
         :                    ':'               OpColon             tok=  96  pos= 374
-        FunctionType:
-          NamedType:
-            Ident            'unit'            Identifier          tok=  98  pos= 376
-          ->                 '->'              OpArrowRight        tok= 100  pos= 381
-          VarType:
-            Typar.Named:
+        NamedType:
+          Ident              'unit'            Identifier          tok=  98  pos= 376
+        ->                   '->'              OpArrowRight        tok= 100  pos= 381
+        VarType:
+          Typar.Named:
                              ''TResult'        TypeParameter       tok= 102  pos= 384
         )                    ')'               KWRParen            tok= 103  pos= 392
       >                      '>'               op_GreaterThan      tok= 104  pos= 393

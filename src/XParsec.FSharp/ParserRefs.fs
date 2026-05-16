@@ -12,6 +12,12 @@ module internal ParserRefs =
 
     let refObjectConstruction = FSRefParser<ObjectConstruction<SyntaxToken>>()
     let refType = FSRefParser<Type<SyntaxToken>>()
+
+    /// Forward reference to CurriedSig.parse (defined in TypeDefnParsing.fs),
+    /// needed by pConstraintMemberSig in TypeParsing.fs so SRTP member-trait
+    /// constraints share the same signature shape as abstract member sigs.
+    let refCurriedSig = FSRefParser<CurriedSig<SyntaxToken>>()
+
     let refMeasure = FSRefParser<Measure<SyntaxToken>>()
     let refExpr = FSRefParser<Expr<SyntaxToken>>()
     let refExprSeqBlock = FSRefParser<Expr<SyntaxToken>>()

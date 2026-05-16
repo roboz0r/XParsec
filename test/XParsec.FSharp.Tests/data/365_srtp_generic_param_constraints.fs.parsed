@@ -59,20 +59,17 @@ TypeDefn.Anon:
         member             'member'          KWMember            tok= 114  pos=1279
         ident              '+'               op_Addition         tok= 118  pos=1288
         :                  ':'               OpColon             tok= 122  pos=1292
-        FunctionType:
-          TupleType:
-            VarType:
-              Typar.Static:
+        VarType:
+          Typar.Static:
                            '^'               OpConcatenate       tok= 124  pos=1294
                            'Value'           Identifier          tok= 125  pos=1295
-            *              '*'               OpMultiply          tok= 127  pos=1301
-            VarType:
-              Typar.Static:
+        VarType:
+          Typar.Static:
                            '^'               OpConcatenate       tok= 129  pos=1303
                            'Value'           Identifier          tok= 130  pos=1304
-          ->               '->'              OpArrowRight        tok= 132  pos=1310
-          VarType:
-            Typar.Static:
+        ->                 '->'              OpArrowRight        tok= 132  pos=1310
+        VarType:
+          Typar.Static:
                            '^'               OpConcatenate       tok= 134  pos=1313
                            'Value'           Identifier          tok= 135  pos=1314
         )                  ')'               KWRParen            tok= 136  pos=1319

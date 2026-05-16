@@ -185,20 +185,17 @@ FunctionOrValue:
           member                 'member'          KWMember            tok= 203  pos= 504
           ident                  '+'               op_Addition         tok= 206  pos= 512
           :                      ':'               OpColon             tok= 209  pos= 515
-          FunctionType:
-            TupleType:
-              VarType:
-                Typar.Static:
+          VarType:
+            Typar.Static:
                                  '^'               OpConcatenate       tok= 211  pos= 517
                                  'T'               Identifier          tok= 212  pos= 518
-              *                  '*'               OpMultiply          tok= 214  pos= 520
-              VarType:
-                Typar.Static:
+          VarType:
+            Typar.Static:
                                  '^'               OpConcatenate       tok= 216  pos= 522
                                  'U'               Identifier          tok= 217  pos= 523
-            ->                   '->'              OpArrowRight        tok= 219  pos= 525
-            VarType:
-              Typar.Static:
+          ->                     '->'              OpArrowRight        tok= 219  pos= 525
+          VarType:
+            Typar.Static:
                                  '^'               OpConcatenate       tok= 221  pos= 528
                                  'V'               Identifier          tok= 222  pos= 529
           )                      ')'               KWRParen            tok= 223  pos= 530

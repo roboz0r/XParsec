@@ -25,12 +25,11 @@ FunctionOrValue:
         member               'member'          KWMember            tok=  33  pos= 168
         ident                'GetAwaiter'      Identifier          tok=  35  pos= 175
         :                    ':'               OpColon             tok=  36  pos= 185
-        FunctionType:
-          NamedType:
-            Ident            'unit'            Identifier          tok=  38  pos= 187
-          ->                 '->'              OpArrowRight        tok=  40  pos= 192
-          VarType:
-            Typar.Static:
+        NamedType:
+          Ident              'unit'            Identifier          tok=  38  pos= 187
+        ->                   '->'              OpArrowRight        tok=  40  pos= 192
+        VarType:
+          Typar.Static:
                              '^'               OpConcatenate       tok=  42  pos= 195
                              'Awaiter'         Identifier          tok=  43  pos= 196
         )                    ')'               KWRParen            tok=  44  pos= 203
@@ -61,12 +60,11 @@ FunctionOrValue:
         member               'member'          KWMember            tok=  73  pos= 259
         ident                'GetResult'       Identifier          tok=  75  pos= 266
         :                    ':'               OpColon             tok=  76  pos= 275
-        FunctionType:
-          NamedType:
-            Ident            'unit'            Identifier          tok=  78  pos= 277
-          ->                 '->'              OpArrowRight        tok=  80  pos= 282
-          VarType:
-            Typar.Named:
+        NamedType:
+          Ident              'unit'            Identifier          tok=  78  pos= 277
+        ->                   '->'              OpArrowRight        tok=  80  pos= 282
+        VarType:
+          Typar.Named:
                              ''TResult'        TypeParameter       tok=  82  pos= 285
         )                    ')'               KWRParen            tok=  83  pos= 293
         Ident                'awaiter'         Identifier          tok=  85  pos= 295
@@ -96,12 +94,11 @@ FunctionOrValue:
         member               'member'          KWMember            tok= 112  pos= 354
         ident                'get_IsComp...'   Identifier          tok= 114  pos= 361
         :                    ':'               OpColon             tok= 115  pos= 376
-        FunctionType:
-          NamedType:
-            Ident            'unit'            Identifier          tok= 117  pos= 378
-          ->                 '->'              OpArrowRight        tok= 119  pos= 383
-          NamedType:
-            Ident            'bool'            Identifier          tok= 121  pos= 386
+        NamedType:
+          Ident              'unit'            Identifier          tok= 117  pos= 378
+        ->                   '->'              OpArrowRight        tok= 119  pos= 383
+        NamedType:
+          Ident              'bool'            Identifier          tok= 121  pos= 386
         )                    ')'               KWRParen            tok= 122  pos= 390
         Ident                'awaiter'         Identifier          tok= 124  pos= 392
         )                    ')'               KWRParen            tok= 125  pos= 399

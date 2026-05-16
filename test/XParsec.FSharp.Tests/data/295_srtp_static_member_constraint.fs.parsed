@@ -24,18 +24,15 @@ FunctionOrValue:
         member               'member'          KWMember            tok=  33  pos= 144
         ident                '='               OpEquality          tok=  36  pos= 152
         :                    ':'               OpColon             tok=  38  pos= 154
-        FunctionType:
-          TupleType:
-            VarType:
-              Typar.Named:
+        VarType:
+          Typar.Named:
                              ''T'              TypeParameter       tok=  40  pos= 156
-            *                '*'               OpMultiply          tok=  42  pos= 159
-            VarType:
-              Typar.Named:
+        VarType:
+          Typar.Named:
                              ''T'              TypeParameter       tok=  44  pos= 161
-          ->                 '->'              OpArrowRight        tok=  46  pos= 164
-          NamedType:
-            Ident            'bool'            Identifier          tok=  48  pos= 167
+        ->                   '->'              OpArrowRight        tok=  46  pos= 164
+        NamedType:
+          Ident              'bool'            Identifier          tok=  48  pos= 167
         )                    ')'               KWRParen            tok=  49  pos= 171
       >                      '>'               op_GreaterThan      tok=  50  pos= 172
     Pats:
@@ -81,18 +78,15 @@ TypeDefn.Anon:
       member                 'member'          KWMember            tok=  92  pos= 270
       ident                  '='               OpEquality          tok=  95  pos= 278
       :                      ':'               OpColon             tok=  97  pos= 280
-      FunctionType:
-        TupleType:
-          VarType:
-            Typar.Named:
+      VarType:
+        Typar.Named:
                              ''T'              TypeParameter       tok=  99  pos= 282
-          *                  '*'               OpMultiply          tok= 101  pos= 285
-          VarType:
-            Typar.Named:
+      VarType:
+        Typar.Named:
                              ''T'              TypeParameter       tok= 103  pos= 287
-        ->                   '->'              OpArrowRight        tok= 105  pos= 290
-        NamedType:
-          Ident              'bool'            Identifier          tok= 107  pos= 293
+      ->                     '->'              OpArrowRight        tok= 105  pos= 290
+      NamedType:
+        Ident                'bool'            Identifier          tok= 107  pos= 293
       )                      ')'               KWRParen            tok= 108  pos= 297
     >                        '>'               op_GreaterThan      tok= 109  pos= 298
   (                          '('               KWLParen            tok= 110  pos= 299

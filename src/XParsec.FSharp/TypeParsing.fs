@@ -197,17 +197,16 @@ module Constraint =
             ]
             "member name (identifier or parenthesized operator)"
 
-    // Parses the signature inside a constraint member: ident-or-(op) ':' Type ('with' get/set)?
-    // We parse a plain Type (not a CurriedSig) so that 'T * 'T -> bool is represented
-    // as FunctionType(TupleType(...), bool) rather than a flattened CurriedSig arg-group.
-    // The result is wrapped in a CurriedSig with no arg groups.
+    // Parses the signature inside a constraint member: ident-or-(op) ':' curried-sig ('with' get/set)?
+    // Uses the same CurriedSig grammar as ordinary abstract member sigs (via refCurriedSig)
+    // so multi-arg curried shapes like `'T * 'T -> bool` land in CurriedSig.args rather than
+    // being flattened into a FunctionType chain under an empty CurriedSig.
     let pConstraintMemberSig =
         parser {
             let! ident = pConstraintMemberName
             let! colon = pColon
-            let! sigType = refType.Parser
+            let! sign = refCurriedSig.Parser
             let! withClause = opt WithClause.parse
-            let sign = CurriedSig(ImmutableArray.Empty, sigType)
 
             match withClause with
             | ValueSome(withTok, getSet) -> return MemberSig.PropSig(ident, ValueNone, colon, sign, withTok, getSet)
