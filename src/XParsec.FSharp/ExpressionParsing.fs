@@ -1821,102 +1821,14 @@ module Expr =
                 | _ -> return! fail errExpectedSliceAll
             }
 
-        let pOperatorPrefix (token: SyntaxToken) =
-            parser {
-                match OperatorInfo.TryCreate(token.PositionedToken) with
-                // Note: Spec shows lazy and assert keywords as having same precedence as function application,
-                // so they are parsed as prefix operators with the same precedence level.
-                | ValueSome opInfo when opInfo.Token = Token.KWLazy ->
-                    let! tok = consumePeeked token
-
-                    return
-                        PrefixMapped(
-                            tok,
-                            preturn tok,
-                            (refExprSeqBlock.Parser
-                             |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Lazy(kwTok, e))),
-                            Complete.keyword
-                        )
-                | ValueSome opInfo when opInfo.Token = Token.KWAssert ->
-                    let! tok = consumePeeked token
-
-                    return
-                        PrefixMapped(
-                            tok,
-                            preturn tok,
-                            (refExprSeqBlock.Parser
-                             |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Assert(kwTok, e))),
-                            Complete.keyword
-                        )
-                | ValueSome opInfo when opInfo.Token = Token.KWFixed ->
-                    let! tok = consumePeeked token
-
-                    return
-                        PrefixMapped(
-                            tok,
-                            preturn tok,
-                            (refExprSeqBlock.Parser
-                             |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Fixed(kwTok, e))),
-                            Complete.keyword
-                        )
-                | ValueSome opInfo when opInfo.Token = Token.KWUpcast ->
-                    let! tok = consumePeeked token
-
-                    return
-                        PrefixMapped(
-                            tok,
-                            preturn tok,
-                            (refExprSeqBlock.Parser
-                             |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Upcast(kwTok, e))),
-                            Complete.keyword
-                        )
-                | ValueSome opInfo when opInfo.Token = Token.KWDowncast ->
-                    let! tok = consumePeeked token
-
-                    return
-                        PrefixMapped(
-                            tok,
-                            preturn tok,
-                            (refExprSeqBlock.Parser
-                             |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Downcast(kwTok, e))),
-                            Complete.keyword
-                        )
-                | ValueSome opInfo when opInfo.Token = Token.OpRange ->
-                    let! tok = consumePeeked token
-                    let power = BindingPower.fromLevel (int opInfo.Precedence)
-                    // A[..5]
-                    return Prefix(tok, preturn tok, power, Complete.sliceTo)
-                | ValueSome opInfo when opInfo.Token = Token.OpMultiply ->
-                    let! tok = consumePeeked token
-                    let power = BindingPower.fromLevel (int opInfo.Precedence)
-                    // A[0..1,*]
-                    return PrefixMapped(token, preturn tok, peekIsSliceAll, Complete.sliceAll)
-                // & and && are address-of operators when used as prefix.
-                // Must be checked before the generic CanBePrefix handler to use
-                // PrecedenceLevel.Prefix instead of their infix precedence (LogicalAnd).
-                | ValueSome opInfo when opInfo.Token = Token.OpAmp || opInfo.Token = Token.OpAmpAmp ->
-                    let! tok = consumePeeked token
-                    let power = BindingPower.fromLevel (int PrecedenceLevel.Prefix)
-                    return Prefix(tok, preturn tok, power, Complete.prefix)
-                | ValueSome opInfo when opInfo.CanBePrefix ->
-                    let! tok = consumePeeked token
-                    // TODO: PrecedenceLevel.Prefix has higher precedence than function application, which means `-f x` parses as `(-f) x` instead of `-(f x)`.
-                    // The F# parser treats `-f x` as `-(f x)`, so we add 1 to the precedence to allow prefix operators to bind tighter than infix operators of the same precedence, while still being below application.
-                    // This doesn't seem right. Prefix precedence may need to be revised as a whole, but for now this is a pragmatic solution to allow existing code to parse without ambiguity errors.
-                    // Dual-use operators (e.g., `-`, `+`) use their infix precedence + 1 for prefix.
-                    // This avoids "Ambiguous operator associativity" when the same operator follows
-                    // (e.g., `-x - 1` must parse as `(-x) - 1`), while staying below Application
-                    // so `-f x` still parses as `-(f x)`.
-                    let power = BindingPower.fromLevel (int opInfo.Precedence) + 1uy<bp>
-                    return Prefix(tok, preturn tok, power, Complete.prefix)
-                | _ -> return! fail errNotPrefixOp
-            }
-
         // Keyword-prefix dispatch table. Flattened to one entry per token for a simple
-        // linear scan (same pattern as `dispatchNextSyntaxTokenFallback`). Most entries
-        // do NOT consume the keyword here — the body parser peeks the keyword to establish
-        // offside indent, then consumes. The `do/do!/return/return!/yield/yield!` forms
-        // consume up front because their body expects to start past the keyword.
+        // linear scan — same shape as `dispatchNextSyntaxTokenFallback` but passes the
+        // peeked token through to each handler so it can be consumed without re-peeking
+        // (this is the expression parser's hottest dispatch site). Most CE/control-flow
+        // entries do NOT consume the keyword here — the body parser peeks the keyword
+        // again to establish offside indent, then consumes via `assertKeywordToken`.
+        // The `do/do!/return/return!/yield/yield!` forms consume up front because their
+        // body expects to start past the keyword.
         let kwPrefixNoConsume body completer (token: SyntaxToken) =
             preturn (PrefixMapped(token, preturn token, body, completer))
 
@@ -1926,8 +1838,61 @@ module Expr =
                 return PrefixMapped(tok, preturn tok, body, completer)
             }
 
+        // Bodies for the lazy/assert/fixed/upcast/downcast prefix-keywords. Hoisted
+        // so the `|>>` pipeline is built once at construction rather than per dispatch.
+        // Spec treats these at function-application precedence; PrefixMapped's MinP
+        // right-binding-power gives them a full typedSeqExprBlock RHS.
+        let pLazyBody =
+            refExprSeqBlock.Parser
+            |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Lazy(kwTok, e))
+
+        let pAssertBody =
+            refExprSeqBlock.Parser
+            |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Assert(kwTok, e))
+
+        let pFixedBody =
+            refExprSeqBlock.Parser
+            |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Fixed(kwTok, e))
+
+        let pUpcastBody =
+            refExprSeqBlock.Parser
+            |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Upcast(kwTok, e))
+
+        let pDowncastBody =
+            refExprSeqBlock.Parser
+            |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Downcast(kwTok, e))
+
+        // Slice / address-of operator prefixes. They use `Prefix` / `PrefixMapped`
+        // directly rather than the `kwPrefix*` helpers because their power / aux shape
+        // diverges from the keyword-prefix pattern (custom precedence, peekIsSliceAll
+        // continuation parser).
+        let pOpRangePrefix (token: SyntaxToken) =
+            // A[..5]
+            parser {
+                let! tok = consumePeeked token
+                let power = BindingPower.fromLevel (int PrecedenceLevel.Range)
+                return Prefix(tok, preturn tok, power, Complete.sliceTo)
+            }
+
+        let pOpMultiplyPrefix (token: SyntaxToken) =
+            // A[0..1,*] — `*` is slice-all only when followed by `,` / `]` / EOF
+            parser {
+                let! tok = consumePeeked token
+                return PrefixMapped(tok, preturn tok, peekIsSliceAll, Complete.sliceAll)
+            }
+
+        // `&` / `&&` are address-of / native-address-of when used as prefix. Override
+        // their infix precedence (LogicalAnd) with Prefix so they bind tighter.
+        let pOpAddressOfPrefix (token: SyntaxToken) =
+            parser {
+                let! tok = consumePeeked token
+                let power = BindingPower.fromLevel (int PrecedenceLevel.Prefix)
+                return Prefix(tok, preturn tok, power, Complete.prefix)
+            }
+
         let kwPrefixRoutes: struct (Token * (SyntaxToken -> Parser<_, _, _, _>))[] =
             [|
+                // CE / control-flow keyword prefixes — body parser consumes the keyword
                 struct (Token.KWLet, kwPrefixNoConsume KWBody.pLetOrUseBody Complete.keyword)
                 struct (Token.KWMatch, kwPrefixNoConsume KWBody.pMatchExpr Complete.forE)
                 struct (Token.KWIf, kwPrefixNoConsume KWBody.pIfExpr Complete.forE)
@@ -1947,7 +1912,36 @@ module Expr =
                 struct (Token.KWReturnBang, kwPrefixConsume KWBody.pYieldReturnDoBody Complete.keyword)
                 struct (Token.KWMatchBang, kwPrefixNoConsume KWBody.pMatchExpr Complete.forE)
                 struct (Token.KWUseBang, kwPrefixNoConsume KWBody.pLetOrUseBody Complete.keyword)
+
+                // Function-precedence keyword prefixes — body is a full typedSeqExprBlock
+                struct (Token.KWLazy, kwPrefixConsume pLazyBody Complete.keyword)
+                struct (Token.KWAssert, kwPrefixConsume pAssertBody Complete.keyword)
+                struct (Token.KWFixed, kwPrefixConsume pFixedBody Complete.keyword)
+                struct (Token.KWUpcast, kwPrefixConsume pUpcastBody Complete.keyword)
+                struct (Token.KWDowncast, kwPrefixConsume pDowncastBody Complete.keyword)
+
+                // Operator prefixes whose shape diverges from the kwPrefix* helpers
+                struct (Token.OpRange, pOpRangePrefix)
+                struct (Token.OpMultiply, pOpMultiplyPrefix)
+                struct (Token.OpAmp, pOpAddressOfPrefix)
+                struct (Token.OpAmpAmp, pOpAddressOfPrefix)
             |]
+
+        // Generic prefix-operator fallback for any `CanBePrefix` operator not in the
+        // dispatch table — `-`, `+`, `!`, `~`, etc. The +1 on the precedence makes
+        // the prefix bind tighter than the same operator's infix form so `-x - 1`
+        // parses as `(-x) - 1`, while staying below Application so `-f x` is still
+        // `-(f x)`. Operators that need a different power (slice, address-of) are
+        // handled explicitly in `kwPrefixRoutes`.
+        let pOperatorPrefix (token: SyntaxToken) =
+            parser {
+                match OperatorInfo.TryCreate(token.PositionedToken) with
+                | ValueSome opInfo when opInfo.CanBePrefix ->
+                    let! tok = consumePeeked token
+                    let power = BindingPower.fromLevel (int opInfo.Precedence) + 1uy<bp>
+                    return Prefix(tok, preturn tok, power, Complete.prefix)
+                | _ -> return! fail errNotPrefixOp
+            }
 
         let lhsParser =
             parser {
