@@ -20,12 +20,23 @@ type PrecedenceLevel =
     /// Sequential pipe/bar, NOT the |> operator
     | Pipe = 3
     | Semicolon = 4
+    /// Slot reserved for `->` to mirror its position in pars.fsy (`%right RARROW`, between SEMICOLON and LET/NEW).
+    /// `->` never participates as an infix operator in expressions — it only appears as a syntactic marker in
+    /// `match | pat -> body`, `fun x -> body`, function types `T -> U`, etc. The slot is unused at runtime;
+    /// kept to preserve the 1:1 numeric mapping with pars.fsy's precedence ladder.
     | RArrow = 5
     | Let = 6
-    /// includes fun, match, try
+    /// includes function, fun, match, try, do
     | Function = 7
     | If = 8
     /// &lt;-, :=
+    /// pars.fsy declares these at two separate `%right` levels — LARROW (line 342) below COLON_EQUALS (line 343) —
+    /// but they are collapsed here into a single level. Combining them in one expression (e.g. `cell := record.field &lt;- value`)
+    /// is grammatically possible but pathological: the LHS of `&lt;-` is restricted to mutable LHS forms (field, indexer,
+    /// mutable binding), and `:=` is effectively a function call on `ref&lt;_&gt;`, so the inner subexpression always has
+    /// type `unit` — forcing the outer target to be `ref&lt;unit&gt;` for the program to typecheck. No real-world code is
+    /// known to depend on the precedence ordering between them; merging the slots simplifies the Pratt table without
+    /// changing observable behavior.
     | Assignment = 9
     | Comma = 10
     /// The binary '..' operator. Non-associative. The ternary '.. ..' form is a special grammar rule.
@@ -2287,7 +2298,7 @@ module internal TokenInfo =
             | Token.OpTypeTest -> PrecedenceLevel.TypeTest
             | Token.KWLazy
             | Token.KWAssert
-            | Token.KWFixed -> PrecedenceLevel.Function // same as function application
+            | Token.KWFixed -> PrecedenceLevel.Application // pars.fsy line 368: LAZY/ASSERT grouped with expr_app
             | Token.OpBar -> PrecedenceLevel.PatternMatchBar // pattern match bar
             | Token.OpDot
             | Token.OpDynamic -> PrecedenceLevel.Dot
