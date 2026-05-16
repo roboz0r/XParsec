@@ -555,7 +555,7 @@ and [<RequireQualifiedAccess>] MemberKeyword<'T> =
 
 // Represents: additional-constr-defn and its expression body
 and [<RequireQualifiedAccess>] AdditionalConstrExpr<'T> =
-    | SequenceAfter of stmt: 'T * semicolon: 'T * rest: AdditionalConstrExpr<'T> // Placeholder for 'stmt'
+    | SequenceAfter of stmt: Expr<'T> * semicolon: 'T * rest: AdditionalConstrExpr<'T>
     | SequenceBefore of before: AdditionalConstrExpr<'T> * thenToken: 'T * expr: Expr<'T>
     | Conditional of
         ifToken: 'T *

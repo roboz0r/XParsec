@@ -1,0 +1,71 @@
+module                     'module'          KWModule            tok=   0  pos=   0
+                           'Test'            Identifier          tok=   2  pos=   7
+TypeDefn.Anon:
+  TypeName                 'Foo'             Identifier          tok=   9  pos=  88
+  (                        '('               KWLParen            tok=  10  pos=  91
+  Pat.Typed:
+    Pat.NamedSimple        'x'               Identifier          tok=  11  pos=  92
+    Colon                  ':'               OpColon             tok=  12  pos=  93
+    NamedType:
+      Ident                'int'             Identifier          tok=  14  pos=  95
+  )                        ')'               KWRParen            tok=  15  pos=  98
+  =                        '='               OpEquality          tok=  17  pos= 100
+  begin                    <virt>            KWBegin             tok=virt  pos= 106
+    AdditionalConstructor:
+      new                  'new'             KWNew               tok=  20  pos= 106
+      ParenBlock           '('               KWLParen            tok=  21  pos= 109
+        Pat.Typed:
+          Pat.NamedSimple  'b'               Identifier          tok=  22  pos= 110
+          Colon            ':'               OpColon             tok=  23  pos= 111
+          NamedType:
+            Ident          'bool'            Identifier          tok=  25  pos= 113
+                           ')'               KWRParen            tok=  26  pos= 117
+      =                    '='               OpEquality          tok=  28  pos= 119
+      Let                  'let'             KWLet               tok=  31  pos= 129
+        Pat.NamedSimple    'y'               Identifier          tok=  33  pos= 133
+        =                  '='               OpEquality          tok=  35  pos= 135
+          IfThenElse:
+            IfToken        'if'              KWIf                tok=  37  pos= 137
+            Condition:
+              Ident        'b'               Identifier          tok=  39  pos= 140
+            ThenToken      'then'            KWThen              tok=  41  pos= 142
+            ThenExpr:
+              Const        '1'               NumInt32            tok=  43  pos= 147
+            ElseToken      'else'            KWElse              tok=  45  pos= 149
+            ElseExpr:
+              Const        '0'               NumInt32            tok=  47  pos= 154
+      in                   <virt>            KWIn                tok=virt  pos= 164
+      Body:
+        App:
+          Func:
+            Ident          'printfn'         Identifier          tok=  50  pos= 164
+          Args:
+            StringLiteral  '"'               StringOpen          tok=  52  pos= 172
+            Parts:
+              Text         'constructi...'   StringFragment      tok=  53  pos= 173
+              FormatSpec   '%d'              FormatPlaceholder   tok=  54  pos= 186
+                           '"'               StringClose         tok=  55  pos= 188
+            Ident          'y'               Identifier          tok=  57  pos= 190
+        ;                  <virt>            OpSemicolon         tok=virt  pos= 200
+        HighPrecedenceApp:
+          Func:
+            Ident          'Foo'             Identifier          tok=  60  pos= 200
+          (                '('               KWLParen            tok=  61  pos= 203
+          Arg:
+            Ident          'y'               Identifier          tok=  62  pos= 204
+                           ')'               KWRParen            tok=  63  pos= 205
+      then                 'then'            KWThen              tok=  66  pos= 215
+      App:
+        Func:
+          Ident            'printfn'         Identifier          tok=  68  pos= 220
+        Args:
+          StringLiteral    '"'               StringOpen          tok=  70  pos= 228
+          Parts:
+            Text           'constructe...'   StringFragment      tok=  71  pos= 229
+                           '"'               StringClose         tok=  72  pos= 240
+    member                 'member'          KWMember            tok=  75  pos= 246
+    self                   '_'               Wildcard            tok=  77  pos= 253
+    Pat.NamedSimple        'X'               Identifier          tok=  79  pos= 255
+    =                      '='               OpEquality          tok=  81  pos= 257
+      Ident                'x'               Identifier          tok=  83  pos= 259
+  end                      <virt>            KWEnd               tok=virt  pos= 261

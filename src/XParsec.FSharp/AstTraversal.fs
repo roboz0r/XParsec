@@ -1899,7 +1899,34 @@ and walkAdditionalConstrExpr (visitor: AstVisitor<'T>) (body: AdditionalConstrEx
         walkAdditionalConstrExpr visitor before
         visitor.VisitToken "then" thenToken
         walkExpr visitor expr
-    | _ -> visitor.WriteLine "<complex constructor body>"
+    | AdditionalConstrExpr.SequenceAfter(stmt, semicolon, rest) ->
+        walkExpr visitor stmt
+        visitor.VisitToken ";" semicolon
+        walkAdditionalConstrExpr visitor rest
+    | AdditionalConstrExpr.LetIn(letToken, binding, inToken, body) ->
+        visitor.VisitToken "Let" letToken
+        visitor.EnterSection ""
+        walkBinding visitor binding
+        visitor.ExitSection ""
+        visitor.VisitToken "in" inToken
+        visitor.EnterSection "Body"
+        walkAdditionalConstrExpr visitor body
+        visitor.ExitSection "Body"
+    | AdditionalConstrExpr.Conditional(ifToken, cond, thenToken, thenBranch, elseToken, elseBranch) ->
+        visitor.EnterSection "IfThenElse"
+        visitor.VisitToken "IfToken" ifToken
+        visitor.EnterSection "Condition"
+        walkExpr visitor cond
+        visitor.ExitSection "Condition"
+        visitor.VisitToken "ThenToken" thenToken
+        visitor.EnterSection "ThenExpr"
+        walkAdditionalConstrExpr visitor thenBranch
+        visitor.ExitSection "ThenExpr"
+        visitor.VisitToken "ElseToken" elseToken
+        visitor.EnterSection "ElseExpr"
+        walkAdditionalConstrExpr visitor elseBranch
+        visitor.ExitSection "ElseExpr"
+        visitor.ExitSection "IfThenElse"
 
 and walkTypeDefnElement (visitor: AstVisitor<'T>) (elem: TypeDefnElement<'T>) : unit =
     match elem with
