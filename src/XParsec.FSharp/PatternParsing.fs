@@ -150,63 +150,124 @@ module Pat =
             | _ -> return! fail errNotPrefixPatOp
         }
 
-    // Shared token-to-operator dispatch for pattern Pratt parsing. Parameterized by
-    // two flags that distinguish `parenPattern` from `headBindingPattern`:
-    //   * `allowColon`       — whether `:` is a type-annotation operator in this
-    //                           context (true for parenPattern, false for
-    //                           headBindingPattern where `:` belongs to the
-    //                           enclosing binding's optReturnType).
-    //   * `semiCompletesElems` — the N-ary `InfixNary` flag on `;`: true in
-    //                            parenPattern (used by list/array patterns),
-    //                            false in headBindingPattern.
-    let private patTokenToOp (allowColon: bool) (semiCompletesElems: bool) (token: SyntaxToken) =
-        match token.Token with
-        // Infix Left: | (Or), & (And)
-        | Token.OpBar ->
-            let op = InfixLeft(token, preturn token, pipePrecedence, completeInfix)
-            preturn op
+    // RHS-operator constructors for pattern Pratt parsing. Hoisted as module-level
+    // `let private` functions (NOT closures) so the dispatch tables below hold
+    // direct method-group references rather than freshly-allocated closures.
+    let private mkOpBar (tok: SyntaxToken) =
+        InfixLeft(tok, preturn tok, pipePrecedence, completeInfix)
 
-        | Token.OpAmp ->
-            let op = InfixLeft(token, preturn token, andPrecedence, completeInfix)
-            preturn op
+    let private mkOpAmp (tok: SyntaxToken) =
+        InfixLeft(tok, preturn tok, andPrecedence, completeInfix)
 
-        // Infix Right: :: (Cons)
-        | Token.KWColonColon ->
-            let op = InfixRight(token, preturn token, consPrecedence, completeInfix)
-            preturn op
+    let private mkColonColon (tok: SyntaxToken) =
+        InfixRight(tok, preturn tok, consPrecedence, completeInfix)
 
-        // Infix Mapped: : (Typed) — only in parenPattern
-        | Token.OpColon when allowColon ->
-            let op = InfixMapped(token, preturn token, colonPrecedence, pTypeRhs, completeTyped)
-            preturn op
+    let private mkOpColon (tok: SyntaxToken) =
+        InfixMapped(tok, preturn tok, colonPrecedence, pTypeRhs, completeTyped)
 
-        // Infix Mapped: as (As)
-        | Token.KWAs ->
-            let op = InfixMapped(token, preturn token, asPrecedence, pAsRhs, completeAs)
-            preturn op
+    let private mkKWAs (tok: SyntaxToken) =
+        InfixMapped(tok, preturn tok, asPrecedence, pAsRhs, completeAs)
 
-        // Infix N-ary: , (Tuple)
-        | Token.OpComma ->
-            let op = InfixNary(token, pPatTupleComma, tuplePrecedence, false, completeTuple)
-            preturn op
+    let private mkOpComma (tok: SyntaxToken) =
+        InfixNary(tok, pPatTupleComma, tuplePrecedence, false, completeTuple)
 
-        | Token.OpSemicolon ->
-            let op =
-                InfixNary(token, pPatSemicolon, semiPrecedence, semiCompletesElems, completeElems)
+    let private mkSemiCompletes (tok: SyntaxToken) =
+        InfixNary(tok, pPatSemicolon, semiPrecedence, true, completeElems)
 
-            preturn op
+    let private mkSemiBare (tok: SyntaxToken) =
+        InfixNary(tok, pPatSemicolon, semiPrecedence, false, completeElems)
 
-        | _ -> fail errNotValidRhsPatOp
+    // Static dispatch tables — one per parameterization. The `match` on Token enum
+    // values is compiled by F# into a chain of small range-`switch` IL opcodes
+    // (the values are non-contiguous: 136, 140, 159, 162, 183, 184, 40961…), which
+    // amounts to ~6 sequential conditional jumps. A linear scan over a 6-7 entry
+    // struct-tuple array is a tighter JIT-friendly loop and lets the branch
+    // predictor see the common patterns.
+    let private patRhsRoutesFull
+        : struct (Token *
+          (SyntaxToken -> RHSOperator<SyntaxToken, PatAux, Pat<SyntaxToken>, PositionedToken, ParseState, FSReadable>))[] =
+        [|
+            struct (Token.OpComma, mkOpComma)
+            struct (Token.OpBar, mkOpBar)
+            struct (Token.OpAmp, mkOpAmp)
+            struct (Token.OpSemicolon, mkSemiCompletes)
+            struct (Token.KWColonColon, mkColonColon)
+            struct (Token.OpColon, mkOpColon)
+            struct (Token.KWAs, mkKWAs)
+        |]
 
-    let private patRhsParser (tokenToOp: SyntaxToken -> _) =
-        choiceL [ pSepVirtPat >>= tokenToOp; nextSyntaxToken >>= tokenToOp ] "RHS pattern operator"
+    let private patRhsRoutesHead
+        : struct (Token *
+          (SyntaxToken -> RHSOperator<SyntaxToken, PatAux, Pat<SyntaxToken>, PositionedToken, ParseState, FSReadable>))[] =
+        [|
+            struct (Token.OpComma, mkOpComma)
+            struct (Token.OpBar, mkOpBar)
+            struct (Token.OpAmp, mkOpAmp)
+            struct (Token.OpSemicolon, mkSemiBare)
+            struct (Token.KWColonColon, mkColonColon)
+            struct (Token.KWAs, mkKWAs)
+        |]
+
+    // Specialist RHS dispatcher for pattern Pratt parsing. Peeks once, scans the
+    // (small, static) routes array, then advances + invokes the handler. The
+    // virtual-`;` slow path inlines `pSepVirtPat`'s offside check so it doesn't
+    // re-peek either. `semiCompletesElems` is needed by the slow path for the
+    // synthesized InfixNary.
+    let private patRhsParserSpecialist
+        (routes:
+            struct (Token *
+            (SyntaxToken -> RHSOperator<SyntaxToken, PatAux, Pat<SyntaxToken>, PositionedToken, ParseState, FSReadable>))[])
+        (semiCompletesElems: bool)
+        : FSParser<_> =
+        fun reader ->
+            match peekNextSyntaxToken reader with
+            | Error e -> Error e
+            | Ok t ->
+                let token = t.Token
+                let mutable handler = ValueNone
+                let mutable i = 0
+
+                while handler.IsNone && i < routes.Length do
+                    let struct (k, h) = routes.[i]
+
+                    if k = token then
+                        handler <- ValueSome h
+
+                    i <- i + 1
+
+                match handler with
+                | ValueSome h ->
+                    match consumePeeked t reader with
+                    | Error e -> Error e
+                    | Ok tok -> Ok(h tok)
+                | ValueNone ->
+                    if token = Token.EOF then
+                        fail errNotValidRhsPatOp reader
+                    elif TokenInfo.canStartPattern token then
+                        // Virtual `;` if the next pattern-starter sits at the current context indent.
+                        let state = reader.State
+                        let idx = int reader.Index * 1<token>
+                        let indent = ParseState.getIndent state idx
+
+                        let atContextIndent =
+                            match state.Context with
+                            | { Indent = ctxIndent } :: _ -> indent = ctxIndent
+                            | [] -> indent = 0
+
+                        if atContextIndent then
+                            let virt = virtualToken (PositionedToken.Create(Token.OpSemicolon, t.StartIndex))
+
+                            Ok(InfixNary(virt, pPatSemicolon, semiPrecedence, semiCompletesElems, completeElems))
+                        else
+                            fail errNotValidRhsPatOp reader
+                    else
+                        fail errNotValidRhsPatOp reader
 
     /// Matches F#'s `parenPattern` grammar rule: includes `:` as a type-annotation
     /// operator so that `(x : int)`, `(x : int, y : float)`, etc. parse as
     /// per-element `Pat.Typed` inside the paren.
     type PatOperatorParser() =
-        static let tokenToOp = patTokenToOp true true
-        static let rhsParser = patRhsParser tokenToOp
+        static let rhsParser = patRhsParserSpecialist patRhsRoutesFull true
 
         interface Operators<SyntaxToken, PatAux, Pat<SyntaxToken>, PositionedToken, ParseState, FSReadable> with
             member _.LhsParser = patLhsParser
@@ -219,8 +280,7 @@ module Pat =
     /// puts the `: int` into the binding's `optReturnType`, not the head
     /// pattern. Used by `Pat.parseHead` for let-value binding heads.
     type PatHeadOperatorParser() =
-        static let tokenToOp = patTokenToOp false false
-        static let rhsParser = patRhsParser tokenToOp
+        static let rhsParser = patRhsParserSpecialist patRhsRoutesHead false
 
         interface Operators<SyntaxToken, PatAux, Pat<SyntaxToken>, PositionedToken, ParseState, FSReadable> with
             member _.LhsParser = patLhsParser
