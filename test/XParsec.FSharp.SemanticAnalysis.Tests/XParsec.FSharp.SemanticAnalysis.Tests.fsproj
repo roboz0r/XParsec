@@ -8,6 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="NodeKeyTests.fs" />
+    <Compile Include="UnionFindTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

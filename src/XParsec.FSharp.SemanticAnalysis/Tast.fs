@@ -1,29 +1,31 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
-// The frozen Typed AST. Produced by Freeze.fs from the CST + all side
-// tables, then consumed by downstream target plugins (.NET, JS, Rust — none
-// of which exist yet).
+// TAST does NOT preserve trivia, parens, or token layout — tooling consumers
+// query the CST for that. TAST exists for consumers that only care about
+// semantics (codegen, target plugins).
 //
-// The TAST does NOT preserve trivia, parens, or token-level layout: that
-// information stays on the CST, which tooling consumers query directly.
-// The TAST exists for consumers that only care about semantics.
-//
-// All types here are placeholders. Real shapes will be filled in once
-// Freeze.fs has a concrete projection to write — premature commitment here
-// just creates churn.
+// Each node carries its inferred SemType inline so target lowering doesn't
+// need to re-query the side tables.
 
 [<RequireQualifiedAccess>]
 type TExpr =
-    | TPlaceholder
+    /// `ty` is carried explicitly so widening to int64/int8/etc. doesn't
+    /// require a structural change.
+    | Const of value: int * ty: SemType
+    /// `binding` is the NodeKey of the *binding site*, not the use site.
+    | Var of binding: NodeKey * ty: SemType
+    /// `param` is the NodeKey of the parameter pattern.
+    | Lambda of param: NodeKey * body: TExpr * ty: SemType
+    /// Curried; multi-arg applications nest.
+    | App of fn: TExpr * arg: TExpr * ty: SemType
+    | Let of binding: NodeKey * value: TExpr * body: TExpr * ty: SemType
 
 [<RequireQualifiedAccess>]
 type TDecl =
-    | TPlaceholder
+    | Let of binding: NodeKey * value: TExpr * ty: SemType
 
-/// The root of the frozen Typed AST for one compilation unit.
 type TastFile =
-    { /// Declarations in source order.
+    { /// Source order.
       Decls: TDecl list
-      /// Diagnostics accumulated during semantic analysis. Errors here means
-      /// the TAST is best-effort and not safe to emit code from.
+      /// Non-empty Errors mean the TAST is best-effort and not safe to emit from.
       Diagnostics: Diagnostic list }

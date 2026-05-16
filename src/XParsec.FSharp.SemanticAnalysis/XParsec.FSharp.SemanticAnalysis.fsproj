@@ -6,6 +6,7 @@
   <ItemGroup>
     <Compile Include="NodeKey.fs" />
     <Compile Include="SemanticInfo.fs" />
+    <Compile Include="ExternalSymbols.fs" />
     <Compile Include="SideTables.fs" />
     <Compile Include="UnionFind.fs" />
     <Compile Include="Tast.fs" />
