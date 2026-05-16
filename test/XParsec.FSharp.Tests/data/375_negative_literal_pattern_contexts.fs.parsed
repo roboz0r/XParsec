@@ -1,0 +1,346 @@
+module                        'module'          KWModule            tok=   0  pos=   0
+                              'TestNegati...'   Identifier          tok=   2  pos=   7
+FunctionOrValue:
+  let                         'let'             KWLet               tok=   7  pos=  75
+    Pat.NamedSimple           'g'               Identifier          tok=   9  pos=  79
+    Pats:
+      Pat.NamedSimple         'x'               Identifier          tok=  11  pos=  81
+    =                         '='               OpEquality          tok=  13  pos=  83
+      Match:
+        MatchToken            'match'           KWMatch             tok=  16  pos=  89
+        MatchExpr:
+          Ident               'x'               Identifier          tok=  18  pos=  95
+        WithToken             'with'            KWWith              tok=  20  pos=  97
+        Rule:
+          Bar                 '|'               OpBar               tok=  23  pos= 106
+          Pat:
+            ParenBlock        '('               KWLParen            tok=  25  pos= 108
+              Pat.Tuple:
+                Pat.Const     '-1'              NumInt32            tok=  26  pos= 109
+                ,             ','               OpComma             tok=  27  pos= 111
+                Pat.Wildcard  '_'               Wildcard            tok=  29  pos= 113
+                              ')'               KWRParen            tok=  30  pos= 114
+          Arrow               '->'              OpArrowRight        tok=  32  pos= 116
+          Expr:
+            StringLiteral     '"'               StringOpen          tok=  34  pos= 119
+            Parts:
+              Text            'a'               StringFragment      tok=  35  pos= 120
+                              '"'               StringClose         tok=  36  pos= 121
+        Rule:
+          Bar                 '|'               OpBar               tok=  39  pos= 127
+          Pat:
+            Pat.Wildcard      '_'               Wildcard            tok=  41  pos= 129
+          Arrow               '->'              OpArrowRight        tok=  43  pos= 131
+          Expr:
+            StringLiteral     '"'               StringOpen          tok=  45  pos= 134
+            Parts:
+              Text            'b'               StringFragment      tok=  46  pos= 135
+                              '"'               StringClose         tok=  47  pos= 136
+FunctionOrValue:
+  let                         'let'             KWLet               tok=  52  pos= 158
+    Pat.NamedSimple           'h'               Identifier          tok=  54  pos= 162
+    Pats:
+      Pat.NamedSimple         'x'               Identifier          tok=  56  pos= 164
+    =                         '='               OpEquality          tok=  58  pos= 166
+      Match:
+        MatchToken            'match'           KWMatch             tok=  61  pos= 172
+        MatchExpr:
+          Ident               'x'               Identifier          tok=  63  pos= 178
+        WithToken             'with'            KWWith              tok=  65  pos= 180
+        Rule:
+          Bar                 '|'               OpBar               tok=  68  pos= 189
+          Pat:
+            List              '['               KWLBracket          tok=  70  pos= 191
+              Pat.Elems:
+                Pat.Const     '-1'              NumInt32            tok=  72  pos= 193
+                Pat.Const     '-2'              NumInt32            tok=  75  pos= 197
+                              ']'               KWRBracket          tok=  77  pos= 200
+          Arrow               '->'              OpArrowRight        tok=  79  pos= 202
+          Expr:
+            StringLiteral     '"'               StringOpen          tok=  81  pos= 205
+            Parts:
+              Text            'a'               StringFragment      tok=  82  pos= 206
+                              '"'               StringClose         tok=  83  pos= 207
+        Rule:
+          Bar                 '|'               OpBar               tok=  86  pos= 213
+          Pat:
+            Pat.Wildcard      '_'               Wildcard            tok=  88  pos= 215
+          Arrow               '->'              OpArrowRight        tok=  90  pos= 217
+          Expr:
+            StringLiteral     '"'               StringOpen          tok=  92  pos= 220
+            Parts:
+              Text            'b'               StringFragment      tok=  93  pos= 221
+                              '"'               StringClose         tok=  94  pos= 222
+FunctionOrValue:
+  let                         'let'             KWLet               tok=  99  pos= 239
+    Pat.NamedSimple           'i'               Identifier          tok= 101  pos= 243
+    Pats:
+      Pat.NamedSimple         'x'               Identifier          tok= 103  pos= 245
+    =                         '='               OpEquality          tok= 105  pos= 247
+      Match:
+        MatchToken            'match'           KWMatch             tok= 108  pos= 253
+        MatchExpr:
+          Ident               'x'               Identifier          tok= 110  pos= 259
+        WithToken             'with'            KWWith              tok= 112  pos= 261
+        Rule:
+          Bar                 '|'               OpBar               tok= 115  pos= 270
+          Pat:
+            Pat.As:
+              Pat.Const       '-1'              NumInt32            tok= 117  pos= 272
+              As              'as'              KWAs                tok= 119  pos= 275
+              Ident           'n'               Identifier          tok= 121  pos= 278
+          Arrow               '->'              OpArrowRight        tok= 123  pos= 280
+          Expr:
+            Ident             'n'               Identifier          tok= 125  pos= 283
+        Rule:
+          Bar                 '|'               OpBar               tok= 128  pos= 289
+          Pat:
+            Pat.NamedSimple   'n'               Identifier          tok= 130  pos= 291
+          Arrow               '->'              OpArrowRight        tok= 132  pos= 293
+          Expr:
+            Ident             'n'               Identifier          tok= 134  pos= 296
+FunctionOrValue:
+  let                         'let'             KWLet               tok= 139  pos= 350
+    Pat.NamedSimple           'j'               Identifier          tok= 141  pos= 354
+    Pats:
+      Pat.NamedSimple         'x'               Identifier          tok= 143  pos= 356
+    =                         '='               OpEquality          tok= 145  pos= 358
+      Match:
+        MatchToken            'match'           KWMatch             tok= 148  pos= 364
+        MatchExpr:
+          Ident               'x'               Identifier          tok= 150  pos= 370
+        WithToken             'with'            KWWith              tok= 152  pos= 372
+        Rule:
+          Bar                 '|'               OpBar               tok= 155  pos= 381
+          Pat:
+            Pat.Or            '|'               OpBar               tok= 160  pos= 390
+              Pat.Const       '-1'              NumInt32            tok= 157  pos= 383
+              Pat.Const       '-2'              NumInt32            tok= 162  pos= 392
+          Arrow               '->'              OpArrowRight        tok= 164  pos= 395
+          Expr:
+            StringLiteral     '"'               StringOpen          tok= 166  pos= 398
+            Parts:
+              Text            'a'               StringFragment      tok= 167  pos= 399
+                              '"'               StringClose         tok= 168  pos= 400
+        Rule:
+          Bar                 '|'               OpBar               tok= 171  pos= 406
+          Pat:
+            Pat.Wildcard      '_'               Wildcard            tok= 173  pos= 408
+          Arrow               '->'              OpArrowRight        tok= 175  pos= 410
+          Expr:
+            StringLiteral     '"'               StringOpen          tok= 177  pos= 413
+            Parts:
+              Text            'b'               StringFragment      tok= 178  pos= 414
+                              '"'               StringClose         tok= 179  pos= 415
+FunctionOrValue:
+  let                         'let'             KWLet               tok= 184  pos= 434
+    Pat.NamedSimple           'k'               Identifier          tok= 186  pos= 438
+    Pats:
+      Pat.NamedSimple         'x'               Identifier          tok= 188  pos= 440
+    =                         '='               OpEquality          tok= 190  pos= 442
+      Match:
+        MatchToken            'match'           KWMatch             tok= 193  pos= 448
+        MatchExpr:
+          Ident               'x'               Identifier          tok= 195  pos= 454
+        WithToken             'with'            KWWith              tok= 197  pos= 456
+        Rule:
+          Bar                 '|'               OpBar               tok= 200  pos= 465
+          Pat:
+            Pat.Cons          '::'              KWColonColon        tok= 204  pos= 470
+              Pat.Const       '-1'              NumInt32            tok= 202  pos= 467
+              Pat.Wildcard    '_'               Wildcard            tok= 206  pos= 473
+          Arrow               '->'              OpArrowRight        tok= 208  pos= 475
+          Expr:
+            StringLiteral     '"'               StringOpen          tok= 210  pos= 478
+            Parts:
+              Text            'a'               StringFragment      tok= 211  pos= 479
+                              '"'               StringClose         tok= 212  pos= 480
+        Rule:
+          Bar                 '|'               OpBar               tok= 215  pos= 486
+          Pat:
+            Pat.Wildcard      '_'               Wildcard            tok= 217  pos= 488
+          Arrow               '->'              OpArrowRight        tok= 219  pos= 490
+          Expr:
+            StringLiteral     '"'               StringOpen          tok= 221  pos= 493
+            Parts:
+              Text            'b'               StringFragment      tok= 222  pos= 494
+                              '"'               StringClose         tok= 223  pos= 495
+FunctionOrValue:
+  let                         'let'             KWLet               tok= 228  pos= 545
+    Pat.Op:
+      ParenOp:
+                              '('               KWLParen            tok= 230  pos= 549
+        ActivePatternOp:
+          ActivePatternOp:
+                              '|'               OpBar               tok= 231  pos= 550
+                              'Neg'             Identifier          tok= 232  pos= 551
+                              '_'               Wildcard            tok= 234  pos= 555
+                              '|'               OpBar               tok= 235  pos= 556
+                              ')'               KWRParen            tok= 236  pos= 557
+    Pats:
+      Pat.NamedSimple         'n'               Identifier          tok= 238  pos= 559
+    =                         '='               OpEquality          tok= 240  pos= 561
+      IfThenElse:
+        IfToken               'if'              KWIf                tok= 242  pos= 563
+        Condition:
+          InfixApp            '<'               op_LessThan         tok= 246  pos= 568
+            Ident             'n'               Identifier          tok= 244  pos= 566
+            Const             '0'               NumInt32            tok= 248  pos= 570
+        ThenToken             'then'            KWThen              tok= 250  pos= 572
+        ThenExpr:
+          App:
+            Func:
+              Ident           'Some'            Identifier          tok= 252  pos= 577
+            Args:
+              PrefixApp       '-'               op_Subtraction      tok= 254  pos= 582
+                Ident         'n'               Identifier          tok= 255  pos= 583
+        ElseToken             'else'            KWElse              tok= 257  pos= 585
+        ElseExpr:
+          Ident               'None'            Identifier          tok= 259  pos= 590
+FunctionOrValue:
+  let                         'let'             KWLet               tok= 262  pos= 596
+    Pat.NamedSimple           'm'               Identifier          tok= 264  pos= 600
+    Pats:
+      Pat.NamedSimple         'x'               Identifier          tok= 266  pos= 602
+    =                         '='               OpEquality          tok= 268  pos= 604
+      Match:
+        MatchToken            'match'           KWMatch             tok= 271  pos= 610
+        MatchExpr:
+          Ident               'x'               Identifier          tok= 273  pos= 616
+        WithToken             'with'            KWWith              tok= 275  pos= 618
+        Rule:
+          Bar                 '|'               OpBar               tok= 278  pos= 627
+          Pat:
+            Pat.Named:
+              Ident           'Neg'             Identifier          tok= 280  pos= 629
+              Args:
+                Pat.Const     '-1'              NumInt32            tok= 282  pos= 633
+          Arrow               '->'              OpArrowRight        tok= 284  pos= 636
+          Expr:
+            StringLiteral     '"'               StringOpen          tok= 286  pos= 639
+            Parts:
+              Text            'a'               StringFragment      tok= 287  pos= 640
+                              '"'               StringClose         tok= 288  pos= 641
+        Rule:
+          Bar                 '|'               OpBar               tok= 291  pos= 647
+          Pat:
+            Pat.Wildcard      '_'               Wildcard            tok= 293  pos= 649
+          Arrow               '->'              OpArrowRight        tok= 295  pos= 651
+          Expr:
+            StringLiteral     '"'               StringOpen          tok= 297  pos= 654
+            Parts:
+              Text            'b'               StringFragment      tok= 298  pos= 655
+                              '"'               StringClose         tok= 299  pos= 656
+FunctionOrValue:
+  let                         'let'             KWLet               tok= 304  pos= 679
+    Pat.NamedSimple           'n'               Identifier          tok= 306  pos= 683
+    =                         '='               OpEquality          tok= 308  pos= 685
+      Function                'function'        KWFunction          tok= 311  pos= 691
+        Rule:
+          Bar                 '|'               OpBar               tok= 314  pos= 704
+          Pat:
+            Pat.Const         '-1'              NumInt32            tok= 316  pos= 706
+          Arrow               '->'              OpArrowRight        tok= 318  pos= 709
+          Expr:
+            StringLiteral     '"'               StringOpen          tok= 320  pos= 712
+            Parts:
+              Text            'a'               StringFragment      tok= 321  pos= 713
+                              '"'               StringClose         tok= 322  pos= 714
+        Rule:
+          Bar                 '|'               OpBar               tok= 325  pos= 720
+          Pat:
+            Pat.Wildcard      '_'               Wildcard            tok= 327  pos= 722
+          Arrow               '->'              OpArrowRight        tok= 329  pos= 724
+          Expr:
+            StringLiteral     '"'               StringOpen          tok= 331  pos= 727
+            Parts:
+              Text            'b'               StringFragment      tok= 332  pos= 728
+                              '"'               StringClose         tok= 333  pos= 729
+FunctionOrValue:
+  let                         'let'             KWLet               tok= 338  pos= 750
+    Pat.NamedSimple           'p'               Identifier          tok= 340  pos= 754
+    Pats:
+      Pat.NamedSimple         'x'               Identifier          tok= 342  pos= 756
+    =                         '='               OpEquality          tok= 344  pos= 758
+      Match:
+        MatchToken            'match'           KWMatch             tok= 347  pos= 764
+        MatchExpr:
+          Ident               'x'               Identifier          tok= 349  pos= 770
+        WithToken             'with'            KWWith              tok= 351  pos= 772
+        Rule:
+          Bar                 '|'               OpBar               tok= 354  pos= 781
+          Pat:
+            Pat.Const         '-1.5'            NumIEEE64           tok= 356  pos= 783
+          Arrow               '->'              OpArrowRight        tok= 358  pos= 788
+          Expr:
+            StringLiteral     '"'               StringOpen          tok= 360  pos= 791
+            Parts:
+              Text            'a'               StringFragment      tok= 361  pos= 792
+                              '"'               StringClose         tok= 362  pos= 793
+        Rule:
+          Bar                 '|'               OpBar               tok= 365  pos= 799
+          Pat:
+            Pat.Wildcard      '_'               Wildcard            tok= 367  pos= 801
+          Arrow               '->'              OpArrowRight        tok= 369  pos= 803
+          Expr:
+            StringLiteral     '"'               StringOpen          tok= 371  pos= 806
+            Parts:
+              Text            'b'               StringFragment      tok= 372  pos= 807
+                              '"'               StringClose         tok= 373  pos= 808
+TypeDefn.Record:
+  TypeName                    'R'               Identifier          tok= 380  pos= 868
+  =                           '='               OpEquality          tok= 382  pos= 870
+  {                           '{'               KWLBrace            tok= 384  pos= 872
+    Field:
+      ident                   'v'               Identifier          tok= 386  pos= 874
+      :                       ':'               OpColon             tok= 387  pos= 875
+      NamedType:
+        Ident                 'int'             Identifier          tok= 389  pos= 877
+  }                           '}'               KWRBrace            tok= 391  pos= 881
+FunctionOrValue:
+  let                         'let'             KWLet               tok= 394  pos= 884
+    Pat.NamedSimple           'r'               Identifier          tok= 396  pos= 888
+    Pats:
+      Pat.NamedSimple         'x'               Identifier          tok= 398  pos= 890
+    =                         '='               OpEquality          tok= 400  pos= 892
+      Match:
+        MatchToken            'match'           KWMatch             tok= 403  pos= 898
+        MatchExpr:
+          Ident               'x'               Identifier          tok= 405  pos= 904
+        WithToken             'with'            KWWith              tok= 407  pos= 906
+        Rule:
+          Bar                 '|'               OpBar               tok= 410  pos= 915
+          Pat:
+            Pat.Record        '{'               KWLBrace            tok= 412  pos= 917
+              FieldPat:
+                Ident         'v'               Identifier          tok= 414  pos= 919
+                =             '='               OpEquality          tok= 416  pos= 921
+                Pat:
+                  Pat.Const   '-1'              NumInt32            tok= 418  pos= 923
+                              '}'               KWRBrace            tok= 420  pos= 926
+          Arrow               '->'              OpArrowRight        tok= 422  pos= 928
+          Expr:
+            StringLiteral     '"'               StringOpen          tok= 424  pos= 931
+            Parts:
+              Text            'a'               StringFragment      tok= 425  pos= 932
+                              '"'               StringClose         tok= 426  pos= 933
+        Rule:
+          Bar                 '|'               OpBar               tok= 429  pos= 939
+          Pat:
+            Pat.Wildcard      '_'               Wildcard            tok= 431  pos= 941
+          Arrow               '->'              OpArrowRight        tok= 433  pos= 943
+          Expr:
+            StringLiteral     '"'               StringOpen          tok= 435  pos= 946
+            Parts:
+              Text            'b'               StringFragment      tok= 436  pos= 947
+                              '"'               StringClose         tok= 437  pos= 948
+FunctionOrValue:
+  let                         'let'             KWLet               tok= 442  pos=1010
+    Pat.NamedSimple           's'               Identifier          tok= 444  pos=1014
+    Pats:
+      Pat.Const               '-1'              NumInt32            tok= 446  pos=1016
+    =                         '='               OpEquality          tok= 448  pos=1019
+      StringLiteral           '"'               StringOpen          tok= 450  pos=1021
+      Parts:
+        Text                  'a'               StringFragment      tok= 451  pos=1022
+                              '"'               StringClose         tok= 452  pos=1023
