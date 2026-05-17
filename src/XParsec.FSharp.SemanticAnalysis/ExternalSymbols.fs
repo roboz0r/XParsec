@@ -7,11 +7,13 @@ namespace XParsec.FSharp.SemanticAnalysis
 /// Type-name lookup is a separate concern (handled by named-type resolution
 /// in the type checker, not by this interface).
 type ExternalSymbol =
-    { Name: string
-      /// For polymorphic symbols (real FSharp.Core (+), List.map, …) this
-      /// will eventually be a scheme with bound type vars + SRTP / IWSAM
-      /// constraints. Mono concrete TyFun for now.
-      Type: SemType }
+    {
+        Name: string
+        /// For polymorphic symbols (real FSharp.Core (+), List.map, …) this
+        /// will eventually be a scheme with bound type vars + SRTP / IWSAM
+        /// constraints. Mono concrete TyFun for now.
+        Type: SemType
+    }
 
 /// Each target supplies its own provider implementation.
 type IExternalSymbolProvider =
@@ -23,7 +25,8 @@ module ExternalSymbols =
     /// For tests that want to isolate behavior from external-symbol noise.
     let nullProvider: IExternalSymbolProvider =
         { new IExternalSymbolProvider with
-            member _.TryLookup _ = ValueNone }
+            member _.TryLookup _ = ValueNone
+        }
 
 /// TODO: replace with FSharp.Core.dll-derived equivalents when .NET
 /// integration comes online; the interface above stays the same.
@@ -51,4 +54,5 @@ module MockBuiltins =
             member _.TryLookup(name) =
                 match Map.tryFind name builtins with
                 | Some s -> ValueSome s
-                | None -> ValueNone }
+                | None -> ValueNone
+        }

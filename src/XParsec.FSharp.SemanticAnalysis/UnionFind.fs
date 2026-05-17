@@ -36,8 +36,10 @@ module UnionFind =
         let rootB = find b
 
         if not (System.Object.ReferenceEquals(rootA, rootB)) then
-            if rootA.Rank < rootB.Rank then rootA.Parent <- ValueSome rootB
-            elif rootA.Rank > rootB.Rank then rootB.Parent <- ValueSome rootA
+            if rootA.Rank < rootB.Rank then
+                rootA.Parent <- ValueSome rootB
+            elif rootA.Rank > rootB.Rank then
+                rootB.Parent <- ValueSome rootA
             else
                 rootB.Parent <- ValueSome rootA
                 rootA.Rank <- rootA.Rank + 1

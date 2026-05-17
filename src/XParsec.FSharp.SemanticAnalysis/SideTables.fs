@@ -1,6 +1,8 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open XParsec.FSharp.Lexer
+open XParsec.FSharp.Parser
 
 // Side tables hold all in-flight semantic information. CST is never mutated.
 // See docs/architecture.md.
@@ -24,8 +26,10 @@ type SideTable<'V>() =
     member _.AsDictionary() : IReadOnlyDictionary<NodeKey, 'V> = dict :> _
 
 [<Sealed>]
-type PassContext(provider: IExternalSymbolProvider) =
-    member val Provider = provider with get
+type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed) =
+    member val Provider = provider
+    member val Input = input
+    member val Lexed = lexed
     /// Written by Desugar.
     member val Desugared = SideTable<DesugaredForm>() with get
     /// Written by NameResolution.
@@ -37,11 +41,19 @@ type PassContext(provider: IExternalSymbolProvider) =
     member val Escape = SideTable<EscapeState>() with get
     member val Diagnostics = ResizeArray<Diagnostic>() with get
 
+    /// Source text of `token`. Empty for virtual (synthesised) tokens.
+    member this.NameOf(token: SyntaxToken) : string =
+        match token.Index with
+        | TokenIndex.Regular iT -> this.Lexed.GetTokenString(iT, this.Input)
+        | TokenIndex.Virtual -> ""
+
 /// TODO: flesh out (range, code, sub-severities) once passes need to differentiate.
 and [<Struct>] Diagnostic =
-    { Key: NodeKey
-      Message: string
-      Severity: Severity }
+    {
+        Key: NodeKey
+        Message: string
+        Severity: Severity
+    }
 
 and Severity =
     | Error

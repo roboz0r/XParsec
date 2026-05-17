@@ -68,7 +68,7 @@ type NodeKey =
 
     member this.Kind: NodeKind =
         let kindBits = (this.Raw &&& 0x7FFFFFFF00000000UL) >>> 32
-        LanguagePrimitives.EnumOfValue (uint16 kindBits)
+        LanguagePrimitives.EnumOfValue(uint16 kindBits)
 
     member this.IsSynthetic: bool = (this.Raw &&& 0x8000000000000000UL) <> 0UL
 
@@ -95,5 +95,4 @@ module NodeKey =
 
     // TODO: per-CST-DU-case helpers (ofExpr, ofPat, ofDecl) live next to the
     // passes that walk those DUs.
-    let ofToken (firstToken: SyntaxToken) (kind: NodeKind) : NodeKey =
-        ofSource firstToken.StartIndex kind
+    let ofToken (firstToken: SyntaxToken) (kind: NodeKind) : NodeKey = ofSource firstToken.StartIndex kind

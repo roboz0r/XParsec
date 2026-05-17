@@ -51,11 +51,18 @@ and [<Sealed>] TypeVar() =
 /// BindingSite is the NodeKey of the LetBinding / lambda parameter /
 /// TypeMember that introduced the name — NOT the use site.
 type ResolvedBinding =
-    { BindingSite: NodeKey
-      IsInline: bool
-      IsMutable: bool }
+    {
+        BindingSite: NodeKey
+        IsInline: bool
+        IsMutable: bool
+    }
 
 /// A thin view, not a rewritten tree: Desugar attaches this without ever
-/// mutating CST shape. Placeholder until the first construct that needs
-/// desugaring comes online.
-type DesugaredForm = | DesugaredPlaceholder
+/// mutating CST shape.
+[<RequireQualifiedAccess>]
+type DesugaredForm =
+    /// On an InfixApp / PrefixApp node, the operator's compiled name
+    /// ("op_Addition", "op_Subtraction", …). Unification looks the name up
+    /// via the provider and types the application as if it were a normal
+    /// function call.
+    | OpName of compiledName: string
