@@ -53,12 +53,16 @@ module CstKeys =
         | Expr.Ident t -> t
         | Expr.LongIdentOrOp lio -> firstTokenOfLongIdentOrOp lio
         | Expr.App(funcExpr, _) -> firstTokenOfExpr funcExpr
-        | Expr.InfixApp(left, _, _) -> firstTokenOfExpr left
+        // Use the operator token (not the left expr) so nested same-kind
+        // InfixApps in left-assoc chains and operator-precedence stacks
+        // don't collide on NodeKey. See docs/nodekey.md.
+        | Expr.InfixApp(_, op, _) -> op
         | Expr.PrefixApp(op, _) -> op
         | Expr.LetOrUse(keyword = kw) -> firstTokenOfLetOrUseKeyword kw
         | Expr.Fun(funToken = t) -> t
         | Expr.EnclosedBlock(lParen = pk) -> firstTokenOfParenKind pk
         | Expr.EmptyBlock(lParen = pk) -> firstTokenOfParenKind pk
+        | Expr.IfThenElse(ifToken = t) -> t
         | _ -> failwithf "CstKeys.firstTokenOfExpr: TODO %A" e
 
     let rec firstTokenOfPat (p: Pat<SyntaxToken>) : SyntaxToken =
@@ -83,6 +87,7 @@ module CstKeys =
             | Expr.Fun _ -> NodeKind.ExprLambda
             | Expr.LetOrUse _ -> NodeKind.ExprLet
             | Expr.EnclosedBlock _ -> NodeKind.ExprEnclosedBlock
+            | Expr.IfThenElse _ -> NodeKind.ExprIfThenElse
             | _ -> NodeKind.Unknown
 
         NodeKey.ofToken (firstTokenOfExpr e) kind

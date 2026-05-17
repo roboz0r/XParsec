@@ -4,10 +4,14 @@ open System
 open XParsec.FSharp.Parser
 
 // Wire format (see docs/nodekey.md):
-//   bit 63        bit 62..32                      bit 31..0
-//   +----------+---------------------------------+----------------------+
-//   | syn:1    | kind:31                         | offset:32            |
-//   +----------+---------------------------------+----------------------+
+//   bit 63        bit 62..48          bit 47..32      bit 31..0
+//   +----------+----------------------+--------------+----------------------+
+//   | syn:1    | reserved:15          | kind:16      | offset:32            |
+//   +----------+----------------------+--------------+----------------------+
+//
+// The 15 reserved bits are available for a future per-spawning-construct
+// counter (see docs/nodekey.md "Synthetic NodeKeys"); today they're always
+// zero and `Kind` ignores them.
 
 /// (offset, kind) — not offset alone — is what makes a real NodeKey unique:
 /// two CST node types can start at the same source offset (a LetBinding and
@@ -67,7 +71,7 @@ type NodeKey =
     member this.Offset: int = int (uint32 this.Raw)
 
     member this.Kind: NodeKind =
-        let kindBits = (this.Raw &&& 0x7FFFFFFF00000000UL) >>> 32
+        let kindBits = (this.Raw &&& 0x0000FFFF00000000UL) >>> 32
         LanguagePrimitives.EnumOfValue(uint16 kindBits)
 
     member this.IsSynthetic: bool = (this.Raw &&& 0x8000000000000000UL) <> 0UL

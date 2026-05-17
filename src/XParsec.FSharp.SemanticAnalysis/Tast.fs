@@ -28,6 +28,7 @@ type TExpr =
     /// Curried; multi-arg applications nest.
     | App of fn: TExpr * arg: TExpr * ty: SemType
     | Let of binding: NodeKey * value: TExpr * body: TExpr * ty: SemType
+    | IfThenElse of cond: TExpr * thenExpr: TExpr * elseExpr: TExpr * ty: SemType
 
 [<RequireQualifiedAccess>]
 type TDecl =

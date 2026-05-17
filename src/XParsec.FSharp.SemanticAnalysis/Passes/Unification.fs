@@ -49,6 +49,26 @@ module Unification =
         | TyConst _ -> t
         | TyFun(a, r) -> TyFun(zonk a, zonk r)
 
+    /// Move pending deferred-constraint state from `source` onto `target`.
+    /// Called whenever a TyVar is no longer the equivalence-class
+    /// representative (either after union-find collapse, or when its Link is
+    /// set). Bounds attached to a non-representative would otherwise never
+    /// fire their on-unified callbacks. Lists are empty in the current
+    /// subset, so this is a no-op at runtime — but the contract has to be
+    /// honoured before SRTPs / IWSAMs come online.
+    let private migrateBounds (target: TypeVar) (source: TypeVar) : unit =
+        if not (System.Object.ReferenceEquals(target, source)) then
+            if not (List.isEmpty source.IfaceBounds) then
+                target.IfaceBounds <- source.IfaceBounds @ target.IfaceBounds
+                source.IfaceBounds <- []
+
+            if not (List.isEmpty source.SrtpBounds) then
+                target.SrtpBounds <- source.SrtpBounds @ target.SrtpBounds
+                source.SrtpBounds <- []
+    // TODO: fire on-unified callbacks for newly-stable bounds once
+    // the SRTP / IWSAM resolution machinery exists. Until then,
+    // appending is enough to preserve them through unification.
+
     let rec private unify (ctx: PassContext) (key: NodeKey) (a: SemType) (b: SemType) =
         let a = resolveStep a
         let b = resolveStep b
@@ -59,12 +79,28 @@ module Unification =
             unify ctx key a1 a2
             unify ctx key r1 r2
         | TyVar tv1, TyVar tv2 when System.Object.ReferenceEquals(tv1, tv2) -> ()
-        | TyVar tv1, TyVar tv2 -> UnionFind.union tv1 tv2
+        | TyVar tv1, TyVar tv2 ->
+            let r1 = UnionFind.find tv1
+            let r2 = UnionFind.find tv2
+            UnionFind.union r1 r2
+            // After union, exactly one of r1/r2 still has Parent = ValueNone.
+            let newRoot = UnionFind.find r1
+
+            let merged =
+                if System.Object.ReferenceEquals(newRoot, r1) then
+                    r2
+                else
+                    r1
+
+            migrateBounds newRoot merged
         | TyVar tv, other
         | other, TyVar tv ->
             let root = UnionFind.find tv
             // TODO: occurs check (matters once `let rec` lands).
             root.Link <- ValueSome other
+        // No bound migration needed here: `root` keeps its bounds, and
+        // setting Link is the trigger for on-unified callbacks to fire
+        // once they exist.
         | _ ->
             ctx.Diagnostics.Add
                 {
@@ -116,9 +152,12 @@ module Unification =
             | Expr.LongIdentOrOp _ -> inferIdent ctx e key
             | Expr.App(fn, args) -> inferApp ctx key fn args
             | Expr.InfixApp(left, _, right) -> inferInfix ctx key left right
+            | Expr.PrefixApp(_, operand) -> inferPrefix ctx key operand
             | Expr.Fun(argumentPats = argPats; expr = body) -> inferFun ctx argPats body
             | Expr.LetOrUse(bindings = bindings; body = body) -> inferLet ctx key bindings body
             | Expr.EnclosedBlock(expr = inner) -> infer ctx inner
+            | Expr.IfThenElse(condition = cond; thenExpr = thenE; elifBranches = elifs; elseBranch = elseB) ->
+                inferIfThenElse ctx key cond thenE elifs elseB
             | _ ->
                 // TODO: other expression kinds.
                 TyVar(TypeVar())
@@ -191,6 +230,68 @@ module Unification =
             // Desugar's lookup table, not a user error here).
             TyVar(TypeVar())
 
+    and private inferPrefix (ctx: PassContext) (key: NodeKey) (operand: Expr<SyntaxToken>) : SemType =
+        let operandTy = infer ctx operand
+
+        match ctx.Desugared.TryGetValue key with
+        | ValueSome(DesugaredForm.OpName name) ->
+            match ctx.Provider.TryLookup name with
+            | ValueSome sym ->
+                let resultTy = TyVar(TypeVar())
+                unify ctx key sym.Type (TyFun(operandTy, resultTy))
+                resultTy
+            | ValueNone ->
+                ctx.Diagnostics.Add
+                    {
+                        Key = key
+                        Message = sprintf "Unknown prefix operator: %s" name
+                        Severity = Error
+                    }
+
+                TyVar(TypeVar())
+        | ValueNone -> TyVar(TypeVar())
+
+    and private inferIfThenElse
+        (ctx: PassContext)
+        (key: NodeKey)
+        (cond: Expr<SyntaxToken>)
+        (thenE: Expr<SyntaxToken>)
+        (elifs: ImmutableArray<ElifBranch<SyntaxToken>>)
+        (elseB: ElseBranch<SyntaxToken> voption)
+        : SemType =
+        let condTy = infer ctx cond
+        unify ctx key condTy MockBuiltins.tyBool
+
+        let thenTy = infer ctx thenE
+
+        for elif_ in elifs do
+            let elifCond, elifExpr =
+                match elif_ with
+                | ElifBranch.Elif(condition = c; expr = e)
+                | ElifBranch.ElseIf(condition = c; expr = e) -> c, e
+
+            let elifCondTy = infer ctx elifCond
+            unify ctx key elifCondTy MockBuiltins.tyBool
+            let elifTy = infer ctx elifExpr
+            unify ctx key thenTy elifTy
+
+        match elseB with
+        | ValueSome(ElseBranch(expr = elseExpr)) ->
+            let elseTy = infer ctx elseExpr
+            unify ctx key thenTy elseTy
+            thenTy
+        | ValueNone ->
+            // `if c then e` (no else) requires e : unit. Tiny subset
+            // doesn't have unit yet — surface as a diagnostic.
+            ctx.Diagnostics.Add
+                {
+                    Key = key
+                    Message = "if-then without else not yet supported"
+                    Severity = Error
+                }
+
+            thenTy
+
     and private inferFun
         (ctx: PassContext)
         (argPats: ImmutableArray<Pat<SyntaxToken>>)
@@ -212,9 +313,11 @@ module Unification =
         match body with
         | ValueSome bodyExpr -> infer ctx bodyExpr
         | ValueNone ->
-            // Module-level let has no `in` body; the let "expression"
-            // doesn't have a meaningful type.
-            TyConst "unit"
+            // `Expr.LetOrUse(body = ValueNone)` is `use fixed` (module-level
+            // lets are ModuleElems, not Expr.LetOrUse). Tiny subset doesn't
+            // support pinning — surface loudly so Freeze doesn't see a
+            // best-effort type for an unsupported construct.
+            failwith "Unification: Expr.LetOrUse with no body (UseFixed) not supported"
 
     and private inferBinding (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =
         let patTy = inferPat ctx b.headPat

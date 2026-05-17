@@ -15,6 +15,7 @@
     <Compile Include="NameResolutionTests.fs" />
     <Compile Include="UnificationTests.fs" />
     <Compile Include="FreezeTests.fs" />
+    <Compile Include="ExpansionTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

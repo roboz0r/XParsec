@@ -35,16 +35,31 @@ module MockBuiltins =
     let tyInt: SemType = TyConst "int"
     let tyBool: SemType = TyConst "bool"
 
-    let private tyBinOp (ty: SemType) : SemType = TyFun(ty, TyFun(ty, ty))
+    let private tyBinOp (a: SemType) (b: SemType) (r: SemType) : SemType = TyFun(a, TyFun(b, r))
+
+    let private tyUnaryOp (ty: SemType) : SemType = TyFun(ty, ty)
 
     let private builtins =
+        let intInfix = tyBinOp tyInt tyInt tyInt
+        let intCmp = tyBinOp tyInt tyInt tyBool
+        let boolInfix = tyBinOp tyBool tyBool tyBool
+
         [
-            "op_Addition", tyBinOp tyInt
-            "op_Subtraction", tyBinOp tyInt
-            "op_Multiply", tyBinOp tyInt
-            // `true` / `false` parse as identifiers, not constants.
-            "true", tyBool
-            "false", tyBool
+            "op_Addition", intInfix
+            "op_Subtraction", intInfix
+            "op_Multiply", intInfix
+            "op_Division", intInfix
+            "op_Modulus", intInfix
+            "op_UnaryNegation", tyUnaryOp tyInt
+            // Comparison ops are monomorphic int-only for the tiny subset.
+            "op_LessThan", intCmp
+            "op_GreaterThan", intCmp
+            "op_LessThanOrEqual", intCmp
+            "op_GreaterThanOrEqual", intCmp
+            "op_Equality", intCmp
+            "op_Inequality", intCmp
+            "op_BooleanAnd", boolInfix
+            "op_BooleanOr", boolInfix
         ]
         |> List.map (fun (n, t) -> n, { Name = n; Type = t })
         |> Map.ofList

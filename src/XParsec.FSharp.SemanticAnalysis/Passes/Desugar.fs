@@ -13,7 +13,6 @@ open XParsec.FSharp.SemanticAnalysis
 // each construct.
 //
 // TODO — constructs that will need desugaring:
-//   - PrefixApp (-x -> op_UnaryNegation x)
 //   - `x |> f`, `x ||> f y`             -> Application
 //   - List / array / seq comprehensions -> yield + CE method chain
 //   - `for x in xs do …`                -> IEnumerator pattern
@@ -24,13 +23,33 @@ open XParsec.FSharp.SemanticAnalysis
 
 module Desugar =
 
-    /// Maps the operator's Token enum value to its compiled name. Only the
-    /// tiny-subset operators are listed; extend as the subset grows.
+    /// Maps an infix operator's Token enum value to its compiled name. Only
+    /// the supported subset is listed; extend as more operators come online.
     let private infixOpName (t: Token) : string voption =
         match t with
         | Token.OpAddition -> ValueSome "op_Addition"
         | Token.OpSubtraction -> ValueSome "op_Subtraction"
         | Token.OpMultiply -> ValueSome "op_Multiply"
+        | Token.OpDivision -> ValueSome "op_Division"
+        | Token.OpModulus -> ValueSome "op_Modulus"
+        | Token.OpLessThan -> ValueSome "op_LessThan"
+        | Token.OpGreaterThan -> ValueSome "op_GreaterThan"
+        | Token.OpLessThanOrEqual -> ValueSome "op_LessThanOrEqual"
+        | Token.OpGreaterThanOrEqual -> ValueSome "op_GreaterThanOrEqual"
+        | Token.OpEquality -> ValueSome "op_Equality"
+        | Token.OpInequality -> ValueSome "op_Inequality"
+        // Source `&&` / `||` lex as OpAmpAmp / OpBarBar, not OpBooleanAnd /
+        // OpBooleanOr (those share OpFamily.OpGeneric — see memory note
+        // about Token-encoding aliases).
+        | Token.OpAmpAmp -> ValueSome "op_BooleanAnd"
+        | Token.OpBarBar -> ValueSome "op_BooleanOr"
+        | _ -> ValueNone
+
+    /// Token.OpSubtraction is used by both binary `a - b` (InfixApp) and
+    /// unary `-x` (PrefixApp). The PrefixApp form maps to op_UnaryNegation.
+    let private prefixOpName (t: Token) : string voption =
+        match t with
+        | Token.OpSubtraction -> ValueSome "op_UnaryNegation"
         | _ -> ValueNone
 
     let rec private walkExpr (ctx: PassContext) (e: Expr<SyntaxToken>) =
@@ -42,6 +61,12 @@ module Desugar =
 
             walkExpr ctx left
             walkExpr ctx right
+        | Expr.PrefixApp(op, operand) ->
+            match prefixOpName op.Token with
+            | ValueSome name -> ctx.Desugared.Set(CstKeys.ofExpr e, DesugaredForm.OpName name)
+            | ValueNone -> ()
+
+            walkExpr ctx operand
         | Expr.App(fn, args) ->
             walkExpr ctx fn
 
@@ -56,6 +81,15 @@ module Desugar =
             | ValueSome b -> walkExpr ctx b
             | ValueNone -> ()
         | Expr.EnclosedBlock(expr = inner) -> walkExpr ctx inner
+        | Expr.IfThenElse(condition = cond; thenExpr = thenE; elseBranch = elseB) ->
+            // Tiny subset: elifBranches not yet handled; ignored here, will
+            // be rejected by Unification / Freeze if non-empty.
+            walkExpr ctx cond
+            walkExpr ctx thenE
+
+            match elseB with
+            | ValueSome(ElseBranch(expr = e)) -> walkExpr ctx e
+            | ValueNone -> ()
         | _ -> ()
 
     let private walkModuleElem (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =

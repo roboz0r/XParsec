@@ -43,9 +43,12 @@ module Freeze =
         | Expr.LongIdentOrOp _ -> translateIdent ctx e key ty
         | Expr.App(fn, args) -> translateApp ctx fn args
         | Expr.InfixApp(left, _, right) -> translateInfix ctx key left right ty
+        | Expr.PrefixApp(_, operand) -> translatePrefix ctx key operand ty
         | Expr.Fun(argumentPats = argPats; expr = body) -> translateFun ctx argPats body
         | Expr.LetOrUse(bindings = bindings; body = body) -> translateLet ctx bindings body
         | Expr.EnclosedBlock(expr = inner) -> translateExpr ctx inner
+        | Expr.IfThenElse(condition = cond; thenExpr = thenE; elifBranches = elifs; elseBranch = elseB) ->
+            translateIfThenElse ctx cond thenE elifs elseB ty
         | _ ->
             // TODO: extend as the subset grows. Until then, surface the
             // unhandled case loudly rather than emitting a broken TExpr.
@@ -75,7 +78,10 @@ module Freeze =
             let resTy =
                 match currTy with
                 | TyFun(_, r) -> r
-                | _ -> currTy
+                | _ ->
+                    failwithf
+                        "Freeze.translateApp: expected function type for application, got %A (Unification bug or free TypeVar)"
+                        currTy
 
             result <- TExpr.App(result, argT, resTy)
             currTy <- resTy
@@ -94,12 +100,12 @@ module Freeze =
             let opTy =
                 match ctx.Provider.TryLookup name with
                 | ValueSome sym -> sym.Type
-                | ValueNone -> resultTy
+                | ValueNone -> failwithf "Freeze.translateInfix: provider has no entry for %s" name
 
             let partialTy =
                 match opTy with
                 | TyFun(_, r) -> r
-                | _ -> opTy
+                | _ -> failwithf "Freeze.translateInfix: operator %s has non-function type %A" name opTy
 
             let opExpr = TExpr.External(name, opTy)
             let app1 = TExpr.App(opExpr, translateExpr ctx left, partialTy)
@@ -108,6 +114,54 @@ module Freeze =
             // Either Desugar didn't recognise the operator (bug) or the
             // InfixApp is malformed. Surface loudly.
             failwithf "Freeze: InfixApp at %O missing DesugaredForm entry" key
+
+    and private translatePrefix
+        (ctx: PassContext)
+        (key: NodeKey)
+        (operand: Expr<SyntaxToken>)
+        (resultTy: SemType)
+        : TExpr =
+        match ctx.Desugared.TryGetValue key with
+        | ValueSome(DesugaredForm.OpName name) ->
+            let opTy =
+                match ctx.Provider.TryLookup name with
+                | ValueSome sym -> sym.Type
+                | ValueNone -> failwithf "Freeze.translatePrefix: provider has no entry for %s" name
+
+            match opTy with
+            | TyFun _ -> ()
+            | _ -> failwithf "Freeze.translatePrefix: operator %s has non-function type %A" name opTy
+
+            let opExpr = TExpr.External(name, opTy)
+            TExpr.App(opExpr, translateExpr ctx operand, resultTy)
+        | ValueNone -> failwithf "Freeze: PrefixApp at %O missing DesugaredForm entry" key
+
+    and private translateIfThenElse
+        (ctx: PassContext)
+        (cond: Expr<SyntaxToken>)
+        (thenE: Expr<SyntaxToken>)
+        (elifs: ImmutableArray<ElifBranch<SyntaxToken>>)
+        (elseB: ElseBranch<SyntaxToken> voption)
+        (resultTy: SemType)
+        : TExpr =
+        let elseExpr =
+            match elseB with
+            | ValueSome(ElseBranch(expr = e)) -> e
+            | ValueNone -> failwith "Freeze: if-then without else not yet supported"
+
+        // Fold elifs right-to-left, nesting each as the else-branch of the
+        // previous. Result is `if cond then thenE else (if c1 then e1 else (… else elseExpr))`.
+        let mutable nestedElse = translateExpr ctx elseExpr
+
+        for i = elifs.Length - 1 downto 0 do
+            let elifCond, elifThen =
+                match elifs.[i] with
+                | ElifBranch.Elif(condition = c; expr = e)
+                | ElifBranch.ElseIf(condition = c; expr = e) -> c, e
+
+            nestedElse <- TExpr.IfThenElse(translateExpr ctx elifCond, translateExpr ctx elifThen, nestedElse, resultTy)
+
+        TExpr.IfThenElse(translateExpr ctx cond, translateExpr ctx thenE, nestedElse, resultTy)
 
     and private translateFun
         (ctx: PassContext)

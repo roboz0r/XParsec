@@ -6,10 +6,10 @@ value that identifies a CST node (real or synthetic).
 ## Wire format
 
 ```
-bit 63        bit 62..32                      bit 31..0
-+----------+---------------------------------+----------------------+
-| syn:1    | kind:31                         | offset:32            |
-+----------+---------------------------------+----------------------+
+bit 63        bit 62..48           bit 47..32        bit 31..0
++----------+----------------------+-----------------+----------------------+
+| syn:1    | reserved:15          | kind:16         | offset:32            |
++----------+----------------------+-----------------+----------------------+
 ```
 
 - **`offset` (low 32 bits)** — for *real* nodes, the source character offset
@@ -17,13 +17,39 @@ bit 63        bit 62..32                      bit 31..0
   `SyntaxToken.StartIndex` (a plain `int`). 32 bits is plenty:
   `XParsec` is in-memory only and the `Reader` is 32-bit ([[project_in_memory_only]]).
 
-- **`kind` (bits 32..62)** — an enum value identifying the CST node type
-  (`Expr.Application`, `Pat.LongIdentPat`, `Type.FunctionType`, …). 31 bits
-  is gross overkill; a `uint16` would do. We keep the field 31 bits wide so
-  the syn flag can have its own bit and the whole thing packs into 64 bits
-  without bit-twiddling on the offset half.
+- **`kind` (bits 32..47)** — a `uint16` enum value identifying the CST node
+  type (`Expr.Application`, `Pat.LongIdentPat`, `Type.FunctionType`, …).
+  `uint16` matches `NodeKind`'s underlying representation and gives us 65535
+  distinct kinds, an order of magnitude more than the full F# grammar needs.
+
+- **`reserved` (bits 48..62)** — always zero today. Reserved for a
+  per-spawning-construct counter to disambiguate synthetic nodes if we ever
+  hit a same-kind collision (see "Synthetic NodeKeys" below). `Kind` reads
+  only the low 16 bits of the kind window, so silently ignores reserved
+  bits when they get populated.
 
 - **`syn` (bit 63)** — 0 for real nodes, 1 for synthetic.
+
+## Choice of "offset" per CST construct
+
+The offset isn't always the node's leftmost token. For nested same-kind
+constructs starting at the same physical position, naive "use the first
+token" produces collisions. Two cases hit this in practice:
+
+- **`InfixApp` keys on the operator token**, not the left subexpression.
+  Without this, `a + b + c` (parsed left-assoc as `(a + b) + c`) gives the
+  outer and inner `InfixApp` the same `(offset, kind)` — both start at `a`'s
+  offset, both are `ExprInfixApp`. Operator-precedence chains like
+  `(x > 0) && (x < 100)` hit the same collision (outer `&&` and inner `>`
+  both at the leftmost `x`'s offset). Using the operator's offset
+  disambiguates because each binary operator occupies a distinct source
+  position.
+- **`PrefixApp` keys on the operator token**, which is also its leftmost
+  token. No special handling needed but worth noting the symmetry.
+
+When adding new CST cases that could nest at the same offset (e.g. `TypeApp`
+on `Ident`), pick a discriminating token rather than blindly using the
+leftmost. See `CstKeys.firstTokenOfExpr` for the current pattern.
 
 ## Why we need both `offset` and `kind`
 
@@ -45,7 +71,7 @@ replaces `let!` inside a CE), that node has no source position. Its key is:
 
 ```
 syn = 1
-kind = 31-bit "synthetic kind" — typically the kind of the *desugared* node
+kind = 16-bit "synthetic kind" — typically the kind of the *desugared* node
 offset = the offset of the *construct that spawned it*
 ```
 
@@ -60,8 +86,9 @@ spawning offset *and* kind, because in practice that doesn't happen — each
 spawning construct produces synthetics of distinct kinds (an `Application`, a
 `Lambda`, an `Identifier`, …). If we ever do hit a collision, options are:
 
-1. Use a per-spawning-construct counter packed into the low bits of the kind
-   field. We have 31 bits, plenty of headroom.
+1. Use a per-spawning-construct counter in the 15 reserved bits between
+   `kind` and `syn`. Update `Kind` to mask appropriately and the counter
+   becomes a third coordinate.
 2. Maintain a separate `Dictionary<NodeKey, NodeKey list>` overflow table.
 
 Option 1 is simpler; option 2 keeps the common-case key narrow.

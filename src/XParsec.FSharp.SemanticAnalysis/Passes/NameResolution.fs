@@ -89,7 +89,23 @@ module NameResolution =
         | Expr.Ident tok -> resolveIdent ctx scope tok (CstKeys.ofExpr e)
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
             resolveIdent ctx scope li.Idents.[0] (CstKeys.ofExpr e)
-        | Expr.LongIdentOrOp _ -> ()
+        | Expr.LongIdentOrOp lio ->
+            // Multi-segment qualified names (Module.value, Type.Member, …) and
+            // operator-form long idents (`A.(+)`, `(*)`) need provider-aware
+            // qualified lookup, which isn't wired up yet. Surface so the gap
+            // is visible the moment the subset reaches them.
+            let firstTok = CstKeys.firstTokenOfLongIdentOrOp lio
+            let displayName = ctx.NameOf firstTok
+
+            ctx.Diagnostics.Add
+                {
+                    Key = CstKeys.ofExpr e
+                    Message =
+                        sprintf
+                            "Multi-segment / operator-form qualified names not yet resolved (starting at '%s')"
+                            displayName
+                    Severity = Error
+                }
         | Expr.App(fn, args) ->
             walkExpr ctx scope fn
 
@@ -98,6 +114,14 @@ module NameResolution =
         | Expr.InfixApp(left, _, right) ->
             walkExpr ctx scope left
             walkExpr ctx scope right
+        | Expr.PrefixApp(_, operand) -> walkExpr ctx scope operand
+        | Expr.IfThenElse(condition = cond; thenExpr = thenE; elseBranch = elseB) ->
+            walkExpr ctx scope cond
+            walkExpr ctx scope thenE
+
+            match elseB with
+            | ValueSome(ElseBranch(expr = e)) -> walkExpr ctx scope e
+            | ValueNone -> ()
         | Expr.Fun(argumentPats = argPats; expr = body) ->
             let bodyScope = extendScope ctx argPats Map.empty :: scope
             walkExpr ctx bodyScope body

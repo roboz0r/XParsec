@@ -17,9 +17,9 @@ let tests =
         "Desugar"
         [
             test "InfixApp with `+` -> OpName \"op_Addition\"" {
-                // "let x = 1 + 2" — InfixApp's first sub-expr is `1` at offset 8.
+                // "let x = 1 + 2" — InfixApp keys on the operator's offset (`+` at offset 10).
                 let ctx = analyse "let x = 1 + 2"
-                let infixKey = NodeKey.ofSource 8 NodeKind.ExprInfixApp
+                let infixKey = NodeKey.ofSource 10 NodeKind.ExprInfixApp
 
                 match ctx.Desugared.TryGetValue infixKey with
                 | ValueSome(DesugaredForm.OpName name) -> Expect.equal name "op_Addition" "compiled op name"
@@ -28,7 +28,7 @@ let tests =
 
             test "InfixApp with `-` -> OpName \"op_Subtraction\"" {
                 let ctx = analyse "let x = 5 - 2"
-                let infixKey = NodeKey.ofSource 8 NodeKind.ExprInfixApp
+                let infixKey = NodeKey.ofSource 10 NodeKind.ExprInfixApp
 
                 match ctx.Desugared.TryGetValue infixKey with
                 | ValueSome(DesugaredForm.OpName name) -> Expect.equal name "op_Subtraction" "compiled op name"

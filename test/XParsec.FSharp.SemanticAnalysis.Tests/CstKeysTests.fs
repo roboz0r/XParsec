@@ -44,12 +44,14 @@ let tests =
                 Expect.equal key.Kind NodeKind.ExprApp "kind"
             }
 
-            test "ofExpr InfixApp descends to left expr for offset" {
+            test "ofExpr InfixApp keys on operator offset" {
+                // Using the op offset (not the left expr's) keeps nested
+                // same-kind InfixApps distinct in left-assoc / precedence chains.
                 let left = Expr.Const(Constant.Literal(mkToken Token.NumInt32 0))
                 let right = Expr.Const(Constant.Literal(mkToken Token.NumInt32 4))
                 let op = mkToken Token.OpAddition 2
                 let key = CstKeys.ofExpr (Expr.InfixApp(left, op, right))
-                Expect.equal key.Offset 0 "offset is left's"
+                Expect.equal key.Offset 2 "offset is operator's"
                 Expect.equal key.Kind NodeKind.ExprInfixApp "kind"
             }
 
@@ -74,7 +76,6 @@ let tests =
                         attributes = ValueNone
                         inlineToken = ValueNone
                         mutableToken = ValueNone
-                        fixedToken = ValueNone
                         access = ValueNone
                         headPat = Pat.NamedSimple(mkToken Token.Identifier 4)
                         typarDefns = ValueNone
@@ -124,7 +125,6 @@ let tests =
                         attributes = ValueNone
                         inlineToken = ValueNone
                         mutableToken = ValueNone
-                        fixedToken = ValueNone
                         access = ValueNone
                         headPat = Pat.NamedSimple headIdent
                         typarDefns = ValueNone
