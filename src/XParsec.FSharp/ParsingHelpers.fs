@@ -1436,6 +1436,88 @@ module Parsing =
     let private errPEnclosedInnerFailed: ErrorType<PositionedToken, ParseState> =
         Message "pEnclosed inner parser failed"
 
+    /// Post-`pLeft` body of `pEnclosed`: pushes the paren-like offside context,
+    /// dispatches between the empty-block fast path and the recovery path, and
+    /// pops the context on exit. Callers that already consumed the left
+    /// delimiter (e.g. when sharing it across two alternatives that both start
+    /// with the same opener) can invoke this directly with `l` to skip the
+    /// re-parse cost.
+    let pEnclosedAfterLeft
+        completeEmpty
+        completeEnclosed
+        missing
+        skipsTokens
+        (expectedRightTok: Token)
+        (parenKindConstructor: SyntaxToken -> ParenKind<SyntaxToken>)
+        (offsideCtx: OffsideContext)
+        (diagCode: DiagnosticCode)
+        (pInner: Parser<_, _, _, _>)
+        =
+
+        fun (l: SyntaxToken) (reader: Reader<PositionedToken, ParseState, _>) ->
+
+            // Push the paren-like offside context immediately after consuming the left
+            // delimiter. This must happen before any inner peek/parse so that the
+            // collection-undentation rule (15.1.10.4) can see the context on the stack
+            // when the inner content is at a lower indentation than the outer SeqBlock.
+            let savedState = reader.State
+
+            let entry: Offside =
+                {
+                    Context = offsideCtx
+                    Indent = 0 // Paren-like contexts use indent 0; undentation rules inspect them as stack markers
+                    Token = l.PositionedToken
+                }
+
+            reader.State <- ParseState.pushOffside entry reader.State
+
+            let inline popAndReturn result =
+                reader.State <- ParseState.popOffside entry reader.State
+                result
+
+            match peekNextSyntaxToken reader with
+            | Error e ->
+                reader.State <- savedState
+                Error e
+            | Ok t when t.Token = expectedRightTok ->
+                // Fast path: Empty block
+                match consumePeeked t reader with
+                | Ok r -> popAndReturn (Ok(completeEmpty (parenKindConstructor l) r))
+                | Error e ->
+                    reader.State <- savedState
+                    Error e
+            | _ ->
+                // Normal path with recovery
+                let innerParser =
+                    recoverWith
+                        StoppingTokens.afterParen
+                        DiagnosticSeverity.Error
+                        diagCode
+                        (fun toks ->
+                            if toks.IsEmpty then
+                                let endTok =
+                                    virtualToken (PositionedToken.Create(expectedRightTok, l.StartIndex + 1))
+
+                                completeEnclosed (parenKindConstructor l) missing endTok
+                            else
+                                let endTok =
+                                    let t = toks[toks.Length - 1]
+                                    virtualToken (PositionedToken.Create(expectedRightTok, t.StartIndex))
+
+                                completeEnclosed (parenKindConstructor l) (skipsTokens toks) endTok
+                        )
+                        (parser {
+                            let! e = pInner
+                            let! r = nextSyntaxTokenVirtualWithDiagnostic (ValueSome l) expectedRightTok
+                            return completeEnclosed (parenKindConstructor l) e r
+                        })
+
+                match innerParser reader with
+                | Ok result -> popAndReturn (Ok result)
+                | Error _ ->
+                    reader.State <- savedState
+                    fail errPEnclosedInnerFailed reader
+
     let pEnclosed
         completeEmpty
         completeEnclosed
@@ -1449,69 +1531,19 @@ module Parsing =
         (pInner: Parser<_, _, _, _>)
         : Parser<_, PositionedToken, ParseState, _> =
 
+        let afterLeft =
+            pEnclosedAfterLeft
+                completeEmpty
+                completeEnclosed
+                missing
+                skipsTokens
+                expectedRightTok
+                parenKindConstructor
+                offsideCtx
+                diagCode
+                pInner
+
         fun reader ->
             match pLeft reader with
             | Error e -> Error e
-            | Ok l ->
-
-                // Push the paren-like offside context immediately after consuming the left
-                // delimiter. This must happen before any inner peek/parse so that the
-                // collection-undentation rule (15.1.10.4) can see the context on the stack
-                // when the inner content is at a lower indentation than the outer SeqBlock.
-                let savedState = reader.State
-
-                let entry: Offside =
-                    {
-                        Context = offsideCtx
-                        Indent = 0 // Paren-like contexts use indent 0; undentation rules inspect them as stack markers
-                        Token = l.PositionedToken
-                    }
-
-                reader.State <- ParseState.pushOffside entry reader.State
-
-                let inline popAndReturn result =
-                    reader.State <- ParseState.popOffside entry reader.State
-                    result
-
-                match peekNextSyntaxToken reader with
-                | Error e ->
-                    reader.State <- savedState
-                    Error e
-                | Ok t when t.Token = expectedRightTok ->
-                    // Fast path: Empty block
-                    match consumePeeked t reader with
-                    | Ok r -> popAndReturn (Ok(completeEmpty (parenKindConstructor l) r))
-                    | Error e ->
-                        reader.State <- savedState
-                        Error e
-                | _ ->
-                    // Normal path with recovery
-                    let innerParser =
-                        recoverWith
-                            StoppingTokens.afterParen
-                            DiagnosticSeverity.Error
-                            diagCode
-                            (fun toks ->
-                                if toks.IsEmpty then
-                                    let endTok =
-                                        virtualToken (PositionedToken.Create(expectedRightTok, l.StartIndex + 1))
-
-                                    completeEnclosed (parenKindConstructor l) missing endTok
-                                else
-                                    let endTok =
-                                        let t = toks[toks.Length - 1]
-                                        virtualToken (PositionedToken.Create(expectedRightTok, t.StartIndex))
-
-                                    completeEnclosed (parenKindConstructor l) (skipsTokens toks) endTok
-                            )
-                            (parser {
-                                let! e = pInner
-                                let! r = nextSyntaxTokenVirtualWithDiagnostic (ValueSome l) expectedRightTok
-                                return completeEnclosed (parenKindConstructor l) e r
-                            })
-
-                    match innerParser reader with
-                    | Ok result -> popAndReturn (Ok result)
-                    | Error _ ->
-                        reader.State <- savedState
-                        fail errPEnclosedInnerFailed reader
+            | Ok l -> afterLeft l reader

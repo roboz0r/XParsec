@@ -306,9 +306,23 @@ module Pat =
         let skipsTokens toks = Pat.SkipsTokens(toks)
         pEnclosed completeEmpty completeEnclosed Pat.Missing skipsTokens
 
+    let private pEnclosedAfterLeft =
+        let completeEmpty l r = Pat.EmptyBlock(l, r)
+        let completeEnclosed l e r = Pat.EnclosedBlock(l, e, r)
+        let skipsTokens toks = Pat.SkipsTokens(toks)
+        pEnclosedAfterLeft completeEmpty completeEnclosed Pat.Missing skipsTokens
+
     let pParenPat =
         pEnclosed
             pLParen
+            Token.KWRParen
+            ParenKind.Paren
+            OffsideContext.Paren
+            DiagnosticCode.ExpectedRParen
+            refPat.Parser
+
+    let private pParenPatAfterLeft =
+        pEnclosedAfterLeft
             Token.KWRParen
             ParenKind.Paren
             OffsideContext.Paren
@@ -531,26 +545,45 @@ module Pat =
                         | 1, true -> Ok(Pat.NamedSimple(lid.Idents.[0]))
                         | _ -> Ok(Pat.Named(lid, args))
 
-    // Parses `(op) atomicArg*` in pattern position. Enables parameterized
-    // active pattern calls whose parameter is an expression-shaped pattern, e.g.
-    // `| NLambdas ((-) n 1) (vs, b) -> ...`. F# parses the expression argument as a
-    // pattern and the type checker reinterprets it as an expression in active-pattern
-    // parameter positions (matching pars.fsy's `atomicPatternLongIdent` handling).
-    let private pParenOpHeadPat =
-        parser {
-            let! l = pLParen
-            let! op = OpName.parse
-            let! r = pRParen
-            let head = IdentOrOp.ParenOp(l, op, r)
-            let! args = many refPatAtomicBindingArg.Parser
+    // Parses either `(op) atomicArg*` or a regular `( pat )` in pattern position.
+    // The `(op)` form enables parameterized active pattern calls whose parameter
+    // is an expression-shaped pattern, e.g. `| NLambdas ((-) n 1) (vs, b) -> ...`.
+    // F# parses the expression argument as a pattern and the type checker
+    // reinterprets it as an expression in active-pattern parameter positions
+    // (matching pars.fsy's `atomicPatternLongIdent` handling).
+    //
+    // Both alternatives start with `(`, so we consume `pLParen` once and share
+    // it: try the `(op)` form first; on failure (the common case — `(` opens a
+    // regular pattern), restore position to just past `(` and run the
+    // paren-pat body with the already-consumed left token.
+    let private pParenOrOpHeadPat: FSParser<Pat<SyntaxToken>> =
+        fun reader ->
+            match pLParen reader with
+            | Error e -> Error e
+            | Ok l ->
+                // Position carries (Index, State); saving and restoring it
+                // matches `<|>`'s LHS-failure backtrack semantics.
+                let postLParenPos = reader.Position
 
-            if args.IsEmpty then
-                return Pat.Op head
-            else
-                return Pat.OpNamed(head, args)
-        }
+                let inline fallback () =
+                    reader.Position <- postLParenPos
+                    pParenPatAfterLeft l reader
 
-    let private pParenOrOpHeadPat = pParenOpHeadPat <|> pParenPat
+                match OpName.parse reader with
+                | Error _ -> fallback ()
+                | Ok op ->
+                    match pRParen reader with
+                    | Error _ -> fallback ()
+                    | Ok r ->
+                        let head = IdentOrOp.ParenOp(l, op, r)
+
+                        match many refPatAtomicBindingArg.Parser reader with
+                        | Error e -> Error e
+                        | Ok args ->
+                            if args.IsEmpty then
+                                Ok(Pat.Op head)
+                            else
+                                Ok(Pat.OpNamed(head, args))
 
     let pTypeTestPat =
         parser {
