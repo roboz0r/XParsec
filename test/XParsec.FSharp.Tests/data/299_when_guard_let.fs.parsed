@@ -53,7 +53,7 @@ FunctionOrValue:
               InfixApp         '&&'              OpAmpAmp            tok=  74  pos= 274
                 InfixApp       '<>'              op_Inequality       tok=  70  pos= 266
                   Ident        'dty'             Identifier          tok=  68  pos= 262
-                  Const        'null'            KWNull              tok=  72  pos= 269
+                  Null         'null'            KWNull              tok=  72  pos= 269
                 LongIdentOrOp:
                   LongIdent:
                                'dty'             Identifier          tok=  76  pos= 277

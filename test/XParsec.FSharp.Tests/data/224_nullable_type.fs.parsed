@@ -12,7 +12,7 @@ FunctionOrValue:
         null          'null'            KWNull              tok=  17  pos=  75
                       ')'               KWRParen            tok=  18  pos=  79
     =                 '='               OpEquality          tok=  20  pos=  81
-      Const           'null'            KWNull              tok=  22  pos=  83
+      Null            'null'            KWNull              tok=  22  pos=  83
 FunctionOrValue:
   let                 'let'             KWLet               tok=  29  pos= 170
     Pat.NamedSimple   'y'               Identifier          tok=  31  pos= 174
@@ -30,7 +30,7 @@ FunctionOrValue:
       ParenBlock      '('               KWLParen            tok=  46  pos= 199
         Tuple:
           Const       '1'               NumInt32            tok=  47  pos= 200
-          Const       'null'            KWNull              tok=  50  pos= 203
+          Null        'null'            KWNull              tok=  50  pos= 203
                       ')'               KWRParen            tok=  51  pos= 207
 FunctionOrValue:
   let                 'let'             KWLet               tok=  58  pos= 297
@@ -51,7 +51,7 @@ FunctionOrValue:
         Pat.Wildcard  '_'               Wildcard            tok=  77  pos= 331
       Arrow           '->'              OpArrowRight        tok=  79  pos= 333
       Body:
-        Const         'null'            KWNull              tok=  81  pos= 336
+        Null          'null'            KWNull              tok=  81  pos= 336
 FunctionOrValue:
   let                 'let'             KWLet               tok=  86  pos= 373
     Pat.NamedSimple   'g'               Identifier          tok=  88  pos= 377
@@ -84,4 +84,4 @@ FunctionOrValue:
       |               '|'               OpBar               tok= 119  pos= 449
       null            'null'            KWNull              tok= 121  pos= 451
     =                 '='               OpEquality          tok= 123  pos= 456
-      Const           'null'            KWNull              tok= 125  pos= 458
+      Null            'null'            KWNull              tok= 125  pos= 458

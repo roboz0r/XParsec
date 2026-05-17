@@ -19,11 +19,7 @@ module Constant =
 
     let isLiteralToken (t: Token) =
 
-        t.IsNumeric
-        || t = Token.KWTrue
-        || t = Token.KWFalse
-        || t = Token.KWNull
-        || t = Token.CharLiteral
+        t.IsNumeric || t = Token.KWTrue || t = Token.KWFalse || t = Token.CharLiteral
 
     let private pLiteral: FSParser<_> =
         nextSyntaxTokenSatisfiesLMsg

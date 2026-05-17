@@ -1411,6 +1411,7 @@ module Expr =
                 | Token.Identifier
                 | Token.BacktickedIdentifier
                 | Token.UnterminatedBacktickedIdentifier
+                | Token.KWNull
                 | Token.KWLParen
                 | Token.KWLBracket
                 | Token.KWLArrayBracket
@@ -1962,6 +1963,12 @@ module Expr =
             member _.RhsParser = rhsParser
 
     let pConst = Constant.parse |>> Expr.Const
+
+    // `null` is structurally distinct from a typed literal — it's a polymorphic
+    // absence-of-value of any reference type — so it gets its own AST case
+    // (mirroring Pat.Null and Type.Null). Constant.isLiteralToken excludes
+    // KWNull for this reason; the dispatch table below routes it here.
+    let pNullExpr = pNull |>> Expr.Null
 
     let private isStringTextFragment (tok: Token) =
         match tok with
@@ -2670,6 +2677,7 @@ module Expr =
                 Token.OpQuotationUntypedLeft, recoverExpr pQuoteUntyped
                 Token.KWBase, (nextSyntaxTokenIsLMsg Token.KWBase "base" |>> Expr.Ident)
                 Token.UnterminatedBacktickedIdentifier, pIdentExpr
+                Token.KWNull, pNullExpr
             ]
             pConst
 
