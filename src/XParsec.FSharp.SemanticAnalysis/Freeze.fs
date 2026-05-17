@@ -33,6 +33,12 @@ module Freeze =
                 TConstValue.Int(Int32.Parse(ctx.NameOf t))
         | Constant.MeasuredLiteral(value = t) -> TConstValue.Int(Int32.Parse(ctx.NameOf t))
 
+    /// `()` literal. Distinct entry point because `Expr.EmptyBlock` carries
+    /// `ParenKind` + closing token, not a `Constant`.
+    let private unitConst (ctx: PassContext) (e: Expr<SyntaxToken>) : TExpr =
+        let key = CstKeys.ofExpr e
+        TExpr.Const(TConstValue.Unit, typeOfKey ctx key)
+
     let rec private translateExpr (ctx: PassContext) (e: Expr<SyntaxToken>) : TExpr =
         let key = CstKeys.ofExpr e
         let ty = typeOfKey ctx key
@@ -50,6 +56,12 @@ module Freeze =
         | Expr.IfThenElse(condition = cond; thenExpr = thenE; elifBranches = elifs; elseBranch = elseB) ->
             translateIfThenElse ctx cond thenE elifs elseB ty
         | Expr.Tuple(exprs = items) -> TExpr.Tuple([ for x in items -> translateExpr ctx x ], ty)
+        | Expr.Sequential(exprs = items) -> TExpr.Sequential([ for x in items -> translateExpr ctx x ], ty)
+        // The annotation only constrained types in Unification; the TAST
+        // carries the inferred type inline, so the annotation node has no
+        // runtime representation — return the (now-constrained) inner.
+        | Expr.TypeAnnotation(expr = inner) -> translateExpr ctx inner
+        | Expr.EmptyBlock _ -> unitConst ctx e
         | _ ->
             // TODO: extend as the subset grows. Until then, surface the
             // unhandled case loudly rather than emitting a broken TExpr.

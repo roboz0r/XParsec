@@ -131,6 +131,102 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
+            // ---- Sequential ----
+
+            test "`()` literal types as unit" {
+                let tast = analyse "let x = ()"
+                Expect.equal (declType tast) MockBuiltins.tyUnit "x : unit"
+                Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = ()" "TAST shape"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "sequential returns last expression's type" {
+                // `(); x + 1` evaluates () (unit, discarded) then returns x + 1 (int).
+                let tast = analyse "let f x = (); x + 1"
+                let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                Expect.equal (declType tast) intToInt "f : int -> int"
+
+                Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = fun v1 -> ((); (v1 + 1))" "TAST shape"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "non-unit expression in non-tail position emits diagnostic" {
+                // `1; 2` — first element is int, not unit. Triggers a mismatch.
+                let tast = analyse "let r = 1; 2"
+
+                let hasMismatch =
+                    tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+
+                Expect.isTrue hasMismatch "non-unit head triggers mismatch"
+            }
+
+            // ---- TypeAnnotation ----
+
+            test "(e : int) constrains e to int" {
+                let tast = analyse "let f x = (x : int) + 1"
+                let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                Expect.equal (declType tast) intToInt "f : int -> int"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "annotation conflict triggers mismatch" {
+                let tast = analyse "let b = (1 : bool)"
+
+                let hasMismatch =
+                    tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+
+                Expect.isTrue hasMismatch "int literal annotated as bool fails"
+            }
+
+            test "function-type annotation: ((f) : int -> int)" {
+                // Note the extra parens around `fun x -> x` — without them
+                // the `:` binds to `x`, giving `(int -> int) -> (int -> int)`.
+                let tast = analyse "let g = ((fun x -> x) : int -> int)"
+                let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                Expect.equal (declType tast) intToInt "g : int -> int"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            // ---- let rec ----
+
+            test "let rec: self-reference resolves" {
+                // Without `rec`, the inner `f` would be unresolved (or shadowed).
+                let tast = analyse "let rec f x = if x = 0 then 0 else f (x - 1)"
+                let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                Expect.equal (declType tast) intToInt "f : int -> int"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "let rec without rec keyword: self-reference unresolved" {
+                let tast = analyse "let f x = if x = 0 then 0 else f (x - 1)"
+
+                let hasUnresolved =
+                    tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "Unresolved")
+
+                Expect.isTrue hasUnresolved "inner f without rec doesn't resolve"
+            }
+
+            test "let rec … and …: mutual recursion both see each other" {
+                let tast =
+                    analyse
+                        "let rec even n = if n = 0 then true else odd (n - 1)\nand odd n = if n = 0 then false else even (n - 1)"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics for mutual recursion"
+
+                Expect.equal tast.Decls.Length 2 "two decls"
+            }
+
+            test "occurs check rejects let rec f x = f" {
+                // f's headPat tv unifies with TyFun(tvX, tv) — tv occurs in the RHS.
+                let tast = analyse "let rec f x = f"
+
+                let hasOccurs =
+                    tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "Occurs check")
+
+                Expect.isTrue hasOccurs "self-returning rec function triggers occurs check"
+            }
+
             // ---- Combined ----
 
             test "compound: bool from && and comparison" {

@@ -7,12 +7,13 @@ namespace XParsec.FSharp.SemanticAnalysis
 // Each node carries its inferred SemType inline so target lowering doesn't
 // need to re-query the side tables.
 
-/// Literal-value payload. TODO: extend with Float / String / Char / Unit as
+/// Literal-value payload. TODO: extend with Float / String / Char as
 /// the supported subset grows.
 [<RequireQualifiedAccess>]
 type TConstValue =
     | Int of int
     | Bool of bool
+    | Unit
 
 [<RequireQualifiedAccess>]
 type TExpr =
@@ -31,6 +32,8 @@ type TExpr =
     | IfThenElse of cond: TExpr * thenExpr: TExpr * elseExpr: TExpr * ty: SemType
     /// `ty` is always a TyTuple of the elements' inferred types.
     | Tuple of items: TExpr list * ty: SemType
+    /// All items but the last must have unit type; `ty` is the last item's type.
+    | Sequential of items: TExpr list * ty: SemType
 
 [<RequireQualifiedAccess>]
 type TDecl =

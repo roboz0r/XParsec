@@ -81,6 +81,7 @@ type private Renderer() =
         | TExpr.Const(TConstValue.Int n, _) -> push (string n)
         | TExpr.Const(TConstValue.Bool true, _) -> push "true"
         | TExpr.Const(TConstValue.Bool false, _) -> push "false"
+        | TExpr.Const(TConstValue.Unit, _) -> push "()"
         | TExpr.Var(k, _) -> push (nameOf k)
         | TExpr.External(name, _) -> push name
 
@@ -135,6 +136,19 @@ type private Renderer() =
             |> List.iteri (fun i x ->
                 if i > 0 then
                     push ", "
+
+                this.Expr x
+            )
+
+            push ")"
+
+        | TExpr.Sequential(items, _) ->
+            push "("
+
+            items
+            |> List.iteri (fun i x ->
+                if i > 0 then
+                    push "; "
 
                 this.Expr x
             )

@@ -34,6 +34,7 @@ module MockBuiltins =
 
     let tyInt: SemType = TyConst "int"
     let tyBool: SemType = TyConst "bool"
+    let tyUnit: SemType = TyConst "unit"
 
     let private tyBinOp (a: SemType) (b: SemType) (r: SemType) : SemType = TyFun(a, TyFun(b, r))
 

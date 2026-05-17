@@ -35,6 +35,8 @@ type NodeKind =
     | ExprInfixApp = 14us
     | ExprPrefixApp = 15us
     | ExprEnclosedBlock = 16us
+    | ExprTypeAnnotation = 17us
+    | ExprEmptyBlock = 18us
 
     | PatConst = 100us
     | PatIdent = 101us

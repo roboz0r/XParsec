@@ -71,7 +71,7 @@ module Desugar =
         {
             Visit = visit ctx
             EnterFun = fun env _ -> env
-            EnterBindingRhs = fun env _ -> env
+            EnterBindingRhs = fun env _ _ _ -> env
             EnterLetBody = fun env _ -> env
         }
 

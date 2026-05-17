@@ -24,10 +24,13 @@ module CstWalk =
             Visit: 'env -> Expr<SyntaxToken> -> unit
             /// Environment a lambda body sees.
             EnterFun: 'env -> ImmutableArray<Pat<SyntaxToken>> -> 'env
-            /// Environment a binding's RHS sees. NameResolution uses this to
-            /// push function-form arg pats into scope; passes get the whole
-            /// Binding so they can also condition on isRec, etc.
-            EnterBindingRhs: 'env -> Binding<SyntaxToken> -> 'env
+            /// Environment a binding's RHS sees. Args, in order:
+            ///   env, isRec, siblings, this binding.
+            /// `isRec` is true when the enclosing `let rec` (or
+            /// `let rec … and …`) is present, in which case the binding
+            /// sees all its siblings (and itself). `siblings` is the full
+            /// binding group from the enclosing LetOrUse / module-level Let.
+            EnterBindingRhs: 'env -> bool -> ImmutableArray<Binding<SyntaxToken>> -> Binding<SyntaxToken> -> 'env
             /// Environment a let body sees. NameResolution uses this to push
             /// all the bound names into scope.
             EnterLetBody: 'env -> ImmutableArray<Binding<SyntaxToken>> -> 'env
@@ -119,9 +122,11 @@ module CstWalk =
             let bodyEnv = walker.EnterFun env argPats
             iterExpr walker bodyEnv body
 
-        | Expr.LetOrUse(bindings = bindings; body = body) ->
+        | Expr.LetOrUse(isRec = isRec; bindings = bindings; body = body) ->
+            let isRecursive = isRec.IsSome
+
             for b in bindings do
-                let rhsEnv = walker.EnterBindingRhs env b
+                let rhsEnv = walker.EnterBindingRhs env isRecursive bindings b
                 iterExpr walker rhsEnv b.expr
 
             match body with

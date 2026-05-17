@@ -118,13 +118,19 @@ module NameResolution =
             Visit = visit ctx
             EnterFun = fun scope argPats -> extendScope ctx argPats Map.empty :: scope
             EnterBindingRhs =
-                fun scope b ->
-                    // Function-form: `let f x y = ...` — push parameter names
-                    // before walking RHS. Value-form binding leaves scope alone.
-                    if b.argumentPats.IsEmpty then
-                        scope
-                    else
-                        extendScope ctx b.argumentPats Map.empty :: scope
+                fun scope isRec siblings b ->
+                    // `let rec`: sibling names (including this binding's own name,
+                    // so recursive self-reference resolves) are in scope for the RHS.
+                    // Function-form: push parameter names on top of that.
+                    let mutable s = scope
+
+                    if isRec then
+                        s <- bindingsToScope ctx siblings :: s
+
+                    if not b.argumentPats.IsEmpty then
+                        s <- extendScope ctx b.argumentPats Map.empty :: s
+
+                    s
             EnterLetBody = fun scope bindings -> bindingsToScope ctx bindings :: scope
         }
 
@@ -135,9 +141,11 @@ module NameResolution =
         (m: ModuleElem<SyntaxToken>)
         : Scope list =
         match m with
-        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
+        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(isRec = isRec; bindings = bindings)) ->
+            let isRecursive = isRec.IsSome
+
             for b in bindings do
-                let rhsScope = walker.EnterBindingRhs scope b
+                let rhsScope = walker.EnterBindingRhs scope isRecursive bindings b
                 CstWalk.iterExpr walker rhsScope b.expr
             // Extend the topmost scope so later module elements can see these bindings.
             match scope with

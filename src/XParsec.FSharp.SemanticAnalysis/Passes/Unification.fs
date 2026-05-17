@@ -16,9 +16,10 @@ open XParsec.FSharp.SemanticAnalysis
 //   - Generalisation. `let id = fun x -> x` types as `'a -> 'a` where 'a
 //     stays unsolved. With multiple uses at different types we'd hit
 //     monomorphism errors — add scheme + instantiate when needed.
-//   - Occurs check. Only matters once recursive bindings (`let rec`) exist.
 //   - SRTP / IWSAM bound resolution. The on-unified callbacks per
 //     docs/typevar.md aren't wired yet.
+//   - Binding-level return-type annotations (`let f x : int = ...`). Only
+//     Expr.TypeAnnotation (`(e : t)`) is handled today.
 
 module Unification =
 
@@ -70,6 +71,17 @@ module Unification =
     // the SRTP / IWSAM resolution machinery exists. Until then,
     // appending is enough to preserve them through unification.
 
+    /// Does `target` (already a union-find root) appear anywhere inside `t`?
+    /// Stops the `let rec f x = f` / `let rec g = g g` family from cycling
+    /// Link pointers and making zonk loop. Resolves through Links and
+    /// recurses into compound shapes.
+    let rec private occurs (target: TypeVar) (t: SemType) : bool =
+        match resolveStep t with
+        | TyVar tv -> System.Object.ReferenceEquals(UnionFind.find tv, target)
+        | TyConst _ -> false
+        | TyFun(a, r) -> occurs target a || occurs target r
+        | TyTuple items -> List.exists (occurs target) items
+
     let rec private unify (ctx: PassContext) (key: NodeKey) (a: SemType) (b: SemType) =
         let a = resolveStep a
         let b = resolveStep b
@@ -98,8 +110,20 @@ module Unification =
         | TyVar tv, other
         | other, TyVar tv ->
             let root = UnionFind.find tv
-            // TODO: occurs check (matters once `let rec` lands).
-            root.Link <- ValueSome other
+
+            if occurs root other then
+                ctx.Diagnostics.Add
+                    {
+                        Key = key
+                        Message =
+                            sprintf
+                                "Occurs check: cannot construct infinite type %A = %A"
+                                (zonk (TyVar root))
+                                (zonk other)
+                        Severity = Error
+                    }
+            else
+                root.Link <- ValueSome other
         // No bound migration needed here: `root` keeps its bounds, and
         // setting Link is the trigger for on-unified callbacks to fire
         // once they exist.
@@ -161,6 +185,9 @@ module Unification =
             | Expr.IfThenElse(condition = cond; thenExpr = thenE; elifBranches = elifs; elseBranch = elseB) ->
                 inferIfThenElse ctx key cond thenE elifs elseB
             | Expr.Tuple(exprs = items) -> inferTuple ctx items
+            | Expr.Sequential(exprs = items) -> inferSequential ctx key items
+            | Expr.TypeAnnotation(expr = inner; typ = t) -> inferTypeAnnotation ctx key inner t
+            | Expr.EmptyBlock _ -> MockBuiltins.tyUnit
             | _ ->
                 // TODO: other expression kinds.
                 TyVar(TypeVar())
@@ -306,6 +333,54 @@ module Unification =
 
     and private inferTuple (ctx: PassContext) (items: ImmutableArray<Expr<SyntaxToken>>) : SemType =
         TyTuple [ for e in items -> infer ctx e ]
+
+    and private inferSequential (ctx: PassContext) (key: NodeKey) (items: ImmutableArray<Expr<SyntaxToken>>) : SemType =
+        // `e1; e2; …; en` — all but the last must be unit, result is the
+        // last's type. A `Sequential` with fewer than two items shouldn't
+        // come from the parser, but if it does, fall through harmlessly.
+        if items.Length = 0 then
+            MockBuiltins.tyUnit
+        else
+            for i = 0 to items.Length - 2 do
+                let ty = infer ctx items.[i]
+                unify ctx key ty MockBuiltins.tyUnit
+
+            infer ctx items.[items.Length - 1]
+
+    /// Translate a syntactic `Type<SyntaxToken>` into a `SemType`. The tiny
+    /// subset only recognises the primitive built-ins (`int`, `bool`,
+    /// `unit`) by name; anything else turns into a `TyConst <name>` whose
+    /// unification will succeed only against an identical `TyConst`. Typars
+    /// (`'a`) and generic types are TODO — they need typar-scoping plumbing
+    /// we don't have yet.
+    and private translateType (ctx: PassContext) (t: Type<SyntaxToken>) : SemType =
+        match t with
+        | Type.ParenType(typ = inner) -> translateType ctx inner
+        | Type.NamedType li when li.Idents.Length = 1 ->
+            let name = ctx.NameOf li.Idents.[0]
+
+            match name with
+            | "int" -> MockBuiltins.tyInt
+            | "bool" -> MockBuiltins.tyBool
+            | "unit" -> MockBuiltins.tyUnit
+            | _ -> TyConst name
+        | Type.FunctionType(fromType = from; toType = into) -> TyFun(translateType ctx from, translateType ctx into)
+        | Type.TupleType(types = types) -> TyTuple [ for t in types -> translateType ctx t ]
+        | _ ->
+            // TODO: VarType (typars), GenericType, etc. Free variable until
+            // we model them properly — unification will pin it via context.
+            TyVar(TypeVar())
+
+    and private inferTypeAnnotation
+        (ctx: PassContext)
+        (key: NodeKey)
+        (inner: Expr<SyntaxToken>)
+        (t: Type<SyntaxToken>)
+        : SemType =
+        let innerTy = infer ctx inner
+        let annTy = translateType ctx t
+        unify ctx key innerTy annTy
+        annTy
 
     and private inferLet
         (ctx: PassContext)
