@@ -76,11 +76,9 @@ type Type<'T> =
         typeArgs: ImArr<TypeArg<'T>> *
         commas: ImArr<'T> *
         rAngle: 'T
-    | IncompleteGenericType of longIdent: LongIdent<'T> * lAngle: 'T * rAngle: 'T
     | SuffixedType of baseType: Type<'T> * longIdent: LongIdent<'T>
     | DottedType of baseType: Type<'T> * dot: 'T * longIdent: LongIdent<'T>
     | ArrayType of baseType: Type<'T> * lBracket: 'T * commas: ImArr<'T> * rBracket: 'T
-    | ConstrainedType of typ: Type<'T> * constraints: TyparDefns<'T>
     | WhenConstrainedType of typ: Type<'T> * constraints: TyparConstraints<'T>
     | SubtypeConstraint of typar: Typar<'T> * colonGreaterThan: 'T * typ: Type<'T>
     | AnonymousSubtype of hash: 'T * typ: Type<'T>
@@ -102,7 +100,6 @@ and AnonRecordField<'T> = | AnonRecordField of ident: 'T * colon: 'T * typ: Type
 and [<RequireQualifiedAccess>] TypeArg<'T> =
     | Type of Type<'T>
     | Measure of Measure<'T>
-    | StaticParameter of 'T // Placeholder for static-parameter grammar
 
 and [<RequireQualifiedAccess>] Typar<'T> =
     | Anon of underscore: 'T

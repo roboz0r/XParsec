@@ -603,7 +603,6 @@ and walkTypeArg (visitor: AstVisitor<'T>) (typeArg: TypeArg<'T>) : unit =
         visitor.EnterSection "TypeArg.Measure"
         walkMeasure visitor measure
         visitor.ExitSection "TypeArg.Measure"
-    | TypeArg.StaticParameter staticParam -> visitor.VisitToken "TypeArg.StaticParameter" staticParam
 
 and walkType (visitor: AstVisitor<'T>) (ty: Type<'T>) : unit =
     match ty with
@@ -655,12 +654,6 @@ and walkType (visitor: AstVisitor<'T>) (ty: Type<'T>) : unit =
             walkType visitor t
 
         visitor.ExitSection "StructTupleType"
-    | Type.IncompleteGenericType(longIdent, lAngle, rAngle) ->
-        visitor.EnterSection "IncompleteGenericType"
-        walkLongIdentOrOp visitor (LongIdentOrOp.LongIdent longIdent)
-        visitor.VisitToken "<" lAngle
-        visitor.VisitToken ">" rAngle
-        visitor.ExitSection "IncompleteGenericType"
     | Type.SuffixedType(baseType, longIdent) ->
         visitor.EnterSection "SuffixedType"
         walkType visitor baseType
@@ -682,11 +675,6 @@ and walkType (visitor: AstVisitor<'T>) (ty: Type<'T>) : unit =
 
         visitor.VisitToken "" rBracket
         visitor.ExitSection "ArrayType"
-    | Type.ConstrainedType(typ, constraints) ->
-        visitor.EnterSection "ConstrainedType"
-        walkType visitor typ
-        walkTyparDefns visitor constraints
-        visitor.ExitSection "ConstrainedType"
     | Type.WhenConstrainedType(typ, TyparConstraints.TyparConstraints(whenTok, constraints, ands)) ->
         visitor.EnterSection "WhenConstrainedType"
         walkType visitor typ
