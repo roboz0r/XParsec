@@ -28,6 +28,9 @@ type NodeKind =
     | ExprRecord = 11us
     | ExprSequential = 12us
     | ExprComputation = 13us
+    | ExprInfixApp = 14us
+    | ExprPrefixApp = 15us
+    | ExprEnclosedBlock = 16us
 
     | PatConst = 100us
     | PatIdent = 101us
@@ -36,6 +39,7 @@ type NodeKind =
     | PatRecord = 104us
     | PatWildcard = 105us
     | PatAs = 106us
+    | PatEnclosedBlock = 107us
 
     | TypeNamed = 200us
     | TypeVarRef = 201us

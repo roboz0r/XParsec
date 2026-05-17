@@ -9,6 +9,7 @@
   <ItemGroup>
     <Compile Include="NodeKeyTests.fs" />
     <Compile Include="UnionFindTests.fs" />
+    <Compile Include="CstKeysTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
