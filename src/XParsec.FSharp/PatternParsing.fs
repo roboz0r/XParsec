@@ -73,9 +73,16 @@ module Pat =
     let private completeStruct (op: SyntaxToken) (r: Pat<SyntaxToken>) =
         match r with
         | Pat.EnclosedBlock(ParenKind.Paren l, Pat.Tuple(elements, ops), r) -> Pat.StructTuple(op, l, elements, ops, r)
+        | Pat.EnclosedBlock(ParenKind.Paren l, inner, r) ->
+            // `struct (x)` (one element in parens) — emit as 1-element StructTuple
+            // for downstream uniformity; the type checker rejects 1-element struct tuples.
+            Pat.StructTuple(op, l, ImmutableArray.Create(inner), ImmutableArray.Empty, r)
         | _ ->
-            // TODO: Error - struct must be followed by tuple in parens
-            Pat.Struct(op, r)
+            // `struct x` without parens — malformed but accepted per parser policy
+            // (defer to type checker). Synthesize virtual parens around the RHS.
+            let lParen = virtualToken (PositionedToken.Create(Token.KWLParen, op.StartIndex))
+            let rParen = virtualToken (PositionedToken.Create(Token.KWRParen, op.StartIndex))
+            Pat.StructTuple(op, lParen, ImmutableArray.Create(r), ImmutableArray.Empty, rParen)
 
     let private completeElems (exprs: ResizeArray<Pat<_>>) ops =
         Pat.Elems(ImmutableArray.CreateRange(exprs), ImmutableArray.CreateRange(ops))
@@ -665,7 +672,18 @@ module Pat =
             match pat with
             | Pat.EnclosedBlock(ParenKind.Paren l, Pat.Tuple(elements, ops), r) ->
                 return Pat.StructTuple(structTok, l, elements, ops, r)
-            | _ -> return Pat.Struct(structTok, pat)
+            | Pat.EnclosedBlock(ParenKind.Paren l, inner, r) ->
+                return Pat.StructTuple(structTok, l, ImmutableArray.Create(inner), ImmutableArray.Empty, r)
+            | _ ->
+                // pParenPat always returns Pat.EnclosedBlock(Paren …), so the
+                // recovery path is for Missing / SkipsTokens shapes.
+                let lParen =
+                    virtualToken (PositionedToken.Create(Token.KWLParen, structTok.StartIndex))
+
+                let rParen =
+                    virtualToken (PositionedToken.Create(Token.KWRParen, structTok.StartIndex))
+
+                return Pat.StructTuple(structTok, lParen, ImmutableArray.Create(pat), ImmutableArray.Empty, rParen)
         }
 
     let private pOptionalPat =

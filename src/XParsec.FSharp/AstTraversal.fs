@@ -406,11 +406,6 @@ and walkPat (visitor: AstVisitor<'T>) (pat: Pat<'T>) : unit =
         walkAttributes visitor attributes
         walkPat visitor innerPat
         visitor.ExitSection "Pat.Attributed"
-    | Pat.Struct(structToken, innerPat) ->
-        visitor.EnterSection "Pat.Struct"
-        visitor.VisitToken "" structToken
-        walkPat visitor innerPat
-        visitor.ExitSection "Pat.Struct"
     | Pat.Optional(questionMark, innerPat) ->
         visitor.EnterSection "Pat.Optional"
         visitor.VisitToken "?" questionMark

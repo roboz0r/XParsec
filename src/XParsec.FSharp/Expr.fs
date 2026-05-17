@@ -434,7 +434,6 @@ and [<RequireQualifiedAccess>] Pat<'T> =
     | TypeTestAs of colonQuestion: 'T * typ: Type<'T> * asToken: 'T * pat: Pat<'T>
     | Null of nullToken: 'T
     | Attributed of attributes: Attributes<'T> * pat: Pat<'T>
-    | Struct of structToken: 'T * pat: Pat<'T> // For error recovery
     | Optional of questionMark: 'T * pat: Pat<'T>
     | Op of IdentOrOp<'T> // For operator/active-pattern names in function binding heads
     | String of kind: StringKind<'T> * parts: ImArr<StringPart<'T>> * closing: 'T
