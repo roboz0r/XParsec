@@ -19,6 +19,7 @@
     <Compile Include="ExpansionTests.fs" />
     <Compile Include="CoverageTests.fs" />
     <Compile Include="GeneralisationTests.fs" />
+    <Compile Include="MeasuresTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

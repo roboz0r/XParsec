@@ -29,28 +29,34 @@ module Unification =
 
     /// Walk TyVar links to the equivalence-class representative; if the rep
     /// has a Link, return its target (one level deep — call recursively for
-    /// full resolution).
+    /// full resolution). Stops at a measure-bearing root so the measure
+    /// stays attached: `unify` and `unitsOf` need the TyVar wrapper to
+    /// see Units, and following Link straight through to the bare carrier
+    /// would drop them.
     let private resolveStep (t: SemType) : SemType =
         match t with
         | TyVar tv ->
             let root = UnionFind.find tv
 
             match root.Link with
-            | ValueSome t' -> t'
-            | ValueNone -> TyVar root
+            | ValueSome t' when root.Units.IsNone -> t'
+            | _ -> TyVar root
         | _ -> t
 
     /// Fully resolve a SemType: walk all TyVar chains AND recurse into TyFun
     /// arms. Used by Freeze (and tests) to materialise the final inferred
-    /// type for a node.
+    /// type for a node. A measure-bearing TyVar (`Units` set on its root)
+    /// is preserved as a TyVar rather than collapsed into its carrier —
+    /// the measure rides on the root, so downstream consumers can read it
+    /// off the returned `TyVar` (already a root).
     let rec zonk (t: SemType) : SemType =
         match t with
         | TyVar tv ->
             let root = UnionFind.find tv
 
             match root.Link with
-            | ValueSome t' -> zonk t'
-            | ValueNone -> TyVar root
+            | ValueSome t' when root.Units.IsNone -> zonk t'
+            | _ -> TyVar root
         | TyConst _ -> t
         | TyFun(a, r) -> TyFun(zonk a, zonk r)
         | TyTuple items -> TyTuple(List.map zonk items)
@@ -103,6 +109,32 @@ module Unification =
         | TyFun(a, r) -> occursAndAdjust target a || occursAndAdjust target r
         | TyTuple items -> List.exists (occursAndAdjust target) items
 
+    /// Merge the Units field of two union-find roots after they've been
+    /// joined into `newRoot`. Two non-equal measures emit a diagnostic; one
+    /// of them is kept on the survivor so further unifications against it
+    /// stay coherent. ValueNone on one side propagates from the other.
+    let private mergeUnits
+        (ctx: PassContext)
+        (key: NodeKey)
+        (newRoot: TypeVar)
+        (unitsA: MeasureTerm voption)
+        (unitsB: MeasureTerm voption)
+        : unit =
+        match unitsA, unitsB with
+        | ValueNone, ValueNone -> ()
+        | ValueSome m, ValueNone
+        | ValueNone, ValueSome m -> newRoot.Units <- ValueSome m
+        | ValueSome m1, ValueSome m2 when m1.Equals(m2) -> newRoot.Units <- ValueSome m1
+        | ValueSome m1, ValueSome m2 ->
+            newRoot.Units <- ValueSome m1
+
+            ctx.Diagnostics.Add
+                {
+                    Key = key
+                    Message = sprintf "Measure mismatch: <%O> vs <%O>" m1 m2
+                    Severity = Error
+                }
+
     let rec private unify (ctx: PassContext) (key: NodeKey) (a: SemType) (b: SemType) =
         let a = resolveStep a
         let b = resolveStep b
@@ -117,6 +149,10 @@ module Unification =
         | TyVar tv1, TyVar tv2 ->
             let r1 = UnionFind.find tv1
             let r2 = UnionFind.find tv2
+            let unitsA = r1.Units
+            let unitsB = r2.Units
+            let linkA = r1.Link
+            let linkB = r2.Link
             UnionFind.union r1 r2
             // After union, exactly one of r1/r2 still has Parent = ValueNone.
             let newRoot = UnionFind.find r1
@@ -128,6 +164,17 @@ module Unification =
                     r1
 
             migrateBounds newRoot merged
+            mergeUnits ctx key newRoot unitsA unitsB
+            // Migrate Link: if one side carried a concrete target and the
+            // survivor doesn't, copy it across. If both sides carried links,
+            // unify them so the carrier types agree.
+            match linkA, linkB with
+            | ValueNone, ValueNone -> ()
+            | ValueSome _, ValueNone -> newRoot.Link <- linkA
+            | ValueNone, ValueSome _ -> newRoot.Link <- linkB
+            | ValueSome a, ValueSome b ->
+                newRoot.Link <- linkA
+                unify ctx key a b
         | TyVar tv, other
         | other, TyVar tv ->
             let root = UnionFind.find tv
@@ -144,6 +191,19 @@ module Unification =
                         Severity = Error
                     }
             else
+                // Linking to a plain TyConst (a dimensionless carrier) when
+                // the variable is already known to be measured is a
+                // dimensionless-vs-measured mismatch.
+                match root.Units, other with
+                | ValueSome m, TyConst _ when not m.IsDimensionless ->
+                    ctx.Diagnostics.Add
+                        {
+                            Key = key
+                            Message = sprintf "Dimensionless %A used where <%O> expected" other m
+                            Severity = Error
+                        }
+                | _ -> ()
+
                 root.Link <- ValueSome other
         // No bound migration needed here: `root` keeps its bounds, and
         // setting Link is the trigger for on-unified callbacks to fire
@@ -223,6 +283,12 @@ module Unification =
     /// reference identity (a single TyVar can appear in multiple positions).
     /// Quantified TyVars stay live in the union-find graph; the scheme just
     /// captures their identities so `instantiate` can swap them per use.
+    ///
+    /// A TyVar with a concrete `Link` is not free — it has been pinned to a
+    /// specific target. We skip those even though they survive zonking when
+    /// they carry `Units` (measure-bearing TyVars). Treating them as ground
+    /// matches v1 "no measure polymorphism" — each `let f (x : float<m>) …`
+    /// has the measure baked in.
     let private generalise (zonkedTy: SemType) (outerLevel: int) : TypeScheme =
         let quantified = ResizeArray<TypeVar>()
         let seen = HashSet<TypeVar>(HashIdentity.Reference)
@@ -232,7 +298,7 @@ module Unification =
             | TyVar tv ->
                 let root = UnionFind.find tv
 
-                if root.Level > outerLevel && seen.Add(root) then
+                if root.Level > outerLevel && root.Link.IsNone && seen.Add(root) then
                     quantified.Add(root)
             | TyConst _ -> ()
             | TyFun(a, r) ->
@@ -253,30 +319,91 @@ module Unification =
         | Pat.NamedSimple _ -> true
         | _ -> false
 
-    let private inferConst (c: Constant<SyntaxToken>) : SemType =
+    /// SemType of the carrier of a single literal token (`int`, `float`, …).
+    /// Pulled out of `inferConst` so the measured-literal arm can stamp this
+    /// onto a TyVar's `Link` while the measure rides on `Units`.
+    let private literalCarrier (t: SyntaxToken) : SemType =
+        match t.Token with
+        | Token.KWTrue
+        | Token.KWFalse -> MockBuiltins.tyBool
+        | Token.NumIEEE64
+        | Token.NumIEEE64Hex
+        | Token.NumIEEE64Octal
+        | Token.NumIEEE64Binary -> MockBuiltins.tyFloat
+        | Token.NumInt64
+        | Token.NumInt64Hex
+        | Token.NumInt64Octal
+        | Token.NumInt64Binary -> MockBuiltins.tyInt64
+        | Token.NumByte
+        | Token.NumByteHex
+        | Token.NumByteOctal
+        | Token.NumByteBinary -> MockBuiltins.tyByte
+        | _ -> MockBuiltins.tyInt
+
+    /// Walk a `Measure<SyntaxToken>` CST and produce a canonical
+    /// `MeasureTerm`. Multi-segment qualified unit names (`Microsoft.FSharp.SI.kg`)
+    /// and measure typars (`'u`) are v2 — they produce an empty term plus a
+    /// diagnostic so the rest of inference continues without measure noise.
+    let rec private translateMeasure (ctx: PassContext) (diagKey: NodeKey) (m: Measure<SyntaxToken>) : MeasureTerm =
+        match m with
+        | Measure.One _ -> MeasureTerm.empty
+        | Measure.Named li when li.Idents.Length = 1 -> MeasureTerm.ofList [ ctx.NameOf li.Idents.[0], Rational.One ]
+        | Measure.Power(inner, _, neg, expTok) ->
+            let n = System.Numerics.BigInteger.Parse(ctx.NameOf expTok)
+            let signed = if neg.IsSome then -n else n
+
+            MeasureTerm.pow
+                (translateMeasure ctx diagKey inner)
+                (Rational.create (signed, System.Numerics.BigInteger.One))
+        | Measure.Product(l, _, r) -> MeasureTerm.mul (translateMeasure ctx diagKey l) (translateMeasure ctx diagKey r)
+        | Measure.Quotient(l, _, r) -> MeasureTerm.div (translateMeasure ctx diagKey l) (translateMeasure ctx diagKey r)
+        | Measure.Reciprocal(_, inner) -> MeasureTerm.inv (translateMeasure ctx diagKey inner)
+        | Measure.Paren(_, inner, _) -> translateMeasure ctx diagKey inner
+        | Measure.Juxtaposition(elems, _) ->
+            (MeasureTerm.empty, elems)
+            ||> Seq.fold (fun acc m -> MeasureTerm.mul acc (translateMeasure ctx diagKey m))
+        | Measure.Anonymous _
+        | Measure.Typar _
+        | Measure.Named _ ->
+            ctx.Diagnostics.Add
+                {
+                    Key = diagKey
+                    Message = "Measure typars / wildcards / qualified unit names not yet supported"
+                    Severity = Error
+                }
+
+            MeasureTerm.empty
+
+    let private inferConst (ctx: PassContext) (c: Constant<SyntaxToken>) : SemType =
         // Dispatch covers the numeric / boolean tokens that lex into a
         // Constant.Literal. Anything we don't recognise still types as int
         // (matches the parser's most common case) — extend as new literal
         // kinds become reachable.
         match c with
-        | Constant.Literal t ->
-            match t.Token with
-            | Token.KWTrue
-            | Token.KWFalse -> MockBuiltins.tyBool
-            | Token.NumIEEE64
-            | Token.NumIEEE64Hex
-            | Token.NumIEEE64Octal
-            | Token.NumIEEE64Binary -> MockBuiltins.tyFloat
-            | Token.NumInt64
-            | Token.NumInt64Hex
-            | Token.NumInt64Octal
-            | Token.NumInt64Binary -> MockBuiltins.tyInt64
-            | Token.NumByte
-            | Token.NumByteHex
-            | Token.NumByteOctal
-            | Token.NumByteBinary -> MockBuiltins.tyByte
-            | _ -> MockBuiltins.tyInt
-        | Constant.MeasuredLiteral _ -> MockBuiltins.tyInt
+        | Constant.Literal t -> literalCarrier t
+        | Constant.MeasuredLiteral(value = t; measure = m) ->
+            let carrier = literalCarrier t
+            let diagKey = NodeKey.ofToken t NodeKind.ExprConst
+            let mt = translateMeasure ctx diagKey m
+            let tv = freshTyVar ctx
+            tv.Link <- ValueSome carrier
+            tv.Units <- ValueSome mt
+            TyVar tv
+
+    /// Built-in numeric type names that can carry a measure annotation
+    /// (`float<m>`, `int<kg>`, etc.). User-defined `[<Measure>]`-aware types
+    /// land when records / DUs do.
+    let private isNumericCarrier (name: string) : bool =
+        match name with
+        | "int"
+        | "int64"
+        | "byte"
+        | "float"
+        | "float32"
+        | "decimal"
+        | "single"
+        | "double" -> true
+        | _ -> false
 
     /// Translate a syntactic `Type<SyntaxToken>` into a `SemType`. The tiny
     /// subset only recognises the primitive built-ins (`int`, `bool`,
@@ -299,12 +426,176 @@ module Unification =
             | "int64" -> MockBuiltins.tyInt64
             | "byte" -> MockBuiltins.tyByte
             | _ -> TyConst name
+        | Type.GenericType(longIdent = li; typeArgs = args) when
+            li.Idents.Length = 1
+            && args.Length = 1
+            && isNumericCarrier (ctx.NameOf li.Idents.[0])
+            ->
+            // `float<m>` / `int<kg>` — recognise the measure-shaped generic
+            // and stamp the measure onto a fresh TyVar whose Link carries
+            // the carrier. Anything else (real generics) still falls through
+            // to the wildcard arm.
+            //
+            // The parser only tags an arg as `TypeArg.Measure` when the
+            // measure grammar is unambiguous; for bare `float<m>` it lands
+            // as `TypeArg.Type (Type.NamedType "m")` because the type
+            // grammar can't tell unit names apart from type-arg type names.
+            // Both shapes resolve here.
+            let carrierTok = li.Idents.[0]
+            let diagKey = NodeKey.ofToken carrierTok NodeKind.TypeGeneric
+
+            let measureFromTypeArg =
+                match args.[0] with
+                | TypeArg.Measure m -> ValueSome m
+                | TypeArg.Type(Type.NamedType nameLi) ->
+                    // Reinterpret a single-segment named type as a measure
+                    // atom; multi-segment qualifiers stay a real type.
+                    if nameLi.Idents.Length = 1 then
+                        ValueSome(Measure.Named nameLi)
+                    else
+                        ValueNone
+                | _ -> ValueNone
+
+            match measureFromTypeArg with
+            | ValueSome m ->
+                let mt = translateMeasure ctx diagKey m
+                let tv = freshTyVar ctx
+                tv.Link <- ValueSome(translateType ctx (Type.NamedType li))
+                tv.Units <- ValueSome mt
+                TyVar tv
+            | ValueNone -> TyVar(freshTyVar ctx)
         | Type.FunctionType(fromType = from; toType = into) -> TyFun(translateType ctx from, translateType ctx into)
         | Type.TupleType(types = types) -> TyTuple [ for t in types -> translateType ctx t ]
         | _ ->
-            // TODO: VarType (typars), GenericType, etc. Free variable until
-            // we model them properly — unification will pin it via context.
+            // TODO: VarType (typars), GenericType (non-measure), etc. Free
+            // variable until we model them properly — unification will pin
+            // it via context.
             TyVar(freshTyVar ctx)
+
+    /// Measure carried on `t`'s union-find root, if any. Reads `Units`
+    /// straight off the root — does NOT use `resolveStep`, since that
+    /// would follow a measured TyVar through its `Link` to the bare
+    /// carrier and drop the measure. Returns ValueNone for plain
+    /// `TyConst` (dimensionless), function types, tuples, and free
+    /// variables.
+    let private unitsOf (t: SemType) : MeasureTerm voption =
+        match t with
+        | TyVar tv -> (UnionFind.find tv).Units
+        | _ -> ValueNone
+
+    /// Underlying numeric carrier of a (possibly measure-wrapped) type.
+    /// For a `TyVar` whose Link points at `TyConst "float"`, returns
+    /// `TyConst "float"`. For a plain TyConst, returns itself. For a free
+    /// variable (no Link), returns the variable so a later unification can
+    /// pin it.
+    let private carrierOf (t: SemType) : SemType =
+        match resolveStep t with
+        | TyVar tv ->
+            let root = UnionFind.find tv
+
+            match root.Link with
+            | ValueSome link -> link
+            | ValueNone -> TyVar root
+        | other -> other
+
+    /// Allocate a fresh TyVar at the current level pre-stamped with a
+    /// carrier link and (optionally) a measure. The dispatcher uses this
+    /// for the result type of a measured arithmetic operation.
+    let private freshTyVarWith (ctx: PassContext) (carrier: SemType) (units: MeasureTerm voption) : TypeVar =
+        let tv = freshTyVar ctx
+        tv.Link <- ValueSome carrier
+        tv.Units <- units
+        tv
+
+    /// Compiled names for comparison operators that return `bool` regardless
+    /// of operand measure (provided the measures match).
+    let private isComparisonOp (name: string) : bool =
+        match name with
+        | "op_Equality"
+        | "op_Inequality"
+        | "op_LessThan"
+        | "op_GreaterThan"
+        | "op_LessThanOrEqual"
+        | "op_GreaterThanOrEqual" -> true
+        | _ -> false
+
+    /// Measure-aware arithmetic dispatcher. Fires before the provider
+    /// lookup in `inferInfix` so measured `+`, `-`, `*`, `/`, and comparison
+    /// operators get measure-correct result types and surface a dedicated
+    /// "Measure mismatch" diagnostic rather than a generic carrier-type
+    /// mismatch. Returns `None` for the all-dimensionless case (or for
+    /// operators we don't dispatch); the caller falls through to the
+    /// existing provider path.
+    let private tryMeasuredArith
+        (ctx: PassContext)
+        (key: NodeKey)
+        (name: string)
+        (leftTy: SemType)
+        (rightTy: SemType)
+        : SemType option =
+        let leftUnits = unitsOf leftTy
+        let rightUnits = unitsOf rightTy
+
+        match leftUnits, rightUnits with
+        | ValueNone, ValueNone -> None
+        | _ ->
+            let carrier = carrierOf leftTy
+            // Carriers must agree even between measured operands (no
+            // `float<m> + int<m>`). Surface that as a normal type mismatch.
+            unify ctx key carrier (carrierOf rightTy)
+
+            match name, leftUnits, rightUnits with
+            | ("op_Addition" | "op_Subtraction"), ValueSome m1, ValueSome m2 when m1.Equals m2 ->
+                Some(TyVar(freshTyVarWith ctx carrier (ValueSome m1)))
+            | ("op_Addition" | "op_Subtraction"), ValueSome m1, ValueSome m2 ->
+                ctx.Diagnostics.Add
+                    {
+                        Key = key
+                        Message = sprintf "Measure mismatch: <%O> vs <%O>" m1 m2
+                        Severity = Error
+                    }
+
+                Some(TyVar(freshTyVarWith ctx carrier (ValueSome m1)))
+            | ("op_Addition" | "op_Subtraction"), ValueSome m, ValueNone
+            | ("op_Addition" | "op_Subtraction"), ValueNone, ValueSome m ->
+                ctx.Diagnostics.Add
+                    {
+                        Key = key
+                        Message = sprintf "Measure mismatch: dimensionless vs <%O>" m
+                        Severity = Error
+                    }
+
+                Some(TyVar(freshTyVarWith ctx carrier (ValueSome m)))
+            | "op_Multiply", ValueSome m1, ValueSome m2 ->
+                Some(TyVar(freshTyVarWith ctx carrier (ValueSome(MeasureTerm.mul m1 m2))))
+            | "op_Multiply", ValueSome m, ValueNone
+            | "op_Multiply", ValueNone, ValueSome m -> Some(TyVar(freshTyVarWith ctx carrier (ValueSome m)))
+            | "op_Division", ValueSome m1, ValueSome m2 ->
+                Some(TyVar(freshTyVarWith ctx carrier (ValueSome(MeasureTerm.div m1 m2))))
+            | "op_Division", ValueSome m, ValueNone -> Some(TyVar(freshTyVarWith ctx carrier (ValueSome m)))
+            | "op_Division", ValueNone, ValueSome m ->
+                Some(TyVar(freshTyVarWith ctx carrier (ValueSome(MeasureTerm.inv m))))
+            | name, ValueSome m1, ValueSome m2 when isComparisonOp name && m1.Equals m2 -> Some MockBuiltins.tyBool
+            | name, ValueSome m1, ValueSome m2 when isComparisonOp name ->
+                ctx.Diagnostics.Add
+                    {
+                        Key = key
+                        Message = sprintf "Measure mismatch: <%O> vs <%O>" m1 m2
+                        Severity = Error
+                    }
+
+                Some MockBuiltins.tyBool
+            | name, ValueSome m, ValueNone
+            | name, ValueNone, ValueSome m when isComparisonOp name ->
+                ctx.Diagnostics.Add
+                    {
+                        Key = key
+                        Message = sprintf "Measure mismatch: dimensionless vs <%O>" m
+                        Severity = Error
+                    }
+
+                Some MockBuiltins.tyBool
+            | _ -> None
 
     let rec private inferPat (ctx: PassContext) (p: Pat<SyntaxToken>) : SemType =
         // Each pattern node gets its own TypeVar keyed on its NodeKey. For
@@ -332,7 +623,7 @@ module Unification =
             nodeTv.Link <- ValueSome tupleTy
             tupleTy
         | Pat.Const c ->
-            let constTy = inferConst c
+            let constTy = inferConst ctx c
             let nodeTv = freshTv ctx key
             nodeTv.Link <- ValueSome constTy
             constTy
@@ -374,7 +665,7 @@ module Unification =
 
         let inferredTy =
             match e with
-            | Expr.Const c -> inferConst c
+            | Expr.Const c -> inferConst ctx c
             | Expr.Ident _ -> inferIdent ctx e key
             | Expr.LongIdentOrOp _ -> inferIdent ctx e key
             | Expr.App(fn, args) -> inferApp ctx key fn args
@@ -513,20 +804,23 @@ module Unification =
 
         match ctx.Desugared.TryGetValue key with
         | ValueSome(DesugaredForm.OpName name) ->
-            match ctx.Provider.TryLookup name with
-            | ValueSome sym ->
-                let resultTy = TyVar(freshTyVar ctx)
-                unify ctx key (sym.Instantiate ctx.CurrentLevel) (TyFun(leftTy, TyFun(rightTy, resultTy)))
-                resultTy
-            | ValueNone ->
-                ctx.Diagnostics.Add
-                    {
-                        Key = key
-                        Message = sprintf "Unknown operator symbol: %s" name
-                        Severity = Error
-                    }
+            match tryMeasuredArith ctx key name leftTy rightTy with
+            | Some resultTy -> resultTy
+            | None ->
+                match ctx.Provider.TryLookup name with
+                | ValueSome sym ->
+                    let resultTy = TyVar(freshTyVar ctx)
+                    unify ctx key (sym.Instantiate ctx.CurrentLevel) (TyFun(leftTy, TyFun(rightTy, resultTy)))
+                    resultTy
+                | ValueNone ->
+                    ctx.Diagnostics.Add
+                        {
+                            Key = key
+                            Message = sprintf "Unknown operator symbol: %s" name
+                            Severity = Error
+                        }
 
-                TyVar(freshTyVar ctx)
+                    TyVar(freshTyVar ctx)
         | ValueNone ->
             // Desugar didn't recognise the operator token; leave the result
             // as a free TypeVar (the unknown operator is a deficiency in
