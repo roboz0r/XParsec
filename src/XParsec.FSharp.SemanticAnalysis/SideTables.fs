@@ -55,7 +55,7 @@ and [<Struct>] Diagnostic =
         Severity: Severity
     }
 
-and Severity =
+and [<Struct>] Severity =
     | Error
     | Warning
     | Info

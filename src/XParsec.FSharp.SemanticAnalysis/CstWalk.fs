@@ -1,0 +1,180 @@
+namespace XParsec.FSharp.SemanticAnalysis
+
+open System.Collections.Immutable
+open XParsec.FSharp.Parser
+
+// Single point where Expr's recursion shape is enumerated. Passes layer
+// their pass-specific work on top via the ExprWalker record's hooks.
+//
+// `iterExpr` matches every Expr case explicitly (no `| _ -> ()` catchall),
+// so when the parser adds a new Expr case the F# warning-25 incomplete-
+// pattern check fires here — one place to update instead of every pass
+// silently no-oping the new case.
+//
+// State is *environment*, not accumulator: scope changes from EnterFun /
+// EnterBindingRhs / EnterLetBody apply only to the relevant child
+// traversal. Side-effecting outputs (side tables, diagnostics) live in
+// the closure captured by `Visit`.
+
+module CstWalk =
+
+    type ExprWalker<'env> =
+        {
+            /// Called on every Expr node before recursing into its children.
+            Visit: 'env -> Expr<SyntaxToken> -> unit
+            /// Environment a lambda body sees.
+            EnterFun: 'env -> ImmutableArray<Pat<SyntaxToken>> -> 'env
+            /// Environment a binding's RHS sees. NameResolution uses this to
+            /// push function-form arg pats into scope; passes get the whole
+            /// Binding so they can also condition on isRec, etc.
+            EnterBindingRhs: 'env -> Binding<SyntaxToken> -> 'env
+            /// Environment a let body sees. NameResolution uses this to push
+            /// all the bound names into scope.
+            EnterLetBody: 'env -> ImmutableArray<Binding<SyntaxToken>> -> 'env
+        }
+
+    let rec iterExpr (walker: ExprWalker<'env>) (env: 'env) (e: Expr<SyntaxToken>) : unit =
+        walker.Visit env e
+
+        match e with
+        // Leaves — no sub-Exprs
+        | Expr.Const _
+        | Expr.EmptyBlock _
+        | Expr.LongIdentOrOp _
+        | Expr.OptionalArgExpr _
+        | Expr.Null _
+        | Expr.Wildcard _
+        | Expr.Missing
+        | Expr.SkipsTokens _
+        | Expr.Ident _
+        | Expr.String _
+        | Expr.SliceAll _ -> ()
+
+        // Single-child wrappers
+        | Expr.EnclosedBlock(expr = inner)
+        | Expr.DotLookup(expr = inner)
+        | Expr.TypeApp(expr = inner)
+        | Expr.PrefixApp(expr = inner)
+        | Expr.DynamicLookup(expr = inner)
+        | Expr.New(expr = inner)
+        | Expr.ControlFlow(expr = inner)
+        | Expr.TypeAnnotation(expr = inner)
+        | Expr.StaticUpcast(expr = inner)
+        | Expr.DynamicTypeTest(expr = inner)
+        | Expr.DynamicDowncast(expr = inner)
+        | Expr.StaticMemberInvocation(expr = inner)
+        | Expr.SliceFrom(expr = inner)
+        | Expr.SliceTo(expr = inner) -> iterExpr walker env inner
+
+        // Multi-child
+        | Expr.App(funcExpr = fn; argExprs = args) ->
+            iterExpr walker env fn
+
+            for a in args do
+                iterExpr walker env a
+
+        | Expr.HighPrecedenceApp(funcExpr = fn; argExpr = arg) ->
+            iterExpr walker env fn
+            iterExpr walker env arg
+
+        | Expr.InfixApp(leftExpr = left; rightExpr = right)
+        | Expr.Assignment(leftExpr = left; rightExpr = right) ->
+            iterExpr walker env left
+            iterExpr walker env right
+
+        | Expr.IndexedLookup(expr = inner; indexExpr = idx) ->
+            iterExpr walker env inner
+            iterExpr walker env idx
+
+        | Expr.Tuple(exprs = exprs)
+        | Expr.StructTuple(exprs = exprs)
+        | Expr.Sequential(exprs = exprs) ->
+            for x in exprs do
+                iterExpr walker env x
+
+        | Expr.TryFinally(tryExpr = tryE; finallyExpr = finallyE) ->
+            iterExpr walker env tryE
+            iterExpr walker env finallyE
+
+        | Expr.Range(fromExpr = a; toExpr = b)
+        | Expr.SliceFromTo(startExpr = a; endExpr = b) ->
+            iterExpr walker env a
+            iterExpr walker env b
+
+        | Expr.SteppedRange(fromExpr = a; stepExpr = s; toExpr = b) ->
+            iterExpr walker env a
+            iterExpr walker env s
+            iterExpr walker env b
+
+        | Expr.LibraryOnlyStaticOptimization(expr = a; optimizedExpr = b) ->
+            iterExpr walker env a
+            iterExpr walker env b
+
+        | Expr.ILIntrinsic(args = args) ->
+            for x in args do
+                iterExpr walker env x
+
+        // Scope-introducing
+        | Expr.Fun(argumentPats = argPats; expr = body) ->
+            let bodyEnv = walker.EnterFun env argPats
+            iterExpr walker bodyEnv body
+
+        | Expr.LetOrUse(bindings = bindings; body = body) ->
+            for b in bindings do
+                let rhsEnv = walker.EnterBindingRhs env b
+                iterExpr walker rhsEnv b.expr
+
+            match body with
+            | ValueSome b ->
+                let bodyEnv = walker.EnterLetBody env bindings
+                iterExpr walker bodyEnv b
+            | ValueNone -> ()
+
+        | Expr.IfThenElse(condition = cond; thenExpr = thenE; elifBranches = elifs; elseBranch = elseB) ->
+            iterExpr walker env cond
+            iterExpr walker env thenE
+
+            for elif_ in elifs do
+                let elifCond, elifExpr =
+                    match elif_ with
+                    | ElifBranch.Elif(condition = c; expr = e)
+                    | ElifBranch.ElseIf(condition = c; expr = e) -> c, e
+
+                iterExpr walker env elifCond
+                iterExpr walker env elifExpr
+
+            match elseB with
+            | ValueSome(ElseBranch(expr = elseExpr)) -> iterExpr walker env elseExpr
+            | ValueNone -> ()
+
+        // Loops — bodies do NOT introduce scope yet (ForIn's pat would, but
+        // none of the current passes reach loops in the subset). When loops
+        // come online, add EnterForIn / EnterForTo hooks and split here.
+        | Expr.While(condition = cond; body = body) ->
+            iterExpr walker env cond
+            iterExpr walker env body
+
+        | Expr.ForTo(startExpr = startE; endExpr = endE; body = body) ->
+            iterExpr walker env startE
+            iterExpr walker env endE
+            iterExpr walker env body
+
+        | Expr.ForIn(enumerableExpr = src; body = body) ->
+            iterExpr walker env src
+            iterExpr walker env body
+
+        // TODO: rule-/member-/field-bearing constructs aren't traversed yet.
+        // Adding them needs corresponding iterRule / iterMember helpers plus
+        // scope-introducing hooks for pattern-binding arms (Match, Function,
+        // TryWith). For now the Visit hook still fires on the outer node so
+        // passes see them, just not their inner Exprs.
+        | Expr.Match _
+        | Expr.Function _
+        | Expr.TryWith _
+        | Expr.Object _
+        | Expr.Record _
+        | Expr.RecordClone _ -> ()
+
+        // Patterns can embed expressions (Pat.Expr); not walked yet. None of
+        // the current passes care, and Pat traversal will get its own iter.
+        | Expr.Pat _ -> ()

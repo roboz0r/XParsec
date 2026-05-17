@@ -9,6 +9,12 @@ open XParsec.FSharp.SemanticAnalysis
 //       local binding. Unresolved names that the provider also doesn't know
 //       become Error diagnostics.
 //
+// Recursion is delegated to CstWalk.iterExpr; this pass supplies a Visit
+// hook plus the three scope-introducing hooks (EnterFun, EnterBindingRhs,
+// EnterLetBody). The walker thread-restores scope automatically at each
+// recursive boundary, so the caller's scope is never polluted by a
+// lambda/let body's locals.
+//
 // Notes for the tiny subset:
 //   - Operators inside InfixApp / PrefixApp are NOT resolved here. Desugar
 //     records them as DesugaredForm.OpName, and Unification consults the
@@ -83,9 +89,8 @@ module NameResolution =
 
         s
 
-    let rec private walkExpr (ctx: PassContext) (scope: Scope list) (e: Expr<SyntaxToken>) =
+    let private visit (ctx: PassContext) (scope: Scope list) (e: Expr<SyntaxToken>) : unit =
         match e with
-        | Expr.Const _ -> ()
         | Expr.Ident tok -> resolveIdent ctx scope tok (CstKeys.ofExpr e)
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
             resolveIdent ctx scope li.Idents.[0] (CstKeys.ofExpr e)
@@ -106,51 +111,34 @@ module NameResolution =
                             displayName
                     Severity = Error
                 }
-        | Expr.App(fn, args) ->
-            walkExpr ctx scope fn
-
-            for a in args do
-                walkExpr ctx scope a
-        | Expr.InfixApp(left, _, right) ->
-            walkExpr ctx scope left
-            walkExpr ctx scope right
-        | Expr.PrefixApp(_, operand) -> walkExpr ctx scope operand
-        | Expr.IfThenElse(condition = cond; thenExpr = thenE; elseBranch = elseB) ->
-            walkExpr ctx scope cond
-            walkExpr ctx scope thenE
-
-            match elseB with
-            | ValueSome(ElseBranch(expr = e)) -> walkExpr ctx scope e
-            | ValueNone -> ()
-        | Expr.Fun(argumentPats = argPats; expr = body) ->
-            let bodyScope = extendScope ctx argPats Map.empty :: scope
-            walkExpr ctx bodyScope body
-        | Expr.LetOrUse(bindings = bindings; body = body) ->
-            walkBindings ctx scope bindings
-
-            match body with
-            | ValueSome b ->
-                let bodyScope = bindingsToScope ctx bindings :: scope
-                walkExpr ctx bodyScope b
-            | ValueNone -> ()
-        | Expr.EnclosedBlock(expr = inner) -> walkExpr ctx scope inner
         | _ -> ()
 
-    and private walkBindings (ctx: PassContext) (scope: Scope list) (bindings: ImmutableArray<Binding<SyntaxToken>>) =
-        for b in bindings do
-            // Function-form: `let f x y = ...` — push parameter names before walking RHS.
-            let rhsScope =
-                if b.argumentPats.IsEmpty then
-                    scope
-                else
-                    extendScope ctx b.argumentPats Map.empty :: scope
+    let private mkWalker (ctx: PassContext) : CstWalk.ExprWalker<Scope list> =
+        {
+            Visit = visit ctx
+            EnterFun = fun scope argPats -> extendScope ctx argPats Map.empty :: scope
+            EnterBindingRhs =
+                fun scope b ->
+                    // Function-form: `let f x y = ...` — push parameter names
+                    // before walking RHS. Value-form binding leaves scope alone.
+                    if b.argumentPats.IsEmpty then
+                        scope
+                    else
+                        extendScope ctx b.argumentPats Map.empty :: scope
+            EnterLetBody = fun scope bindings -> bindingsToScope ctx bindings :: scope
+        }
 
-            walkExpr ctx rhsScope b.expr
-
-    let private walkModuleElem (ctx: PassContext) (scope: Scope list) (m: ModuleElem<SyntaxToken>) : Scope list =
+    let private walkModuleElem
+        (ctx: PassContext)
+        (walker: CstWalk.ExprWalker<Scope list>)
+        (scope: Scope list)
+        (m: ModuleElem<SyntaxToken>)
+        : Scope list =
         match m with
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
-            walkBindings ctx scope bindings
+            for b in bindings do
+                let rhsScope = walker.EnterBindingRhs scope b
+                CstWalk.iterExpr walker rhsScope b.expr
             // Extend the topmost scope so later module elements can see these bindings.
             match scope with
             | [] -> [ bindingsToScope ctx bindings ]
@@ -167,18 +155,24 @@ module NameResolution =
 
                 merged :: rest
         | ModuleElem.Expression e ->
-            walkExpr ctx scope e
+            CstWalk.iterExpr walker scope e
             scope
         | _ -> scope
 
-    let private walkElems (ctx: PassContext) (elems: ModuleElems<SyntaxToken>) =
+    let private walkElems
+        (ctx: PassContext)
+        (walker: CstWalk.ExprWalker<Scope list>)
+        (elems: ModuleElems<SyntaxToken>)
+        =
         let mutable scope = [ Map.empty ]
 
         for m in elems do
-            scope <- walkModuleElem ctx scope m
+            scope <- walkModuleElem ctx walker scope m
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
+        let walker = mkWalker ctx
+
         match file with
-        | ImplementationFile.AnonymousModule elems -> walkElems ctx elems
-        | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) -> walkElems ctx elems
+        | ImplementationFile.AnonymousModule elems -> walkElems ctx walker elems
+        | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) -> walkElems ctx walker elems
         | ImplementationFile.Namespaces _ -> ()

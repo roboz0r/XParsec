@@ -12,6 +12,9 @@ open XParsec.FSharp.SemanticAnalysis
 // NodeKey.ofSynthetic and stores a DesugaredForm describing how to interpret
 // each construct.
 //
+// Recursion is delegated to CstWalk.iterExpr; this pass only supplies the
+// Visit hook. No scope state is needed.
+//
 // TODO — constructs that will need desugaring:
 //   - `x |> f`, `x ||> f y`             -> Application
 //   - List / array / seq comprehensions -> yield + CE method chain
@@ -52,60 +55,42 @@ module Desugar =
         | Token.OpSubtraction -> ValueSome "op_UnaryNegation"
         | _ -> ValueNone
 
-    let rec private walkExpr (ctx: PassContext) (e: Expr<SyntaxToken>) =
+    let private visit (ctx: PassContext) (_env: unit) (e: Expr<SyntaxToken>) : unit =
         match e with
-        | Expr.InfixApp(left, op, right) ->
+        | Expr.InfixApp(_, op, _) ->
             match infixOpName op.Token with
             | ValueSome name -> ctx.Desugared.Set(CstKeys.ofExpr e, DesugaredForm.OpName name)
             | ValueNone -> ()
-
-            walkExpr ctx left
-            walkExpr ctx right
-        | Expr.PrefixApp(op, operand) ->
+        | Expr.PrefixApp(op, _) ->
             match prefixOpName op.Token with
             | ValueSome name -> ctx.Desugared.Set(CstKeys.ofExpr e, DesugaredForm.OpName name)
             | ValueNone -> ()
-
-            walkExpr ctx operand
-        | Expr.App(fn, args) ->
-            walkExpr ctx fn
-
-            for a in args do
-                walkExpr ctx a
-        | Expr.Fun(expr = body) -> walkExpr ctx body
-        | Expr.LetOrUse(bindings = bindings; body = body) ->
-            for b in bindings do
-                walkExpr ctx b.expr
-
-            match body with
-            | ValueSome b -> walkExpr ctx b
-            | ValueNone -> ()
-        | Expr.EnclosedBlock(expr = inner) -> walkExpr ctx inner
-        | Expr.IfThenElse(condition = cond; thenExpr = thenE; elseBranch = elseB) ->
-            // Tiny subset: elifBranches not yet handled; ignored here, will
-            // be rejected by Unification / Freeze if non-empty.
-            walkExpr ctx cond
-            walkExpr ctx thenE
-
-            match elseB with
-            | ValueSome(ElseBranch(expr = e)) -> walkExpr ctx e
-            | ValueNone -> ()
         | _ -> ()
 
-    let private walkModuleElem (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
+    let private mkWalker (ctx: PassContext) : CstWalk.ExprWalker<unit> =
+        {
+            Visit = visit ctx
+            EnterFun = fun env _ -> env
+            EnterBindingRhs = fun env _ -> env
+            EnterLetBody = fun env _ -> env
+        }
+
+    let private walkModuleElem (walker: CstWalk.ExprWalker<unit>) (m: ModuleElem<SyntaxToken>) =
         match m with
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
             for b in bindings do
-                walkExpr ctx b.expr
-        | ModuleElem.Expression e -> walkExpr ctx e
+                CstWalk.iterExpr walker () b.expr
+        | ModuleElem.Expression e -> CstWalk.iterExpr walker () e
         | _ -> ()
 
-    let private walkElems (ctx: PassContext) (elems: ModuleElems<SyntaxToken>) =
+    let private walkElems (walker: CstWalk.ExprWalker<unit>) (elems: ModuleElems<SyntaxToken>) =
         for m in elems do
-            walkModuleElem ctx m
+            walkModuleElem walker m
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
+        let walker = mkWalker ctx
+
         match file with
-        | ImplementationFile.AnonymousModule elems -> walkElems ctx elems
-        | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) -> walkElems ctx elems
+        | ImplementationFile.AnonymousModule elems -> walkElems walker elems
+        | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) -> walkElems walker elems
         | ImplementationFile.Namespaces _ -> ()
