@@ -8,7 +8,7 @@ TypeDefn.Anon:
   begin                  <virt>            KWBegin             tok=virt  pos=  31
     abstract             'abstract'        KWAbstract          tok=  14  pos=  31
     member               'member'          KWMember            tok=  16  pos=  40
-    ident                'Greet'           Identifier          tok=  18  pos=  47
+    Ident                'Greet'           Identifier          tok=  18  pos=  47
     :                    ':'               OpColon             tok=  19  pos=  52
     NamedType:
       Ident              'string'          Identifier          tok=  21  pos=  54

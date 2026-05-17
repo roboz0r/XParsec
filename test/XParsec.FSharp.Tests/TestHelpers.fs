@@ -211,6 +211,11 @@ let testData =
         let dir = testDataDir.Value
         IO.Directory.GetFiles(dir, "*.fs")
 
+let sigTestData =
+    lazy
+        let dir = testDataDir.Value
+        IO.Directory.GetFiles(dir, "*.fsi") |> Array.sort
+
 let lexOnlyTestData =
     lazy
         let dir = Path.Combine(testDataDir.Value, "lex-only")
@@ -246,26 +251,18 @@ let testLexFile (filePath: string) =
             testLexed input expected
 
 
-/// Parses a source file using the given set of defined preprocessor symbols and compares
-/// the result against a golden `.parsed` file.
-///
-/// The golden file path is derived from the source path:
-///   - no symbols  → `<filePath>.parsed`
-///   - with symbols → `<filePath>.<sym1>_<sym2>….parsed`  (symbols sorted for determinism)
-///
-/// If the golden file does not yet exist it is created and the test fails with a prompt
-/// to verify the generated output.
-let testParseFileWith (definedSymbols: Set<string>) (filePath: string) =
+/// Shared core for golden-file parser tests. Parses the source via `parseFn`,
+/// formats the resulting AST + diagnostics via Debug, and asserts against
+/// the golden file at `expectedPath`. Creates the golden file if missing.
+let private testParseFileWithParser
+    (parseFn:
+        XParsec.FSharp.Parser.FSReader -> Result<XParsec.FSharp.Parser.FSharpAst<XParsec.FSharp.Parser.SyntaxToken>, _>)
+    (definedSymbols: Set<string>)
+    (filePath: string)
+    (expectedPath: string)
+    =
     let input = File.ReadAllText filePath
     let input = input.Replace("\r\n", "\n")
-
-    let symbolSuffix =
-        if definedSymbols.IsEmpty then
-            ""
-        else
-            "." + (definedSymbols |> String.concat "_")
-
-    let expectedPath = filePath + symbolSuffix + ".parsed"
 
     let actual =
         match Lexing.lexString input with
@@ -273,9 +270,8 @@ let testParseFileWith (definedSymbols: Set<string>) (filePath: string) =
         | Ok lexed ->
             let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed input definedSymbols
 
-            match XParsec.FSharp.Parser.FSharpAst.parse reader with
+            match parseFn reader with
             | Error e ->
-                // failwithf "Parsing failed: %A" e
                 failwithf "Parsing failed:\n%s" (XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
             | Ok ast ->
                 let ctx = XParsec.FSharp.Debug.PrintContext(2)
@@ -299,10 +295,32 @@ let testParseFileWith (definedSymbols: Set<string>) (filePath: string) =
         let expected = File.ReadAllText expectedPath
         Expect.equal actual expected "Parsed output does not match expected output."
 
+/// Parses a source file using the given set of defined preprocessor symbols and compares
+/// the result against a golden `.parsed` file.
+///
+/// The golden file path is derived from the source path:
+///   - no symbols  → `<filePath>.parsed`
+///   - with symbols → `<filePath>.<sym1>_<sym2>….parsed`  (symbols sorted for determinism)
+let testParseFileWith (definedSymbols: Set<string>) (filePath: string) =
+    let symbolSuffix =
+        if definedSymbols.IsEmpty then
+            ""
+        else
+            "." + (definedSymbols |> String.concat "_")
+
+    let expectedPath = filePath + symbolSuffix + ".parsed"
+    testParseFileWithParser XParsec.FSharp.Parser.FSharpAst.parse definedSymbols filePath expectedPath
+
 let testParseFile (filePath: string) = testParseFileWith Set.empty filePath
 
 let testParseFileWithSymbols (symbols: string list) (filePath: string) =
     testParseFileWith (Set.ofList symbols) filePath
+
+/// Parses a `.fsi` signature file via `FSharpAst.parseSignature` and asserts
+/// against `<filePath>.parsed` (e.g. `sig_00_anon_val.fsi.parsed`).
+let testParseSignatureFile (filePath: string) =
+    let expectedPath = filePath + ".parsed"
+    testParseFileWithParser XParsec.FSharp.Parser.FSharpAst.parseSignature Set.empty filePath expectedPath
 
 
 open FSharp.NativeInterop
@@ -476,20 +494,25 @@ let parseWithStackProbe (stackSize: int) (timeout: System.TimeSpan) (filePath: s
         taskResult
 
 /// Returns paths of golden files (`.parsed`, `.lexed`, `.lexedblocks`) in `dataDir` that have
-/// no corresponding `.fs` source file — i.e. orphans left behind after a source file was renamed
-/// or deleted.
+/// no corresponding `.fs` / `.fsi` source file — i.e. orphans left behind after a source
+/// file was renamed or deleted.
 let findOrphanedGoldenFiles (dataDir: string) : string array =
     [| "*.parsed"; "*.lexed"; "*.lexedblocks" |]
     |> Array.collect (fun ext -> Directory.GetFiles(dataDir, ext))
     |> Array.filter (fun goldenPath ->
         let fileName = Path.GetFileName goldenPath
+        // Prefer `.fsi.` match over `.fs.` so the longer signature extension wins.
+        let dotFsiIdx = fileName.IndexOf(".fsi.")
         let dotFsIdx = fileName.IndexOf(".fs.")
 
-        if dotFsIdx < 0 then
-            false // Cannot determine source name; not treated as orphaned
-        else
+        if dotFsiIdx >= 0 then
+            let sourceName = fileName.[.. dotFsiIdx + 3]
+            not (File.Exists(Path.Combine(dataDir, sourceName)))
+        elif dotFsIdx >= 0 then
             let sourceName = fileName.[.. dotFsIdx + 2]
             not (File.Exists(Path.Combine(dataDir, sourceName)))
+        else
+            false // Cannot determine source name; not treated as orphaned
     )
     |> Array.sort
 
@@ -498,11 +521,14 @@ type CorpusParseResult =
     | ParseError of string
     | ParseException of exn
     | Timeout
-    | Success of diagnosticCount: int
+    | Success of diagnosticCount: int * formattedDiagnostics: string
 
-/// Attempts to lex and parse a corpus file, returning a structured result.
+/// Shared core: attempts to lex and parse a corpus file using `parseFn`, returning a structured result.
 /// Runs on a separate thread with a timeout to guard against infinite loops / stack overflows.
-let tryParseCorpusFile (filePath: string) : CorpusParseResult =
+let private tryParseCorpusFileWith
+    (parseFn: XParsec.FSharp.Parser.FSReader -> Result<_, _>)
+    (filePath: string)
+    : CorpusParseResult =
     let input = File.ReadAllText filePath
     let input = input.Replace("\r\n", "\n")
 
@@ -517,12 +543,21 @@ let tryParseCorpusFile (filePath: string) : CorpusParseResult =
                     try
                         let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed input Set.empty
 
-                        match XParsec.FSharp.Parser.FSharpAst.parse reader with
+                        match parseFn reader with
                         | Error e ->
                             result <- ParseError(XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
                         | Ok _ ->
                             let diagCount = reader.State.Diagnostics.Length
-                            result <- Success diagCount
+
+                            let formatted =
+                                if diagCount = 0 then
+                                    ""
+                                else
+                                    let ctx = XParsec.FSharp.Debug.PrintContext(2)
+                                    XParsec.FSharp.Debug.printDiagnostics ctx input reader.State.Diagnostics
+                                    ctx.FlushToString()
+
+                            result <- Success(diagCount, formatted)
                     with ex ->
                         result <- ParseException ex
                 ),
@@ -535,3 +570,18 @@ let tryParseCorpusFile (filePath: string) : CorpusParseResult =
             Timeout
         else
             result
+
+let tryParseCorpusFile (filePath: string) : CorpusParseResult =
+    tryParseCorpusFileWith XParsec.FSharp.Parser.FSharpAst.parse filePath
+
+/// Sig-file variant of `tryParseCorpusFile`. Use for `.fsi` files (e.g. FSharp.Core).
+let tryParseSignatureCorpusFile (filePath: string) : CorpusParseResult =
+    tryParseCorpusFileWith XParsec.FSharp.Parser.FSharpAst.parseSignature filePath
+
+/// Find all `.fsi` files under a directory recursively, sorted by relative path.
+/// Returns empty array if the directory doesn't exist (so tests can be opt-in).
+let findSignatureCorpusFiles (rootDir: string) : string array =
+    if Directory.Exists rootDir then
+        Directory.GetFiles(rootDir, "*.fsi", SearchOption.AllDirectories) |> Array.sort
+    else
+        Array.empty

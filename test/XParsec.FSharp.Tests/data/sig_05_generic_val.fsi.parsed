@@ -1,0 +1,97 @@
+module          'module'          KWModule            tok=   0  pos=   0
+                'Generic'         Identifier          tok=   2  pos=   7
+Val:
+  val           'val'             KWVal               tok=   5  pos=  16
+  inline        'inline'          KWInline            tok=   7  pos=  20
+  Ident         'id'              Identifier          tok=   9  pos=  27
+  :             ':'               OpColon             tok=  10  pos=  29
+  arg           'x'               Identifier          tok=  12  pos=  31
+  :             ':'               OpColon             tok=  13  pos=  32
+  VarType:
+    Typar.Named:
+                ''T'              TypeParameter       tok=  15  pos=  34
+  ->            '->'              OpArrowRight        tok=  17  pos=  37
+  VarType:
+    Typar.Named:
+                ''T'              TypeParameter       tok=  19  pos=  40
+Val:
+  val           'val'             KWVal               tok=  21  pos=  43
+  inline        'inline'          KWInline            tok=  23  pos=  47
+  Ident         'fold'            Identifier          tok=  25  pos=  54
+  TyparDefns:
+    <           '<'               op_LessThan         tok=  26  pos=  58
+    Typar.Named:
+                ''T'              TypeParameter       tok=  27  pos=  59
+    Typar.Named:
+                ''State'          TypeParameter       tok=  30  pos=  63
+    >           '>'               op_GreaterThan      tok=  31  pos=  69
+  :             ':'               OpColon             tok=  33  pos=  71
+  arg           'folder'          Identifier          tok=  35  pos=  73
+  :             ':'               OpColon             tok=  36  pos=  79
+  ParenType     '('               KWLParen            tok=  38  pos=  81
+    FunctionType:
+      VarType:
+        Typar.Named:
+                ''State'          TypeParameter       tok=  39  pos=  82
+      ->        '->'              OpArrowRight        tok=  41  pos=  89
+      FunctionType:
+        VarType:
+          Typar.Named:
+                ''T'              TypeParameter       tok=  43  pos=  92
+        ->      '->'              OpArrowRight        tok=  45  pos=  95
+        VarType:
+          Typar.Named:
+                ''State'          TypeParameter       tok=  47  pos=  98
+                ')'               KWRParen            tok=  48  pos= 104
+  ->            '->'              OpArrowRight        tok=  50  pos= 106
+  arg           'state'           Identifier          tok=  52  pos= 109
+  :             ':'               OpColon             tok=  53  pos= 114
+  VarType:
+    Typar.Named:
+                ''State'          TypeParameter       tok=  55  pos= 116
+  ->            '->'              OpArrowRight        tok=  57  pos= 123
+  arg           'source'          Identifier          tok=  59  pos= 126
+  :             ':'               OpColon             tok=  60  pos= 132
+  GenericType:
+    Ident       'seq'             Identifier          tok=  62  pos= 134
+    <           '<'               op_LessThan         tok=  63  pos= 137
+    TypeArg.Type:
+      VarType:
+        Typar.Named:
+                ''T'              TypeParameter       tok=  64  pos= 138
+    >           '>'               op_GreaterThan      tok=  65  pos= 140
+  ->            '->'              OpArrowRight        tok=  67  pos= 142
+  VarType:
+    Typar.Named:
+                ''State'          TypeParameter       tok=  69  pos= 145
+Val:
+  val           'val'             KWVal               tok=  71  pos= 152
+  inline        'inline'          KWInline            tok=  73  pos= 156
+  Ident         'contains'        Identifier          tok=  75  pos= 163
+  :             ':'               OpColon             tok=  76  pos= 171
+  arg           'value'           Identifier          tok=  78  pos= 173
+  :             ':'               OpColon             tok=  79  pos= 178
+  VarType:
+    Typar.Named:
+                ''T'              TypeParameter       tok=  81  pos= 180
+  ->            '->'              OpArrowRight        tok=  83  pos= 183
+  arg           'source'          Identifier          tok=  85  pos= 186
+  :             ':'               OpColon             tok=  86  pos= 192
+  GenericType:
+    Ident       'seq'             Identifier          tok=  88  pos= 194
+    <           '<'               op_LessThan         tok=  89  pos= 197
+    TypeArg.Type:
+      VarType:
+        Typar.Named:
+                ''T'              TypeParameter       tok=  90  pos= 198
+    >           '>'               op_GreaterThan      tok=  91  pos= 200
+  ->            '->'              OpArrowRight        tok=  93  pos= 202
+  WhenConstrainedType:
+    NamedType:
+      Ident     'bool'            Identifier          tok=  95  pos= 205
+    when        'when'            KWWhen              tok=  97  pos= 210
+    Constraint.Equality:
+      Typar.Named:
+                ''T'              TypeParameter       tok=  99  pos= 215
+      :         ':'               OpColon             tok= 100  pos= 217
+      equality  'equality'        Identifier          tok= 102  pos= 219

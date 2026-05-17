@@ -1,0 +1,37 @@
+module     'module'          KWModule            tok=   0  pos=   0
+           'Foo'             Identifier          tok=   2  pos=   7
+           'Bar'             Identifier          tok=   4  pos=  11
+Val:
+  val      'val'             KWVal               tok=   7  pos=  16
+  Ident    'f'               Identifier          tok=   9  pos=  20
+  :        ':'               OpColon             tok=  10  pos=  21
+  NamedType:
+    Ident  'int'             Identifier          tok=  12  pos=  23
+  ->       '->'              OpArrowRight        tok=  14  pos=  27
+  NamedType:
+    Ident  'int'             Identifier          tok=  16  pos=  30
+Val:
+  val      'val'             KWVal               tok=  18  pos=  34
+  Ident    'g'               Identifier          tok=  20  pos=  38
+  :        ':'               OpColon             tok=  21  pos=  39
+  NamedType:
+    Ident  'string'          Identifier          tok=  23  pos=  41
+  ->       '->'              OpArrowRight        tok=  25  pos=  48
+  NamedType:
+    Ident  'int'             Identifier          tok=  27  pos=  51
+Val:
+  val      'val'             KWVal               tok=  29  pos=  55
+  Ident    'h'               Identifier          tok=  31  pos=  59
+  :        ':'               OpColon             tok=  32  pos=  60
+  arg      'x'               Identifier          tok=  34  pos=  62
+  :        ':'               OpColon             tok=  35  pos=  63
+  NamedType:
+    Ident  'int'             Identifier          tok=  37  pos=  65
+  ->       '->'              OpArrowRight        tok=  39  pos=  69
+  arg      'y'               Identifier          tok=  41  pos=  72
+  :        ':'               OpColon             tok=  42  pos=  73
+  NamedType:
+    Ident  'int'             Identifier          tok=  44  pos=  75
+  ->       '->'              OpArrowRight        tok=  46  pos=  79
+  NamedType:
+    Ident  'int'             Identifier          tok=  48  pos=  82

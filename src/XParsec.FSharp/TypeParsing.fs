@@ -181,21 +181,10 @@ module Constraint =
     let private pUpcast =
         nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.OpUpcast) ":>"
 
-    // Parses the member name inside a constraint member sig: plain ident or parenthesized operator.
-    // For operators like (=), we consume '(' op ')' and return the op token as the ident,
-    // since MemberSig.ident is a single token and the structural parens are not stored.
-    let private pConstraintMemberName =
-        choiceL
-            [
-                pIdent
-                parser {
-                    let! _lParen = pLParen
-                    let! op = nextSyntaxToken
-                    let! _rParen = pRParen
-                    return op
-                }
-            ]
-            "member name (identifier or parenthesized operator)"
+    // Parses the member name inside a constraint member sig: plain ident, parenthesized operator,
+    // or active-pattern name. Returns IdentOrOp to match MemberSig.ident.
+    let private pConstraintMemberName: FSParser<IdentOrOp<SyntaxToken>> =
+        IdentOrOp.parse
 
     // Parses the signature inside a constraint member: ident-or-(op) ':' curried-sig ('with' get/set)?
     // Uses the same CurriedSig grammar as ordinary abstract member sigs (via refCurriedSig)
@@ -658,6 +647,11 @@ module Type =
     /// Parses a single type without consuming `*` as a tuple separator.
     /// Use in contexts where `*` is an explicit separator (e.g. union case fields).
     let parseField = pPostfixType
+
+    /// Like `parseField` but ALSO accepts nullable-union types (`T | null`).
+    /// Use in CurriedSig/UncurriedSig arg-spec position, where `*` separates args
+    /// but `|` inside an arg-type denotes a nullable union (F# 9+).
+    let parseArgField = pUnionType
 
     // Variants that do NOT consume `|` as a nullable-ref type union.
     // Used in contexts where `|` separates something else (e.g. DU case separators).

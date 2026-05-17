@@ -6,7 +6,7 @@ TypeDefn.Anon:
   =                                      '='               OpEquality          tok=  16  pos= 313
   begin                                  <virt>            KWBegin             tok=virt  pos= 319
     abstract                             'abstract'        KWAbstract          tok=  19  pos= 319
-    ident                                'FormatProv...'   Identifier          tok=  21  pos= 328
+    Ident                                'FormatProv...'   Identifier          tok=  21  pos= 328
     :                                    ':'               OpColon             tok=  22  pos= 342
     NamedType:
       Ident                              'obj'             Identifier          tok=  24  pos= 344

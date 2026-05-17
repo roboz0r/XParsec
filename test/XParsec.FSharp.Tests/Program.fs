@@ -22,11 +22,11 @@ let private parseFileMain (path: string) =
         let result = tryParseCorpusFile path
 
         match result with
-        | Success 0 ->
+        | Success(0, _) ->
             printfn "OK"
             testParseFile path
             0
-        | Success n ->
+        | Success(n, _) ->
             printfn "DIAG %d" n
             testParseFile path
             1

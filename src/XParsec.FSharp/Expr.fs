@@ -512,9 +512,10 @@ and CurriedSig<'T> = | CurriedSig of args: ImArr<struct (ArgsSpec<'T> * 'T)> * r
 and UncurriedSig<'T> = | UncurriedSig of args: ArgsSpec<'T> * arrow: 'T * returnType: Type<'T>
 
 and [<RequireQualifiedAccess>] MemberSig<'T> =
-    | MethodOrPropSig of ident: 'T * typarDefns: TyparDefns<'T> voption * colon: 'T * sign: CurriedSig<'T>
+    // `ident` is IdentOrOp so member/abstract sigs can use operator names: `static member (+): T * T -> T`.
+    | MethodOrPropSig of ident: IdentOrOp<'T> * typarDefns: TyparDefns<'T> voption * colon: 'T * sign: CurriedSig<'T>
     | PropSig of
-        ident: 'T *
+        ident: IdentOrOp<'T> *
         typarDefns: TyparDefns<'T> voption *
         colon: 'T *
         sign: CurriedSig<'T> *

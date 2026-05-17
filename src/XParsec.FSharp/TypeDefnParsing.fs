@@ -100,8 +100,9 @@ module ArgSpec =
             let! attrs = opt Attributes.parse
             // Try parse "name :" first
             let! nameSpec = opt ArgNameSpec.parse
-            // Use parseField (pPostfixType) not Type.parse: * separates args, -> separates arg groups
-            let! typ = Type.parseField
+            // Use parseArgField (allows `T | null`) not parseField: * separates args,
+            // -> separates arg groups, `|` inside the type denotes a nullable union.
+            let! typ = Type.parseArgField
             return ArgSpec.ArgSpec(attrs, nameSpec, typ)
         }
 
@@ -155,7 +156,8 @@ member-sig :=
 
     let parse: Parser<MemberSig<SyntaxToken>, _, _, _> =
         parser {
-            let! ident = pIdent
+            // IdentOrOp so `static member (+): T * T -> T` parses; covers plain idents too.
+            let! ident = IdentOrOp.parse
             let! typars = opt TyparDefns.parse
             let! colon = pColon
             let! sigType = CurriedSig.parse

@@ -110,6 +110,108 @@ module FSharpAst =
             ImplementationFile.Namespaces(decls.SetItem(lastIdx, updatedLast))
         | ImplementationFile.Namespaces _ -> ImplementationFile.AnonymousModule(ImmutableArray.Create(skipElem))
 
+    /// Skips all remaining non-EOF tokens, collecting them into a list keyed for sig-file diagnostics.
+    let private appendSkippedToSig (skipped: ImmutableArray<SyntaxToken>) (sigFile: SignatureFile<SyntaxToken>) =
+        let skipElem = ModuleSignatureElement.SkipsTokens(skipped)
+
+        match sigFile with
+        | SignatureFile.AnonymousModule elems -> SignatureFile.AnonymousModule(elems.Add(skipElem))
+        | SignatureFile.NamedModule(NamedModuleSignature.NamedModuleSignature(attrs,
+                                                                              modTok,
+                                                                              access,
+                                                                              isRec,
+                                                                              longIdent,
+                                                                              elems)) ->
+            SignatureFile.NamedModule(
+                NamedModuleSignature.NamedModuleSignature(attrs, modTok, access, isRec, longIdent, elems.Add(skipElem))
+            )
+        | SignatureFile.Namespaces decls when decls.Length > 0 ->
+            let lastIdx = decls.Length - 1
+
+            let updatedLast =
+                match decls[lastIdx] with
+                | NamespaceDeclGroupSignature.Named(ns, isRec, ident, elems) ->
+                    NamespaceDeclGroupSignature.Named(ns, isRec, ident, elems.Add(skipElem))
+                | NamespaceDeclGroupSignature.Global(ns, g, elems) ->
+                    NamespaceDeclGroupSignature.Global(ns, g, elems.Add(skipElem))
+
+            SignatureFile.Namespaces(decls.SetItem(lastIdx, updatedLast))
+        | SignatureFile.Namespaces _ -> SignatureFile.AnonymousModule(ImmutableArray.Create(skipElem))
+
+    /// Infallible top-level signature-file parser. Always returns Ok with errors captured as diagnostics.
+    /// Use for `.fsi` files; `.fs` files go through `parse`.
+    let parseSignature: Parser<FSharpAst<SyntaxToken>, PositionedToken, ParseState, _> =
+        fun reader ->
+            let startPos = reader.Position
+
+            let fileIndent =
+                match peekNextSyntaxToken reader with
+                | Ok tok ->
+                    match tok.Index with
+                    | TokenIndex.Regular iT -> ParseState.getIndent reader.State iT
+                    | TokenIndex.Virtual -> 0
+                | Error _ -> 0
+
+            let entry: Offside =
+                {
+                    Context = OffsideContext.SeqBlock
+                    Indent = fileIndent
+                    Token = PositionedToken.Create(Token.EOF, 0)
+                }
+
+            reader.State <- ParseState.pushOffside entry reader.State
+
+            let pSig = SignatureFile.parse .>> pEof |>> FSharpAst.SignatureFile
+
+            match pSig reader with
+            | Ok result -> Ok result
+            | Error topErr ->
+                // Reset and try SignatureFile.parse without pEof, then collect leftover tokens.
+                reader.Position <- startPos
+
+                match SignatureFile.parse reader with
+                | Ok sigFile ->
+                    let skipped = skipToEof reader
+
+                    let sigFile' =
+                        if skipped.IsEmpty then
+                            sigFile
+                        else
+                            let startTok = skipped.[0]
+
+                            reader.State <-
+                                addErrorDiagnosticWithError
+                                    DiagnosticCode.UnexpectedTopLevel
+                                    startTok.PositionedToken
+                                    topErr
+                                    reader.State
+
+                            appendSkippedToSig skipped sigFile
+
+                    Ok(FSharpAst.SignatureFile sigFile')
+
+                | Error _ ->
+                    // Nothing parseable at all — return empty anonymous sig with diagnostics.
+                    reader.Position <- startPos
+                    let skipped = skipToEof reader
+
+                    let elems =
+                        if not skipped.IsEmpty then
+                            let startTok = skipped.[0]
+
+                            reader.State <-
+                                addErrorDiagnosticWithError
+                                    DiagnosticCode.UnexpectedTopLevel
+                                    startTok.PositionedToken
+                                    topErr
+                                    reader.State
+
+                            ImmutableArray.Create(ModuleSignatureElement.SkipsTokens(skipped))
+                        else
+                            ImmutableArray.Empty
+
+                    Ok(FSharpAst.SignatureFile(SignatureFile.AnonymousModule elems))
+
     /// Infallible top-level parser. Always returns Ok with errors captured as diagnostics.
     let parse: Parser<FSharpAst<SyntaxToken>, PositionedToken, ParseState, _> =
         fun reader ->

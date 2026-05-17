@@ -1,0 +1,121 @@
+module            'module'          KWModule            tok=   0  pos=   0
+                  'ExplicitBo...'   Identifier          tok=   2  pos=   7
+Type:
+  type            'type'            KWType              tok=   9  pos=  34
+  TypeSig.Struct:
+    [<            '[<'              KWLAttrBracket      tok=   5  pos=  23
+    NamedType:
+      Ident       'Struct'          Identifier          tok=   6  pos=  25
+    >]            '>]'              KWRAttrBracket      tok=   7  pos=  31
+    TypeName      'Box'             Identifier          tok=  11  pos=  39
+    =             '='               OpEquality          tok=  13  pos=  43
+    struct        'struct'          KWStruct            tok=  16  pos=  49
+      Val:
+        val       'val'             KWVal               tok=  19  pos=  64
+        mutable   'mutable'         KWMutable           tok=  21  pos=  68
+        ident     'Value'           Identifier          tok=  23  pos=  76
+        :         ':'               OpColon             tok=  24  pos=  81
+        NamedType:
+          Ident   'int'             Identifier          tok=  26  pos=  83
+      Constructor:
+        new       'new'             KWNew               tok=  29  pos=  95
+        :         ':'               OpColon             tok=  30  pos=  98
+        arg       'v'               Identifier          tok=  32  pos= 100
+        :         ':'               OpColon             tok=  33  pos= 101
+        NamedType:
+          Ident   'int'             Identifier          tok=  35  pos= 103
+        ->        '->'              OpArrowRight        tok=  37  pos= 107
+        NamedType:
+          Ident   'Box'             Identifier          tok=  39  pos= 110
+      Member:
+        member    'member'          KWMember            tok=  42  pos= 122
+        Ident     'Doubled'         Identifier          tok=  44  pos= 129
+        :         ':'               OpColon             tok=  45  pos= 136
+        NamedType:
+          Ident   'int'             Identifier          tok=  47  pos= 138
+    end           'end'             KWEnd               tok=  50  pos= 146
+Type:
+  type            'type'            KWType              tok=  53  pos= 151
+  TypeSig.Interface:
+    TypeName      'IBag'            Identifier          tok=  55  pos= 156
+    =             '='               OpEquality          tok=  57  pos= 161
+    interface     'interface'       KWInterface         tok=  60  pos= 167
+      Abstract:
+        abstract  'abstract'        KWAbstract          tok=  63  pos= 185
+        member    'member'          KWMember            tok=  65  pos= 194
+        Ident     'Add'             Identifier          tok=  67  pos= 201
+        :         ':'               OpColon             tok=  68  pos= 204
+        arg       'item'            Identifier          tok=  70  pos= 206
+        :         ':'               OpColon             tok=  71  pos= 210
+        NamedType:
+          Ident   'obj'             Identifier          tok=  73  pos= 212
+        ->        '->'              OpArrowRight        tok=  75  pos= 216
+        NamedType:
+          Ident   'unit'            Identifier          tok=  77  pos= 219
+      Abstract:
+        abstract  'abstract'        KWAbstract          tok=  80  pos= 232
+        member    'member'          KWMember            tok=  82  pos= 241
+        Ident     'Count'           Identifier          tok=  84  pos= 248
+        :         ':'               OpColon             tok=  85  pos= 253
+        NamedType:
+          Ident   'int'             Identifier          tok=  87  pos= 255
+        with      'with'            KWWith              tok=  89  pos= 259
+        get/set   'get'             Identifier          tok=  91  pos= 264
+    end           'end'             KWEnd               tok=  94  pos= 272
+Type:
+  type            'type'            KWType              tok=  97  pos= 277
+  TypeSig.Class:
+    TypeName      'Pool'            Identifier          tok=  99  pos= 282
+    TyparDefns:
+      <           '<'               op_LessThan         tok= 100  pos= 286
+      Typar.Named:
+                  ''T'              TypeParameter       tok= 101  pos= 287
+      >           '>'               op_GreaterThan      tok= 102  pos= 289
+    =             '='               OpEquality          tok= 104  pos= 291
+    class         'class'           KWClass             tok= 107  pos= 297
+      Constructor:
+        new       'new'             KWNew               tok= 110  pos= 311
+        :         ':'               OpColon             tok= 111  pos= 314
+        arg       'capacity'        Identifier          tok= 113  pos= 316
+        :         ':'               OpColon             tok= 114  pos= 324
+        NamedType:
+          Ident   'int'             Identifier          tok= 116  pos= 326
+        ->        '->'              OpArrowRight        tok= 118  pos= 330
+        GenericType:
+          Ident   'Pool'            Identifier          tok= 120  pos= 333
+          <       '<'               op_LessThan         tok= 121  pos= 337
+          TypeArg.Type:
+            VarType:
+              Typar.Named:
+                  ''T'              TypeParameter       tok= 122  pos= 338
+          >       '>'               op_GreaterThan      tok= 123  pos= 340
+      Member:
+        member    'member'          KWMember            tok= 126  pos= 350
+        Ident     'Get'             Identifier          tok= 128  pos= 357
+        :         ':'               OpColon             tok= 129  pos= 360
+        NamedType:
+          Ident   'unit'            Identifier          tok= 131  pos= 362
+        ->        '->'              OpArrowRight        tok= 133  pos= 367
+        VarType:
+          Typar.Named:
+                  ''T'              TypeParameter       tok= 135  pos= 370
+      Member:
+        member    'member'          KWMember            tok= 138  pos= 381
+        Ident     'Put'             Identifier          tok= 140  pos= 388
+        :         ':'               OpColon             tok= 141  pos= 391
+        arg       'item'            Identifier          tok= 143  pos= 393
+        :         ':'               OpColon             tok= 144  pos= 397
+        VarType:
+          Typar.Named:
+                  ''T'              TypeParameter       tok= 146  pos= 399
+        ->        '->'              OpArrowRight        tok= 148  pos= 402
+        NamedType:
+          Ident   'unit'            Identifier          tok= 150  pos= 405
+      Abstract:
+        abstract  'abstract'        KWAbstract          tok= 153  pos= 418
+        member    'member'          KWMember            tok= 155  pos= 427
+        Ident     'Capacity'        Identifier          tok= 157  pos= 434
+        :         ':'               OpColon             tok= 158  pos= 442
+        NamedType:
+          Ident   'int'             Identifier          tok= 160  pos= 444
+    end           'end'             KWEnd               tok= 163  pos= 452

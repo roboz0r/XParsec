@@ -56,6 +56,45 @@ let tests =
             }
         ]
 
+/// Signature-file (`.fsi`) parser tests, discovered automatically from `.fsi` files in `data/`.
+/// To add a new test: create the `.fsi` source file, run once locally (it will create the golden
+/// file and fail), verify the output is correct, then commit both files.
+[<Tests>]
+let signatureTests =
+    testList
+        "SignatureTests"
+        [
+            for path in sigTestData.Value do
+                let fileName = Path.GetFileName path
+                let name = $"Parsing {fileName}"
+                test name { testParseSignatureFile path }
+        ]
+
+/// FSharp.Core corpus pass: every .fsi under `test/.../data/fsharp-core-fsi/` must parse Ok
+/// (with zero recovery diagnostics). The corpus is a copy of `dotnet/fsharp` FSharp.Core .fsi files.
+[<Tests>]
+let fsharpCoreCorpusTests =
+    let corpusDir = Path.Combine(testDataDir.Value, "fsharp-core-fsi")
+    let files = findSignatureCorpusFiles corpusDir
+
+    testList
+        "FSharpCoreCorpus"
+        [
+            for path in files do
+                let relPath = Path.GetRelativePath(corpusDir, path)
+                let name = $"Sig parse {relPath}"
+
+                test name {
+                    match tryParseSignatureCorpusFile path with
+                    | Success(0, _) -> ()
+                    | Success(n, diag) -> failtestf "Parsed with %d diagnostic(s):\n%s" n diag
+                    | LexError msg -> failtestf "Lex failed: %s" msg
+                    | ParseError msg -> failtestf "Parse failed:\n%s" msg
+                    | ParseException ex -> failtestf "Exception %s: %s" (ex.GetType().Name) ex.Message
+                    | Timeout -> failtest "Timed out (>30s)"
+                }
+        ]
+
 [<Tests>]
 let integrityTests =
     testList

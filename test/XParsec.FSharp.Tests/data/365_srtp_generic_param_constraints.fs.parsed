@@ -57,7 +57,10 @@ TypeDefn.Anon:
         (                  '('               KWLParen            tok= 111  pos=1271
         static             'static'          KWStatic            tok= 112  pos=1272
         member             'member'          KWMember            tok= 114  pos=1279
-        ident              '+'               op_Addition         tok= 118  pos=1288
+        ParenOp:
+                           '('               KWLParen            tok= 116  pos=1286
+          SymbolicOp       '+'               op_Addition         tok= 118  pos=1288
+                           ')'               KWRParen            tok= 120  pos=1290
         :                  ':'               OpColon             tok= 122  pos=1292
         VarType:
           Typar.Static:
@@ -82,7 +85,7 @@ TypeDefn.Anon:
         (                  '('               KWLParen            tok= 146  pos=1373
         static             'static'          KWStatic            tok= 147  pos=1374
         member             'member'          KWMember            tok= 149  pos=1381
-        ident              'Zero'            Identifier          tok= 151  pos=1388
+        Ident              'Zero'            Identifier          tok= 151  pos=1388
         :                  ':'               OpColon             tok= 153  pos=1393
         VarType:
           Typar.Static:

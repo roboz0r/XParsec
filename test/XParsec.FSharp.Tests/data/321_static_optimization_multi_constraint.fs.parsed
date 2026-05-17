@@ -183,7 +183,10 @@ FunctionOrValue:
           (                      '('               KWLParen            tok= 200  pos= 496
           static                 'static'          KWStatic            tok= 201  pos= 497
           member                 'member'          KWMember            tok= 203  pos= 504
-          ident                  '+'               op_Addition         tok= 206  pos= 512
+          ParenOp:
+                                 '('               KWLParen            tok= 205  pos= 511
+            SymbolicOp           '+'               op_Addition         tok= 206  pos= 512
+                                 ')'               KWRParen            tok= 207  pos= 513
           :                      ':'               OpColon             tok= 209  pos= 515
           VarType:
             Typar.Static:

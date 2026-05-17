@@ -22,7 +22,10 @@ FunctionOrValue:
         (                    '('               KWLParen            tok=  30  pos= 136
         static               'static'          KWStatic            tok=  31  pos= 137
         member               'member'          KWMember            tok=  33  pos= 144
-        ident                '='               OpEquality          tok=  36  pos= 152
+        ParenOp:
+                             '('               KWLParen            tok=  35  pos= 151
+          SymbolicOp         '='               OpEquality          tok=  36  pos= 152
+                             ')'               KWRParen            tok=  37  pos= 153
         :                    ':'               OpColon             tok=  38  pos= 154
         VarType:
           Typar.Named:
@@ -76,7 +79,10 @@ TypeDefn.Anon:
       (                      '('               KWLParen            tok=  89  pos= 262
       static                 'static'          KWStatic            tok=  90  pos= 263
       member                 'member'          KWMember            tok=  92  pos= 270
-      ident                  '='               OpEquality          tok=  95  pos= 278
+      ParenOp:
+                             '('               KWLParen            tok=  94  pos= 277
+        SymbolicOp           '='               OpEquality          tok=  95  pos= 278
+                             ')'               KWRParen            tok=  96  pos= 279
       :                      ':'               OpColon             tok=  97  pos= 280
       VarType:
         Typar.Named:

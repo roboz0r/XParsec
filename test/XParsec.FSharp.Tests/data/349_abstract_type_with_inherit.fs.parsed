@@ -7,12 +7,12 @@ TypeDefn.Anon:
   =                      '='               OpEquality          tok=  15  pos= 213
   begin                  <virt>            KWBegin             tok=virt  pos= 219
     abstract             'abstract'        KWAbstract          tok=  18  pos= 219
-    ident                'ILModuleDe...'   Identifier          tok=  20  pos= 228
+    Ident                'ILModuleDe...'   Identifier          tok=  20  pos= 228
     :                    ':'               OpColon             tok=  21  pos= 239
     NamedType:
       Ident              'int'             Identifier          tok=  23  pos= 241
     abstract             'abstract'        KWAbstract          tok=  26  pos= 249
-    ident                'ILAssembly...'   Identifier          tok=  28  pos= 258
+    Ident                'ILAssembly...'   Identifier          tok=  28  pos= 258
     :                    ':'               OpColon             tok=  29  pos= 272
     SuffixedType:
       NamedType:

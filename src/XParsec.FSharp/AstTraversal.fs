@@ -1706,11 +1706,11 @@ and walkCurriedSig (visitor: AstVisitor<'T>) (sign: CurriedSig<'T>) : unit =
 and walkMemberSig (visitor: AstVisitor<'T>) (sign: MemberSig<'T>) : unit =
     match sign with
     | MemberSig.MethodOrPropSig(ident, _, colon, sigType) ->
-        visitor.VisitToken "ident" ident
+        walkIdentOrOp visitor ident
         visitor.VisitToken ":" colon
         walkCurriedSig visitor sigType
     | MemberSig.PropSig(ident, _, colon, sigType, withTok, (first, second)) ->
-        visitor.VisitToken "ident" ident
+        walkIdentOrOp visitor ident
         visitor.VisitToken ":" colon
         walkCurriedSig visitor sigType
         visitor.VisitToken "with" withTok
@@ -2379,10 +2379,376 @@ and walkImplementationFile (visitor: AstVisitor<'T>) (file: ImplementationFile<'
         for group in groups do
             walkNamespaceDeclGroup visitor group
 
+and walkValSig (visitor: AstVisitor<'T>) (valSig: ValSig<'T>) : unit =
+    let (ValSig.ValSig(attrs, valTok, inlineTok, access, mutableTok, ident, typars, colon, signature, literalValue)) =
+        valSig
+
+    walkAttributesOpt visitor attrs
+    visitor.VisitToken "val" valTok
+    visitTokenOpt visitor "inline" inlineTok
+    walkAccessOpt visitor access
+    visitTokenOpt visitor "mutable" mutableTok
+    walkIdentOrOp visitor ident
+
+    match typars with
+    | ValueSome t -> walkTyparDefns visitor t
+    | ValueNone -> ()
+
+    visitor.VisitToken ":" colon
+    walkCurriedSig visitor signature
+
+    match literalValue with
+    | ValueSome(eq, expr) ->
+        visitor.VisitToken "=" eq
+        walkExpr visitor expr
+    | ValueNone -> ()
+
+and walkTypeSignatureElement (visitor: AstVisitor<'T>) (elem: TypeSignatureElement<'T>) : unit =
+    match elem with
+    | TypeSignatureElement.Constructor(attrs, access, newTok, colon, signature) ->
+        visitor.EnterSection "Constructor"
+        walkAttributesOpt visitor attrs
+        walkAccessOpt visitor access
+        visitor.VisitToken "new" newTok
+        visitor.VisitToken ":" colon
+        walkUncurriedSig visitor signature
+        visitor.ExitSection "Constructor"
+    | TypeSignatureElement.Member(attrs, memberTok, inlineTok, access, signature) ->
+        visitor.EnterSection "Member"
+        walkAttributesOpt visitor attrs
+        visitor.VisitToken "member" memberTok
+        visitTokenOpt visitor "inline" inlineTok
+        walkAccessOpt visitor access
+        walkMemberSig visitor signature
+        visitor.ExitSection "Member"
+    | TypeSignatureElement.Abstract(attrs, abstractTok, memberTok, access, signature) ->
+        visitor.EnterSection "Abstract"
+        walkAttributesOpt visitor attrs
+        visitor.VisitToken "abstract" abstractTok
+        visitTokenOpt visitor "member" memberTok
+        walkAccessOpt visitor access
+        walkMemberSig visitor signature
+        visitor.ExitSection "Abstract"
+    | TypeSignatureElement.Override(attrs, overrideTok, signature) ->
+        visitor.EnterSection "Override"
+        walkAttributesOpt visitor attrs
+        visitor.VisitToken "override" overrideTok
+        walkMemberSig visitor signature
+        visitor.ExitSection "Override"
+    | TypeSignatureElement.Default(attrs, defaultTok, signature) ->
+        visitor.EnterSection "Default"
+        walkAttributesOpt visitor attrs
+        visitor.VisitToken "default" defaultTok
+        walkMemberSig visitor signature
+        visitor.ExitSection "Default"
+    | TypeSignatureElement.StaticMember(attrs, staticTok, memberTok, inlineTok, access, signature) ->
+        visitor.EnterSection "StaticMember"
+        walkAttributesOpt visitor attrs
+        visitor.VisitToken "static" staticTok
+        visitor.VisitToken "member" memberTok
+        visitTokenOpt visitor "inline" inlineTok
+        walkAccessOpt visitor access
+        walkMemberSig visitor signature
+        visitor.ExitSection "StaticMember"
+    | TypeSignatureElement.Interface(InterfaceSpec.InterfaceSpec(interfaceTok, typ)) ->
+        visitor.EnterSection "InterfaceSpec"
+        visitor.VisitToken "interface" interfaceTok
+        walkType visitor typ
+        visitor.ExitSection "InterfaceSpec"
+    | TypeSignatureElement.Value(attrs, staticTok, valTok, mutableTok, access, ident, colon, typ) ->
+        visitor.EnterSection "Val"
+        walkAttributesOpt visitor attrs
+        visitTokenOpt visitor "static" staticTok
+        visitor.VisitToken "val" valTok
+        visitTokenOpt visitor "mutable" mutableTok
+        walkAccessOpt visitor access
+        visitor.VisitToken "ident" ident
+        visitor.VisitToken ":" colon
+        walkType visitor typ
+        visitor.ExitSection "Val"
+    | TypeSignatureElement.Inherit(ClassInheritsDecl(inhTok, typ, expr)) ->
+        visitor.VisitToken "inherit" inhTok
+        walkType visitor typ
+
+        match expr with
+        | ValueSome e -> walkExpr visitor e
+        | ValueNone -> ()
+
+and walkTypeExtensionElementsSignature (visitor: AstVisitor<'T>) (ext: TypeExtensionElementsSignature<'T>) : unit =
+    let (TypeExtensionElementsSignature.TypeExtensionElementsSignature(withTok, elems, endTok)) =
+        ext
+
+    visitor.VisitToken "with" withTok
+    visitor.EnterSection ""
+
+    for e in elems do
+        walkTypeSignatureElement visitor e
+
+    visitor.ExitSection ""
+    visitor.VisitToken "end" endTok
+
+and walkTypeSignature (visitor: AstVisitor<'T>) (typeSig: TypeSignature<'T>) : unit =
+    match typeSig with
+    | TypeSignature.Abbrev(typeName, equals, typ) ->
+        visitor.EnterSection "TypeSig.Abbrev"
+        walkTypeName visitor typeName
+        visitor.VisitToken "=" equals
+        visitor.EnterSection ""
+        walkType visitor typ
+        visitor.ExitSection ""
+        visitor.ExitSection "TypeSig.Abbrev"
+    | TypeSignature.Union(typeName, equals, cases, ext) ->
+        visitor.EnterSection "TypeSig.Union"
+        walkTypeName visitor typeName
+        visitor.VisitToken "=" equals
+        visitor.EnterSection ""
+
+        for (UnionTypeCase(attrs, data)) in cases do
+            visitor.EnterSection "Case"
+            walkAttributesOpt visitor attrs
+            walkUnionCaseData visitor data
+            visitor.ExitSection "Case"
+
+        visitor.ExitSection ""
+
+        match ext with
+        | ValueSome e -> walkTypeExtensionElementsSignature visitor e
+        | ValueNone -> ()
+
+        visitor.ExitSection "TypeSig.Union"
+    | TypeSignature.Record(typeName, equals, lBrace, fields, rBrace, ext) ->
+        visitor.EnterSection "TypeSig.Record"
+        walkTypeName visitor typeName
+        visitor.VisitToken "=" equals
+        visitor.VisitToken "{" lBrace
+        visitor.EnterSection ""
+
+        for (RecordField(attrs, mutableTok, access, id, colon, typ)) in fields do
+            visitor.EnterSection "Field"
+            walkAttributesOpt visitor attrs
+            visitTokenOpt visitor "mutable" mutableTok
+            visitTokenOpt visitor "access" access
+            visitor.VisitToken "ident" id
+            visitor.VisitToken ":" colon
+            walkType visitor typ
+            visitor.ExitSection "Field"
+
+        visitor.ExitSection ""
+        visitor.VisitToken "}" rBrace
+
+        match ext with
+        | ValueSome e -> walkTypeExtensionElementsSignature visitor e
+        | ValueNone -> ()
+
+        visitor.ExitSection "TypeSig.Record"
+    | TypeSignature.Enum(typeName, equals, cases) ->
+        visitor.EnterSection "TypeSig.Enum"
+        walkTypeName visitor typeName
+        visitor.VisitToken "=" equals
+        visitor.EnterSection ""
+
+        for (EnumTypeCase(id, eq, value)) in cases do
+            visitor.EnterSection "Case"
+            visitor.VisitToken "ident" id
+            visitor.VisitToken "=" eq
+            walkExpr visitor value
+            visitor.ExitSection "Case"
+
+        visitor.ExitSection ""
+        visitor.ExitSection "TypeSig.Enum"
+    | TypeSignature.Delegate(typeName, equals, DelegateSig(delTok, ofTok, sign)) ->
+        visitor.EnterSection "TypeSig.Delegate"
+        walkTypeName visitor typeName
+        visitor.VisitToken "=" equals
+        visitor.VisitToken "delegate" delTok
+        visitor.VisitToken "of" ofTok
+        visitor.EnterSection ""
+        walkUncurriedSig visitor sign
+        visitor.ExitSection ""
+        visitor.ExitSection "TypeSig.Delegate"
+    | TypeSignature.Class(typeName, equals, classTok, elems, endTok) ->
+        visitor.EnterSection "TypeSig.Class"
+        walkTypeName visitor typeName
+        visitor.VisitToken "=" equals
+        visitor.VisitToken "class" classTok
+        visitor.EnterSection ""
+
+        for e in elems do
+            walkTypeSignatureElement visitor e
+
+        visitor.ExitSection ""
+        visitor.VisitToken "end" endTok
+        visitor.ExitSection "TypeSig.Class"
+    | TypeSignature.Struct(typeName, equals, structTok, elems, endTok) ->
+        visitor.EnterSection "TypeSig.Struct"
+        walkTypeName visitor typeName
+        visitor.VisitToken "=" equals
+        visitor.VisitToken "struct" structTok
+        visitor.EnterSection ""
+
+        for e in elems do
+            walkTypeSignatureElement visitor e
+
+        visitor.ExitSection ""
+        visitor.VisitToken "end" endTok
+        visitor.ExitSection "TypeSig.Struct"
+    | TypeSignature.Interface(typeName, equals, interfaceTok, elems, endTok) ->
+        visitor.EnterSection "TypeSig.Interface"
+        walkTypeName visitor typeName
+        visitor.VisitToken "=" equals
+        visitor.VisitToken "interface" interfaceTok
+        visitor.EnterSection ""
+
+        for e in elems do
+            walkTypeSignatureElement visitor e
+
+        visitor.ExitSection ""
+        visitor.VisitToken "end" endTok
+        visitor.ExitSection "TypeSig.Interface"
+    | TypeSignature.Anon(typeName, equals, beginTok, elems, endTok) ->
+        visitor.EnterSection "TypeSig.Anon"
+        walkTypeName visitor typeName
+        visitor.VisitToken "=" equals
+        visitor.VisitToken "begin" beginTok
+        visitor.EnterSection ""
+
+        for e in elems do
+            walkTypeSignatureElement visitor e
+
+        visitor.ExitSection ""
+        visitor.VisitToken "end" endTok
+        visitor.ExitSection "TypeSig.Anon"
+    | TypeSignature.TypeExtension(typeName, ext) ->
+        visitor.EnterSection "TypeSig.TypeExtension"
+        walkTypeName visitor typeName
+        walkTypeExtensionElementsSignature visitor ext
+        visitor.ExitSection "TypeSig.TypeExtension"
+    | TypeSignature.AbstractType typeName ->
+        visitor.EnterSection "TypeSig.AbstractType"
+        walkTypeName visitor typeName
+        visitor.ExitSection "TypeSig.AbstractType"
+
+and walkTypeSignatures (visitor: AstVisitor<'T>) (typeSigs: TypeSignatures<'T>) : unit =
+    let (TypeSignatures.TypeSignatures(first, rest)) = typeSigs
+    walkTypeSignature visitor first
+
+    for (andTok, ts) in rest do
+        visitor.VisitToken "and" andTok
+        walkTypeSignature visitor ts
+
+and walkModuleSignatureElement (visitor: AstVisitor<'T>) (elem: ModuleSignatureElement<'T>) : unit =
+    match elem with
+    | ModuleSignatureElement.Val valSig ->
+        visitor.EnterSection "Val"
+        walkValSig visitor valSig
+        visitor.ExitSection "Val"
+    | ModuleSignatureElement.ValLiteral(valTok, binding) ->
+        visitor.EnterSection "ValLiteral"
+        visitor.VisitToken "val" valTok
+        walkBinding visitor binding
+        visitor.ExitSection "ValLiteral"
+    | ModuleSignatureElement.Type(typeTok, typeSigs) ->
+        visitor.EnterSection "Type"
+        visitor.VisitToken "type" typeTok
+        walkTypeSignatures visitor typeSigs
+        visitor.ExitSection "Type"
+    | ModuleSignatureElement.Exception(attrs, exceptionTok, caseData) ->
+        visitor.EnterSection "Exception"
+        walkAttributesOpt visitor attrs
+        visitor.VisitToken "exception" exceptionTok
+        walkUnionCaseData visitor caseData
+        visitor.ExitSection "Exception"
+    | ModuleSignatureElement.Module moduleSig ->
+        visitor.EnterSection "Module"
+        walkModuleSignature visitor moduleSig
+        visitor.ExitSection "Module"
+    | ModuleSignatureElement.ModuleAbbrev abbrev ->
+        visitor.EnterSection "ModuleAbbrev"
+        walkModuleAbbrev visitor abbrev
+        visitor.ExitSection "ModuleAbbrev"
+    | ModuleSignatureElement.Import importDecl ->
+        visitor.EnterSection "Import"
+        walkImportDecl visitor importDecl
+        visitor.ExitSection "Import"
+    | ModuleSignatureElement.CompilerDirective directive ->
+        visitor.EnterSection "CompilerDirective"
+        walkCompilerDirective visitor directive
+        visitor.ExitSection "CompilerDirective"
+    | ModuleSignatureElement.Missing -> visitor.WriteLine "Missing"
+    | ModuleSignatureElement.SkipsTokens skippedTokens ->
+        visitor.EnterSection "SkipsTokens"
+
+        for t in skippedTokens do
+            visitor.VisitToken "(skipped)" t
+
+        visitor.ExitSection "SkipsTokens"
+
+and walkModuleSignatureElements (visitor: AstVisitor<'T>) (elems: ModuleSignatureElements<'T>) : unit =
+    for elem in elems do
+        walkModuleSignatureElement visitor elem
+
+and walkModuleSignature (visitor: AstVisitor<'T>) (modSig: ModuleSignature<'T>) : unit =
+    let (ModuleSignature.ModuleSignature(attrs, moduleTok, access, isRec, ident, equals, body)) =
+        modSig
+
+    walkAttributesOpt visitor attrs
+    visitor.VisitToken "module" moduleTok
+    walkAccessOpt visitor access
+    visitTokenOpt visitor "rec" isRec
+    visitor.VisitToken "ident" ident
+    visitor.VisitToken "=" equals
+    let (ModuleSignatureBody(beginTok, elems, endTok)) = body
+    visitor.VisitToken "begin" beginTok
+    visitor.EnterSection ""
+    walkModuleSignatureElements visitor elems
+    visitor.ExitSection ""
+    visitor.VisitToken "end" endTok
+
+and walkNamespaceDeclGroupSignature (visitor: AstVisitor<'T>) (group: NamespaceDeclGroupSignature<'T>) : unit =
+    match group with
+    | NamespaceDeclGroupSignature.Named(nsTok, isRec, longIdent, elems) ->
+        visitor.VisitToken "namespace" nsTok
+        visitTokenOpt visitor "rec" isRec
+
+        for id in longIdent.Idents do
+            visitor.VisitToken "" id
+
+        visitor.EnterSection ""
+        walkModuleSignatureElements visitor elems
+        visitor.ExitSection ""
+    | NamespaceDeclGroupSignature.Global(nsTok, globalTok, elems) ->
+        visitor.VisitToken "namespace" nsTok
+        visitor.VisitToken "global" globalTok
+        visitor.EnterSection ""
+        walkModuleSignatureElements visitor elems
+        visitor.ExitSection ""
+
+and walkSignatureFile (visitor: AstVisitor<'T>) (file: SignatureFile<'T>) : unit =
+    match file with
+    | SignatureFile.AnonymousModule elems ->
+        visitor.WriteLine "AnonymousModuleSig:"
+        walkModuleSignatureElements visitor elems
+    | SignatureFile.NamedModule namedModule ->
+        let (NamedModuleSignature.NamedModuleSignature(attrs, modTok, access, isRec, longIdent, elems)) =
+            namedModule
+
+        walkAttributesOpt visitor attrs
+        visitor.VisitToken "module" modTok
+        walkAccessOpt visitor access
+        visitTokenOpt visitor "rec" isRec
+
+        for id in longIdent.Idents do
+            visitor.VisitToken "" id
+
+        walkModuleSignatureElements visitor elems
+    | SignatureFile.Namespaces groups ->
+        for group in groups do
+            walkNamespaceDeclGroupSignature visitor group
+
 and walkFSharpAst (visitor: AstVisitor<'T>) (ast: FSharpAst<'T>) : unit =
     match ast with
     | FSharpAst.ImplementationFile file -> walkImplementationFile visitor file
-    | FSharpAst.SignatureFile _ -> visitor.WriteLine "SignatureFile: <not yet implemented>"
+    | FSharpAst.SignatureFile file -> walkSignatureFile visitor file
     | FSharpAst.ScriptFile _ -> visitor.WriteLine "ScriptFile: <not yet implemented>"
     | FSharpAst.ScriptFragment(ScriptFragment.ScriptFragment elems) ->
         visitor.WriteLine "ScriptFragment:"

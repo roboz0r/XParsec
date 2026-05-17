@@ -1,0 +1,120 @@
+module           'module'          KWModule            tok=   0  pos=   0
+                 'Operators'       Identifier          tok=   2  pos=   7
+Val:
+  val            'val'             KWVal               tok=   5  pos=  18
+  ParenOp:
+                 '('               KWLParen            tok=   7  pos=  22
+    SymbolicOp   '+'               op_Addition         tok=   8  pos=  23
+                 ')'               KWRParen            tok=   9  pos=  24
+  :              ':'               OpColon             tok=  10  pos=  25
+  NamedType:
+    Ident        'int'             Identifier          tok=  12  pos=  27
+  ->             '->'              OpArrowRight        tok=  14  pos=  31
+  NamedType:
+    Ident        'int'             Identifier          tok=  16  pos=  34
+  ->             '->'              OpArrowRight        tok=  18  pos=  38
+  NamedType:
+    Ident        'int'             Identifier          tok=  20  pos=  41
+Val:
+  val            'val'             KWVal               tok=  22  pos=  45
+  ParenOp:
+                 '('               KWLParen            tok=  24  pos=  49
+    SymbolicOp   '=?'              op_EqualsQmark      tok=  25  pos=  50
+                 ')'               KWRParen            tok=  26  pos=  52
+  :              ':'               OpColon             tok=  27  pos=  53
+  NamedType:
+    Ident        'obj'             Identifier          tok=  29  pos=  55
+  ->             '->'              OpArrowRight        tok=  31  pos=  59
+  NamedType:
+    Ident        'obj'             Identifier          tok=  33  pos=  62
+  ->             '->'              OpArrowRight        tok=  35  pos=  66
+  NamedType:
+    Ident        'bool'            Identifier          tok=  37  pos=  69
+Val:
+  val            'val'             KWVal               tok=  39  pos=  74
+  inline         'inline'          KWInline            tok=  41  pos=  78
+  ParenOp:
+                 '('               KWLParen            tok=  43  pos=  85
+    SymbolicOp   '|||'             op_BitwiseOr        tok=  44  pos=  86
+                 ')'               KWRParen            tok=  45  pos=  89
+  :              ':'               OpColon             tok=  46  pos=  90
+  NamedType:
+    Ident        'int'             Identifier          tok=  48  pos=  92
+  ->             '->'              OpArrowRight        tok=  50  pos=  96
+  NamedType:
+    Ident        'int'             Identifier          tok=  52  pos=  99
+  ->             '->'              OpArrowRight        tok=  54  pos= 103
+  NamedType:
+    Ident        'int'             Identifier          tok=  56  pos= 106
+Val:
+  val            'val'             KWVal               tok=  59  pos= 111
+  ParenOp:
+                 '('               KWLParen            tok=  61  pos= 115
+    ActivePatternOp:
+      ActivePatternOp:
+                 '|'               OpBar               tok=  62  pos= 116
+                 'Even'            Identifier          tok=  63  pos= 117
+                 '_'               Wildcard            tok=  65  pos= 122
+                 '|'               OpBar               tok=  66  pos= 123
+                 ')'               KWRParen            tok=  67  pos= 124
+  :              ':'               OpColon             tok=  68  pos= 125
+  NamedType:
+    Ident        'int'             Identifier          tok=  70  pos= 127
+  ->             '->'              OpArrowRight        tok=  72  pos= 131
+  SuffixedType:
+    NamedType:
+      Ident      'int'             Identifier          tok=  74  pos= 134
+    Ident        'option'          Identifier          tok=  76  pos= 138
+Val:
+  val            'val'             KWVal               tok=  78  pos= 145
+  inline         'inline'          KWInline            tok=  80  pos= 149
+  ParenOp:
+                 '('               KWLParen            tok=  82  pos= 156
+    ActivePatternOp:
+      ActivePatternOp:
+                 '|'               OpBar               tok=  83  pos= 157
+                 'Length'          Identifier          tok=  84  pos= 158
+                 '|'               OpBar               tok=  85  pos= 164
+                 ')'               KWRParen            tok=  86  pos= 165
+  :              ':'               OpColon             tok=  87  pos= 166
+  NamedType:
+    Ident        'string'          Identifier          tok=  89  pos= 168
+  ->             '->'              OpArrowRight        tok=  91  pos= 175
+  NamedType:
+    Ident        'int'             Identifier          tok=  93  pos= 178
+Val:
+  val            'val'             KWVal               tok=  95  pos= 182
+  ParenOp:
+                 '('               KWLParen            tok=  97  pos= 186
+    ActivePatternOp:
+      ActivePatternOp:
+                 '|'               OpBar               tok=  98  pos= 187
+                 'Empty'           Identifier          tok=  99  pos= 188
+                 'NonEmpty'        Identifier          tok= 101  pos= 194
+                 '|'               OpBar               tok= 102  pos= 202
+                 ')'               KWRParen            tok= 103  pos= 203
+  :              ':'               OpColon             tok= 104  pos= 204
+  SuffixedType:
+    VarType:
+      Typar.Named:
+                 ''T'              TypeParameter       tok= 106  pos= 206
+    Ident        'list'            Identifier          tok= 108  pos= 209
+  ->             '->'              OpArrowRight        tok= 110  pos= 214
+  GenericType:
+    Ident        'Choice'          Identifier          tok= 112  pos= 217
+    <            '<'               op_LessThan         tok= 113  pos= 223
+    TypeArg.Type:
+      NamedType:
+        Ident    'unit'            Identifier          tok= 114  pos= 224
+    TypeArg.Type:
+      TupleType:
+        VarType:
+          Typar.Named:
+                 ''T'              TypeParameter       tok= 117  pos= 230
+        *        '*'               OpMultiply          tok= 119  pos= 233
+        SuffixedType:
+          VarType:
+            Typar.Named:
+                 ''T'              TypeParameter       tok= 121  pos= 235
+          Ident  'list'            Identifier          tok= 123  pos= 238
+    >            '>'               op_GreaterThan      tok= 124  pos= 242

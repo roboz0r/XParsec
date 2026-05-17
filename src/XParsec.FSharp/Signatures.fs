@@ -2,43 +2,66 @@ namespace XParsec.FSharp.Parser
 
 open XParsec.FSharp
 
-// Represents: val mutable~opt curried-sig -- value signature
+// Represents: val [inline] [access] [mutable] ident [typars] : curried-sig [= literal-expr]
+//
+// `ident` is IdentOrOp so val sigs can use operator names (`val (?>=): T -> T -> bool`) or
+// active-pattern names (`val (|Foo|_|): T -> T option`).
+// `literalValue` captures the `= expr` tail for `[<Literal>] val Foo: string = "..."` forms.
 type ValSig<'T> =
     | ValSig of
-        attributes: Attributes<'T> option *
+        attributes: Attributes<'T> voption *
         valToken: 'T *
-        mutableToken: 'T option *
-        ident: 'T *  // The identifier for the value
+        inlineToken: 'T voption *
+        access: Access<'T> voption *
+        mutableToken: 'T voption *
+        ident: IdentOrOp<'T> *
+        typars: TyparDefns<'T> voption *
         colon: 'T *
-        signature: CurriedSig<'T>
+        signature: CurriedSig<'T> *
+        literalValue: ('T (* '=' *) * Expr<'T>) voption
 
 // Represents: type-signature-element, the members within a type signature
 type TypeSignatureElement<'T> =
     | Constructor of
-        attributes: Attributes<'T> option *
-        access: Access<'T> option *
+        attributes: Attributes<'T> voption *
+        access: Access<'T> voption *
         newToken: 'T *
         colon: 'T *
         signature: UncurriedSig<'T>
     | Member of
-        attributes: Attributes<'T> option *
+        attributes: Attributes<'T> voption *
         memberToken: 'T *
-        access: Access<'T> option *
+        inlineToken: 'T voption *
+        access: Access<'T> voption *
         signature: MemberSig<'T>
     | Abstract of
-        attributes: Attributes<'T> option *
+        attributes: Attributes<'T> voption *
         abstractToken: 'T *
-        access: Access<'T> option *
+        memberToken: 'T voption *
+        access: Access<'T> voption *
         signature: MemberSig<'T>
-    | Override of attributes: Attributes<'T> option * overrideToken: 'T * signature: MemberSig<'T>
-    | Default of attributes: Attributes<'T> option * defaultToken: 'T * signature: MemberSig<'T>
+    | Override of attributes: Attributes<'T> voption * overrideToken: 'T * signature: MemberSig<'T>
+    | Default of attributes: Attributes<'T> voption * defaultToken: 'T * signature: MemberSig<'T>
     | StaticMember of
-        attributes: Attributes<'T> option *
+        attributes: Attributes<'T> voption *
         staticToken: 'T *
         memberToken: 'T *
-        access: Access<'T> option *
+        inlineToken: 'T voption *
+        access: Access<'T> voption *
         signature: MemberSig<'T>
     | Interface of spec: InterfaceSpec<'T>
+    // Class-field val signature (e.g. `val x : int` inside `type C = class ... end`).
+    // Mirrors MemberDefn.Value on the implementation side.
+    | Value of
+        attributes: Attributes<'T> voption *
+        staticToken: 'T voption *
+        valToken: 'T *
+        mutableToken: 'T voption *
+        access: Access<'T> voption *
+        ident: 'T *
+        colon: 'T *
+        typ: Type<'T>
+    | Inherit of ClassInheritsDecl<'T>
 
 // Represents the body of a type signature: begin type-elements-signature end
 type TypeElementsSignature<'T> = ImArr<TypeSignatureElement<'T>>
@@ -56,12 +79,12 @@ type TypeSignature<'T> =
         lBrace: 'T *
         fields: RecordFields<'T> *
         rBrace: 'T *
-        extensions: TypeExtensionElementsSignature<'T> option
+        extensions: TypeExtensionElementsSignature<'T> voption
     | Union of
         typeName: TypeName<'T> *
         equals: 'T *
         cases: UnionTypeCases<'T> *
-        extensions: TypeExtensionElementsSignature<'T> option
+        extensions: TypeExtensionElementsSignature<'T> voption
     | Anon of typeName: TypeName<'T> * equals: 'T * beginToken: 'T * elements: TypeElementsSignature<'T> * endToken: 'T
     | Class of typeName: TypeName<'T> * equals: 'T * classToken: 'T * elements: TypeElementsSignature<'T> * endToken: 'T
     | Struct of
@@ -79,19 +102,25 @@ type TypeSignature<'T> =
     | Enum of typeName: TypeName<'T> * equals: 'T * cases: EnumTypeCases<'T>
     | Delegate of typeName: TypeName<'T> * equals: 'T * signature: DelegateSig<'T>
     | TypeExtension of typeName: TypeName<'T> * elements: TypeExtensionElementsSignature<'T>
+    // Opaque type signature (no `=` body), e.g. `[<Measure>] type kg` or `type T`.
+    | AbstractType of typeName: TypeName<'T>
 
 // Represents: type-signatures := type-signature ... and ... type-signature
-type TypeSignatures<'T> = ImArr<TypeSignature<'T> * 'T (* 'and' token *) >
+// The first item has no preceding 'and'; subsequent items each carry their 'and' token.
+type TypeSignatures<'T> = | TypeSignatures of first: TypeSignature<'T> * rest: ImArr<'T (* 'and' *) * TypeSignature<'T>>
 
 // Represents: module-signature-element
 type ModuleSignatureElement<'T> =
     | Val of valSig: ValSig<'T>
     | ValLiteral of valToken: 'T * binding: Binding<'T>
     | Type of typeToken: 'T * typeSigs: TypeSignatures<'T>
-    | Exception of exceptionToken: 'T * sigData: UnionTypeCaseData<'T>
+    | Exception of attributes: Attributes<'T> voption * exceptionToken: 'T * sigData: UnionTypeCaseData<'T>
     | Module of moduleSig: ModuleSignature<'T>
     | ModuleAbbrev of abbrev: ModuleAbbrev<'T>
     | Import of importDecl: ImportDecl<'T>
+    | CompilerDirective of CompilerDirectiveDecl<'T>
+    | Missing
+    | SkipsTokens of skippedTokens: ImArr<'T>
 
 // Represents: module-signature-elements := module-signature-element ...
 and ModuleSignatureElements<'T> = ImArr<ModuleSignatureElement<'T>>
@@ -100,12 +129,18 @@ and ModuleSignatureElements<'T> = ImArr<ModuleSignatureElement<'T>>
 and ModuleSignatureBody<'T> =
     | ModuleSignatureBody of beginToken: 'T * elements: ModuleSignatureElements<'T> * endToken: 'T
 
-// Represents: module-signature := module ident = module-signature-body
-and ModuleSignature<'T> = | ModuleSignature of moduleToken: 'T * ident: 'T * equals: 'T * body: ModuleSignatureBody<'T>
+// Represents: [attrs] module [access] [rec] ident = module-signature-body
+and ModuleSignature<'T> =
+    | ModuleSignature of
+        attributes: Attributes<'T> voption *
+        moduleToken: 'T *
+        access: Access<'T> voption *
+        isRec: 'T voption *
+        ident: 'T *
+        equals: 'T *
+        body: ModuleSignatureBody<'T>
 
 // Represents: namespace-decl-group-signature
 type NamespaceDeclGroupSignature<'T> =
-    | NamespaceDeclGroupSignature of
-        namespaceToken: 'T *
-        longIdent: LongIdent<'T> *
-        elements: ModuleSignatureElements<'T>
+    | Named of namespaceToken: 'T * isRec: 'T voption * longIdent: LongIdent<'T> * elements: ModuleSignatureElements<'T>
+    | Global of namespaceToken: 'T * globalToken: 'T * elements: ModuleSignatureElements<'T>

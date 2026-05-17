@@ -16,9 +16,15 @@ type NamedModule<'T> =
 // This is simply an alias for ModuleElems<'T> for clarity at the file level.
 type AnonymousModule<'T> = ModuleElems<'T>
 
-// Represents: named-module-signature := module long-ident module-signature-elements
+// Represents: named-module-signature := [attributes] module [access] [rec] long-ident module-signature-elements
 type NamedModuleSignature<'T> =
-    | NamedModuleSignature of moduleToken: 'T * longIdent: LongIdent<'T> * elements: ModuleSignatureElements<'T>
+    | NamedModuleSignature of
+        attributes: Attributes<'T> voption *
+        moduleToken: 'T *
+        access: Access<'T> voption *
+        isRec: 'T voption *
+        longIdent: LongIdent<'T> *
+        elements: ModuleSignatureElements<'T>
 
 // Represents: anonymous-module-signature := module-signature-elements
 // This is an alias for ModuleSignatureElements<'T>.

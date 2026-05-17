@@ -23,7 +23,7 @@ FunctionOrValue:
         :                    ':'               OpColon             tok=  30  pos= 165
         (                    '('               KWLParen            tok=  32  pos= 167
         member               'member'          KWMember            tok=  33  pos= 168
-        ident                'GetAwaiter'      Identifier          tok=  35  pos= 175
+        Ident                'GetAwaiter'      Identifier          tok=  35  pos= 175
         :                    ':'               OpColon             tok=  36  pos= 185
         NamedType:
           Ident              'unit'            Identifier          tok=  38  pos= 187
@@ -58,7 +58,7 @@ FunctionOrValue:
         :                    ':'               OpColon             tok=  70  pos= 256
         (                    '('               KWLParen            tok=  72  pos= 258
         member               'member'          KWMember            tok=  73  pos= 259
-        ident                'GetResult'       Identifier          tok=  75  pos= 266
+        Ident                'GetResult'       Identifier          tok=  75  pos= 266
         :                    ':'               OpColon             tok=  76  pos= 275
         NamedType:
           Ident              'unit'            Identifier          tok=  78  pos= 277
@@ -92,7 +92,7 @@ FunctionOrValue:
         :                    ':'               OpColon             tok= 109  pos= 351
         (                    '('               KWLParen            tok= 111  pos= 353
         member               'member'          KWMember            tok= 112  pos= 354
-        ident                'get_IsComp...'   Identifier          tok= 114  pos= 361
+        Ident                'get_IsComp...'   Identifier          tok= 114  pos= 361
         :                    ':'               OpColon             tok= 115  pos= 376
         NamedType:
           Ident              'unit'            Identifier          tok= 117  pos= 378

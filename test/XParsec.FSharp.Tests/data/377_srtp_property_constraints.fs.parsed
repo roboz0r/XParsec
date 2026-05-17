@@ -23,7 +23,7 @@ FunctionOrValue:
         :                  ':'               OpColon             tok=  34  pos= 298
         (                  '('               KWLParen            tok=  36  pos= 300
         member             'member'          KWMember            tok=  37  pos= 301
-        ident              'Length'          Identifier          tok=  39  pos= 308
+        Ident              'Length'          Identifier          tok=  39  pos= 308
         :                  ':'               OpColon             tok=  40  pos= 314
         NamedType:
           Ident            'int'             Identifier          tok=  42  pos= 316
@@ -62,7 +62,7 @@ FunctionOrValue:
         :                  ':'               OpColon             tok=  82  pos= 409
         (                  '('               KWLParen            tok=  84  pos= 411
         member             'member'          KWMember            tok=  85  pos= 412
-        ident              'Name'            Identifier          tok=  87  pos= 419
+        Ident              'Name'            Identifier          tok=  87  pos= 419
         :                  ':'               OpColon             tok=  88  pos= 423
         NamedType:
           Ident            'string'          Identifier          tok=  90  pos= 425
@@ -98,7 +98,7 @@ FunctionOrValue:
         :                  ':'               OpColon             tok= 128  pos= 513
         (                  '('               KWLParen            tok= 130  pos= 515
         member             'member'          KWMember            tok= 131  pos= 516
-        ident              'Value'           Identifier          tok= 133  pos= 523
+        Ident              'Value'           Identifier          tok= 133  pos= 523
         :                  ':'               OpColon             tok= 134  pos= 528
         NamedType:
           Ident            'int'             Identifier          tok= 136  pos= 530
@@ -131,7 +131,7 @@ FunctionOrValue:
         :                  ':'               OpColon             tok= 170  pos= 588
         (                  '('               KWLParen            tok= 172  pos= 590
         member             'member'          KWMember            tok= 173  pos= 591
-        ident              'Value'           Identifier          tok= 175  pos= 598
+        Ident              'Value'           Identifier          tok= 175  pos= 598
         :                  ':'               OpColon             tok= 176  pos= 603
         NamedType:
           Ident            'int'             Identifier          tok= 178  pos= 605
@@ -159,7 +159,7 @@ FunctionOrValue:
         (                  '('               KWLParen            tok= 210  pos= 694
         static             'static'          KWStatic            tok= 211  pos= 695
         member             'member'          KWMember            tok= 213  pos= 702
-        ident              'Default'         Identifier          tok= 215  pos= 709
+        Ident              'Default'         Identifier          tok= 215  pos= 709
         :                  ':'               OpColon             tok= 216  pos= 716
         VarType:
           Typar.Static:
@@ -182,7 +182,7 @@ FunctionOrValue:
         (                  '('               KWLParen            tok= 238  pos= 746
         static             'static'          KWStatic            tok= 239  pos= 747
         member             'member'          KWMember            tok= 241  pos= 754
-        ident              'Default'         Identifier          tok= 243  pos= 761
+        Ident              'Default'         Identifier          tok= 243  pos= 761
         :                  ':'               OpColon             tok= 244  pos= 768
         VarType:
           Typar.Static:
@@ -224,7 +224,7 @@ FunctionOrValue:
         :                  ':'               OpColon             tok= 288  pos= 889
         (                  '('               KWLParen            tok= 290  pos= 891
         member             'member'          KWMember            tok= 291  pos= 892
-        ident              'Item'            Identifier          tok= 293  pos= 899
+        Ident              'Item'            Identifier          tok= 293  pos= 899
         :                  ':'               OpColon             tok= 294  pos= 903
         NamedType:
           Ident            'int'             Identifier          tok= 296  pos= 905

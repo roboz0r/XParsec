@@ -584,6 +584,35 @@ module Parsing =
                             PositionedToken.Create(Token.OpSubtraction, token.StartIndex + 1)
                         else
                             token
+                    elif state.CharsConsumedAfterTypeParams > 0 then
+                        // After type-parameter close consumed `n` chars from the head of a fused
+                        // operator token (e.g. `>` from `>:`, `>` from `>.`), present the remaining
+                        // tail as the appropriate non-operator token so syntactic parsers (`:`, `.`,
+                        // `;`, `)`) work after a generic instantiation.
+                        // `reprocessedOperatorAfterTypeParams` handles the operator case
+                        // (`>>`, `>=`, etc.) before this code path is reached.
+                        let span = state.Lexed.GetTokenSpan(reader.Index * 1<token>, state.Input)
+                        let charsConsumed = state.CharsConsumedAfterTypeParams
+
+                        if span.Length > charsConsumed then
+                            let tailChar = span.[charsConsumed]
+                            // `.` is excluded — `reprocessedOperatorAfterTypeParams` handles
+                            // `Foo<T>.Bar` (member access) by reclassifying the operator span.
+                            let tailTok =
+                                match tailChar with
+                                | ':' -> ValueSome Token.OpColon
+                                | ';' -> ValueSome Token.OpSemicolon
+                                | ')' -> ValueSome Token.KWRParen
+                                | ']' -> ValueSome Token.KWRBracket
+                                | '}' -> ValueSome Token.KWRBrace
+                                | ',' -> ValueSome Token.OpComma
+                                | _ -> ValueNone
+
+                            match tailTok with
+                            | ValueSome t -> PositionedToken.Create(t, token.StartIndex + charsConsumed)
+                            | ValueNone -> token
+                        else
+                            token
                     else
                         token
 
@@ -634,14 +663,22 @@ module Parsing =
                     else
                         ParseState.ifTrace state (fun tc -> tc.TokenConsumed(token, int reader.Index, tokenCol))
 
-                        // Clear both split flags in a single record copy when either is set.
-                        // Original code issued two separate updates which allocated twice
-                        // when both flags were true; one copy produces the same final state.
-                        if state.SplitRAttrBracket || state.SplitPowerMinus then
+                        // Clear split flags + CharsConsumedAfterTypeParams in a single record copy
+                        // when any are set. Original code issued two separate updates which
+                        // allocated twice when both flags were true; one copy produces the same
+                        // final state. `CharsConsumedAfterTypeParams` is reset here because the
+                        // fused `>:`/`>.`/etc. token's tail has now been consumed as a synthesised
+                        // colon/dot/etc.
+                        if
+                            state.SplitRAttrBracket
+                            || state.SplitPowerMinus
+                            || state.CharsConsumedAfterTypeParams > 0
+                        then
                             reader.State <-
                                 { state with
                                     SplitRAttrBracket = false
                                     SplitPowerMinus = false
+                                    CharsConsumedAfterTypeParams = 0
                                 }
 
                         reader.Skip()

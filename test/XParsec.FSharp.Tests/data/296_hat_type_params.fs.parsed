@@ -32,7 +32,7 @@ TypeDefn.Anon:
         :                    ':'               OpColon             tok=  49  pos= 234
         (                    '('               KWLParen            tok=  51  pos= 236
         member               'member'          KWMember            tok=  52  pos= 237
-        ident                'GetAwaiter'      Identifier          tok=  54  pos= 244
+        Ident                'GetAwaiter'      Identifier          tok=  54  pos= 244
         :                    ':'               OpColon             tok=  55  pos= 254
         NamedType:
           Ident              'unit'            Identifier          tok=  57  pos= 256
@@ -50,7 +50,7 @@ TypeDefn.Anon:
         :                    ':'               OpColon             tok=  70  pos= 294
         (                    '('               KWLParen            tok=  72  pos= 296
         member               'member'          KWMember            tok=  73  pos= 297
-        ident                'get_IsComp...'   Identifier          tok=  75  pos= 304
+        Ident                'get_IsComp...'   Identifier          tok=  75  pos= 304
         :                    ':'               OpColon             tok=  76  pos= 319
         NamedType:
           Ident              'unit'            Identifier          tok=  78  pos= 321
@@ -66,7 +66,7 @@ TypeDefn.Anon:
         :                    ':'               OpColon             tok=  90  pos= 355
         (                    '('               KWLParen            tok=  92  pos= 357
         member               'member'          KWMember            tok=  93  pos= 358
-        ident                'GetResult'       Identifier          tok=  95  pos= 365
+        Ident                'GetResult'       Identifier          tok=  95  pos= 365
         :                    ':'               OpColon             tok=  96  pos= 374
         NamedType:
           Ident              'unit'            Identifier          tok=  98  pos= 376

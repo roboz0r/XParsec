@@ -1,0 +1,43 @@
+namespace                'namespace'       KWNamespace         tok=   0  pos=   0
+                         'My'              Identifier          tok=   2  pos=  10
+                         'Lib'             Identifier          tok=   4  pos=  13
+  Module:
+    [<                   '[<'              KWLAttrBracket      tok=   7  pos=  18
+    NamedType:
+      Ident              'AutoOpen'        Identifier          tok=   8  pos=  20
+    >]                   '>]'              KWRAttrBracket      tok=   9  pos=  28
+    module               'module'          KWModule            tok=  11  pos=  31
+    access               'internal'        KWInternal          tok=  13  pos=  38
+    ident                'Helpers'         Identifier          tok=  15  pos=  47
+    =                    '='               OpEquality          tok=  17  pos=  55
+    begin                <virt>            KWBegin             tok=virt  pos=  61
+      Val:
+        [<               '[<'              KWLAttrBracket      tok=  20  pos=  61
+        NamedType:
+          Ident          'CompiledNa...'   Identifier          tok=  21  pos=  63
+        ParenBlock       '('               KWLParen            tok=  22  pos=  75
+          StringLiteral  '"'               StringOpen          tok=  23  pos=  76
+          Parts:
+            Text         'Run'             StringFragment      tok=  24  pos=  77
+                         '"'               StringClose         tok=  25  pos=  80
+                         ')'               KWRParen            tok=  26  pos=  81
+        >]               '>]'              KWRAttrBracket      tok=  27  pos=  82
+        val              'val'             KWVal               tok=  30  pos=  89
+        access           'internal'        KWInternal          tok=  32  pos=  93
+        Ident            'run'             Identifier          tok=  34  pos= 102
+        :                ':'               OpColon             tok=  35  pos= 105
+        arg              'x'               Identifier          tok=  37  pos= 107
+        :                ':'               OpColon             tok=  38  pos= 108
+        NamedType:
+          Ident          'int'             Identifier          tok=  40  pos= 110
+        ->               '->'              OpArrowRight        tok=  42  pos= 114
+        NamedType:
+          Ident          'int'             Identifier          tok=  44  pos= 117
+      Val:
+        val              'val'             KWVal               tok=  48  pos= 126
+        mutable          'mutable'         KWMutable           tok=  50  pos= 130
+        Ident            'counter'         Identifier          tok=  52  pos= 138
+        :                ':'               OpColon             tok=  53  pos= 145
+        NamedType:
+          Ident          'int'             Identifier          tok=  55  pos= 147
+    end                  <virt>            KWEnd               tok=virt  pos= 151

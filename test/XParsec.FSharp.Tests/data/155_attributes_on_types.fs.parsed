@@ -44,7 +44,7 @@ TypeDefn.Anon:
   begin              <virt>            KWBegin             tok=virt  pos= 175
     abstract         'abstract'        KWAbstract          tok=  70  pos= 175
     member           'member'          KWMember            tok=  72  pos= 184
-    ident            'Area'            Identifier          tok=  74  pos= 191
+    Ident            'Area'            Identifier          tok=  74  pos= 191
     :                ':'               OpColon             tok=  76  pos= 196
     NamedType:
       Ident          'float'           Identifier          tok=  78  pos= 198
@@ -93,7 +93,7 @@ TypeDefn.Anon:
   begin              <virt>            KWBegin             tok=virt  pos= 356
     abstract         'abstract'        KWAbstract          tok= 139  pos= 356
     member           'member'          KWMember            tok= 141  pos= 365
-    ident            'Draw'            Identifier          tok= 143  pos= 372
+    Ident            'Draw'            Identifier          tok= 143  pos= 372
     :                ':'               OpColon             tok= 145  pos= 377
     NamedType:
       Ident          'unit'            Identifier          tok= 147  pos= 379
