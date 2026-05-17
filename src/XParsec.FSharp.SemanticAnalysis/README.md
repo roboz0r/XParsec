@@ -73,10 +73,21 @@ parameters works.
 
 Literals: bool, int, int64, byte, float (`IEEE64`), unit, string.
 
-External symbols: provider returns an `Instantiate: unit -> SemType`
-factory rather than a fixed `SemType`. Polymorphic operators (`|>`,
-`>>`, …) mint fresh `TypeVar`s per call so independent use-sites get
-independent schemes.
+External symbols: provider returns an `Instantiate: int -> SemType`
+factory rather than a fixed `SemType`. The `int` is the use-site's
+let-depth so freshly-minted `TypeVar`s are stamped at the right level
+for Rémy generalisation. Polymorphic operators (`|>`, `>>`, …) mint
+fresh `TypeVar`s per call so independent use-sites get independent
+schemes.
+
+Generalisation: every single-name `let` binding produces a `TypeScheme`
+in `ctx.Scheme`. Each use of the bound name instantiates the scheme
+with fresh `TypeVar`s at the current let-depth, mirroring the
+external-symbol path — so `let id = fun x -> x in id 1, id true`
+types as `int * bool`. Compound destructuring heads (tuples, etc.)
+and lambda parameters do **not** generalise. Value restriction is
+deferred until refs / mutable bindings land — see
+[`docs/generalisation-plan.md`](docs/generalisation-plan.md).
 
 Diagnostics: unresolved-name errors (including unresolved qualified
 names), type mismatches, occurs check, unknown-operator failures,
@@ -87,13 +98,14 @@ names), type mismatches, occurs check, unknown-operator failures,
 - Not a code emitter. Target-specific specialisation (`Phase 4.6` in
   the original spec) is downstream of `Freeze.fs` and lives in separate
   target-plugin projects, none of which exist yet.
-- No generalisation. `let id = fun x -> x` types as `'a -> 'a` where `'a`
-  stays unsolved; multiple uses at different types would currently fail.
+- No value restriction. Every single-name `let` generalises in v1.
+  The tiny subset has nothing soundness-breaking (no `ref`, no `mutable`,
+  no I/O) to gate against; the check lands when refs do — see
+  [`docs/generalisation-plan.md`](docs/generalisation-plan.md#value-restriction).
 - No SRTP / IWSAM resolution. The on-unified callbacks per
   [`docs/typevar.md`](docs/typevar.md) aren't wired yet.
 - `Regions` and most of `Validation` are still no-ops.
 - `Object` / `Record` / `RecordClone` aren't traversed yet.
-- No generalisation of polymorphic schemes — only external-symbol
-  schemes get fresh instantiations. A local `let id = fun x -> x` still
-  pins `'a -> 'a` to a single shared scheme; multiple uses at different
-  types would fail.
+- TAST stays monomorphic per use site. The frozen TAST carries the
+  instantiated type at each `Var`; a downstream monomorphiser walking
+  schemes is deferred until target lowering needs it.

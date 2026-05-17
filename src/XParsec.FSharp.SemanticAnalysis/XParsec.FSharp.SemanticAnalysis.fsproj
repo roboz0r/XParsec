@@ -25,6 +25,7 @@
     <None Include="docs\passes.md" />
     <None Include="docs\typevar.md" />
     <None Include="docs\generalisation-plan.md" />
+    <None Include="docs\measures-plan.md" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\XParsec.FSharp\XParsec.FSharp.fsproj" />

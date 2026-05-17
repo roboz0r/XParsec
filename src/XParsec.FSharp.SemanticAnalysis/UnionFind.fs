@@ -31,18 +31,29 @@ module UnionFind =
 
     /// Does NOT resolve Link / Units / IfaceBounds / SrtpBounds — the caller
     /// (Unification) handles compatibility checks and on-unified callbacks.
+    /// The surviving root inherits `min` of the two roots' Levels so the
+    /// representative remains authoritative for Rémy's level-based
+    /// generalisation.
     let union (a: TypeVar) (b: TypeVar) : unit =
         let rootA = find a
         let rootB = find b
 
         if not (System.Object.ReferenceEquals(rootA, rootB)) then
-            if rootA.Rank < rootB.Rank then
-                rootA.Parent <- ValueSome rootB
-            elif rootA.Rank > rootB.Rank then
-                rootB.Parent <- ValueSome rootA
-            else
-                rootB.Parent <- ValueSome rootA
-                rootA.Rank <- rootA.Rank + 1
+            let mergedLevel = min rootA.Level rootB.Level
+
+            let survivor =
+                if rootA.Rank < rootB.Rank then
+                    rootA.Parent <- ValueSome rootB
+                    rootB
+                elif rootA.Rank > rootB.Rank then
+                    rootB.Parent <- ValueSome rootA
+                    rootA
+                else
+                    rootB.Parent <- ValueSome rootA
+                    rootA.Rank <- rootA.Rank + 1
+                    rootA
+
+            survivor.Level <- mergedLevel
 
     let inSameClass (a: TypeVar) (b: TypeVar) : bool =
         System.Object.ReferenceEquals(find a, find b)

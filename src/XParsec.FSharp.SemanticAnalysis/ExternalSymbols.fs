@@ -10,12 +10,16 @@ type ExternalSymbol =
     {
         Name: string
         /// Returns a fresh instantiation of the symbol's type each call.
-        /// Monomorphic symbols (`op_Addition`, `op_LessThan`) return the
-        /// same SemType every time. Polymorphic symbols (`op_PipeRight`,
-        /// `op_ComposeRight`, eventually `List.map`) allocate fresh
-        /// TypeVars per call so independent use-sites don't unify with
-        /// each other through the shared scheme.
-        Instantiate: unit -> SemType
+        /// `level` is the let-depth at which the instantiation happens
+        /// (`PassContext.CurrentLevel` at the use site); fresh TyVars must
+        /// be stamped with it so Rémy's level-based generalisation can
+        /// decide which to quantify. Monomorphic symbols (`op_Addition`,
+        /// `op_LessThan`) return the same SemType every time and ignore
+        /// the level. Polymorphic symbols (`op_PipeRight`, `op_ComposeRight`,
+        /// eventually `List.map`) allocate fresh TypeVars at `level` per
+        /// call so independent use-sites don't unify with each other through
+        /// the shared scheme.
+        Instantiate: int -> SemType
     }
 
 /// Each target supplies its own provider implementation.
@@ -36,12 +40,13 @@ module ExternalSymbols =
     let mono (name: string) (ty: SemType) : ExternalSymbol =
         {
             Name = name
-            Instantiate = fun () -> ty
+            Instantiate = fun _ -> ty
         }
 
-    /// Build a polymorphic symbol — `build` is invoked per lookup so any
-    /// `TypeVar` it allocates is fresh.
-    let poly (name: string) (build: unit -> SemType) : ExternalSymbol = { Name = name; Instantiate = build }
+    /// Build a polymorphic symbol — `build level` is invoked per lookup so
+    /// any `TypeVar` it allocates is fresh and stamped at the caller's
+    /// let-depth.
+    let poly (name: string) (build: int -> SemType) : ExternalSymbol = { Name = name; Instantiate = build }
 
     /// For tests that want to isolate behavior from external-symbol noise.
     let nullProvider: IExternalSymbolProvider =
@@ -94,36 +99,40 @@ module MockBuiltins =
         |> List.map (fun (n, ty) -> n, ExternalSymbols.mono n ty)
 
     /// Polymorphic operators built from `FSharp.Core`. Each call mints fresh
-    /// `TypeVar`s so two use-sites don't accidentally share variables.
+    /// `TypeVar`s stamped at the caller's let-depth so two use-sites don't
+    /// share variables and generalisation can quantify them at the right scope.
     let private polyOps =
-        let fresh () = TyVar(TypeVar())
+        let freshAt (level: int) : SemType =
+            let tv = TypeVar()
+            tv.Level <- level
+            TyVar tv
 
         [
             // val (|>) : 'a -> ('a -> 'b) -> 'b
             "op_PipeRight",
-            fun () ->
-                let a = fresh ()
-                let b = fresh ()
+            fun level ->
+                let a = freshAt level
+                let b = freshAt level
                 TyFun(a, TyFun(TyFun(a, b), b))
             // val (<|) : ('a -> 'b) -> 'a -> 'b
             "op_PipeLeft",
-            fun () ->
-                let a = fresh ()
-                let b = fresh ()
+            fun level ->
+                let a = freshAt level
+                let b = freshAt level
                 TyFun(TyFun(a, b), TyFun(a, b))
             // val (>>) : ('a -> 'b) -> ('b -> 'c) -> ('a -> 'c)
             "op_ComposeRight",
-            fun () ->
-                let a = fresh ()
-                let b = fresh ()
-                let c = fresh ()
+            fun level ->
+                let a = freshAt level
+                let b = freshAt level
+                let c = freshAt level
                 TyFun(TyFun(a, b), TyFun(TyFun(b, c), TyFun(a, c)))
             // val (<<) : ('b -> 'c) -> ('a -> 'b) -> ('a -> 'c)
             "op_ComposeLeft",
-            fun () ->
-                let a = fresh ()
-                let b = fresh ()
-                let c = fresh ()
+            fun level ->
+                let a = freshAt level
+                let b = freshAt level
+                let c = freshAt level
                 TyFun(TyFun(b, c), TyFun(TyFun(a, b), TyFun(a, c)))
         ]
         |> List.map (fun (n, build) -> n, ExternalSymbols.poly n build)

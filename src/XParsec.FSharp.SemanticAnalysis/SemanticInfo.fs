@@ -50,6 +50,27 @@ and [<Sealed>] TypeVar() =
     // Owned by UnionFind; do not mutate directly.
     member val Parent: TypeVar voption = ValueNone with get, set
     member val Rank: int = 0 with get, set
+    /// Let-depth at which this TyVar was minted (Rémy's levels). Lowered by
+    /// `unify` when this TyVar becomes reachable from a shallower scope.
+    /// `generalise` quantifies TyVars whose level strictly exceeds the
+    /// enclosing scope's level. Authoritative on the union-find root — call
+    /// UnionFind.find before reading. `union` propagates `min` of the two
+    /// roots' levels to the survivor.
+    member val Level: int = 0 with get, set
+
+/// `∀ Quantified . Body`. Built by `Unification.generalise` and stored in
+/// `PassContext.Scheme` keyed by the binding's headPat NodeKey. Each
+/// `inferIdent` of a generalised binding instantiates the scheme — mints a
+/// fresh TyVar at the current level for every entry in `Quantified` and
+/// walks `Body` substituting them, so independent use sites get independent
+/// variables. Mirrors `ExternalSymbol.Instantiate` for the finitely many
+/// `'a`s that come out of a user-written `let`. Quantified TyVars stay live
+/// in the union-find graph; they are simply no longer "free" with respect
+/// to the outer scope.
+[<Sealed>]
+type TypeScheme(quantified: TypeVar list, body: SemType) =
+    member _.Quantified = quantified
+    member _.Body = body
 
 /// BindingSite is the NodeKey of the LetBinding / lambda parameter /
 /// TypeMember that introduced the name — NOT the use site.

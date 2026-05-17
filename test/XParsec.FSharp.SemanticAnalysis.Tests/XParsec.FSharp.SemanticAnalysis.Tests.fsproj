@@ -18,6 +18,7 @@
     <Compile Include="FreezeTests.fs" />
     <Compile Include="ExpansionTests.fs" />
     <Compile Include="CoverageTests.fs" />
+    <Compile Include="GeneralisationTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

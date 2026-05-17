@@ -43,10 +43,23 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     member val Binding = SideTable<ResolvedBinding>() with get
     /// Written by Unification.
     member val TypeVar = SideTable<TypeVar>() with get
+    /// Written by Unification after generalisation. Keyed by the binding's
+    /// headPat NodeKey (which is also the `BindingSite` NameResolution records).
+    /// Present only for `let`-bound names that pass `shouldGeneralise` —
+    /// module-level, nested, and `let rec` single-name bindings. Compound
+    /// destructuring heads and lambda parameters do NOT get schemes.
+    member val Scheme = SideTable<TypeScheme>() with get
     /// Written by Regions. RegionId itself lives on the TypeVar; this table
     /// carries the classified EscapeState per expression.
     member val Escape = SideTable<EscapeState>() with get
     member val Diagnostics = ResizeArray<Diagnostic>() with get
+    /// Current let-depth (Rémy's levels). Owned by Unification — push on
+    /// entering a binding group's RHSes, pop after typing them. Generalisation
+    /// uses the pre-push value as the threshold for "which TyVars do I
+    /// quantify?". Lives on PassContext (not threaded as a parameter) to
+    /// match ctx.Diagnostics — same scope, same mutation pattern, same wide
+    /// call-site reach without parameter pollution.
+    member val CurrentLevel = 0 with get, set
 
     /// Source text of `token`. Empty for virtual (synthesised) tokens.
     member this.NameOf(token: SyntaxToken) : string =

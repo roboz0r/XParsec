@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
+open System.Collections.Generic
 open System.Collections.Immutable
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -7,15 +8,18 @@ open XParsec.FSharp.SemanticAnalysis
 
 // Pre:  ctx.Desugared and ctx.Binding populated.
 // Post: ctx.TypeVar populated; every TypeVar's Link reaches its solved type
-//       via UnionFind.find.
+//       via UnionFind.find. ctx.Scheme populated for every generalisable
+//       `let`-bound name (single-name headPats — see `shouldGeneralise`).
 //
-// Algorithm J: fresh TypeVar per AST node, constraints generated and
-// unified on the fly. No deferred constraint set.
+// Algorithm J + Rémy's levels: fresh TypeVar per AST node, constraints
+// generated and unified on the fly. Generalisation happens at the close of
+// each binding group; instantiation at every use of a scheme-bearing name.
 //
 // Tiny-subset omissions (TODO):
-//   - Generalisation. `let id = fun x -> x` types as `'a -> 'a` where 'a
-//     stays unsolved. With multiple uses at different types we'd hit
-//     monomorphism errors — add scheme + instantiate when needed.
+//   - Value restriction (deferred until refs / mutable bindings land — see
+//     docs/generalisation-plan.md §Value restriction). For now every
+//     single-name `let` generalises; the tiny subset has nothing
+//     soundness-breaking to gate against.
 //   - SRTP / IWSAM bound resolution. The on-unified callbacks per
 //     docs/typevar.md aren't wired yet.
 //   - Binding-level return-type annotations (`let f x : int = ...`). Only
@@ -71,16 +75,33 @@ module Unification =
     // the SRTP / IWSAM resolution machinery exists. Until then,
     // appending is enough to preserve them through unification.
 
-    /// Does `target` (already a union-find root) appear anywhere inside `t`?
-    /// Stops the `let rec f x = f` / `let rec g = g g` family from cycling
-    /// Link pointers and making zonk loop. Resolves through Links and
-    /// recurses into compound shapes.
-    let rec private occurs (target: TypeVar) (t: SemType) : bool =
+    /// Two passes folded into one walk:
+    /// (a) **Occurs check** — does `target` (already a union-find root) appear
+    ///     anywhere inside `t`? Stops the `let rec f x = f` / `let rec g = g g`
+    ///     family from cycling Link pointers and making zonk loop.
+    /// (b) **Level adjustment** — when `target` is about to be linked to `t`,
+    ///     every TyVar reachable from `t` becomes co-scoped with `target`.
+    ///     Lower any reachable level above `target.Level` down to it so
+    ///     generalisation at the enclosing scope sees the right "free" set.
+    /// Resolves through Links and recurses into compound shapes. The `||`
+    /// short-circuit on occurs-fail leaves some reachable TyVars unadjusted,
+    /// but a failed unification produces a diagnostic and there's nothing
+    /// to generalise after; adjusting them would be wasted work.
+    let rec private occursAndAdjust (target: TypeVar) (t: SemType) : bool =
         match resolveStep t with
-        | TyVar tv -> System.Object.ReferenceEquals(UnionFind.find tv, target)
+        | TyVar tv ->
+            let root = UnionFind.find tv
+
+            if System.Object.ReferenceEquals(root, target) then
+                true
+            else
+                if root.Level > target.Level then
+                    root.Level <- target.Level
+
+                false
         | TyConst _ -> false
-        | TyFun(a, r) -> occurs target a || occurs target r
-        | TyTuple items -> List.exists (occurs target) items
+        | TyFun(a, r) -> occursAndAdjust target a || occursAndAdjust target r
+        | TyTuple items -> List.exists (occursAndAdjust target) items
 
     let rec private unify (ctx: PassContext) (key: NodeKey) (a: SemType) (b: SemType) =
         let a = resolveStep a
@@ -111,7 +132,7 @@ module Unification =
         | other, TyVar tv ->
             let root = UnionFind.find tv
 
-            if occurs root other then
+            if occursAndAdjust root other then
                 ctx.Diagnostics.Add
                     {
                         Key = key
@@ -135,19 +156,102 @@ module Unification =
                     Severity = Error
                 }
 
-    /// Allocate a fresh TypeVar for `key` and store it in ctx.TypeVar.
+    let private enterLevel (ctx: PassContext) : unit =
+        ctx.CurrentLevel <- ctx.CurrentLevel + 1
+
+    let private exitLevel (ctx: PassContext) : unit =
+        ctx.CurrentLevel <- ctx.CurrentLevel - 1
+
+    /// Allocate a fresh, unkeyed TypeVar at the current let-depth. Used for
+    /// intermediate "result" TyVars in apps, ifs, matches — anything not
+    /// directly tied to a CST node's NodeKey.
+    let private freshTyVar (ctx: PassContext) : TypeVar =
+        let tv = TypeVar()
+        tv.Level <- ctx.CurrentLevel
+        tv
+
+    /// Allocate a fresh TypeVar for `key`, stamped at the current level, and
+    /// store it in ctx.TypeVar. Overwrites any prior entry — callers that
+    /// need "get or allocate" (e.g. for forward-referenced let-rec siblings)
+    /// must go through `tvOf`.
     let private freshTv (ctx: PassContext) (key: NodeKey) : TypeVar =
         let tv = TypeVar()
+        tv.Level <- ctx.CurrentLevel
         ctx.TypeVar.Set(key, tv)
         tv
 
     /// Look up the TypeVar previously stored for a node. Fresh-allocates if
     /// missing — happens for binding-site patterns that haven't been visited
-    /// yet by inferPat.
+    /// yet by inferPat, including forward references inside `let rec` groups.
     let private tvOf (ctx: PassContext) (key: NodeKey) : TypeVar =
         match ctx.TypeVar.TryGetValue key with
         | ValueSome tv -> tv
         | ValueNone -> freshTv ctx key
+
+    /// Mint fresh TyVars at the current level for every quantifier of
+    /// `scheme`, then walk `scheme.Body` rewriting each quantified TyVar to
+    /// its fresh counterpart. Mirrors `ExternalSymbol.Instantiate` for the
+    /// finite set of `'a`s captured by a user-written `let`. Non-quantified
+    /// TyVars are left alone — they're free with respect to the surrounding
+    /// scope and must keep their identity. `scheme.Body` is already zonked
+    /// by `generalise`, so we don't follow Links here.
+    let private instantiate (ctx: PassContext) (scheme: TypeScheme) : SemType =
+        let subst = Dictionary<TypeVar, TypeVar>(HashIdentity.Reference)
+
+        for q in scheme.Quantified do
+            let qRoot = UnionFind.find q
+            let fresh = TypeVar()
+            fresh.Level <- ctx.CurrentLevel
+            subst.[qRoot] <- fresh
+
+        let rec walk (t: SemType) : SemType =
+            match t with
+            | TyVar tv ->
+                let root = UnionFind.find tv
+
+                match subst.TryGetValue root with
+                | true, fresh -> TyVar fresh
+                | false, _ -> TyVar root
+            | TyConst _ -> t
+            | TyFun(a, r) -> TyFun(walk a, walk r)
+            | TyTuple xs -> TyTuple [ for x in xs -> walk x ]
+
+        walk scheme.Body
+
+    /// Walk `zonkedTy` and collect every union-find root whose Level strictly
+    /// exceeds `outerLevel` — those are the TyVars to quantify. Dedupes by
+    /// reference identity (a single TyVar can appear in multiple positions).
+    /// Quantified TyVars stay live in the union-find graph; the scheme just
+    /// captures their identities so `instantiate` can swap them per use.
+    let private generalise (zonkedTy: SemType) (outerLevel: int) : TypeScheme =
+        let quantified = ResizeArray<TypeVar>()
+        let seen = HashSet<TypeVar>(HashIdentity.Reference)
+
+        let rec walk (t: SemType) : unit =
+            match t with
+            | TyVar tv ->
+                let root = UnionFind.find tv
+
+                if root.Level > outerLevel && seen.Add(root) then
+                    quantified.Add(root)
+            | TyConst _ -> ()
+            | TyFun(a, r) ->
+                walk a
+                walk r
+            | TyTuple xs -> List.iter walk xs
+
+        walk zonkedTy
+        TypeScheme(List.ofSeq quantified, zonkedTy)
+
+    /// v1: every single-name `let` generalises. Compound destructuring heads
+    /// (tuple patterns, wildcards) and bindings whose head is something
+    /// other than a `Pat.NamedSimple` don't get schemes — they bind values,
+    /// not function abstractions, and the scheme table is keyed by a single
+    /// NodeKey. Value restriction lands when refs / mutables do.
+    let private shouldGeneralise (b: Binding<SyntaxToken>) : bool =
+        match b.headPat with
+        | Pat.NamedSimple _ -> true
+        | _ -> false
 
     let private inferConst (c: Constant<SyntaxToken>) : SemType =
         // Dispatch covers the numeric / boolean tokens that lex into a
@@ -200,7 +304,7 @@ module Unification =
         | _ ->
             // TODO: VarType (typars), GenericType, etc. Free variable until
             // we model them properly — unification will pin it via context.
-            TyVar(TypeVar())
+            TyVar(freshTyVar ctx)
 
     let rec private inferPat (ctx: PassContext) (p: Pat<SyntaxToken>) : SemType =
         // Each pattern node gets its own TypeVar keyed on its NodeKey. For
@@ -210,7 +314,11 @@ module Unification =
         let key = CstKeys.ofPat p
 
         match p with
-        | Pat.NamedSimple _
+        | Pat.NamedSimple _ ->
+            // Use tvOf so a let-rec sibling whose TyVar was already lazy-minted
+            // by a forward reference (or pre-allocated by inferBindingGroup)
+            // is reused, not overwritten.
+            TyVar(tvOf ctx key)
         | Pat.Wildcard _ -> TyVar(freshTv ctx key)
         | Pat.EnclosedBlock(pat = inner) ->
             let innerTy = inferPat ctx inner
@@ -298,10 +406,10 @@ module Unification =
                 // `null` lacks a constraint in the tiny subset (no
                 // reference-type bound yet). Hand back a free TypeVar so
                 // surrounding context can pin it.
-                TyVar(TypeVar())
+                TyVar(freshTyVar ctx)
             | _ ->
                 // TODO: other expression kinds.
-                TyVar(TypeVar())
+                TyVar(freshTyVar ctx)
 
         nodeTv.Link <- ValueSome inferredTy
         inferredTy
@@ -309,9 +417,16 @@ module Unification =
     and private inferIdent (ctx: PassContext) (e: Expr<SyntaxToken>) (key: NodeKey) : SemType =
         match ctx.Binding.TryGetValue key with
         | ValueSome rb ->
-            // Local binding — the BindingSite is the headPat / lambda-param
-            // NodeKey. Its TypeVar was minted by inferPat.
-            TyVar(tvOf ctx rb.BindingSite)
+            // Local binding — the BindingSite is the headPat NodeKey. If the
+            // binding has been generalised already, instantiate the scheme so
+            // independent use-sites get independent variables (mirrors the
+            // external-symbol path). Otherwise fall back to the monomorphic
+            // TyVar minted by inferPat — this includes uses inside a sibling's
+            // RHS within the same `let rec` group, which is exactly what
+            // forbids polymorphic recursion.
+            match ctx.Scheme.TryGetValue rb.BindingSite with
+            | ValueSome scheme -> instantiate ctx scheme
+            | ValueNone -> TyVar(tvOf ctx rb.BindingSite)
         | ValueNone ->
             // External symbol (or unresolved — NameRes will already have
             // emitted a diagnostic in that case). Re-query the provider.
@@ -319,11 +434,11 @@ module Unification =
 
             match ctx.Provider.TryLookup name with
             | ValueSome sym ->
-                // Each lookup gets a fresh instantiation — polymorphic
-                // symbols allocate new TypeVars so independent use-sites
-                // don't share variables through the scheme.
-                sym.Instantiate()
-            | ValueNone -> TyVar(TypeVar())
+                // Polymorphic external symbols allocate fresh TypeVars per
+                // call; we pass the current level so those vars are stamped
+                // at the use-site's depth.
+                sym.Instantiate ctx.CurrentLevel
+            | ValueNone -> TyVar(freshTyVar ctx)
 
     /// Source-level rendering of an ident/qualified-name expression. For
     /// single-segment idents this is just the token text; for multi-segment
@@ -344,7 +459,7 @@ module Unification =
 
         for a in args do
             let argTy = infer ctx a
-            let resultTy = TyVar(TypeVar())
+            let resultTy = TyVar(freshTyVar ctx)
             unify ctx key currTy (TyFun(argTy, resultTy))
             currTy <- resultTy
 
@@ -360,7 +475,7 @@ module Unification =
         // `Expr.App fn [|arg|]`, just a separate CST case for the parser.
         let fnTy = infer ctx fn
         let argTy = infer ctx arg
-        let resultTy = TyVar(TypeVar())
+        let resultTy = TyVar(freshTyVar ctx)
         unify ctx key fnTy (TyFun(argTy, resultTy))
         resultTy
 
@@ -400,8 +515,8 @@ module Unification =
         | ValueSome(DesugaredForm.OpName name) ->
             match ctx.Provider.TryLookup name with
             | ValueSome sym ->
-                let resultTy = TyVar(TypeVar())
-                unify ctx key (sym.Instantiate()) (TyFun(leftTy, TyFun(rightTy, resultTy)))
+                let resultTy = TyVar(freshTyVar ctx)
+                unify ctx key (sym.Instantiate ctx.CurrentLevel) (TyFun(leftTy, TyFun(rightTy, resultTy)))
                 resultTy
             | ValueNone ->
                 ctx.Diagnostics.Add
@@ -411,12 +526,12 @@ module Unification =
                         Severity = Error
                     }
 
-                TyVar(TypeVar())
+                TyVar(freshTyVar ctx)
         | ValueNone ->
             // Desugar didn't recognise the operator token; leave the result
             // as a free TypeVar (the unknown operator is a deficiency in
             // Desugar's lookup table, not a user error here).
-            TyVar(TypeVar())
+            TyVar(freshTyVar ctx)
 
     and private inferPrefix (ctx: PassContext) (key: NodeKey) (operand: Expr<SyntaxToken>) : SemType =
         let operandTy = infer ctx operand
@@ -425,8 +540,8 @@ module Unification =
         | ValueSome(DesugaredForm.OpName name) ->
             match ctx.Provider.TryLookup name with
             | ValueSome sym ->
-                let resultTy = TyVar(TypeVar())
-                unify ctx key (sym.Instantiate()) (TyFun(operandTy, resultTy))
+                let resultTy = TyVar(freshTyVar ctx)
+                unify ctx key (sym.Instantiate ctx.CurrentLevel) (TyFun(operandTy, resultTy))
                 resultTy
             | ValueNone ->
                 ctx.Diagnostics.Add
@@ -436,8 +551,8 @@ module Unification =
                         Severity = Error
                     }
 
-                TyVar(TypeVar())
-        | ValueNone -> TyVar(TypeVar())
+                TyVar(freshTyVar ctx)
+        | ValueNone -> TyVar(freshTyVar ctx)
 
     and private inferIfThenElse
         (ctx: PassContext)
@@ -604,7 +719,7 @@ module Unification =
         (rules: ImmutableArray<Rule<SyntaxToken>>)
         : SemType =
         let scrutineeTy = infer ctx scrutinee
-        let resultTy = TyVar(TypeVar())
+        let resultTy = TyVar(freshTyVar ctx)
         inferRules ctx key scrutineeTy resultTy rules
         resultTy
 
@@ -612,8 +727,8 @@ module Unification =
         // `function p1 -> e1 | p2 -> e2` ~ `fun x -> match x with p1 -> e1 | p2 -> e2`.
         // The synthesised parameter's TypeVar IS the scrutinee's TypeVar —
         // every arm's pattern unifies with it.
-        let paramTy = TyVar(TypeVar())
-        let resultTy = TyVar(TypeVar())
+        let paramTy = TyVar(freshTyVar ctx)
+        let resultTy = TyVar(freshTyVar ctx)
         inferRules ctx key paramTy resultTy rules
         TyFun(paramTy, resultTy)
 
@@ -629,7 +744,7 @@ module Unification =
         // only unify the result side. Arm patterns are still inferred so
         // any names they bind have a stable TypeVar.
         let resultTy = infer ctx body
-        let exnTy = TyVar(TypeVar())
+        let exnTy = TyVar(freshTyVar ctx)
         inferRules ctx key exnTy resultTy rules
         resultTy
 
@@ -693,8 +808,7 @@ module Unification =
         (bindings: ImmutableArray<Binding<SyntaxToken>>)
         (body: Expr<SyntaxToken> voption)
         : SemType =
-        for b in bindings do
-            inferBinding ctx b
+        inferBindingGroup ctx bindings
 
         match body with
         | ValueSome bodyExpr -> infer ctx bodyExpr
@@ -719,11 +833,43 @@ module Unification =
 
         unify ctx (CstKeys.ofBinding b) patTy rhsTy
 
+    /// Type a `let` / `let rec` group with Rémy-level discipline:
+    ///   1. Snapshot the outer level and push one level for the group.
+    ///   2. Pre-allocate single-name sibling headPat TyVars so forward
+    ///      references from inside one RHS (or any nested let within) find
+    ///      the sibling's TyVar at this group's level rather than lazy-mint
+    ///      at a deeper one — which would let a nested let generalise a
+    ///      var that actually belongs to an un-typed outer sibling.
+    ///   3. Type every binding's RHS at the pushed level (sibling lookups
+    ///      stay monomorphic — no scheme is written until step 5).
+    ///   4. Pop back to the outer level.
+    ///   5. Generalise each `shouldGeneralise` binding against the outer
+    ///      level and write its scheme to `ctx.Scheme`.
+    and private inferBindingGroup (ctx: PassContext) (bindings: ImmutableArray<Binding<SyntaxToken>>) : unit =
+        let outerLevel = ctx.CurrentLevel
+        enterLevel ctx
+
+        for b in bindings do
+            match b.headPat with
+            | Pat.NamedSimple _ -> tvOf ctx (CstKeys.ofPat b.headPat) |> ignore
+            | _ -> ()
+
+        for b in bindings do
+            inferBinding ctx b
+
+        exitLevel ctx
+
+        for b in bindings do
+            if shouldGeneralise b then
+                let key = CstKeys.ofPat b.headPat
+                let headTv = tvOf ctx key
+                let scheme = generalise (zonk (TyVar headTv)) outerLevel
+                ctx.Scheme.Set(key, scheme)
+
     let private walkModuleElem (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
         match m with
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
-            for b in bindings do
-                inferBinding ctx b
+            inferBindingGroup ctx bindings
         | ModuleElem.Expression e -> infer ctx e |> ignore
         | _ -> ()
 
