@@ -7,13 +7,32 @@ namespace XParsec.FSharp.SemanticAnalysis
 // Each node carries its inferred SemType inline so target lowering doesn't
 // need to re-query the side tables.
 
-/// Literal-value payload. TODO: extend with Float / String / Char as
-/// the supported subset grows.
+/// Literal-value payload. TODO: extend with Char as the supported subset grows.
 [<RequireQualifiedAccess>]
 type TConstValue =
     | Int of int
+    | Int64 of int64
+    | Byte of byte
+    | Float of double
     | Bool of bool
+    | String of string
     | Unit
+
+/// Binding-side pattern in the TAST. Strips trivia / parens from `Pat<T>`
+/// but keeps the destructuring shape so a downstream consumer can introduce
+/// every bound name without re-walking the CST.
+[<RequireQualifiedAccess>]
+type TPat =
+    /// Single named binding. `binding` is the source-position NodeKey of the
+    /// introducing pattern; references via `TExpr.Var` use the same key.
+    | NamedSimple of binding: NodeKey * ty: SemType
+    /// `_` placeholder. Has a type (the matched value's type) but binds
+    /// nothing.
+    | Wildcard of ty: SemType
+    /// `(a, b, …)`. `ty` is always a `TyTuple` of the elements' types.
+    | Tuple of items: TPat list * ty: SemType
+    /// Literal pattern (match arms): `| 0 -> …`, `| true -> …`.
+    | Const of value: TConstValue * ty: SemType
 
 [<RequireQualifiedAccess>]
 type TExpr =
@@ -24,20 +43,36 @@ type TExpr =
     /// name so target plugins can dispatch (`op_Addition` -> CIL `add` on
     /// .NET, native `+` on Rust, etc. — see [[project_inline_il_target_specific]]).
     | External of compiledName: string * ty: SemType
-    /// `param` is the NodeKey of the parameter pattern.
-    | Lambda of param: NodeKey * body: TExpr * ty: SemType
+    /// `param` is the lambda's parameter pattern (with full destructure).
+    | Lambda of param: TPat * body: TExpr * ty: SemType
     /// Curried; multi-arg applications nest.
     | App of fn: TExpr * arg: TExpr * ty: SemType
-    | Let of binding: NodeKey * value: TExpr * body: TExpr * ty: SemType
+    | Let of binding: TPat * value: TExpr * body: TExpr * ty: SemType
     | IfThenElse of cond: TExpr * thenExpr: TExpr * elseExpr: TExpr * ty: SemType
     /// `ty` is always a TyTuple of the elements' inferred types.
     | Tuple of items: TExpr list * ty: SemType
     /// All items but the last must have unit type; `ty` is the last item's type.
     | Sequential of items: TExpr list * ty: SemType
+    /// `ty` is always unit; cond : bool, body : unit.
+    | While of cond: TExpr * body: TExpr * ty: SemType
+    /// `ty` is always unit; the loop variable is bound to `var` with type int.
+    /// `startExpr`, `endExpr`, `body` are int, int, unit respectively.
+    | ForTo of var: NodeKey * startExpr: TExpr * endExpr: TExpr * body: TExpr * ty: SemType
+    /// `scrutinee` and each `arms.[i].Pat` share the same type; every
+    /// `arms.[i].Body` shares `ty`. `function` desugars to a Match over a
+    /// synthetic parameter — same TExpr shape.
+    | Match of scrutinee: TExpr * arms: TMatchArm list * ty: SemType
+
+and TMatchArm =
+    {
+        Pat: TPat
+        Guard: TExpr option
+        Body: TExpr
+    }
 
 [<RequireQualifiedAccess>]
 type TDecl =
-    | Let of binding: NodeKey * value: TExpr * ty: SemType
+    | Let of binding: TPat * value: TExpr * ty: SemType
     /// Top-level expression (script fragments parse as a module with one
     /// Expression element).
     | Expression of expr: TExpr * ty: SemType

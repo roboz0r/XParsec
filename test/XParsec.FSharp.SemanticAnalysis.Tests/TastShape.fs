@@ -79,9 +79,20 @@ type private Renderer() =
     member this.Expr(e: TExpr) : unit =
         match e with
         | TExpr.Const(TConstValue.Int n, _) -> push (string n)
+        | TExpr.Const(TConstValue.Int64 n, _) ->
+            push (string n)
+            push "L"
+        | TExpr.Const(TConstValue.Byte n, _) ->
+            push (string n)
+            push "uy"
+        | TExpr.Const(TConstValue.Float n, _) -> push (n.ToString(System.Globalization.CultureInfo.InvariantCulture))
         | TExpr.Const(TConstValue.Bool true, _) -> push "true"
         | TExpr.Const(TConstValue.Bool false, _) -> push "false"
         | TExpr.Const(TConstValue.Unit, _) -> push "()"
+        | TExpr.Const(TConstValue.String s, _) ->
+            push "\""
+            push s
+            push "\""
         | TExpr.Var(k, _) -> push (nameOf k)
         | TExpr.External(name, _) -> push name
 
@@ -109,13 +120,13 @@ type private Renderer() =
 
         | TExpr.Lambda(p, body, _) ->
             push "fun "
-            push (nameOf p)
+            this.Pat p
             push " -> "
             this.Expr body
 
-        | TExpr.Let(k, v, b, _) ->
+        | TExpr.Let(p, v, b, _) ->
             push "let "
-            push (nameOf k)
+            this.Pat p
             push " = "
             this.Expr v
             push " in "
@@ -155,11 +166,77 @@ type private Renderer() =
 
             push ")"
 
+        | TExpr.While(c, b, _) ->
+            push "while "
+            this.Expr c
+            push " do "
+            this.Expr b
+
+        | TExpr.ForTo(v, s, e2, b, _) ->
+            push "for "
+            push (nameOf v)
+            push " = "
+            this.Expr s
+            push " to "
+            this.Expr e2
+            push " do "
+            this.Expr b
+
+        | TExpr.Match(scrutinee, arms, _) ->
+            push "match "
+            this.Expr scrutinee
+            push " with"
+
+            for arm in arms do
+                push " | "
+                this.Pat arm.Pat
+
+                match arm.Guard with
+                | Some g ->
+                    push " when "
+                    this.Expr g
+                | None -> ()
+
+                push " -> "
+                this.Expr arm.Body
+
+    member this.Pat(p: TPat) : unit =
+        match p with
+        | TPat.NamedSimple(k, _) -> push (nameOf k)
+        | TPat.Wildcard _ -> push "_"
+        | TPat.Const(TConstValue.Int n, _) -> push (string n)
+        | TPat.Const(TConstValue.Int64 n, _) ->
+            push (string n)
+            push "L"
+        | TPat.Const(TConstValue.Byte n, _) ->
+            push (string n)
+            push "uy"
+        | TPat.Const(TConstValue.Float n, _) -> push (n.ToString(System.Globalization.CultureInfo.InvariantCulture))
+        | TPat.Const(TConstValue.Bool true, _) -> push "true"
+        | TPat.Const(TConstValue.Bool false, _) -> push "false"
+        | TPat.Const(TConstValue.Unit, _) -> push "()"
+        | TPat.Const(TConstValue.String s, _) ->
+            push "\""
+            push s
+            push "\""
+        | TPat.Tuple(items, _) ->
+            push "("
+
+            items
+            |> List.iteri (fun i x ->
+                if i > 0 then
+                    push ", "
+
+                this.Pat x
+            )
+
+            push ")"
+
     member this.Decl(d: TDecl) : unit =
         match d with
-        | TDecl.Let(k, v, _) ->
+        | TDecl.Let(p, v, _) ->
             push "let "
-            push (nameOf k)
+            this.Pat p
             push " = "
             this.Expr v
         | TDecl.Expression(e, _) ->

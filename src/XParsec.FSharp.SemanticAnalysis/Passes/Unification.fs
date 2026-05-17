@@ -150,22 +150,65 @@ module Unification =
         | ValueNone -> freshTv ctx key
 
     let private inferConst (c: Constant<SyntaxToken>) : SemType =
-        // TODO: dispatch on every numeric Token kind (NumFloat, NumInt64, …).
-        // Tiny subset: KWTrue/KWFalse -> bool, everything else -> int.
+        // Dispatch covers the numeric / boolean tokens that lex into a
+        // Constant.Literal. Anything we don't recognise still types as int
+        // (matches the parser's most common case) — extend as new literal
+        // kinds become reachable.
         match c with
         | Constant.Literal t ->
             match t.Token with
             | Token.KWTrue
             | Token.KWFalse -> MockBuiltins.tyBool
+            | Token.NumIEEE64
+            | Token.NumIEEE64Hex
+            | Token.NumIEEE64Octal
+            | Token.NumIEEE64Binary -> MockBuiltins.tyFloat
+            | Token.NumInt64
+            | Token.NumInt64Hex
+            | Token.NumInt64Octal
+            | Token.NumInt64Binary -> MockBuiltins.tyInt64
+            | Token.NumByte
+            | Token.NumByteHex
+            | Token.NumByteOctal
+            | Token.NumByteBinary -> MockBuiltins.tyByte
             | _ -> MockBuiltins.tyInt
         | Constant.MeasuredLiteral _ -> MockBuiltins.tyInt
 
-    let private inferPat (ctx: PassContext) (p: Pat<SyntaxToken>) : SemType =
-        // Tiny subset: every pattern that introduces a name gets a fresh
-        // TypeVar. Wildcard does the same (no name to bind, but the value
-        // still has a type).
+    let rec private inferPat (ctx: PassContext) (p: Pat<SyntaxToken>) : SemType =
+        // Each pattern node gets its own TypeVar keyed on its NodeKey. For
+        // compound patterns (Tuple, EnclosedBlock, As) the outer TypeVar is
+        // linked to the underlying shape so a single lookup against any
+        // pattern node returns the right type.
         let key = CstKeys.ofPat p
-        TyVar(freshTv ctx key)
+
+        match p with
+        | Pat.NamedSimple _
+        | Pat.Wildcard _ -> TyVar(freshTv ctx key)
+        | Pat.EnclosedBlock(pat = inner) ->
+            let innerTy = inferPat ctx inner
+            let nodeTv = freshTv ctx key
+            nodeTv.Link <- ValueSome innerTy
+            innerTy
+        | Pat.Tuple(patterns = pats) ->
+            let elemTys = [ for p in pats -> inferPat ctx p ]
+            let tupleTy = TyTuple elemTys
+            let nodeTv = freshTv ctx key
+            nodeTv.Link <- ValueSome tupleTy
+            tupleTy
+        | Pat.Const c ->
+            let constTy = inferConst c
+            let nodeTv = freshTv ctx key
+            nodeTv.Link <- ValueSome constTy
+            constTy
+        | Pat.As(pat = inner) ->
+            let innerTy = inferPat ctx inner
+            let nodeTv = freshTv ctx key
+            nodeTv.Link <- ValueSome innerTy
+            innerTy
+        | _ ->
+            // TODO: Named (DU ctor) / Typed / Or / Cons / Record patterns —
+            // they need provider lookups or recursive shape unification.
+            TyVar(freshTv ctx key)
 
     let rec private infer (ctx: PassContext) (e: Expr<SyntaxToken>) : SemType =
         let key = CstKeys.ofExpr e
@@ -188,6 +231,13 @@ module Unification =
             | Expr.Sequential(exprs = items) -> inferSequential ctx key items
             | Expr.TypeAnnotation(expr = inner; typ = t) -> inferTypeAnnotation ctx key inner t
             | Expr.EmptyBlock _ -> MockBuiltins.tyUnit
+            | Expr.While(condition = cond; body = body) -> inferWhile ctx key cond body
+            | Expr.ForTo(ident = ident; startExpr = startE; endExpr = endE; body = body) ->
+                inferForTo ctx key ident startE endE body
+            | Expr.ForIn(pat = pat; enumerableExpr = src; body = body) -> inferForIn ctx key pat src body
+            | Expr.String(parts = parts) -> inferString ctx key parts
+            | Expr.Match(matchExpr = scrutinee; rules = Rules(rules = rules)) -> inferMatch ctx key scrutinee rules
+            | Expr.Function(rules = Rules(rules = rules)) -> inferFunction ctx key rules
             | _ ->
                 // TODO: other expression kinds.
                 TyVar(TypeVar())
@@ -346,6 +396,122 @@ module Unification =
                 unify ctx key ty MockBuiltins.tyUnit
 
             infer ctx items.[items.Length - 1]
+
+    and private inferWhile
+        (ctx: PassContext)
+        (key: NodeKey)
+        (cond: Expr<SyntaxToken>)
+        (body: Expr<SyntaxToken>)
+        : SemType =
+        let condTy = infer ctx cond
+        unify ctx key condTy MockBuiltins.tyBool
+        let bodyTy = infer ctx body
+        unify ctx key bodyTy MockBuiltins.tyUnit
+        MockBuiltins.tyUnit
+
+    and private inferForTo
+        (ctx: PassContext)
+        (key: NodeKey)
+        (ident: SyntaxToken)
+        (startE: Expr<SyntaxToken>)
+        (endE: Expr<SyntaxToken>)
+        (body: Expr<SyntaxToken>)
+        : SemType =
+        let startTy = infer ctx startE
+        unify ctx key startTy MockBuiltins.tyInt
+        let endTy = infer ctx endE
+        unify ctx key endTy MockBuiltins.tyInt
+        // Bind the loop variable as int via a TypeVar keyed on its NodeKey.
+        let varKey = CstKeys.ofForToVar ident
+        let varTv = freshTv ctx varKey
+        varTv.Link <- ValueSome MockBuiltins.tyInt
+        let bodyTy = infer ctx body
+        unify ctx key bodyTy MockBuiltins.tyUnit
+        MockBuiltins.tyUnit
+
+    and private inferForIn
+        (ctx: PassContext)
+        (key: NodeKey)
+        (pat: Pat<SyntaxToken>)
+        (src: Expr<SyntaxToken>)
+        (body: Expr<SyntaxToken>)
+        : SemType =
+        // No `seq<T>` machinery yet — just allocate a fresh TypeVar for the
+        // pattern and don't constrain the enumerable's shape. The pattern's
+        // TypeVar stays free; later passes can refine it. Diagnostic flag
+        // surfaces the gap to anyone reaching this case.
+        let _srcTy = infer ctx src
+        let _patTy = inferPat ctx pat
+        let bodyTy = infer ctx body
+        unify ctx key bodyTy MockBuiltins.tyUnit
+
+        ctx.Diagnostics.Add
+            {
+                Key = key
+                Message = "for-in: enumerable / element-type checking not yet implemented"
+                Severity = Info
+            }
+
+        MockBuiltins.tyUnit
+
+    and private inferRules
+        (ctx: PassContext)
+        (key: NodeKey)
+        (scrutineeTy: SemType)
+        (resultTy: SemType)
+        (rules: ImmutableArray<Rule<SyntaxToken>>)
+        : unit =
+        for r in rules do
+            match r with
+            | Rule.Rule(pat = pat; guard = guard; expr = body) ->
+                let patTy = inferPat ctx pat
+                unify ctx key patTy scrutineeTy
+
+                match guard with
+                | ValueSome(PatternGuard(expr = g)) ->
+                    let gTy = infer ctx g
+                    unify ctx key gTy MockBuiltins.tyBool
+                | ValueNone -> ()
+
+                let bodyTy = infer ctx body
+                unify ctx key bodyTy resultTy
+            | _ -> ()
+
+    and private inferMatch
+        (ctx: PassContext)
+        (key: NodeKey)
+        (scrutinee: Expr<SyntaxToken>)
+        (rules: ImmutableArray<Rule<SyntaxToken>>)
+        : SemType =
+        let scrutineeTy = infer ctx scrutinee
+        let resultTy = TyVar(TypeVar())
+        inferRules ctx key scrutineeTy resultTy rules
+        resultTy
+
+    and private inferFunction (ctx: PassContext) (key: NodeKey) (rules: ImmutableArray<Rule<SyntaxToken>>) : SemType =
+        // `function p1 -> e1 | p2 -> e2` ~ `fun x -> match x with p1 -> e1 | p2 -> e2`.
+        // The synthesised parameter's TypeVar IS the scrutinee's TypeVar —
+        // every arm's pattern unifies with it.
+        let paramTy = TyVar(TypeVar())
+        let resultTy = TyVar(TypeVar())
+        inferRules ctx key paramTy resultTy rules
+        TyFun(paramTy, resultTy)
+
+    and private inferString
+        (ctx: PassContext)
+        (_key: NodeKey)
+        (parts: ImmutableArray<StringPart<SyntaxToken>>)
+        : SemType =
+        // Non-interpolated strings type as `string`. Interpolated strings
+        // also type as string (the holes are typed via printf-format
+        // checking, which we don't model yet — recurse into the hole exprs
+        // so their types still get computed, but don't constrain them).
+        for part in parts do
+            match part with
+            | StringPart.Expr(expr = e) -> infer ctx e |> ignore
+            | _ -> ()
+
+        MockBuiltins.tyString
 
     /// Translate a syntactic `Type<SyntaxToken>` into a `SemType`. The tiny
     /// subset only recognises the primitive built-ins (`int`, `bool`,

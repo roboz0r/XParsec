@@ -66,6 +66,19 @@ module CstKeys =
         | Expr.Tuple(exprs = exprs) when exprs.Length > 0 -> firstTokenOfExpr exprs.[0]
         | Expr.Sequential(exprs = exprs) when exprs.Length > 0 -> firstTokenOfExpr exprs.[0]
         | Expr.TypeAnnotation(expr = inner) -> firstTokenOfExpr inner
+        | Expr.While(whileToken = t) -> t
+        | Expr.ForTo(forToken = t) -> t
+        | Expr.ForIn(forToken = t) -> t
+        | Expr.Match(matchToken = t) -> t
+        | Expr.Function(functionToken = t) -> t
+        | Expr.String(kind = kind) ->
+            match kind with
+            | StringKind.String t
+            | StringKind.VerbatimString t
+            | StringKind.String3 t
+            | StringKind.InterpolatedString t
+            | StringKind.VerbatimInterpolatedString t
+            | StringKind.Interpolated3String t -> t
         | _ -> failwithf "CstKeys.firstTokenOfExpr: TODO %A" e
 
     let rec firstTokenOfPat (p: Pat<SyntaxToken>) : SyntaxToken =
@@ -76,6 +89,9 @@ module CstKeys =
         | Pat.Wildcard t -> t
         | Pat.EnclosedBlock(lParen = pk) -> firstTokenOfParenKind pk
         | Pat.EmptyBlock(lParen = pk) -> firstTokenOfParenKind pk
+        | Pat.Tuple(patterns = pats) when pats.Length > 0 -> firstTokenOfPat pats.[0]
+        | Pat.Typed(pat = inner) -> firstTokenOfPat inner
+        | Pat.As(pat = inner) -> firstTokenOfPat inner
         | _ -> failwithf "CstKeys.firstTokenOfPat: TODO %A" p
 
     let ofExpr (e: Expr<SyntaxToken>) : NodeKey =
@@ -95,6 +111,12 @@ module CstKeys =
             | Expr.Sequential _ -> NodeKind.ExprSequential
             | Expr.TypeAnnotation _ -> NodeKind.ExprTypeAnnotation
             | Expr.EmptyBlock _ -> NodeKind.ExprEmptyBlock
+            | Expr.While _ -> NodeKind.ExprWhile
+            | Expr.ForTo _ -> NodeKind.ExprForTo
+            | Expr.ForIn _ -> NodeKind.ExprForIn
+            | Expr.String _ -> NodeKind.ExprString
+            | Expr.Match _ -> NodeKind.ExprMatch
+            | Expr.Function _ -> NodeKind.ExprFunction
             | _ -> NodeKind.Unknown
 
         NodeKey.ofToken (firstTokenOfExpr e) kind
@@ -107,6 +129,8 @@ module CstKeys =
             | Pat.Named _ -> NodeKind.PatLongIdent
             | Pat.Wildcard _ -> NodeKind.PatWildcard
             | Pat.EnclosedBlock _ -> NodeKind.PatEnclosedBlock
+            | Pat.Tuple _ -> NodeKind.PatTuple
+            | Pat.As _ -> NodeKind.PatAs
             | _ -> NodeKind.Unknown
 
         NodeKey.ofToken (firstTokenOfPat p) kind
@@ -114,3 +138,8 @@ module CstKeys =
     /// A binding's identity is its headPat's NodeKey — that's the pattern
     /// that introduced the name(s) being bound.
     let ofBinding (b: Binding<SyntaxToken>) : NodeKey = ofPat b.headPat
+
+    /// The loop variable of a `for i = …` introduces a binding whose site has
+    /// no Pat wrapper in the CST — key on the ident token directly.
+    let ofForToVar (ident: SyntaxToken) : NodeKey =
+        NodeKey.ofToken ident NodeKind.PatForToVar

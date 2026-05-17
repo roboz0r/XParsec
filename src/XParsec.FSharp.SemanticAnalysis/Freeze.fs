@@ -20,18 +20,64 @@ module Freeze =
         | ValueSome tv -> Unification.zonk (TyVar tv)
         | ValueNone -> TyVar(TypeVar())
 
+    /// Strip type/format suffixes the lexer leaves on a numeric token (e.g.
+    /// `42L` -> "42", `0xFFuy` -> "0xFF", `1.5f` -> "1.5"). We only strip the
+    /// suffixes that map to literal kinds Unification recognises; the
+    /// remainder is fed to the corresponding BCL parser.
+    let private stripSuffix (suffix: string) (text: string) =
+        if text.EndsWith(suffix, System.StringComparison.OrdinalIgnoreCase) then
+            text.Substring(0, text.Length - suffix.Length)
+        else
+            text
+
     let private parseConst (ctx: PassContext) (c: Constant<SyntaxToken>) : TConstValue =
-        match c with
-        | Constant.Literal t ->
+        let parseLiteral (t: SyntaxToken) : TConstValue =
+            let text = ctx.NameOf t
+
             match t.Token with
             | Token.KWTrue -> TConstValue.Bool true
             | Token.KWFalse -> TConstValue.Bool false
+            | Token.NumIEEE64
+            | Token.NumIEEE64Hex
+            | Token.NumIEEE64Octal
+            | Token.NumIEEE64Binary ->
+                TConstValue.Float(System.Double.Parse(text, System.Globalization.CultureInfo.InvariantCulture))
+            | Token.NumInt64
+            | Token.NumInt64Hex
+            | Token.NumInt64Octal
+            | Token.NumInt64Binary -> TConstValue.Int64(System.Int64.Parse(stripSuffix "L" text))
+            | Token.NumByte
+            | Token.NumByteHex
+            | Token.NumByteOctal
+            | Token.NumByteBinary -> TConstValue.Byte(System.Byte.Parse(stripSuffix "uy" text))
             | _ ->
-                // Tiny subset: every other literal is parsed as an int. Real
-                // dispatch (NumFloat/NumInt64/NumByte/…) lands when those
-                // become reachable.
-                TConstValue.Int(Int32.Parse(ctx.NameOf t))
-        | Constant.MeasuredLiteral(value = t) -> TConstValue.Int(Int32.Parse(ctx.NameOf t))
+                // Falls through for NumInt32 family and anything Unification
+                // hasn't classified — they're treated as plain ints.
+                TConstValue.Int(Int32.Parse text)
+
+        match c with
+        | Constant.Literal t -> parseLiteral t
+        | Constant.MeasuredLiteral(value = t) -> parseLiteral t
+
+    /// Walk a CST pattern into a TPat. EnclosedBlock and Typed peel; Tuple
+    /// recurses. Patterns Unification doesn't understand yet fall through
+    /// loudly so the gap surfaces at translation time.
+    let rec private translatePat (ctx: PassContext) (p: Pat<SyntaxToken>) : TPat =
+        let key = CstKeys.ofPat p
+        let ty = typeOfKey ctx key
+
+        match p with
+        | Pat.NamedSimple _ -> TPat.NamedSimple(key, ty)
+        | Pat.Wildcard _ -> TPat.Wildcard ty
+        | Pat.EnclosedBlock(pat = inner) -> translatePat ctx inner
+        | Pat.Tuple(patterns = pats) -> TPat.Tuple([ for sub in pats -> translatePat ctx sub ], ty)
+        | Pat.Const c -> TPat.Const(parseConst ctx c, ty)
+        | Pat.As(pat = inner) ->
+            // The `as`-name itself isn't surfaced in TPat yet — translate the
+            // inner pattern and rely on downstream Var lookups to find the
+            // alias via the CST + side tables.
+            translatePat ctx inner
+        | _ -> failwithf "Freeze.translatePat: TODO %A" p
 
     /// `()` literal. Distinct entry point because `Expr.EmptyBlock` carries
     /// `ParenKind` + closing token, not a `Constant`.
@@ -62,10 +108,76 @@ module Freeze =
         // runtime representation — return the (now-constrained) inner.
         | Expr.TypeAnnotation(expr = inner) -> translateExpr ctx inner
         | Expr.EmptyBlock _ -> unitConst ctx e
+        | Expr.While(condition = cond; body = body) -> TExpr.While(translateExpr ctx cond, translateExpr ctx body, ty)
+        | Expr.ForTo(ident = ident; startExpr = startE; endExpr = endE; body = body) ->
+            let varKey = CstKeys.ofForToVar ident
+            TExpr.ForTo(varKey, translateExpr ctx startE, translateExpr ctx endE, translateExpr ctx body, ty)
+        | Expr.String _ -> translateString ctx e ty
+        | Expr.Match(matchExpr = scrutinee; rules = Rules(rules = rules)) ->
+            TExpr.Match(translateExpr ctx scrutinee, translateRules ctx rules, ty)
+        | Expr.Function(rules = Rules(rules = rules)) ->
+            // `function …` ~ `fun x -> match x with …`. The synthesised
+            // parameter has no source token, so mint a synthetic key under
+            // the function-keyword's offset and let the Match scrutinee
+            // reference it.
+            let funcKey = CstKeys.ofExpr e
+
+            let paramKey = NodeKey.ofSynthetic funcKey.Offset NodeKind.SynthLambdaBody
+
+            let paramTy, resultTy =
+                match ty with
+                | TyFun(p, r) -> p, r
+                | _ -> failwithf "Freeze.Function: expected function type, got %A" ty
+
+            let scrutinee = TExpr.Var(paramKey, paramTy)
+            let body = TExpr.Match(scrutinee, translateRules ctx rules, resultTy)
+            TExpr.Lambda(TPat.NamedSimple(paramKey, paramTy), body, ty)
         | _ ->
             // TODO: extend as the subset grows. Until then, surface the
             // unhandled case loudly rather than emitting a broken TExpr.
             failwithf "Freeze.translateExpr: TODO %A" e
+
+    and private translateRules (ctx: PassContext) (rules: ImmutableArray<Rule<SyntaxToken>>) : TMatchArm list =
+        [
+            for r in rules do
+                match r with
+                | Rule.Rule(pat = pat; guard = guard; expr = body) ->
+                    let guardT =
+                        match guard with
+                        | ValueSome(PatternGuard(expr = g)) -> Some(translateExpr ctx g)
+                        | ValueNone -> None
+
+                    yield
+                        {
+                            Pat = translatePat ctx pat
+                            Guard = guardT
+                            Body = translateExpr ctx body
+                        }
+                | _ -> ()
+        ]
+
+    and private translateString (ctx: PassContext) (e: Expr<SyntaxToken>) (ty: SemType) : TExpr =
+        // Tiny subset: stitch together the source text of every Text /
+        // EscapeSequence / VerbatimEscapeQuote part. Interpolation holes are
+        // not yet rendered — surface them as `{<expr>}` placeholders so test
+        // output stays deterministic.
+        match e with
+        | Expr.String(parts = parts) ->
+            let sb = System.Text.StringBuilder()
+
+            for part in parts do
+                match part with
+                | StringPart.Text t
+                | StringPart.EscapeSequence t
+                | StringPart.FormatSpecifier t
+                | StringPart.EscapePercent t
+                | StringPart.VerbatimEscapeQuote t -> sb.Append(ctx.NameOf t) |> ignore
+                | StringPart.Expr _ -> sb.Append("{<expr>}") |> ignore
+                | StringPart.OrphanFormatSpecifier t -> sb.Append(ctx.NameOf t) |> ignore
+                | StringPart.InvalidText t -> sb.Append(ctx.NameOf t) |> ignore
+
+            TExpr.Const(TConstValue.String(sb.ToString()), ty)
+        | _ -> failwithf "Freeze.translateString: not a String expr: %A" e
 
     and private translateIdent (ctx: PassContext) (e: Expr<SyntaxToken>) (key: NodeKey) (ty: SemType) : TExpr =
         match ctx.Binding.TryGetValue key with
@@ -186,10 +298,10 @@ module Freeze =
 
         for i = argPats.Length - 1 downto 0 do
             let p = argPats.[i]
-            let pKey = CstKeys.ofPat p
-            let pTy = typeOfKey ctx pKey
+            let tpat = translatePat ctx p
+            let pTy = typeOfKey ctx (CstKeys.ofPat p)
             let lamTy = TyFun(pTy, resultTy)
-            result <- TExpr.Lambda(pKey, result, lamTy)
+            result <- TExpr.Lambda(tpat, result, lamTy)
             resultTy <- lamTy
 
         result
@@ -206,9 +318,9 @@ module Freeze =
 
             for i = bindings.Length - 1 downto 0 do
                 let b = bindings.[i]
-                let bKey = CstKeys.ofBinding b
+                let tpat = translatePat ctx b.headPat
                 let valT = translateBinding ctx b
-                result <- TExpr.Let(bKey, valT, result, resultTy)
+                result <- TExpr.Let(tpat, valT, result, resultTy)
 
             result
         | ValueNone ->
@@ -228,9 +340,9 @@ module Freeze =
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
             [
                 for b in bindings ->
-                    let bKey = CstKeys.ofBinding b
+                    let tpat = translatePat ctx b.headPat
                     let valT = translateBinding ctx b
-                    TDecl.Let(bKey, valT, typeOfKey ctx bKey)
+                    TDecl.Let(tpat, valT, typeOfKey ctx (CstKeys.ofBinding b))
             ]
         | ModuleElem.Expression e ->
             let eT = translateExpr ctx e

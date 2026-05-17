@@ -73,6 +73,9 @@ module Desugar =
             EnterFun = fun env _ -> env
             EnterBindingRhs = fun env _ _ _ -> env
             EnterLetBody = fun env _ -> env
+            EnterForTo = fun env _ -> env
+            EnterForIn = fun env _ -> env
+            EnterMatchArm = fun env _ -> env
         }
 
     let private walkModuleElem (walker: CstWalk.ExprWalker<unit>) (m: ModuleElem<SyntaxToken>) =

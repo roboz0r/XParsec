@@ -33,8 +33,12 @@ module ExternalSymbols =
 module MockBuiltins =
 
     let tyInt: SemType = TyConst "int"
+    let tyInt64: SemType = TyConst "int64"
+    let tyByte: SemType = TyConst "byte"
+    let tyFloat: SemType = TyConst "float"
     let tyBool: SemType = TyConst "bool"
     let tyUnit: SemType = TyConst "unit"
+    let tyString: SemType = TyConst "string"
 
     let private tyBinOp (a: SemType) (b: SemType) (r: SemType) : SemType = TyFun(a, TyFun(b, r))
 

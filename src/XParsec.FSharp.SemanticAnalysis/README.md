@@ -2,7 +2,9 @@
 
 Semantic analysis pipeline for the F# CST produced by `XParsec.FSharp`.
 
-**Status:** scaffolding only. No pass is implemented yet.
+**Status:** small but real subset. The pipeline runs end-to-end on
+expression-level F#; types are inferred and a frozen TAST is produced.
+Regions and most of Validation are still no-ops.
 
 ## What this is
 
@@ -45,11 +47,33 @@ Freeze.fs               CST + side tables -> TAST
 Pipeline.fs             Top-level entry: runs passes in order
 ```
 
+## Current coverage
+
+Expressions: `Const`, `Ident`, `LongIdentOrOp` (single-segment), `App`,
+`InfixApp` / `PrefixApp` (named built-in operators), `Fun`, `LetOrUse` (`let`,
+`let rec`, `let … and …`), `EnclosedBlock`, `IfThenElse` (with `elif` /
+`else`), `Tuple`, `Sequential`, `TypeAnnotation`, `EmptyBlock` (`()`),
+`While`, `ForTo`, `ForIn` (element typing deferred), `String` (text +
+escape parts; interpolation holes stubbed), `Match`, `Function`.
+
+Patterns: `NamedSimple`, `Wildcard`, `EnclosedBlock`, `Tuple`, `Const`,
+`As` (alias name dropped). Nested tuple destructuring in `let` heads and
+lambda parameters works.
+
+Literals: bool, int, int64, byte, float (`IEEE64`), unit, string.
+
+Diagnostics: unresolved-name errors, type mismatches, occurs check,
+unknown-operator failures, `if … then` without `else`, `for-in` not-fully-modelled
+info.
+
 ## What this is not (yet)
 
-- Not a type checker. The unification step is a placeholder; Algorithm J is
-  sketched in [`docs/typevar.md`](docs/typevar.md) but not implemented.
 - Not a code emitter. Target-specific specialisation (`Phase 4.6` in
   the original spec) is downstream of `Freeze.fs` and lives in separate
   target-plugin projects, none of which exist yet.
-- Not yet wired to consume a real CST. Each pass's entry point is stubbed.
+- No generalisation. `let id = fun x -> x` types as `'a -> 'a` where `'a`
+  stays unsolved; multiple uses at different types would currently fail.
+- No SRTP / IWSAM resolution. The on-unified callbacks per
+  [`docs/typevar.md`](docs/typevar.md) aren't wired yet.
+- `Regions` and most of `Validation` are still no-ops.
+- `TryWith` / `Object` / `Record` / `RecordClone` aren't traversed yet.

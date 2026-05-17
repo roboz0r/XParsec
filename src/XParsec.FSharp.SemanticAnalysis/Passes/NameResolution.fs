@@ -60,22 +60,26 @@ module NameResolution =
                         Severity = Error
                     }
 
-    /// Extract the (name, binding-site NodeKey) that a pattern introduces.
-    /// Returns ValueNone for patterns that don't bind a single name
-    /// (Wildcard, Tuple decomposition, etc. — tiny subset only handles
-    /// NamedSimple).
-    let private patNameAndKey (ctx: PassContext) (p: Pat<SyntaxToken>) : (string * NodeKey) voption =
+    /// Every (name, NodeKey) pair introduced by a pattern. Recurses through
+    /// parens, tuples, as-bindings, and type annotations; returns [] for
+    /// patterns that bind nothing (Wildcard, Const).
+    let rec private bindingsOfPat (ctx: PassContext) (p: Pat<SyntaxToken>) : (string * NodeKey) list =
         match p with
-        | Pat.NamedSimple t -> ValueSome(ctx.NameOf t, CstKeys.ofPat p)
-        | _ -> ValueNone
+        | Pat.NamedSimple t -> [ ctx.NameOf t, CstKeys.ofPat p ]
+        | Pat.Wildcard _
+        | Pat.Const _ -> []
+        | Pat.EnclosedBlock(pat = inner) -> bindingsOfPat ctx inner
+        | Pat.Tuple(patterns = pats) -> [ for sub in pats -> bindingsOfPat ctx sub ] |> List.concat
+        | Pat.Typed(pat = inner) -> bindingsOfPat ctx inner
+        | Pat.As(pat = inner; ident = ident) -> (ctx.NameOf ident, CstKeys.ofPat p) :: bindingsOfPat ctx inner
+        | _ -> []
 
     let private extendScope (ctx: PassContext) (pats: ImmutableArray<Pat<SyntaxToken>>) (acc: Scope) : Scope =
         let mutable s = acc
 
         for p in pats do
-            match patNameAndKey ctx p with
-            | ValueSome(n, k) -> s <- Map.add n k s
-            | ValueNone -> ()
+            for n, k in bindingsOfPat ctx p do
+                s <- Map.add n k s
 
         s
 
@@ -83,9 +87,8 @@ module NameResolution =
         let mutable s = Map.empty
 
         for b in bindings do
-            match patNameAndKey ctx b.headPat with
-            | ValueSome(n, k) -> s <- Map.add n k s
-            | ValueNone -> ()
+            for n, k in bindingsOfPat ctx b.headPat do
+                s <- Map.add n k s
 
         s
 
@@ -132,6 +135,19 @@ module NameResolution =
 
                     s
             EnterLetBody = fun scope bindings -> bindingsToScope ctx bindings :: scope
+            EnterForTo =
+                fun scope ident ->
+                    let name = ctx.NameOf ident
+                    let key = CstKeys.ofForToVar ident
+                    Map.ofList [ name, key ] :: scope
+            EnterForIn =
+                fun scope pat ->
+                    let scopeMap = bindingsOfPat ctx pat |> Map.ofList
+                    scopeMap :: scope
+            EnterMatchArm =
+                fun scope pat ->
+                    let scopeMap = bindingsOfPat ctx pat |> Map.ofList
+                    scopeMap :: scope
         }
 
     let private walkModuleElem
@@ -154,11 +170,7 @@ module NameResolution =
                 let merged =
                     bindings
                     |> Seq.fold
-                        (fun acc b ->
-                            match patNameAndKey ctx b.headPat with
-                            | ValueSome(n, k) -> Map.add n k acc
-                            | ValueNone -> acc
-                        )
+                        (fun acc b -> (acc, bindingsOfPat ctx b.headPat) ||> List.fold (fun a (n, k) -> Map.add n k a))
                         top
 
                 merged :: rest

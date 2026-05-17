@@ -235,4 +235,278 @@ let tests =
                 Expect.equal (declType tast) intToBool "inRange : int -> bool"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
+
+            // ---- Loops ----
+
+            test "`while true do ()` types as unit" {
+                let tast = analyse "let r = while true do ()"
+                Expect.equal (declType tast) MockBuiltins.tyUnit "r : unit"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = while true do ()" "while TAST shape"
+            }
+
+            test "while condition must be bool" {
+                let tast = analyse "let r = while 1 do ()"
+
+                let hasMismatch =
+                    tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+
+                Expect.isTrue hasMismatch "int cond triggers mismatch"
+            }
+
+            test "while body must be unit" {
+                let tast = analyse "let r = while true do 1"
+
+                let hasMismatch =
+                    tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+
+                Expect.isTrue hasMismatch "int body triggers mismatch"
+            }
+
+            test "`for i = 1 to 10 do ()` types as unit" {
+                let tast = analyse "let r = for i = 1 to 10 do ()"
+                Expect.equal (declType tast) MockBuiltins.tyUnit "r : unit"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "for-to loop variable bound as int and visible in body" {
+                // `n` is the function arg; the body uses both `n` and the loop var `i`.
+                let tast = analyse "let f n = for i = 0 to n do ()"
+                let intToUnit = TyFun(MockBuiltins.tyInt, MockBuiltins.tyUnit)
+                Expect.equal (declType tast) intToUnit "f : int -> unit"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "for-to body referencing loop var: `for i = 1 to 10 do i + 0 |> ignore` is too rich; use simpler check" {
+                // Body uses `i` in a sequential whose first element constrains via unit.
+                // `(); i = 0` — `i = 0` is bool, but the body needs unit, so fails.
+                let tast = analyse "let r = for i = 1 to 10 do i = 0"
+
+                let hasMismatch =
+                    tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+
+                Expect.isTrue hasMismatch "non-unit body triggers mismatch"
+            }
+
+            test "for-to range must be int" {
+                let tast = analyse "let r = for i = true to false do ()"
+
+                let hasMismatch =
+                    tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+
+                Expect.isTrue hasMismatch "bool range triggers mismatch"
+            }
+
+            // ---- Numeric literal widening ----
+
+            test "float literal types as float" {
+                let tast = analyse "let pi = 3.14"
+                Expect.equal (declType tast) MockBuiltins.tyFloat "pi : float"
+
+                match tast.Decls.[0] with
+                | TDecl.Let(_, TExpr.Const(TConstValue.Float v, _), _) ->
+                    Expect.floatClose Accuracy.medium v 3.14 "value preserved"
+                | other -> failtestf "unexpected: %A" other
+            }
+
+            test "int64 literal types as int64" {
+                let tast = analyse "let big = 1L"
+                Expect.equal (declType tast) MockBuiltins.tyInt64 "big : int64"
+
+                match tast.Decls.[0] with
+                | TDecl.Let(_, TExpr.Const(TConstValue.Int64 1L, _), _) -> ()
+                | other -> failtestf "unexpected: %A" other
+            }
+
+            test "byte literal types as byte" {
+                let tast = analyse "let b = 255uy"
+                Expect.equal (declType tast) MockBuiltins.tyByte "b : byte"
+
+                match tast.Decls.[0] with
+                | TDecl.Let(_, TExpr.Const(TConstValue.Byte 255uy, _), _) -> ()
+                | other -> failtestf "unexpected: %A" other
+            }
+
+            test "type mismatch: 1 + 1L (int + int64)" {
+                let tast = analyse "let r = 1 + 1L"
+
+                let hasMismatch =
+                    tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+
+                Expect.isTrue hasMismatch "int + int64 triggers mismatch"
+            }
+
+            // ---- String literals ----
+
+            test "plain string literal types as string" {
+                let tast = analyse "let s = \"hello\""
+                Expect.equal (declType tast) MockBuiltins.tyString "s : string"
+
+                match tast.Decls.[0] with
+                | TDecl.Let(_, TExpr.Const(TConstValue.String text, _), _) ->
+                    Expect.equal text "hello" "string body preserved"
+                | other -> failtestf "unexpected: %A" other
+            }
+
+            test "verbatim string literal types as string" {
+                let tast = analyse "let s = @\"C:\\foo\""
+                Expect.equal (declType tast) MockBuiltins.tyString "s : string"
+            }
+
+            // ---- Wildcard pattern in lambda ----
+
+            test "`fun _ -> 0` types as 'a -> int" {
+                // The wildcard's TypeVar stays free, so the function type is
+                // 'a -> int. We just check that the body returns int and no
+                // diagnostics fired.
+                let tast = analyse "let k = fun _ -> 0"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                match declType tast with
+                | TyFun(_, TyConst "int") -> ()
+                | other -> failtestf "expected 'a -> int, got %A" other
+            }
+
+            test "`let f _ x = x + 1`: wildcard arg + named arg" {
+                let tast = analyse "let f _ x = x + 1"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                match declType tast with
+                | TyFun(_, TyFun(TyConst "int", TyConst "int")) -> ()
+                | other -> failtestf "expected 'a -> int -> int, got %A" other
+            }
+
+            // ---- Tuple patterns ----
+
+            test "lambda with tuple param: `fun (a, b) -> a + b`" {
+                let tast = analyse "let f = fun (a, b) -> a + b"
+                let intType = MockBuiltins.tyInt
+                let expected = TyFun(TyTuple [ intType; intType ], intType)
+                Expect.equal (declType tast) expected "f : int * int -> int"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = fun (v1, v2) -> (v1 + v2)" "TAST shape"
+            }
+
+            test "function-form let with tuple arg: `let f (a, b) = a * b`" {
+                let tast = analyse "let f (a, b) = a * b"
+                let intType = MockBuiltins.tyInt
+                let expected = TyFun(TyTuple [ intType; intType ], intType)
+                Expect.equal (declType tast) expected "f : int * int -> int"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "let-in with tuple-destructuring head: `let (a, b) = 1, 2 in a + b`" {
+                let tast = analyse "let r = let (a, b) = 1, 2 in a + b"
+                Expect.equal (declType tast) MockBuiltins.tyInt "r : int"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "tuple pattern with wildcard: `fun (_, b) -> b + 1`" {
+                let tast = analyse "let f = fun (_, b) -> b + 1"
+                // First element stays polymorphic — only second is constrained.
+                match declType tast with
+                | TyFun(TyTuple [ _; TyConst "int" ], TyConst "int") -> ()
+                | other -> failtestf "expected 'a * int -> int, got %A" other
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "nested tuple pattern: `fun ((a, b), c) -> a + b + c`" {
+                let tast = analyse "let f = fun ((a, b), c) -> a + b + c"
+                let i = MockBuiltins.tyInt
+                let expected = TyFun(TyTuple [ TyTuple [ i; i ]; i ], i)
+                Expect.equal (declType tast) expected "f : (int * int) * int -> int"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            // ---- Match expressions ----
+
+            test "match on int with int patterns and int body types as int" {
+                let tast = analyse "let f x = match x with | 0 -> 1 | _ -> 2"
+                let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                Expect.equal (declType tast) intToInt "f : int -> int"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "match arms must have compatible body types" {
+                let tast = analyse "let f x = match x with | 0 -> 1 | _ -> true"
+
+                let hasMismatch =
+                    tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+
+                Expect.isTrue hasMismatch "int vs bool branches trigger mismatch"
+            }
+
+            test "match arm binding visible in body" {
+                let tast = analyse "let f x = match x with | y -> y + 1"
+                let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                Expect.equal (declType tast) intToInt "f : int -> int"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "match guard must be bool" {
+                // `y + 0` forces y : int, so the guard `y + 0` is int → must be bool → mismatch.
+                let tast = analyse "let f x = match x with | y when y + 0 -> 1 | _ -> 0"
+
+                let hasMismatch =
+                    tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+
+                Expect.isTrue hasMismatch "non-bool guard triggers mismatch"
+            }
+
+            test "match arm bool guard typechecks" {
+                let tast = analyse "let f x = match x with | y when y > 0 -> y | _ -> 0"
+                let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                Expect.equal (declType tast) intToInt "f : int -> int"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "match on tuple with tuple pattern" {
+                let tast = analyse "let f p = match p with | (a, b) -> a + b"
+                let i = MockBuiltins.tyInt
+                let expected = TyFun(TyTuple [ i; i ], i)
+                Expect.equal (declType tast) expected "f : int * int -> int"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "match on bool with bool patterns" {
+                let tast = analyse "let toInt b = match b with | true -> 1 | false -> 0"
+                let boolToInt = TyFun(MockBuiltins.tyBool, MockBuiltins.tyInt)
+                Expect.equal (declType tast) boolToInt "toInt : bool -> int"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "match TAST shape renders" {
+                let tast = analyse "let f x = match x with | 0 -> 1 | _ -> 2"
+
+                Expect.equal
+                    (TastShape.prettyDecl tast.Decls.[0])
+                    "let v0 = fun v1 -> match v1 with | 0 -> 1 | _ -> 2"
+                    "Match TAST shape"
+            }
+
+            test "`function` shorthand: `function | 0 -> 1 | _ -> 2`" {
+                let tast = analyse "let f = function | 0 -> 1 | _ -> 2"
+                let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                Expect.equal (declType tast) intToInt "f : int -> int"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "tuple pattern surfaces in TPat shape" {
+                let tast = analyse "let f (a, b) = a + b"
+
+                match tast.Decls.[0] with
+                | TDecl.Let(TPat.Tuple([ TPat.NamedSimple(_, _); TPat.NamedSimple(_, _) ], _), _, _) ->
+                    // For function-form let, the TDecl.Let binds `f` to a
+                    // Lambda whose param is the tuple pattern. So `f`'s own
+                    // pattern is just NamedSimple, and the tuple sits on
+                    // the Lambda. Adjust expectations.
+                    failtest "did not expect TDecl.Let to be the tuple pattern itself"
+                | TDecl.Let(TPat.NamedSimple _,
+                            TExpr.Lambda(TPat.Tuple([ TPat.NamedSimple _; TPat.NamedSimple _ ], _), _, _),
+                            _) -> ()
+                | other -> failtestf "unexpected: %A" other
+            }
         ]

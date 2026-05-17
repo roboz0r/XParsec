@@ -34,6 +34,16 @@ module CstWalk =
             /// Environment a let body sees. NameResolution uses this to push
             /// all the bound names into scope.
             EnterLetBody: 'env -> ImmutableArray<Binding<SyntaxToken>> -> 'env
+            /// Environment a `for i = … do …` body sees. The argument is the
+            /// loop variable's ident token; NameResolution binds it as an int.
+            EnterForTo: 'env -> SyntaxToken -> 'env
+            /// Environment a `for pat in xs do …` body sees. Pattern types
+            /// are still resolved against the (unknown) element type of the
+            /// enumerable in Unification.
+            EnterForIn: 'env -> Pat<SyntaxToken> -> 'env
+            /// Environment a match-arm's guard + body sees. The argument is
+            /// the arm's pattern.
+            EnterMatchArm: 'env -> Pat<SyntaxToken> -> 'env
         }
 
     let rec iterExpr (walker: ExprWalker<'env>) (env: 'env) (e: Expr<SyntaxToken>) : unit =
@@ -152,29 +162,36 @@ module CstWalk =
             | ValueSome(ElseBranch(expr = elseExpr)) -> iterExpr walker env elseExpr
             | ValueNone -> ()
 
-        // Loops — bodies do NOT introduce scope yet (ForIn's pat would, but
-        // none of the current passes reach loops in the subset). When loops
-        // come online, add EnterForIn / EnterForTo hooks and split here.
         | Expr.While(condition = cond; body = body) ->
             iterExpr walker env cond
+            // Loop body has no new scope of its own; the cond/body share env.
             iterExpr walker env body
 
-        | Expr.ForTo(startExpr = startE; endExpr = endE; body = body) ->
+        | Expr.ForTo(ident = ident; startExpr = startE; endExpr = endE; body = body) ->
             iterExpr walker env startE
             iterExpr walker env endE
-            iterExpr walker env body
+            let bodyEnv = walker.EnterForTo env ident
+            iterExpr walker bodyEnv body
 
-        | Expr.ForIn(enumerableExpr = src; body = body) ->
+        | Expr.ForIn(pat = pat; enumerableExpr = src; body = body) ->
             iterExpr walker env src
-            iterExpr walker env body
+            let bodyEnv = walker.EnterForIn env pat
+            iterExpr walker bodyEnv body
 
-        // TODO: rule-/member-/field-bearing constructs aren't traversed yet.
-        // Adding them needs corresponding iterRule / iterMember helpers plus
-        // scope-introducing hooks for pattern-binding arms (Match, Function,
-        // TryWith). For now the Visit hook still fires on the outer node so
-        // passes see them, just not their inner Exprs.
-        | Expr.Match _
-        | Expr.Function _
+        | Expr.Match(matchExpr = scrutinee; rules = Rules(rules = rules)) ->
+            iterExpr walker env scrutinee
+            iterRules walker env rules
+
+        | Expr.Function(rules = Rules(rules = rules)) ->
+            // `function …` is shorthand for `fun x -> match x with …`. The
+            // scrutinee is implicit; only the arms are walked. NameResolution
+            // doesn't see the synthesised parameter — that's modelled
+            // entirely inside Unification's inferFunction.
+            iterRules walker env rules
+
+        // TODO: TryWith / Object / Record / RecordClone need their own
+        // iter helpers — for now the Visit hook still fires on the outer
+        // node so passes see them, just not their inner Exprs.
         | Expr.TryWith _
         | Expr.Object _
         | Expr.Record _
@@ -183,3 +200,16 @@ module CstWalk =
         // Patterns can embed expressions (Pat.Expr); not walked yet. None of
         // the current passes care, and Pat traversal will get its own iter.
         | Expr.Pat _ -> ()
+
+    and iterRules (walker: ExprWalker<'env>) (env: 'env) (rules: ImmutableArray<Rule<SyntaxToken>>) : unit =
+        for r in rules do
+            match r with
+            | Rule.Rule(pat = pat; guard = guard; expr = body) ->
+                let armEnv = walker.EnterMatchArm env pat
+
+                match guard with
+                | ValueSome(PatternGuard(expr = g)) -> iterExpr walker armEnv g
+                | ValueNone -> ()
+
+                iterExpr walker armEnv body
+            | _ -> ()
