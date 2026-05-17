@@ -14,6 +14,7 @@ param(
         "XParsec.CLArgs.Interactive",
         "XParsec.CLArgs.Tests",
         "XParsec.FSharp.Lexer.Tests",
+        "XParsec.FSharp.SemanticAnalysis.Tests",
         "XParsec.FSharp.Tests",
         "XParsec.Json.Tests",
         "XParsec.MessagePack.Tests",
@@ -26,6 +27,7 @@ param(
         "XParsec",
         "XParsec.CLArgs",
         "XParsec.FSharp",
+        "XParsec.FSharp.SemanticAnalysis",
         "XParsec.Json"
     )]
     [string]$SourceProject,

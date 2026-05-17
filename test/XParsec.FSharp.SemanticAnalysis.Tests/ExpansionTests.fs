@@ -61,19 +61,7 @@ let tests =
             test "unary minus translates to External op_UnaryNegation App" {
                 let tast = analyse "let f x = -x + 0"
 
-                match tast.Decls.[0] with
-                | TDecl.Let(_,
-                            TExpr.Lambda(_,
-                                         TExpr.App(TExpr.App(TExpr.External("op_Addition", _),
-                                                             TExpr.App(TExpr.External("op_UnaryNegation", _),
-                                                                       TExpr.Var _,
-                                                                       _),
-                                                             _),
-                                                   TExpr.Const(TConstValue.Int 0, _),
-                                                   _),
-                                         _),
-                            _) -> ()
-                | other -> failtestf "unexpected: %A" other
+                Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = fun v1 -> ((-v1) + 0)" "TAST shape"
             }
 
             // ---- IfThenElse ----
@@ -96,20 +84,50 @@ let tests =
             test "if-then-else translates to TExpr.IfThenElse" {
                 let tast = analyse "let r = if true then 1 else 2"
 
-                match tast.Decls.[0] with
-                | TDecl.Let(_,
-                            TExpr.IfThenElse(TExpr.Const(TConstValue.Bool true, _),
-                                             TExpr.Const(TConstValue.Int 1, _),
-                                             TExpr.Const(TConstValue.Int 2, _),
-                                             iteTy),
-                            _) -> Expect.equal iteTy MockBuiltins.tyInt "ITE result type"
-                | other -> failtestf "unexpected: %A" other
+                Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = if true then 1 else 2" "TAST shape"
+
+                Expect.equal (declType tast) MockBuiltins.tyInt "ITE result type"
             }
 
             test "if-then-else with non-trivial branches: let abs n = if n < 0 then -n else n" {
                 let tast = analyse "let abs n = if n < 0 then -n else n"
                 let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
                 Expect.equal (declType tast) intToInt "abs : int -> int"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            // ---- Tuples ----
+
+            test "pair of ints types as int * int" {
+                let tast = analyse "let p = 1, 2"
+
+                Expect.equal (declType tast) (TyTuple [ MockBuiltins.tyInt; MockBuiltins.tyInt ]) "p : int * int"
+
+                Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = (1, 2)" "TAST shape"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "triple of mixed types" {
+                let tast = analyse "let t = 1, true, 2 + 3"
+
+                Expect.equal
+                    (declType tast)
+                    (TyTuple [ MockBuiltins.tyInt; MockBuiltins.tyBool; MockBuiltins.tyInt ])
+                    "t : int * bool * int"
+
+                Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = (1, true, (2 + 3))" "TAST shape"
+            }
+
+            test "tuple constrains element types via context" {
+                // `n + 1` forces n : int. The tuple expression then has int * bool * int,
+                // and the function-form binding gives `f : int -> int * bool * int`.
+                let tast = analyse "let f n = n + 1, true, n"
+
+                Expect.equal
+                    (declType tast)
+                    (TyFun(MockBuiltins.tyInt, TyTuple [ MockBuiltins.tyInt; MockBuiltins.tyBool; MockBuiltins.tyInt ]))
+                    "f : int -> int * bool * int"
+
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 

@@ -29,6 +29,8 @@ type TExpr =
     | App of fn: TExpr * arg: TExpr * ty: SemType
     | Let of binding: NodeKey * value: TExpr * body: TExpr * ty: SemType
     | IfThenElse of cond: TExpr * thenExpr: TExpr * elseExpr: TExpr * ty: SemType
+    /// `ty` is always a TyTuple of the elements' inferred types.
+    | Tuple of items: TExpr list * ty: SemType
 
 [<RequireQualifiedAccess>]
 type TDecl =

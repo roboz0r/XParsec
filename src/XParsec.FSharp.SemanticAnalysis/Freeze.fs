@@ -49,6 +49,7 @@ module Freeze =
         | Expr.EnclosedBlock(expr = inner) -> translateExpr ctx inner
         | Expr.IfThenElse(condition = cond; thenExpr = thenE; elifBranches = elifs; elseBranch = elseB) ->
             translateIfThenElse ctx cond thenE elifs elseB ty
+        | Expr.Tuple(exprs = items) -> TExpr.Tuple([ for x in items -> translateExpr ctx x ], ty)
         | _ ->
             // TODO: extend as the subset grows. Until then, surface the
             // unhandled case loudly rather than emitting a broken TExpr.

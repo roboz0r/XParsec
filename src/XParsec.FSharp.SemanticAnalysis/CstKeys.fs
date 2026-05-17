@@ -63,6 +63,7 @@ module CstKeys =
         | Expr.EnclosedBlock(lParen = pk) -> firstTokenOfParenKind pk
         | Expr.EmptyBlock(lParen = pk) -> firstTokenOfParenKind pk
         | Expr.IfThenElse(ifToken = t) -> t
+        | Expr.Tuple(exprs = exprs) when exprs.Length > 0 -> firstTokenOfExpr exprs.[0]
         | _ -> failwithf "CstKeys.firstTokenOfExpr: TODO %A" e
 
     let rec firstTokenOfPat (p: Pat<SyntaxToken>) : SyntaxToken =
@@ -88,6 +89,7 @@ module CstKeys =
             | Expr.LetOrUse _ -> NodeKind.ExprLet
             | Expr.EnclosedBlock _ -> NodeKind.ExprEnclosedBlock
             | Expr.IfThenElse _ -> NodeKind.ExprIfThenElse
+            | Expr.Tuple _ -> NodeKind.ExprTuple
             | _ -> NodeKind.Unknown
 
         NodeKey.ofToken (firstTokenOfExpr e) kind

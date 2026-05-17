@@ -48,6 +48,7 @@ module Unification =
             | ValueNone -> TyVar root
         | TyConst _ -> t
         | TyFun(a, r) -> TyFun(zonk a, zonk r)
+        | TyTuple items -> TyTuple(List.map zonk items)
 
     /// Move pending deferred-constraint state from `source` onto `target`.
     /// Called whenever a TyVar is no longer the equivalence-class
@@ -78,6 +79,7 @@ module Unification =
         | TyFun(a1, r1), TyFun(a2, r2) ->
             unify ctx key a1 a2
             unify ctx key r1 r2
+        | TyTuple xs, TyTuple ys when xs.Length = ys.Length -> List.iter2 (unify ctx key) xs ys
         | TyVar tv1, TyVar tv2 when System.Object.ReferenceEquals(tv1, tv2) -> ()
         | TyVar tv1, TyVar tv2 ->
             let r1 = UnionFind.find tv1
@@ -158,6 +160,7 @@ module Unification =
             | Expr.EnclosedBlock(expr = inner) -> infer ctx inner
             | Expr.IfThenElse(condition = cond; thenExpr = thenE; elifBranches = elifs; elseBranch = elseB) ->
                 inferIfThenElse ctx key cond thenE elifs elseB
+            | Expr.Tuple(exprs = items) -> inferTuple ctx items
             | _ ->
                 // TODO: other expression kinds.
                 TyVar(TypeVar())
@@ -300,6 +303,9 @@ module Unification =
         let argTypes = [ for p in argPats -> inferPat ctx p ]
         let bodyTy = infer ctx body
         List.foldBack (fun a r -> TyFun(a, r)) argTypes bodyTy
+
+    and private inferTuple (ctx: PassContext) (items: ImmutableArray<Expr<SyntaxToken>>) : SemType =
+        TyTuple [ for e in items -> infer ctx e ]
 
     and private inferLet
         (ctx: PassContext)

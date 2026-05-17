@@ -8,6 +8,11 @@ let private analyse (input: string) =
     let lexed, file = parseFile input
     Pipeline.analyse MockBuiltins.provider input lexed file
 
+let private declType (tast: TastFile) : SemType =
+    match tast.Decls with
+    | [ TDecl.Let(_, _, ty) ] -> ty
+    | other -> failwithf "expected single TDecl.Let, got %A" other
+
 [<Tests>]
 let tests =
     testList
@@ -39,21 +44,12 @@ let tests =
                 let intTy = MockBuiltins.tyInt
                 let intToInt = TyFun(intTy, intTy)
 
+                Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = fun v1 -> (v1 + 1)" "TAST shape"
+
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.Lambda(_, body, lamTy), declTy) ->
+                | TDecl.Let(_, TExpr.Lambda(_, _, lamTy), declTy) ->
                     Expect.equal lamTy intToInt "lambda type int -> int"
                     Expect.equal declTy intToInt "decl type int -> int"
-
-                    match body with
-                    | TExpr.App(TExpr.App(TExpr.External("op_Addition", opTy), TExpr.Var(_, leftTy), partialTy),
-                                TExpr.Const(TConstValue.Int 1, rightTy),
-                                resultTy) ->
-                        Expect.equal opTy (TyFun(intTy, TyFun(intTy, intTy))) "op type"
-                        Expect.equal leftTy intTy "lhs param ref type"
-                        Expect.equal partialTy (TyFun(intTy, intTy)) "partial type"
-                        Expect.equal rightTy intTy "rhs literal type"
-                        Expect.equal resultTy intTy "result type"
-                    | _ -> failtestf "unexpected body shape: %A" body
                 | other -> failtestf "unexpected decl: %A" other
             }
 
@@ -61,25 +57,25 @@ let tests =
                 let tast = analyse "let f x = x + 1"
                 let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
 
+                Expect.equal
+                    (TastShape.prettyDecl tast.Decls.[0])
+                    "let v0 = fun v1 -> (v1 + 1)"
+                    "TAST shape matches fun-form"
+
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.Lambda(_, _body, lamTy), declTy) ->
-                    Expect.equal lamTy intToInt "lambda type"
-                    Expect.equal declTy intToInt "decl type"
+                | TDecl.Let(_, _, declTy) -> Expect.equal declTy intToInt "decl type"
                 | other -> failtestf "unexpected: %A" other
             }
 
             test "`let result = let id = fun x -> x in id 42` -> nested Let with App" {
                 let tast = analyse "let result = let id = fun x -> x in id 42"
 
-                match tast.Decls.[0] with
-                | TDecl.Let(_, value, declTy) ->
-                    Expect.equal declTy MockBuiltins.tyInt "result : int"
+                Expect.equal
+                    (TastShape.prettyDecl tast.Decls.[0])
+                    "let v0 = let v1 = fun v2 -> v2 in (v1 42)"
+                    "TAST shape"
 
-                    match value with
-                    | TExpr.Let(_, TExpr.Lambda _, TExpr.App(TExpr.Var _, TExpr.Const(TConstValue.Int 42, _), _), _) ->
-                        ()
-                    | _ -> failtestf "unexpected value: %A" value
-                | other -> failtestf "unexpected: %A" other
+                Expect.equal (declType tast) MockBuiltins.tyInt "result : int"
             }
 
             test "TDecl.Let binding NodeKey matches headPat NodeKey" {

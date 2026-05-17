@@ -18,13 +18,16 @@ type EscapeState =
     | HeapShared
 
 /// Mutually recursive with TypeVar — every TyVar is a pointer into the
-/// union-find graph. Will grow to include tuples, generics, units.
+/// union-find graph. Will grow to include generics, units.
 type SemType =
     /// Call UnionFind.find then read the representative's Link to dereference.
     | TyVar of TypeVar
     | TyConst of name: string
     /// Curried; multi-arg functions nest TyFun.
     | TyFun of arg: SemType * result: SemType
+    /// Flat n-ary tuple. Unifies pairwise with same-arity TyTuple; arity
+    /// mismatch is a diagnostic in Unification.
+    | TyTuple of items: SemType list
 
 /// TODO: `(UnitName * int) list` representing an abelian-group exponent vector.
 and MeasureTerm = | MeasurePlaceholder
