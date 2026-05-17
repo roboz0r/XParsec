@@ -21,7 +21,7 @@ FunctionOrValue:
       Use                  'use'             KWUse               tok=  31  pos= 133
         Pat.NamedSimple    'ptr'             Identifier          tok=  33  pos= 137
         =                  '='               OpEquality          tok=  35  pos= 141
-          Fixed            'fixed'           KWFixed             tok=  37  pos= 143
+          PrefixApp        'fixed'           KWFixed             tok=  37  pos= 143
             Ident          'data'            Identifier          tok=  39  pos= 149
       in                   <virt>            KWIn                tok=virt  pos= 158
       Body:

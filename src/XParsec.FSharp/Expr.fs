@@ -300,15 +300,12 @@ type Expr<'T> =
         rBrace: 'T
     // Computation Expressions
     | ControlFlow of keyword: ControlFlowKeyword<'T> * expr: Expr<'T>
-    | Lazy of lazyToken: 'T * expr: Expr<'T>
     | Null of nullToken: 'T
     // Type-related Expressions
     | TypeAnnotation of expr: Expr<'T> * colon: 'T * typ: Type<'T>
     | StaticUpcast of expr: Expr<'T> * colonGreaterThan: 'T * typ: Type<'T>
     | DynamicTypeTest of expr: Expr<'T> * colonQuestionMark: 'T * typ: Type<'T>
     | DynamicDowncast of expr: Expr<'T> * colonQuestionMarkGreaterThan: 'T * typ: Type<'T>
-    | Upcast of upcastToken: 'T * expr: Expr<'T>
-    | Downcast of downcastToken: 'T * expr: Expr<'T>
     // Let and Use Bindings
     | LetOrUse of
         keyword: LetOrUseKeyword<'T> *
@@ -352,10 +349,6 @@ type Expr<'T> =
         body: Expr<'T> *
         doneToken: 'T
     // Other
-    | Assert of assertToken: 'T * expr: Expr<'T>
-    | Fixed of fixedToken: 'T * expr: Expr<'T>
-    | ExpressionSplice of percent: 'T * expr: Expr<'T>
-    | WeaklyTypedExpressionSplice of percentPercent: 'T * expr: Expr<'T>
     | StaticMemberInvocation of
         lParen: 'T *
         staticTypars: StaticTypars<'T> *

@@ -14,6 +14,7 @@
     <Compile Include="ProgramStructure.fs" />
     <Compile Include="AstTraversal.fs" />
     <Compile Include="ParsingTypes.fs" />
+    <Compile Include="ExprPatterns.fs" />
     <Compile Include="Preprocessing.fs" />
     <Compile Include="ParsingHelpers.fs" />
     <Compile Include="KeywordParsing.fs" />

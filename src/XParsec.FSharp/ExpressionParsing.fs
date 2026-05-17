@@ -600,10 +600,6 @@ module Expr =
 
         let assignment (l: Expr<_>) (op: SyntaxToken) (r: Expr<_>) = Expr.Assignment(l, op, r)
         let prefix (op: SyntaxToken) (e: Expr<_>) = Expr.PrefixApp(op, e)
-        let lazyE (op: SyntaxToken) (e: Expr<_>) = Expr.Lazy(op, e)
-        let assertE (op: SyntaxToken) (e: Expr<_>) = Expr.Assert(op, e)
-        let upcastE (op: SyntaxToken) (e: Expr<_>) = Expr.Upcast(op, e)
-        let downcastE (op: SyntaxToken) (e: Expr<_>) = Expr.Downcast(op, e)
         let sliceTo (op: SyntaxToken) (e: Expr<_>) = Expr.SliceTo(op, e)
 
         let tuple (elements: ResizeArray<Expr<_>>) (ops: ResizeArray<SyntaxToken>) =
@@ -1850,29 +1846,15 @@ module Expr =
                 return PrefixMapped(tok, preturn tok, body, completer)
             }
 
-        // Bodies for the lazy/assert/fixed/upcast/downcast prefix-keywords. Hoisted
-        // so the `|>>` pipeline is built once at construction rather than per dispatch.
+        // Unified body for the lazy/assert/fixed/upcast/downcast prefix-keywords.
+        // All five emit Expr.PrefixApp; the keyword token is preserved on the node
+        // so semantic analysis recovers the form via ExprPatterns. Hoisted so the
+        // `|>>` pipeline is built once at construction rather than per dispatch.
         // Spec treats these at function-application precedence; PrefixMapped's MinP
         // right-binding-power gives them a full typedSeqExprBlock RHS.
-        let pLazyBody =
+        let pKeywordPrefixBody =
             refExprSeqBlock.Parser
-            |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Lazy(kwTok, e))
-
-        let pAssertBody =
-            refExprSeqBlock.Parser
-            |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Assert(kwTok, e))
-
-        let pFixedBody =
-            refExprSeqBlock.Parser
-            |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Fixed(kwTok, e))
-
-        let pUpcastBody =
-            refExprSeqBlock.Parser
-            |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Upcast(kwTok, e))
-
-        let pDowncastBody =
-            refExprSeqBlock.Parser
-            |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.Downcast(kwTok, e))
+            |>> fun e -> ExprAux.KeywordExpr(fun kwTok -> Expr.PrefixApp(kwTok, e))
 
         // Slice / address-of operator prefixes. They use `Prefix` / `PrefixMapped`
         // directly rather than the `kwPrefix*` helpers because their power / aux shape
@@ -1926,11 +1908,11 @@ module Expr =
                 struct (Token.KWUseBang, kwPrefixNoConsume KWBody.pLetOrUseBody Complete.keyword)
 
                 // Function-precedence keyword prefixes — body is a full typedSeqExprBlock
-                struct (Token.KWLazy, kwPrefixConsume pLazyBody Complete.keyword)
-                struct (Token.KWAssert, kwPrefixConsume pAssertBody Complete.keyword)
-                struct (Token.KWFixed, kwPrefixConsume pFixedBody Complete.keyword)
-                struct (Token.KWUpcast, kwPrefixConsume pUpcastBody Complete.keyword)
-                struct (Token.KWDowncast, kwPrefixConsume pDowncastBody Complete.keyword)
+                struct (Token.KWLazy, kwPrefixConsume pKeywordPrefixBody Complete.keyword)
+                struct (Token.KWAssert, kwPrefixConsume pKeywordPrefixBody Complete.keyword)
+                struct (Token.KWFixed, kwPrefixConsume pKeywordPrefixBody Complete.keyword)
+                struct (Token.KWUpcast, kwPrefixConsume pKeywordPrefixBody Complete.keyword)
+                struct (Token.KWDowncast, kwPrefixConsume pKeywordPrefixBody Complete.keyword)
 
                 // Operator prefixes whose shape diverges from the kwPrefix* helpers
                 struct (Token.OpRange, pOpRangePrefix)

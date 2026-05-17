@@ -4,7 +4,7 @@ FunctionOrValue:
   let                      'let'             KWLet               tok=   5  pos=  13
     Pat.NamedSimple        'x'               Identifier          tok=   7  pos=  17
     =                      '='               OpEquality          tok=   9  pos=  19
-      Lazy                 'lazy'            KWLazy              tok=  12  pos=  25
+      PrefixApp            'lazy'            KWLazy              tok=  12  pos=  25
         Let                'let'             KWLet               tok=  15  pos=  38
           Pat.NamedSimple  'y'               Identifier          tok=  17  pos=  42
           =                '='               OpEquality          tok=  19  pos=  44
@@ -26,7 +26,7 @@ FunctionOrValue:
           Ident            'int'             Identifier          tok=  38  pos=  74
       >                    '>'               op_GreaterThan      tok=  39  pos=  77
     =                      '='               OpEquality          tok=  41  pos=  79
-      Upcast               'upcast'          KWUpcast            tok=  44  pos=  85
+      PrefixApp            'upcast'          KWUpcast            tok=  44  pos=  85
         Array              '[|'              KWLArrayBracket     tok=  47  pos= 100
           Sequential:
             Const          '1'               NumInt32            tok=  49  pos= 103
@@ -40,7 +40,7 @@ FunctionOrValue:
     NamedType:
       Ident                'obj'             Identifier          tok=  65  pos= 122
     =                      '='               OpEquality          tok=  67  pos= 126
-      Downcast             'downcast'        KWDowncast          tok=  70  pos= 132
+      PrefixApp            'downcast'        KWDowncast          tok=  70  pos= 132
         App:
           Func:
             Ident          'box'             Identifier          tok=  73  pos= 149
@@ -50,7 +50,7 @@ FunctionOrValue:
   let                      'let'             KWLet               tok=  78  pos= 157
     Pat.NamedSimple        'a'               Identifier          tok=  80  pos= 161
     =                      '='               OpEquality          tok=  82  pos= 163
-      Lazy                 'lazy'            KWLazy              tok=  84  pos= 165
+      PrefixApp            'lazy'            KWLazy              tok=  84  pos= 165
         ParenBlock         '('               KWLParen            tok=  86  pos= 170
           InfixApp         '+'               op_Addition         tok=  89  pos= 173
             Const          '1'               NumInt32            tok=  87  pos= 171

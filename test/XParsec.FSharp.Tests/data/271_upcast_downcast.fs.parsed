@@ -7,7 +7,7 @@ FunctionOrValue:
     NamedType:
       Ident                         'obj'             Identifier          tok=  10  pos=  20
     =                               '='               OpEquality          tok=  12  pos=  24
-      Upcast                        'upcast'          KWUpcast            tok=  14  pos=  26
+      PrefixApp                     'upcast'          KWUpcast            tok=  14  pos=  26
         StringLiteral               '"'               StringOpen          tok=  16  pos=  33
         Parts:
           Text                      'hello'           StringFragment      tok=  17  pos=  34
@@ -19,7 +19,7 @@ FunctionOrValue:
     NamedType:
       Ident                         'string'          Identifier          tok=  25  pos=  48
     =                               '='               OpEquality          tok=  27  pos=  55
-      Downcast                      'downcast'        KWDowncast          tok=  29  pos=  57
+      PrefixApp                     'downcast'        KWDowncast          tok=  29  pos=  57
         Ident                       'x'               Identifier          tok=  31  pos=  66
 FunctionOrValue:
   let                               'let'             KWLet               tok=  33  pos=  68
@@ -33,7 +33,7 @@ FunctionOrValue:
           Ident                     'int'             Identifier          tok=  40  pos=  79
       >                             '>'               op_GreaterThan      tok=  41  pos=  82
     =                               '='               OpEquality          tok=  43  pos=  84
-      Upcast                        'upcast'          KWUpcast            tok=  46  pos=  90
+      PrefixApp                     'upcast'          KWUpcast            tok=  46  pos=  90
         ObjectExpr:
           {                         '{'               KWLBrace            tok=  49  pos= 105
           new                       'new'             KWNew               tok=  51  pos= 107

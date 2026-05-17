@@ -37,7 +37,7 @@ FunctionOrValue:
             PrefixApp  '!!'              op_BangBang         tok=  39  pos=  49
               Ident    'b'               Identifier          tok=  40  pos=  51
                        ')'               KWRParen            tok=  41  pos=  52
-Assert                 'assert'          KWAssert            tok=  43  pos=  54
+PrefixApp              'assert'          KWAssert            tok=  43  pos=  54
   ParenBlock           '('               KWLParen            tok=  45  pos=  61
     InfixApp           '='               OpEquality          tok=  48  pos=  64
       Ident            'x'               Identifier          tok=  46  pos=  62

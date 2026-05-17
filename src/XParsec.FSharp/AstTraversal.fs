@@ -917,9 +917,6 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
     | Expr.HighPrecedenceApp(funcExpr, lParen, argExpr, rParen) ->
         walkExprHighPrecedenceApp visitor funcExpr lParen argExpr rParen
     | Expr.TypeAnnotation(inner, colon, typ) -> walkExprTypeAnnotation visitor inner colon typ
-    | Expr.Lazy(lazyToken, inner) -> walkExprLazy visitor lazyToken inner
-    | Expr.Assert(assertToken, inner) -> walkExprAssert visitor assertToken inner
-    | Expr.Fixed(fixedToken, inner) -> walkExprFixed visitor fixedToken inner
     | Expr.Null nullToken -> visitor.VisitToken "Null" nullToken
     | Expr.Function(functionToken, rules) -> walkExprFunction visitor functionToken rules
     | Expr.New(newToken, typ, newExpr) -> walkExprNew visitor newToken typ newExpr
@@ -932,8 +929,6 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
     | Expr.StaticUpcast(castExpr, colonGT, typ) -> walkExprStaticUpcast visitor castExpr colonGT typ
     | Expr.DynamicTypeTest(testExpr, colonQ, typ) -> walkExprDynamicTypeTest visitor testExpr colonQ typ
     | Expr.DynamicDowncast(castExpr, colonQGT, typ) -> walkExprDynamicDowncast visitor castExpr colonQGT typ
-    | Expr.Upcast(upcastToken, castExpr) -> walkExprUpcast visitor upcastToken castExpr
-    | Expr.Downcast(downcastToken, castExpr) -> walkExprDowncast visitor downcastToken castExpr
     | Expr.ILIntrinsic(lHashParen, instrKind, instrParts, instrClose, typeArg, args, returnType, rHashParen) ->
         walkExprILIntrinsic visitor lHashParen instrKind instrParts instrClose typeArg args returnType rHashParen
     | Expr.Wildcard underscore -> visitor.VisitToken "Wildcard" underscore
@@ -941,9 +936,6 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
     | Expr.SkipsTokens(skippedTokens) -> walkExprSkipsTokens visitor skippedTokens
     | Expr.Pat innerPat -> walkExprPat visitor innerPat
     | Expr.ControlFlow(keyword, inner) -> walkExprControlFlow visitor keyword inner
-    | Expr.ExpressionSplice(percent, inner) -> walkExprExpressionSplice visitor percent inner
-    | Expr.WeaklyTypedExpressionSplice(percentPercent, inner) ->
-        walkExprWeaklyTypedExpressionSplice visitor percentPercent inner
     | Expr.StaticMemberInvocation(lParen,
                                   staticTypars,
                                   colon,
@@ -1330,24 +1322,6 @@ and walkExprTypeAnnotation (visitor: AstVisitor<'T>) (innerExpr: Expr<'T>) (colo
     walkType visitor typ
     visitor.ExitSection "TypeAnnotation"
 
-and walkExprLazy (visitor: AstVisitor<'T>) (lazyToken: 'T) (innerExpr: Expr<'T>) : unit =
-    visitor.VisitToken "Lazy" lazyToken
-    visitor.EnterSection ""
-    walkExpr visitor innerExpr
-    visitor.ExitSection ""
-
-and walkExprAssert (visitor: AstVisitor<'T>) (assertToken: 'T) (innerExpr: Expr<'T>) : unit =
-    visitor.VisitToken "Assert" assertToken
-    visitor.EnterSection ""
-    walkExpr visitor innerExpr
-    visitor.ExitSection ""
-
-and walkExprFixed (visitor: AstVisitor<'T>) (fixedToken: 'T) (innerExpr: Expr<'T>) : unit =
-    visitor.VisitToken "Fixed" fixedToken
-    visitor.EnterSection ""
-    walkExpr visitor innerExpr
-    visitor.ExitSection ""
-
 and walkExprFunction (visitor: AstVisitor<'T>) (functionToken: 'T) (rules: Rules<'T>) : unit =
     visitor.VisitToken "Function" functionToken
     visitor.EnterSection ""
@@ -1467,18 +1441,6 @@ and walkExprDynamicDowncast (visitor: AstVisitor<'T>) (castExpr: Expr<'T>) (colo
     walkType visitor typ
     visitor.ExitSection "DynamicDowncast"
 
-and walkExprUpcast (visitor: AstVisitor<'T>) (upcastToken: 'T) (castExpr: Expr<'T>) : unit =
-    visitor.VisitToken "Upcast" upcastToken
-    visitor.EnterSection ""
-    walkExpr visitor castExpr
-    visitor.ExitSection ""
-
-and walkExprDowncast (visitor: AstVisitor<'T>) (downcastToken: 'T) (castExpr: Expr<'T>) : unit =
-    visitor.VisitToken "Downcast" downcastToken
-    visitor.EnterSection ""
-    walkExpr visitor castExpr
-    visitor.ExitSection ""
-
 and walkExprILIntrinsic
     (visitor: AstVisitor<'T>)
     (lHashParen: 'T)
@@ -1561,18 +1523,6 @@ and walkExprControlFlow (visitor: AstVisitor<'T>) (keyword: ControlFlowKeyword<'
     visitor.EnterSection kwLabel
     walkExpr visitor expr
     visitor.ExitSection kwLabel
-
-and walkExprExpressionSplice (visitor: AstVisitor<'T>) (percent: 'T) (expr: Expr<'T>) : unit =
-    visitor.VisitToken "%" percent
-    visitor.EnterSection ""
-    walkExpr visitor expr
-    visitor.ExitSection ""
-
-and walkExprWeaklyTypedExpressionSplice (visitor: AstVisitor<'T>) (percentPercent: 'T) (expr: Expr<'T>) : unit =
-    visitor.VisitToken "%%" percentPercent
-    visitor.EnterSection ""
-    walkExpr visitor expr
-    visitor.ExitSection ""
 
 and walkExprStaticMemberInvocation
     (visitor: AstVisitor<'T>)
