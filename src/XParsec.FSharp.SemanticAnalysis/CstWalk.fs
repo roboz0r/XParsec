@@ -189,10 +189,13 @@ module CstWalk =
             // entirely inside Unification's inferFunction.
             iterRules walker env rules
 
-        // TODO: TryWith / Object / Record / RecordClone need their own
-        // iter helpers — for now the Visit hook still fires on the outer
-        // node so passes see them, just not their inner Exprs.
-        | Expr.TryWith _
+        | Expr.TryWith(expr = body; rules = Rules(rules = rules)) ->
+            iterExpr walker env body
+            iterRules walker env rules
+
+        // TODO: Object / Record / RecordClone need their own iter helpers
+        // — for now the Visit hook still fires on the outer node so passes
+        // see them, just not their inner Exprs.
         | Expr.Object _
         | Expr.Record _
         | Expr.RecordClone _ -> ()

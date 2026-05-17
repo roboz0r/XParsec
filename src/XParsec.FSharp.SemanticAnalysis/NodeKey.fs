@@ -42,6 +42,13 @@ type NodeKind =
     | ExprForIn = 21us
     | ExprString = 22us
     | ExprFunction = 24us
+    | ExprTryWith = 25us
+    | ExprTryFinally = 26us
+    | ExprAssignment = 27us
+    | ExprHighPrecApp = 28us
+    | ExprRange = 29us
+    | ExprSteppedRange = 30us
+    | ExprNull = 31us
 
     | PatConst = 100us
     | PatIdent = 101us
@@ -51,10 +58,13 @@ type NodeKind =
     | PatWildcard = 105us
     | PatAs = 106us
     | PatEnclosedBlock = 107us
+    | PatTyped = 108us
+    | PatOr = 109us
     /// Binding site of a `for i = …` loop variable. The `i` token has no
     /// surrounding `Pat` in the CST, but NameResolution still needs a
     /// stable NodeKey to attach it to.
     | PatForToVar = 110us
+    | PatEmptyBlock = 111us
 
     | TypeNamed = 200us
     | TypeVarRef = 201us

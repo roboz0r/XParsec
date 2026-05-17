@@ -58,10 +58,29 @@ type TExpr =
     /// `ty` is always unit; the loop variable is bound to `var` with type int.
     /// `startExpr`, `endExpr`, `body` are int, int, unit respectively.
     | ForTo of var: NodeKey * startExpr: TExpr * endExpr: TExpr * body: TExpr * ty: SemType
+    /// `ty` is always unit. `pat`'s type matches the element type of `source`
+    /// — pinned to `int` for range sources, left as a free TypeVar otherwise.
+    /// `body` types as unit.
+    | ForIn of pat: TPat * source: TExpr * body: TExpr * ty: SemType
     /// `scrutinee` and each `arms.[i].Pat` share the same type; every
     /// `arms.[i].Body` shares `ty`. `function` desugars to a Match over a
     /// synthetic parameter — same TExpr shape.
     | Match of scrutinee: TExpr * arms: TMatchArm list * ty: SemType
+    /// `try body with | pat -> arm`. `body` and every `arms.[i].Body`
+    /// share `ty`; arm patterns currently bind against a fresh TypeVar
+    /// (no `exn` type yet).
+    | TryWith of body: TExpr * arms: TMatchArm list * ty: SemType
+    /// `try body finally cleanup`. `body` carries `ty`; `cleanup` is unit.
+    | TryFinally of body: TExpr * cleanup: TExpr * ty: SemType
+    /// `lhs <- rhs`. Always types as unit.
+    | Assignment of lhs: TExpr * rhs: TExpr * ty: SemType
+    /// `null` literal. `ty` is left as a free TypeVar in the tiny subset —
+    /// real F# would constrain it to a reference type.
+    | Null of ty: SemType
+    /// `start..stop` or `start..step..stop`. Endpoints (and step) all type
+    /// as int in the tiny subset; `ty` is `seq<int>` (a TyConst placeholder
+    /// — see [[MockBuiltins.tySeqInt]]).
+    | Range of startExpr: TExpr * step: TExpr option * stopExpr: TExpr * ty: SemType
 
 and TMatchArm =
     {

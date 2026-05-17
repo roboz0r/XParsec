@@ -65,7 +65,9 @@ type ResolvedBinding =
 [<RequireQualifiedAccess>]
 type DesugaredForm =
     /// On an InfixApp / PrefixApp node, the operator's compiled name
-    /// ("op_Addition", "op_Subtraction", …). Unification looks the name up
-    /// via the provider and types the application as if it were a normal
-    /// function call.
+    /// ("op_Addition", "op_Subtraction", "op_PipeRight", …). Unification
+    /// looks the name up via the provider and types the application as if
+    /// it were a normal function call. Polymorphic operators (`|>`, `>>`)
+    /// are resolved this way too — the provider returns a fresh
+    /// instantiation of the polymorphic scheme on each lookup.
     | OpName of compiledName: string

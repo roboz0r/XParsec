@@ -46,6 +46,13 @@ module Desugar =
         // about Token-encoding aliases).
         | Token.OpAmpAmp -> ValueSome "op_BooleanAnd"
         | Token.OpBarBar -> ValueSome "op_BooleanOr"
+        // Pipes and composition are polymorphic FSharp.Core functions,
+        // not language intrinsics — they resolve through the same provider
+        // path as any other named operator.
+        | Token.OpPipeRight -> ValueSome "op_PipeRight"
+        | Token.OpPipeLeft -> ValueSome "op_PipeLeft"
+        | Token.OpComposeRight -> ValueSome "op_ComposeRight"
+        | Token.OpComposeLeft -> ValueSome "op_ComposeLeft"
         | _ -> ValueNone
 
     /// Token.OpSubtraction is used by both binary `a - b` (InfixApp) and

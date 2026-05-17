@@ -37,6 +37,10 @@ let private opSym =
         "op_Inequality", "<>"
         "op_BooleanAnd", "&&"
         "op_BooleanOr", "||"
+        "op_ComposeRight", ">>"
+        "op_ComposeLeft", "<<"
+        "op_PipeRight", "|>"
+        "op_PipeLeft", "<|"
     ]
     |> Map.ofList
 
@@ -182,6 +186,14 @@ type private Renderer() =
             push " do "
             this.Expr b
 
+        | TExpr.ForIn(p, src, b, _) ->
+            push "for "
+            this.Pat p
+            push " in "
+            this.Expr src
+            push " do "
+            this.Expr b
+
         | TExpr.Match(scrutinee, arms, _) ->
             push "match "
             this.Expr scrutinee
@@ -199,6 +211,51 @@ type private Renderer() =
 
                 push " -> "
                 this.Expr arm.Body
+
+        | TExpr.TryWith(body, arms, _) ->
+            push "try "
+            this.Expr body
+            push " with"
+
+            for arm in arms do
+                push " | "
+                this.Pat arm.Pat
+
+                match arm.Guard with
+                | Some g ->
+                    push " when "
+                    this.Expr g
+                | None -> ()
+
+                push " -> "
+                this.Expr arm.Body
+
+        | TExpr.TryFinally(body, cleanup, _) ->
+            push "try "
+            this.Expr body
+            push " finally "
+            this.Expr cleanup
+
+        | TExpr.Assignment(lhs, rhs, _) ->
+            this.Expr lhs
+            push " <- "
+            this.Expr rhs
+
+        | TExpr.Null _ -> push "null"
+
+        | TExpr.Range(s, stepOpt, e2, _) ->
+            push "("
+            this.Expr s
+            push ".."
+
+            match stepOpt with
+            | Some step ->
+                this.Expr step
+                push ".."
+            | None -> ()
+
+            this.Expr e2
+            push ")"
 
     member this.Pat(p: TPat) : unit =
         match p with

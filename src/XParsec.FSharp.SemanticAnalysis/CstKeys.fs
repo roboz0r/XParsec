@@ -53,11 +53,15 @@ module CstKeys =
         | Expr.Ident t -> t
         | Expr.LongIdentOrOp lio -> firstTokenOfLongIdentOrOp lio
         | Expr.App(funcExpr, _) -> firstTokenOfExpr funcExpr
+        | Expr.HighPrecedenceApp(funcExpr = funcExpr) -> firstTokenOfExpr funcExpr
         // Use the operator token (not the left expr) so nested same-kind
         // InfixApps in left-assoc chains and operator-precedence stacks
         // don't collide on NodeKey. See docs/nodekey.md.
         | Expr.InfixApp(_, op, _) -> op
         | Expr.PrefixApp(op, _) -> op
+        | Expr.Range(fromExpr = fromE) -> firstTokenOfExpr fromE
+        | Expr.SteppedRange(fromExpr = fromE) -> firstTokenOfExpr fromE
+        | Expr.Null(nullToken = t) -> t
         | Expr.LetOrUse(keyword = kw) -> firstTokenOfLetOrUseKeyword kw
         | Expr.Fun(funToken = t) -> t
         | Expr.EnclosedBlock(lParen = pk) -> firstTokenOfParenKind pk
@@ -71,6 +75,9 @@ module CstKeys =
         | Expr.ForIn(forToken = t) -> t
         | Expr.Match(matchToken = t) -> t
         | Expr.Function(functionToken = t) -> t
+        | Expr.TryWith(tryToken = t) -> t
+        | Expr.TryFinally(tryToken = t) -> t
+        | Expr.Assignment(arrow = t) -> t
         | Expr.String(kind = kind) ->
             match kind with
             | StringKind.String t
@@ -92,6 +99,7 @@ module CstKeys =
         | Pat.Tuple(patterns = pats) when pats.Length > 0 -> firstTokenOfPat pats.[0]
         | Pat.Typed(pat = inner) -> firstTokenOfPat inner
         | Pat.As(pat = inner) -> firstTokenOfPat inner
+        | Pat.Or(left = inner) -> firstTokenOfPat inner
         | _ -> failwithf "CstKeys.firstTokenOfPat: TODO %A" p
 
     let ofExpr (e: Expr<SyntaxToken>) : NodeKey =
@@ -117,6 +125,13 @@ module CstKeys =
             | Expr.String _ -> NodeKind.ExprString
             | Expr.Match _ -> NodeKind.ExprMatch
             | Expr.Function _ -> NodeKind.ExprFunction
+            | Expr.TryWith _ -> NodeKind.ExprTryWith
+            | Expr.TryFinally _ -> NodeKind.ExprTryFinally
+            | Expr.Assignment _ -> NodeKind.ExprAssignment
+            | Expr.HighPrecedenceApp _ -> NodeKind.ExprHighPrecApp
+            | Expr.Range _ -> NodeKind.ExprRange
+            | Expr.SteppedRange _ -> NodeKind.ExprSteppedRange
+            | Expr.Null _ -> NodeKind.ExprNull
             | _ -> NodeKind.Unknown
 
         NodeKey.ofToken (firstTokenOfExpr e) kind
@@ -131,6 +146,9 @@ module CstKeys =
             | Pat.EnclosedBlock _ -> NodeKind.PatEnclosedBlock
             | Pat.Tuple _ -> NodeKind.PatTuple
             | Pat.As _ -> NodeKind.PatAs
+            | Pat.Typed _ -> NodeKind.PatTyped
+            | Pat.Or _ -> NodeKind.PatOr
+            | Pat.EmptyBlock _ -> NodeKind.PatEmptyBlock
             | _ -> NodeKind.Unknown
 
         NodeKey.ofToken (firstTokenOfPat p) kind

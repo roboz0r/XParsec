@@ -9,10 +9,13 @@ namespace XParsec.FSharp.SemanticAnalysis
 type ExternalSymbol =
     {
         Name: string
-        /// For polymorphic symbols (real FSharp.Core (+), List.map, …) this
-        /// will eventually be a scheme with bound type vars + SRTP / IWSAM
-        /// constraints. Mono concrete TyFun for now.
-        Type: SemType
+        /// Returns a fresh instantiation of the symbol's type each call.
+        /// Monomorphic symbols (`op_Addition`, `op_LessThan`) return the
+        /// same SemType every time. Polymorphic symbols (`op_PipeRight`,
+        /// `op_ComposeRight`, eventually `List.map`) allocate fresh
+        /// TypeVars per call so independent use-sites don't unify with
+        /// each other through the shared scheme.
+        Instantiate: unit -> SemType
     }
 
 /// Each target supplies its own provider implementation.
@@ -21,6 +24,17 @@ type IExternalSymbolProvider =
     abstract TryLookup: name: string -> ExternalSymbol voption
 
 module ExternalSymbols =
+
+    /// Build a monomorphic symbol — the same `ty` every call.
+    let mono (name: string) (ty: SemType) : ExternalSymbol =
+        {
+            Name = name
+            Instantiate = fun () -> ty
+        }
+
+    /// Build a polymorphic symbol — `build` is invoked per lookup so any
+    /// `TypeVar` it allocates is fresh.
+    let poly (name: string) (build: unit -> SemType) : ExternalSymbol = { Name = name; Instantiate = build }
 
     /// For tests that want to isolate behavior from external-symbol noise.
     let nullProvider: IExternalSymbolProvider =
@@ -39,12 +53,16 @@ module MockBuiltins =
     let tyBool: SemType = TyConst "bool"
     let tyUnit: SemType = TyConst "unit"
     let tyString: SemType = TyConst "string"
+    /// Placeholder for `seq<int>` — the result type of int range expressions
+    /// (`1..10`, `1..2..10`). Until generic types are modelled this is an
+    /// opaque TyConst that only unifies with itself.
+    let tySeqInt: SemType = TyConst "seq<int>"
 
     let private tyBinOp (a: SemType) (b: SemType) (r: SemType) : SemType = TyFun(a, TyFun(b, r))
 
     let private tyUnaryOp (ty: SemType) : SemType = TyFun(ty, ty)
 
-    let private builtins =
+    let private monoOps =
         let intInfix = tyBinOp tyInt tyInt tyInt
         let intCmp = tyBinOp tyInt tyInt tyBool
         let boolInfix = tyBinOp tyBool tyBool tyBool
@@ -66,8 +84,44 @@ module MockBuiltins =
             "op_BooleanAnd", boolInfix
             "op_BooleanOr", boolInfix
         ]
-        |> List.map (fun (n, t) -> n, { Name = n; Type = t })
-        |> Map.ofList
+        |> List.map (fun (n, ty) -> n, ExternalSymbols.mono n ty)
+
+    /// Polymorphic operators built from `FSharp.Core`. Each call mints fresh
+    /// `TypeVar`s so two use-sites don't accidentally share variables.
+    let private polyOps =
+        let fresh () = TyVar(TypeVar())
+
+        [
+            // val (|>) : 'a -> ('a -> 'b) -> 'b
+            "op_PipeRight",
+            fun () ->
+                let a = fresh ()
+                let b = fresh ()
+                TyFun(a, TyFun(TyFun(a, b), b))
+            // val (<|) : ('a -> 'b) -> 'a -> 'b
+            "op_PipeLeft",
+            fun () ->
+                let a = fresh ()
+                let b = fresh ()
+                TyFun(TyFun(a, b), TyFun(a, b))
+            // val (>>) : ('a -> 'b) -> ('b -> 'c) -> ('a -> 'c)
+            "op_ComposeRight",
+            fun () ->
+                let a = fresh ()
+                let b = fresh ()
+                let c = fresh ()
+                TyFun(TyFun(a, b), TyFun(TyFun(b, c), TyFun(a, c)))
+            // val (<<) : ('b -> 'c) -> ('a -> 'b) -> ('a -> 'c)
+            "op_ComposeLeft",
+            fun () ->
+                let a = fresh ()
+                let b = fresh ()
+                let c = fresh ()
+                TyFun(TyFun(b, c), TyFun(TyFun(a, b), TyFun(a, c)))
+        ]
+        |> List.map (fun (n, build) -> n, ExternalSymbols.poly n build)
+
+    let private builtins = (monoOps @ polyOps) |> Map.ofList
 
     let provider: IExternalSymbolProvider =
         { new IExternalSymbolProvider with

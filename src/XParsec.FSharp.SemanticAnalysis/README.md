@@ -49,22 +49,38 @@ Pipeline.fs             Top-level entry: runs passes in order
 
 ## Current coverage
 
-Expressions: `Const`, `Ident`, `LongIdentOrOp` (single-segment), `App`,
-`InfixApp` / `PrefixApp` (named built-in operators), `Fun`, `LetOrUse` (`let`,
-`let rec`, `let … and …`), `EnclosedBlock`, `IfThenElse` (with `elif` /
-`else`), `Tuple`, `Sequential`, `TypeAnnotation`, `EmptyBlock` (`()`),
-`While`, `ForTo`, `ForIn` (element typing deferred), `String` (text +
-escape parts; interpolation holes stubbed), `Match`, `Function`.
+Expressions: `Const`, `Ident`, `LongIdentOrOp` (single-segment locals and
+multi-segment qualified names resolved through the provider), `App`,
+`HighPrecedenceApp` (`f(x)` — treated as a one-arg `App`), `InfixApp` /
+`PrefixApp` (named built-in operators, including pipes `|>` `<|` and
+composition `>>` `<<` resolved as polymorphic `FSharp.Core` functions
+through the provider), `Fun`, `LetOrUse` (`let`, `let rec`,
+`let … and …`), `EnclosedBlock`, `IfThenElse` (with `elif` / `else`),
+`Tuple`, `Sequential`, `TypeAnnotation`, `EmptyBlock` (`()`), `While`,
+`ForTo`, `ForIn` (range sources bind the pattern as `int`; other
+enumerables still leave the pattern unconstrained), `Range` /
+`SteppedRange` (`a..b`, `a..step..b` — endpoints constrained to `int`,
+result is a `seq<int>` placeholder), `Null` (free `TypeVar` —
+reference-type bound deferred), `String` (text + escape parts;
+interpolation holes stubbed), `Match`, `Function`, `TryWith`,
+`TryFinally`, `Assignment` (`<-`).
 
-Patterns: `NamedSimple`, `Wildcard`, `EnclosedBlock`, `Tuple`, `Const`,
-`As` (alias name dropped). Nested tuple destructuring in `let` heads and
-lambda parameters works.
+Patterns: `NamedSimple`, `Wildcard`, `EnclosedBlock`, `EmptyBlock` (`()`
+pattern, types as `unit`), `Tuple`, `Const`, `As` (alias name dropped),
+`Typed` (type annotation unified with inner pattern), `Or` (alternative
+arms unified). Nested tuple destructuring in `let` heads and lambda
+parameters works.
 
 Literals: bool, int, int64, byte, float (`IEEE64`), unit, string.
 
-Diagnostics: unresolved-name errors, type mismatches, occurs check,
-unknown-operator failures, `if … then` without `else`, `for-in` not-fully-modelled
-info.
+External symbols: provider returns an `Instantiate: unit -> SemType`
+factory rather than a fixed `SemType`. Polymorphic operators (`|>`,
+`>>`, …) mint fresh `TypeVar`s per call so independent use-sites get
+independent schemes.
+
+Diagnostics: unresolved-name errors (including unresolved qualified
+names), type mismatches, occurs check, unknown-operator failures,
+`if … then` without `else`, `for-in` not-fully-modelled info.
 
 ## What this is not (yet)
 
@@ -76,4 +92,8 @@ info.
 - No SRTP / IWSAM resolution. The on-unified callbacks per
   [`docs/typevar.md`](docs/typevar.md) aren't wired yet.
 - `Regions` and most of `Validation` are still no-ops.
-- `TryWith` / `Object` / `Record` / `RecordClone` aren't traversed yet.
+- `Object` / `Record` / `RecordClone` aren't traversed yet.
+- No generalisation of polymorphic schemes — only external-symbol
+  schemes get fresh instantiations. A local `let id = fun x -> x` still
+  pins `'a -> 'a` to a single shared scheme; multiple uses at different
+  types would fail.

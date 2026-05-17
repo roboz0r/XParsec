@@ -23,7 +23,7 @@ let tests =
 
                 match ctx.Desugared.TryGetValue infixKey with
                 | ValueSome(DesugaredForm.OpName name) -> Expect.equal name "op_Addition" "compiled op name"
-                | ValueNone -> failtest "no DesugaredForm entry for InfixApp"
+                | other -> failtestf "expected OpName entry, got %A" other
             }
 
             test "InfixApp with `-` -> OpName \"op_Subtraction\"" {
@@ -32,7 +32,7 @@ let tests =
 
                 match ctx.Desugared.TryGetValue infixKey with
                 | ValueSome(DesugaredForm.OpName name) -> Expect.equal name "op_Subtraction" "compiled op name"
-                | ValueNone -> failtest "no DesugaredForm entry"
+                | other -> failtestf "expected OpName entry, got %A" other
             }
 
             test "non-operator expressions write no Desugared entry" {

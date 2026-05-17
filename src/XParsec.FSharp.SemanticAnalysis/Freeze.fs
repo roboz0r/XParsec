@@ -77,6 +77,17 @@ module Freeze =
             // inner pattern and rely on downstream Var lookups to find the
             // alias via the CST + side tables.
             translatePat ctx inner
+        | Pat.Typed(pat = inner) ->
+            // Annotation is consumed by Unification; runtime shape is the
+            // inner pattern.
+            translatePat ctx inner
+        | Pat.Or(left = leftPat) ->
+            // Both sides must bind the same names with matching types
+            // (Validation's job). Pick the left side for shape — until or-
+            // patterns are first-class in TPat, downstream consumers see
+            // only one arm of the alternation.
+            translatePat ctx leftPat
+        | Pat.EmptyBlock _ -> TPat.Const(TConstValue.Unit, ty)
         | _ -> failwithf "Freeze.translatePat: TODO %A" p
 
     /// `()` literal. Distinct entry point because `Expr.EmptyBlock` carries
@@ -94,6 +105,8 @@ module Freeze =
         | Expr.Ident _
         | Expr.LongIdentOrOp _ -> translateIdent ctx e key ty
         | Expr.App(fn, args) -> translateApp ctx fn args
+        | Expr.HighPrecedenceApp(funcExpr = fn; argExpr = arg) ->
+            TExpr.App(translateExpr ctx fn, translateExpr ctx arg, ty)
         | Expr.InfixApp(left, _, right) -> translateInfix ctx key left right ty
         | Expr.PrefixApp(_, operand) -> translatePrefix ctx key operand ty
         | Expr.Fun(argumentPats = argPats; expr = body) -> translateFun ctx argPats body
@@ -112,6 +125,8 @@ module Freeze =
         | Expr.ForTo(ident = ident; startExpr = startE; endExpr = endE; body = body) ->
             let varKey = CstKeys.ofForToVar ident
             TExpr.ForTo(varKey, translateExpr ctx startE, translateExpr ctx endE, translateExpr ctx body, ty)
+        | Expr.ForIn(pat = pat; enumerableExpr = src; body = body) ->
+            TExpr.ForIn(translatePat ctx pat, translateExpr ctx src, translateExpr ctx body, ty)
         | Expr.String _ -> translateString ctx e ty
         | Expr.Match(matchExpr = scrutinee; rules = Rules(rules = rules)) ->
             TExpr.Match(translateExpr ctx scrutinee, translateRules ctx rules, ty)
@@ -132,6 +147,16 @@ module Freeze =
             let scrutinee = TExpr.Var(paramKey, paramTy)
             let body = TExpr.Match(scrutinee, translateRules ctx rules, resultTy)
             TExpr.Lambda(TPat.NamedSimple(paramKey, paramTy), body, ty)
+        | Expr.TryWith(expr = body; rules = Rules(rules = rules)) ->
+            TExpr.TryWith(translateExpr ctx body, translateRules ctx rules, ty)
+        | Expr.TryFinally(tryExpr = body; finallyExpr = finallyE) ->
+            TExpr.TryFinally(translateExpr ctx body, translateExpr ctx finallyE, ty)
+        | Expr.Assignment(leftExpr = left; rightExpr = right) ->
+            TExpr.Assignment(translateExpr ctx left, translateExpr ctx right, ty)
+        | Expr.Null _ -> TExpr.Null ty
+        | Expr.Range(fromExpr = a; toExpr = b) -> TExpr.Range(translateExpr ctx a, None, translateExpr ctx b, ty)
+        | Expr.SteppedRange(fromExpr = a; stepExpr = s; toExpr = b) ->
+            TExpr.Range(translateExpr ctx a, Some(translateExpr ctx s), translateExpr ctx b, ty)
         | _ ->
             // TODO: extend as the subset grows. Until then, surface the
             // unhandled case loudly rather than emitting a broken TExpr.
@@ -184,9 +209,14 @@ module Freeze =
         | ValueSome rb -> TExpr.Var(rb.BindingSite, ty)
         | ValueNone ->
             // No Binding entry => NameResolution resolved through the
-            // provider. Re-query for the name; the symbol's type is the same
-            // as `ty` for monomorphic primitives in the tiny subset.
-            let name = ctx.NameOf(CstKeys.firstTokenOfExpr e)
+            // provider. Re-query for the name. Multi-segment qualified
+            // names are joined with `.` so `External` carries the same key
+            // the provider sees.
+            let name =
+                match e with
+                | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) -> li.Idents |> Seq.map ctx.NameOf |> String.concat "."
+                | _ -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
+
             TExpr.External(name, ty)
 
     and private translateApp
@@ -222,16 +252,15 @@ module Freeze =
         : TExpr =
         match ctx.Desugared.TryGetValue key with
         | ValueSome(DesugaredForm.OpName name) ->
-            let opTy =
-                match ctx.Provider.TryLookup name with
-                | ValueSome sym -> sym.Type
-                | ValueNone -> failwithf "Freeze.translateInfix: provider has no entry for %s" name
-
-            let partialTy =
-                match opTy with
-                | TyFun(_, r) -> r
-                | _ -> failwithf "Freeze.translateInfix: operator %s has non-function type %A" name opTy
-
+            // Reconstruct the operator's type from the known arms instead
+            // of re-instantiating the scheme. Re-instantiation would mint
+            // fresh TypeVars that the existing TyVar table doesn't link
+            // anywhere, so the External's carried type would not match the
+            // App chain's resolved arms.
+            let leftTy = typeOfKey ctx (CstKeys.ofExpr left)
+            let rightTy = typeOfKey ctx (CstKeys.ofExpr right)
+            let partialTy = TyFun(rightTy, resultTy)
+            let opTy = TyFun(leftTy, partialTy)
             let opExpr = TExpr.External(name, opTy)
             let app1 = TExpr.App(opExpr, translateExpr ctx left, partialTy)
             TExpr.App(app1, translateExpr ctx right, resultTy)
@@ -248,15 +277,11 @@ module Freeze =
         : TExpr =
         match ctx.Desugared.TryGetValue key with
         | ValueSome(DesugaredForm.OpName name) ->
-            let opTy =
-                match ctx.Provider.TryLookup name with
-                | ValueSome sym -> sym.Type
-                | ValueNone -> failwithf "Freeze.translatePrefix: provider has no entry for %s" name
-
-            match opTy with
-            | TyFun _ -> ()
-            | _ -> failwithf "Freeze.translatePrefix: operator %s has non-function type %A" name opTy
-
+            // See translateInfix: reconstruct the operator's type from the
+            // resolved operand + result rather than re-instantiating the
+            // scheme.
+            let operandTy = typeOfKey ctx (CstKeys.ofExpr operand)
+            let opTy = TyFun(operandTy, resultTy)
             let opExpr = TExpr.External(name, opTy)
             TExpr.App(opExpr, translateExpr ctx operand, resultTy)
         | ValueNone -> failwithf "Freeze: PrefixApp at %O missing DesugaredForm entry" key

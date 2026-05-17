@@ -67,7 +67,8 @@ module NameResolution =
         match p with
         | Pat.NamedSimple t -> [ ctx.NameOf t, CstKeys.ofPat p ]
         | Pat.Wildcard _
-        | Pat.Const _ -> []
+        | Pat.Const _
+        | Pat.EmptyBlock _ -> []
         | Pat.EnclosedBlock(pat = inner) -> bindingsOfPat ctx inner
         | Pat.Tuple(patterns = pats) -> [ for sub in pats -> bindingsOfPat ctx sub ] |> List.concat
         | Pat.Typed(pat = inner) -> bindingsOfPat ctx inner
@@ -97,21 +98,32 @@ module NameResolution =
         | Expr.Ident tok -> resolveIdent ctx scope tok (CstKeys.ofExpr e)
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
             resolveIdent ctx scope li.Idents.[0] (CstKeys.ofExpr e)
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) ->
+            // Multi-segment qualified name (Module.value, Type.Member, …).
+            // No local scope can introduce a dotted name, so go straight to
+            // the provider with the joined form.
+            let qualName = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
+
+            match ctx.Provider.TryLookup qualName with
+            | ValueSome _ -> ()
+            | ValueNone ->
+                ctx.Diagnostics.Add
+                    {
+                        Key = CstKeys.ofExpr e
+                        Message = sprintf "Unresolved qualified name: %s" qualName
+                        Severity = Error
+                    }
         | Expr.LongIdentOrOp lio ->
-            // Multi-segment qualified names (Module.value, Type.Member, …) and
-            // operator-form long idents (`A.(+)`, `(*)`) need provider-aware
-            // qualified lookup, which isn't wired up yet. Surface so the gap
-            // is visible the moment the subset reaches them.
+            // Operator-form long idents (`A.(+)`, `(*)`) still need their
+            // own resolution story. Surface the gap rather than silently
+            // skipping.
             let firstTok = CstKeys.firstTokenOfLongIdentOrOp lio
             let displayName = ctx.NameOf firstTok
 
             ctx.Diagnostics.Add
                 {
                     Key = CstKeys.ofExpr e
-                    Message =
-                        sprintf
-                            "Multi-segment / operator-form qualified names not yet resolved (starting at '%s')"
-                            displayName
+                    Message = sprintf "Operator-form qualified names not yet resolved (starting at '%s')" displayName
                     Severity = Error
                 }
         | _ -> ()
