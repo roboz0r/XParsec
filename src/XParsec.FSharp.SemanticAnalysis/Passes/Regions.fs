@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
+open System.Collections.Generic
+open System.Collections.Immutable
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
@@ -10,9 +12,856 @@ open XParsec.FSharp.SemanticAnalysis
 // Regions are inequality-only (NOT used to drive type-class dispatch).
 // Making them feed back into Unification would turn the whole pipeline
 // into a fixpoint — see docs/architecture.md "Pass order is strictly forward".
+//
+// See docs/regions-plan.md for the algorithm.
 
 module Regions =
 
+    /// Per-region graph node. `Level` is the let-depth the region lives at
+    /// (its lifetime upper bound). `MintFunctionLevel` is the let-depth of
+    /// the innermost enclosing function-body at mint time; the seed rule
+    /// `Level < MintFunctionLevel` catches values that escape that
+    /// function's frame.
+    type private RegionNode =
+        {
+            Id: RegionId
+            Level: int
+            MintFunctionLevel: int
+            IsLambda: bool
+            /// Force-seed (used by the conservative fallback to mark
+            /// unhandled constructs as HeapShared without relying on the
+            /// level / lambda-count heuristics).
+            InitialState: EscapeState voption
+            mutable Outlives: ResizeArray<RegionId>
+        }
+
+    type private RegionGraph() =
+        let nodes = ResizeArray<RegionNode>()
+
+        member _.Fresh(level: int, mintFn: int, isLambda: bool, seed: EscapeState voption) : RegionId =
+            let id = RegionId(nodes.Count)
+
+            nodes.Add(
+                {
+                    Id = id
+                    Level = level
+                    MintFunctionLevel = mintFn
+                    IsLambda = isLambda
+                    InitialState = seed
+                    Outlives = ResizeArray()
+                }
+            )
+
+            id
+
+        member _.AddEdge(longer: RegionId, shorter: RegionId) : unit =
+            if longer.Raw < 0 || shorter.Raw < 0 then ()
+            elif longer.Raw = shorter.Raw then ()
+            else nodes.[longer.Raw].Outlives.Add(shorter)
+
+        member _.NodeOf(id: RegionId) : RegionNode = nodes.[id.Raw]
+        member _.Count = nodes.Count
+
+    type private State =
+        {
+            Graph: RegionGraph
+            /// headPat NodeKey -> the binding's region. Lets the Ident rule
+            /// look up "the region of the binding I refer to" without
+            /// re-deriving it from the TyVar.
+            BindingRegions: Dictionary<NodeKey, RegionId>
+            mutable LetLevel: int
+            /// Let-level of the binding whose RHS we are currently
+            /// evaluating. Allocations inside the RHS use this as their
+            /// `Level` so they share the binding's lifetime upper bound.
+            mutable EnclosingLet: int
+            /// Stack of let-levels at function-body entry. The top is the
+            /// "frame depth" of the innermost enclosing function — used by
+            /// the seed rule and as `MintFunctionLevel` on new regions.
+            FunctionStack: ResizeArray<int>
+        }
+
+    let private functionStackTop (s: State) : int =
+        if s.FunctionStack.Count = 0 then
+            0
+        else
+            s.FunctionStack.[s.FunctionStack.Count - 1]
+
+    let private enterFun (s: State) : unit = s.FunctionStack.Add(s.LetLevel)
+
+    let private exitFun (s: State) : unit =
+        s.FunctionStack.RemoveAt(s.FunctionStack.Count - 1)
+
+    /// Resolve a `SemType` through its UnionFind root's Link chain (one
+    /// pass — no walk into compound shapes). Same shape as
+    /// `Unification.resolveStep` but inlined here so Regions doesn't need
+    /// to depend on Unification's private surface.
+    let rec private resolveLink (t: SemType) : SemType =
+        match t with
+        | TyVar tv ->
+            let root = UnionFind.find tv
+
+            match root.Link with
+            | ValueSome target -> resolveLink target
+            | ValueNone -> TyVar root
+        | _ -> t
+
+    /// "Does this type represent an allocation we should track?" Primitive
+    /// scalars (`int`, `bool`, …) and `unit` don't allocate; function
+    /// types (closures), tuples, and other named composites do. Free
+    /// TyVars resolve as non-allocating — conservative on the "don't
+    /// stamp" side; the caller can override for known-allocating
+    /// constructors (Fun, Tuple).
+    let rec private isAllocation (t: SemType) : bool =
+        match resolveLink t with
+        | TyConst name ->
+            match name with
+            | "int"
+            | "int64"
+            | "byte"
+            | "float"
+            | "float32"
+            | "decimal"
+            | "single"
+            | "double"
+            | "bool"
+            | "unit"
+            | "string"
+            | "seq<int>" -> false
+            | _ -> true
+        | TyFun _
+        | TyTuple _ -> true
+        | TyVar _ -> false
+
+    let private exprIsAllocation (ctx: PassContext) (e: Expr<SyntaxToken>) : bool =
+        let key = CstKeys.ofExpr e
+
+        match ctx.TypeVar.TryGetValue key with
+        | ValueSome tv -> isAllocation (TyVar tv)
+        | ValueNone -> false
+
+    /// Collect every binding-site NodeKey introduced by `p` (mirrors
+    /// `NameResolution.bindingsOfPat` but keeps only the keys).
+    let rec private bindersOfPat (p: Pat<SyntaxToken>) : NodeKey list =
+        match p with
+        | Pat.NamedSimple _ -> [ CstKeys.ofPat p ]
+        | Pat.Wildcard _
+        | Pat.Const _
+        | Pat.EmptyBlock _ -> []
+        | Pat.EnclosedBlock(pat = inner) -> bindersOfPat inner
+        | Pat.Tuple(patterns = pats) -> [ for sub in pats -> bindersOfPat sub ] |> List.concat
+        | Pat.Typed(pat = inner) -> bindersOfPat inner
+        | Pat.As(pat = inner) -> CstKeys.ofPat p :: bindersOfPat inner
+        | _ -> []
+
+    /// Find every binding-site NodeKey referenced by `body` whose binder
+    /// lies outside `body`. The `locals` set is seeded with the lambda's
+    /// own parameter pattern keys and grown as the walker enters any
+    /// internal scope-introducing construct. Any Ident use whose
+    /// `BindingSite` isn't in `locals` is a free variable.
+    let private collectFreeVarBindingSites
+        (ctx: PassContext)
+        (paramBinders: NodeKey list)
+        (body: Expr<SyntaxToken>)
+        : HashSet<NodeKey> =
+        let result = HashSet<NodeKey>(HashIdentity.Structural)
+        let locals = HashSet<NodeKey>(HashIdentity.Structural)
+
+        for k in paramBinders do
+            locals.Add(k) |> ignore
+
+        let consider (useKey: NodeKey) =
+            match ctx.Binding.TryGetValue useKey with
+            | ValueSome rb when not (locals.Contains rb.BindingSite) -> result.Add(rb.BindingSite) |> ignore
+            | _ -> ()
+
+        let walker: CstWalk.ExprWalker<unit> =
+            {
+                Visit =
+                    fun () e ->
+                        match e with
+                        | Expr.Ident _ -> consider (CstKeys.ofExpr e)
+                        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
+                            consider (CstKeys.ofExpr e)
+                        | _ -> ()
+                EnterFun =
+                    fun () argPats ->
+                        for p in argPats do
+                            for k in bindersOfPat p do
+                                locals.Add(k) |> ignore
+                EnterBindingRhs =
+                    fun () _ _ b ->
+                        // Sibling names are already added when the let-body
+                        // is entered (or pre-added for the rec self-reference
+                        // via EnterLetBody below); function-form arg pats
+                        // are local to this RHS.
+                        if not b.argumentPats.IsEmpty then
+                            for p in b.argumentPats do
+                                for k in bindersOfPat p do
+                                    locals.Add(k) |> ignore
+                EnterLetBody =
+                    fun () bindings ->
+                        for b in bindings do
+                            for k in bindersOfPat b.headPat do
+                                locals.Add(k) |> ignore
+                EnterForTo = fun () ident -> locals.Add(CstKeys.ofForToVar ident) |> ignore
+                EnterForIn =
+                    fun () pat ->
+                        for k in bindersOfPat pat do
+                            locals.Add(k) |> ignore
+                EnterMatchArm =
+                    fun () pat ->
+                        for k in bindersOfPat pat do
+                            locals.Add(k) |> ignore
+            }
+
+        // EnterBindingRhs above handles inner let-bodies, but the body's
+        // own outer let-bindings need their headPats in `locals` before any
+        // sibling RHS runs. The walker calls EnterBindingRhs per binding
+        // and EnterLetBody only when stepping into the body of the let,
+        // so headPats of a let-group are visible to sibling RHSes via the
+        // walker pre-collecting them here.
+        CstWalk.iterExpr walker () body
+        result
+
+    let private stampTyVar (ctx: PassContext) (key: NodeKey) (r: RegionId) : unit =
+        if r.Raw >= 0 then
+            match ctx.TypeVar.TryGetValue key with
+            | ValueSome tv -> (UnionFind.find tv).Region <- r
+            | ValueNone -> ()
+
+    let rec private inferRegion (s: State) (ctx: PassContext) (e: Expr<SyntaxToken>) : RegionId =
+        let result = inferRegionImpl s ctx e
+        stampTyVar ctx (CstKeys.ofExpr e) result
+        result
+
+    and private inferRegionImpl (s: State) (ctx: PassContext) (e: Expr<SyntaxToken>) : RegionId =
+        match e with
+        | Expr.Const _ -> RegionId.Unknown
+        | Expr.Null _ -> RegionId.Unknown
+        | Expr.EmptyBlock _ -> RegionId.Unknown
+        | Expr.String _ -> RegionId.Unknown
+        | Expr.While _
+        | Expr.ForTo _
+        | Expr.ForIn _ -> walkUnitBody s ctx e
+        | Expr.Assignment(leftExpr = l; rightExpr = r) ->
+            inferRegion s ctx l |> ignore
+            inferRegion s ctx r |> ignore
+            RegionId.Unknown
+        | Expr.Ident _ -> identRegion s ctx e
+        | Expr.LongIdentOrOp _ -> identRegion s ctx e
+        | Expr.EnclosedBlock(expr = inner) -> inferRegion s ctx inner
+        | Expr.TypeAnnotation(expr = inner) -> inferRegion s ctx inner
+        | Expr.Sequential(exprs = items) -> seqRegion s ctx items
+        | Expr.Fun(argumentPats = argPats; expr = body) -> lambdaRegion s ctx argPats body
+        | Expr.Function(rules = Rules(rules = rules)) -> functionLikeLambda s ctx e rules
+        | Expr.LetOrUse(bindings = bindings; body = body) -> letRegion s ctx bindings body
+        | Expr.Tuple(exprs = items) -> tupleRegion s ctx e items
+        | Expr.IfThenElse(condition = cond; thenExpr = thenE; elifBranches = elifs; elseBranch = elseB) ->
+            ifThenElseRegion s ctx e cond thenE elifs elseB
+        | Expr.Match(matchExpr = scrutinee; rules = Rules(rules = rules)) -> matchRegion s ctx e scrutinee rules
+        | Expr.TryWith(expr = body; rules = Rules(rules = rules)) -> tryWithRegion s ctx e body rules
+        | Expr.TryFinally(tryExpr = body; finallyExpr = finallyE) -> tryFinallyRegion s ctx e body finallyE
+        | Expr.App(funcExpr = fn; argExprs = args) -> appRegion s ctx e fn args
+        | Expr.HighPrecedenceApp(funcExpr = fn; argExpr = arg) -> appRegion s ctx e fn (ImmutableArray.Create(arg))
+        | Expr.InfixApp(leftExpr = l; rightExpr = r) ->
+            inferRegion s ctx l |> ignore
+            inferRegion s ctx r |> ignore
+            primitiveOrFreshResult s ctx e
+        | Expr.PrefixApp(expr = operand) ->
+            inferRegion s ctx operand |> ignore
+            primitiveOrFreshResult s ctx e
+        | Expr.Range(fromExpr = a; toExpr = b) ->
+            inferRegion s ctx a |> ignore
+            inferRegion s ctx b |> ignore
+            RegionId.Unknown
+        | Expr.SteppedRange(fromExpr = a; stepExpr = step; toExpr = b) ->
+            inferRegion s ctx a |> ignore
+            inferRegion s ctx step |> ignore
+            inferRegion s ctx b |> ignore
+            RegionId.Unknown
+        | _ ->
+            // Conservative fallback for nodes Regions doesn't have a
+            // precise rule for: mint a region pre-seeded HeapShared so the
+            // solver classifies the value as widely as possible. Safe but
+            // pessimistic — extend the precise cases above as the subset
+            // grows. See docs/regions-plan.md §Conservative fallback.
+            s.Graph.Fresh(level = 0, mintFn = 0, isLambda = false, seed = ValueSome HeapShared)
+
+    and private walkUnitBody (s: State) (ctx: PassContext) (e: Expr<SyntaxToken>) : RegionId =
+        // While / ForTo / ForIn — type unit, no allocation. Walk the
+        // sub-expressions so any captures inside are still registered.
+        match e with
+        | Expr.While(condition = cond; body = body) ->
+            inferRegion s ctx cond |> ignore
+            inferRegion s ctx body |> ignore
+        | Expr.ForTo(startExpr = a; endExpr = b; body = body) ->
+            inferRegion s ctx a |> ignore
+            inferRegion s ctx b |> ignore
+            inferRegion s ctx body |> ignore
+        | Expr.ForIn(enumerableExpr = src; body = body) ->
+            inferRegion s ctx src |> ignore
+            inferRegion s ctx body |> ignore
+        | _ -> ()
+
+        RegionId.Unknown
+
+    and private identRegion (s: State) (ctx: PassContext) (e: Expr<SyntaxToken>) : RegionId =
+        let key = CstKeys.ofExpr e
+
+        match ctx.Binding.TryGetValue key with
+        | ValueSome rb ->
+            match s.BindingRegions.TryGetValue rb.BindingSite with
+            | true, r -> r
+            | false, _ -> RegionId.Unknown
+        | ValueNone -> RegionId.Unknown // external — no region
+
+    and private seqRegion (s: State) (ctx: PassContext) (items: ImmutableArray<Expr<SyntaxToken>>) : RegionId =
+        // Evaluate every item for side-effects (capture edges). The
+        // sequence's region is the LAST item — intermediates don't escape.
+        let n = items.Length
+
+        if n = 0 then
+            RegionId.Unknown
+        else
+            for i = 0 to n - 2 do
+                inferRegion s ctx items.[i] |> ignore
+
+            inferRegion s ctx items.[n - 1]
+
+    and private tupleRegion
+        (s: State)
+        (ctx: PassContext)
+        (e: Expr<SyntaxToken>)
+        (items: ImmutableArray<Expr<SyntaxToken>>)
+        : RegionId =
+        let r =
+            s.Graph.Fresh(level = s.EnclosingLet, mintFn = functionStackTop s, isLambda = false, seed = ValueNone)
+
+        for it in items do
+            let ri = inferRegion s ctx it
+            s.Graph.AddEdge(r, ri)
+
+        r
+
+    and private lambdaRegion
+        (s: State)
+        (ctx: PassContext)
+        (argPats: ImmutableArray<Pat<SyntaxToken>>)
+        (body: Expr<SyntaxToken>)
+        : RegionId =
+        // Mint the closure's region BEFORE entering the body, so the seed
+        // rule sees the outer function-stack top (= the function this
+        // lambda is being constructed inside of).
+        let r =
+            s.Graph.Fresh(level = s.EnclosingLet, mintFn = functionStackTop s, isLambda = true, seed = ValueNone)
+
+        let paramBinders =
+            [
+                for p in argPats do
+                    yield! bindersOfPat p
+            ]
+
+        // Capture edges first (computed before any body recursion, so the
+        // walker's `locals` set sees the right scope shape).
+        let freeVars = collectFreeVarBindingSites ctx paramBinders body
+
+        for bs in freeVars do
+            match s.BindingRegions.TryGetValue bs with
+            | true, captured -> s.Graph.AddEdge(captured, r)
+            | false, _ -> ()
+
+        enterFun s
+
+        // Parameter regions live inside the lambda's own frame — register
+        // them AFTER enterFun so they pick up the new function-stack top
+        // as their MintFunctionLevel. Mirrors processBinding's order for
+        // function-form bindings.
+        for p in argPats do
+            registerParam s ctx p
+
+        let bodyRegion = inferRegion s ctx body
+        exitFun s
+
+        // Propagate the body's escape state up to the closure (if the
+        // function returns an allocating value, that value escapes the
+        // function's frame and the closure must reflect that). Skip when
+        // the body is a primitive / unit (no region).
+        s.Graph.AddEdge(r, bodyRegion)
+        r
+
+    and private registerParam (s: State) (ctx: PassContext) (p: Pat<SyntaxToken>) : unit =
+        // Mint ONE region per parameter pattern and thread it through
+        // every binder via recordBindingRegion — the same rule
+        // let-bindings use. For `(a, b)` the elements alias parts of the
+        // same tuple value; for `x as y` both names alias the same
+        // value. Sharing a region over-approximates safely (matches the
+        // "if any escapes, treat siblings as escaping" direction) and
+        // keeps parameter destructuring and let-destructuring on one
+        // rule. Empty-binder patterns (Const / Wildcard) skip the mint.
+        match bindersOfPat p with
+        | [] -> ()
+        | _ ->
+            let r = s.Graph.Fresh(s.LetLevel, functionStackTop s, false, ValueNone)
+            recordBindingRegion s ctx p r
+
+    and private functionLikeLambda
+        (s: State)
+        (ctx: PassContext)
+        (e: Expr<SyntaxToken>)
+        (rules: ImmutableArray<Rule<SyntaxToken>>)
+        : RegionId =
+        // `function p1 -> e1 | …` ~ `fun x -> match x with …` — a closure
+        // with one synthetic parameter. No real param NodeKey to register,
+        // so we walk the arms via the body region path. Free vars are the
+        // union of free vars over all arms (no params bind anything outside
+        // the arm).
+        let r =
+            s.Graph.Fresh(level = s.EnclosingLet, mintFn = functionStackTop s, isLambda = true, seed = ValueNone)
+
+        // Free vars: pattern binders within each arm are local to that arm.
+        // Collect across arms by treating each arm's pattern as the local
+        // binder set for that arm's body/guard.
+        for r' in rules do
+            match r' with
+            | Rule.Rule(pat = pat; guard = guard; expr = body) ->
+                let armBinders = bindersOfPat pat
+
+                let collect e' =
+                    let fv = collectFreeVarBindingSites ctx armBinders e'
+
+                    for bs in fv do
+                        match s.BindingRegions.TryGetValue bs with
+                        | true, captured -> s.Graph.AddEdge(captured, r)
+                        | false, _ -> ()
+
+                collect body
+
+                match guard with
+                | ValueSome(PatternGuard(expr = g)) -> collect g
+                | ValueNone -> ()
+            | _ -> ()
+
+        enterFun s
+
+        for r' in rules do
+            match r' with
+            | Rule.Rule(pat = pat; guard = guard; expr = body) ->
+                registerParam s ctx pat
+
+                match guard with
+                | ValueSome(PatternGuard(expr = g)) -> inferRegion s ctx g |> ignore
+                | ValueNone -> ()
+
+                let bodyR = inferRegion s ctx body
+                s.Graph.AddEdge(r, bodyR)
+            | _ -> ()
+
+        exitFun s
+
+        ignore e
+        r
+
+    and private letRegion
+        (s: State)
+        (ctx: PassContext)
+        (bindings: ImmutableArray<Binding<SyntaxToken>>)
+        (body: Expr<SyntaxToken> voption)
+        : RegionId =
+        processBindingGroup s ctx bindings
+
+        match body with
+        | ValueSome b -> inferRegion s ctx b
+        | ValueNone -> RegionId.Unknown
+
+    and private processBindingGroup
+        (s: State)
+        (ctx: PassContext)
+        (bindings: ImmutableArray<Binding<SyntaxToken>>)
+        : unit =
+        let savedEnclosing = s.EnclosingLet
+        s.EnclosingLet <- s.LetLevel
+        s.LetLevel <- s.LetLevel + 1
+
+        // Pre-pass: mint a closure region for every function-form binding
+        // in the group and record it under its headPat. Sibling references
+        // (mutual let-rec, or `and` clauses generally) need the region in
+        // BindingRegions before any body walk runs, otherwise the
+        // freeVars lookup misses the sibling and drops the capture edge.
+        // Plain bindings can't be pre-minted — their region IS the RHS's
+        // region, which we only learn after walking the RHS.
+        for b in bindings do
+            if not b.argumentPats.IsEmpty then
+                let r =
+                    s.Graph.Fresh(
+                        level = s.EnclosingLet,
+                        mintFn = functionStackTop s,
+                        isLambda = true,
+                        seed = ValueNone
+                    )
+
+                recordBindingRegion s ctx b.headPat r
+
+        for b in bindings do
+            processBinding s ctx b
+
+        s.LetLevel <- s.LetLevel - 1
+        s.EnclosingLet <- savedEnclosing
+
+    and private processBinding (s: State) (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =
+        if b.argumentPats.IsEmpty then
+            // Plain binding: region(binding) = region(rhs). For
+            // pass-through values (Ident on RHS) this naturally shares
+            // the source's region (test "identifier reuse shares region").
+            let rhsR = inferRegion s ctx b.expr
+            recordBindingRegion s ctx b.headPat rhsR
+        else
+            // Function-form binding. The closure region was pre-minted
+            // and recorded in processBindingGroup; look it up here.
+            let headKey = CstKeys.ofPat b.headPat
+
+            let r =
+                match s.BindingRegions.TryGetValue headKey with
+                | true, r -> r
+                | false, _ ->
+                    // Defensive: any function-form binding routed through
+                    // processBindingGroup is pre-minted. Mint on demand
+                    // so the pass remains total against future callers.
+                    let r =
+                        s.Graph.Fresh(
+                            level = s.EnclosingLet,
+                            mintFn = functionStackTop s,
+                            isLambda = true,
+                            seed = ValueNone
+                        )
+
+                    recordBindingRegion s ctx b.headPat r
+                    r
+
+            let paramBinders =
+                [
+                    for p in b.argumentPats do
+                        yield! bindersOfPat p
+                ]
+
+            let freeVars = collectFreeVarBindingSites ctx paramBinders b.expr
+
+            for bs in freeVars do
+                match s.BindingRegions.TryGetValue bs with
+                | true, captured when captured.Raw <> r.Raw -> s.Graph.AddEdge(captured, r)
+                | _ -> ()
+
+            enterFun s
+
+            for p in b.argumentPats do
+                registerParam s ctx p
+
+            let bodyR = inferRegion s ctx b.expr
+            s.Graph.AddEdge(r, bodyR)
+            exitFun s
+
+    and private recordBindingRegion (s: State) (ctx: PassContext) (p: Pat<SyntaxToken>) (r: RegionId) : unit =
+        // Map every binder this pattern introduces to `r`. For a
+        // NamedSimple this is just the head; for tuples/as we recurse so
+        // each name shares the same region (rough approximation —
+        // destructuring projects each element, but for the v1 subset
+        // value-shape destructuring is rare).
+        match p with
+        | Pat.NamedSimple _ ->
+            let key = CstKeys.ofPat p
+            s.BindingRegions.[key] <- r
+            stampTyVar ctx key r
+        | Pat.EnclosedBlock(pat = inner) ->
+            let key = CstKeys.ofPat p
+            s.BindingRegions.[key] <- r
+            stampTyVar ctx key r
+            recordBindingRegion s ctx inner r
+        | Pat.Typed(pat = inner) ->
+            let key = CstKeys.ofPat p
+            s.BindingRegions.[key] <- r
+            stampTyVar ctx key r
+            recordBindingRegion s ctx inner r
+        | Pat.As(pat = inner) ->
+            let key = CstKeys.ofPat p
+            s.BindingRegions.[key] <- r
+            stampTyVar ctx key r
+            recordBindingRegion s ctx inner r
+        | Pat.Tuple(patterns = pats) ->
+            let key = CstKeys.ofPat p
+            s.BindingRegions.[key] <- r
+            stampTyVar ctx key r
+
+            for sub in pats do
+                recordBindingRegion s ctx sub r
+        | _ -> ()
+
+    and private ifThenElseRegion
+        (s: State)
+        (ctx: PassContext)
+        (e: Expr<SyntaxToken>)
+        (cond: Expr<SyntaxToken>)
+        (thenE: Expr<SyntaxToken>)
+        (elifs: ImmutableArray<ElifBranch<SyntaxToken>>)
+        (elseB: ElseBranch<SyntaxToken> voption)
+        : RegionId =
+        inferRegion s ctx cond |> ignore
+
+        let armRegions = ResizeArray<RegionId>()
+        armRegions.Add(inferRegion s ctx thenE)
+
+        for el in elifs do
+            let elCond, elExpr =
+                match el with
+                | ElifBranch.Elif(condition = c; expr = e2)
+                | ElifBranch.ElseIf(condition = c; expr = e2) -> c, e2
+
+            inferRegion s ctx elCond |> ignore
+            armRegions.Add(inferRegion s ctx elExpr)
+
+        match elseB with
+        | ValueSome(ElseBranch(expr = elExpr)) -> armRegions.Add(inferRegion s ctx elExpr)
+        | ValueNone -> ()
+
+        if exprIsAllocation ctx e then
+            let r =
+                s.Graph.Fresh(level = s.EnclosingLet, mintFn = functionStackTop s, isLambda = false, seed = ValueNone)
+
+            for armR in armRegions do
+                s.Graph.AddEdge(r, armR)
+
+            r
+        else
+            RegionId.Unknown
+
+    and private matchRegion
+        (s: State)
+        (ctx: PassContext)
+        (e: Expr<SyntaxToken>)
+        (scrutinee: Expr<SyntaxToken>)
+        (rules: ImmutableArray<Rule<SyntaxToken>>)
+        : RegionId =
+        inferRegion s ctx scrutinee |> ignore
+        let armRegions = ResizeArray<RegionId>()
+
+        for r' in rules do
+            match r' with
+            | Rule.Rule(pat = pat; guard = guard; expr = body) ->
+                // Match-arm patterns introduce binders local to the arm.
+                registerParam s ctx pat
+
+                match guard with
+                | ValueSome(PatternGuard(expr = g)) -> inferRegion s ctx g |> ignore
+                | ValueNone -> ()
+
+                armRegions.Add(inferRegion s ctx body)
+            | _ -> ()
+
+        if exprIsAllocation ctx e && armRegions.Count > 0 then
+            let r =
+                s.Graph.Fresh(level = s.EnclosingLet, mintFn = functionStackTop s, isLambda = false, seed = ValueNone)
+
+            for armR in armRegions do
+                s.Graph.AddEdge(r, armR)
+
+            r
+        else
+            RegionId.Unknown
+
+    and private tryWithRegion
+        (s: State)
+        (ctx: PassContext)
+        (e: Expr<SyntaxToken>)
+        (body: Expr<SyntaxToken>)
+        (rules: ImmutableArray<Rule<SyntaxToken>>)
+        : RegionId =
+        let bodyR = inferRegion s ctx body
+        let armRegions = ResizeArray<RegionId>()
+        armRegions.Add(bodyR)
+
+        for r' in rules do
+            match r' with
+            | Rule.Rule(pat = pat; guard = guard; expr = armBody) ->
+                registerParam s ctx pat
+
+                match guard with
+                | ValueSome(PatternGuard(expr = g)) -> inferRegion s ctx g |> ignore
+                | ValueNone -> ()
+
+                armRegions.Add(inferRegion s ctx armBody)
+            | _ -> ()
+
+        if exprIsAllocation ctx e then
+            let r =
+                s.Graph.Fresh(level = s.EnclosingLet, mintFn = functionStackTop s, isLambda = false, seed = ValueNone)
+
+            for armR in armRegions do
+                s.Graph.AddEdge(r, armR)
+
+            r
+        else
+            bodyR
+
+    and private tryFinallyRegion
+        (s: State)
+        (ctx: PassContext)
+        (e: Expr<SyntaxToken>)
+        (body: Expr<SyntaxToken>)
+        (finallyE: Expr<SyntaxToken>)
+        : RegionId =
+        let bodyR = inferRegion s ctx body
+        inferRegion s ctx finallyE |> ignore
+        ignore e
+        bodyR
+
+    and private appRegion
+        (s: State)
+        (ctx: PassContext)
+        (e: Expr<SyntaxToken>)
+        (fn: Expr<SyntaxToken>)
+        (args: ImmutableArray<Expr<SyntaxToken>>)
+        : RegionId =
+        let fnR = inferRegion s ctx fn
+        let argRegions = ResizeArray<RegionId>()
+
+        for a in args do
+            argRegions.Add(inferRegion s ctx a)
+
+        if exprIsAllocation ctx e then
+            let r =
+                s.Graph.Fresh(level = s.EnclosingLet, mintFn = functionStackTop s, isLambda = false, seed = ValueNone)
+
+            s.Graph.AddEdge(r, fnR)
+
+            for ar in argRegions do
+                s.Graph.AddEdge(r, ar)
+
+            r
+        else
+            RegionId.Unknown
+
+    and private primitiveOrFreshResult (s: State) (ctx: PassContext) (e: Expr<SyntaxToken>) : RegionId =
+        if exprIsAllocation ctx e then
+            s.Graph.Fresh(level = s.EnclosingLet, mintFn = functionStackTop s, isLambda = false, seed = ValueNone)
+        else
+            RegionId.Unknown
+
+    let private walkModuleElem (s: State) (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
+        match m with
+        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
+            processBindingGroup s ctx bindings
+        | ModuleElem.Expression e -> inferRegion s ctx e |> ignore
+        | _ -> ()
+
+    /// Count distinct lambda regions reachable from `start` via outlives
+    /// edges (used by the HeapShared seed rule).
+    let private countReachableLambdas (g: RegionGraph) (start: RegionId) : int =
+        let visited = HashSet<int>()
+        let stack = Stack<RegionId>()
+        stack.Push(start)
+        let mutable count = 0
+
+        while stack.Count > 0 do
+            let cur = stack.Pop()
+
+            if visited.Add(cur.Raw) then
+                let n = g.NodeOf cur
+
+                if n.IsLambda && cur.Raw <> start.Raw then
+                    count <- count + 1
+
+                for t in n.Outlives do
+                    stack.Push(t)
+
+        count
+
+    let private lub (a: EscapeState) (b: EscapeState) : EscapeState =
+        match a, b with
+        | HeapShared, _
+        | _, HeapShared -> HeapShared
+        | CallerStack, _
+        | _, CallerStack -> CallerStack
+        | LocalStack, LocalStack -> LocalStack
+
+    let private solve (g: RegionGraph) : EscapeState[] =
+        let n = g.Count
+        let state = Array.create n LocalStack
+
+        // Apply seeds.
+        for i = 0 to n - 1 do
+            let node = g.NodeOf(RegionId(i))
+
+            match node.InitialState with
+            | ValueSome s -> state.[i] <- s
+            | ValueNone ->
+                // Level rule fires only inside a function (MintFunctionLevel
+                // is 0 for module-top mints — no escape frame to cross).
+                // Lambdas need a STRICT inequality because the closure
+                // itself lives at its bind level — a same-level closure
+                // (`let f x = ... in f 3` inside another function) doesn't
+                // escape. Non-lambda allocations (tuples, app results,
+                // if-results) use `<=` because anything constructed at the
+                // function's frame level can flow out as the return value.
+                if node.MintFunctionLevel > 0 then
+                    let escapes =
+                        if node.IsLambda then
+                            node.Level < node.MintFunctionLevel
+                        else
+                            node.Level <= node.MintFunctionLevel
+
+                    if escapes then
+                        state.[i] <- lub state.[i] CallerStack
+
+                // Lambda-count rule: reachable through ≥ 2 distinct lambdas
+                // → HeapShared. Skips lambda regions themselves so a
+                // single closure that captures itself indirectly isn't
+                // promoted spuriously.
+                if not node.IsLambda then
+                    let reach = countReachableLambdas g (RegionId(i))
+
+                    if reach >= 2 then
+                        state.[i] <- HeapShared
+
+        // Iterate to fixpoint.
+        let mutable changed = true
+
+        while changed do
+            changed <- false
+
+            for i = 0 to n - 1 do
+                let node = g.NodeOf(RegionId(i))
+
+                for tgt in node.Outlives do
+                    let lifted = lub state.[i] state.[tgt.Raw]
+
+                    if lifted <> state.[i] then
+                        state.[i] <- lifted
+                        changed <- true
+
+        state
+
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
-        ignore (ctx, file)
-        ()
+        let s: State =
+            {
+                Graph = RegionGraph()
+                BindingRegions = Dictionary<NodeKey, RegionId>(HashIdentity.Structural)
+                LetLevel = 0
+                EnclosingLet = 0
+                FunctionStack = ResizeArray()
+            }
+
+        let elems =
+            match file with
+            | ImplementationFile.AnonymousModule elems -> elems
+            | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) -> elems
+            | ImplementationFile.Namespaces _ -> ImmutableArray.Empty
+
+        for m in elems do
+            walkModuleElem s ctx m
+
+        let state = solve s.Graph
+
+        // Project per-expression / per-binding escape state via TyVar.Region.
+        for kv in ctx.TypeVar.AsDictionary() do
+            let tv = UnionFind.find kv.Value
+
+            if tv.Region.Raw >= 0 && tv.Region.Raw < state.Length then
+                ctx.Escape.Set(kv.Key, state.[tv.Region.Raw])

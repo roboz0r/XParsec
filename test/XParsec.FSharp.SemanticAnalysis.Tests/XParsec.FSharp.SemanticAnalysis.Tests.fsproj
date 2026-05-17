@@ -20,6 +20,7 @@
     <Compile Include="CoverageTests.fs" />
     <Compile Include="GeneralisationTests.fs" />
     <Compile Include="MeasuresTests.fs" />
+    <Compile Include="RegionsTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
