@@ -754,7 +754,6 @@ and walkBinding (visitor: AstVisitor<'T>) (binding: Binding<'T>) : unit =
     // declaration wrapper and on the binding record.
     visitTokenOpt visitor "inline" binding.inlineToken
     visitTokenOpt visitor "mutable" binding.mutableToken
-    visitTokenOpt visitor "fixed" binding.fixedToken
     visitTokenOpt visitor "access" binding.access
 
     walkPat visitor binding.headPat

@@ -182,7 +182,6 @@ type Binding<'T> =
         attributes: Attributes<'T> voption
         inlineToken: 'T voption
         mutableToken: 'T voption
-        fixedToken: 'T voption
         access: 'T voption
         /// For values: the binding pattern (Pat.NamedSimple, Pat.Tuple, etc.)
         /// For functions with a plain name: Pat.NamedSimple
