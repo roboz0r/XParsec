@@ -25,6 +25,13 @@ type SideTable<'V>() =
     /// Callers must treat the returned dictionary as read-only once Freeze starts.
     member _.AsDictionary() : IReadOnlyDictionary<NodeKey, 'V> = dict :> _
 
+/// **Thread-safety:** a `PassContext` is single-threaded — its side tables,
+/// `Diagnostics` channel, and the `TypeVar` graph it owns all mutate in
+/// place and are not safe to access from multiple threads. Parallelism
+/// happens at file granularity by allocating one `PassContext` per file
+/// and analysing them concurrently; the shared `IExternalSymbolProvider`
+/// is the only object that crosses thread boundaries (and its contract
+/// requires thread-safe `TryLookup`). See [`docs/architecture.md`](docs/architecture.md#parallelism).
 [<Sealed>]
 type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed) =
     member val Provider = provider

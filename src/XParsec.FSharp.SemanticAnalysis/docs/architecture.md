@@ -91,6 +91,42 @@ only "optimisation" that has to live in semantic analysis. Everything else
 (CSE, closure conversion, lambda lifting, dead code elim) consumes the frozen
 TAST and is out of scope here.
 
+## Parallelism
+
+The side-table-per-`PassContext` design is what enables file-granularity
+parallelism. Each file's analysis owns its own `PassContext` — its own
+`TypeVar` pool, its own `SideTable`s, its own `Diagnostics` channel. None
+of that state is shared with other files' pipelines, so spinning up N
+`PassContext`s on N threads is safe by construction. The mutability
+inside a single `PassContext` is load-bearing for performance (in-place
+union-find, dictionary updates) and isn't worth trading away for
+within-pass parallelism that Algorithm J wouldn't benefit from anyway.
+
+The only object that crosses thread boundaries is
+`IExternalSymbolProvider`, which is read-only by contract — see the doc
+comment on the interface in `ExternalSymbols.fs`. Implementations that
+cache lazily (a real `FSharp.Core.dll` reader, or a wrapper exposing
+another file's post-analysis schemes) must guard their own mutation.
+
+**Cross-file ordering** is a separate concern from threading. A file
+that references names defined elsewhere has a true dependency, and its
+analysis can't start until the upstream file's exported schemes are
+queryable. The orchestration shape mirrors recent FCS: each file's
+pipeline finishes by producing a signature (exported names + schemes),
+which is then wrapped behind `IExternalSymbolProvider` for downstream
+files. Files within the same topological level of the dependency graph
+analyse in parallel; files across levels chain sequentially.
+
+What's deliberately *not* parallelised:
+
+- **Within a pass.** Algorithm J unifies in place against a shared
+  union-find graph; persistent alternatives (path-copying, persistent
+  maps) typically cost 5–10× on HM inference. No production type checker
+  does in-pass parallelism for this reason.
+- **Across passes within one file.** Each pass reads what its
+  predecessors wrote — the dependency is the whole point of the side-
+  table contract in [`docs/passes.md`](passes.md).
+
 ## What's out of scope
 
 - **Target-specific lowering.** `Phase 4.6` in `semantic-analysis.md` (Convert

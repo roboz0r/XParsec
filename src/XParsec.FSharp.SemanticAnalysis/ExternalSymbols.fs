@@ -19,6 +19,13 @@ type ExternalSymbol =
     }
 
 /// Each target supplies its own provider implementation.
+///
+/// **Thread-safety:** `TryLookup` must be safe to call concurrently from
+/// multiple threads. Implementations that cache lazily (e.g. a real
+/// `FSharp.Core.dll` reader, or a wrapper exposing another file's
+/// post-analysis schemes) must guard their internal mutation. Per-file
+/// pipelines run independent `PassContext`s in parallel and may hit the
+/// same provider from any of them — see [`docs/architecture.md`](docs/architecture.md#parallelism).
 type IExternalSymbolProvider =
     /// `name` is the compiled name ("op_Addition", not "(+)").
     abstract TryLookup: name: string -> ExternalSymbol voption
