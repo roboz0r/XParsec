@@ -343,11 +343,15 @@ module NameResolution =
                 let nameTok = nameLi.Idents.[0]
                 let name = ctx.NameOf nameTok
 
-                if ctx.RecordTypes.ContainsKey name then
+                if
+                    ctx.RecordTypes.ContainsKey name
+                    || ctx.UnionTypes.ContainsKey name
+                    || ctx.AbbreviationTypes.ContainsKey name
+                then
                     ctx.Diagnostics.Add
                         {
                             Key = NodeKey.ofToken nameTok NodeKind.DeclType
-                            Message = sprintf "Duplicate record type: %s" name
+                            Message = sprintf "Duplicate type definition: %s" name
                             Severity = Error
                         }
                 else
@@ -492,6 +496,49 @@ module NameResolution =
                 registerUnionTypeDefn ctx td
         | _ -> ()
 
+    /// Stamp an `AbbreviationInfo` entry for every `TypeDefn.Abbrev` in
+    /// this group. Body is left unfilled (`Status = NotFilled`);
+    /// Unification's `fillAbbreviationBodies` pre-pass forces each body
+    /// once every type registration is complete, so an abbreviation's
+    /// RHS can reference any other type in the same file regardless of
+    /// declaration order.
+    let private registerAbbreviationDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
+        match td with
+        | TypeDefn.Abbrev(typeName = tn; typ = rhs) ->
+            let (TypeName(ident = nameLi)) = tn
+
+            if nameLi.Idents.Length <> 1 then
+                ()
+            else
+
+                let nameTok = nameLi.Idents.[0]
+                let name = ctx.NameOf nameTok
+                let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
+
+                if
+                    ctx.RecordTypes.ContainsKey name
+                    || ctx.UnionTypes.ContainsKey name
+                    || ctx.AbbreviationTypes.ContainsKey name
+                then
+                    ctx.Diagnostics.Add
+                        {
+                            Key = declKey
+                            Message = sprintf "Duplicate type definition: %s" name
+                            Severity = Error
+                        }
+                else
+                    let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
+                    let info = AbbreviationInfo(name, typeParams, rhs, declKey)
+                    ctx.AbbreviationTypes.[name] <- info
+        | _ -> ()
+
+    let private registerAbbreviationTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
+        match m with
+        | ModuleElem.Type defs ->
+            for td in defs do
+                registerAbbreviationDefn ctx td
+        | _ -> ()
+
     let private walkModuleElem
         (ctx: PassContext)
         (walker: CstWalk.ExprWalker<Scope list>)
@@ -539,6 +586,9 @@ module NameResolution =
 
         for m in elems do
             registerUnionTypes ctx m
+
+        for m in elems do
+            registerAbbreviationTypes ctx m
 
         let mutable scope = [ Map.empty ]
 

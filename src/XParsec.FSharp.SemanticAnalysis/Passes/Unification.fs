@@ -625,22 +625,32 @@ module Unification =
             | "int64" -> MockBuiltins.tyInt64
             | "byte" -> MockBuiltins.tyByte
             | _ ->
-                match ctx.RecordTypes.TryGetValue name with
+                match ctx.AbbreviationTypes.TryGetValue name with
                 | true, info ->
-                    // Bare reference to a (possibly generic) record. For
-                    // a generic type, back-fill with fresh TyVars at the
-                    // current level — the args are unpinned at the
-                    // declaration site and get fixed by the surrounding
-                    // unification (e.g. a value annotation `r : Box`
-                    // unifies the args with whatever `r`'s usage pins).
+                    // Eager expansion: force the body, then substitute
+                    // fresh TyVars for every declared typar (bare reference
+                    // to a generic abbreviation works the same way as a
+                    // bare reference to a generic record / union).
+                    forceFill ctx info
                     let args = [ for _ in info.TypeParams -> TyVar(freshTyVar ctx) ]
-                    TyRecord(name, args)
+                    expandAbbreviation ctx info args
                 | false, _ ->
-                    match ctx.UnionTypes.TryGetValue name with
+                    match ctx.RecordTypes.TryGetValue name with
                     | true, info ->
+                        // Bare reference to a (possibly generic) record. For
+                        // a generic type, back-fill with fresh TyVars at the
+                        // current level — the args are unpinned at the
+                        // declaration site and get fixed by the surrounding
+                        // unification (e.g. a value annotation `r : Box`
+                        // unifies the args with whatever `r`'s usage pins).
                         let args = [ for _ in info.TypeParams -> TyVar(freshTyVar ctx) ]
-                        TyUnion(name, args)
-                    | false, _ -> TyConst name
+                        TyRecord(name, args)
+                    | false, _ ->
+                        match ctx.UnionTypes.TryGetValue name with
+                        | true, info ->
+                            let args = [ for _ in info.TypeParams -> TyVar(freshTyVar ctx) ]
+                            TyUnion(name, args)
+                        | false, _ -> TyConst name
         | Type.GenericType(longIdent = li; typeArgs = args) when
             li.Idents.Length = 1
             && args.Length = 1
@@ -705,28 +715,38 @@ module Unification =
                         Severity = Error
                     }
 
-            match ctx.RecordTypes.TryGetValue name with
+            match ctx.AbbreviationTypes.TryGetValue name with
             | true, info ->
+                forceFill ctx info
                 let expected = List.length info.TypeParams
 
                 if expected <> argCount then
                     diagnoseArity expected
 
-                TyRecord(name, translatedArgs)
+                expandAbbreviation ctx info translatedArgs
             | false, _ ->
-                match ctx.UnionTypes.TryGetValue name with
+                match ctx.RecordTypes.TryGetValue name with
                 | true, info ->
                     let expected = List.length info.TypeParams
 
                     if expected <> argCount then
                         diagnoseArity expected
 
-                    TyUnion(name, translatedArgs)
+                    TyRecord(name, translatedArgs)
                 | false, _ ->
-                    // Unknown name with type args — surface as opaque
-                    // TyConst (matches today's behaviour for unrecognised
-                    // bare names; the args effectively get ignored).
-                    TyConst name
+                    match ctx.UnionTypes.TryGetValue name with
+                    | true, info ->
+                        let expected = List.length info.TypeParams
+
+                        if expected <> argCount then
+                            diagnoseArity expected
+
+                        TyUnion(name, translatedArgs)
+                    | false, _ ->
+                        // Unknown name with type args — surface as opaque
+                        // TyConst (matches today's behaviour for unrecognised
+                        // bare names; the args effectively get ignored).
+                        TyConst name
         | Type.FunctionType(fromType = from; toType = into) -> TyFun(translateType ctx from, translateType ctx into)
         | Type.TupleType(types = types) -> TyTuple [ for t in types -> translateType ctx t ]
         | _ ->
@@ -734,6 +754,62 @@ module Unification =
             // types, anonymous records, etc.) aren't modelled yet. Hand
             // back a free TyVar so unification can pin it via context.
             TyVar(freshTyVar ctx)
+
+    /// Force the body of an abbreviation, translating its RHS under a
+    /// typar scope seeded from its `TypeParams`. Idempotent — already-
+    /// `Filled` entries short-circuit. Re-entry through a recursive
+    /// abbreviation reference detects the cycle (`InProgress`), emits a
+    /// diagnostic, and freezes `Status` to `Filled` without setting
+    /// `Body`. The outer call notices `Status` was flipped mid-walk and
+    /// skips assigning `Body`, leaving `ValueNone` so the expansion arm
+    /// substitutes a fresh TyVar per use site instead of sharing a
+    /// stale one.
+    and private forceFill (ctx: PassContext) (info: AbbreviationInfo) : unit =
+        match info.Status with
+        | AbbreviationStatus.Filled -> ()
+        | AbbreviationStatus.InProgress ->
+            ctx.Diagnostics.Add
+                {
+                    Key = info.DeclKey
+                    Message = sprintf "Type abbreviation '%s' is cyclic" info.Name
+                    Severity = Error
+                }
+
+            info.Status <- AbbreviationStatus.Filled
+        | AbbreviationStatus.NotFilled ->
+            info.Status <- AbbreviationStatus.InProgress
+            let savedScope = ctx.TyparScope
+            let savedStrict = ctx.TyparScopeStrict
+            let scope = Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
+
+            for (n, tv) in info.TypeParams do
+                if not (scope.ContainsKey n) then
+                    scope.[n] <- tv
+
+            ctx.TyparScope <- scope
+            ctx.TyparScopeStrict <- true
+
+            try
+                let body = translateType ctx info.RhsCst
+
+                if info.Status = AbbreviationStatus.InProgress then
+                    info.Body <- ValueSome body
+            finally
+                ctx.TyparScope <- savedScope
+                ctx.TyparScopeStrict <- savedStrict
+                info.Status <- AbbreviationStatus.Filled
+
+    /// Expand an abbreviation reference: substitute the user-supplied (or
+    /// fresh) args for the declared `TypeParams` in the stored body.
+    /// Returns a fresh TyVar if `Body = ValueNone` (cycle detected, or
+    /// fill-in not yet run) — unification stays best-effort rather than
+    /// cascading.
+    and private expandAbbreviation (ctx: PassContext) (info: AbbreviationInfo) (args: SemType list) : SemType =
+        match info.Body with
+        | ValueSome body ->
+            let subst = mkNamedTypeSubst info.TypeParams args
+            substituteWith subst body
+        | ValueNone -> TyVar(freshTyVar ctx)
 
     /// Measure carried on `t`'s union-find root, if any. Reads `Units`
     /// straight off the root — does NOT use `resolveStep`, since that
@@ -2239,7 +2315,31 @@ module Unification =
                 | _ -> ()
         | _ -> ()
 
+    /// Force every abbreviation body in source order. Each call into
+    /// `forceFill` recurses through `translateType` for any abbreviation
+    /// reference it encounters, so dependencies fill themselves DFS-style
+    /// regardless of declaration order. Already-`Filled` entries are
+    /// no-ops; cycles are diagnosed once. Runs before record / union
+    /// field fill so a record field or DU case-arg referencing an
+    /// abbreviation by name sees the expanded type.
+    let private fillAbbreviationBodies (ctx: PassContext) (elems: ModuleElems<SyntaxToken>) : unit =
+        for m in elems do
+            match m with
+            | ModuleElem.Type defs ->
+                for td in defs do
+                    match td with
+                    | TypeDefn.Abbrev(typeName = TypeName(ident = nameLi)) when nameLi.Idents.Length = 1 ->
+                        let name = ctx.NameOf nameLi.Idents.[0]
+
+                        match ctx.AbbreviationTypes.TryGetValue name with
+                        | true, info -> forceFill ctx info
+                        | false, _ -> ()
+                    | _ -> ()
+            | _ -> ()
+
     let private walkElems (ctx: PassContext) (elems: ModuleElems<SyntaxToken>) =
+        fillAbbreviationBodies ctx elems
+
         for m in elems do
             fillRecordFieldTypes ctx m
 

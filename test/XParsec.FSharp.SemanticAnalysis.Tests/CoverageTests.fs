@@ -566,6 +566,21 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
+            // ---- Type abbreviations ----
+
+            test "TAST: monomorphic abbreviation erases to underlying type" {
+                let tast = analyse "type Name = string\nlet n : Name = \"x\""
+                Expect.equal (declType tast) MockBuiltins.tyString "declType is string"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "TAST: generic abbreviation literal expands to tuple" {
+                let tast = analyse "type Pair<'a> = 'a * 'a\nlet p : Pair<int> = (1, 2)"
+                let expected = TyTuple [ MockBuiltins.tyInt; MockBuiltins.tyInt ]
+                Expect.equal (declType tast) expected "declType is int * int"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
             test "qualified name resolves through provider" {
                 // Build a custom provider that knows `Math.pi`.
                 let provider: IExternalSymbolProvider =

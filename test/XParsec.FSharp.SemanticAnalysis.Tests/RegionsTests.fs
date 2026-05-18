@@ -515,4 +515,13 @@ let tests =
 
                 Expect.equal escape (Some LocalStack) "generic ctor at module-top is LocalStack"
             }
+
+            test "abbreviation to a record at module top is LocalStack" {
+                // Abbreviations vanish at translateType, so the binding's
+                // region shape is identical to a direct `Box<int>` literal.
+                let escape =
+                    escapeOf "type Box<'a> = { Value: 'a }\ntype IntBox = Box<int>\nlet b : IntBox = { Value = 1 }" "b"
+
+                Expect.equal escape (Some LocalStack) "abbreviation to record at module-top is LocalStack"
+            }
         ]

@@ -152,9 +152,9 @@ let tests =
 
                 let hasDup =
                     ctx.Diagnostics
-                    |> Seq.exists (fun d -> d.Message.Contains "Duplicate record type")
+                    |> Seq.exists (fun d -> d.Message.Contains "Duplicate type definition")
 
-                Expect.isTrue hasDup "duplicate-record diagnostic emitted"
+                Expect.isTrue hasDup "duplicate-type diagnostic emitted"
             }
 
             test "mutable field IsMutable is true" {
@@ -304,5 +304,46 @@ let tests =
                     |> Seq.exists (fun d -> d.Message.Contains "Free type parameter")
 
                 Expect.isTrue hasFree "implicit free typar diagnosed"
+            }
+
+            // ---- Type abbreviations ----
+
+            test "monomorphic abbreviation registers with no TypeParams" {
+                let ctx = analyse "type Name = string"
+
+                match ctx.AbbreviationTypes.TryGetValue "Name" with
+                | true, info -> Expect.isTrue info.TypeParams.IsEmpty "no typars"
+                | false, _ -> failtest "abbreviation Name not registered"
+            }
+
+            test "generic abbreviation keeps declaration order" {
+                let ctx = analyse "type Pair<'a, 'b> = 'a * 'b"
+
+                match ctx.AbbreviationTypes.TryGetValue "Pair" with
+                | true, info ->
+                    Expect.equal (List.length info.TypeParams) 2 "two typars"
+                    Expect.equal (fst info.TypeParams.[0]) "'a" "first is 'a"
+                    Expect.equal (fst info.TypeParams.[1]) "'b" "second is 'b"
+                | false, _ -> failtest "abbreviation Pair not registered"
+            }
+
+            test "duplicate abbreviation name diagnoses" {
+                let ctx = analyse "type Foo = int\ntype Foo = bool"
+
+                let hasDup =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "Duplicate type definition")
+
+                Expect.isTrue hasDup "duplicate-type diagnostic emitted"
+            }
+
+            test "abbreviation vs record same name diagnoses" {
+                let ctx = analyse "type R = { X: int }\ntype R = int"
+
+                let hasDup =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "Duplicate type definition")
+
+                Expect.isTrue hasDup "duplicate-type diagnostic emitted"
             }
         ]

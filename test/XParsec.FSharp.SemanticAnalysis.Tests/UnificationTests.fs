@@ -336,4 +336,103 @@ let tests =
 
                 Expect.isEmpty ctx.Diagnostics "no diagnostics across independent uses"
             }
+
+            // ---- Type abbreviations ----
+
+            test "monomorphic abbreviation transparently unifies" {
+                // "type Name = string\nlet n : Name = \"x\""
+                // After "type Name = string\n" (19 chars), "let " puts pat n at offset 23.
+                let ctx = analyse "type Name = string\nlet n : Name = \"x\""
+                let patKey = NodeKey.ofSource 23 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) MockBuiltins.tyString "n : string"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "generic abbreviation expands" {
+                // "type Pair<'a> = 'a * 'a\nlet p : Pair<int> = (1, 2)"
+                let ctx = analyse "type Pair<'a> = 'a * 'a\nlet p : Pair<int> = (1, 2)"
+                // "type Pair<'a> = 'a * 'a\n" is 24 chars. "let p = " offset 28.
+                let patKey = NodeKey.ofSource 28 NodeKind.PatIdent
+                let expected = TyTuple [ MockBuiltins.tyInt; MockBuiltins.tyInt ]
+                Expect.equal (typeOf ctx patKey) expected "p : int * int"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "chained abbreviation expands transitively" {
+                // "type A = B\ntype B = int\nlet x : A = 1"
+                let ctx = analyse "type A = B\ntype B = int\nlet x : A = 1"
+                // "type A = B\n" is 11, "type B = int\n" is 13, total 24. "let " puts pat x at 28.
+                let patKey = NodeKey.ofSource 28 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) MockBuiltins.tyInt "x : int"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "order-independent within a module" {
+                // Pair declared after its first use as IntPair.
+                let ctx =
+                    analyse "type IntPair = Pair<int>\ntype Pair<'a> = 'a * 'a\nlet p : IntPair = (1, 2)"
+                // "type IntPair = Pair<int>\n" is 25, "type Pair<'a> = 'a * 'a\n" is 24, total 49.
+                // "let " puts pat p at offset 53.
+                let patKey = NodeKey.ofSource 53 NodeKind.PatIdent
+                let expected = TyTuple [ MockBuiltins.tyInt; MockBuiltins.tyInt ]
+                Expect.equal (typeOf ctx patKey) expected "p : int * int"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "cycle diagnoses without infinite-looping" {
+                let ctx = analyse "type A = B\ntype B = A"
+
+                let hasCyclic = ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "cyclic")
+
+                Expect.isTrue hasCyclic "cycle diagnostic emitted"
+            }
+
+            test "arity mismatch on generic abbreviation diagnoses" {
+                let ctx = analyse "type Pair<'a> = 'a * 'a\nlet p : Pair<int, bool> = (1, 2)"
+
+                let hasArity =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "expects 1 type argument")
+
+                Expect.isTrue hasArity "arity-mismatch diagnostic emitted"
+            }
+
+            test "abbreviation to function type" {
+                let ctx = analyse "type Endo<'a> = 'a -> 'a\nlet inc : Endo<int> = fun x -> x + 1"
+                // "type Endo<'a> = 'a -> 'a\n" is 25 chars. "let " puts pat inc at offset 29.
+                let patKey = NodeKey.ofSource 29 NodeKind.PatIdent
+                let expected = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                Expect.equal (typeOf ctx patKey) expected "inc : int -> int"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "abbreviation referencing a record" {
+                let ctx =
+                    analyse "type Box<'a> = { Value: 'a }\ntype IntBox = Box<int>\nlet b : IntBox = { Value = 1 }"
+                // "type Box<'a> = { Value: 'a }\n" is 29, "type IntBox = Box<int>\n" is 23. Total 52.
+                // "let " puts pat b at offset 56.
+                let patKey = NodeKey.ofSource 56 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyRecord("Box", [ MockBuiltins.tyInt ])) "b : Box<int>"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "abbreviation inside a record field type" {
+                let ctx =
+                    analyse "type IntPair = int * int\ntype R = { Pair: IntPair }\nlet r = { Pair = (1, 2) }"
+                // "type IntPair = int * int\n" is 25, "type R = { Pair: IntPair }\n" is 27. Total 52.
+                // "let " puts pat r at offset 56.
+                let patKey = NodeKey.ofSource 56 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyRecord("R", [])) "r : R"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "implicit free typar in abbreviation diagnoses" {
+                let ctx = analyse "type Bad = 'a"
+
+                let hasFree =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "Free type parameter")
+
+                Expect.isTrue hasFree "implicit free typar diagnosed"
+            }
         ]

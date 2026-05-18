@@ -64,6 +64,33 @@ type UnionTypeInfo(name: string, typeParams: (string * TypeVar) list, cases: Uni
     member val Cases = cases
     member val DeclKey = declKey
 
+/// Fill-state of an `AbbreviationInfo.Body`. NameResolution stamps
+/// entries with `NotFilled`; Unification's `fillAbbreviationBodies`
+/// pre-pass walks each one with `forceFill`, flipping to `InProgress`
+/// while translating the RHS so a re-entry through `translateType`
+/// can detect a cycle and short-circuit. `Filled` is terminal — once
+/// set, neither `Body` nor `Status` mutates again.
+[<RequireQualifiedAccess>]
+type AbbreviationStatus =
+    | NotFilled
+    | InProgress
+    | Filled
+
+/// One entry per `TypeDefn.Abbrev` declaration. Indexed by name on
+/// `PassContext.AbbreviationTypes`. `TypeParams` mirrors
+/// `RecordTypeInfo.TypeParams`. `RhsCst` is the right-hand side CST node;
+/// `Body` is filled lazily by Unification's `forceFill` so order within
+/// a module doesn't matter — a declaration can reference any other type
+/// in the same group. `Status` tracks fill-state for cycle detection.
+[<Sealed>]
+type AbbreviationInfo(name: string, typeParams: (string * TypeVar) list, rhsCst: Type<SyntaxToken>, declKey: NodeKey) =
+    member val Name = name
+    member val TypeParams = typeParams
+    member val RhsCst = rhsCst
+    member val DeclKey = declKey
+    member val Body: SemType voption = ValueNone with get, set
+    member val Status: AbbreviationStatus = AbbreviationStatus.NotFilled with get, set
+
 [<Sealed>]
 type SideTable<'V>() =
     let dict = Dictionary<NodeKey, 'V>(HashIdentity.Structural)
@@ -135,6 +162,12 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// with the declaring union type). Used by ctor-reference /
     /// ctor-pattern resolution.
     member val CtorIndex = Dictionary<string, UnionCaseInfo list>() with get
+    /// Written by NameResolution from `TypeDefn.Abbrev`s; bodies are
+    /// filled in by Unification's `fillAbbreviationBodies` pre-pass.
+    /// Name-keyed (single-segment v1). Abbreviations expand eagerly at
+    /// every `translateType` lookup, so downstream passes see the
+    /// underlying type as if the user had written it longhand.
+    member val AbbreviationTypes = Dictionary<string, AbbreviationInfo>() with get
     /// Per-signature type-parameter scope. Read by `translateType` to
     /// resolve `Type.VarType(Typar.Named "a")` to a stable TyVar; each
     /// signature (a `let`-binding, a type definition's field/case-fill-in
