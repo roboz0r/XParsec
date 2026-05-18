@@ -67,6 +67,14 @@ module Freeze =
         let ty = typeOfKey ctx key
 
         match p with
+        | Pat.NamedSimple t when
+            let n = ctx.NameOf t
+            n.Length > 0 && System.Char.IsUpper n.[0] && ctx.CtorIndex.ContainsKey n
+            ->
+            // Nullary ctor in pattern position — reinterpret as a ctor
+            // pattern that binds nothing. Must precede the plain
+            // NamedSimple arm.
+            TPat.Union(ctx.NameOf t, [], ty)
         | Pat.NamedSimple _ -> TPat.NamedSimple(key, ty)
         | Pat.Wildcard _ -> TPat.Wildcard ty
         | Pat.EnclosedBlock(pat = inner) -> translatePat ctx inner
@@ -97,6 +105,30 @@ module Freeze =
                 ]
 
             TPat.Record(fields, ty)
+        | Pat.Named(longIdent = li; argumentPats = args) when
+            li.Idents.Length >= 1
+            && (let last = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+
+                last.Length > 0
+                && System.Char.IsUpper last.[0]
+                && (li.Idents.Length = 1 && ctx.CtorIndex.ContainsKey last
+                    || li.Idents.Length = 2 && ctx.UnionTypes.ContainsKey(ctx.NameOf li.Idents.[0])))
+            ->
+            let caseName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+
+            let subPats =
+                if args.Length = 1 then
+                    // Strip an `EnclosedBlock(Tuple [...])` or `Tuple [...]`
+                    // wrapper for multi-field ctor patterns.
+                    match args.[0] with
+                    | Pat.EnclosedBlock(pat = Pat.Tuple(patterns = pats)) -> [ for sub in pats -> translatePat ctx sub ]
+                    | Pat.EnclosedBlock(pat = inner) -> [ translatePat ctx inner ]
+                    | Pat.Tuple(patterns = pats) -> [ for sub in pats -> translatePat ctx sub ]
+                    | sub -> [ translatePat ctx sub ]
+                else
+                    [ for sub in args -> translatePat ctx sub ]
+
+            TPat.Union(caseName, subPats, ty)
         | _ -> failwithf "Freeze.translatePat: TODO %A" p
 
     /// `()` literal. Distinct entry point because `Expr.EmptyBlock` carries
@@ -104,6 +136,45 @@ module Freeze =
     let private unitConst (ctx: PassContext) (e: Expr<SyntaxToken>) : TExpr =
         let key = CstKeys.ofExpr e
         TExpr.Const(TConstValue.Unit, typeOfKey ctx key)
+
+    /// Try to interpret `e` as a DU ctor reference and return the case
+    /// name. Handles single-segment `Circle`, two-segment `Result2.Ok`,
+    /// and either inside an `Expr.Ident` or `Expr.LongIdentOrOp`. Returns
+    /// `ValueNone` for anything else (including local bindings whose
+    /// names happen to match a ctor — they have a `Binding` entry).
+    let private tryCtorRef (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption =
+        let key = CstKeys.ofExpr e
+
+        if ctx.Binding.ContainsKey key then
+            ValueNone
+        else
+            match e with
+            | Expr.Ident t ->
+                let n = ctx.NameOf t
+
+                if ctx.CtorIndex.ContainsKey n then
+                    ValueSome n
+                else
+                    ValueNone
+            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
+                let n = ctx.NameOf li.Idents.[0]
+
+                if ctx.CtorIndex.ContainsKey n then
+                    ValueSome n
+                else
+                    ValueNone
+            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
+                li.Idents.Length = 2 && ctx.UnionTypes.ContainsKey(ctx.NameOf li.Idents.[0])
+                ->
+                let typeName = ctx.NameOf li.Idents.[0]
+                let caseName = ctx.NameOf li.Idents.[1]
+                let info = ctx.UnionTypes.[typeName]
+
+                if info.Cases |> Array.exists (fun c -> c.Name = caseName) then
+                    ValueSome caseName
+                else
+                    ValueNone
+            | _ -> ValueNone
 
     let rec private translateExpr (ctx: PassContext) (e: Expr<SyntaxToken>) : TExpr =
         let key = CstKeys.ofExpr e
@@ -119,8 +190,53 @@ module Freeze =
             // LongIdent. The head segment was resolved by NameResolution
             // as a local binding; subsequent segments are field accesses.
             translateLongIdentFieldChain ctx li ty
+        | _ when (tryCtorRef ctx e).IsSome ->
+            // Bare or qualified ctor reference outside an App. Nullary
+            // ctors translate as `UnionCons(name, [], ty)`; ctor-as-value
+            // (`let f = Circle`) types as `TyFun(_, TyUnion _)` — in that
+            // case the TAST node is still a UnionCons-like reference, but
+            // we fall through to a function-typed External (lowering can
+            // eta-expand if needed). v1 distinguishes by the result type.
+            match Unification.zonk ty with
+            | TyUnion _ ->
+                let caseName = (tryCtorRef ctx e).Value
+                TExpr.UnionCons(caseName, [], ty)
+            | _ ->
+                // Function-typed ctor reference (ctor-as-value). Emit a
+                // External — codegen can eta-expand to a UnionCons lambda.
+                let caseName = (tryCtorRef ctx e).Value
+                TExpr.External(caseName, ty)
         | Expr.Ident _
         | Expr.LongIdentOrOp _ -> translateIdent ctx e key ty
+        | Expr.App(fn, args) when (tryCtorRef ctx fn).IsSome ->
+            // Ctor application: `Circle 1.0` or `Rectangle(2.0, 3.0)`.
+            // The parser hands `Rectangle(2.0, 3.0)` as `Expr.App` with a
+            // single `Expr.EnclosedBlock(Tuple)` argument; F# treats DU
+            // arguments as a single tuple, but the TAST flattens it back
+            // to a per-field list so consumers see the ctor's declared
+            // arity directly.
+            let caseName = (tryCtorRef ctx fn).Value
+
+            let argsList =
+                if args.Length = 1 then
+                    match args.[0] with
+                    | Expr.EnclosedBlock(expr = Expr.Tuple(exprs = items)) -> [ for a in items -> translateExpr ctx a ]
+                    | Expr.Tuple(exprs = items) -> [ for a in items -> translateExpr ctx a ]
+                    | a -> [ translateExpr ctx a ]
+                else
+                    [ for a in args -> translateExpr ctx a ]
+
+            TExpr.UnionCons(caseName, argsList, ty)
+        | Expr.HighPrecedenceApp(funcExpr = fn; argExpr = arg) when (tryCtorRef ctx fn).IsSome ->
+            let caseName = (tryCtorRef ctx fn).Value
+
+            let argsList =
+                match arg with
+                | Expr.EnclosedBlock(expr = Expr.Tuple(exprs = items)) -> [ for a in items -> translateExpr ctx a ]
+                | Expr.Tuple(exprs = items) -> [ for a in items -> translateExpr ctx a ]
+                | a -> [ translateExpr ctx a ]
+
+            TExpr.UnionCons(caseName, argsList, ty)
         | Expr.App(fn, args) -> translateApp ctx fn args
         | Expr.HighPrecedenceApp(funcExpr = fn; argExpr = arg) ->
             TExpr.App(translateExpr ctx fn, translateExpr ctx arg, ty)

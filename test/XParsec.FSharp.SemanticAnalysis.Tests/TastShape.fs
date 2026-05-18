@@ -301,6 +301,27 @@ type private Renderer() =
             push " <- "
             this.Expr value
 
+        | TExpr.UnionCons(caseName, args, _) ->
+            push caseName
+
+            match args with
+            | [] -> ()
+            | [ single ] ->
+                push " "
+                this.Expr single
+            | many ->
+                push "("
+
+                many
+                |> List.iteri (fun i a ->
+                    if i > 0 then
+                        push ", "
+
+                    this.Expr a
+                )
+
+                push ")"
+
     member this.Pat(p: TPat) : unit =
         match p with
         | TPat.NamedSimple(k, _) -> push (nameOf k)
@@ -347,6 +368,27 @@ type private Renderer() =
             )
 
             push " }"
+
+        | TPat.Union(caseName, fields, _) ->
+            push caseName
+
+            match fields with
+            | [] -> ()
+            | [ single ] ->
+                push " "
+                this.Pat single
+            | many ->
+                push "("
+
+                many
+                |> List.iteri (fun i p ->
+                    if i > 0 then
+                        push ", "
+
+                    this.Pat p
+                )
+
+                push ")"
 
     member this.Decl(d: TDecl) : unit =
         match d with

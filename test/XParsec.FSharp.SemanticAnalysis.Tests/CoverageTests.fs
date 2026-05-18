@@ -490,6 +490,60 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
+            // ---- Discriminated unions ----
+
+            test "nullary ctor TAST shape" {
+                let tast = analyse "type S = | Point\nlet p = Point"
+
+                let resultDecl =
+                    match tast.Decls with
+                    | [ d ] -> d
+                    | other -> failwithf "expected one decl, got %A" other
+
+                Expect.equal (TastShape.prettyDecl resultDecl) "let v0 = Point" "nullary ctor shape"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "single-arg ctor TAST shape" {
+                let tast = analyse "type S = | Circle of float\nlet c = Circle 1.0"
+
+                let resultDecl =
+                    match tast.Decls with
+                    | [ d ] -> d
+                    | other -> failwithf "expected one decl, got %A" other
+
+                Expect.equal (TastShape.prettyDecl resultDecl) "let v0 = Circle 1" "single-arg ctor shape"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "multi-arg ctor TAST shape" {
+                let tast = analyse "type S = | Rect of float * float\nlet r = Rect(2.0, 3.0)"
+
+                let resultDecl =
+                    match tast.Decls with
+                    | [ d ] -> d
+                    | other -> failwithf "expected one decl, got %A" other
+
+                Expect.equal (TastShape.prettyDecl resultDecl) "let v0 = Rect(2, 3)" "multi-arg ctor shape"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "ctor pattern TAST shape" {
+                let tast =
+                    analyse
+                        "type S = | Circle of float | Point\nlet area s = match s with | Circle r -> r | Point -> 0.0"
+
+                let resultDecl =
+                    match tast.Decls with
+                    | [ d ] -> d
+                    | other -> failwithf "expected one decl, got %A" other
+
+                let rendered = TastShape.prettyDecl resultDecl
+                Expect.stringContains rendered "Circle v" "Circle r arm rendered"
+                Expect.stringContains rendered "Point" "Point arm rendered"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
             test "qualified name resolves through provider" {
                 // Build a custom provider that knows `Math.pi`.
                 let provider: IExternalSymbolProvider =

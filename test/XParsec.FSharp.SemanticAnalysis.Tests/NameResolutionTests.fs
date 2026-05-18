@@ -166,4 +166,68 @@ let tests =
                     Expect.isTrue info.Fields.[1].IsMutable "Y is mutable"
                 | false, _ -> failtest "record type P not registered"
             }
+
+            // ---- Discriminated unions ----
+
+            test "union type definition registers in ctx.UnionTypes" {
+                let ctx =
+                    analyse "type S =\n    | Circle of float\n    | Rectangle of float * float\n    | Point"
+
+                match ctx.UnionTypes.TryGetValue "S" with
+                | true, info ->
+                    Expect.equal info.Cases.Length 3 "three cases"
+                    Expect.equal info.Cases.[0].Name "Circle" "Circle case"
+                    Expect.equal info.Cases.[1].Name "Rectangle" "Rectangle case"
+                    Expect.equal info.Cases.[2].Name "Point" "Point nullary case"
+                    Expect.equal info.Cases.[0].Fields.Length 1 "Circle: 1 field"
+                    Expect.equal info.Cases.[1].Fields.Length 2 "Rectangle: 2 fields"
+                    Expect.equal info.Cases.[2].Fields.Length 0 "Point: nullary"
+                | false, _ -> failtest "union type S not registered"
+            }
+
+            test "duplicate union type name diagnoses" {
+                let ctx = analyse "type S = | A\ntype S = | B"
+
+                let hasDup =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "Duplicate type definition")
+
+                Expect.isTrue hasDup "duplicate-type diagnostic emitted"
+            }
+
+            test "CtorIndex maps ctor name to declaring union" {
+                let ctx = analyse "type S =\n    | Circle of float\n    | Point"
+
+                match ctx.CtorIndex.TryGetValue "Circle" with
+                | true, infos ->
+                    Expect.equal infos.Length 1 "Circle declared by exactly one union"
+                    Expect.equal infos.Head.UnionName "S" "Circle belongs to S"
+                | false, _ -> failtest "Circle not in CtorIndex"
+
+                match ctx.CtorIndex.TryGetValue "Point" with
+                | true, infos -> Expect.equal infos.Length 1 "Point declared by exactly one union"
+                | false, _ -> failtest "Point not in CtorIndex"
+            }
+
+            test "nullary ctor in pattern binds nothing" {
+                // `match v with | Point -> ()` — `Point` is a known ctor,
+                // not a binder. The ident at offset 21 should NOT have a
+                // self-binding entry.
+                let ctx = analyse "type S = | Point\nmatch 0 with | Point -> 0 | _ -> 0"
+
+                // The Point ident in the pattern is at... let me look up the offset
+                // Source: "type S = | Point\n" is 17 chars. "match 0 with | " is +15 → offset 32. So Point starts at 32.
+                let patKey = NodeKey.ofSource 32 NodeKind.PatIdent
+                let hasBinding = ctx.Binding.ContainsKey patKey
+                Expect.isFalse hasBinding "Point pattern should not be a binding site"
+            }
+
+            test "bare ctor reference does not emit Unresolved diagnostic" {
+                let ctx = analyse "type S = | Point\nlet p = Point"
+
+                let hasUnresolved =
+                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "Unresolved")
+
+                Expect.isFalse hasUnresolved "bare ctor name not flagged as unresolved"
+            }
         ]

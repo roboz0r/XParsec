@@ -140,6 +140,7 @@ module Regions =
         | TyFun _
         | TyTuple _ -> true
         | TyRecord _ -> true
+        | TyUnion _ -> true
         | TyVar _ -> false
 
     let private exprIsAllocation (ctx: PassContext) (e: Expr<SyntaxToken>) : bool =
@@ -151,18 +152,40 @@ module Regions =
 
     /// Collect every binding-site NodeKey introduced by `p` (mirrors
     /// `NameResolution.bindingsOfPat` but keeps only the keys).
-    let rec private bindersOfPat (p: Pat<SyntaxToken>) : NodeKey list =
+    let rec private bindersOfPat (ctx: PassContext) (p: Pat<SyntaxToken>) : NodeKey list =
         match p with
+        | Pat.NamedSimple t when
+            let n = ctx.NameOf t
+            n.Length > 0 && System.Char.IsUpper n.[0] && ctx.CtorIndex.ContainsKey n
+            ->
+            // Nullary ctor pattern in disguise — binds nothing.
+            []
         | Pat.NamedSimple _ -> [ CstKeys.ofPat p ]
         | Pat.Wildcard _
         | Pat.Const _
         | Pat.EmptyBlock _ -> []
-        | Pat.EnclosedBlock(pat = inner) -> bindersOfPat inner
-        | Pat.Tuple(patterns = pats) -> [ for sub in pats -> bindersOfPat sub ] |> List.concat
-        | Pat.Typed(pat = inner) -> bindersOfPat inner
-        | Pat.As(pat = inner) -> CstKeys.ofPat p :: bindersOfPat inner
+        | Pat.EnclosedBlock(pat = inner) -> bindersOfPat ctx inner
+        | Pat.Tuple(patterns = pats) -> [ for sub in pats -> bindersOfPat ctx sub ] |> List.concat
+        | Pat.Typed(pat = inner) -> bindersOfPat ctx inner
+        | Pat.As(pat = inner) -> CstKeys.ofPat p :: bindersOfPat ctx inner
         | Pat.Record(fieldPats = fieldPats) ->
-            [ for FieldPat(pat = sub) in fieldPats -> bindersOfPat sub ] |> List.concat
+            [ for FieldPat(pat = sub) in fieldPats -> bindersOfPat ctx sub ] |> List.concat
+        | Pat.Named(longIdent = li; argumentPats = args) when
+            li.Idents.Length >= 1
+            && (let last = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+
+                last.Length > 0
+                && System.Char.IsUpper last.[0]
+                && (li.Idents.Length = 1 && ctx.CtorIndex.ContainsKey last
+                    || li.Idents.Length = 2 && ctx.UnionTypes.ContainsKey(ctx.NameOf li.Idents.[0])))
+            ->
+            // Ctor pattern: head binds nothing; sub-patterns introduce
+            // binders. The sub-pattern arg may be a single tuple in the
+            // multi-field case — recurse and let the Tuple arm flatten.
+            [
+                for sub in args do
+                    yield! bindersOfPat ctx sub
+            ]
         | _ -> []
 
     /// Find every binding-site NodeKey referenced by `body` whose binder
@@ -198,7 +221,7 @@ module Regions =
                 EnterFun =
                     fun () argPats ->
                         for p in argPats do
-                            for k in bindersOfPat p do
+                            for k in bindersOfPat ctx p do
                                 locals.Add(k) |> ignore
                 EnterBindingRhs =
                     fun () _ _ b ->
@@ -208,21 +231,21 @@ module Regions =
                         // are local to this RHS.
                         if not b.argumentPats.IsEmpty then
                             for p in b.argumentPats do
-                                for k in bindersOfPat p do
+                                for k in bindersOfPat ctx p do
                                     locals.Add(k) |> ignore
                 EnterLetBody =
                     fun () bindings ->
                         for b in bindings do
-                            for k in bindersOfPat b.headPat do
+                            for k in bindersOfPat ctx b.headPat do
                                 locals.Add(k) |> ignore
                 EnterForTo = fun () ident -> locals.Add(CstKeys.ofForToVar ident) |> ignore
                 EnterForIn =
                     fun () pat ->
-                        for k in bindersOfPat pat do
+                        for k in bindersOfPat ctx pat do
                             locals.Add(k) |> ignore
                 EnterMatchArm =
                     fun () pat ->
-                        for k in bindersOfPat pat do
+                        for k in bindersOfPat ctx pat do
                             locals.Add(k) |> ignore
             }
 
@@ -462,7 +485,7 @@ module Regions =
         let paramBinders =
             [
                 for p in argPats do
-                    yield! bindersOfPat p
+                    yield! bindersOfPat ctx p
             ]
 
         // Capture edges first (computed before any body recursion, so the
@@ -502,7 +525,7 @@ module Regions =
         // "if any escapes, treat siblings as escaping" direction) and
         // keeps parameter destructuring and let-destructuring on one
         // rule. Empty-binder patterns (Const / Wildcard) skip the mint.
-        match bindersOfPat p with
+        match bindersOfPat ctx p with
         | [] -> ()
         | _ ->
             let r = s.Graph.Fresh(s.LetLevel, functionStackTop s, false, false, ValueNone)
@@ -534,7 +557,7 @@ module Regions =
         for r' in rules do
             match r' with
             | Rule.Rule(pat = pat; guard = guard; expr = body) ->
-                let armBinders = bindersOfPat pat
+                let armBinders = bindersOfPat ctx pat
 
                 let collect e' =
                     let fv = collectFreeVarBindingSites ctx armBinders e'
@@ -671,7 +694,7 @@ module Regions =
             let paramBinders =
                 [
                     for p in b.argumentPats do
-                        yield! bindersOfPat p
+                        yield! bindersOfPat ctx p
                 ]
 
             let freeVars = collectFreeVarBindingSites ctx paramBinders b.expr

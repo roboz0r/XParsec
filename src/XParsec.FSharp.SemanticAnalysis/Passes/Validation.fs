@@ -30,6 +30,7 @@ module Validation =
         | TyFun(a, r) -> hasFreeTyVar a || hasFreeTyVar r
         | TyTuple items -> items |> List.exists hasFreeTyVar
         | TyRecord _ -> false
+        | TyUnion _ -> false
 
     /// `lhs <- rhs` with a single-name `lhs` whose `ResolvedBinding` says
     /// `IsMutable = false` is an error. Non-Ident LHSes (record field,

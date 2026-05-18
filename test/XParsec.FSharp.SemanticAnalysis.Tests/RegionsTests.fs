@@ -491,4 +491,16 @@ let tests =
 
                 Expect.equal escape (Some CallerStack) "mk returns a record"
             }
+
+            test "module-level ctor application is LocalStack" {
+                let escape = escapeOf "type S = | Circle of float\nlet c = Circle 1.0" "c"
+
+                Expect.equal escape (Some LocalStack) "module-top ctor app is LocalStack"
+            }
+
+            test "ctor returned from a function is CallerStack" {
+                let escape = escapeOf "type S = | Circle of float\nlet mk () = Circle 1.0" "mk"
+
+                Expect.equal escape (Some CallerStack) "mk returns a ctor value"
+            }
         ]

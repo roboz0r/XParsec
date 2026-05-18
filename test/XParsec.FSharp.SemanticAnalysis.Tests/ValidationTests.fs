@@ -107,4 +107,21 @@ let tests =
 
                 Expect.isFalse (hasMessage ctx "Cannot resolve field") "no deferred-field diagnostic"
             }
+
+            test "well-formed DU pipeline emits no diagnostics" {
+                let ctx =
+                    analyse
+                        "type S =\n    | Circle of float\n    | Rectangle of float * float\n    | Point\nlet p = Point\nlet c = Circle 1.0\nlet r = Rectangle(2.0, 3.0)"
+
+                Expect.isEmpty ctx.Diagnostics "no diagnostics on a well-formed DU pipeline"
+            }
+
+            test "value restriction passes on a DU value" {
+                // TyUnion is ground, so a `let mutable c = Circle 1.0`
+                // binding has no free TyVar — value-restriction check
+                // should not fire.
+                let ctx = analyse "type S = | Circle of float\nlet mutable c = Circle 1.0"
+
+                Expect.isFalse (hasMessage ctx "value restriction") "no value-restriction on mutable DU"
+            }
         ]

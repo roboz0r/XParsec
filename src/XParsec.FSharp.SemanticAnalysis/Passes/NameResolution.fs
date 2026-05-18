@@ -62,18 +62,41 @@ module NameResolution =
             match ctx.Provider.TryLookup name with
             | ValueSome _ -> ()
             | ValueNone ->
-                ctx.Diagnostics.Add
-                    {
-                        Key = useKey
-                        Message = sprintf "Unresolved identifier: %s" name
-                        Severity = Error
-                    }
+                // DU ctor references resolve through `ctx.CtorIndex` in
+                // Unification, not through `ctx.Binding`. Suppress the
+                // "Unresolved identifier" diagnostic so a bare `Point`
+                // or `Circle` doesn't surface as unresolved.
+                if ctx.CtorIndex.ContainsKey name then
+                    ()
+                else
+                    ctx.Diagnostics.Add
+                        {
+                            Key = useKey
+                            Message = sprintf "Unresolved identifier: %s" name
+                            Severity = Error
+                        }
+
+    /// True if `name` could only be a constructor reference in pattern
+    /// position: starts with an uppercase letter AND is registered in
+    /// `ctx.CtorIndex`. F# spec convention is to treat uppercase-leading
+    /// pattern idents as ctor references, but we additionally require a
+    /// registry hit so unrelated uppercase binders (`let X = 1; match v
+    /// with | X -> …` in code that has no DU named X) still bind. Empty
+    /// strings (virtual tokens) never match.
+    let private isCtorName (ctx: PassContext) (name: string) : bool =
+        name.Length > 0
+        && System.Char.IsUpper name.[0]
+        && ctx.CtorIndex.ContainsKey name
 
     /// Every (name, NodeKey) pair introduced by a pattern. Recurses through
     /// parens, tuples, as-bindings, and type annotations; returns [] for
     /// patterns that bind nothing (Wildcard, Const).
     let rec private bindingsOfPat (ctx: PassContext) (p: Pat<SyntaxToken>) : (string * NodeKey) list =
         match p with
+        | Pat.NamedSimple t when isCtorName ctx (ctx.NameOf t) ->
+            // Uppercase-leading ident whose name matches a known nullary
+            // ctor — reinterpret as a ctor pattern, binds nothing.
+            []
         | Pat.NamedSimple t -> [ ctx.NameOf t, CstKeys.ofPat p ]
         | Pat.Wildcard _
         | Pat.Const _
@@ -84,6 +107,16 @@ module NameResolution =
         | Pat.As(pat = inner; ident = ident) -> (ctx.NameOf ident, CstKeys.ofPat p) :: bindingsOfPat ctx inner
         | Pat.Record(fieldPats = fieldPats) ->
             [ for FieldPat(pat = sub) in fieldPats -> bindingsOfPat ctx sub ] |> List.concat
+        | Pat.Named(longIdent = li; argumentPats = args) when
+            li.Idents.Length >= 1
+            && isCtorName ctx (ctx.NameOf li.Idents.[li.Idents.Length - 1])
+            ->
+            // Ctor pattern: `Circle r`, `Rectangle(w, h)`, `Result1.Ok x`.
+            // The head names bind nothing; sub-patterns introduce binders.
+            [
+                for sub in args do
+                    yield! bindingsOfPat ctx sub
+            ]
         | _ -> []
 
     // Lambda args / for-in / match-arm patterns can't carry `mutable`, so
@@ -165,12 +198,25 @@ module NameResolution =
                 match ctx.Provider.TryLookup qualName with
                 | ValueSome _ -> ()
                 | ValueNone ->
-                    ctx.Diagnostics.Add
-                        {
-                            Key = CstKeys.ofExpr e
-                            Message = sprintf "Unresolved qualified name: %s" qualName
-                            Severity = Error
-                        }
+                    // `Result2.Ok` — two-segment qualified ctor reference.
+                    // Resolves through `ctx.UnionTypes`; suppress here so
+                    // Unification can pick it up.
+                    let isQualifiedCtor =
+                        li.Idents.Length = 2
+                        && ctx.UnionTypes.ContainsKey(ctx.NameOf li.Idents.[0])
+                        && (let info = ctx.UnionTypes.[ctx.NameOf li.Idents.[0]]
+                            let caseName = ctx.NameOf li.Idents.[1]
+                            info.Cases |> Array.exists (fun c -> c.Name = caseName))
+
+                    if isQualifiedCtor then
+                        ()
+                    else
+                        ctx.Diagnostics.Add
+                            {
+                                Key = CstKeys.ofExpr e
+                                Message = sprintf "Unresolved qualified name: %s" qualName
+                                Severity = Error
+                            }
         | Expr.LongIdentOrOp lio ->
             // Operator-form long idents (`A.(+)`, `(*)`) still need their
             // own resolution story. Surface the gap rather than silently
@@ -277,6 +323,103 @@ module NameResolution =
                 registerRecordTypeDefn ctx td
         | _ -> ()
 
+    /// Pull a ctor case's name + arity + per-field names from
+    /// `UnionTypeCaseData`. GADT cases are out of scope for v1 — they
+    /// emit a diagnostic so subsequent uses don't cascade.
+    let private inspectCaseData
+        (ctx: PassContext)
+        (diagKey: NodeKey)
+        (data: UnionTypeCaseData<SyntaxToken>)
+        : (string * int * string voption[]) voption =
+        let nameOfHead (head: IdentOrOp<SyntaxToken>) : string =
+            match head with
+            | IdentOrOp.Ident t -> ctx.NameOf t
+            | _ -> ""
+
+        match data with
+        | UnionTypeCaseData.Nullary(name = head) ->
+            let n = nameOfHead head
+
+            if n.Length = 0 then ValueNone else ValueSome(n, 0, [||])
+        | UnionTypeCaseData.Nary(name = head; fields = fields) ->
+            let n = nameOfHead head
+
+            if n.Length = 0 then
+                ValueNone
+            else
+                let names =
+                    [|
+                        for f in fields ->
+                            match f with
+                            | UnionTypeField.Named(ident = id) -> ValueSome(ctx.NameOf id)
+                            | UnionTypeField.Unnamed _ -> ValueNone
+                    |]
+
+                ValueSome(n, fields.Length, names)
+        | UnionTypeCaseData.GadtNary _
+        | UnionTypeCaseData.GadtNullary _ ->
+            ctx.Diagnostics.Add
+                {
+                    Key = diagKey
+                    Message = "GADT-style union cases are not yet supported"
+                    Severity = Error
+                }
+
+            ValueNone
+
+    /// Stamp `UnionTypeInfo` entries for every `TypeDefn.Union` in this
+    /// group. Mirrors `registerRecordTypeDefn`: field types start as
+    /// placeholder TyVars; Unification's pre-pass fills them in once the
+    /// registry is fully populated.
+    let private registerUnionTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
+        match td with
+        | TypeDefn.Union(typeName = TypeName(ident = nameLi); cases = cases) when nameLi.Idents.Length = 1 ->
+            let nameTok = nameLi.Idents.[0]
+            let name = ctx.NameOf nameTok
+            let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
+
+            if ctx.UnionTypes.ContainsKey name || ctx.RecordTypes.ContainsKey name then
+                ctx.Diagnostics.Add
+                    {
+                        Key = declKey
+                        Message = sprintf "Duplicate type definition: %s" name
+                        Severity = Error
+                    }
+            else
+                let caseInfos =
+                    [|
+                        for UnionTypeCase(data = data) in cases do
+                            match inspectCaseData ctx declKey data with
+                            | ValueSome(caseName, arity, fieldNames) ->
+                                let fieldTys =
+                                    Array.init
+                                        arity
+                                        (fun _ ->
+                                            let tv = TypeVar()
+                                            tv.Level <- 0
+                                            TyVar tv
+                                        )
+
+                                yield UnionCaseInfo(caseName, name, fieldTys, fieldNames, declKey)
+                            | ValueNone -> ()
+                    |]
+
+                let info = UnionTypeInfo(name, caseInfos, declKey)
+                ctx.UnionTypes.[name] <- info
+
+                for c in caseInfos do
+                    match ctx.CtorIndex.TryGetValue c.Name with
+                    | true, infos -> ctx.CtorIndex.[c.Name] <- c :: infos
+                    | false, _ -> ctx.CtorIndex.[c.Name] <- [ c ]
+        | _ -> ()
+
+    let private registerUnionTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
+        match m with
+        | ModuleElem.Type defs ->
+            for td in defs do
+                registerUnionTypeDefn ctx td
+        | _ -> ()
+
     let private walkModuleElem
         (ctx: PassContext)
         (walker: CstWalk.ExprWalker<Scope list>)
@@ -311,12 +454,19 @@ module NameResolution =
         (walker: CstWalk.ExprWalker<Scope list>)
         (elems: ModuleElems<SyntaxToken>)
         =
-        // Pre-pass: register every record type so subsequent expression
-        // walks (and Unification) can resolve literals / field accesses
-        // against the registry. Mirrors the let-rec collect-then-infer
-        // ordering inside a module.
+        // Pre-pass: register every record / union type so subsequent
+        // expression walks (and Unification) can resolve literals /
+        // field accesses / ctor uses against the registry. Mirrors the
+        // let-rec collect-then-infer ordering inside a module. Records
+        // and unions are independent in v1 (no module/namespace types),
+        // so the order between them doesn't matter — but both must
+        // finish before `bindingsOfPat` runs on any pattern, since the
+        // ctor-vs-binder disambiguation reads `ctx.CtorIndex`.
         for m in elems do
             registerRecordTypes ctx m
+
+        for m in elems do
+            registerUnionTypes ctx m
 
         let mutable scope = [ Map.empty ]
 

@@ -100,6 +100,10 @@ type SemType =
     /// iff their names match. v1 uses single-segment names; qualified
     /// names land with namespaces.
     | TyRecord of name: string
+    /// Named discriminated union type. Cases are not stored inline —
+    /// look up `ctx.UnionTypes[name]` for the case list. Two TyUnions
+    /// unify iff their names match. v1 single-segment names only.
+    | TyUnion of name: string
 
 /// Abelian-group expression over named unit atoms. Always stored in a
 /// normalised form: each exponent is in canonical Rational form, zero

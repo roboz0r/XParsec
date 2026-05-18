@@ -64,6 +64,7 @@ module Unification =
         | TyFun(a, r) -> TyFun(zonk a, zonk r)
         | TyTuple items -> TyTuple(List.map zonk items)
         | TyRecord _ -> t
+        | TyUnion _ -> t
 
     /// Move pending deferred-constraint state from `source` onto `target`.
     /// Called whenever a TyVar is no longer the equivalence-class
@@ -117,6 +118,7 @@ module Unification =
         | TyFun(a, r) -> occursAndAdjust target a || occursAndAdjust target r
         | TyTuple items -> List.exists (occursAndAdjust target) items
         | TyRecord _ -> false
+        | TyUnion _ -> false
 
     /// Merge the Units field of two union-find roots after they've been
     /// joined into `newRoot`. Two non-equal measures emit a diagnostic; one
@@ -166,6 +168,7 @@ module Unification =
         match a, b with
         | TyConst n1, TyConst n2 when n1 = n2 -> ()
         | TyRecord n1, TyRecord n2 when n1 = n2 -> ()
+        | TyUnion n1, TyUnion n2 when n1 = n2 -> ()
         | TyFun(a1, r1), TyFun(a2, r2) ->
             unify ctx key a1 a2
             unify ctx key r1 r2
@@ -351,6 +354,7 @@ module Unification =
             | TyFun(a, r) -> TyFun(walk a, walk r)
             | TyTuple xs -> TyTuple [ for x in xs -> walk x ]
             | TyRecord _ -> t
+            | TyUnion _ -> t
 
         walk scheme.Body
 
@@ -388,6 +392,7 @@ module Unification =
         | TyFun(a, r) -> hasPendingFieldAccess a || hasPendingFieldAccess r
         | TyTuple xs -> List.exists hasPendingFieldAccess xs
         | TyRecord _ -> false
+        | TyUnion _ -> false
 
     let private generalise (zonkedTy: SemType) (outerLevel: int) : TypeScheme =
         let quantified = ResizeArray<TypeVar>()
@@ -406,6 +411,7 @@ module Unification =
                 walk r
             | TyTuple xs -> List.iter walk xs
             | TyRecord _ -> ()
+            | TyUnion _ -> ()
 
         walk zonkedTy
         TypeScheme(List.ofSeq quantified, zonkedTy)
@@ -535,10 +541,9 @@ module Unification =
             | "int64" -> MockBuiltins.tyInt64
             | "byte" -> MockBuiltins.tyByte
             | _ ->
-                if ctx.RecordTypes.ContainsKey name then
-                    TyRecord name
-                else
-                    TyConst name
+                if ctx.RecordTypes.ContainsKey name then TyRecord name
+                elif ctx.UnionTypes.ContainsKey name then TyUnion name
+                else TyConst name
         | Type.GenericType(longIdent = li; typeArgs = args) when
             li.Idents.Length = 1
             && args.Length = 1
@@ -725,6 +730,36 @@ module Unification =
         else
             ValueNone, last
 
+    /// Function-shaped type for a DU ctor reference. Nullary cases type as
+    /// the union itself (no argument); single-field cases as
+    /// `field -> TyUnion`; multi-field cases bundle the fields into a
+    /// tuple — F# DUs take a tuple as their single argument.
+    let private ctorType (info: UnionCaseInfo) : SemType =
+        match info.Fields.Length with
+        | 0 -> TyUnion info.UnionName
+        | 1 -> TyFun(info.Fields.[0], TyUnion info.UnionName)
+        | _ -> TyFun(TyTuple(List.ofArray info.Fields), TyUnion info.UnionName)
+
+    /// Resolve a bare ctor name to its UnionCaseInfo. ValueNone with
+    /// `count = 0` means "no such ctor"; `count >= 2` means ambiguous —
+    /// the caller emits the appropriate diagnostic.
+    let private resolveCtorName (ctx: PassContext) (name: string) : UnionCaseInfo voption * int =
+        match ctx.CtorIndex.TryGetValue name with
+        | false, _ -> ValueNone, 0
+        | true, [ info ] -> ValueSome info, 1
+        | true, infos -> ValueNone, List.length infos
+
+    /// Resolve a qualified ctor reference `Type.Case` against the union
+    /// registry. ValueSome on a match; ValueNone when the type isn't a
+    /// known union, or doesn't declare the named case.
+    let private resolveQualifiedCtor (ctx: PassContext) (typeName: string) (caseName: string) : UnionCaseInfo voption =
+        match ctx.UnionTypes.TryGetValue typeName with
+        | false, _ -> ValueNone
+        | true, info ->
+            match info.Cases |> Array.tryFind (fun c -> c.Name = caseName) with
+            | Some c -> ValueSome c
+            | None -> ValueNone
+
     /// Try to find the unique record type whose declared field set equals
     /// `names` (order-insensitive, duplicates rejected). Returns ValueNone
     /// when zero matches or multiple match — the caller emits the
@@ -752,6 +787,19 @@ module Unification =
                 | [] -> ValueNone, 0
                 | many -> ValueNone, List.length many
 
+    /// Strip a `Pat.EnclosedBlock` and a single-element tuple wrapper
+    /// from a pattern. `Circle(r)` parses as `Circle (EnclosedBlock r)`;
+    /// `Rectangle(w, h)` as `Circle (EnclosedBlock (Tuple [w; h]))`;
+    /// `Rectangle w h` (curried syntax) as multiple separate args. v1
+    /// supports tuple-argument form and a bare single arg — both are
+    /// what the F# DU ctor application convention emits.
+    let private unwrapCtorArgPattern (p: Pat<SyntaxToken>) : Pat<SyntaxToken> list =
+        match p with
+        | Pat.EnclosedBlock(pat = Pat.Tuple(patterns = pats)) -> List.ofSeq pats
+        | Pat.EnclosedBlock(pat = inner) -> [ inner ]
+        | Pat.Tuple(patterns = pats) -> List.ofSeq pats
+        | _ -> [ p ]
+
     let rec private inferPat (ctx: PassContext) (p: Pat<SyntaxToken>) : SemType =
         // Each pattern node gets its own TypeVar keyed on its NodeKey. For
         // compound patterns (Tuple, EnclosedBlock, As) the outer TypeVar is
@@ -760,11 +808,137 @@ module Unification =
         let key = CstKeys.ofPat p
 
         match p with
+        | Pat.NamedSimple t when
+            let n = ctx.NameOf t
+            n.Length > 0 && System.Char.IsUpper n.[0] && ctx.CtorIndex.ContainsKey n
+            ->
+            // Uppercase-leading bare ident in pattern position that
+            // matches a known ctor — reinterpret as a nullary ctor
+            // pattern. Multi-candidate ctors with the same name require a
+            // qualifier; diagnose ambiguity and best-effort to the first.
+            let n = ctx.NameOf t
+            let info, count = resolveCtorName ctx n
+
+            match info with
+            | ValueSome i when i.Fields.Length = 0 ->
+                let ty = TyUnion i.UnionName
+                let nodeTv = freshTv ctx key
+                nodeTv.Link <- ValueSome ty
+                ty
+            | ValueSome i ->
+                ctx.Diagnostics.Add
+                    {
+                        Key = key
+                        Message =
+                            sprintf
+                                "Constructor '%s' takes %d argument(s) but is used nullary in pattern position"
+                                n
+                                i.Fields.Length
+                        Severity = Error
+                    }
+
+                let ty = TyUnion i.UnionName
+                let nodeTv = freshTv ctx key
+                nodeTv.Link <- ValueSome ty
+                ty
+            | ValueNone when count >= 2 ->
+                ctx.Diagnostics.Add
+                    {
+                        Key = key
+                        Message =
+                            sprintf "Ambiguous constructor '%s'; declared in %d union types — add a qualifier" n count
+                        Severity = Error
+                    }
+
+                TyVar(freshTv ctx key)
+            | ValueNone -> TyVar(freshTv ctx key)
         | Pat.NamedSimple _ ->
             // Use tvOf so a let-rec sibling whose TyVar was already lazy-minted
             // by a forward reference (or pre-allocated by inferBindingGroup)
             // is reused, not overwritten.
             TyVar(tvOf ctx key)
+        | Pat.Named(longIdent = li; argumentPats = args) when
+            li.Idents.Length >= 1
+            && (let last = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+                last.Length > 0 && System.Char.IsUpper last.[0])
+            && (li.Idents.Length = 1 && ctx.CtorIndex.ContainsKey(ctx.NameOf li.Idents.[0])
+                || li.Idents.Length = 2
+                   && ctx.UnionTypes.ContainsKey(ctx.NameOf li.Idents.[0])
+                   && (let info = ctx.UnionTypes.[ctx.NameOf li.Idents.[0]]
+                       let caseName = ctx.NameOf li.Idents.[1]
+                       info.Cases |> Array.exists (fun c -> c.Name = caseName)))
+            ->
+            // Ctor pattern: `Circle r`, `Rectangle(w, h)`, `Result1.Ok x`.
+            let info =
+                if li.Idents.Length = 1 then
+                    let name = ctx.NameOf li.Idents.[0]
+
+                    match resolveCtorName ctx name with
+                    | ValueSome i, _ -> ValueSome i
+                    | ValueNone, count when count >= 2 ->
+                        ctx.Diagnostics.Add
+                            {
+                                Key = key
+                                Message =
+                                    sprintf
+                                        "Ambiguous constructor '%s'; declared in %d union types — add a qualifier"
+                                        name
+                                        count
+                                Severity = Error
+                            }
+
+                        ValueNone
+                    | _ -> ValueNone
+                else
+                    let typeName = ctx.NameOf li.Idents.[0]
+                    let caseName = ctx.NameOf li.Idents.[1]
+                    resolveQualifiedCtor ctx typeName caseName
+
+            match info with
+            | ValueNone ->
+                for sub in args do
+                    inferPat ctx sub |> ignore
+
+                TyVar(freshTv ctx key)
+            | ValueSome i ->
+                // F# DU application takes a tuple as its single argument;
+                // the parser wraps multi-arg ctor patterns in
+                // `EnclosedBlock(Tuple [...])`. `unwrapCtorArgPattern`
+                // flattens that to the field list.
+                let subPats =
+                    if args.Length = 1 then
+                        unwrapCtorArgPattern args.[0]
+                    else
+                        List.ofSeq args
+
+                if subPats.Length <> i.Fields.Length then
+                    ctx.Diagnostics.Add
+                        {
+                            Key = key
+                            Message =
+                                sprintf
+                                    "Constructor '%s' expects %d argument(s) but got %d"
+                                    i.Name
+                                    i.Fields.Length
+                                    subPats.Length
+                            Severity = Error
+                        }
+
+                let m = min subPats.Length i.Fields.Length
+
+                for j = 0 to m - 1 do
+                    let sub = subPats.[j]
+                    let subTy = inferPat ctx sub
+                    unify ctx (CstKeys.ofPat sub) subTy i.Fields.[j]
+
+                // Walk any extra sub-patterns so binders still register.
+                for j = m to subPats.Length - 1 do
+                    inferPat ctx subPats.[j] |> ignore
+
+                let ty = TyUnion i.UnionName
+                let nodeTv = freshTv ctx key
+                nodeTv.Link <- ValueSome ty
+                ty
         | Pat.Wildcard _ -> TyVar(freshTv ctx key)
         | Pat.EnclosedBlock(pat = inner) ->
             let innerTy = inferPat ctx inner
@@ -961,6 +1135,27 @@ module Unification =
             && ctx.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
             ->
             inferLongIdentFieldChain ctx key li
+        // Qualified ctor reference: `Result2.Ok` resolves via the union
+        // registry (bypasses the CtorIndex ambiguity check).
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
+            li.Idents.Length = 2
+            && not (ctx.Binding.ContainsKey key)
+            && ctx.UnionTypes.ContainsKey(ctx.NameOf li.Idents.[0])
+            ->
+            let typeName = ctx.NameOf li.Idents.[0]
+            let caseName = ctx.NameOf li.Idents.[1]
+
+            match resolveQualifiedCtor ctx typeName caseName with
+            | ValueSome info -> ctorType info
+            | ValueNone ->
+                ctx.Diagnostics.Add
+                    {
+                        Key = key
+                        Message = sprintf "Union '%s' has no case '%s'" typeName caseName
+                        Severity = Error
+                    }
+
+                TyVar(freshTyVar ctx)
         | _ ->
             match ctx.Binding.TryGetValue key with
             | ValueSome rb ->
@@ -975,17 +1170,45 @@ module Unification =
                 | ValueSome scheme -> instantiate ctx scheme
                 | ValueNone -> TyVar(tvOf ctx rb.BindingSite)
             | ValueNone ->
-                // External symbol (or unresolved — NameRes will already have
-                // emitted a diagnostic in that case). Re-query the provider.
+                // No local binding. Try the provider first — provider hits
+                // beat ctor-name resolution when both exist (consistent with
+                // F# shadowing: a let-bound `Ok` would have a Binding entry
+                // and never reach here; but a provider symbol is genuinely
+                // a different namespace). For bare single-segment idents
+                // that aren't in the provider, check the ctor registry.
                 let name = qualifiedNameOf ctx e
 
                 match ctx.Provider.TryLookup name with
-                | ValueSome sym ->
-                    // Polymorphic external symbols allocate fresh TypeVars per
-                    // call; we pass the current level so those vars are stamped
-                    // at the use-site's depth.
-                    sym.Instantiate ctx.CurrentLevel
-                | ValueNone -> TyVar(freshTyVar ctx)
+                | ValueSome sym -> sym.Instantiate ctx.CurrentLevel
+                | ValueNone ->
+                    let singleSegName =
+                        match e with
+                        | Expr.Ident t -> ValueSome(ctx.NameOf t)
+                        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
+                            ValueSome(ctx.NameOf li.Idents.[0])
+                        | _ -> ValueNone
+
+                    match singleSegName with
+                    | ValueSome n ->
+                        let info, count = resolveCtorName ctx n
+
+                        match info with
+                        | ValueSome i -> ctorType i
+                        | ValueNone when count >= 2 ->
+                            ctx.Diagnostics.Add
+                                {
+                                    Key = key
+                                    Message =
+                                        sprintf
+                                            "Ambiguous constructor '%s'; declared in %d union types — add a qualifier or annotation"
+                                            n
+                                            count
+                                    Severity = Error
+                                }
+
+                            TyVar(freshTyVar ctx)
+                        | ValueNone -> TyVar(freshTyVar ctx)
+                    | ValueNone -> TyVar(freshTyVar ctx)
 
     /// Source-level rendering of an ident/qualified-name expression. For
     /// single-segment idents this is just the token text; for multi-segment
@@ -1676,9 +1899,72 @@ module Unification =
                 | _ -> ()
         | _ -> ()
 
+    /// After NameResolution stamps placeholder TyVars for every union case
+    /// field, walk the file's `TypeDefn.Union`s again and Link each
+    /// placeholder to the real translated CST type. Same shape as
+    /// `fillRecordFieldTypes` — runs after every record/union is in the
+    /// registry so a case's field type can name another DU declared
+    /// elsewhere in the same file.
+    let private fillUnionFieldTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
+        match m with
+        | ModuleElem.Type defs ->
+            for td in defs do
+                match td with
+                | TypeDefn.Union(typeName = TypeName(ident = nameLi); cases = cases) when nameLi.Idents.Length = 1 ->
+                    let name = ctx.NameOf nameLi.Idents.[0]
+
+                    match ctx.UnionTypes.TryGetValue name with
+                    | true, info ->
+                        // Walk the case list in declaration order, skipping
+                        // any GADT cases (they don't have a registry entry
+                        // — `inspectCaseData` returns ValueNone). The
+                        // registry's `Cases` array tracks declaration order
+                        // among successfully-registered cases, so we align
+                        // by walking the CST and the array in tandem.
+                        let mutable infoIdx = 0
+
+                        for UnionTypeCase(data = data) in cases do
+                            let isRegistered =
+                                match data with
+                                | UnionTypeCaseData.GadtNary _
+                                | UnionTypeCaseData.GadtNullary _ -> false
+                                | _ -> true
+
+                            if isRegistered && infoIdx < info.Cases.Length then
+                                let caseInfo = info.Cases.[infoIdx]
+                                infoIdx <- infoIdx + 1
+
+                                let fields =
+                                    match data with
+                                    | UnionTypeCaseData.Nary(fields = fs) -> fs
+                                    | _ ->
+                                        System.Collections.Immutable.ImmutableArray<UnionTypeField<SyntaxToken>>.Empty
+
+                                let n = min caseInfo.Fields.Length fields.Length
+
+                                for i = 0 to n - 1 do
+                                    let t =
+                                        match fields.[i] with
+                                        | UnionTypeField.Unnamed(typ = t) -> t
+                                        | UnionTypeField.Named(typ = t) -> t
+
+                                    let translated = translateType ctx t
+
+                                    match caseInfo.Fields.[i] with
+                                    | TyVar tv ->
+                                        let root = UnionFind.find tv
+                                        root.Link <- ValueSome translated
+                                    | _ -> ()
+                    | false, _ -> ()
+                | _ -> ()
+        | _ -> ()
+
     let private walkElems (ctx: PassContext) (elems: ModuleElems<SyntaxToken>) =
         for m in elems do
             fillRecordFieldTypes ctx m
+
+        for m in elems do
+            fillUnionFieldTypes ctx m
 
         for m in elems do
             walkModuleElem ctx m

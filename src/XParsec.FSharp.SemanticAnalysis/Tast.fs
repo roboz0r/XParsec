@@ -37,6 +37,12 @@ type TPat =
     /// `TyRecord`. May list a subset of the record's fields; unlisted
     /// fields are simply not bound.
     | Record of fields: (string * TPat) list * ty: SemType
+    /// Discriminated-union ctor pattern. `caseName` is the ctor name
+    /// (e.g. `"Circle"`); `fields` is the per-field sub-pattern list,
+    /// empty for nullary cases. `ty` is always a `TyUnion`. The
+    /// declaring union is recoverable via `ctx.CtorIndex[caseName]` at
+    /// consumption time.
+    | Union of caseName: string * fields: TPat list * ty: SemType
 
 [<RequireQualifiedAccess>]
 type TExpr =
@@ -100,6 +106,12 @@ type TExpr =
     /// `r.X <- v` — `ty` is unit. `receiver` types as a `TyRecord` whose
     /// field `fieldName` is mutable (Validation enforces).
     | FieldSet of receiver: TExpr * fieldName: string * value: TExpr * ty: SemType
+    /// Discriminated-union constructor application. `args` length matches
+    /// the ctor's declared arity (0 for nullary). `ty` is a `TyUnion`.
+    /// Nullary ctors (`Point`) and applied ctors (`Circle 1.0`,
+    /// `Rectangle(2.0, 3.0)`) both fold to this node — the latter peels
+    /// the `Expr.App` chain in Freeze.
+    | UnionCons of caseName: string * args: TExpr list * ty: SemType
 
 and TMatchArm =
     {

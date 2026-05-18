@@ -160,4 +160,79 @@ let tests =
 
                 Expect.isTrue hasNoField "unknown-field diagnostic emitted"
             }
+
+            // ---- Discriminated unions ----
+
+            test "nullary ctor reference types as the union" {
+                // "type S = | Point\nlet p = Point"
+                //  Newline at 16, "let p = " puts pat p at offset 21.
+                let ctx = analyse "type S = | Point\nlet p = Point"
+
+                let patKey = NodeKey.ofSource 21 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyUnion "S") "p : S"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "single-arg ctor application types as the union" {
+                // "type S = | Circle of float\nlet c = Circle 1.0"
+                //  Newline at 26, "let c = " puts pat c at offset 31.
+                let ctx = analyse "type S = | Circle of float\nlet c = Circle 1.0"
+
+                let patKey = NodeKey.ofSource 31 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyUnion "S") "c : S"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "multi-arg ctor application takes a tuple" {
+                // "type S = | Rect of float * float\nlet r = Rect(2.0, 3.0)"
+                //  Newline at 32, "let r = " puts pat r at offset 37.
+                let ctx = analyse "type S = | Rect of float * float\nlet r = Rect(2.0, 3.0)"
+
+                let patKey = NodeKey.ofSource 37 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyUnion "S") "r : S"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "ctor used as a value types as a function" {
+                // "type S = | Circle of float\nlet f = Circle"
+                //  Newline at 26, "let f = " puts pat f at offset 31.
+                let ctx = analyse "type S = | Circle of float\nlet f = Circle"
+
+                let patKey = NodeKey.ofSource 31 NodeKind.PatIdent
+                let expected = TyFun(MockBuiltins.tyFloat, TyUnion "S")
+                Expect.equal (typeOf ctx patKey) expected "f : float -> S"
+            }
+
+            test "ctor pattern unifies scrutinee with TyUnion" {
+                // "type S = | Circle of float\nlet area s = match s with | Circle r -> r"
+                //  Receiver `s` is the function parameter; via the `Circle r` arm,
+                //  scrutinee unifies with TyUnion "S". `area` has type `S -> float`.
+                let ctx =
+                    analyse "type S = | Circle of float\nlet area s = match s with | Circle r -> r"
+
+                // "type S = | Circle of float\n" is 27 chars. "let area s = " puts area pat at 31 and s param at 36.
+                let areaKey = NodeKey.ofSource 31 NodeKind.PatIdent
+                let expected = TyFun(TyUnion "S", MockBuiltins.tyFloat)
+                Expect.equal (typeOf ctx areaKey) expected "area : S -> float"
+            }
+
+            test "ambiguous ctor name requires qualifier" {
+                // Two unions share an `Ok` case.
+                let ctx = analyse "type R1 = | Ok of int\ntype R2 = | Ok of float\nlet x = Ok 1"
+
+                let hasAmbig =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "Ambiguous constructor")
+
+                Expect.isTrue hasAmbig "ambiguous-ctor diagnostic emitted"
+            }
+
+            test "qualified ctor resolves an ambiguous case name" {
+                let ctx =
+                    analyse "type R1 = | Ok of int\ntype R2 = | Ok of float\nlet x = R2.Ok 1.0"
+
+                // Pat x starts at offset 50: 21 (type R1...) + 1 (\n) + 23 (type R2...) + 1 (\n) + 4 ("let ").
+                let patKey = NodeKey.ofSource 50 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyUnion "R2") "x : R2"
+            }
         ]

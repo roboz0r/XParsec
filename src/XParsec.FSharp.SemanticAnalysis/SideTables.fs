@@ -26,6 +26,30 @@ type RecordTypeInfo(name: string, fields: RecordFieldInfo[], declKey: NodeKey) =
     member val Fields = fields
     member val DeclKey = declKey
 
+/// Per-case metadata for a `TypeDefn.Union`. Field types start as fresh
+/// TyVar placeholders stamped by NameResolution and are linked to the
+/// translated CST types by Unification's field-fill-in pass before any
+/// expression is typed. `FieldNames` carries per-field names when the
+/// source uses named fields (`| Case of x: int * y: int`); positional
+/// fields have `ValueNone`. `UnionName` is the declaring type's name —
+/// used by ctor reference / pattern inference to mint `TyUnion`.
+[<Sealed>]
+type UnionCaseInfo(name: string, unionName: string, fields: SemType[], fieldNames: string voption[], declKey: NodeKey) =
+    member val Name = name
+    member val UnionName = unionName
+    member val Fields = fields
+    member val FieldNames = fieldNames
+    member val DeclKey = declKey
+
+/// One entry per `TypeDefn.Union` declaration. Indexed by name on
+/// `PassContext.UnionTypes`; the reverse `CtorIndex` lets ctor reference /
+/// pattern inference find candidates by case name.
+[<Sealed>]
+type UnionTypeInfo(name: string, cases: UnionCaseInfo[], declKey: NodeKey) =
+    member val Name = name
+    member val Cases = cases
+    member val DeclKey = declKey
+
 [<Sealed>]
 type SideTable<'V>() =
     let dict = Dictionary<NodeKey, 'V>(HashIdentity.Structural)
@@ -89,6 +113,14 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// Built once by NameResolution alongside RecordTypes; used by the
     /// literal / pattern field-set inference path.
     member val FieldIndex = Dictionary<string, RecordTypeInfo list>() with get
+    /// Written by NameResolution from `TypeDefn.Union`s; case field types
+    /// are filled in by Unification after the registry is populated.
+    /// Name-keyed (single-segment v1).
+    member val UnionTypes = Dictionary<string, UnionTypeInfo>() with get
+    /// Reverse index: ctor name → list of case-info entries (each tagged
+    /// with the declaring union type). Used by ctor-reference /
+    /// ctor-pattern resolution.
+    member val CtorIndex = Dictionary<string, UnionCaseInfo list>() with get
 
     /// Source text of `token`. Empty for virtual (synthesised) tokens.
     member this.NameOf(token: SyntaxToken) : string =
