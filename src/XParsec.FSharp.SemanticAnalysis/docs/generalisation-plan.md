@@ -307,13 +307,13 @@ The tiny subset has no `ref`, no `mutable` bindings on `let`, no I/O —
 nothing that breaks soundness if we generalise everything. So **v1 skips
 value restriction** and generalises every `let`. Add it when refs land.
 
-When it does land, the check goes in `Validation` per
-[`docs/passes.md`](passes.md#validation-diagnostics), reading the Scheme
-table and emitting a diagnostic if a generalised binding's RHS isn't a
-syntactic value. (Or, more conservatively, hoist the check into
-`Unification` so we *don't* generalise in the first place — saves the
-generalisation work and means downstream passes see the right scheme.
-Decision deferred.)
+**Update (2026-05-17):** `let mutable` landed and answered this — the
+work split across `Unification` (the *generalisation gate* —
+`shouldGeneralise` skips bindings with `mutableToken`) and `Validation`
+(the *diagnostic* — fires on mutable bindings whose resolved type still
+contains free TyVars at end of analysis). See
+[`mutable-plan.md`](mutable-plan.md). Refs / `ref<'a>` will reuse the
+same shape when they land.
 
 ## Test strategy
 
@@ -345,15 +345,10 @@ declType + Expect.equal + Expect.isEmpty Diagnostics`.
 
 Both deferred — answer when we get to the work that depends on them.
 
-- **Value-restriction placement** (defer until refs / mutable bindings
-  land). Two viable spots: inside `Validation` reading the Scheme table
-  and emitting a diagnostic on unsound schemes, or hoisted into
-  `Unification` so we don't generalise in the first place. The latter
-  avoids paying generalisation cost on bindings that shouldn't be
-  generalised and means downstream passes always see the right scheme;
-  the former is read-only and matches the `Validation` contract more
-  cleanly. Pick when there's something soundness-breaking to validate
-  against.
+- ~~**Value-restriction placement**~~ Answered 2026-05-17 by
+  [`mutable-plan.md`](mutable-plan.md): the gate lives in `Unification`
+  (saves generalisation cost), the diagnostic in `Validation` (so it can
+  read fully-resolved types after every use site has been typed).
 - **Interaction with `migrateBounds`** (defer until SRTP / IWSAM
   resolution is wired). The SRTP/IWSAM migration in `Unification.fs:61`
   is unaffected today — bounds attach to TypeVars and follow the union-

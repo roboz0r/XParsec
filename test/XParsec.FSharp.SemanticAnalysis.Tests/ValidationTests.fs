@@ -1,0 +1,82 @@
+module XParsec.FSharp.SemanticAnalysis.Tests.ValidationTests
+
+open Expecto
+open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
+
+let private analyse (input: string) =
+    let lexed, file = parseFile input
+    let ctx, _ = Pipeline.analyseWithContext MockBuiltins.provider input lexed file
+    ctx
+
+let private hasMessage (ctx: PassContext) (fragment: string) =
+    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains fragment)
+
+[<Tests>]
+let tests =
+    testList
+        "Validation"
+        [
+            test "assignment to an immutable binding emits a diagnostic" {
+                let ctx = analyse "let x = 1\nx <- 2"
+                Expect.isTrue (hasMessage ctx "assignment to immutable binding") "diagnostic emitted"
+            }
+
+            test "assignment to a mutable binding is clean" {
+                let ctx = analyse "let mutable x = 1\nx <- 2"
+                Expect.isFalse (hasMessage ctx "immutable") "no immutability diagnostic"
+            }
+
+            test "assignment to an unresolved name does not crash" {
+                // NameResolution already emits an Unresolved diagnostic.
+                // Validation's mutability check has no Binding entry to read,
+                // so it must skip without throwing or double-reporting.
+                let ctx = analyse "unknownName <- 1"
+                Expect.isFalse (hasMessage ctx "immutable") "no immutability diagnostic on unresolved name"
+                Expect.isTrue (hasMessage ctx "Unresolved") "the original unresolved diagnostic still fires"
+            }
+
+            test "value restriction: free TyVar at end of analysis fires a diagnostic" {
+                // `let mutable id = fun x -> x` — `'a -> 'a` with no use to
+                // pin `'a`. Validation walks the binding's TyVar after
+                // Unification has run and sees a free root → diagnostic.
+                let ctx = analyse "let mutable id = fun x -> x"
+                Expect.isTrue (hasMessage ctx "value restriction") "VR diagnostic on unconstrained mutable"
+            }
+
+            test "value restriction: pinned by use → no diagnostic" {
+                // `id 1` unifies the binding's `'a -> 'a` with `int -> _`,
+                // pinning `'a`. By the time Validation runs, the TyVar is no
+                // longer free.
+                let ctx = analyse "let mutable id = fun x -> x\nlet a = id 1"
+                Expect.isFalse (hasMessage ctx "value restriction") "no VR diagnostic when use pinned the var"
+            }
+
+            test "value restriction: pinned by assignment → no diagnostic" {
+                // The headline case for putting the VR check in Validation
+                // rather than Unification: the assignment is seen AFTER
+                // the binding, so let-time can't decide. After Unification,
+                // `'a` is pinned to int and VR is clean.
+                let ctx = analyse "let mutable r = fun x -> x\nr <- (fun (n : int) -> n + 1)"
+
+                Expect.isFalse (hasMessage ctx "value restriction") "no VR diagnostic when assignment pinned the var"
+            }
+
+            test "value restriction: concretely-typed mutable is clean" {
+                // `let mutable n = 0` — `int` has no free TyVars; VR doesn't
+                // fire regardless of whether the binding is used.
+                let ctx = analyse "let mutable n = 0"
+                Expect.isFalse (hasMessage ctx "value restriction") "no VR diagnostic for a concretely-typed mutable"
+            }
+
+            test "value restriction: parameter-annotated mutable is clean" {
+                // The inner lambda's `(n : int)` pin propagates through unification
+                // to f's TyVar, so f : int -> int has no free vars at VR time.
+                // (Binding-level return-type annotations like
+                // `let mutable f : int -> int = ...` would work the same way,
+                // but Unification doesn't process them yet — see the TODO in
+                // Passes/Unification.fs.)
+                let ctx = analyse "let mutable f = fun (n : int) -> n + 1"
+                Expect.isFalse (hasMessage ctx "value restriction") "no VR diagnostic when params are annotated"
+            }
+        ]

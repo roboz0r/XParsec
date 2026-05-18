@@ -420,22 +420,23 @@ No allocation, no region change.
     region(e) = RegionId.Unknown   // unit
 ```
 
-Loops return unit. **Deviation:** the original sketch added an
-`addEdge (region(lhs)) >= (region(rhs))` flow edge on Assignment; the
-implementation walks both sides for capture-edge side effects but
-emits no Assignment-specific edge. With the v1 subset's lack of
-mutable bindings, there's no LHS binding region to carry the flow into,
-so the edge would point at `RegionId.Unknown` and get dropped anyway.
-Re-add when mutable / ref bindings land — see [§Out of scope](#out-of-scope-for-this-plan).
+Loops return unit. **Deviation, resolved 2026-05-17:** the original sketch
+added an `addEdge (region(rhs)) >= (region(lhs))` flow edge on Assignment;
+this was deferred for the original v1 because there was no mutable cell to
+carry the flow into. With [`mutable-plan.md`](mutable-plan.md) landing,
+the edge is now emitted — when LHS is an immutable binding or a
+fallback-routed shape, the `lhsR` is `RegionId.Unknown` and `AddEdge`
+short-circuits, so the edit is a pure addition.
 
 (Mutability validation is `Validation`'s job — Regions just records the
 flow.)
 
 ### What we explicitly DON'T handle yet
 
-`Object`, `Record`, `RecordClone`, ref/mutable bindings, `seq`/`async`
+`Object`, `Record`, `RecordClone`, `ref`, `seq`/`async`
 computation expressions — these are all out of subset scope and will
-extend the constraint generator when they land. The
+extend the constraint generator when they land. (`let mutable` landed
+2026-05-17 — see [`mutable-plan.md`](mutable-plan.md).) The
 "every-unknown-construct-is-HeapShared" fallback covers them safely in
 the interim. See [§Conservative fallback](#conservative-fallback) below.
 

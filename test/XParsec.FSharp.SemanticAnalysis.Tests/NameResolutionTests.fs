@@ -94,4 +94,33 @@ let tests =
                 Expect.equal ctx.Diagnostics.Count 0 "no diagnostics for known external"
                 Expect.isTrue (ctx.Binding.TryGetValue useKey = ValueNone) "no Binding entry for external symbol"
             }
+
+            test "let mutable: binding-site IsMutable is true" {
+                // `let mutable n = 0` — pattern `n` at offset 12.
+                let ctx = analyse "let mutable n = 0"
+                let bindingKey = NodeKey.ofSource 12 NodeKind.PatIdent
+
+                match ctx.Binding.TryGetValue bindingKey with
+                | ValueSome rb -> Expect.isTrue rb.IsMutable "binding-site entry has IsMutable = true"
+                | ValueNone -> failtest "no binding-site self-entry for `n`"
+            }
+
+            test "let (no mutable): binding-site IsMutable is false" {
+                let ctx = analyse "let n = 0"
+                let bindingKey = NodeKey.ofSource 4 NodeKind.PatIdent
+
+                match ctx.Binding.TryGetValue bindingKey with
+                | ValueSome rb -> Expect.isFalse rb.IsMutable "binding-site entry has IsMutable = false"
+                | ValueNone -> failtest "no binding-site self-entry for `n`"
+            }
+
+            test "use of a mutable binding: use-site IsMutable mirrors binding" {
+                // `let mutable n = 0 in n` — use `n` at offset 21.
+                let ctx = analyse "let mutable n = 0 in n"
+                let useKey = NodeKey.ofSource 21 NodeKind.ExprIdent
+
+                match ctx.Binding.TryGetValue useKey with
+                | ValueSome rb -> Expect.isTrue rb.IsMutable "use-site IsMutable propagated from binding"
+                | ValueNone -> failtest "use of `n` not resolved"
+            }
         ]

@@ -163,15 +163,12 @@ let tests =
             // ---- Assignment ----
 
             test "`x <- y` types as unit" {
-                // We use a function so the LHS and RHS both involve typed bindings.
-                let tast = analyse "let f x y = x <- y"
-                // Without mutability tracking, the type checker just enforces
-                // LHS = RHS and the result is unit. So f : 'a -> 'a -> unit.
+                // Assignment expression itself types as unit. The LHS must be
+                // a mutable binding (otherwise Validation flags it — see
+                // ValidationTests).
+                let tast = analyse "let r = let mutable x = 0 in x <- 1"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
-
-                match declType tast with
-                | TyFun(_, TyFun(_, TyConst "unit")) -> ()
-                | other -> failtestf "expected 'a -> 'a -> unit, got %A" other
+                Expect.equal (declType tast) MockBuiltins.tyUnit "r : unit"
             }
 
             test "assignment unifies left and right" {

@@ -16,10 +16,13 @@ open XParsec.FSharp.SemanticAnalysis
 // each binding group; instantiation at every use of a scheme-bearing name.
 //
 // Tiny-subset omissions (TODO):
-//   - Value restriction (deferred until refs / mutable bindings land — see
-//     docs/generalisation-plan.md §Value restriction). For now every
-//     single-name `let` generalises; the tiny subset has nothing
-//     soundness-breaking to gate against.
+//   - Value restriction is split: the *generalisation gate* on
+//     `mutableToken` lives here (`shouldGeneralise`), but the *diagnostic*
+//     for a mutable binding whose resolved type still has free TyVars at
+//     end of analysis lives in Validation — by then every use site has
+//     had a chance to pin them via unification. See docs/mutable-plan.md.
+//   - `ref` cells / refs-as-values still generalise without a check; lands
+//     when the `Ref<'a>` provider entry does (see mutable-plan §Open questions).
 //   - SRTP / IWSAM bound resolution. The on-unified callbacks per
 //     docs/typevar.md aren't wired yet.
 //   - Binding-level return-type annotations (`let f x : int = ...`). Only
@@ -309,15 +312,23 @@ module Unification =
         walk zonkedTy
         TypeScheme(List.ofSeq quantified, zonkedTy)
 
-    /// v1: every single-name `let` generalises. Compound destructuring heads
-    /// (tuple patterns, wildcards) and bindings whose head is something
-    /// other than a `Pat.NamedSimple` don't get schemes — they bind values,
-    /// not function abstractions, and the scheme table is keyed by a single
-    /// NodeKey. Value restriction lands when refs / mutables do.
+    /// Single-name `let` generalises unless the binding is `mutable`.
+    /// Mutable bindings stay monomorphic: every use of the name unifies
+    /// against the binding's own TyVar (no instantiation), so a free TyVar
+    /// in a mutable binding's type can be pinned later by any use or
+    /// assignment — but the binding is never made polymorphic at the
+    /// scheme level, which would re-introduce the classic value-
+    /// restriction soundness hole. Compound destructuring heads and
+    /// bindings whose head is something other than `Pat.NamedSimple`
+    /// don't get schemes either — they bind values, not function
+    /// abstractions, and the scheme table is keyed by a single NodeKey.
     let private shouldGeneralise (b: Binding<SyntaxToken>) : bool =
-        match b.headPat with
-        | Pat.NamedSimple _ -> true
-        | _ -> false
+        if b.mutableToken.IsSome then
+            false
+        else
+            match b.headPat with
+            | Pat.NamedSimple _ -> true
+            | _ -> false
 
     /// SemType of the carrier of a single literal token (`int`, `float`, …).
     /// Pulled out of `inferConst` so the measured-literal arm can stamp this

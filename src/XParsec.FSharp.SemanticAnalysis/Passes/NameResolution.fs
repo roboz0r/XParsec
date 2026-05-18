@@ -21,12 +21,21 @@ open XParsec.FSharp.SemanticAnalysis
 //     provider directly when typing the application.
 //   - External-symbol resolution writes NO entry to ctx.Binding; Unification
 //     re-queries the provider when it sees a missing binding entry.
-//   - IsInline / IsMutable are always false for the tiny subset. They'll get
-//     real values when inline / mutable keywords are handled.
+//   - IsInline is always false for the tiny subset. It'll get a real value
+//     when the inline keyword is handled.
+//   - IsMutable mirrors the binding's `mutableToken`. Propagated to every
+//     use-site entry so Validation's assignment check can `ctx.Binding[lhsKey]`
+//     directly. The binding site itself also gets a self-entry
+//     (`BindingSite = key`) so Validation's value-restriction loop can
+//     iterate mutable bindings by filtering `kv.Key = rb.BindingSite`.
 
 module NameResolution =
 
-    type private Scope = Map<string, NodeKey>
+    /// Per-scope entry: the binding site's NodeKey plus its mutability.
+    /// Mutability propagates from the scope entry to every use-site
+    /// `ResolvedBinding` that resolves through it, so downstream passes
+    /// (Validation's immutable-assignment check) don't need a second hop.
+    type private Scope = Map<string, NodeKey * bool>
 
     let private resolveIdent (ctx: PassContext) (scope: Scope list) (tok: SyntaxToken) (useKey: NodeKey) =
         let name = ctx.NameOf tok
@@ -40,13 +49,13 @@ module NameResolution =
                 | None -> lookup rest
 
         match lookup scope with
-        | ValueSome bindingSite ->
+        | ValueSome(bindingSite, isMutable) ->
             ctx.Binding.Set(
                 useKey,
                 {
                     BindingSite = bindingSite
                     IsInline = false
-                    IsMutable = false
+                    IsMutable = isMutable
                 }
             )
         | ValueNone ->
@@ -75,21 +84,38 @@ module NameResolution =
         | Pat.As(pat = inner; ident = ident) -> (ctx.NameOf ident, CstKeys.ofPat p) :: bindingsOfPat ctx inner
         | _ -> []
 
+    // Lambda args / for-in / match-arm patterns can't carry `mutable`, so
+    // every binder they introduce is immutable.
     let private extendScope (ctx: PassContext) (pats: ImmutableArray<Pat<SyntaxToken>>) (acc: Scope) : Scope =
         let mutable s = acc
 
         for p in pats do
             for n, k in bindingsOfPat ctx p do
-                s <- Map.add n k s
+                s <- Map.add n (k, false) s
 
         s
 
+    /// Build the scope additions for a let-group. Also writes a binding-site
+    /// self-entry to `ctx.Binding` for every binder — Validation's
+    /// value-restriction loop iterates `ctx.Binding` and filters by
+    /// `kv.Key = rb.BindingSite` to find one entry per binding.
     let private bindingsToScope (ctx: PassContext) (bindings: ImmutableArray<Binding<SyntaxToken>>) : Scope =
         let mutable s = Map.empty
 
         for b in bindings do
+            let isMut = b.mutableToken.IsSome
+
             for n, k in bindingsOfPat ctx b.headPat do
-                s <- Map.add n k s
+                s <- Map.add n (k, isMut) s
+
+                ctx.Binding.Set(
+                    k,
+                    {
+                        BindingSite = k
+                        IsInline = b.inlineToken.IsSome
+                        IsMutable = isMut
+                    }
+                )
 
         s
 
@@ -151,14 +177,18 @@ module NameResolution =
                 fun scope ident ->
                     let name = ctx.NameOf ident
                     let key = CstKeys.ofForToVar ident
-                    Map.ofList [ name, key ] :: scope
+                    Map.ofList [ name, (key, false) ] :: scope
             EnterForIn =
                 fun scope pat ->
-                    let scopeMap = bindingsOfPat ctx pat |> Map.ofList
+                    let scopeMap =
+                        bindingsOfPat ctx pat |> List.map (fun (n, k) -> n, (k, false)) |> Map.ofList
+
                     scopeMap :: scope
             EnterMatchArm =
                 fun scope pat ->
-                    let scopeMap = bindingsOfPat ctx pat |> Map.ofList
+                    let scopeMap =
+                        bindingsOfPat ctx pat |> List.map (fun (n, k) -> n, (k, false)) |> Map.ofList
+
                     scopeMap :: scope
         }
 
@@ -175,16 +205,15 @@ module NameResolution =
             for b in bindings do
                 let rhsScope = walker.EnterBindingRhs scope isRecursive bindings b
                 CstWalk.iterExpr walker rhsScope b.expr
-            // Extend the topmost scope so later module elements can see these bindings.
-            match scope with
-            | [] -> [ bindingsToScope ctx bindings ]
-            | top :: rest ->
-                let merged =
-                    bindings
-                    |> Seq.fold
-                        (fun acc b -> (acc, bindingsOfPat ctx b.headPat) ||> List.fold (fun a (n, k) -> Map.add n k a))
-                        top
+            // Extend the topmost scope so later module elements can see these
+            // bindings. `bindingsToScope` writes binding-site self-entries to
+            // ctx.Binding as a side effect — same path used by EnterLetBody.
+            let newEntries = bindingsToScope ctx bindings
 
+            match scope with
+            | [] -> [ newEntries ]
+            | top :: rest ->
+                let merged = (top, newEntries) ||> Map.fold (fun acc k v -> Map.add k v acc)
                 merged :: rest
         | ModuleElem.Expression e ->
             CstWalk.iterExpr walker scope e

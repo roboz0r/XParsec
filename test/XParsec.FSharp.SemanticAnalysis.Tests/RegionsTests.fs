@@ -397,6 +397,72 @@ let tests =
                 Expect.equal escape (Some CallerStack) "a returns b, which returns a tuple"
             }
 
+            test "let mutable at module level is LocalStack" {
+                // No enclosing function frame; no closure capture. The cell
+                // mints at MintFunctionLevel = 0, so the level rule doesn't
+                // fire, and the cell doesn't reach any lambda → LocalStack.
+                let escape = escapeOf "let mutable r = (1, 2)" "r"
+                Expect.equal escape (Some LocalStack) "module-top mutable cell is LocalStack"
+            }
+
+            test "uncaptured mutable cell inside a function is CallerStack" {
+                // `let useLocal () = let mutable n = (1, 2) in n` — the cell
+                // is minted inside useLocal's frame; useLocal returns it, so
+                // the level rule fires and the cell goes CallerStack. The
+                // tuple `(1, 2)` separately escapes too (RHS-to-cell edge
+                // propagates from the cell upward).
+                let input = "let useLocal () = let mutable n = (1, 2) in n"
+                let escape = escapeOf input "useLocal"
+                Expect.equal escape (Some CallerStack) "useLocal returns the mutable cell's value"
+            }
+
+            test "mutable cell captured by an escaping closure is HeapShared" {
+                // `let mkCounter () = let mutable n = 0 in fun () -> n` —
+                // the cell is captured by the returned closure. With
+                // threshold-of-1, any closure capture forces HeapShared.
+                let input = "let mkCounter () = let mutable n = 0 in fun () -> n"
+                let ctx, file = analyse input
+
+                // Find n's binding key by walking mkCounter's body.
+                let nKey =
+                    let elems =
+                        match file with
+                        | ImplementationFile.AnonymousModule e -> e
+                        | _ -> failwith "expected anonymous module"
+
+                    let mkBinding =
+                        match elems.[0] with
+                        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bs)) -> bs.[0]
+                        | _ -> failwith "expected let"
+
+                    let rec findN e =
+                        match e with
+                        | Expr.LetOrUse(bindings = bs; body = body) ->
+                            let mutable found = ValueNone
+
+                            for b in bs do
+                                match b.headPat with
+                                | Pat.NamedSimple t when ctx.NameOf t = "n" ->
+                                    found <- ValueSome(CstKeys.ofPat b.headPat)
+                                | _ -> ()
+
+                            if found.IsSome then
+                                found
+                            else
+                                match body with
+                                | ValueSome b -> findN b
+                                | ValueNone -> ValueNone
+                        | _ -> ValueNone
+
+                    match findN mkBinding.expr with
+                    | ValueSome k -> k
+                    | ValueNone -> failwith "n not found"
+
+                match ctx.Escape.TryGetValue nKey with
+                | ValueSome HeapShared -> ()
+                | other -> failwithf "expected HeapShared for captured mutable, got %A" other
+            }
+
             test "conservative fallback: unhandled construct gets HeapShared" {
                 // `let xs = [ 1; 2 ]` uses a list-literal we don't model
                 // precisely — the fallback should produce a HeapShared

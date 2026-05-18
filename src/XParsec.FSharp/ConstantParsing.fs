@@ -57,9 +57,9 @@ module Constant =
             if canBeMeasure then
                 let! pos = getPosition
 
+                // Token.OpLessThan carries its unique family-ID, so the enum
+                // value distinguishes `<` from `<<`, `<=`, `<|`, etc.
                 let! lAngle =
-                    // Token.OpLessThan carries its unique family-ID, so the enum
-                    // value distinguishes `<` from `<<`, `<=`, `<|`, etc.
                     satisfyL (fun (t: PositionedToken) -> t.Token = Token.OpLessThan) "Expected '<' for measure"
 
                 let! m = Measure.parse

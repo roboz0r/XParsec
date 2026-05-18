@@ -2,11 +2,16 @@ module XParsec.FSharp.SemanticAnalysis.Tests.GeneralisationTests
 
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
     Pipeline.analyse MockBuiltins.provider input lexed file
+
+let private analyseWithCtx (input: string) =
+    let lexed, file = parseFile input
+    Pipeline.analyseWithContext MockBuiltins.provider input lexed file
 
 let private declType (tast: TastFile) : SemType =
     match tast.Decls with
@@ -162,5 +167,40 @@ let tests =
                 let tast = analyse "let r = let (f, _) = (fun x -> x), 0 in f 1"
                 Expect.isEmpty tast.Diagnostics "no diagnostics for monomorphic tuple-destructure"
                 Expect.equal (declType tast) MockBuiltins.tyInt "r : int"
+            }
+
+            test "mutable binding does NOT generalise (no scheme entry)" {
+                // `let mutable id = fun x -> x` — even though the RHS is a
+                // syntactic value, the `mutable` keyword skips generalisation.
+                let ctx, _ = analyseWithCtx "let mutable id = fun x -> x"
+                let idKey = NodeKey.ofSource 12 NodeKind.PatIdent
+
+                Expect.isTrue (ctx.Scheme.TryGetValue idKey = ValueNone) "no scheme entry for mutable binding"
+            }
+
+            test "mutable binding is monomorphic across two use sites" {
+                // First use pins the binding's TyVar. Second use at a different
+                // type triggers a mismatch — mirrors the pre-generalisation
+                // behaviour of lambda parameters.
+                let tast = analyse "let mutable id = fun x -> x\nlet a = id 1\nlet b = id true"
+                Expect.isTrue (hasMismatch tast) "second use at bool conflicts with int from first use"
+            }
+
+            test "mutable binding: assignment unifies LHS and RHS types" {
+                // `let mutable r = fun x -> x` starts with `'a -> 'a`. The
+                // assignment unifies it with `int -> int`, pinning the free
+                // var globally. No mismatch; subsequent reads see int -> int.
+                let ctx, _ =
+                    analyseWithCtx "let mutable r = fun x -> x\nr <- (fun (n : int) -> n + 1)"
+
+                let rKey = NodeKey.ofSource 12 NodeKind.PatIdent
+
+                let rTy =
+                    match ctx.TypeVar.TryGetValue rKey with
+                    | ValueSome tv -> Unification.zonk (TyVar tv)
+                    | ValueNone -> failtest "no TypeVar for r"
+
+                let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                Expect.equal rTy intToInt "r : int -> int after assignment"
             }
         ]

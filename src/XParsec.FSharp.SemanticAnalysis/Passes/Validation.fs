@@ -6,11 +6,125 @@ open XParsec.FSharp.SemanticAnalysis
 // Pre:  every prior side table populated.
 // Post: ctx.Diagnostics has any semantic violations.
 //
-// Read-only. Checks: pattern-match exhaustiveness, value restriction,
-// immutability enforcement (per semantic-analysis.md §4.5).
+// Read-only. Checks: pattern-match exhaustiveness (TODO), value restriction
+// on mutable bindings, immutability enforcement (per docs/passes.md §4.5
+// and docs/mutable-plan.md).
 
 module Validation =
 
+    /// True if `t` has any reachable TyVar whose union-find root carries no
+    /// `Link`. Mirrors the resolve semantics of `Unification.zonk`: follow a
+    /// pinned root through its `Link`, return `true` at any unpinned root.
+    /// Used by the mutable-binding value-restriction check, which fires at
+    /// end of analysis — by then every use site has had a chance to pin
+    /// free TyVars via the unification of LHS and RHS types.
+    let rec private hasFreeTyVar (t: SemType) : bool =
+        match t with
+        | TyVar tv ->
+            let root = UnionFind.find tv
+
+            match root.Link with
+            | ValueSome target -> hasFreeTyVar target
+            | ValueNone -> true
+        | TyConst _ -> false
+        | TyFun(a, r) -> hasFreeTyVar a || hasFreeTyVar r
+        | TyTuple items -> items |> List.exists hasFreeTyVar
+
+    /// `lhs <- rhs` with a single-name `lhs` whose `ResolvedBinding` says
+    /// `IsMutable = false` is an error. Non-Ident LHSes (record field,
+    /// array slot, dotted access) are out of scope for v1 — they route
+    /// through different mutability rules that land with records / arrays.
+    let private checkAssignment (ctx: PassContext) (l: Expr<SyntaxToken>) : unit =
+        // Peel `(x)` and `(x : T)` wrappers — they don't change the LHS's
+        // mutability story.
+        let rec unwrap e =
+            match e with
+            | Expr.EnclosedBlock(expr = inner)
+            | Expr.TypeAnnotation(expr = inner) -> unwrap inner
+            | _ -> e
+
+        let core = unwrap l
+
+        match core with
+        | Expr.Ident _
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _) ->
+            let lhsKey = CstKeys.ofExpr core
+
+            match ctx.Binding.TryGetValue lhsKey with
+            | ValueSome rb when not rb.IsMutable ->
+                ctx.Diagnostics.Add
+                    {
+                        Key = lhsKey
+                        Message = "assignment to immutable binding"
+                        Severity = Error
+                    }
+            | _ -> ()
+        | _ -> ()
+
+    let private checkValueRestriction (ctx: PassContext) : unit =
+        // Iterate every binding-site self-entry (kv.Key = rb.BindingSite)
+        // whose binding is mutable. NameResolution writes one self-entry
+        // per binding *and* one entry per use-site; filtering on
+        // `kv.Key = rb.BindingSite` keeps us from firing once per use.
+        for kv in ctx.Binding.AsDictionary() do
+            let rb = kv.Value
+
+            if rb.IsMutable && kv.Key = rb.BindingSite then
+                match ctx.TypeVar.TryGetValue rb.BindingSite with
+                | ValueSome tv when hasFreeTyVar (TyVar tv) ->
+                    ctx.Diagnostics.Add
+                        {
+                            Key = rb.BindingSite
+                            Message =
+                                "value restriction: mutable binding has unresolved type variable(s); \
+                                 add a type annotation or constrain via a use site"
+                            Severity = Error
+                        }
+                | _ -> ()
+
+    let private mkWalker (ctx: PassContext) : CstWalk.ExprWalker<unit> =
+        {
+            Visit =
+                fun () e ->
+                    match e with
+                    | Expr.Assignment(leftExpr = l) -> checkAssignment ctx l
+                    | _ -> ()
+            EnterFun = fun () _ -> ()
+            EnterBindingRhs = fun () _ _ _ -> ()
+            EnterLetBody = fun () _ -> ()
+            EnterForTo = fun () _ -> ()
+            EnterForIn = fun () _ -> ()
+            EnterMatchArm = fun () _ -> ()
+        }
+
+    let private walkModuleElem (walker: CstWalk.ExprWalker<unit>) (m: ModuleElem<SyntaxToken>) : unit =
+        match m with
+        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
+            for b in bindings do
+                CstWalk.iterExpr walker () b.expr
+        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Do(expr = e)) -> CstWalk.iterExpr walker () e
+        | ModuleElem.Expression e -> CstWalk.iterExpr walker () e
+        // Surface unhandled module elements rather than silently skipping
+        // them — Validation needs to grow new arms as the subset expands.
+        | ModuleElem.Type _ -> failwith "Validation: ModuleElem.Type not implemented"
+        | ModuleElem.Exception _ -> failwith "Validation: ModuleElem.Exception not implemented"
+        | ModuleElem.Module _ -> failwith "Validation: ModuleElem.Module (nested module) not implemented"
+        | ModuleElem.ModuleAbbrev _ -> failwith "Validation: ModuleElem.ModuleAbbrev not implemented"
+        | ModuleElem.Import _ -> failwith "Validation: ModuleElem.Import not implemented"
+        | ModuleElem.CompilerDirective _ -> failwith "Validation: ModuleElem.CompilerDirective not implemented"
+        | ModuleElem.Missing -> failwith "Validation: ModuleElem.Missing not implemented"
+        | ModuleElem.SkipsTokens _ -> failwith "Validation: ModuleElem.SkipsTokens not implemented"
+
+    let private walkElems (walker: CstWalk.ExprWalker<unit>) (elems: ModuleElems<SyntaxToken>) : unit =
+        for m in elems do
+            walkModuleElem walker m
+
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
-        ignore (ctx, file)
-        ()
+        let walker = mkWalker ctx
+
+        match file with
+        | ImplementationFile.AnonymousModule elems -> walkElems walker elems
+        | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) -> walkElems walker elems
+        | ImplementationFile.Namespaces _ -> ()
+
+        checkValueRestriction ctx

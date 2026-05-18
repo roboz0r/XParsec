@@ -28,6 +28,12 @@ module Regions =
             Level: int
             MintFunctionLevel: int
             IsLambda: bool
+            /// True for the cell region of a `let mutable` binding. Lowers
+            /// the lambda-reach threshold from 2 to 1 (any closure capture
+            /// forces HeapShared — .NET hoists captured mutables into a
+            /// compiler-generated ref cell, Rust requires Rc<RefCell<…>>).
+            /// See docs/mutable-plan.md.
+            IsMutableCell: bool
             /// Force-seed (used by the conservative fallback to mark
             /// unhandled constructs as HeapShared without relying on the
             /// level / lambda-count heuristics).
@@ -38,7 +44,9 @@ module Regions =
     type private RegionGraph() =
         let nodes = ResizeArray<RegionNode>()
 
-        member _.Fresh(level: int, mintFn: int, isLambda: bool, seed: EscapeState voption) : RegionId =
+        member _.Fresh
+            (level: int, mintFn: int, isLambda: bool, isMutableCell: bool, seed: EscapeState voption)
+            : RegionId =
             let id = RegionId(nodes.Count)
 
             nodes.Add(
@@ -47,6 +55,7 @@ module Regions =
                     Level = level
                     MintFunctionLevel = mintFn
                     IsLambda = isLambda
+                    IsMutableCell = isMutableCell
                     InitialState = seed
                     Outlives = ResizeArray()
                 }
@@ -244,8 +253,22 @@ module Regions =
         | Expr.ForTo _
         | Expr.ForIn _ -> walkUnitBody s ctx e
         | Expr.Assignment(leftExpr = l; rightExpr = r) ->
-            inferRegion s ctx l |> ignore
-            inferRegion s ctx r |> ignore
+            // `lhs <- rhs`: the value stored into the cell must escape at
+            // least as wide as the cell. Edge runs rhs → cell so that
+            // propagation pushes the cell's state BACK onto every value
+            // stored into it: once the cell is seeded HeapShared by the
+            // threshold-of-1 closure-capture rule, each rhs lubs up to
+            // match. This is the OPPOSITE direction from tuple-holds-item
+            // (`AddEdge(tuple, item)`, tuple lubs up from items); the use
+            // cases differ — tuples need "any item heap-shared ⇒ tuple
+            // heap-shared," cells need "cell heap-shared ⇒ stored values
+            // heap-shared." AddEdge short-circuits on RegionId.Unknown,
+            // so non-Ident LHSes (record fields, array indices) that
+            // route through the conservative fallback need no special-
+            // case here.
+            let lhsR = inferRegion s ctx l
+            let rhsR = inferRegion s ctx r
+            s.Graph.AddEdge(rhsR, lhsR)
             RegionId.Unknown
         | Expr.Ident _ -> identRegion s ctx e
         | Expr.LongIdentOrOp _ -> identRegion s ctx e
@@ -285,7 +308,7 @@ module Regions =
             // solver classifies the value as widely as possible. Safe but
             // pessimistic — extend the precise cases above as the subset
             // grows. See docs/regions-plan.md §Conservative fallback.
-            s.Graph.Fresh(level = 0, mintFn = 0, isLambda = false, seed = ValueSome HeapShared)
+            s.Graph.Fresh(level = 0, mintFn = 0, isLambda = false, isMutableCell = false, seed = ValueSome HeapShared)
 
     and private walkUnitBody (s: State) (ctx: PassContext) (e: Expr<SyntaxToken>) : RegionId =
         // While / ForTo / ForIn — type unit, no allocation. Walk the
@@ -335,7 +358,13 @@ module Regions =
         (items: ImmutableArray<Expr<SyntaxToken>>)
         : RegionId =
         let r =
-            s.Graph.Fresh(level = s.EnclosingLet, mintFn = functionStackTop s, isLambda = false, seed = ValueNone)
+            s.Graph.Fresh(
+                level = s.EnclosingLet,
+                mintFn = functionStackTop s,
+                isLambda = false,
+                isMutableCell = false,
+                seed = ValueNone
+            )
 
         for it in items do
             let ri = inferRegion s ctx it
@@ -353,7 +382,13 @@ module Regions =
         // rule sees the outer function-stack top (= the function this
         // lambda is being constructed inside of).
         let r =
-            s.Graph.Fresh(level = s.EnclosingLet, mintFn = functionStackTop s, isLambda = true, seed = ValueNone)
+            s.Graph.Fresh(
+                level = s.EnclosingLet,
+                mintFn = functionStackTop s,
+                isLambda = true,
+                isMutableCell = false,
+                seed = ValueNone
+            )
 
         let paramBinders =
             [
@@ -401,7 +436,7 @@ module Regions =
         match bindersOfPat p with
         | [] -> ()
         | _ ->
-            let r = s.Graph.Fresh(s.LetLevel, functionStackTop s, false, ValueNone)
+            let r = s.Graph.Fresh(s.LetLevel, functionStackTop s, false, false, ValueNone)
             recordBindingRegion s ctx p r
 
     and private functionLikeLambda
@@ -416,7 +451,13 @@ module Regions =
         // union of free vars over all arms (no params bind anything outside
         // the arm).
         let r =
-            s.Graph.Fresh(level = s.EnclosingLet, mintFn = functionStackTop s, isLambda = true, seed = ValueNone)
+            s.Graph.Fresh(
+                level = s.EnclosingLet,
+                mintFn = functionStackTop s,
+                isLambda = true,
+                isMutableCell = false,
+                seed = ValueNone
+            )
 
         // Free vars: pattern binders within each arm are local to that arm.
         // Collect across arms by treating each arm's pattern as the local
@@ -496,6 +537,7 @@ module Regions =
                         level = s.EnclosingLet,
                         mintFn = functionStackTop s,
                         isLambda = true,
+                        isMutableCell = false,
                         seed = ValueNone
                     )
 
@@ -513,7 +555,26 @@ module Regions =
             // pass-through values (Ident on RHS) this naturally shares
             // the source's region (test "identifier reuse shares region").
             let rhsR = inferRegion s ctx b.expr
-            recordBindingRegion s ctx b.headPat rhsR
+
+            if b.mutableToken.IsSome then
+                // `let mutable x = rhs`: the cell is distinct from the rhs
+                // value. The cell outlives every value stored into it; the
+                // rhs lubs up to match if the cell is later classified
+                // wider. See docs/mutable-plan.md §Why mutable cells need
+                // a separate region.
+                let cell =
+                    s.Graph.Fresh(
+                        level = s.EnclosingLet,
+                        mintFn = functionStackTop s,
+                        isLambda = false,
+                        isMutableCell = true,
+                        seed = ValueNone
+                    )
+
+                s.Graph.AddEdge(rhsR, cell)
+                recordBindingRegion s ctx b.headPat cell
+            else
+                recordBindingRegion s ctx b.headPat rhsR
         else
             // Function-form binding. The closure region was pre-minted
             // and recorded in processBindingGroup; look it up here.
@@ -531,6 +592,7 @@ module Regions =
                             level = s.EnclosingLet,
                             mintFn = functionStackTop s,
                             isLambda = true,
+                            isMutableCell = false,
                             seed = ValueNone
                         )
 
@@ -623,7 +685,13 @@ module Regions =
 
         if exprIsAllocation ctx e then
             let r =
-                s.Graph.Fresh(level = s.EnclosingLet, mintFn = functionStackTop s, isLambda = false, seed = ValueNone)
+                s.Graph.Fresh(
+                    level = s.EnclosingLet,
+                    mintFn = functionStackTop s,
+                    isLambda = false,
+                    isMutableCell = false,
+                    seed = ValueNone
+                )
 
             for armR in armRegions do
                 s.Graph.AddEdge(r, armR)
@@ -657,7 +725,13 @@ module Regions =
 
         if exprIsAllocation ctx e && armRegions.Count > 0 then
             let r =
-                s.Graph.Fresh(level = s.EnclosingLet, mintFn = functionStackTop s, isLambda = false, seed = ValueNone)
+                s.Graph.Fresh(
+                    level = s.EnclosingLet,
+                    mintFn = functionStackTop s,
+                    isLambda = false,
+                    isMutableCell = false,
+                    seed = ValueNone
+                )
 
             for armR in armRegions do
                 s.Graph.AddEdge(r, armR)
@@ -691,7 +765,13 @@ module Regions =
 
         if exprIsAllocation ctx e then
             let r =
-                s.Graph.Fresh(level = s.EnclosingLet, mintFn = functionStackTop s, isLambda = false, seed = ValueNone)
+                s.Graph.Fresh(
+                    level = s.EnclosingLet,
+                    mintFn = functionStackTop s,
+                    isLambda = false,
+                    isMutableCell = false,
+                    seed = ValueNone
+                )
 
             for armR in armRegions do
                 s.Graph.AddEdge(r, armR)
@@ -727,7 +807,13 @@ module Regions =
 
         if exprIsAllocation ctx e then
             let r =
-                s.Graph.Fresh(level = s.EnclosingLet, mintFn = functionStackTop s, isLambda = false, seed = ValueNone)
+                s.Graph.Fresh(
+                    level = s.EnclosingLet,
+                    mintFn = functionStackTop s,
+                    isLambda = false,
+                    isMutableCell = false,
+                    seed = ValueNone
+                )
 
             s.Graph.AddEdge(r, fnR)
 
@@ -740,7 +826,13 @@ module Regions =
 
     and private primitiveOrFreshResult (s: State) (ctx: PassContext) (e: Expr<SyntaxToken>) : RegionId =
         if exprIsAllocation ctx e then
-            s.Graph.Fresh(level = s.EnclosingLet, mintFn = functionStackTop s, isLambda = false, seed = ValueNone)
+            s.Graph.Fresh(
+                level = s.EnclosingLet,
+                mintFn = functionStackTop s,
+                isLambda = false,
+                isMutableCell = false,
+                seed = ValueNone
+            )
         else
             RegionId.Unknown
 
@@ -810,14 +902,19 @@ module Regions =
                     if escapes then
                         state.[i] <- lub state.[i] CallerStack
 
-                // Lambda-count rule: reachable through ≥ 2 distinct lambdas
-                // → HeapShared. Skips lambda regions themselves so a
-                // single closure that captures itself indirectly isn't
-                // promoted spuriously.
+                // Lambda-count rule: reachable through ≥ N distinct
+                // lambdas → HeapShared. Skips lambda regions themselves so
+                // a single closure that captures itself indirectly isn't
+                // promoted spuriously. Threshold is 2 for ordinary regions
+                // (tuples, app results) and 1 for mutable cells — any
+                // closure capture of a mutable forces heap allocation
+                // (.NET ref-cell hoisting / Rust Rc<RefCell<_>>). See
+                // docs/mutable-plan.md.
                 if not node.IsLambda then
                     let reach = countReachableLambdas g (RegionId(i))
+                    let threshold = if node.IsMutableCell then 1 else 2
 
-                    if reach >= 2 then
+                    if reach >= threshold then
                         state.[i] <- HeapShared
 
         // Iterate to fixpoint.
