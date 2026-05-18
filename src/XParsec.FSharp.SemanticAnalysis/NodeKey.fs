@@ -49,6 +49,8 @@ type NodeKind =
     | ExprRange = 29us
     | ExprSteppedRange = 30us
     | ExprNull = 31us
+    | ExprDotLookup = 32us
+    | ExprRecordClone = 33us
 
     | PatConst = 100us
     | PatIdent = 101us

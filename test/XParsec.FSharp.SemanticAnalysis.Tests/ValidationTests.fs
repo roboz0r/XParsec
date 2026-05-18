@@ -79,4 +79,32 @@ let tests =
                 let ctx = analyse "let mutable f = fun (n : int) -> n + 1"
                 Expect.isFalse (hasMessage ctx "value restriction") "no VR diagnostic when params are annotated"
             }
+
+            // ---- Records ----
+
+            test "assignment to immutable field diagnoses" {
+                let ctx =
+                    analyse "type R = { X: int; mutable Y: int }\nlet r = { X = 1; Y = 2 }\nr.X <- 5"
+
+                Expect.isTrue (hasMessage ctx "immutable field 'X'") "X-not-mutable diagnostic emitted"
+            }
+
+            test "assignment to mutable field is clean" {
+                let ctx =
+                    analyse "type R = { X: int; mutable Y: int }\nlet r = { X = 1; Y = 2 }\nr.Y <- 5"
+
+                Expect.isFalse (hasMessage ctx "immutable field") "no immutability diagnostic on mutable field"
+            }
+
+            test "unresolved field access diagnoses" {
+                // `let f r = r.X` with no use — the receiver TyVar stays free.
+                let ctx = analyse "let f r = r.X"
+                Expect.isTrue (hasMessage ctx "Cannot resolve field") "deferred-field-access diagnostic emitted"
+            }
+
+            test "resolved-by-use field access is clean" {
+                let ctx = analyse "type R = { X: int }\nlet f r = r.X\nlet u = f { X = 1 }"
+
+                Expect.isFalse (hasMessage ctx "Cannot resolve field") "no deferred-field diagnostic"
+            }
         ]

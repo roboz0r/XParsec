@@ -7,6 +7,25 @@ open XParsec.FSharp.Parser
 // Side tables hold all in-flight semantic information. CST is never mutated.
 // See docs/architecture.md.
 
+/// Per-field metadata for a `TypeDefn.Record`. Field types start life as
+/// fresh TyVars stamped by NameResolution and get linked to the real
+/// translated type by Unification before any expression is typed.
+[<Sealed>]
+type RecordFieldInfo(name: string, ty: SemType, isMutable: bool, declKey: NodeKey) =
+    member val Name = name
+    member val Type = ty
+    member val IsMutable = isMutable
+    member val DeclKey = declKey
+
+/// One entry per `TypeDefn.Record` declaration. Indexed by name on
+/// `PassContext.RecordTypes`; the reverse `FieldIndex` lets literal /
+/// pattern field-set inference find candidates by field name.
+[<Sealed>]
+type RecordTypeInfo(name: string, fields: RecordFieldInfo[], declKey: NodeKey) =
+    member val Name = name
+    member val Fields = fields
+    member val DeclKey = declKey
+
 [<Sealed>]
 type SideTable<'V>() =
     let dict = Dictionary<NodeKey, 'V>(HashIdentity.Structural)
@@ -60,6 +79,16 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// match ctx.Diagnostics — same scope, same mutation pattern, same wide
     /// call-site reach without parameter pollution.
     member val CurrentLevel = 0 with get, set
+    /// Written by NameResolution from `TypeDefn.Record`s; field types are
+    /// filled in by Unification after the registry is populated. Name-keyed
+    /// (single-segment v1). Cross-file resolution will overlay the local
+    /// table with a provider-backed equivalent when modules / namespaces
+    /// land.
+    member val RecordTypes = Dictionary<string, RecordTypeInfo>() with get
+    /// Reverse index: field name → list of record types that declare it.
+    /// Built once by NameResolution alongside RecordTypes; used by the
+    /// literal / pattern field-set inference path.
+    member val FieldIndex = Dictionary<string, RecordTypeInfo list>() with get
 
     /// Source text of `token`. Empty for virtual (synthesised) tokens.
     member this.NameOf(token: SyntaxToken) : string =

@@ -88,6 +88,15 @@ module Freeze =
             // only one arm of the alternation.
             translatePat ctx leftPat
         | Pat.EmptyBlock _ -> TPat.Const(TConstValue.Unit, ty)
+        | Pat.Record(fieldPats = fieldPats) ->
+            let fields =
+                [
+                    for FieldPat(longIdent = li; pat = sub) in fieldPats ->
+                        let idents = li.Idents
+                        ctx.NameOf idents.[idents.Length - 1], translatePat ctx sub
+                ]
+
+            TPat.Record(fields, ty)
         | _ -> failwithf "Freeze.translatePat: TODO %A" p
 
     /// `()` literal. Distinct entry point because `Expr.EmptyBlock` carries
@@ -102,6 +111,14 @@ module Freeze =
 
         match e with
         | Expr.Const c -> TExpr.Const(parseConst ctx c, ty)
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
+            li.Idents.Length > 1
+            && ctx.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
+            ->
+            // `r.X` (or chained `r.X.Y`) parsed as a single multi-segment
+            // LongIdent. The head segment was resolved by NameResolution
+            // as a local binding; subsequent segments are field accesses.
+            translateLongIdentFieldChain ctx li ty
         | Expr.Ident _
         | Expr.LongIdentOrOp _ -> translateIdent ctx e key ty
         | Expr.App(fn, args) -> translateApp ctx fn args
@@ -152,7 +169,97 @@ module Freeze =
         | Expr.TryFinally(tryExpr = body; finallyExpr = finallyE) ->
             TExpr.TryFinally(translateExpr ctx body, translateExpr ctx finallyE, ty)
         | Expr.Assignment(leftExpr = left; rightExpr = right) ->
-            TExpr.Assignment(translateExpr ctx left, translateExpr ctx right, ty)
+            // `r.X <- v` folds to FieldSet; everything else falls through
+            // to Assignment.
+            let unwrapped =
+                let rec unwrap e =
+                    match e with
+                    | Expr.EnclosedBlock(expr = inner)
+                    | Expr.TypeAnnotation(expr = inner) -> unwrap inner
+                    | _ -> e
+
+                unwrap left
+
+            match unwrapped with
+            | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
+                let fieldName = ctx.NameOf li.Idents.[0]
+                TExpr.FieldSet(translateExpr ctx r, fieldName, translateExpr ctx right, ty)
+            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
+                li.Idents.Length > 1
+                && ctx.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
+                ->
+                // `r.X <- v` parsed as Assignment(LongIdent[r;X], <-, v).
+                // The head-resolved chain peels into FieldGet for the
+                // intermediate segments and a final FieldSet for the
+                // assigned slot.
+                let receiverIdents = li.Idents
+                let lastIdx = receiverIdents.Length - 1
+
+                let receiverChain =
+                    // Translate everything up to the last segment as a
+                    // FieldGet chain; the last segment becomes FieldSet.
+                    let head = receiverIdents.[0]
+                    let headKey = NodeKey.ofToken head NodeKind.ExprIdent
+
+                    let headBinding = ctx.Binding.TryGetValue headKey
+
+                    let headTy =
+                        match headBinding with
+                        | ValueSome rb -> typeOfKey ctx rb.BindingSite
+                        | ValueNone -> typeOfKey ctx (CstKeys.ofExpr unwrapped)
+
+                    let headExpr =
+                        match headBinding with
+                        | ValueSome rb -> TExpr.Var(rb.BindingSite, headTy)
+                        | ValueNone -> TExpr.External(ctx.NameOf head, headTy)
+
+                    let mutable curr = headExpr
+                    let mutable currTy = headTy
+
+                    for i = 1 to lastIdx - 1 do
+                        let seg = receiverIdents.[i]
+                        let segName = ctx.NameOf seg
+
+                        let stepTy =
+                            match Unification.zonk currTy with
+                            | TyRecord recName ->
+                                match ctx.RecordTypes.TryGetValue recName with
+                                | true, info ->
+                                    match info.Fields |> Array.tryFind (fun f -> f.Name = segName) with
+                                    | Some field -> Unification.zonk field.Type
+                                    | None -> currTy
+                                | false, _ -> currTy
+                            | _ -> currTy
+
+                        curr <- TExpr.FieldGet(curr, segName, stepTy)
+                        currTy <- stepTy
+
+                    curr
+
+                let lastName = ctx.NameOf receiverIdents.[lastIdx]
+                TExpr.FieldSet(receiverChain, lastName, translateExpr ctx right, ty)
+            | _ -> TExpr.Assignment(translateExpr ctx left, translateExpr ctx right, ty)
+        | Expr.Record(fieldInitializers = inits) ->
+            let fields =
+                [
+                    for FieldInitializer(longIdent = li; expr = e) in inits ->
+                        let idents = li.Idents
+                        ctx.NameOf idents.[idents.Length - 1], translateExpr ctx e
+                ]
+
+            TExpr.RecordCons(fields, ty)
+        | Expr.RecordClone(expr = src; fieldInitializers = inits) ->
+            let overrides =
+                [
+                    for FieldInitializer(longIdent = li; expr = e) in inits ->
+                        let idents = li.Idents
+                        ctx.NameOf idents.[idents.Length - 1], translateExpr ctx e
+                ]
+
+            TExpr.RecordClone(translateExpr ctx src, overrides, ty)
+        | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
+            let fieldName = ctx.NameOf li.Idents.[0]
+            TExpr.FieldGet(translateExpr ctx r, fieldName, ty)
         | Expr.Null _ -> TExpr.Null ty
         | Expr.Range(fromExpr = a; toExpr = b) -> TExpr.Range(translateExpr ctx a, None, translateExpr ctx b, ty)
         | Expr.SteppedRange(fromExpr = a; stepExpr = s; toExpr = b) ->
@@ -218,6 +325,59 @@ module Freeze =
                 | _ -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
 
             TExpr.External(name, ty)
+
+    /// Fold a multi-segment `r.X.Y…` LongIdent into nested `FieldGet`
+    /// nodes. The head segment's TAST node is a `Var` pointing back at the
+    /// local binding; each subsequent segment unwraps one field.
+    and private translateLongIdentFieldChain
+        (ctx: PassContext)
+        (li: LongIdent<SyntaxToken>)
+        (finalTy: SemType)
+        : TExpr =
+        let head = li.Idents.[0]
+        let headKey = NodeKey.ofToken head NodeKind.ExprIdent
+        let headBinding = ctx.Binding.TryGetValue headKey
+
+        let headTy =
+            // The head's TyVar lives under the same key NameResolution
+            // wrote — but Unification didn't allocate a Side-table entry
+            // for the synthetic head key, so fall back to the binding
+            // site's TyVar.
+            match headBinding with
+            | ValueSome rb -> typeOfKey ctx rb.BindingSite
+            | ValueNone -> finalTy
+
+        let headExpr =
+            match headBinding with
+            | ValueSome rb -> TExpr.Var(rb.BindingSite, headTy)
+            | ValueNone -> TExpr.External(ctx.NameOf head, headTy)
+
+        let mutable currTy = headTy
+        let mutable curr = headExpr
+
+        for i = 1 to li.Idents.Length - 1 do
+            let seg = li.Idents.[i]
+            let segName = ctx.NameOf seg
+            // Walk through TyRecord to find the field's declared type for
+            // each intermediate step; the last step uses finalTy.
+            let stepTy =
+                if i = li.Idents.Length - 1 then
+                    finalTy
+                else
+                    match Unification.zonk currTy with
+                    | TyRecord recName ->
+                        match ctx.RecordTypes.TryGetValue recName with
+                        | true, info ->
+                            match info.Fields |> Array.tryFind (fun f -> f.Name = segName) with
+                            | Some field -> Unification.zonk field.Type
+                            | None -> finalTy
+                        | false, _ -> finalTy
+                    | _ -> finalTy
+
+            curr <- TExpr.FieldGet(curr, segName, stepTy)
+            currTy <- stepTy
+
+        curr
 
     and private translateApp
         (ctx: PassContext)

@@ -139,6 +139,7 @@ module Regions =
             | _ -> true
         | TyFun _
         | TyTuple _ -> true
+        | TyRecord _ -> true
         | TyVar _ -> false
 
     let private exprIsAllocation (ctx: PassContext) (e: Expr<SyntaxToken>) : bool =
@@ -160,6 +161,8 @@ module Regions =
         | Pat.Tuple(patterns = pats) -> [ for sub in pats -> bindersOfPat sub ] |> List.concat
         | Pat.Typed(pat = inner) -> bindersOfPat inner
         | Pat.As(pat = inner) -> CstKeys.ofPat p :: bindersOfPat inner
+        | Pat.Record(fieldPats = fieldPats) ->
+            [ for FieldPat(pat = sub) in fieldPats -> bindersOfPat sub ] |> List.concat
         | _ -> []
 
     /// Find every binding-site NodeKey referenced by `body` whose binder
@@ -252,6 +255,15 @@ module Regions =
         | Expr.While _
         | Expr.ForTo _
         | Expr.ForIn _ -> walkUnitBody s ctx e
+        | Expr.Record(fieldInitializers = inits) -> recordRegion s ctx inits
+        | Expr.RecordClone(expr = src; fieldInitializers = inits) -> recordCloneRegion s ctx src inits
+        | Expr.DotLookup(expr = inner) ->
+            // Field read: the access expression's region is the receiver's
+            // region — accessing a field doesn't produce a new allocation
+            // (unless the field's own type allocates, but that's tracked
+            // via the receiver's region). Walk the inner expression so its
+            // capture edges still register.
+            inferRegion s ctx inner
         | Expr.Assignment(leftExpr = l; rightExpr = r) ->
             // `lhs <- rhs`: the value stored into the cell must escape at
             // least as wide as the cell. Edge runs rhs → cell so that
@@ -368,6 +380,63 @@ module Regions =
 
         for it in items do
             let ri = inferRegion s ctx it
+            s.Graph.AddEdge(r, ri)
+
+        r
+
+    and private recordRegion
+        (s: State)
+        (ctx: PassContext)
+        (inits: ImmutableArray<FieldInitializer<SyntaxToken>>)
+        : RegionId =
+        // Records allocate like tuples: one outgoing edge per field
+        // initialiser (record outlives each field's value). Mutable-field
+        // cell allocation is deferred to v1.5 — the conservative
+        // approximation here ties the field's storage lifetime to the
+        // record's own region. Assignment to a record field then routes
+        // the RHS through the receiver's region rather than a separate
+        // cell region; classifying that as too escape-wide is the safe
+        // direction.
+        let r =
+            s.Graph.Fresh(
+                level = s.EnclosingLet,
+                mintFn = functionStackTop s,
+                isLambda = false,
+                isMutableCell = false,
+                seed = ValueNone
+            )
+
+        for FieldInitializer(expr = e) in inits do
+            let ri = inferRegion s ctx e
+            s.Graph.AddEdge(r, ri)
+
+        r
+
+    and private recordCloneRegion
+        (s: State)
+        (ctx: PassContext)
+        (src: Expr<SyntaxToken>)
+        (inits: ImmutableArray<FieldInitializer<SyntaxToken>>)
+        : RegionId =
+        // Conservative v1: the clone is a new allocation that outlives both
+        // the source record and every override RHS. Sharing regions with
+        // the source's individual fields lands when the precise field-cell
+        // model does.
+        let srcR = inferRegion s ctx src
+
+        let r =
+            s.Graph.Fresh(
+                level = s.EnclosingLet,
+                mintFn = functionStackTop s,
+                isLambda = false,
+                isMutableCell = false,
+                seed = ValueNone
+            )
+
+        s.Graph.AddEdge(r, srcR)
+
+        for FieldInitializer(expr = e) in inits do
+            let ri = inferRegion s ctx e
             s.Graph.AddEdge(r, ri)
 
         r

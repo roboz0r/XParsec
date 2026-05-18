@@ -123,4 +123,47 @@ let tests =
                 | ValueSome rb -> Expect.isTrue rb.IsMutable "use-site IsMutable propagated from binding"
                 | ValueNone -> failtest "use of `n` not resolved"
             }
+
+            test "record type definition registers in ctx.RecordTypes" {
+                let ctx = analyse "type R = { X: int; Y: int }"
+
+                match ctx.RecordTypes.TryGetValue "R" with
+                | true, info ->
+                    Expect.equal info.Fields.Length 2 "two fields"
+                    Expect.equal info.Fields.[0].Name "X" "first field is X"
+                    Expect.equal info.Fields.[1].Name "Y" "second field is Y"
+                | false, _ -> failtest "record type R not registered"
+            }
+
+            test "record field index is built" {
+                let ctx = analyse "type R = { X: int; Y: int }"
+
+                match ctx.FieldIndex.TryGetValue "X" with
+                | true, infos -> Expect.equal infos.Length 1 "X referenced by exactly one type"
+                | false, _ -> failtest "X not in FieldIndex"
+
+                match ctx.FieldIndex.TryGetValue "Y" with
+                | true, infos -> Expect.equal infos.Length 1 "Y referenced by exactly one type"
+                | false, _ -> failtest "Y not in FieldIndex"
+            }
+
+            test "duplicate record type name diagnoses" {
+                let ctx = analyse "type R = { X: int }\ntype R = { Y: int }"
+
+                let hasDup =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "Duplicate record type")
+
+                Expect.isTrue hasDup "duplicate-record diagnostic emitted"
+            }
+
+            test "mutable field IsMutable is true" {
+                let ctx = analyse "type P = { X: int; mutable Y: int }"
+
+                match ctx.RecordTypes.TryGetValue "P" with
+                | true, info ->
+                    Expect.isFalse info.Fields.[0].IsMutable "X is immutable"
+                    Expect.isTrue info.Fields.[1].IsMutable "Y is mutable"
+                | false, _ -> failtest "record type P not registered"
+            }
         ]

@@ -63,6 +63,7 @@ module Unification =
         | TyConst _ -> t
         | TyFun(a, r) -> TyFun(zonk a, zonk r)
         | TyTuple items -> TyTuple(List.map zonk items)
+        | TyRecord _ -> t
 
     /// Move pending deferred-constraint state from `source` onto `target`.
     /// Called whenever a TyVar is no longer the equivalence-class
@@ -80,6 +81,10 @@ module Unification =
             if not (List.isEmpty source.SrtpBounds) then
                 target.SrtpBounds <- source.SrtpBounds @ target.SrtpBounds
                 source.SrtpBounds <- []
+
+            if not (List.isEmpty source.PendingFieldAccess) then
+                target.PendingFieldAccess <- source.PendingFieldAccess @ target.PendingFieldAccess
+                source.PendingFieldAccess <- []
     // TODO: fire on-unified callbacks for newly-stable bounds once
     // the SRTP / IWSAM resolution machinery exists. Until then,
     // appending is enough to preserve them through unification.
@@ -111,6 +116,7 @@ module Unification =
         | TyConst _ -> false
         | TyFun(a, r) -> occursAndAdjust target a || occursAndAdjust target r
         | TyTuple items -> List.exists (occursAndAdjust target) items
+        | TyRecord _ -> false
 
     /// Merge the Units field of two union-find roots after they've been
     /// joined into `newRoot`. Two non-equal measures emit a diagnostic; one
@@ -138,12 +144,28 @@ module Unification =
                     Severity = Error
                 }
 
+    /// Walk a `SemType` through TyVar Links to surface a `TyRecord _` if
+    /// the type has resolved to one. Returns ValueNone for free TyVars and
+    /// non-record concrete types. Inlined here so `drainPendingFieldAccess`
+    /// can recognise records pinned through a chain.
+    let rec private tryResolveRecord (t: SemType) : string voption =
+        match t with
+        | TyRecord n -> ValueSome n
+        | TyVar tv ->
+            let root = UnionFind.find tv
+
+            match root.Link with
+            | ValueSome target -> tryResolveRecord target
+            | ValueNone -> ValueNone
+        | _ -> ValueNone
+
     let rec private unify (ctx: PassContext) (key: NodeKey) (a: SemType) (b: SemType) =
         let a = resolveStep a
         let b = resolveStep b
 
         match a, b with
         | TyConst n1, TyConst n2 when n1 = n2 -> ()
+        | TyRecord n1, TyRecord n2 when n1 = n2 -> ()
         | TyFun(a1, r1), TyFun(a2, r2) ->
             unify ctx key a1 a2
             unify ctx key r1 r2
@@ -173,11 +195,25 @@ module Unification =
             // unify them so the carrier types agree.
             match linkA, linkB with
             | ValueNone, ValueNone -> ()
-            | ValueSome _, ValueNone -> newRoot.Link <- linkA
-            | ValueNone, ValueSome _ -> newRoot.Link <- linkB
+            | ValueSome _, ValueNone ->
+                newRoot.Link <- linkA
+
+                match linkA with
+                | ValueSome t -> drainPendingFieldAccess ctx newRoot t
+                | ValueNone -> ()
+            | ValueNone, ValueSome _ ->
+                newRoot.Link <- linkB
+
+                match linkB with
+                | ValueSome t -> drainPendingFieldAccess ctx newRoot t
+                | ValueNone -> ()
             | ValueSome a, ValueSome b ->
                 newRoot.Link <- linkA
                 unify ctx key a b
+
+                match linkA with
+                | ValueSome t -> drainPendingFieldAccess ctx newRoot t
+                | ValueNone -> ()
         | TyVar tv, other
         | other, TyVar tv ->
             let root = UnionFind.find tv
@@ -208,6 +244,7 @@ module Unification =
                 | _ -> ()
 
                 root.Link <- ValueSome other
+                drainPendingFieldAccess ctx root other
         // No bound migration needed here: `root` keeps its bounds, and
         // setting Link is the trigger for on-unified callbacks to fire
         // once they exist.
@@ -218,6 +255,41 @@ module Unification =
                     Message = sprintf "Type mismatch: %A vs %A" (zonk a) (zonk b)
                     Severity = Error
                 }
+
+    /// When a TyVar's Link is set to (or resolves to) a `TyRecord T`,
+    /// resolve any field-access constraints that were parked on it. Each
+    /// entry unifies the access expression's result TyVar with the field's
+    /// declared type; a missing field produces a diagnostic.
+    and private drainPendingFieldAccess (ctx: PassContext) (root: TypeVar) (linkTarget: SemType) : unit =
+        if List.isEmpty root.PendingFieldAccess then
+            ()
+        else
+            match tryResolveRecord linkTarget with
+            | ValueNone -> ()
+            | ValueSome recName ->
+                let pending = root.PendingFieldAccess
+                root.PendingFieldAccess <- []
+
+                match ctx.RecordTypes.TryGetValue recName with
+                | true, info ->
+                    for (fieldName, useKey, resultTv) in pending do
+                        match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
+                        | Some field -> unify ctx useKey (TyVar resultTv) field.Type
+                        | None ->
+                            ctx.Diagnostics.Add
+                                {
+                                    Key = useKey
+                                    Message = sprintf "Type '%s' has no field '%s'" recName fieldName
+                                    Severity = Error
+                                }
+                | false, _ ->
+                    for (_, useKey, _) in pending do
+                        ctx.Diagnostics.Add
+                            {
+                                Key = useKey
+                                Message = sprintf "Unknown record type '%s'" recName
+                                Severity = Error
+                            }
 
     let private enterLevel (ctx: PassContext) : unit =
         ctx.CurrentLevel <- ctx.CurrentLevel + 1
@@ -278,6 +350,7 @@ module Unification =
             | TyConst _ -> t
             | TyFun(a, r) -> TyFun(walk a, walk r)
             | TyTuple xs -> TyTuple [ for x in xs -> walk x ]
+            | TyRecord _ -> t
 
         walk scheme.Body
 
@@ -292,6 +365,30 @@ module Unification =
     /// they carry `Units` (measure-bearing TyVars). Treating them as ground
     /// matches v1 "no measure polymorphism" — each `let f (x : float<m>) …`
     /// has the measure baked in.
+    /// True if `t` contains a TyVar whose root carries a deferred
+    /// `PendingFieldAccess` constraint. Such a binding cannot be safely
+    /// generalised in v1 — quantifying a TyVar with pending field accesses
+    /// would freeze the constraint into the scheme, and a use site that
+    /// pins the receiver would only resolve a fresh instantiation, leaving
+    /// the original (still-quantified) constraint dangling. Keeping the
+    /// binding monomorphic lets the first use site unify directly with the
+    /// pre-instantiation TyVar, which drains the constraint normally.
+    let rec private hasPendingFieldAccess (t: SemType) : bool =
+        match t with
+        | TyVar tv ->
+            let root = UnionFind.find tv
+
+            if not (List.isEmpty root.PendingFieldAccess) then
+                true
+            else
+                match root.Link with
+                | ValueSome target -> hasPendingFieldAccess target
+                | ValueNone -> false
+        | TyConst _ -> false
+        | TyFun(a, r) -> hasPendingFieldAccess a || hasPendingFieldAccess r
+        | TyTuple xs -> List.exists hasPendingFieldAccess xs
+        | TyRecord _ -> false
+
     let private generalise (zonkedTy: SemType) (outerLevel: int) : TypeScheme =
         let quantified = ResizeArray<TypeVar>()
         let seen = HashSet<TypeVar>(HashIdentity.Reference)
@@ -308,6 +405,7 @@ module Unification =
                 walk a
                 walk r
             | TyTuple xs -> List.iter walk xs
+            | TyRecord _ -> ()
 
         walk zonkedTy
         TypeScheme(List.ofSeq quantified, zonkedTy)
@@ -436,7 +534,11 @@ module Unification =
             | "string" -> MockBuiltins.tyString
             | "int64" -> MockBuiltins.tyInt64
             | "byte" -> MockBuiltins.tyByte
-            | _ -> TyConst name
+            | _ ->
+                if ctx.RecordTypes.ContainsKey name then
+                    TyRecord name
+                else
+                    TyConst name
         | Type.GenericType(longIdent = li; typeArgs = args) when
             li.Idents.Length = 1
             && args.Length = 1
@@ -608,6 +710,48 @@ module Unification =
                 Some MockBuiltins.tyBool
             | _ -> None
 
+    /// Field-initializer / field-pattern long-ident inspection. v1 only
+    /// supports single-segment (`X`) and two-segment qualified (`R.X`)
+    /// forms. Multi-segment qualifiers (`A.B.X`) fall through as ValueNone
+    /// for the qualifier and the last segment for the field name.
+    let private fieldNameAndQualifier (ctx: PassContext) (li: LongIdent<SyntaxToken>) : string voption * string =
+        let idents = li.Idents
+        let last = ctx.NameOf idents.[idents.Length - 1]
+
+        if idents.Length = 1 then
+            ValueNone, last
+        elif idents.Length = 2 then
+            ValueSome(ctx.NameOf idents.[0]), last
+        else
+            ValueNone, last
+
+    /// Try to find the unique record type whose declared field set equals
+    /// `names` (order-insensitive, duplicates rejected). Returns ValueNone
+    /// when zero matches or multiple match — the caller emits the
+    /// appropriate diagnostic.
+    let private findUniqueRecordByFieldSet (ctx: PassContext) (names: string list) : RecordTypeInfo voption * int =
+        // Returns (info, candidateCount). candidateCount disambiguates the
+        // "no match" vs "ambiguous" diagnostic paths.
+        match names with
+        | [] -> ValueNone, 0
+        | first :: _ ->
+            match ctx.FieldIndex.TryGetValue first with
+            | false, _ -> ValueNone, 0
+            | true, candidates ->
+                let nameSet = Set.ofList names
+
+                let matches =
+                    candidates
+                    |> List.filter (fun info ->
+                        let declared = info.Fields |> Array.map (fun f -> f.Name) |> Set.ofArray
+                        declared = nameSet
+                    )
+
+                match matches with
+                | [ info ] -> ValueSome info, 1
+                | [] -> ValueNone, 0
+                | many -> ValueNone, List.length many
+
     let rec private inferPat (ctx: PassContext) (p: Pat<SyntaxToken>) : SemType =
         // Each pattern node gets its own TypeVar keyed on its NodeKey. For
         // compound patterns (Tuple, EnclosedBlock, As) the outer TypeVar is
@@ -665,8 +809,94 @@ module Unification =
             let nodeTv = freshTv ctx key
             nodeTv.Link <- ValueSome leftTy
             leftTy
+        | Pat.Record(fieldPats = fieldPats) ->
+            let pairs =
+                [
+                    for FieldPat(longIdent = li; pat = sub) in fieldPats ->
+                        let q, n = fieldNameAndQualifier ctx li
+                        q, n, sub
+                ]
+
+            let qualifier =
+                pairs
+                |> List.tryPick (fun (q, _, _) ->
+                    match q with
+                    | ValueSome q -> Some q
+                    | _ -> None
+                )
+
+            let names = pairs |> List.map (fun (_, n, _) -> n)
+
+            let candidate =
+                match qualifier with
+                | Some typeName ->
+                    match ctx.RecordTypes.TryGetValue typeName with
+                    | true, info -> ValueSome info
+                    | false, _ ->
+                        ctx.Diagnostics.Add
+                            {
+                                Key = key
+                                Message = sprintf "Unknown record type qualifier: %s" typeName
+                                Severity = Error
+                            }
+
+                        ValueNone
+                | None ->
+                    let cand, count = findUniqueRecordByFieldSet ctx names
+
+                    match cand with
+                    | ValueSome _ -> cand
+                    | ValueNone ->
+                        if count = 0 then
+                            ctx.Diagnostics.Add
+                                {
+                                    Key = key
+                                    Message =
+                                        sprintf "No record type matches the field set: %s" (String.concat ", " names)
+                                    Severity = Error
+                                }
+                        else
+                            ctx.Diagnostics.Add
+                                {
+                                    Key = key
+                                    Message =
+                                        sprintf
+                                            "Field set is ambiguous (%d candidate record types); add a qualifier or annotation"
+                                            count
+                                    Severity = Error
+                                }
+
+                        ValueNone
+
+            match candidate with
+            | ValueNone ->
+                // Still walk sub-patterns so binders are inferred — they
+                // attach as free TyVars without unification noise.
+                for _, _, sub in pairs do
+                    inferPat ctx sub |> ignore
+
+                let nodeTv = freshTv ctx key
+                TyVar nodeTv
+            | ValueSome info ->
+                for _, fieldName, sub in pairs do
+                    let subTy = inferPat ctx sub
+
+                    match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
+                    | Some field -> unify ctx (CstKeys.ofPat sub) subTy field.Type
+                    | None ->
+                        ctx.Diagnostics.Add
+                            {
+                                Key = CstKeys.ofPat sub
+                                Message = sprintf "Type '%s' has no field '%s'" info.Name fieldName
+                                Severity = Error
+                            }
+
+                let recTy = TyRecord info.Name
+                let nodeTv = freshTv ctx key
+                nodeTv.Link <- ValueSome recTy
+                recTy
         | _ ->
-            // TODO: Named (DU ctor) / Cons / Record patterns — they need
+            // TODO: Named (DU ctor) / Cons patterns — they need
             // provider lookups or recursive shape unification.
             TyVar(freshTv ctx key)
 
@@ -709,6 +939,10 @@ module Unification =
                 // reference-type bound yet). Hand back a free TypeVar so
                 // surrounding context can pin it.
                 TyVar(freshTyVar ctx)
+            | Expr.Record(fieldInitializers = inits) -> inferRecord ctx key inits
+            | Expr.RecordClone(expr = src; fieldInitializers = inits) -> inferRecordClone ctx key src inits
+            | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
+                inferFieldAccess ctx key r li.Idents.[0]
             | _ ->
                 // TODO: other expression kinds.
                 TyVar(freshTyVar ctx)
@@ -717,30 +951,41 @@ module Unification =
         inferredTy
 
     and private inferIdent (ctx: PassContext) (e: Expr<SyntaxToken>) (key: NodeKey) : SemType =
-        match ctx.Binding.TryGetValue key with
-        | ValueSome rb ->
-            // Local binding — the BindingSite is the headPat NodeKey. If the
-            // binding has been generalised already, instantiate the scheme so
-            // independent use-sites get independent variables (mirrors the
-            // external-symbol path). Otherwise fall back to the monomorphic
-            // TyVar minted by inferPat — this includes uses inside a sibling's
-            // RHS within the same `let rec` group, which is exactly what
-            // forbids polymorphic recursion.
-            match ctx.Scheme.TryGetValue rb.BindingSite with
-            | ValueSome scheme -> instantiate ctx scheme
-            | ValueNone -> TyVar(tvOf ctx rb.BindingSite)
-        | ValueNone ->
-            // External symbol (or unresolved — NameRes will already have
-            // emitted a diagnostic in that case). Re-query the provider.
-            let name = qualifiedNameOf ctx e
+        // First: a multi-segment LongIdent whose head segment resolved as
+        // a local binding is a record-field access chain (`r.X`, `r.X.Y`),
+        // not a qualified name. The parser doesn't emit `Expr.DotLookup`
+        // for these — they ride inside a single `Expr.LongIdentOrOp`.
+        match e with
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
+            li.Idents.Length > 1
+            && ctx.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
+            ->
+            inferLongIdentFieldChain ctx key li
+        | _ ->
+            match ctx.Binding.TryGetValue key with
+            | ValueSome rb ->
+                // Local binding — the BindingSite is the headPat NodeKey. If the
+                // binding has been generalised already, instantiate the scheme so
+                // independent use-sites get independent variables (mirrors the
+                // external-symbol path). Otherwise fall back to the monomorphic
+                // TyVar minted by inferPat — this includes uses inside a sibling's
+                // RHS within the same `let rec` group, which is exactly what
+                // forbids polymorphic recursion.
+                match ctx.Scheme.TryGetValue rb.BindingSite with
+                | ValueSome scheme -> instantiate ctx scheme
+                | ValueNone -> TyVar(tvOf ctx rb.BindingSite)
+            | ValueNone ->
+                // External symbol (or unresolved — NameRes will already have
+                // emitted a diagnostic in that case). Re-query the provider.
+                let name = qualifiedNameOf ctx e
 
-            match ctx.Provider.TryLookup name with
-            | ValueSome sym ->
-                // Polymorphic external symbols allocate fresh TypeVars per
-                // call; we pass the current level so those vars are stamped
-                // at the use-site's depth.
-                sym.Instantiate ctx.CurrentLevel
-            | ValueNone -> TyVar(freshTyVar ctx)
+                match ctx.Provider.TryLookup name with
+                | ValueSome sym ->
+                    // Polymorphic external symbols allocate fresh TypeVars per
+                    // call; we pass the current level so those vars are stamped
+                    // at the use-site's depth.
+                    sym.Instantiate ctx.CurrentLevel
+                | ValueNone -> TyVar(freshTyVar ctx)
 
     /// Source-level rendering of an ident/qualified-name expression. For
     /// single-segment idents this is just the token text; for multi-segment
@@ -1080,6 +1325,223 @@ module Unification =
         unify ctx key leftTy rightTy
         MockBuiltins.tyUnit
 
+    and private inferRecord
+        (ctx: PassContext)
+        (key: NodeKey)
+        (inits: ImmutableArray<FieldInitializer<SyntaxToken>>)
+        : SemType =
+        let pairs =
+            [
+                for FieldInitializer(longIdent = li; expr = e) in inits ->
+                    let q, n = fieldNameAndQualifier ctx li
+                    q, n, e
+            ]
+
+        let qualifier =
+            pairs
+            |> List.tryPick (fun (q, _, _) ->
+                match q with
+                | ValueSome q -> Some q
+                | _ -> None
+            )
+
+        let names = pairs |> List.map (fun (_, n, _) -> n)
+
+        let candidate =
+            match qualifier with
+            | Some typeName ->
+                match ctx.RecordTypes.TryGetValue typeName with
+                | true, info -> ValueSome info
+                | false, _ ->
+                    ctx.Diagnostics.Add
+                        {
+                            Key = key
+                            Message = sprintf "Unknown record type qualifier: %s" typeName
+                            Severity = Error
+                        }
+
+                    ValueNone
+            | None ->
+                let cand, count = findUniqueRecordByFieldSet ctx names
+
+                match cand with
+                | ValueSome _ -> cand
+                | ValueNone ->
+                    if count = 0 then
+                        ctx.Diagnostics.Add
+                            {
+                                Key = key
+                                Message = sprintf "No record type matches the field set: %s" (String.concat ", " names)
+                                Severity = Error
+                            }
+                    else
+                        ctx.Diagnostics.Add
+                            {
+                                Key = key
+                                Message =
+                                    sprintf
+                                        "Field set is ambiguous (%d candidate record types); add a qualifier or annotation"
+                                        count
+                                Severity = Error
+                            }
+
+                    ValueNone
+
+        match candidate with
+        | ValueNone ->
+            for _, _, e in pairs do
+                infer ctx e |> ignore
+
+            TyVar(freshTyVar ctx)
+        | ValueSome info ->
+            for _, fieldName, e in pairs do
+                let eTy = infer ctx e
+
+                match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
+                | Some field -> unify ctx (CstKeys.ofExpr e) eTy field.Type
+                | None ->
+                    ctx.Diagnostics.Add
+                        {
+                            Key = CstKeys.ofExpr e
+                            Message = sprintf "Type '%s' has no field '%s'" info.Name fieldName
+                            Severity = Error
+                        }
+
+            TyRecord info.Name
+
+    and private inferRecordClone
+        (ctx: PassContext)
+        (key: NodeKey)
+        (src: Expr<SyntaxToken>)
+        (inits: ImmutableArray<FieldInitializer<SyntaxToken>>)
+        : SemType =
+        let srcTy = infer ctx src
+
+        match resolveStep srcTy with
+        | TyRecord recName ->
+            match ctx.RecordTypes.TryGetValue recName with
+            | true, info ->
+                for FieldInitializer(longIdent = li; expr = e) in inits do
+                    let _, fieldName = fieldNameAndQualifier ctx li
+                    let eTy = infer ctx e
+
+                    match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
+                    | Some field -> unify ctx (CstKeys.ofExpr e) eTy field.Type
+                    | None ->
+                        ctx.Diagnostics.Add
+                            {
+                                Key = CstKeys.ofExpr e
+                                Message = sprintf "Type '%s' has no field '%s'" recName fieldName
+                                Severity = Error
+                            }
+
+                TyRecord recName
+            | false, _ ->
+                ctx.Diagnostics.Add
+                    {
+                        Key = key
+                        Message = sprintf "Unknown record type '%s'" recName
+                        Severity = Error
+                    }
+
+                for FieldInitializer(expr = e) in inits do
+                    infer ctx e |> ignore
+
+                TyRecord recName
+        | _ ->
+            ctx.Diagnostics.Add
+                {
+                    Key = key
+                    Message = "Record clone requires the source expression to be a record"
+                    Severity = Error
+                }
+
+            for FieldInitializer(expr = e) in inits do
+                infer ctx e |> ignore
+
+            TyVar(freshTyVar ctx)
+
+    /// One step of field resolution: given the receiver's resolved type
+    /// and the access expression's diagnostic NodeKey, produce the
+    /// access's type. Deferred when the receiver is a free TyVar.
+    and private resolveFieldStep (ctx: PassContext) (diagKey: NodeKey) (rTy: SemType) (fieldName: string) : SemType =
+        match resolveStep rTy with
+        | TyRecord recName ->
+            match ctx.RecordTypes.TryGetValue recName with
+            | true, info ->
+                match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
+                | Some field -> field.Type
+                | None ->
+                    ctx.Diagnostics.Add
+                        {
+                            Key = diagKey
+                            Message = sprintf "Type '%s' has no field '%s'" recName fieldName
+                            Severity = Error
+                        }
+
+                    TyVar(freshTyVar ctx)
+            | false, _ ->
+                ctx.Diagnostics.Add
+                    {
+                        Key = diagKey
+                        Message = sprintf "Unknown record type '%s'" recName
+                        Severity = Error
+                    }
+
+                TyVar(freshTyVar ctx)
+        | TyVar tv ->
+            let root = UnionFind.find tv
+            let resultTv = freshTyVar ctx
+            root.PendingFieldAccess <- (fieldName, diagKey, resultTv) :: root.PendingFieldAccess
+            TyVar resultTv
+        | _ ->
+            ctx.Diagnostics.Add
+                {
+                    Key = diagKey
+                    Message = sprintf "Cannot read field '%s' from non-record type" fieldName
+                    Severity = Error
+                }
+
+            TyVar(freshTyVar ctx)
+
+    and private inferFieldAccess
+        (ctx: PassContext)
+        (key: NodeKey)
+        (receiver: Expr<SyntaxToken>)
+        (fieldTok: SyntaxToken)
+        : SemType =
+        let fieldName = ctx.NameOf fieldTok
+        let rTy = infer ctx receiver
+        resolveFieldStep ctx key rTy fieldName
+
+    /// `r.X.Y…` parsed as a single multi-segment `Expr.LongIdentOrOp`.
+    /// The head segment was resolved by NameResolution as a local binding
+    /// — type it through `ctx.Binding`/`ctx.Scheme` (same path as
+    /// `inferIdent` for a single-segment ident), then walk the remaining
+    /// segments as a field-access chain.
+    and private inferLongIdentFieldChain (ctx: PassContext) (key: NodeKey) (li: LongIdent<SyntaxToken>) : SemType =
+        let head = li.Idents.[0]
+        let headKey = NodeKey.ofToken head NodeKind.ExprIdent
+
+        let headTy =
+            match ctx.Binding.TryGetValue headKey with
+            | ValueSome rb ->
+                match ctx.Scheme.TryGetValue rb.BindingSite with
+                | ValueSome scheme -> instantiate ctx scheme
+                | ValueNone -> TyVar(tvOf ctx rb.BindingSite)
+            | ValueNone -> TyVar(freshTyVar ctx)
+
+        let mutable currTy = headTy
+
+        for i = 1 to li.Idents.Length - 1 do
+            let seg = li.Idents.[i]
+            let segName = ctx.NameOf seg
+            // Diagnose against the LongIdent's overall key — there's no
+            // separate sub-expression NodeKey for an intermediate segment.
+            currTy <- resolveFieldStep ctx key currTy segName
+
+        currTy
+
     and private inferString
         (ctx: PassContext)
         (_key: NodeKey)
@@ -1168,8 +1630,11 @@ module Unification =
             if shouldGeneralise b then
                 let key = CstKeys.ofPat b.headPat
                 let headTv = tvOf ctx key
-                let scheme = generalise (zonk (TyVar headTv)) outerLevel
-                ctx.Scheme.Set(key, scheme)
+                let zonked = zonk (TyVar headTv)
+
+                if not (hasPendingFieldAccess zonked) then
+                    let scheme = generalise zonked outerLevel
+                    ctx.Scheme.Set(key, scheme)
 
     let private walkModuleElem (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
         match m with
@@ -1178,7 +1643,43 @@ module Unification =
         | ModuleElem.Expression e -> infer ctx e |> ignore
         | _ -> ()
 
+    /// After NameResolution stamps placeholder TyVars for every record
+    /// field, walk the file's `TypeDefn.Record`s again and Link each
+    /// placeholder to the real translated CST type. Done as a pre-pass so
+    /// a record's field type can reference another record declared
+    /// elsewhere in the same file — at this point every record name is
+    /// already in `ctx.RecordTypes`, so `translateType`'s lookup succeeds.
+    let private fillRecordFieldTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
+        match m with
+        | ModuleElem.Type defs ->
+            for td in defs do
+                match td with
+                | TypeDefn.Record(typeName = TypeName(ident = nameLi); fields = fields) when nameLi.Idents.Length = 1 ->
+                    let name = ctx.NameOf nameLi.Idents.[0]
+
+                    match ctx.RecordTypes.TryGetValue name with
+                    | true, info ->
+                        let n = min info.Fields.Length fields.Length
+
+                        for i = 0 to n - 1 do
+                            let (RecordField(ident = id; typ = t)) = fields.[i]
+                            let translated = translateType ctx t
+
+                            match info.Fields.[i].Type with
+                            | TyVar tv ->
+                                let root = UnionFind.find tv
+                                root.Link <- ValueSome translated
+                            | _ -> ()
+
+                            ignore id
+                    | false, _ -> ()
+                | _ -> ()
+        | _ -> ()
+
     let private walkElems (ctx: PassContext) (elems: ModuleElems<SyntaxToken>) =
+        for m in elems do
+            fillRecordFieldTypes ctx m
+
         for m in elems do
             walkModuleElem ctx m
 

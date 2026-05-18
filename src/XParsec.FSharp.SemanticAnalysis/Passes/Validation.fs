@@ -29,6 +29,7 @@ module Validation =
         | TyConst _ -> false
         | TyFun(a, r) -> hasFreeTyVar a || hasFreeTyVar r
         | TyTuple items -> items |> List.exists hasFreeTyVar
+        | TyRecord _ -> false
 
     /// `lhs <- rhs` with a single-name `lhs` whose `ResolvedBinding` says
     /// `IsMutable = false` is an error. Non-Ident LHSes (record field,
@@ -45,7 +46,54 @@ module Validation =
 
         let core = unwrap l
 
+        let isMultiSegLocalChain =
+            match core with
+            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
+                li.Idents.Length > 1
+                && ctx.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
+                ->
+                true
+            | _ -> false
+
         match core with
+        | _ when isMultiSegLocalChain ->
+            // `r.X <- v` (parsed as a single multi-segment LongIdent).
+            // The penultimate-receiver's type drives mutability of the
+            // last segment. v1: only 2-segment forms (`r.X <- v`) emit a
+            // diagnostic; deeper chains (`r.A.X <- v`) need to walk the
+            // intermediate field types — defer to a follow-up when typing
+            // those chains lands.
+            let li =
+                match core with
+                | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) -> li
+                | _ -> failwith "unreachable"
+
+            if li.Idents.Length = 2 then
+                let headKey = NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent
+
+                match ctx.Binding.TryGetValue headKey with
+                | ValueSome rb ->
+                    match ctx.TypeVar.TryGetValue rb.BindingSite with
+                    | ValueSome tv ->
+                        match Unification.zonk (TyVar tv) with
+                        | TyRecord recName ->
+                            let fieldName = ctx.NameOf li.Idents.[1]
+
+                            match ctx.RecordTypes.TryGetValue recName with
+                            | true, info ->
+                                match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
+                                | Some field when not field.IsMutable ->
+                                    ctx.Diagnostics.Add
+                                        {
+                                            Key = CstKeys.ofExpr core
+                                            Message = sprintf "Cannot assign to immutable field '%s'" fieldName
+                                            Severity = Error
+                                        }
+                                | _ -> ()
+                            | false, _ -> ()
+                        | _ -> ()
+                    | ValueNone -> ()
+                | ValueNone -> ()
         | Expr.Ident _
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _) ->
             let lhsKey = CstKeys.ofExpr core
@@ -59,7 +107,52 @@ module Validation =
                         Severity = Error
                     }
             | _ -> ()
+        | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
+            // `r.X <- v` — diagnose if X is declared immutable on r's
+            // resolved record type. Free TyVar receivers (unresolved
+            // record) skip silently; the deferred-field-access check
+            // surfaces those.
+            let rKey = CstKeys.ofExpr r
+
+            match ctx.TypeVar.TryGetValue rKey with
+            | ValueSome tv ->
+                match Unification.zonk (TyVar tv) with
+                | TyRecord recName ->
+                    let fieldName = ctx.NameOf li.Idents.[0]
+
+                    match ctx.RecordTypes.TryGetValue recName with
+                    | true, info ->
+                        match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
+                        | Some field when not field.IsMutable ->
+                            ctx.Diagnostics.Add
+                                {
+                                    Key = CstKeys.ofExpr core
+                                    Message = sprintf "Cannot assign to immutable field '%s'" fieldName
+                                    Severity = Error
+                                }
+                        | _ -> ()
+                    | false, _ -> ()
+                | _ -> ()
+            | ValueNone -> ()
         | _ -> ()
+
+    let private checkUnresolvedFieldAccesses (ctx: PassContext) : unit =
+        let seenRoots = System.Collections.Generic.HashSet<TypeVar>(HashIdentity.Reference)
+
+        for kv in ctx.TypeVar.AsDictionary() do
+            let root = UnionFind.find kv.Value
+
+            if seenRoots.Add(root) && not (List.isEmpty root.PendingFieldAccess) then
+                for (fieldName, useKey, _) in root.PendingFieldAccess do
+                    ctx.Diagnostics.Add
+                        {
+                            Key = useKey
+                            Message =
+                                sprintf
+                                    "Cannot resolve field '%s': receiver type was never constrained to a record type"
+                                    fieldName
+                            Severity = Error
+                        }
 
     let private checkValueRestriction (ctx: PassContext) : unit =
         // Iterate every binding-site self-entry (kv.Key = rb.BindingSite)
@@ -104,9 +197,13 @@ module Validation =
                 CstWalk.iterExpr walker () b.expr
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Do(expr = e)) -> CstWalk.iterExpr walker () e
         | ModuleElem.Expression e -> CstWalk.iterExpr walker () e
+        // Type declarations themselves don't carry expressions to validate
+        // — record-type registration / unification / field-access checks
+        // run in their own passes. New diagnostics (e.g. mutually
+        // recursive type cycles) would attach here as the subset grows.
+        | ModuleElem.Type _ -> ()
         // Surface unhandled module elements rather than silently skipping
         // them — Validation needs to grow new arms as the subset expands.
-        | ModuleElem.Type _ -> failwith "Validation: ModuleElem.Type not implemented"
         | ModuleElem.Exception _ -> failwith "Validation: ModuleElem.Exception not implemented"
         | ModuleElem.Module _ -> failwith "Validation: ModuleElem.Module (nested module) not implemented"
         | ModuleElem.ModuleAbbrev _ -> failwith "Validation: ModuleElem.ModuleAbbrev not implemented"
@@ -127,4 +224,5 @@ module Validation =
         | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) -> walkElems walker elems
         | ImplementationFile.Namespaces _ -> ()
 
+        checkUnresolvedFieldAccesses ctx
         checkValueRestriction ctx

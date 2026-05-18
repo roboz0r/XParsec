@@ -420,6 +420,76 @@ let tests =
                 | other -> failtestf "unexpected: %A" other
             }
 
+            // ---- Records ----
+
+            test "record literal TAST shape" {
+                let tast = analyse "type R = { X: int; Y: int }\nlet r = { X = 1; Y = 2 }"
+
+                let resultDecl =
+                    match tast.Decls with
+                    | [ d ] -> d
+                    | other -> failwithf "expected one decl, got %A" other
+
+                Expect.equal (TastShape.prettyDecl resultDecl) "let v0 = { X = 1; Y = 2 }" "record cons shape"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "field access TAST shape" {
+                let tast = analyse "type R = { X: int }\nlet f (r: R) = r.X"
+
+                let resultDecl =
+                    match tast.Decls with
+                    | [ d ] -> d
+                    | other -> failwithf "expected one decl, got %A" other
+
+                Expect.equal (TastShape.prettyDecl resultDecl) "let v0 = fun v1 -> v1.X" "field get shape"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "field assignment TAST shape" {
+                let tast = analyse "type R = { mutable X: int }\nlet f (r: R) = r.X <- 5"
+
+                let resultDecl =
+                    match tast.Decls with
+                    | [ d ] -> d
+                    | other -> failwithf "expected one decl, got %A" other
+
+                Expect.equal (TastShape.prettyDecl resultDecl) "let v0 = fun v1 -> v1.X <- 5" "field set shape"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "record clone TAST shape" {
+                let tast =
+                    analyse "type R = { X: int; Y: int }\nlet p = { X = 1; Y = 2 }\nlet q = { p with Y = 5 }"
+
+                // The type decl doesn't surface as a TDecl — only p and q do.
+                let qDecl =
+                    match tast.Decls with
+                    | [ _; d ] -> d
+                    | other -> failwithf "expected two decls, got %A" other
+
+                Expect.equal (TastShape.prettyDecl qDecl) "let v0 = { v1 with Y = 5 }" "record clone shape"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "record pattern TAST shape" {
+                let tast =
+                    analyse "type R = { X: int; Y: int }\nlet f r = match r with | { X = x; Y = y } -> x + y"
+
+                let resultDecl =
+                    match tast.Decls with
+                    | [ d ] -> d
+                    | other -> failwithf "expected one decl, got %A" other
+
+                Expect.stringContains (TastShape.prettyDecl resultDecl) "{ X = " "record pattern rendered"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
             test "qualified name resolves through provider" {
                 // Build a custom provider that knows `Math.pi`.
                 let provider: IExternalSymbolProvider =

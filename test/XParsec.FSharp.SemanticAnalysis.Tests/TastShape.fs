@@ -257,6 +257,50 @@ type private Renderer() =
             this.Expr e2
             push ")"
 
+        | TExpr.RecordCons(fields, _) ->
+            push "{ "
+
+            fields
+            |> List.iteri (fun i (n, v) ->
+                if i > 0 then
+                    push "; "
+
+                push n
+                push " = "
+                this.Expr v
+            )
+
+            push " }"
+
+        | TExpr.RecordClone(src, overrides, _) ->
+            push "{ "
+            this.Expr src
+            push " with "
+
+            overrides
+            |> List.iteri (fun i (n, v) ->
+                if i > 0 then
+                    push "; "
+
+                push n
+                push " = "
+                this.Expr v
+            )
+
+            push " }"
+
+        | TExpr.FieldGet(receiver, name, _) ->
+            this.Expr receiver
+            push "."
+            push name
+
+        | TExpr.FieldSet(receiver, name, value, _) ->
+            this.Expr receiver
+            push "."
+            push name
+            push " <- "
+            this.Expr value
+
     member this.Pat(p: TPat) : unit =
         match p with
         | TPat.NamedSimple(k, _) -> push (nameOf k)
@@ -288,6 +332,21 @@ type private Renderer() =
             )
 
             push ")"
+
+        | TPat.Record(fields, _) ->
+            push "{ "
+
+            fields
+            |> List.iteri (fun i (n, p) ->
+                if i > 0 then
+                    push "; "
+
+                push n
+                push " = "
+                this.Pat p
+            )
+
+            push " }"
 
     member this.Decl(d: TDecl) : unit =
         match d with

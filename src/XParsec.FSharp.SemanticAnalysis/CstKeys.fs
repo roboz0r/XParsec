@@ -86,6 +86,9 @@ module CstKeys =
             | StringKind.InterpolatedString t
             | StringKind.VerbatimInterpolatedString t
             | StringKind.Interpolated3String t -> t
+        | Expr.DotLookup(expr = inner) -> firstTokenOfExpr inner
+        | Expr.Record(lBrace = pk) -> firstTokenOfParenKind pk
+        | Expr.RecordClone(lBrace = pk) -> firstTokenOfParenKind pk
         | _ -> failwithf "CstKeys.firstTokenOfExpr: TODO %A" e
 
     let rec firstTokenOfPat (p: Pat<SyntaxToken>) : SyntaxToken =
@@ -100,6 +103,7 @@ module CstKeys =
         | Pat.Typed(pat = inner) -> firstTokenOfPat inner
         | Pat.As(pat = inner) -> firstTokenOfPat inner
         | Pat.Or(left = inner) -> firstTokenOfPat inner
+        | Pat.Record(lBrace = t) -> t
         | _ -> failwithf "CstKeys.firstTokenOfPat: TODO %A" p
 
     let ofExpr (e: Expr<SyntaxToken>) : NodeKey =
@@ -132,6 +136,9 @@ module CstKeys =
             | Expr.Range _ -> NodeKind.ExprRange
             | Expr.SteppedRange _ -> NodeKind.ExprSteppedRange
             | Expr.Null _ -> NodeKind.ExprNull
+            | Expr.DotLookup _ -> NodeKind.ExprDotLookup
+            | Expr.Record _ -> NodeKind.ExprRecord
+            | Expr.RecordClone _ -> NodeKind.ExprRecordClone
             | _ -> NodeKind.Unknown
 
         NodeKey.ofToken (firstTokenOfExpr e) kind
@@ -149,6 +156,7 @@ module CstKeys =
             | Pat.Typed _ -> NodeKind.PatTyped
             | Pat.Or _ -> NodeKind.PatOr
             | Pat.EmptyBlock _ -> NodeKind.PatEmptyBlock
+            | Pat.Record _ -> NodeKind.PatRecord
             | _ -> NodeKind.Unknown
 
         NodeKey.ofToken (firstTokenOfPat p) kind

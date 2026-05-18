@@ -33,6 +33,10 @@ type TPat =
     | Tuple of items: TPat list * ty: SemType
     /// Literal pattern (match arms): `| 0 -> …`, `| true -> …`.
     | Const of value: TConstValue * ty: SemType
+    /// `{ X = px; Y = py }` — destructures by field name. `ty` is a
+    /// `TyRecord`. May list a subset of the record's fields; unlisted
+    /// fields are simply not bound.
+    | Record of fields: (string * TPat) list * ty: SemType
 
 [<RequireQualifiedAccess>]
 type TExpr =
@@ -81,6 +85,21 @@ type TExpr =
     /// as int in the tiny subset; `ty` is `seq<int>` (a TyConst placeholder
     /// — see [[MockBuiltins.tySeqInt]]).
     | Range of startExpr: TExpr * step: TExpr option * stopExpr: TExpr * ty: SemType
+    /// `{ X = e1; Y = e2 }` record literal. `ty` is a `TyRecord`; field
+    /// list is in source order (the unification pass already validated
+    /// that the field set matches the record's declared set).
+    | RecordCons of fields: (string * TExpr) list * ty: SemType
+    /// `{ r with X = v; … }`. `source` types as the same `TyRecord` as
+    /// `ty`; `overrides` is the source-order list of `(name, replacement)`
+    /// for the listed fields. Unlisted fields are copied from `source` at
+    /// the runtime level — not represented in the TAST.
+    | RecordClone of source: TExpr * overrides: (string * TExpr) list * ty: SemType
+    /// `r.X` — `ty` is the field's declared type. `receiver` types as a
+    /// `TyRecord`.
+    | FieldGet of receiver: TExpr * fieldName: string * ty: SemType
+    /// `r.X <- v` — `ty` is unit. `receiver` types as a `TyRecord` whose
+    /// field `fieldName` is mutable (Validation enforces).
+    | FieldSet of receiver: TExpr * fieldName: string * value: TExpr * ty: SemType
 
 and TMatchArm =
     {

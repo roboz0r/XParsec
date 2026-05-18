@@ -193,12 +193,20 @@ module CstWalk =
             iterExpr walker env body
             iterRules walker env rules
 
-        // TODO: Object / Record / RecordClone need their own iter helpers
-        // — for now the Visit hook still fires on the outer node so passes
-        // see them, just not their inner Exprs.
-        | Expr.Object _
-        | Expr.Record _
-        | Expr.RecordClone _ -> ()
+        // TODO: Object needs its own iter helper — for now the Visit hook
+        // still fires on the outer node so passes see it, just not its
+        // inner Exprs.
+        | Expr.Object _ -> ()
+
+        | Expr.Record(fieldInitializers = inits) ->
+            for FieldInitializer(expr = inner) in inits do
+                iterExpr walker env inner
+
+        | Expr.RecordClone(expr = src; fieldInitializers = inits) ->
+            iterExpr walker env src
+
+            for FieldInitializer(expr = inner) in inits do
+                iterExpr walker env inner
 
         // Patterns can embed expressions (Pat.Expr); not walked yet. None of
         // the current passes care, and Pat traversal will get its own iter.

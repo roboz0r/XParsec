@@ -478,4 +478,17 @@ let tests =
                 | None -> ()
                 | other -> failwithf "expected HeapShared or None, got %A" other
             }
+
+            test "module-level record literal is LocalStack" {
+                let escape = escapeOf "type R = { X: int; Y: int }\nlet r = { X = 1; Y = 2 }" "r"
+
+                Expect.equal escape (Some LocalStack) "module-top record is LocalStack"
+            }
+
+            test "record returned from a function is CallerStack" {
+                let escape =
+                    escapeOf "type R = { X: int; Y: int }\nlet mk () = { X = 1; Y = 2 }" "mk"
+
+                Expect.equal escape (Some CallerStack) "mk returns a record"
+            }
         ]

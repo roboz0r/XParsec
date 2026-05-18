@@ -95,6 +95,11 @@ type SemType =
     /// Flat n-ary tuple. Unifies pairwise with same-arity TyTuple; arity
     /// mismatch is a diagnostic in Unification.
     | TyTuple of items: SemType list
+    /// Named record type. Field types are not stored inline — look up
+    /// `ctx.RecordTypes[name]` for the field list. Two TyRecords unify
+    /// iff their names match. v1 uses single-segment names; qualified
+    /// names land with namespaces.
+    | TyRecord of name: string
 
 /// Abelian-group expression over named unit atoms. Always stored in a
 /// normalised form: each exponent is in canonical Rational form, zero
@@ -186,6 +191,14 @@ and [<Sealed>] TypeVar() =
     /// UnionFind.find before reading. `union` propagates `min` of the two
     /// roots' levels to the survivor.
     member val Level: int = 0 with get, set
+    /// Pending field-access constraints accumulated while this TyVar was
+    /// free. Drained by `unify` when the TyVar's `Link` becomes a
+    /// `TyRecord _`. Tuple shape: (fieldName, useKey, resultTyVar). The
+    /// `useKey` is the field-access expression's NodeKey for diagnostics;
+    /// `resultTyVar` is the access expression's own TyVar that needs to be
+    /// unified with the field's declared type when the receiver resolves.
+    /// Authoritative on the union-find root.
+    member val PendingFieldAccess: (string * NodeKey * TypeVar) list = [] with get, set
 
 module MeasureTerm =
     let empty = MeasureTerm.Empty
