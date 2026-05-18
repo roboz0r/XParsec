@@ -66,18 +66,30 @@ module Unification =
         | TyRecord(n, args) -> TyRecord(n, List.map zonk args)
         | TyUnion(n, args) -> TyUnion(n, List.map zonk args)
 
+    /// Merge `source.Constraints` into `target.Constraints`, collapsing
+    /// any pair whose `Kind` already appears on the target. Two
+    /// constraints with the same `Kind` discharge to the same predicate;
+    /// keeping both would fire the diagnostic twice for what is, from
+    /// the satisfaction-checker's point of view, one rule.
+    let private mergeConstraints (target: TypeVar) (additions: SemanticConstraint list) : unit =
+        let mutable acc = target.Constraints
+
+        for c in additions do
+            if not (acc |> List.exists (fun existing -> existing.Kind = c.Kind)) then
+                acc <- c :: acc
+
+        target.Constraints <- acc
+
     /// Move pending deferred-constraint state from `source` onto `target`.
     /// Called whenever a TyVar is no longer the equivalence-class
     /// representative (either after union-find collapse, or when its Link is
     /// set). Bounds attached to a non-representative would otherwise never
-    /// fire their on-unified callbacks. Lists are empty in the current
-    /// subset, so this is a no-op at runtime — but the contract has to be
-    /// honoured before SRTPs / IWSAMs come online.
+    /// fire their on-unified callbacks.
     let private migrateBounds (target: TypeVar) (source: TypeVar) : unit =
         if not (System.Object.ReferenceEquals(target, source)) then
-            if not (List.isEmpty source.IfaceBounds) then
-                target.IfaceBounds <- source.IfaceBounds @ target.IfaceBounds
-                source.IfaceBounds <- []
+            if not (List.isEmpty source.Constraints) then
+                mergeConstraints target source.Constraints
+                source.Constraints <- []
 
             if not (List.isEmpty source.SrtpBounds) then
                 target.SrtpBounds <- source.SrtpBounds @ target.SrtpBounds
@@ -86,9 +98,8 @@ module Unification =
             if not (List.isEmpty source.PendingFieldAccess) then
                 target.PendingFieldAccess <- source.PendingFieldAccess @ target.PendingFieldAccess
                 source.PendingFieldAccess <- []
-    // TODO: fire on-unified callbacks for newly-stable bounds once
-    // the SRTP / IWSAM resolution machinery exists. Until then,
-    // appending is enough to preserve them through unification.
+    // TODO: fire on-unified callbacks for newly-stable SRTP bounds once
+    // the SRTP / IWSAM resolution machinery exists.
 
     /// Two passes folded into one walk:
     /// (a) **Occurs check** — does `target` (already a union-find root) appear
@@ -215,6 +226,32 @@ module Unification =
             | ValueNone -> ValueNone
         | _ -> ValueNone
 
+    /// Three-valued result of evaluating a constraint against a candidate
+    /// type. `Defer` is the "I don't know yet" answer: the target is
+    /// still free (or compound-with-free-args) and a future unification
+    /// might pin it. `drainConstraints` keeps deferred constraints on
+    /// the TyVar so they re-fire on the next `Link` change.
+    type private ConstraintOutcome =
+        | Satisfied
+        | Violated
+        | Defer
+
+    /// The primitive carrier set used by `primitiveSupports`. Includes
+    /// every non-string primitive `MockBuiltins` mints — `string` is
+    /// handled separately since it's a reference type.
+    let private primitiveValueTypes =
+        Set.ofList [ "int"; "int64"; "byte"; "bool"; "float"; "float32"; "char"; "unit" ]
+
+    /// Source-text rendering of a `SemanticConstraintKind` for diagnostics.
+    let private constraintKindName (k: SemanticConstraintKind) : string =
+        match k with
+        | SemanticConstraintKind.Equality -> "equality"
+        | SemanticConstraintKind.Comparison -> "comparison"
+        | SemanticConstraintKind.Struct -> "struct"
+        | SemanticConstraintKind.ReferenceType -> "not struct"
+        | SemanticConstraintKind.Nullness -> "null"
+        | SemanticConstraintKind.NotNull -> "not null"
+
     let rec private unify (ctx: PassContext) (key: NodeKey) (a: SemType) (b: SemType) =
         let a = resolveStep a
         let b = resolveStep b
@@ -256,20 +293,26 @@ module Unification =
                 newRoot.Link <- linkA
 
                 match linkA with
-                | ValueSome t -> drainPendingFieldAccess ctx newRoot t
+                | ValueSome t ->
+                    drainPendingFieldAccess ctx newRoot t
+                    drainConstraints ctx key newRoot t
                 | ValueNone -> ()
             | ValueNone, ValueSome _ ->
                 newRoot.Link <- linkB
 
                 match linkB with
-                | ValueSome t -> drainPendingFieldAccess ctx newRoot t
+                | ValueSome t ->
+                    drainPendingFieldAccess ctx newRoot t
+                    drainConstraints ctx key newRoot t
                 | ValueNone -> ()
             | ValueSome a, ValueSome b ->
                 newRoot.Link <- linkA
                 unify ctx key a b
 
                 match linkA with
-                | ValueSome t -> drainPendingFieldAccess ctx newRoot t
+                | ValueSome t ->
+                    drainPendingFieldAccess ctx newRoot t
+                    drainConstraints ctx key newRoot t
                 | ValueNone -> ()
         | TyVar tv, other
         | other, TyVar tv ->
@@ -302,9 +345,7 @@ module Unification =
 
                 root.Link <- ValueSome other
                 drainPendingFieldAccess ctx root other
-        // No bound migration needed here: `root` keeps its bounds, and
-        // setting Link is the trigger for on-unified callbacks to fire
-        // once they exist.
+                drainConstraints ctx key root other
         | _ ->
             ctx.Diagnostics.Add
                 {
@@ -353,6 +394,170 @@ module Unification =
                                 Severity = Error
                             }
 
+    /// Built-in primitive support table. `ValueSome true` is a definitive
+    /// "yes, this constraint holds on `name`"; `ValueSome false` is a
+    /// definitive "no, violation"; `ValueNone` means "not in the table,
+    /// fall through to structural / deferred handling". The set covers
+    /// the primitives `MockBuiltins` mints — extend as new ground types
+    /// reach the analyser.
+    and private primitiveSupports (kind: SemanticConstraintKind) (name: string) : bool voption =
+        let isValueType = Set.contains name primitiveValueTypes
+        let isString = name = "string"
+
+        match kind with
+        | SemanticConstraintKind.Equality
+        | SemanticConstraintKind.Comparison ->
+            if isValueType || isString then
+                ValueSome true
+            else
+                ValueNone
+        | SemanticConstraintKind.Struct ->
+            if isValueType then ValueSome true
+            elif isString then ValueSome false
+            else ValueNone
+        | SemanticConstraintKind.ReferenceType ->
+            if isString then ValueSome true
+            elif isValueType then ValueSome false
+            else ValueNone
+        | SemanticConstraintKind.Nullness ->
+            if isString then ValueSome true
+            elif isValueType then ValueSome false
+            else ValueNone
+        | SemanticConstraintKind.NotNull ->
+            if isValueType then ValueSome true
+            elif isString then ValueSome false
+            else ValueNone
+
+    /// Folded outcome of evaluating a list of `checkConstraint` results.
+    /// `Violated` is sticky (once any element fails, the whole compound
+    /// fails); `Defer` propagates only when no element has failed but at
+    /// least one is still pending.
+    and private reduceOutcome (check: SemType -> ConstraintOutcome) (items: SemType list) : ConstraintOutcome =
+        let mutable result = Satisfied
+
+        for item in items do
+            match result, check item with
+            | Violated, _ -> ()
+            | _, Violated -> result <- Violated
+            | Defer, _
+            | _, Defer -> result <- Defer
+            | Satisfied, Satisfied -> ()
+
+        result
+
+    /// Decide whether `c` is satisfied by `t`. The receiver shape is
+    /// resolved through TyVar links one step at a time; nested compounds
+    /// (TyTuple / TyRecord / TyUnion) recurse compositionally. Free
+    /// TyVars return `Defer` so the next `Link` assignment re-fires the
+    /// check via `drainConstraints`.
+    and private checkConstraint (ctx: PassContext) (c: SemanticConstraint) (t: SemType) : ConstraintOutcome =
+        match c.Kind, resolveStep t with
+        | _, TyVar _ -> Defer
+        | k, TyConst name ->
+            match primitiveSupports k name with
+            | ValueSome true -> Satisfied
+            | ValueSome false -> Violated
+            | ValueNone -> Defer
+        | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyFun _ ->
+            // Function types support neither structural equality nor
+            // comparison in F#.
+            Violated
+        | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyTuple items ->
+            reduceOutcome (checkConstraint ctx c) items
+        | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyRecord(name, args) ->
+            match ctx.RecordTypes.TryGetValue name with
+            | true, info ->
+                let subst = mkNamedTypeSubst info.TypeParams args
+
+                info.Fields
+                |> Array.map (fun f -> substituteWith subst f.Type)
+                |> Array.toList
+                |> reduceOutcome (checkConstraint ctx c)
+            | false, _ -> Defer
+        | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyUnion(name, args) ->
+            match ctx.UnionTypes.TryGetValue name with
+            | true, info ->
+                let subst = mkNamedTypeSubst info.TypeParams args
+
+                [
+                    for case in info.Cases do
+                        for field in case.Fields -> substituteWith subst field
+                ]
+                |> reduceOutcome (checkConstraint ctx c)
+            | false, _ -> Defer
+        | SemanticConstraintKind.Struct, (TyTuple _ | TyFun _ | TyRecord _ | TyUnion _) ->
+            // v1: tuples, functions, and reference records / unions are
+            // all reference types. `[<Struct>]`-attributed records / unions
+            // ship with the attribute walker.
+            Violated
+        | SemanticConstraintKind.ReferenceType, (TyTuple _ | TyFun _ | TyRecord _ | TyUnion _) -> Satisfied
+        | SemanticConstraintKind.Nullness, _ ->
+            // Nullness analysis is a separate track — defer until it
+            // lands. Treating as `Defer` (not `Violated`) keeps existing
+            // code that doesn't annotate nullability noise-free.
+            Defer
+        | SemanticConstraintKind.NotNull, _ -> Defer
+
+    /// On-unified callback for type-parameter constraints. Walks
+    /// `root.Constraints`, evaluates each against the new Link target,
+    /// and emits diagnostics for any that fail. Constraints that resolve
+    /// (Satisfied) are dropped; ones that defer remain on the root and
+    /// re-fire next time `Link` changes (which, after the first set,
+    /// only happens during union-find collapse). For compound `Defer`
+    /// outcomes (the target is a TyRecord/TyUnion/TyTuple with free
+    /// arg TyVars), copy the constraint onto each still-free arg so the
+    /// next Link on any of them re-evaluates the rule compositionally.
+    and private drainConstraints (ctx: PassContext) (key: NodeKey) (root: TypeVar) (linkTarget: SemType) : unit =
+        if List.isEmpty root.Constraints then
+            ()
+        else
+            let cs = root.Constraints
+            root.Constraints <- []
+            let mutable remaining = []
+
+            for c in cs do
+                match checkConstraint ctx c linkTarget with
+                | Satisfied -> ()
+                | Violated ->
+                    ctx.Diagnostics.Add
+                        {
+                            Key = key
+                            Message =
+                                sprintf
+                                    "The type '%A' does not support the '%s' constraint"
+                                    (zonk linkTarget)
+                                    (constraintKindName c.Kind)
+                            Severity = Error
+                        }
+                | Defer ->
+                    remaining <- c :: remaining
+                    propagateToFreeArgs ctx c linkTarget
+
+            root.Constraints <- List.rev remaining
+
+    /// Attach `c` to any free-TyVar arg reachable inside `linkTarget`.
+    /// Used by `drainConstraints` when a compound shape (TyRecord /
+    /// TyUnion / TyTuple) is partially resolved: the parent constraint
+    /// is satisfied iff every component supports it, so a still-free
+    /// component carries the same constraint forward.
+    and private propagateToFreeArgs (ctx: PassContext) (c: SemanticConstraint) (t: SemType) : unit =
+        let rec walk t =
+            match resolveStep t with
+            | TyVar tv ->
+                let root = UnionFind.find tv
+
+                if not (root.Constraints |> List.exists (fun e -> e.Kind = c.Kind)) then
+                    root.Constraints <- c :: root.Constraints
+            | TyConst _ -> ()
+            | TyFun(a, r) ->
+                walk a
+                walk r
+            | TyTuple xs -> List.iter walk xs
+            | TyRecord(_, args) -> List.iter walk args
+            | TyUnion(_, args) -> List.iter walk args
+
+        walk t
+
     let private enterLevel (ctx: PassContext) : unit =
         ctx.CurrentLevel <- ctx.CurrentLevel + 1
 
@@ -394,12 +599,29 @@ module Unification =
     /// by `generalise`, so we don't follow Links here.
     let private instantiate (ctx: PassContext) (scheme: TypeScheme) : SemType =
         let subst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
+        // Build the substitution and remember each fresh TyVar so the
+        // scheme's per-quantifier constraints can be re-stamped onto it.
+        let freshOf = Dictionary<TypeVar, TypeVar>(HashIdentity.Reference)
 
         for q in scheme.Quantified do
             let qRoot = UnionFind.find q
             let fresh = TypeVar()
             fresh.Level <- ctx.CurrentLevel
             subst.[qRoot] <- TyVar fresh
+            freshOf.[qRoot] <- fresh
+
+        // Re-stamp constraints onto the freshly minted instance TyVars.
+        // A use site that pins the fresh TyVar will then re-evaluate
+        // satisfaction against its own substitution; the original
+        // quantified TyVars stay constraint-bearing for the next call.
+        for (qTv, c) in scheme.Constraints do
+            let qRoot = UnionFind.find qTv
+
+            match freshOf.TryGetValue qRoot with
+            | true, fresh ->
+                if not (fresh.Constraints |> List.exists (fun e -> e.Kind = c.Kind)) then
+                    fresh.Constraints <- c :: fresh.Constraints
+            | false, _ -> ()
 
         substituteWith subst scheme.Body
 
@@ -459,7 +681,17 @@ module Unification =
             | TyUnion(_, args) -> List.iter walk args
 
         walk zonkedTy
-        TypeScheme(List.ofSeq quantified, zonkedTy)
+
+        // Collect constraints from each quantified TyVar's union-find
+        // root. `instantiate` swaps these onto the fresh substitutions
+        // per use site so satisfaction is re-evaluated independently.
+        let constraints =
+            [
+                for tv in quantified do
+                    for c in tv.Constraints -> tv, c
+            ]
+
+        TypeScheme(List.ofSeq quantified, zonkedTy, constraints)
 
     /// Single-name `let` generalises unless the binding is `mutable`.
     /// Mutable bindings stay monomorphic: every use of the name unifies
@@ -633,7 +865,8 @@ module Unification =
                     // bare reference to a generic record / union).
                     forceFill ctx info
                     let args = [ for _ in info.TypeParams -> TyVar(freshTyVar ctx) ]
-                    expandAbbreviation ctx info args
+                    let diagKey = NodeKey.ofToken li.Idents.[0] NodeKind.TypeNamed
+                    expandAbbreviation ctx diagKey info args
                 | false, _ ->
                     match ctx.RecordTypes.TryGetValue name with
                     | true, info ->
@@ -723,7 +956,7 @@ module Unification =
                 if expected <> argCount then
                     diagnoseArity expected
 
-                expandAbbreviation ctx info translatedArgs
+                expandAbbreviation ctx diagKey info translatedArgs
             | false, _ ->
                 match ctx.RecordTypes.TryGetValue name with
                 | true, info ->
@@ -749,11 +982,86 @@ module Unification =
                         TyConst name
         | Type.FunctionType(fromType = from; toType = into) -> TyFun(translateType ctx from, translateType ctx into)
         | Type.TupleType(types = types) -> TyTuple [ for t in types -> translateType ctx t ]
+        | Type.WhenConstrainedType(typ = inner; constraints = cs) ->
+            let inner = translateType ctx inner
+            translateConstraints ctx cs
+            inner
         | _ ->
             // Multi-segment named/generic types and other shapes (array
             // types, anonymous records, etc.) aren't modelled yet. Hand
             // back a free TyVar so unification can pin it via context.
             TyVar(freshTyVar ctx)
+
+    /// Translate a `Constraint<'T>` CST node into a `SemanticConstraint`
+    /// and attach it to the constrained typar's TyVar through the
+    /// current `ctx.TyparScope`. Unsupported kinds (Coercion, MemberTrait,
+    /// etc.) are skipped — they belong to their own resolution phases.
+    /// An unknown typar name diagnoses the same way `Type.VarType` does.
+    and private translateConstraint (ctx: PassContext) (c: Constraint<SyntaxToken>) : unit =
+        let typarTokenOf (t: Typar<SyntaxToken>) : SyntaxToken voption =
+            match t with
+            | Typar.Named(ident = id)
+            | Typar.Static(ident = id) -> ValueSome id
+            | Typar.Anon _ -> ValueNone
+
+        let attach (typar: Typar<SyntaxToken>) (kind: SemanticConstraintKind) (declTok: SyntaxToken) : unit =
+            match typarTokenOf typar with
+            | ValueNone -> ()
+            | ValueSome id ->
+                let name = ctx.NameOf id
+
+                match ctx.TyparScope.TryGetValue name with
+                | true, tv ->
+                    let root = UnionFind.find tv
+
+                    let sc =
+                        {
+                            Kind = kind
+                            DeclKey = NodeKey.ofToken declTok NodeKind.TypeVarRef
+                        }
+
+                    if not (root.Constraints |> List.exists (fun e -> e.Kind = sc.Kind)) then
+                        root.Constraints <- sc :: root.Constraints
+                | false, _ ->
+                    ctx.Diagnostics.Add
+                        {
+                            Key = NodeKey.ofToken id NodeKind.TypeVarRef
+                            Message =
+                                sprintf
+                                    "Type parameter '%s' in constraint clause is not declared in the enclosing scope"
+                                    name
+                            Severity = Error
+                        }
+
+        match c with
+        | Constraint.Equality(typar = tp; equalityToken = tok) -> attach tp SemanticConstraintKind.Equality tok
+        | Constraint.Comparison(typar = tp; comparisonToken = tok) -> attach tp SemanticConstraintKind.Comparison tok
+        | Constraint.Struct(typar = tp; structToken = tok) -> attach tp SemanticConstraintKind.Struct tok
+        | Constraint.ReferenceType(typar = tp; structToken = tok) -> attach tp SemanticConstraintKind.ReferenceType tok
+        | Constraint.Nullness(typar = tp; nullToken = tok) -> attach tp SemanticConstraintKind.Nullness tok
+        | Constraint.NotNull(typar = tp; nullToken = tok) -> attach tp SemanticConstraintKind.NotNull tok
+        | Constraint.Coercion _
+        | Constraint.MemberTrait _
+        | Constraint.DefaultConstructor _
+        | Constraint.Enum _
+        | Constraint.Unmanaged _
+        | Constraint.Delegate _
+        | Constraint.Default _ ->
+            // v1 skips these — each has its own resolution phase
+            // (SRTPs / IWSAMs / attribute pass). Silent skip rather than
+            // a diagnostic, matching how `Measure.Anonymous` and friends
+            // surface today.
+            ()
+
+    /// Translate every `Constraint` in a `TyparConstraints` block under
+    /// the current `ctx.TyparScope`. The scope must already contain the
+    /// constrained typars — callers (binding-level, type-defn fill-in,
+    /// inline `WhenConstrainedType`) seed it first.
+    and private translateConstraints (ctx: PassContext) (tcs: TyparConstraints<SyntaxToken>) : unit =
+        let (TyparConstraints(constraints = cs)) = tcs
+
+        for c in cs do
+            translateConstraint ctx c
 
     /// Force the body of an abbreviation, translating its RHS under a
     /// typar scope seeded from its `TypeParams`. Idempotent — already-
@@ -790,6 +1098,10 @@ module Unification =
             ctx.TyparScopeStrict <- true
 
             try
+                match info.TyparConstraints with
+                | ValueSome cs -> translateConstraints ctx cs
+                | ValueNone -> ()
+
                 let body = translateType ctx info.RhsCst
 
                 if info.Status = AbbreviationStatus.InProgress then
@@ -804,7 +1116,42 @@ module Unification =
     /// Returns a fresh TyVar if `Body = ValueNone` (cycle detected, or
     /// fill-in not yet run) — unification stays best-effort rather than
     /// cascading.
-    and private expandAbbreviation (ctx: PassContext) (info: AbbreviationInfo) (args: SemType list) : SemType =
+    ///
+    /// Constraints on the prototype typars are evaluated against the
+    /// supplied args here: unlike records / unions, an abbreviation has
+    /// no fresh-instance step that would let `drainConstraints` fire
+    /// on its own. A Violated outcome diagnoses immediately; a Defer
+    /// outcome propagates the constraint to any free TyVar inside the
+    /// supplied arg so a later unification re-fires the check.
+    and private expandAbbreviation
+        (ctx: PassContext)
+        (diagKey: NodeKey)
+        (info: AbbreviationInfo)
+        (args: SemType list)
+        : SemType =
+        let n = min (List.length info.TypeParams) (List.length args)
+
+        for i = 0 to n - 1 do
+            let (_, protoTv) = info.TypeParams.[i]
+            let arg = args.[i]
+            let protoRoot = UnionFind.find protoTv
+
+            for c in protoRoot.Constraints do
+                match checkConstraint ctx c arg with
+                | Satisfied -> ()
+                | Violated ->
+                    ctx.Diagnostics.Add
+                        {
+                            Key = diagKey
+                            Message =
+                                sprintf
+                                    "The type '%A' does not support the '%s' constraint"
+                                    (zonk arg)
+                                    (constraintKindName c.Kind)
+                            Severity = Error
+                        }
+                | Defer -> propagateToFreeArgs ctx c arg
+
         match info.Body with
         | ValueSome body ->
             let subst = mkNamedTypeSubst info.TypeParams args
@@ -968,8 +1315,15 @@ module Unification =
                 for (_, tp) in typeParams ->
                     let fresh = TypeVar()
                     fresh.Level <- ctx.CurrentLevel
+                    let protoRoot = UnionFind.find tp
+                    // Copy prototype constraints onto the fresh
+                    // instance so every use site re-evaluates
+                    // satisfaction independently (a `Set<int>` and a
+                    // `Set<int -> int>` each see their own copy of the
+                    // `'a : comparison` rule).
+                    fresh.Constraints <- protoRoot.Constraints
                     let asTy = TyVar fresh
-                    subst.[UnionFind.find tp] <- asTy
+                    subst.[protoRoot] <- asTy
                     asTy
             ]
 
@@ -2096,7 +2450,7 @@ module Unification =
         ctx.TyparScope <- Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
 
         match b.typarDefns with
-        | ValueSome(TyparDefns(defns = ds)) ->
+        | ValueSome(TyparDefns(defns = ds; constraints = bindingConstraints)) ->
             for TyparDefn(typar = t) in ds do
                 match t with
                 | Typar.Named(ident = id)
@@ -2108,6 +2462,10 @@ module Unification =
                         tv.Level <- ctx.CurrentLevel
                         ctx.TyparScope.[n] <- tv
                 | Typar.Anon _ -> ()
+
+            match bindingConstraints with
+            | ValueSome cs -> translateConstraints ctx cs
+            | ValueNone -> ()
         | ValueNone -> ()
 
         try
@@ -2225,6 +2583,10 @@ module Unification =
                         ctx.TyparScopeStrict <- true
 
                         try
+                            match info.TyparConstraints with
+                            | ValueSome cs -> translateConstraints ctx cs
+                            | ValueNone -> ()
+
                             let n = min info.Fields.Length fields.Length
 
                             for i = 0 to n - 1 do
@@ -2267,6 +2629,10 @@ module Unification =
                         ctx.TyparScopeStrict <- true
 
                         try
+                            match info.TyparConstraints with
+                            | ValueSome cs -> translateConstraints ctx cs
+                            | ValueNone -> ()
+
                             // Walk the case list in declaration order, skipping
                             // any GADT cases (they don't have a registry entry
                             // — `inspectCaseData` returns ValueNone). The

@@ -315,6 +315,17 @@ module NameResolution =
 
         prefix @ main
 
+    /// Extract the `when 'a : ...` clause attached to a `TypeName`'s
+    /// `TyparDefns`, if any. Captured onto the registry entry so
+    /// Unification's fill-in pass can attach each constraint to the
+    /// prototype TyVars without re-walking the CST.
+    let private typarConstraintsOfTypeName (tn: TypeName<SyntaxToken>) : TyparConstraints<SyntaxToken> voption =
+        let (TypeName(typarDefns = td)) = tn
+
+        match td with
+        | ValueSome(TyparDefns(constraints = ValueSome tc)) -> ValueSome tc
+        | _ -> ValueNone
+
     /// Mint a prototype TyVar per declared typar name. Each prototype is
     /// stored on the registry entry and substituted out at every use site
     /// — two `Box<…>` instantiations therefore share no variables.
@@ -374,7 +385,13 @@ module NameResolution =
                         |]
 
                     let info =
-                        RecordTypeInfo(name, typeParams, fieldInfos, NodeKey.ofToken nameTok NodeKind.DeclType)
+                        RecordTypeInfo(
+                            name,
+                            typeParams,
+                            fieldInfos,
+                            NodeKey.ofToken nameTok NodeKind.DeclType,
+                            typarConstraintsOfTypeName tn
+                        )
 
                     ctx.RecordTypes.[name] <- info
 
@@ -480,7 +497,9 @@ module NameResolution =
                                 | ValueNone -> ()
                         |]
 
-                    let info = UnionTypeInfo(name, typeParams, caseInfos, declKey)
+                    let info =
+                        UnionTypeInfo(name, typeParams, caseInfos, declKey, typarConstraintsOfTypeName tn)
+
                     ctx.UnionTypes.[name] <- info
 
                     for c in caseInfos do
@@ -528,7 +547,10 @@ module NameResolution =
                         }
                 else
                     let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
-                    let info = AbbreviationInfo(name, typeParams, rhs, declKey)
+
+                    let info =
+                        AbbreviationInfo(name, typeParams, rhs, declKey, typarConstraintsOfTypeName tn)
+
                     ctx.AbbreviationTypes.[name] <- info
         | _ -> ()
 

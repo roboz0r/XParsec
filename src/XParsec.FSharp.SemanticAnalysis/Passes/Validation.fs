@@ -155,6 +155,14 @@ module Validation =
                             Severity = Error
                         }
 
+    // A scheme-level "Constraint not resolved" tail check is reserved
+    // for a future revision: with v1's drainConstraints firing at every
+    // use site, every meaningful unresolved-constraint case already
+    // surfaces a diagnostic there. A true tail check would require
+    // tracking whether each scheme is ever instantiated and whether
+    // every quantified TyVar's constraint was discharged at at least
+    // one instantiation — the bookkeeping isn't worth it for v1.
+
     let private checkValueRestriction (ctx: PassContext) : unit =
         // Iterate every binding-site self-entry (kv.Key = rb.BindingSite)
         // whose binding is mutable. NameResolution writes one self-entry

@@ -170,8 +170,30 @@ and [<Sealed>] MeasureTerm private (exponents: (string * Rational) list) =
 /// TODO: real shape when SRTPs come online.
 and MemberSignature = | MemberSignaturePlaceholder
 
-/// TODO: real shape when IWSAMs come online.
-and InterfaceBound = | InterfaceBoundPlaceholder
+/// Type-parameter constraint attached to a `TypeVar`. Built from
+/// `Constraint<'T>` CST nodes by `Unification.translateConstraints` and
+/// drained by `Unification.unify` when the TyVar is linked to a concrete
+/// shape. See `docs/constraints-plan.md`. v1 covers the trait-table
+/// subset (`equality`, `comparison`, `struct`, `not struct`, `: null`,
+/// `: not null`); `Coercion`, `MemberTrait`, `DefaultConstructor`,
+/// `Enum`, `Unmanaged`, `Delegate`, and `Default` are deferred.
+and [<RequireQualifiedAccess>] SemanticConstraintKind =
+    | Equality
+    | Comparison
+    | Struct
+    | ReferenceType
+    | Nullness
+    | NotNull
+
+and [<Struct>] SemanticConstraint =
+    {
+        Kind: SemanticConstraintKind
+        /// Source location of the `when 'a : ...` clause that introduced
+        /// the constraint. Used by the constraint-violation diagnostic so
+        /// the message can point back at the declaration site, not just
+        /// the unification call site.
+        DeclKey: NodeKey
+    }
 
 and [<Sealed>] TypeVar() =
     /// Authoritative only on the representative — call UnionFind.find first.
@@ -185,8 +207,11 @@ and [<Sealed>] TypeVar() =
     /// numeric"; `ValueSome <non-empty>` means measured.
     member val Units: MeasureTerm voption = ValueNone with get, set
     member val Region: RegionId = RegionId.Unknown with get, set
-    /// Fires when Link is set (on-unified callback in Unification).
-    member val IfaceBounds: InterfaceBound list = [] with get, set
+    /// Type-parameter constraints attached to this TyVar at declaration
+    /// or use sites. Drained by `Unification.unify` when `Link` is set
+    /// (on-unified callback); merged on union-find via `migrateBounds`.
+    /// Empty for the overwhelming majority of TyVars.
+    member val Constraints: SemanticConstraint list = [] with get, set
     /// Fires when Link is set (on-unified callback in Unification).
     member val SrtpBounds: MemberSignature list = [] with get, set
     // Owned by UnionFind; do not mutate directly.
@@ -239,9 +264,16 @@ module MeasureTerm =
 /// in the union-find graph; they are simply no longer "free" with respect
 /// to the outer scope.
 [<Sealed>]
-type TypeScheme(quantified: TypeVar list, body: SemType) =
+type TypeScheme(quantified: TypeVar list, body: SemType, constraints: (TypeVar * SemanticConstraint) list) =
+    new(quantified: TypeVar list, body: SemType) = TypeScheme(quantified, body, [])
     member _.Quantified = quantified
     member _.Body = body
+    /// Constraints captured at generalisation time. Each entry pairs the
+    /// constraint with the *quantified* TyVar it constrained at that
+    /// point; `instantiate` swaps the TyVar through the substitution
+    /// before re-stamping. Empty for the overwhelming majority of
+    /// schemes — only `let f<'a when 'a : C> ...` populates this list.
+    member _.Constraints = constraints
 
 /// BindingSite is the NodeKey of the LetBinding / lambda parameter /
 /// TypeMember that introduced the name — NOT the use site.

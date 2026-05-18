@@ -29,11 +29,23 @@ type RecordFieldInfo(name: string, ty: SemType, isMutable: bool, declKey: NodeKe
 /// reference these TyVars directly (a bare `'a` field type shares
 /// identity with the corresponding `TypeParams[i]`).
 [<Sealed>]
-type RecordTypeInfo(name: string, typeParams: (string * TypeVar) list, fields: RecordFieldInfo[], declKey: NodeKey) =
+type RecordTypeInfo
+    (
+        name: string,
+        typeParams: (string * TypeVar) list,
+        fields: RecordFieldInfo[],
+        declKey: NodeKey,
+        typarConstraints: TyparConstraints<SyntaxToken> voption
+    ) =
+    new(name, typeParams, fields, declKey) = RecordTypeInfo(name, typeParams, fields, declKey, ValueNone)
     member val Name = name
     member val TypeParams = typeParams
     member val Fields = fields
     member val DeclKey = declKey
+    /// `when 'a : ...` clause attached to the type's typar list, if any.
+    /// `Unification.fillRecordFieldTypes` walks this and attaches each
+    /// constraint to the matching prototype TyVar in `TypeParams`.
+    member val TyparConstraints = typarConstraints
 
 /// Per-case metadata for a `TypeDefn.Union`. Field types start as fresh
 /// TyVar placeholders stamped by NameResolution and are linked to the
@@ -58,11 +70,23 @@ type UnionCaseInfo(name: string, unionName: string, fields: SemType[], fieldName
 /// typars in declaration order, paired with source-text names. Case
 /// field types may reference these TyVars directly.
 [<Sealed>]
-type UnionTypeInfo(name: string, typeParams: (string * TypeVar) list, cases: UnionCaseInfo[], declKey: NodeKey) =
+type UnionTypeInfo
+    (
+        name: string,
+        typeParams: (string * TypeVar) list,
+        cases: UnionCaseInfo[],
+        declKey: NodeKey,
+        typarConstraints: TyparConstraints<SyntaxToken> voption
+    ) =
+    new(name, typeParams, cases, declKey) = UnionTypeInfo(name, typeParams, cases, declKey, ValueNone)
     member val Name = name
     member val TypeParams = typeParams
     member val Cases = cases
     member val DeclKey = declKey
+    /// `when 'a : ...` clause attached to the type's typar list, if any.
+    /// `Unification.fillUnionFieldTypes` walks this and attaches each
+    /// constraint to the matching prototype TyVar in `TypeParams`.
+    member val TyparConstraints = typarConstraints
 
 /// Fill-state of an `AbbreviationInfo.Body`. NameResolution stamps
 /// entries with `NotFilled`; Unification's `fillAbbreviationBodies`
@@ -83,11 +107,24 @@ type AbbreviationStatus =
 /// a module doesn't matter — a declaration can reference any other type
 /// in the same group. `Status` tracks fill-state for cycle detection.
 [<Sealed>]
-type AbbreviationInfo(name: string, typeParams: (string * TypeVar) list, rhsCst: Type<SyntaxToken>, declKey: NodeKey) =
+type AbbreviationInfo
+    (
+        name: string,
+        typeParams: (string * TypeVar) list,
+        rhsCst: Type<SyntaxToken>,
+        declKey: NodeKey,
+        typarConstraints: TyparConstraints<SyntaxToken> voption
+    ) =
+    new(name, typeParams, rhsCst, declKey) = AbbreviationInfo(name, typeParams, rhsCst, declKey, ValueNone)
     member val Name = name
     member val TypeParams = typeParams
     member val RhsCst = rhsCst
     member val DeclKey = declKey
+    /// `when 'a : ...` clause attached to the type's typar list, if any.
+    /// `Unification.forceFill` walks this and attaches each constraint
+    /// to the matching prototype TyVar in `TypeParams` before translating
+    /// the RHS.
+    member val TyparConstraints = typarConstraints
     member val Body: SemType voption = ValueNone with get, set
     member val Status: AbbreviationStatus = AbbreviationStatus.NotFilled with get, set
 
