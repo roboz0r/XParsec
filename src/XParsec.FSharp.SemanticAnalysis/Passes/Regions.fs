@@ -141,6 +141,7 @@ module Regions =
         | TyTuple _ -> true
         | TyRecord _ -> true
         | TyUnion _ -> true
+        | TyClass _ -> true
         | TyVar _ -> false
 
     let private exprIsAllocation (ctx: PassContext) (e: Expr<SyntaxToken>) : bool =
@@ -280,6 +281,7 @@ module Regions =
         | Expr.ForIn _ -> walkUnitBody s ctx e
         | Expr.Record(fieldInitializers = inits) -> recordRegion s ctx inits
         | Expr.RecordClone(expr = src; fieldInitializers = inits) -> recordCloneRegion s ctx src inits
+        | Expr.New(expr = argExpr) -> newRegion s ctx argExpr
         | Expr.DotLookup(expr = inner) ->
             // Field read: the access expression's region is the receiver's
             // region — accessing a field doesn't produce a new allocation
@@ -405,6 +407,24 @@ module Regions =
             let ri = inferRegion s ctx it
             s.Graph.AddEdge(r, ri)
 
+        r
+
+    and private newRegion (s: State) (ctx: PassContext) (argExpr: Expr<SyntaxToken>) : RegionId =
+        // `new T(args)` allocates a class instance. Treat it like a
+        // tuple/record allocation: mint a region at the enclosing let-
+        // level, with one outgoing edge per constructor argument so the
+        // object's lifetime upper-bounds its arguments' lifetimes.
+        let r =
+            s.Graph.Fresh(
+                level = s.EnclosingLet,
+                mintFn = functionStackTop s,
+                isLambda = false,
+                isMutableCell = false,
+                seed = ValueNone
+            )
+
+        let argR = inferRegion s ctx argExpr
+        s.Graph.AddEdge(r, argR)
         r
 
     and private recordRegion

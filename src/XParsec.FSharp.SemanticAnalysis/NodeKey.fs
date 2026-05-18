@@ -51,6 +51,7 @@ type NodeKind =
     | ExprNull = 31us
     | ExprDotLookup = 32us
     | ExprRecordClone = 33us
+    | ExprNew = 34us
 
     | PatConst = 100us
     | PatIdent = 101us
@@ -84,6 +85,9 @@ type NodeKind =
     | SynthCEMethodCall = 1000us
     | SynthLambdaBody = 1001us
     | SynthDesugaredApp = 1002us
+    /// Synthetic binder for `this` (or `as self`) inside class member
+    /// bodies. One per class, shared across every member.
+    | SynthThisBinding = 1003us
 
 [<Struct>]
 type NodeKey =

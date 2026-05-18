@@ -581,6 +581,115 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
+            // ---- Classes ----
+
+            test "TAST: `new Point(3, 4)` shapes as TExpr.New" {
+                let tast =
+                    analyse "type Point(x: int, y: int) =\n    member this.X = x\nlet p = new Point(3, 4)"
+
+                let valExpr =
+                    match tast.Decls with
+                    | [ TDecl.Let(_, v, _) ] -> v
+                    | other -> failwithf "expected one let, got %A" other
+
+                match valExpr with
+                | TExpr.New(name, args, ty) ->
+                    Expect.equal name "Point" "class name"
+                    Expect.equal args.Length 2 "two ctor args"
+                    Expect.equal ty (TyClass("Point", [])) "ty is TyClass Point"
+                | _ -> failtestf "expected TExpr.New, got %A" valExpr
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "TAST: property read shapes as PropertyGet" {
+                let tast =
+                    analyse "type Point(x: int, y: int) =\n    member this.X = x\nlet f (p : Point) = p.X"
+
+                let valExpr =
+                    match tast.Decls with
+                    | [ TDecl.Let(_, v, _) ] -> v
+                    | other -> failwithf "expected one let, got %A" other
+
+                let body =
+                    match valExpr with
+                    | TExpr.Lambda(_, body, _) -> body
+                    | _ -> failtestf "expected TExpr.Lambda, got %A" valExpr
+
+                match body with
+                | TExpr.PropertyGet(_, name, ty) ->
+                    Expect.equal name "X" "property name"
+                    Expect.equal ty MockBuiltins.tyInt "property type"
+                | _ -> failtestf "expected PropertyGet, got %A" body
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "TAST: method call shapes as MethodCall" {
+                let tast =
+                    analyse
+                        "type Point(x: int, y: int) =\n    member this.Magnitude () = x * x + y * y\nlet m (p : Point) = p.Magnitude()"
+
+                let valExpr =
+                    match tast.Decls with
+                    | [ TDecl.Let(_, v, _) ] -> v
+                    | other -> failwithf "expected one let, got %A" other
+
+                let body =
+                    match valExpr with
+                    | TExpr.Lambda(_, body, _) -> body
+                    | _ -> failtestf "expected TExpr.Lambda, got %A" valExpr
+
+                match body with
+                | TExpr.MethodCall(_, name, args, ty) ->
+                    Expect.equal name "Magnitude" "method name"
+                    Expect.equal args.Length 0 "no args (unit-arg fold)"
+                    Expect.equal ty MockBuiltins.tyInt "method return"
+                | _ -> failtestf "expected MethodCall, got %A" body
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            // ---- Static members ----
+
+            test "TAST: `C.Origin` shapes as StaticPropertyGet" {
+                let tast = analyse "type C() =\n    static member Origin = 42\nlet o = C.Origin"
+
+                let valExpr =
+                    match tast.Decls with
+                    | [ TDecl.Let(_, v, _) ] -> v
+                    | other -> failwithf "expected one let, got %A" other
+
+                match valExpr with
+                | TExpr.StaticPropertyGet(className, name, ty) ->
+                    Expect.equal className "C" "class name"
+                    Expect.equal name "Origin" "property name"
+                    Expect.equal ty MockBuiltins.tyInt "ty is int"
+                | _ -> failtestf "expected StaticPropertyGet, got %A" valExpr
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "TAST: `C.M(1)` shapes as StaticMethodCall" {
+                let tast =
+                    analyse "type C() =\n    static member M (x: int) = x + 1\nlet r = C.M(1)"
+
+                let valExpr =
+                    match tast.Decls with
+                    | [ TDecl.Let(_, v, _) ] -> v
+                    | other -> failwithf "expected one let, got %A" other
+
+                match valExpr with
+                | TExpr.StaticMethodCall(className, methodName, args, ty) ->
+                    Expect.equal className "C" "class name"
+                    Expect.equal methodName "M" "method name"
+                    Expect.equal args.Length 1 "one arg"
+                    Expect.equal ty MockBuiltins.tyInt "method return"
+                | _ -> failtestf "expected StaticMethodCall, got %A" valExpr
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
             test "qualified name resolves through provider" {
                 // Build a custom provider that knows `Math.pi`.
                 let provider: IExternalSymbolProvider =

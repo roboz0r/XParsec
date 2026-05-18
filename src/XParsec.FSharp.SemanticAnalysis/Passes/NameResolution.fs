@@ -63,10 +63,12 @@ module NameResolution =
             | ValueSome _ -> ()
             | ValueNone ->
                 // DU ctor references resolve through `ctx.CtorIndex` in
-                // Unification, not through `ctx.Binding`. Suppress the
-                // "Unresolved identifier" diagnostic so a bare `Point`
-                // or `Circle` doesn't surface as unresolved.
-                if ctx.CtorIndex.ContainsKey name then
+                // Unification, not through `ctx.Binding`. Same for
+                // class names used as ctor-as-function (`Point(3, 4)`)
+                // — they live in `ctx.ClassTypes`. Suppress the
+                // "Unresolved identifier" diagnostic so neither
+                // surfaces as unresolved.
+                if ctx.CtorIndex.ContainsKey name || ctx.ClassTypes.ContainsKey name then
                     ()
                 else
                     ctx.Diagnostics.Add
@@ -208,7 +210,18 @@ module NameResolution =
                             let caseName = ctx.NameOf li.Idents.[1]
                             info.Cases |> Array.exists (fun c -> c.Name = caseName))
 
-                    if isQualifiedCtor then
+                    // `Math.Pi` / `Box.Empty` — two-segment qualified
+                    // static member reference. Same suppression
+                    // posture as ctors: Unification handles the type
+                    // side.
+                    let isQualifiedStatic =
+                        li.Idents.Length = 2
+                        && ctx.ClassTypes.ContainsKey(ctx.NameOf li.Idents.[0])
+                        && (let info = ctx.ClassTypes.[ctx.NameOf li.Idents.[0]]
+                            let memberName = ctx.NameOf li.Idents.[1]
+                            info.Members |> Array.exists (fun m -> m.IsStatic && m.Name = memberName))
+
+                    if isQualifiedCtor || isQualifiedStatic then
                         ()
                     else
                         ctx.Diagnostics.Add
@@ -561,6 +574,304 @@ module NameResolution =
                 registerAbbreviationDefn ctx td
         | _ -> ()
 
+    /// Walk a `PrimaryConstrArgs` and collect parameter names. v1 accepts
+    /// only simple patterns: `Pat.NamedSimple`, `Pat.Typed (NamedSimple, t)`,
+    /// `Pat.Tuple` of those, possibly enclosed. Anything else surfaces a
+    /// diagnostic and contributes no parameters.
+    let private extractCtorParams
+        (ctx: PassContext)
+        (declKey: NodeKey)
+        (pcOpt: PrimaryConstrArgs<SyntaxToken> voption)
+        : ClassCtorParamInfo[] =
+        match pcOpt with
+        | ValueNone -> [||]
+        | ValueSome(PrimaryConstrArgs(pat = ValueNone)) -> [||]
+        | ValueSome(PrimaryConstrArgs(pat = ValueSome p)) ->
+            let results = ResizeArray<ClassCtorParamInfo>()
+
+            let rec walk (p: Pat<SyntaxToken>) =
+                match p with
+                | Pat.NamedSimple id ->
+                    let name = ctx.NameOf id
+                    // Use the ident token's offset under a synthetic kind
+                    // so the param's binding-site key is distinct from any
+                    // collision with a regular Pat.NamedSimple at the same
+                    // offset.
+                    let pKey = NodeKey.ofToken id NodeKind.PatIdent
+                    let tv = TypeVar()
+                    tv.Level <- 0
+                    results.Add(ClassCtorParamInfo(name, TyVar tv, pKey))
+                | Pat.Typed(pat = Pat.NamedSimple id) ->
+                    let name = ctx.NameOf id
+                    let pKey = NodeKey.ofToken id NodeKind.PatIdent
+                    let tv = TypeVar()
+                    tv.Level <- 0
+                    results.Add(ClassCtorParamInfo(name, TyVar tv, pKey))
+                | Pat.EnclosedBlock(pat = inner) -> walk inner
+                | Pat.Tuple(patterns = pats) ->
+                    for sub in pats do
+                        walk sub
+                | _ ->
+                    // Point the diagnostic at the offending sub-pattern
+                    // when we can build a key for it; fall back to the
+                    // class's `declKey` for shapes that don't have a
+                    // CstKeys arm yet.
+                    let patKey =
+                        try
+                            CstKeys.ofPat p
+                        with _ ->
+                            declKey
+
+                    ctx.Diagnostics.Add
+                        {
+                            Key = patKey
+                            Message =
+                                "Constructor argument patterns must be simple identifiers (with optional type annotation) in v1"
+                            Severity = Error
+                        }
+
+            walk p
+            results.ToArray()
+
+    /// Pull a member's name from its head pattern (`b.headPat`). Members
+    /// have `this.M`-shaped head patterns parsed as `Pat.NamedSimple` for
+    /// the member-name token; the `this` (or alias) is in `MethodOrPropDefn`'s
+    /// `ident` field, not part of the head pattern. Returns `ValueNone`
+    /// when we can't extract a single-segment name (unsupported shape).
+    let private memberNameOf (ctx: PassContext) (b: Binding<SyntaxToken>) : (string * SyntaxToken) voption =
+        let rec walk (p: Pat<SyntaxToken>) =
+            match p with
+            | Pat.NamedSimple id -> ValueSome(ctx.NameOf id, id)
+            | Pat.EnclosedBlock(pat = inner) -> walk inner
+            | Pat.Typed(pat = inner) -> walk inner
+            | _ -> ValueNone
+
+        walk b.headPat
+
+    /// Stamp `ClassTypeInfo` entries for every `TypeDefn.Class` (or
+    /// `TypeDefn.Anon` — the parser emits `Anon` for the bare
+    /// `type C(...) = member ...` form without an explicit `class`/`end`
+    /// wrapper). Member types are placeholder TyVars at this point;
+    /// Unification's `fillClassMembers` pre-pass walks each member body
+    /// and links the placeholders to the inferred type.
+    let private registerClassTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
+        let common =
+            match td with
+            | TypeDefn.Class(typeName = tn; primaryConstr = pc; asDefn = asD; body = body) ->
+                ValueSome(tn, pc, asD, body)
+            | TypeDefn.Anon(typeName = tn; primaryConstr = pc; asDefn = asD; body = body) ->
+                ValueSome(tn, pc, asD, body)
+            | _ -> ValueNone
+
+        match common with
+        | ValueNone -> ()
+        | ValueSome(tn, pc, asD, body) ->
+            let (TypeName(ident = nameLi)) = tn
+
+            if nameLi.Idents.Length <> 1 then
+                ()
+            else
+
+                let nameTok = nameLi.Idents.[0]
+                let name = ctx.NameOf nameTok
+                let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
+
+                if
+                    ctx.RecordTypes.ContainsKey name
+                    || ctx.UnionTypes.ContainsKey name
+                    || ctx.AbbreviationTypes.ContainsKey name
+                    || ctx.ClassTypes.ContainsKey name
+                then
+                    ctx.Diagnostics.Add
+                        {
+                            Key = declKey
+                            Message = sprintf "Duplicate type definition: %s" name
+                            Severity = Error
+                        }
+                else
+                    let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
+                    let ctorParams = extractCtorParams ctx declKey pc
+
+                    let memberInfos = ResizeArray<ClassMemberInfo>()
+
+                    for el in body.elements do
+                        match el with
+                        | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; defn = d)) ->
+                            let isStatic = s.IsSome
+
+                            match d with
+                            | MethodOrPropDefn.Method(defn = b) ->
+                                match memberNameOf ctx b with
+                                | ValueSome(mName, mTok) ->
+                                    let tv = TypeVar()
+                                    tv.Level <- 0
+                                    let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
+
+                                    memberInfos.Add(
+                                        ClassMemberInfo(mName, ClassMemberKind.Method, isStatic, TyVar tv, mKey)
+                                    )
+                                | ValueNone -> ()
+                            | MethodOrPropDefn.Property(defn = b) ->
+                                match memberNameOf ctx b with
+                                | ValueSome(mName, mTok) ->
+                                    let tv = TypeVar()
+                                    tv.Level <- 0
+                                    let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
+
+                                    memberInfos.Add(
+                                        ClassMemberInfo(mName, ClassMemberKind.Property, isStatic, TyVar tv, mKey)
+                                    )
+                                | ValueNone -> ()
+                            | MethodOrPropDefn.AutoProperty(ident = id) ->
+                                let mName = ctx.NameOf id
+                                let tv = TypeVar()
+                                tv.Level <- 0
+                                let mKey = NodeKey.ofToken id NodeKind.PatIdent
+
+                                memberInfos.Add(
+                                    ClassMemberInfo(mName, ClassMemberKind.Property, isStatic, TyVar tv, mKey)
+                                )
+                            | MethodOrPropDefn.PropertyWithGetSet _
+                            | MethodOrPropDefn.AbstractSignature _ ->
+                                ctx.Diagnostics.Add
+                                    {
+                                        Key = declKey
+                                        Message = "This member kind is not yet supported"
+                                        Severity = Error
+                                    }
+                        | TypeDefnElement.Member(MemberDefn.Value _)
+                        | TypeDefnElement.Member(MemberDefn.AdditionalConstructor _) ->
+                            ctx.Diagnostics.Add
+                                {
+                                    Key = declKey
+                                    Message = "This member kind is not yet supported"
+                                    Severity = Error
+                                }
+                        | TypeDefnElement.InterfaceImpl _
+                        | TypeDefnElement.InterfaceSpec _
+                        | TypeDefnElement.Inherit _ ->
+                            ctx.Diagnostics.Add
+                                {
+                                    Key = declKey
+                                    Message = "Inheritance / interfaces are not yet supported"
+                                    Severity = Error
+                                }
+
+                    let thisName =
+                        match asD with
+                        | ValueSome(AsDefn(ident = id)) -> ctx.NameOf id
+                        | ValueNone -> "this"
+
+                    let thisKey = NodeKey.ofSynthetic declKey.Offset NodeKind.SynthThisBinding
+
+                    let members = memberInfos.ToArray()
+
+                    let info =
+                        ClassTypeInfo(name, typeParams, ctorParams, members, declKey, thisName, thisKey)
+
+                    ctx.ClassTypes.[name] <- info
+
+                    for m in members do
+                        match ctx.ClassMemberIndex.TryGetValue m.Name with
+                        | true, lst -> ctx.ClassMemberIndex.[m.Name] <- (info, m) :: lst
+                        | false, _ -> ctx.ClassMemberIndex.[m.Name] <- [ (info, m) ]
+
+    let private registerClassTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
+        match m with
+        | ModuleElem.Type defs ->
+            for td in defs do
+                registerClassTypeDefn ctx td
+        | _ -> ()
+
+    /// Walk every class member body with a scope that binds `this`
+    /// (or the user-supplied `as` alias) and every primary-constructor
+    /// argument. Writes a binding-site self-entry to `ctx.Binding` for
+    /// each (mirrors `bindingsToScope` for module-level lets).
+    /// Member-body walks share one `Scope` per class; sibling members
+    /// in the same class can therefore reference one another only via
+    /// `this.OtherMember` (member names are not in lexical scope).
+    let private walkClassBodies
+        (ctx: PassContext)
+        (walker: CstWalk.ExprWalker<Scope list>)
+        (m: ModuleElem<SyntaxToken>)
+        : unit =
+        let bodyOf (td: TypeDefn<SyntaxToken>) =
+            match td with
+            | TypeDefn.Class(typeName = TypeName(ident = nameLi); body = body)
+            | TypeDefn.Anon(typeName = TypeName(ident = nameLi); body = body) when nameLi.Idents.Length = 1 ->
+                ValueSome(ctx.NameOf nameLi.Idents.[0], body)
+            | _ -> ValueNone
+
+        match m with
+        | ModuleElem.Type defs ->
+            for td in defs do
+                match bodyOf td with
+                | ValueSome(name, body) ->
+                    match ctx.ClassTypes.TryGetValue name with
+                    | true, info ->
+                        // Build the class-body scope: `this` + every
+                        // ctor param. Each entry's binding-site key is
+                        // the ident token's PatIdent offset (ctor params)
+                        // or the class's synthetic ThisKey (this).
+                        let mutable scopeMap: Scope = Map.empty
+                        scopeMap <- Map.add info.ThisName (info.ThisKey, false) scopeMap
+
+                        ctx.Binding.Set(
+                            info.ThisKey,
+                            {
+                                BindingSite = info.ThisKey
+                                IsInline = false
+                                IsMutable = false
+                            }
+                        )
+
+                        for p in info.CtorParams do
+                            scopeMap <- Map.add p.Name (p.DeclKey, false) scopeMap
+
+                            ctx.Binding.Set(
+                                p.DeclKey,
+                                {
+                                    BindingSite = p.DeclKey
+                                    IsInline = false
+                                    IsMutable = false
+                                }
+                            )
+
+                        // Instance scope: `this` + ctor params.
+                        // Static scope: empty (statics don't see `this`
+                        // or ctor args — F# class members spec §8.7).
+                        let instanceScope = [ scopeMap ]
+                        let staticScope: Scope list = [ Map.empty ]
+
+                        for el in body.elements do
+                            match el with
+                            | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; defn = d)) ->
+                                let scope = if s.IsSome then staticScope else instanceScope
+
+                                match d with
+                                | MethodOrPropDefn.Method(defn = b)
+                                | MethodOrPropDefn.Property(defn = b) ->
+                                    // Mirror how module-level lets enter
+                                    // a binding RHS: extend scope with
+                                    // any argument-pattern binders so
+                                    // method parameters resolve from
+                                    // inside the body. The headPat
+                                    // (member name) doesn't enter scope
+                                    // — class members are accessed via
+                                    // `this.M`, not as lexical names.
+                                    let mutable inner = scope
+
+                                    if not b.argumentPats.IsEmpty then
+                                        inner <- extendScope ctx b.argumentPats Map.empty :: inner
+
+                                    CstWalk.iterExpr walker inner b.expr
+                                | MethodOrPropDefn.AutoProperty(expr = e) -> CstWalk.iterExpr walker scope e
+                                | _ -> ()
+                            | _ -> ()
+                    | false, _ -> ()
+                | ValueNone -> ()
+        | _ -> ()
+
     let private walkModuleElem
         (ctx: PassContext)
         (walker: CstWalk.ExprWalker<Scope list>)
@@ -611,6 +922,16 @@ module NameResolution =
 
         for m in elems do
             registerAbbreviationTypes ctx m
+
+        for m in elems do
+            registerClassTypes ctx m
+
+        // Class member bodies are not walked by `walkModuleElem` (it
+        // skips `ModuleElem.Type`). Walk them here with each class's
+        // own scope (`this` + ctor params) so member-body idents have
+        // Binding entries before Unification types them.
+        for m in elems do
+            walkClassBodies ctx walker m
 
         let mutable scope = [ Map.empty ]
 

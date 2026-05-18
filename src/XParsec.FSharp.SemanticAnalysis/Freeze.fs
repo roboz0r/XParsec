@@ -137,6 +137,129 @@ module Freeze =
         let key = CstKeys.ofExpr e
         TExpr.Const(TConstValue.Unit, typeOfKey ctx key)
 
+    /// Try to interpret `e` as a class-name reference (single-segment
+    /// uppercase ident that's in `ctx.ClassTypes` and has no local
+    /// `Binding` entry — i.e. it really is a class name, not a
+    /// shadowing local). Returns `ValueNone` for anything else.
+    let private tryClassRef (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption =
+        let key = CstKeys.ofExpr e
+
+        if ctx.Binding.ContainsKey key then
+            ValueNone
+        else
+            match e with
+            | Expr.Ident t ->
+                let n = ctx.NameOf t
+
+                if ctx.ClassTypes.ContainsKey n then
+                    ValueSome n
+                else
+                    ValueNone
+            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
+                let n = ctx.NameOf li.Idents.[0]
+
+                if ctx.ClassTypes.ContainsKey n then
+                    ValueSome n
+                else
+                    ValueNone
+            | _ -> ValueNone
+
+    /// Peel an `Expr.App` argument that may be a single `EnclosedBlock`
+    /// wrapping a `Tuple` (the F# parser shape for `Point(3, 4)`) so
+    /// downstream consumers see the constructor's declared arity
+    /// directly.
+    let private peelCtorArgs
+        (ctx: PassContext)
+        (translate: Expr<SyntaxToken> -> TExpr)
+        (args: ImmutableArray<Expr<SyntaxToken>>)
+        : TExpr list =
+        ignore ctx
+
+        if args.Length = 1 then
+            match args.[0] with
+            | Expr.EnclosedBlock(expr = Expr.Tuple(exprs = items)) -> [ for a in items -> translate a ]
+            | Expr.Tuple(exprs = items) -> [ for a in items -> translate a ]
+            | Expr.EnclosedBlock(expr = inner) -> [ translate inner ]
+            | Expr.EmptyBlock _ -> []
+            | a -> [ translate a ]
+        else
+            [ for a in args -> translate a ]
+
+    /// Same as `peelCtorArgs` but for a single argument expression
+    /// (HighPrecedenceApp form / Expr.New).
+    let private peelOneArg (translate: Expr<SyntaxToken> -> TExpr) (arg: Expr<SyntaxToken>) : TExpr list =
+        match arg with
+        | Expr.EnclosedBlock(expr = Expr.Tuple(exprs = items)) -> [ for a in items -> translate a ]
+        | Expr.Tuple(exprs = items) -> [ for a in items -> translate a ]
+        | Expr.EnclosedBlock(expr = Expr.EmptyBlock _) -> []
+        | Expr.EnclosedBlock(expr = inner) -> [ translate inner ]
+        | Expr.EmptyBlock _ -> []
+        | a -> [ translate a ]
+
+    /// Look up `memberName` on the resolved class type `clsName`.
+    /// Returns the member-info entry, or `ValueNone` if the class /
+    /// member is unknown.
+    let private tryClassMember (ctx: PassContext) (clsName: string) (memberName: string) : ClassMemberInfo voption =
+        match ctx.ClassTypes.TryGetValue clsName with
+        | true, info ->
+            match info.Members |> Array.tryFind (fun m -> m.Name = memberName) with
+            | Some m -> ValueSome m
+            | None -> ValueNone
+        | false, _ -> ValueNone
+
+    /// Resolve a multi-segment `head.M` long-ident to a (receiver-type,
+    /// member-info) pair when the head segment is a local binding and
+    /// its resolved type is a `TyClass` whose member `M` is known. Used
+    /// by Freeze to fold method-call / property-read patterns that the
+    /// parser emits as `LongIdent` rather than `DotLookup`.
+    let private tryLongIdentClassTail
+        (ctx: PassContext)
+        (li: LongIdent<SyntaxToken>)
+        : (NodeKey * SemType * ClassMemberInfo) voption =
+        if li.Idents.Length <> 2 then
+            ValueNone
+        else
+            let head = li.Idents.[0]
+            let headKey = NodeKey.ofToken head NodeKind.ExprIdent
+
+            match ctx.Binding.TryGetValue headKey with
+            | ValueNone -> ValueNone
+            | ValueSome rb ->
+                match ctx.TypeVar.TryGetValue rb.BindingSite with
+                | ValueNone -> ValueNone
+                | ValueSome tv ->
+                    match Unification.zonk (TyVar tv) with
+                    | TyClass(clsName, _) ->
+                        let memberName = ctx.NameOf li.Idents.[1]
+
+                        match tryClassMember ctx clsName memberName with
+                        | ValueSome m -> ValueSome(rb.BindingSite, Unification.zonk (TyVar tv), m)
+                        | ValueNone -> ValueNone
+                    | _ -> ValueNone
+
+    /// Resolve a two-segment `ClassName.MemberName` long-ident to the
+    /// static member info, when both segments name a known class /
+    /// static member. Returns `ValueNone` if either is unknown or the
+    /// member is an instance member (use `tryLongIdentClassTail` for
+    /// instance dispatch on a local binding).
+    let private tryLongIdentStaticMember
+        (ctx: PassContext)
+        (li: LongIdent<SyntaxToken>)
+        : (string * ClassMemberInfo) voption =
+        if li.Idents.Length <> 2 then
+            ValueNone
+        else
+            let className = ctx.NameOf li.Idents.[0]
+
+            match ctx.ClassTypes.TryGetValue className with
+            | false, _ -> ValueNone
+            | true, info ->
+                let memberName = ctx.NameOf li.Idents.[1]
+
+                match info.Members |> Array.tryFind (fun m -> m.IsStatic && m.Name = memberName) with
+                | Some m -> ValueSome(className, m)
+                | None -> ValueNone
+
     /// Try to interpret `e` as a DU ctor reference and return the case
     /// name. Handles single-segment `Circle`, two-segment `Result2.Ok`,
     /// and either inside an `Expr.Ident` or `Expr.LongIdentOrOp`. Returns
@@ -190,6 +313,147 @@ module Freeze =
             // LongIdent. The head segment was resolved by NameResolution
             // as a local binding; subsequent segments are field accesses.
             translateLongIdentFieldChain ctx li ty
+        // `new T(args)` constructor call — Unification stamps `ty`
+        // with the `TyClass` (carrying any generic args). The CST-side
+        // fallback is purely defensive for error paths where
+        // Unification couldn't pin the receiver.
+        | Expr.New(typ = t; expr = argExpr) ->
+            let className =
+                match Unification.zonk ty with
+                | TyClass(n, _) -> n
+                | _ ->
+                    let rec nameOf t =
+                        match t with
+                        | Type.NamedType li
+                        | Type.GenericType(longIdent = li) when li.Idents.Length >= 1 ->
+                            ctx.NameOf li.Idents.[li.Idents.Length - 1]
+                        | Type.ParenType(typ = inner) -> nameOf inner
+                        | _ -> ""
+
+                    nameOf t
+
+            let args = peelOneArg (translateExpr ctx) argExpr
+            TExpr.New(className, args, ty)
+        // Class-name-as-function application: `Point(3, 4)`. The parser
+        // gives `Expr.App (Ident Point, [EnclosedBlock(Tuple)])`.
+        | Expr.App(fn, args) when (tryClassRef ctx fn).IsSome ->
+            let className = (tryClassRef ctx fn).Value
+            let argsList = peelCtorArgs ctx (translateExpr ctx) args
+            TExpr.New(className, argsList, ty)
+        | Expr.HighPrecedenceApp(funcExpr = fn; argExpr = arg) when (tryClassRef ctx fn).IsSome ->
+            let className = (tryClassRef ctx fn).Value
+            let argsList = peelOneArg (translateExpr ctx) arg
+            TExpr.New(className, argsList, ty)
+        // Class instance method invocation: `r.M(args)` →
+        // `App(DotLookup(r, ., M), args)`. We detect it by inspecting
+        // the receiver's resolved type and the member kind.
+        | Expr.App(funcExpr = Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li); argExprs = args) when
+            li.Idents.Length = 1
+            && (
+                match Unification.zonk (typeOfKey ctx (CstKeys.ofExpr r)) with
+                | TyClass(clsName, _) ->
+                    match tryClassMember ctx clsName (ctx.NameOf li.Idents.[0]) with
+                    | ValueSome m -> m.Kind = ClassMemberKind.Method
+                    | ValueNone -> false
+                | _ -> false
+            )
+            ->
+            let memberName = ctx.NameOf li.Idents.[0]
+            let argsList = peelCtorArgs ctx (translateExpr ctx) args
+            TExpr.MethodCall(translateExpr ctx r, memberName, argsList, ty)
+        | Expr.HighPrecedenceApp(
+            funcExpr = Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li); argExpr = arg) when
+            li.Idents.Length = 1
+            && (
+                match Unification.zonk (typeOfKey ctx (CstKeys.ofExpr r)) with
+                | TyClass(clsName, _) ->
+                    match tryClassMember ctx clsName (ctx.NameOf li.Idents.[0]) with
+                    | ValueSome m -> m.Kind = ClassMemberKind.Method
+                    | ValueNone -> false
+                | _ -> false
+            )
+            ->
+            let memberName = ctx.NameOf li.Idents.[0]
+            let argsList = peelOneArg (translateExpr ctx) arg
+            TExpr.MethodCall(translateExpr ctx r, memberName, argsList, ty)
+        // `p.M(args)` parses as `App` / `HighPrecedenceApp` whose fn is
+        // an `Expr.LongIdentOrOp(LongIdent [p; M])` — the parser folds
+        // the dot into the long ident rather than emitting `DotLookup`
+        // when the head is a regular identifier. Detect and fold to
+        // MethodCall.
+        | Expr.App(funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) as fn; argExprs = args) when
+            (match tryLongIdentClassTail ctx li with
+             | ValueSome(_, _, m) -> m.Kind = ClassMemberKind.Method
+             | ValueNone -> false)
+            ->
+            match tryLongIdentClassTail ctx li with
+            | ValueSome(bindingSite, receiverTy, m) ->
+                let memberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+                let receiver = TExpr.Var(bindingSite, receiverTy)
+                let argsList = peelCtorArgs ctx (translateExpr ctx) args
+                TExpr.MethodCall(receiver, memberName, argsList, ty)
+            | ValueNone -> failwithf "Freeze: unreachable %A" fn
+        | Expr.HighPrecedenceApp(funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) as fn; argExpr = arg) when
+            (match tryLongIdentClassTail ctx li with
+             | ValueSome(_, _, m) -> m.Kind = ClassMemberKind.Method
+             | ValueNone -> false)
+            ->
+            match tryLongIdentClassTail ctx li with
+            | ValueSome(bindingSite, receiverTy, m) ->
+                let memberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+                let receiver = TExpr.Var(bindingSite, receiverTy)
+                let argsList = peelOneArg (translateExpr ctx) arg
+                TExpr.MethodCall(receiver, memberName, argsList, ty)
+            | ValueNone -> failwithf "Freeze: unreachable %A" fn
+        // `p.X` (property) parses as `Expr.LongIdentOrOp(LongIdent[p; X])`
+        // when the head is a regular identifier. Fold to PropertyGet if
+        // X resolves to a class property; otherwise leave to the chained
+        // FieldGet path below.
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
+            (match tryLongIdentClassTail ctx li with
+             | ValueSome(_, _, m) -> m.Kind = ClassMemberKind.Property
+             | ValueNone -> false)
+            ->
+            match tryLongIdentClassTail ctx li with
+            | ValueSome(bindingSite, receiverTy, _) ->
+                let memberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+                let receiver = TExpr.Var(bindingSite, receiverTy)
+                TExpr.PropertyGet(receiver, memberName, ty)
+            | ValueNone -> failwith "Freeze: unreachable"
+        // `ClassName.M(args)` — static method invocation.
+        | Expr.App(funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) as fn; argExprs = args) when
+            (match tryLongIdentStaticMember ctx li with
+             | ValueSome(_, m) -> m.Kind = ClassMemberKind.Method
+             | ValueNone -> false)
+            ->
+            match tryLongIdentStaticMember ctx li with
+            | ValueSome(className, _) ->
+                let memberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+                let argsList = peelCtorArgs ctx (translateExpr ctx) args
+                TExpr.StaticMethodCall(className, memberName, argsList, ty)
+            | ValueNone -> failwithf "Freeze: unreachable %A" fn
+        | Expr.HighPrecedenceApp(funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) as fn; argExpr = arg) when
+            (match tryLongIdentStaticMember ctx li with
+             | ValueSome(_, m) -> m.Kind = ClassMemberKind.Method
+             | ValueNone -> false)
+            ->
+            match tryLongIdentStaticMember ctx li with
+            | ValueSome(className, _) ->
+                let memberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+                let argsList = peelOneArg (translateExpr ctx) arg
+                TExpr.StaticMethodCall(className, memberName, argsList, ty)
+            | ValueNone -> failwithf "Freeze: unreachable %A" fn
+        // `ClassName.X` — static property read (or method-as-value).
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
+            (match tryLongIdentStaticMember ctx li with
+             | ValueSome _ -> true
+             | ValueNone -> false)
+            ->
+            match tryLongIdentStaticMember ctx li with
+            | ValueSome(className, _) ->
+                let memberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+                TExpr.StaticPropertyGet(className, memberName, ty)
+            | ValueNone -> failwith "Freeze: unreachable"
         | _ when (tryCtorRef ctx e).IsSome ->
             // Bare or qualified ctor reference outside an App. Nullary
             // ctors translate as `UnionCons(name, [], ty)`; ctor-as-value
@@ -376,8 +640,19 @@ module Freeze =
 
             TExpr.RecordClone(translateExpr ctx src, overrides, ty)
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
-            let fieldName = ctx.NameOf li.Idents.[0]
-            TExpr.FieldGet(translateExpr ctx r, fieldName, ty)
+            let memberName = ctx.NameOf li.Idents.[0]
+            let rTy = Unification.zonk (typeOfKey ctx (CstKeys.ofExpr r))
+
+            match rTy with
+            | TyClass(clsName, _) ->
+                match tryClassMember ctx clsName memberName with
+                | ValueSome m when m.Kind = ClassMemberKind.Property ->
+                    TExpr.PropertyGet(translateExpr ctx r, memberName, ty)
+                | _ ->
+                    // Method-as-value or unresolved member — fall back
+                    // to an External so codegen has something to emit.
+                    TExpr.PropertyGet(translateExpr ctx r, memberName, ty)
+            | _ -> TExpr.FieldGet(translateExpr ctx r, memberName, ty)
         | Expr.Null _ -> TExpr.Null ty
         | Expr.Range(fromExpr = a; toExpr = b) -> TExpr.Range(translateExpr ctx a, None, translateExpr ctx b, ty)
         | Expr.SteppedRange(fromExpr = a; stepExpr = s; toExpr = b) ->
@@ -494,7 +769,20 @@ module Freeze =
                         | false, _ -> finalTy
                     | _ -> finalTy
 
-            curr <- TExpr.FieldGet(curr, segName, stepTy)
+            // Use PropertyGet when the receiver is a class and the
+            // segment is a property; FieldGet otherwise. Method members
+            // accessed without an application keep PropertyGet as
+            // their TAST shape — codegen can eta-expand if needed.
+            let node =
+                match Unification.zonk currTy with
+                | TyClass(clsName, _) ->
+                    match ctx.ClassTypes.TryGetValue clsName with
+                    | true, info when info.Members |> Array.exists (fun m -> m.Name = segName) ->
+                        TExpr.PropertyGet(curr, segName, stepTy)
+                    | _ -> TExpr.FieldGet(curr, segName, stepTy)
+                | _ -> TExpr.FieldGet(curr, segName, stepTy)
+
+            curr <- node
             currTy <- stepTy
 
         curr

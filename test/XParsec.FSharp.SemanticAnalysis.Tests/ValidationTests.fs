@@ -99,13 +99,13 @@ let tests =
             test "unresolved field access diagnoses" {
                 // `let f r = r.X` with no use — the receiver TyVar stays free.
                 let ctx = analyse "let f r = r.X"
-                Expect.isTrue (hasMessage ctx "Cannot resolve field") "deferred-field-access diagnostic emitted"
+                Expect.isTrue (hasMessage ctx "Cannot resolve member") "deferred-dot-access diagnostic emitted"
             }
 
             test "resolved-by-use field access is clean" {
                 let ctx = analyse "type R = { X: int }\nlet f r = r.X\nlet u = f { X = 1 }"
 
-                Expect.isFalse (hasMessage ctx "Cannot resolve field") "no deferred-field diagnostic"
+                Expect.isFalse (hasMessage ctx "Cannot resolve member") "no deferred-dot diagnostic"
             }
 
             test "well-formed DU pipeline emits no diagnostics" {
@@ -137,5 +137,20 @@ let tests =
             test "mutable id is still diagnosed (sanity)" {
                 let ctx = analyse "let mutable id = fun x -> x"
                 Expect.isTrue (hasMessage ctx "value restriction") "free-typar mutable still fires"
+            }
+
+            // ---- Classes ----
+
+            test "unresolved member on class receiver still diagnoses" {
+                let ctx = analyse "let f p = p.NotAMember"
+
+                Expect.isTrue (hasMessage ctx "Cannot resolve member") "deferred-dot-access diagnostic emitted"
+            }
+
+            test "resolved-by-use class member access is clean" {
+                let ctx =
+                    analyse "type C() =\n    member this.M () = 1\nlet f p = p.M()\nlet _ = f (new C())"
+
+                Expect.isFalse (hasMessage ctx "Cannot resolve member") "no deferred-dot diagnostic"
             }
         ]

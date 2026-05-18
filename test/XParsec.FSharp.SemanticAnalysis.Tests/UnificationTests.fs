@@ -435,4 +435,135 @@ let tests =
 
                 Expect.isTrue hasFree "implicit free typar diagnosed"
             }
+
+            // ---- Classes ----
+
+            test "construct via new" {
+                let ctx =
+                    analyse "type Point(x: int, y: int) =\n    member this.X = x\nlet p = new Point(3, 4)"
+                // "type Point(x: int, y: int) =\n" is 29 chars,
+                // "    member this.X = x\n" is 22 chars. Total 51.
+                // "let " puts pat p at offset 55.
+                let patKey = NodeKey.ofSource 55 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyClass("Point", [])) "p : TyClass Point"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "construct via ctor-as-function (no new)" {
+                let ctx =
+                    analyse "type Point(x: int, y: int) =\n    member this.X = x\nlet p = Point(3, 4)"
+
+                let patKey = NodeKey.ofSource 55 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyClass("Point", [])) "p : TyClass Point"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "constructor argument type mismatch diagnoses" {
+                let ctx =
+                    analyse "type Point(x: int, y: int) =\n    member this.X = x\nlet p = new Point(3, true)"
+
+                let hasMismatch =
+                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+
+                Expect.isTrue hasMismatch "ctor-arg mismatch diagnosed"
+            }
+
+            test "property read pins receiver via annotation" {
+                let ctx =
+                    analyse "type Point(x: int, y: int) =\n    member this.X = x\nlet f (p : Point) = p.X"
+                // "type Point(x: int, y: int) =\n" is 29 chars,
+                // "    member this.X = x\n" is 22. Total 51.
+                // "let " puts pat f at offset 55.
+                let patKey = NodeKey.ofSource 55 NodeKind.PatIdent
+                let expected = TyFun(TyClass("Point", []), MockBuiltins.tyInt)
+                Expect.equal (typeOf ctx patKey) expected "f : Point -> int"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "method invocation types as return type" {
+                let ctx =
+                    analyse
+                        "type Point(x: int, y: int) =\n    member this.Magnitude () = x * x + y * y\nlet m (p : Point) = p.Magnitude()"
+                // "type Point(x: int, y: int) =\n" is 29,
+                // "    member this.Magnitude () = x * x + y * y\n" is 45. Total 74.
+                // "let " puts pat m at offset 78.
+                let patKey = NodeKey.ofSource 78 NodeKind.PatIdent
+                let expected = TyFun(TyClass("Point", []), MockBuiltins.tyInt)
+                Expect.equal (typeOf ctx patKey) expected "m : Point -> int"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "member on free TyVar pinned by use" {
+                let ctx =
+                    analyse "type Point(x: int) =\n    member this.X = x\nlet f p = p.X\nlet _ = f (new Point(3))"
+
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "generic class instantiation" {
+                let ctx =
+                    analyse "type Box<'a>(value: 'a) =\n    member this.Value = value\nlet b = Box(1)"
+                // "type Box<'a>(value: 'a) =\n" is 26 chars,
+                // "    member this.Value = value\n" is 30. Total 56.
+                // "let " puts pat b at offset 60.
+                let patKey = NodeKey.ofSource 60 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyClass("Box", [ MockBuiltins.tyInt ])) "b : Box<int>"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "generic class annotation pins typar" {
+                let ctx =
+                    analyse
+                        "type Box<'a>(value: 'a) =\n    member this.Value = value\nlet b : Box<string> = Box(\"hi\")"
+
+                let patKey = NodeKey.ofSource 60 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyClass("Box", [ MockBuiltins.tyString ])) "b : Box<string>"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "method body sees other members via this" {
+                let ctx =
+                    analyse
+                        "type C(x: int) =\n    member this.Inner () = x\n    member this.Outer () = this.Inner ()\nlet u = (new C(1)).Outer()"
+
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "auto-property types from initialiser" {
+                let ctx = analyse "type C() =\n    member val Origin = (0, 0)\nlet c = new C()"
+
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            // ---- Static members ----
+
+            test "static property read via class name" {
+                let ctx = analyse "type C() =\n    static member Origin = (0, 0)\nlet o = C.Origin"
+                // "type C() =\n" is 11, "    static member Origin = (0, 0)\n" is 34. Total 45.
+                // "let " puts pat o at offset 49.
+                let patKey = NodeKey.ofSource 49 NodeKind.PatIdent
+                let expected = TyTuple [ MockBuiltins.tyInt; MockBuiltins.tyInt ]
+                Expect.equal (typeOf ctx patKey) expected "o : int * int"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "static method call via class name" {
+                let ctx =
+                    analyse "type C() =\n    static member Plus (x: int) = x + 1\nlet r = C.Plus(2)"
+
+                let hasErr = ctx.Diagnostics |> Seq.exists (fun d -> d.Severity = Error)
+                Expect.isFalse hasErr "no error diagnostics"
+            }
+
+            test "static member on receiver instance diagnoses" {
+                // F# spec: static members are accessed via the type name.
+                // Accessing through an instance should diagnose.
+                let ctx =
+                    analyse "type C() =\n    static member M () = 1\nlet c = new C()\nlet r = c.M()"
+
+                let hasStaticDiag =
+                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "static")
+
+                Expect.isTrue hasStaticDiag "instance.staticMember access diagnoses"
+            }
         ]

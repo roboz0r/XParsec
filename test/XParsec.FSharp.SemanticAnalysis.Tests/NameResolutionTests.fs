@@ -346,4 +346,48 @@ let tests =
 
                 Expect.isTrue hasDup "duplicate-type diagnostic emitted"
             }
+
+            // ---- Classes ----
+
+            test "class type registers in ctx.ClassTypes with ctor params and members" {
+                let ctx = analyse "type C(x: int) =\n    member this.X = x"
+
+                match ctx.ClassTypes.TryGetValue "C" with
+                | true, info ->
+                    Expect.equal info.CtorParams.Length 1 "one ctor param"
+                    Expect.equal info.CtorParams.[0].Name "x" "ctor param named x"
+                    Expect.equal info.Members.Length 1 "one member"
+                    Expect.equal info.Members.[0].Name "X" "member named X"
+                    Expect.equal info.Members.[0].Kind ClassMemberKind.Property "member is a property"
+                | false, _ -> failtest "class type C not registered"
+            }
+
+            test "class duplicate type name diagnoses against record" {
+                let ctx = analyse "type C = { X: int }\ntype C() = class end"
+
+                let hasDup =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "Duplicate type definition")
+
+                Expect.isTrue hasDup "duplicate-type diagnostic emitted"
+            }
+
+            test "ClassMemberIndex maps member name to declaring class" {
+                let ctx = analyse "type C() =\n    member this.M () = 1"
+
+                match ctx.ClassMemberIndex.TryGetValue "M" with
+                | true, lst -> Expect.equal lst.Length 1 "one class declares M"
+                | false, _ -> failtest "M not in ClassMemberIndex"
+            }
+
+            test "static member registers with IsStatic = true" {
+                let ctx = analyse "type C() =\n    static member M () = 1"
+
+                match ctx.ClassTypes.TryGetValue "C" with
+                | true, info ->
+                    Expect.equal info.Members.Length 1 "one member"
+                    Expect.isTrue info.Members.[0].IsStatic "M is static"
+                    Expect.equal info.Members.[0].Name "M" "member named M"
+                | false, _ -> failtest "class type C not registered"
+            }
         ]

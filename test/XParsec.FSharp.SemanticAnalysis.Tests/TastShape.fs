@@ -322,6 +322,63 @@ type private Renderer() =
 
                 push ")"
 
+        | TExpr.New(className, args, _) ->
+            push "new "
+            push className
+            push "("
+
+            args
+            |> List.iteri (fun i a ->
+                if i > 0 then
+                    push ", "
+
+                this.Expr a
+            )
+
+            push ")"
+
+        | TExpr.MethodCall(receiver, methodName, args, _) ->
+            this.Expr receiver
+            push "."
+            push methodName
+            push "("
+
+            args
+            |> List.iteri (fun i a ->
+                if i > 0 then
+                    push ", "
+
+                this.Expr a
+            )
+
+            push ")"
+
+        | TExpr.PropertyGet(receiver, name, _) ->
+            this.Expr receiver
+            push "."
+            push name
+
+        | TExpr.StaticMethodCall(className, methodName, args, _) ->
+            push className
+            push "."
+            push methodName
+            push "("
+
+            args
+            |> List.iteri (fun i a ->
+                if i > 0 then
+                    push ", "
+
+                this.Expr a
+            )
+
+            push ")"
+
+        | TExpr.StaticPropertyGet(className, name, _) ->
+            push className
+            push "."
+            push name
+
     member this.Pat(p: TPat) : unit =
         match p with
         | TPat.NamedSimple(k, _) -> push (nameOf k)

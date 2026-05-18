@@ -108,6 +108,11 @@ type SemType =
     /// shape as TyRecord. Cases / TypeParams live in
     /// `ctx.UnionTypes[name]`.
     | TyUnion of name: string * args: SemType list
+    /// Named class type with instantiated arg list. Same shape as
+    /// `TyRecord` / `TyUnion`; member lookup is a side-channel on
+    /// `ctx.ClassTypes`. Two `TyClass` unify iff their names match
+    /// AND their args unify pairwise.
+    | TyClass of name: string * args: SemType list
 
 /// Abelian-group expression over named unit atoms. Always stored in a
 /// normalised form: each exponent is in canonical Rational form, zero
@@ -224,14 +229,17 @@ and [<Sealed>] TypeVar() =
     /// UnionFind.find before reading. `union` propagates `min` of the two
     /// roots' levels to the survivor.
     member val Level: int = 0 with get, set
-    /// Pending field-access constraints accumulated while this TyVar was
+    /// Pending dot-access constraints accumulated while this TyVar was
     /// free. Drained by `unify` when the TyVar's `Link` becomes a
-    /// `TyRecord _`. Tuple shape: (fieldName, useKey, resultTyVar). The
-    /// `useKey` is the field-access expression's NodeKey for diagnostics;
+    /// `TyRecord _`, `TyClass _`, or another shape that supports dotted
+    /// dispatch. Tuple shape: (memberName, useKey, resultTyVar). The
+    /// `useKey` is the dot-access expression's NodeKey for diagnostics;
     /// `resultTyVar` is the access expression's own TyVar that needs to be
-    /// unified with the field's declared type when the receiver resolves.
-    /// Authoritative on the union-find root.
-    member val PendingFieldAccess: (string * NodeKey * TypeVar) list = [] with get, set
+    /// unified with the field/member's declared type when the receiver
+    /// resolves. The drain code branches on the link-target shape to
+    /// resolve against record fields vs class members. Authoritative on
+    /// the union-find root.
+    member val PendingDotAccess: (string * NodeKey * TypeVar) list = [] with get, set
 
 module MeasureTerm =
     let empty = MeasureTerm.Empty

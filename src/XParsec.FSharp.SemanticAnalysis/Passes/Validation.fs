@@ -31,6 +31,7 @@ module Validation =
         | TyTuple items -> items |> List.exists hasFreeTyVar
         | TyRecord(_, args) -> args |> List.exists hasFreeTyVar
         | TyUnion(_, args) -> args |> List.exists hasFreeTyVar
+        | TyClass(_, args) -> args |> List.exists hasFreeTyVar
 
     /// `lhs <- rhs` with a single-name `lhs` whose `ResolvedBinding` says
     /// `IsMutable = false` is an error. Non-Ident LHSes (record field,
@@ -137,21 +138,21 @@ module Validation =
             | ValueNone -> ()
         | _ -> ()
 
-    let private checkUnresolvedFieldAccesses (ctx: PassContext) : unit =
+    let private checkUnresolvedDotAccesses (ctx: PassContext) : unit =
         let seenRoots = System.Collections.Generic.HashSet<TypeVar>(HashIdentity.Reference)
 
         for kv in ctx.TypeVar.AsDictionary() do
             let root = UnionFind.find kv.Value
 
-            if seenRoots.Add(root) && not (List.isEmpty root.PendingFieldAccess) then
-                for (fieldName, useKey, _) in root.PendingFieldAccess do
+            if seenRoots.Add(root) && not (List.isEmpty root.PendingDotAccess) then
+                for (memberName, useKey, _) in root.PendingDotAccess do
                     ctx.Diagnostics.Add
                         {
                             Key = useKey
                             Message =
                                 sprintf
-                                    "Cannot resolve field '%s': receiver type was never constrained to a record type"
-                                    fieldName
+                                    "Cannot resolve member '%s': receiver type was never constrained to a record or class type"
+                                    memberName
                             Severity = Error
                         }
 
@@ -206,11 +207,31 @@ module Validation =
                 CstWalk.iterExpr walker () b.expr
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Do(expr = e)) -> CstWalk.iterExpr walker () e
         | ModuleElem.Expression e -> CstWalk.iterExpr walker () e
-        // Type declarations themselves don't carry expressions to validate
-        // — record-type registration / unification / field-access checks
-        // run in their own passes. New diagnostics (e.g. mutually
-        // recursive type cycles) would attach here as the subset grows.
-        | ModuleElem.Type _ -> ()
+        | ModuleElem.Type defs ->
+            // Walk class / anon-class member bodies for assignment
+            // checks etc. Records / DUs / abbreviations have no
+            // expression bodies that affect Validation.
+            for td in defs do
+                let bodyOpt =
+                    match td with
+                    | TypeDefn.Class(body = b)
+                    | TypeDefn.Anon(body = b)
+                    | TypeDefn.Struct(body = b)
+                    | TypeDefn.Interface(body = b) -> ValueSome b
+                    | _ -> ValueNone
+
+                match bodyOpt with
+                | ValueSome body ->
+                    for el in body.elements do
+                        match el with
+                        | TypeDefnElement.Member(MemberDefn.Member(defn = d)) ->
+                            match d with
+                            | MethodOrPropDefn.Method(defn = b)
+                            | MethodOrPropDefn.Property(defn = b) -> CstWalk.iterExpr walker () b.expr
+                            | MethodOrPropDefn.AutoProperty(expr = e) -> CstWalk.iterExpr walker () e
+                            | _ -> ()
+                        | _ -> ()
+                | ValueNone -> ()
         // Surface unhandled module elements rather than silently skipping
         // them — Validation needs to grow new arms as the subset expands.
         | ModuleElem.Exception _ -> failwith "Validation: ModuleElem.Exception not implemented"
@@ -233,5 +254,5 @@ module Validation =
         | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) -> walkElems walker elems
         | ImplementationFile.Namespaces _ -> ()
 
-        checkUnresolvedFieldAccesses ctx
+        checkUnresolvedDotAccesses ctx
         checkValueRestriction ctx

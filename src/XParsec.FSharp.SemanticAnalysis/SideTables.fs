@@ -128,6 +128,71 @@ type AbbreviationInfo
     member val Body: SemType voption = ValueNone with get, set
     member val Status: AbbreviationStatus = AbbreviationStatus.NotFilled with get, set
 
+/// Distinguishes a class member as a method or property. Properties
+/// in v1 are read-only (get-only); methods carry a function-typed
+/// signature and are dispatched by an enclosing `Expr.App`. v1
+/// `AutoProperty` also lands here as `Property`.
+[<RequireQualifiedAccess>]
+type ClassMemberKind =
+    | Method
+    | Property
+
+/// Per-member metadata for a `TypeDefn.Class`. Member types start as
+/// placeholder TyVars (Method: a fresh TyVar that will be linked to a
+/// `TyFun`; Property: a fresh TyVar that will be linked to the
+/// property's body type) and get linked by Unification's
+/// `fillClassMembers` after the registry is populated. Forward
+/// references between members in the same class therefore resolve
+/// against the placeholder.
+[<Sealed>]
+type ClassMemberInfo(name: string, kind: ClassMemberKind, isStatic: bool, ty: SemType, declKey: NodeKey) =
+    new(name, kind, ty, declKey) = ClassMemberInfo(name, kind, false, ty, declKey)
+    member val Name = name
+    member val Kind = kind
+    /// `true` for `static member`s. Instance members are looked up via
+    /// the receiver's TyClass; static members are looked up by class
+    /// name + member name (no `this` binding inside the body).
+    member val IsStatic = isStatic
+    member val Type = ty
+    member val DeclKey = declKey
+
+/// Per-primary-constructor-arg metadata for a `TypeDefn.Class`. The
+/// declared `Type` is `ValueNone` for un-annotated arguments (a fresh
+/// TyVar is used as the parameter's binding-site TyVar instead) and
+/// `ValueSome t` for `(x: int)`-shaped annotations. NameResolution
+/// stamps these in source order; Unification's fill-in pass walks
+/// them to seed the parameter scope inside member bodies.
+[<Sealed>]
+type ClassCtorParamInfo(name: string, ty: SemType, declKey: NodeKey) =
+    member val Name = name
+    member val Type = ty
+    member val DeclKey = declKey
+
+/// One entry per `TypeDefn.Class` declaration. Indexed by name on
+/// `PassContext.ClassTypes`; the reverse `ClassMemberIndex` lets
+/// receiver-based dispatch diagnose ambiguity when a receiver is free.
+[<Sealed>]
+type ClassTypeInfo
+    (
+        name: string,
+        typeParams: (string * TypeVar) list,
+        ctorParams: ClassCtorParamInfo[],
+        members: ClassMemberInfo[],
+        declKey: NodeKey,
+        thisName: string,
+        thisKey: NodeKey
+    ) =
+    member val Name = name
+    member val TypeParams = typeParams
+    member val CtorParams = ctorParams
+    member val Members = members
+    member val DeclKey = declKey
+    /// `this`-binding source name (default `"this"`; honours `as self`).
+    member val ThisName = thisName
+    /// Synthetic NodeKey for the `this` binder shared across every
+    /// member body in this class.
+    member val ThisKey = thisKey
+
 [<Sealed>]
 type SideTable<'V>() =
     let dict = Dictionary<NodeKey, 'V>(HashIdentity.Structural)
@@ -205,6 +270,14 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// every `translateType` lookup, so downstream passes see the
     /// underlying type as if the user had written it longhand.
     member val AbbreviationTypes = Dictionary<string, AbbreviationInfo>() with get
+    /// Written by NameResolution from `TypeDefn.Class`es. Member types
+    /// start as placeholder TyVars and get linked by Unification's
+    /// `fillClassMembers` pre-pass.
+    member val ClassTypes = Dictionary<string, ClassTypeInfo>() with get
+    /// Reverse index: member name → list of (class, member) pairs.
+    /// Used only for ambiguity diagnostics when a receiver's type is
+    /// free and the member name occurs in multiple classes.
+    member val ClassMemberIndex = Dictionary<string, (ClassTypeInfo * ClassMemberInfo) list>() with get
     /// Per-signature type-parameter scope. Read by `translateType` to
     /// resolve `Type.VarType(Typar.Named "a")` to a stable TyVar; each
     /// signature (a `let`-binding, a type definition's field/case-fill-in

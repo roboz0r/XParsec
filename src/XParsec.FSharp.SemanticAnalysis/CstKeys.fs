@@ -89,6 +89,7 @@ module CstKeys =
         | Expr.DotLookup(expr = inner) -> firstTokenOfExpr inner
         | Expr.Record(lBrace = pk) -> firstTokenOfParenKind pk
         | Expr.RecordClone(lBrace = pk) -> firstTokenOfParenKind pk
+        | Expr.New(newToken = t) -> t
         | _ -> failwithf "CstKeys.firstTokenOfExpr: TODO %A" e
 
     let rec firstTokenOfPat (p: Pat<SyntaxToken>) : SyntaxToken =
@@ -139,6 +140,7 @@ module CstKeys =
             | Expr.DotLookup _ -> NodeKind.ExprDotLookup
             | Expr.Record _ -> NodeKind.ExprRecord
             | Expr.RecordClone _ -> NodeKind.ExprRecordClone
+            | Expr.New _ -> NodeKind.ExprNew
             | _ -> NodeKind.Unknown
 
         NodeKey.ofToken (firstTokenOfExpr e) kind

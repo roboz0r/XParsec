@@ -65,6 +65,7 @@ module Unification =
         | TyTuple items -> TyTuple(List.map zonk items)
         | TyRecord(n, args) -> TyRecord(n, List.map zonk args)
         | TyUnion(n, args) -> TyUnion(n, List.map zonk args)
+        | TyClass(n, args) -> TyClass(n, List.map zonk args)
 
     /// Merge `source.Constraints` into `target.Constraints`, collapsing
     /// any pair whose `Kind` already appears on the target. Two
@@ -95,9 +96,9 @@ module Unification =
                 target.SrtpBounds <- source.SrtpBounds @ target.SrtpBounds
                 source.SrtpBounds <- []
 
-            if not (List.isEmpty source.PendingFieldAccess) then
-                target.PendingFieldAccess <- source.PendingFieldAccess @ target.PendingFieldAccess
-                source.PendingFieldAccess <- []
+            if not (List.isEmpty source.PendingDotAccess) then
+                target.PendingDotAccess <- source.PendingDotAccess @ target.PendingDotAccess
+                source.PendingDotAccess <- []
     // TODO: fire on-unified callbacks for newly-stable SRTP bounds once
     // the SRTP / IWSAM resolution machinery exists.
 
@@ -130,6 +131,7 @@ module Unification =
         | TyTuple items -> List.exists (occursAndAdjust target) items
         | TyRecord(_, args) -> List.exists (occursAndAdjust target) args
         | TyUnion(_, args) -> List.exists (occursAndAdjust target) args
+        | TyClass(_, args) -> List.exists (occursAndAdjust target) args
 
     /// Merge the Units field of two union-find roots after they've been
     /// joined into `newRoot`. Two non-equal measures emit a diagnostic; one
@@ -195,6 +197,7 @@ module Unification =
         | TyTuple xs -> TyTuple [ for x in xs -> substituteWith subst x ]
         | TyRecord(n, args) -> TyRecord(n, [ for a in args -> substituteWith subst a ])
         | TyUnion(n, args) -> TyUnion(n, [ for a in args -> substituteWith subst a ])
+        | TyClass(n, args) -> TyClass(n, [ for a in args -> substituteWith subst a ])
 
     /// Pair a named type's declared `TypeParams` with the args provided
     /// at a use site. Empty when the lengths don't match — the caller has
@@ -213,7 +216,7 @@ module Unification =
     /// Walk a `SemType` through TyVar Links to surface a `TyRecord _` if
     /// the type has resolved to one. Returns ValueNone for free TyVars and
     /// non-record concrete types. The arg list rides along so
-    /// `drainPendingFieldAccess` can substitute the record's typars when
+    /// `drainPendingDotAccess` can substitute the record's typars when
     /// resolving deferred field accesses.
     let rec private tryResolveRecord (t: SemType) : (string * SemType list) voption =
         match t with
@@ -223,6 +226,20 @@ module Unification =
 
             match root.Link with
             | ValueSome target -> tryResolveRecord target
+            | ValueNone -> ValueNone
+        | _ -> ValueNone
+
+    /// Mirror of `tryResolveRecord` for `TyClass`. Used by the drain path
+    /// so a deferred dot-access against a now-pinned class receiver picks
+    /// up the right member registry.
+    let rec private tryResolveClass (t: SemType) : (string * SemType list) voption =
+        match t with
+        | TyClass(n, args) -> ValueSome(n, args)
+        | TyVar tv ->
+            let root = UnionFind.find tv
+
+            match root.Link with
+            | ValueSome target -> tryResolveClass target
             | ValueNone -> ValueNone
         | _ -> ValueNone
 
@@ -260,6 +277,7 @@ module Unification =
         | TyConst n1, TyConst n2 when n1 = n2 -> ()
         | TyRecord(n1, a1), TyRecord(n2, a2) when n1 = n2 && a1.Length = a2.Length -> List.iter2 (unify ctx key) a1 a2
         | TyUnion(n1, a1), TyUnion(n2, a2) when n1 = n2 && a1.Length = a2.Length -> List.iter2 (unify ctx key) a1 a2
+        | TyClass(n1, a1), TyClass(n2, a2) when n1 = n2 && a1.Length = a2.Length -> List.iter2 (unify ctx key) a1 a2
         | TyFun(a1, r1), TyFun(a2, r2) ->
             unify ctx key a1 a2
             unify ctx key r1 r2
@@ -294,7 +312,7 @@ module Unification =
 
                 match linkA with
                 | ValueSome t ->
-                    drainPendingFieldAccess ctx newRoot t
+                    drainPendingDotAccess ctx newRoot t
                     drainConstraints ctx key newRoot t
                 | ValueNone -> ()
             | ValueNone, ValueSome _ ->
@@ -302,7 +320,7 @@ module Unification =
 
                 match linkB with
                 | ValueSome t ->
-                    drainPendingFieldAccess ctx newRoot t
+                    drainPendingDotAccess ctx newRoot t
                     drainConstraints ctx key newRoot t
                 | ValueNone -> ()
             | ValueSome a, ValueSome b ->
@@ -311,7 +329,7 @@ module Unification =
 
                 match linkA with
                 | ValueSome t ->
-                    drainPendingFieldAccess ctx newRoot t
+                    drainPendingDotAccess ctx newRoot t
                     drainConstraints ctx key newRoot t
                 | ValueNone -> ()
         | TyVar tv, other
@@ -344,7 +362,7 @@ module Unification =
                 | _ -> ()
 
                 root.Link <- ValueSome other
-                drainPendingFieldAccess ctx root other
+                drainPendingDotAccess ctx root other
                 drainConstraints ctx key root other
         | _ ->
             ctx.Diagnostics.Add
@@ -354,22 +372,22 @@ module Unification =
                     Severity = Error
                 }
 
-    /// When a TyVar's Link is set to (or resolves to) a `TyRecord T`,
-    /// resolve any field-access constraints that were parked on it. Each
-    /// entry unifies the access expression's result TyVar with the field's
-    /// declared type; a missing field produces a diagnostic. When `T` is
-    /// generic, the receiver's arg list substitutes for the type's
-    /// declared typars so `(b : Box<int>).Value` resolves to `int`, not
-    /// `Box`'s prototype `'a`.
-    and private drainPendingFieldAccess (ctx: PassContext) (root: TypeVar) (linkTarget: SemType) : unit =
-        if List.isEmpty root.PendingFieldAccess then
+    /// When a TyVar's Link is set to (or resolves to) a `TyRecord T` or
+    /// `TyClass T`, resolve any dot-access constraints that were parked
+    /// on it. Each entry unifies the access expression's result TyVar
+    /// with the field's / member's declared type; a missing field /
+    /// member produces a diagnostic. When `T` is generic, the receiver's
+    /// arg list substitutes for the type's declared typars so
+    /// `(b : Box<int>).Value` resolves to `int`, not `Box`'s prototype
+    /// `'a`.
+    and private drainPendingDotAccess (ctx: PassContext) (root: TypeVar) (linkTarget: SemType) : unit =
+        if List.isEmpty root.PendingDotAccess then
             ()
         else
             match tryResolveRecord linkTarget with
-            | ValueNone -> ()
             | ValueSome(recName, args) ->
-                let pending = root.PendingFieldAccess
-                root.PendingFieldAccess <- []
+                let pending = root.PendingDotAccess
+                root.PendingDotAccess <- []
 
                 match ctx.RecordTypes.TryGetValue recName with
                 | true, info ->
@@ -393,6 +411,35 @@ module Unification =
                                 Message = sprintf "Unknown record type '%s'" recName
                                 Severity = Error
                             }
+            | ValueNone ->
+                match tryResolveClass linkTarget with
+                | ValueNone -> ()
+                | ValueSome(clsName, args) ->
+                    let pending = root.PendingDotAccess
+                    root.PendingDotAccess <- []
+
+                    match ctx.ClassTypes.TryGetValue clsName with
+                    | true, info ->
+                        let subst = mkNamedTypeSubst info.TypeParams args
+
+                        for (memberName, useKey, resultTv) in pending do
+                            match info.Members |> Array.tryFind (fun m -> m.Name = memberName && not m.IsStatic) with
+                            | Some m -> unify ctx useKey (TyVar resultTv) (substituteWith subst m.Type)
+                            | None ->
+                                ctx.Diagnostics.Add
+                                    {
+                                        Key = useKey
+                                        Message = sprintf "Type '%s' has no instance member '%s'" clsName memberName
+                                        Severity = Error
+                                    }
+                    | false, _ ->
+                        for (_, useKey, _) in pending do
+                            ctx.Diagnostics.Add
+                                {
+                                    Key = useKey
+                                    Message = sprintf "Unknown class type '%s'" clsName
+                                    Severity = Error
+                                }
 
     /// Built-in primitive support table. `ValueSome true` is a definitive
     /// "yes, this constraint holds on `name`"; `ValueSome false` is a
@@ -485,12 +532,17 @@ module Unification =
                 ]
                 |> reduceOutcome (checkConstraint ctx c)
             | false, _ -> Defer
-        | SemanticConstraintKind.Struct, (TyTuple _ | TyFun _ | TyRecord _ | TyUnion _) ->
-            // v1: tuples, functions, and reference records / unions are
-            // all reference types. `[<Struct>]`-attributed records / unions
-            // ship with the attribute walker.
+        | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyClass _ ->
+            // Per docs/classes-plan.md §Open questions: F# classes are
+            // reference-equal by default; structural equality / comparison
+            // for classes requires the attribute walker. Defer in v1.
+            Defer
+        | SemanticConstraintKind.Struct, (TyTuple _ | TyFun _ | TyRecord _ | TyUnion _ | TyClass _) ->
+            // v1: tuples, functions, and reference records / unions /
+            // classes are all reference types. `[<Struct>]`-attributed
+            // records / unions / structs ship with the attribute walker.
             Violated
-        | SemanticConstraintKind.ReferenceType, (TyTuple _ | TyFun _ | TyRecord _ | TyUnion _) -> Satisfied
+        | SemanticConstraintKind.ReferenceType, (TyTuple _ | TyFun _ | TyRecord _ | TyUnion _ | TyClass _) -> Satisfied
         | SemanticConstraintKind.Nullness, _ ->
             // Nullness analysis is a separate track — defer until it
             // lands. Treating as `Defer` (not `Violated`) keeps existing
@@ -555,6 +607,7 @@ module Unification =
             | TyTuple xs -> List.iter walk xs
             | TyRecord(_, args) -> List.iter walk args
             | TyUnion(_, args) -> List.iter walk args
+            | TyClass(_, args) -> List.iter walk args
 
         walk t
 
@@ -637,29 +690,30 @@ module Unification =
     /// matches v1 "no measure polymorphism" — each `let f (x : float<m>) …`
     /// has the measure baked in.
     /// True if `t` contains a TyVar whose root carries a deferred
-    /// `PendingFieldAccess` constraint. Such a binding cannot be safely
-    /// generalised in v1 — quantifying a TyVar with pending field accesses
+    /// `PendingDotAccess` constraint. Such a binding cannot be safely
+    /// generalised in v1 — quantifying a TyVar with pending dot accesses
     /// would freeze the constraint into the scheme, and a use site that
     /// pins the receiver would only resolve a fresh instantiation, leaving
     /// the original (still-quantified) constraint dangling. Keeping the
     /// binding monomorphic lets the first use site unify directly with the
     /// pre-instantiation TyVar, which drains the constraint normally.
-    let rec private hasPendingFieldAccess (t: SemType) : bool =
+    let rec private hasPendingDotAccess (t: SemType) : bool =
         match t with
         | TyVar tv ->
             let root = UnionFind.find tv
 
-            if not (List.isEmpty root.PendingFieldAccess) then
+            if not (List.isEmpty root.PendingDotAccess) then
                 true
             else
                 match root.Link with
-                | ValueSome target -> hasPendingFieldAccess target
+                | ValueSome target -> hasPendingDotAccess target
                 | ValueNone -> false
         | TyConst _ -> false
-        | TyFun(a, r) -> hasPendingFieldAccess a || hasPendingFieldAccess r
-        | TyTuple xs -> List.exists hasPendingFieldAccess xs
-        | TyRecord(_, args) -> List.exists hasPendingFieldAccess args
-        | TyUnion(_, args) -> List.exists hasPendingFieldAccess args
+        | TyFun(a, r) -> hasPendingDotAccess a || hasPendingDotAccess r
+        | TyTuple xs -> List.exists hasPendingDotAccess xs
+        | TyRecord(_, args) -> List.exists hasPendingDotAccess args
+        | TyUnion(_, args) -> List.exists hasPendingDotAccess args
+        | TyClass(_, args) -> List.exists hasPendingDotAccess args
 
     let private generalise (zonkedTy: SemType) (outerLevel: int) : TypeScheme =
         let quantified = ResizeArray<TypeVar>()
@@ -679,6 +733,7 @@ module Unification =
             | TyTuple xs -> List.iter walk xs
             | TyRecord(_, args) -> List.iter walk args
             | TyUnion(_, args) -> List.iter walk args
+            | TyClass(_, args) -> List.iter walk args
 
         walk zonkedTy
 
@@ -883,7 +938,12 @@ module Unification =
                         | true, info ->
                             let args = [ for _ in info.TypeParams -> TyVar(freshTyVar ctx) ]
                             TyUnion(name, args)
-                        | false, _ -> TyConst name
+                        | false, _ ->
+                            match ctx.ClassTypes.TryGetValue name with
+                            | true, info ->
+                                let args = [ for _ in info.TypeParams -> TyVar(freshTyVar ctx) ]
+                                TyClass(name, args)
+                            | false, _ -> TyConst name
         | Type.GenericType(longIdent = li; typeArgs = args) when
             li.Idents.Length = 1
             && args.Length = 1
@@ -976,10 +1036,19 @@ module Unification =
 
                         TyUnion(name, translatedArgs)
                     | false, _ ->
-                        // Unknown name with type args — surface as opaque
-                        // TyConst (matches today's behaviour for unrecognised
-                        // bare names; the args effectively get ignored).
-                        TyConst name
+                        match ctx.ClassTypes.TryGetValue name with
+                        | true, info ->
+                            let expected = List.length info.TypeParams
+
+                            if expected <> argCount then
+                                diagnoseArity expected
+
+                            TyClass(name, translatedArgs)
+                        | false, _ ->
+                            // Unknown name with type args — surface as opaque
+                            // TyConst (matches today's behaviour for unrecognised
+                            // bare names; the args effectively get ignored).
+                            TyConst name
         | Type.FunctionType(fromType = from; toType = into) -> TyFun(translateType ctx from, translateType ctx into)
         | Type.TupleType(types = types) -> TyTuple [ for t in types -> translateType ctx t ]
         | Type.WhenConstrainedType(typ = inner; constraints = cs) ->
@@ -1328,6 +1397,38 @@ module Unification =
             ]
 
         args, subst
+
+    /// Class-name-as-function: produces a function value whose argument
+    /// shape matches the primary constructor and whose result is the
+    /// constructed `TyClass`. Used by `inferIdent` to type bare
+    /// `Point(3, 4)` calls (no `new` keyword) through the existing
+    /// function-application machinery.
+    ///
+    /// Returns `ValueNone` if `name` isn't in `ctx.ClassTypes`.
+    let private tryClassCtorAsFunction (ctx: PassContext) (name: string) : SemType voption =
+        match ctx.ClassTypes.TryGetValue name with
+        | true, info ->
+            let args, subst = freshNamedInstance ctx info.TypeParams
+            let receiverTy = TyClass(info.Name, args)
+
+            let paramTys =
+                info.CtorParams
+                |> Array.map (fun p -> substituteWith subst p.Type)
+                |> Array.toList
+
+            let arg =
+                match paramTys with
+                | [] -> MockBuiltins.tyUnit
+                | [ t ] -> t
+                | many -> TyTuple many
+
+            ValueSome(TyFun(arg, receiverTy))
+        | false, _ -> ValueNone
+
+    let private classCtorAsFunction (ctx: PassContext) (name: string) : SemType =
+        match tryClassCtorAsFunction ctx name with
+        | ValueSome t -> t
+        | ValueNone -> TyVar(freshTyVar ctx)
 
     /// Function-shaped type for a DU ctor reference. Nullary cases type as
     /// the union itself (no argument); single-field cases as
@@ -1733,6 +1834,7 @@ module Unification =
             | Expr.RecordClone(expr = src; fieldInitializers = inits) -> inferRecordClone ctx key src inits
             | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
                 inferFieldAccess ctx key r li.Idents.[0]
+            | Expr.New(typ = t; expr = argExpr) -> inferNew ctx key t argExpr
             | _ ->
                 // TODO: other expression kinds.
                 TyVar(freshTyVar ctx)
@@ -1751,6 +1853,33 @@ module Unification =
             && ctx.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
             ->
             inferLongIdentFieldChain ctx key li
+        // Qualified static member: `Math.Pi`, `Box.Empty`. The class
+        // name lives in `ctx.ClassTypes`; the second segment must be
+        // a member whose `IsStatic = true`. The class's typars are
+        // instantiated fresh per use site so two independent
+        // `Box.Empty ()` calls don't share a `'a`.
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
+            li.Idents.Length = 2
+            && not (ctx.Binding.ContainsKey key)
+            && (
+                match ctx.ClassTypes.TryGetValue(ctx.NameOf li.Idents.[0]) with
+                | true, info ->
+                    let n = ctx.NameOf li.Idents.[1]
+                    info.Members |> Array.exists (fun m -> m.IsStatic && m.Name = n)
+                | false, _ -> false
+            )
+            ->
+            let className = ctx.NameOf li.Idents.[0]
+            let memberName = ctx.NameOf li.Idents.[1]
+            let info = ctx.ClassTypes.[className]
+
+            let m = info.Members |> Array.find (fun m -> m.IsStatic && m.Name = memberName)
+
+            // Instantiate the class's typars fresh per use site so
+            // generic statics (`Box.Empty<'a>`) don't share variables
+            // across uses.
+            let _, subst = freshNamedInstance ctx info.TypeParams
+            substituteWith subst m.Type
         // Qualified ctor reference: `Result2.Ok` resolves via the union
         // registry (bypasses the CtorIndex ambiguity check).
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
@@ -1823,7 +1952,14 @@ module Unification =
                                 }
 
                             TyVar(freshTyVar ctx)
-                        | ValueNone -> TyVar(freshTyVar ctx)
+                        | ValueNone ->
+                            // Class-name-as-function: `Point(3, 4)` parses
+                            // as `Expr.App (Expr.Ident "Point", ...)`. The
+                            // class registry holds the ctor signature; mint
+                            // a fresh instance and return the ctor as a
+                            // function value so `inferApp` types the call
+                            // through the normal function arm.
+                            classCtorAsFunction ctx n
                     | ValueNone -> TyVar(freshTyVar ctx)
 
     /// Source-level rendering of an ident/qualified-name expression. For
@@ -2312,18 +2448,20 @@ module Unification =
 
             TyVar(freshTyVar ctx)
 
-    /// One step of field resolution: given the receiver's resolved type
-    /// and the access expression's diagnostic NodeKey, produce the
-    /// access's type. Deferred when the receiver is a free TyVar.
-    /// For a generic receiver `(b : Box<int>).Value`, the declared field
-    /// type `'a` is substituted against the receiver's arg list before
-    /// being returned — so `Value` types as `int`, not as a free typar.
-    and private resolveFieldStep (ctx: PassContext) (diagKey: NodeKey) (rTy: SemType) (fieldName: string) : SemType =
+    /// One step of dot-access resolution: given the receiver's resolved
+    /// type and the access expression's diagnostic NodeKey, produce the
+    /// access's type. Deferred when the receiver is a free TyVar. For a
+    /// generic receiver `(b : Box<int>).Value`, the declared field /
+    /// member type `'a` is substituted against the receiver's arg list
+    /// before being returned — so `Value` types as `int`, not as a free
+    /// typar. Both record-field and class-member access route through
+    /// this entry point; the shape of the receiver discriminates.
+    and private resolveFieldStep (ctx: PassContext) (diagKey: NodeKey) (rTy: SemType) (memberName: string) : SemType =
         match resolveStep rTy with
         | TyRecord(recName, args) ->
             match ctx.RecordTypes.TryGetValue recName with
             | true, info ->
-                match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
+                match info.Fields |> Array.tryFind (fun f -> f.Name = memberName) with
                 | Some field ->
                     let subst = mkNamedTypeSubst info.TypeParams args
                     substituteWith subst field.Type
@@ -2331,7 +2469,7 @@ module Unification =
                     ctx.Diagnostics.Add
                         {
                             Key = diagKey
-                            Message = sprintf "Type '%s' has no field '%s'" recName fieldName
+                            Message = sprintf "Type '%s' has no field '%s'" recName memberName
                             Severity = Error
                         }
 
@@ -2345,16 +2483,57 @@ module Unification =
                     }
 
                 TyVar(freshTyVar ctx)
+        | TyClass(clsName, args) ->
+            match ctx.ClassTypes.TryGetValue clsName with
+            | true, info ->
+                match info.Members |> Array.tryFind (fun m -> m.Name = memberName && not m.IsStatic) with
+                | Some m ->
+                    let subst = mkNamedTypeSubst info.TypeParams args
+                    substituteWith subst m.Type
+                | None ->
+                    // Distinguish "no such member" from "the member is
+                    // static — access via class name, not an instance".
+                    let isStaticHit =
+                        info.Members |> Array.exists (fun m -> m.Name = memberName && m.IsStatic)
+
+                    let msg =
+                        if isStaticHit then
+                            sprintf
+                                "Member '%s' on type '%s' is static; access it via '%s.%s'"
+                                memberName
+                                clsName
+                                clsName
+                                memberName
+                        else
+                            sprintf "Type '%s' has no instance member '%s'" clsName memberName
+
+                    ctx.Diagnostics.Add
+                        {
+                            Key = diagKey
+                            Message = msg
+                            Severity = Error
+                        }
+
+                    TyVar(freshTyVar ctx)
+            | false, _ ->
+                ctx.Diagnostics.Add
+                    {
+                        Key = diagKey
+                        Message = sprintf "Unknown class type '%s'" clsName
+                        Severity = Error
+                    }
+
+                TyVar(freshTyVar ctx)
         | TyVar tv ->
             let root = UnionFind.find tv
             let resultTv = freshTyVar ctx
-            root.PendingFieldAccess <- (fieldName, diagKey, resultTv) :: root.PendingFieldAccess
+            root.PendingDotAccess <- (memberName, diagKey, resultTv) :: root.PendingDotAccess
             TyVar resultTv
         | _ ->
             ctx.Diagnostics.Add
                 {
                     Key = diagKey
-                    Message = sprintf "Cannot read field '%s' from non-record type" fieldName
+                    Message = sprintf "Cannot read member '%s' from non-record non-class type" memberName
                     Severity = Error
                 }
 
@@ -2369,6 +2548,61 @@ module Unification =
         let fieldName = ctx.NameOf fieldTok
         let rTy = infer ctx receiver
         resolveFieldStep ctx key rTy fieldName
+
+    /// `new T(args)` — translate `T` (resolving to a `TyClass`), build
+    /// the primary-constructor's expected argument shape, unify the
+    /// supplied argument against it, and return the constructed
+    /// `TyClass`. Mirrors a single application against the value
+    /// returned by `classCtorAsFunction` — kept inline so a bare
+    /// `Expr.New` doesn't need to fabricate an `Expr.App` first.
+    and private inferNew
+        (ctx: PassContext)
+        (key: NodeKey)
+        (t: Type<SyntaxToken>)
+        (argExpr: Expr<SyntaxToken>)
+        : SemType =
+        let receiverTy = translateType ctx t
+
+        match resolveStep receiverTy with
+        | TyClass(name, args) ->
+            match ctx.ClassTypes.TryGetValue name with
+            | true, info ->
+                let subst = mkNamedTypeSubst info.TypeParams args
+
+                let paramTys =
+                    info.CtorParams
+                    |> Array.map (fun p -> substituteWith subst p.Type)
+                    |> Array.toList
+
+                let expected =
+                    match paramTys with
+                    | [] -> MockBuiltins.tyUnit
+                    | [ t ] -> t
+                    | many -> TyTuple many
+
+                let argTy = infer ctx argExpr
+                unify ctx (CstKeys.ofExpr argExpr) argTy expected
+                receiverTy
+            | false, _ ->
+                ctx.Diagnostics.Add
+                    {
+                        Key = key
+                        Message = sprintf "Unknown class type '%s'" name
+                        Severity = Error
+                    }
+
+                infer ctx argExpr |> ignore
+                TyVar(freshTyVar ctx)
+        | _ ->
+            ctx.Diagnostics.Add
+                {
+                    Key = key
+                    Message = "'new' requires a class type"
+                    Severity = Error
+                }
+
+            infer ctx argExpr |> ignore
+            TyVar(freshTyVar ctx)
 
     /// `r.X.Y…` parsed as a single multi-segment `Expr.LongIdentOrOp`.
     /// The head segment was resolved by NameResolution as a local binding
@@ -2536,7 +2770,7 @@ module Unification =
                 let headTv = tvOf ctx key
                 let zonked = zonk (TyVar headTv)
 
-                if not (hasPendingFieldAccess zonked) then
+                if not (hasPendingDotAccess zonked) then
                     let scheme = generalise zonked outerLevel
                     ctx.Scheme.Set(key, scheme)
 
@@ -2681,6 +2915,192 @@ module Unification =
                 | _ -> ()
         | _ -> ()
 
+    /// Translate the primary constructor argument types under the class's
+    /// typar scope and Link each placeholder TyVar to its declared type.
+    /// `Pat.Typed` carries an annotation; un-annotated arguments leave
+    /// the placeholder as a free TyVar so a use site can pin it via
+    /// argument-type unification in `inferNew` / `inferApp`.
+    let private fillClassCtorParamTypes
+        (ctx: PassContext)
+        (info: ClassTypeInfo)
+        (pcOpt: PrimaryConstrArgs<SyntaxToken> voption)
+        : unit =
+        match pcOpt with
+        | ValueNone -> ()
+        | ValueSome(PrimaryConstrArgs(pat = ValueNone)) -> ()
+        | ValueSome(PrimaryConstrArgs(pat = ValueSome p)) ->
+            let idx = ref 0
+
+            let rec walk (p: Pat<SyntaxToken>) =
+                match p with
+                | Pat.NamedSimple _ -> incr idx
+                | Pat.Typed(pat = inner; typ = t) ->
+                    let i = !idx
+                    incr idx
+
+                    if i < info.CtorParams.Length then
+                        let translated = translateType ctx t
+
+                        match info.CtorParams.[i].Type with
+                        | TyVar tv ->
+                            let root = UnionFind.find tv
+                            root.Link <- ValueSome translated
+                        | _ -> ()
+
+                    ignore inner
+                | Pat.EnclosedBlock(pat = inner) -> walk inner
+                | Pat.Tuple(patterns = pats) ->
+                    for sub in pats do
+                        walk sub
+                | _ -> ()
+
+            walk p
+
+    /// Walk every class member body under a typar scope seeded from
+    /// `info.TypeParams` and a binding scope that supplies `this` and
+    /// each ctor param. The placeholder member TyVars stored by
+    /// NameResolution are pre-populated into `ctx.TypeVar` keyed on the
+    /// member's headPat NodeKey so `inferBinding`'s `tvOf` reuses them
+    /// — letting `inferBinding`'s final `unify patTy rhsTy` link the
+    /// placeholder directly to the inferred member type. AutoProperty
+    /// has no `Binding`, so its placeholder is linked manually.
+    let private fillClassMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
+        let common (td: TypeDefn<SyntaxToken>) =
+            match td with
+            | TypeDefn.Class(typeName = TypeName(ident = nameLi); primaryConstr = pc; body = body)
+            | TypeDefn.Anon(typeName = TypeName(ident = nameLi); primaryConstr = pc; body = body) when
+                nameLi.Idents.Length = 1
+                ->
+                ValueSome(ctx.NameOf nameLi.Idents.[0], pc, body)
+            | _ -> ValueNone
+
+        match m with
+        | ModuleElem.Type defs ->
+            for td in defs do
+                match common td with
+                | ValueSome(name, pc, body) ->
+
+                    match ctx.ClassTypes.TryGetValue name with
+                    | true, info ->
+                        let savedScope = ctx.TyparScope
+                        let savedStrict = ctx.TyparScopeStrict
+                        ctx.TyparScope <- scopeOfTypeParams info.TypeParams
+                        ctx.TyparScopeStrict <- true
+
+                        try
+                            // Translate ctor-param type annotations now,
+                            // under the class's typar scope (so `'a`
+                            // resolves to the registry's prototype typar).
+                            fillClassCtorParamTypes ctx info pc
+
+                            // Seed `ctx.TypeVar` so `inferIdent` lookups
+                            // against the param/`this` binding sites
+                            // return these TyVars. ctor params: pull
+                            // out the underlying TyVar from each
+                            // placeholder's `info.CtorParams[i].Type`.
+                            for p in info.CtorParams do
+                                match p.Type with
+                                | TyVar tv -> ctx.TypeVar.Set(p.DeclKey, tv)
+                                | _ -> ()
+
+                            // `this` TyVar: a fresh TyVar at the
+                            // current level pre-linked to `TyClass`
+                            // over the class's prototype typars. The
+                            // prototype-typar instance lets generic
+                            // class member bodies that mention `'a`
+                            // share identity with the registry typars.
+                            let thisTv = TypeVar()
+                            thisTv.Level <- ctx.CurrentLevel
+
+                            let selfArgs = [ for (_, ptv) in info.TypeParams -> TyVar ptv ]
+
+                            thisTv.Link <- ValueSome(TyClass(info.Name, selfArgs))
+                            ctx.TypeVar.Set(info.ThisKey, thisTv)
+
+                            // Type each member's body. Static members
+                            // are typed under the same typar scope but
+                            // their body never sees `this` / ctor
+                            // params (NameResolution gives them an
+                            // empty binding scope). Placeholder TyVars
+                            // for static members live in the same
+                            // `info.Members` array — IsStatic
+                            // discriminates downstream lookups.
+                            for el in body.elements do
+                                match el with
+                                | TypeDefnElement.Member(MemberDefn.Member(defn = d)) ->
+                                    match d with
+                                    | MethodOrPropDefn.Method(defn = b)
+                                    | MethodOrPropDefn.Property(defn = b) ->
+                                        let mNameOpt =
+                                            let rec walkP (p: Pat<SyntaxToken>) =
+                                                match p with
+                                                | Pat.NamedSimple id -> ValueSome id
+                                                | Pat.EnclosedBlock(pat = inner)
+                                                | Pat.Typed(pat = inner) -> walkP inner
+                                                | _ -> ValueNone
+
+                                            walkP b.headPat
+
+                                        match mNameOpt with
+                                        | ValueSome mTok ->
+                                            let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
+
+                                            // Pre-seed ctx.TypeVar with the
+                                            // placeholder TyVar so inferPat's
+                                            // tvOf reuses it.
+                                            let mInfoOpt = info.Members |> Array.tryFind (fun m -> m.DeclKey = mKey)
+
+                                            match mInfoOpt with
+                                            | Some mInfo ->
+                                                match mInfo.Type with
+                                                | TyVar tv -> ctx.TypeVar.Set(mKey, tv)
+                                                | _ -> ()
+                                            | None -> ()
+
+                                            let outerLevel = ctx.CurrentLevel
+                                            enterLevel ctx
+
+                                            try
+                                                inferBinding ctx b
+                                            finally
+                                                exitLevel ctx
+                                        | ValueNone -> ()
+                                    | MethodOrPropDefn.AutoProperty(ident = id; expr = e; returnType = rt) ->
+                                        let outerLevel = ctx.CurrentLevel
+                                        enterLevel ctx
+
+                                        try
+                                            let bodyTy = infer ctx e
+
+                                            let resultTy =
+                                                match rt with
+                                                | ValueSome(ReturnType(typ = t)) ->
+                                                    let t' = translateType ctx t
+                                                    unify ctx (CstKeys.ofExpr e) bodyTy t'
+                                                    t'
+                                                | ValueNone -> bodyTy
+
+                                            let mKey = NodeKey.ofToken id NodeKind.PatIdent
+
+                                            match info.Members |> Array.tryFind (fun m -> m.DeclKey = mKey) with
+                                            | Some mInfo ->
+                                                match mInfo.Type with
+                                                | TyVar tv ->
+                                                    let root = UnionFind.find tv
+                                                    root.Link <- ValueSome resultTy
+                                                | _ -> ()
+                                            | None -> ()
+                                        finally
+                                            exitLevel ctx
+                                    | _ -> ()
+                                | _ -> ()
+                        finally
+                            ctx.TyparScope <- savedScope
+                            ctx.TyparScopeStrict <- savedStrict
+                    | false, _ -> ()
+                | ValueNone -> ()
+        | _ -> ()
+
     /// Force every abbreviation body in source order. Each call into
     /// `forceFill` recurses through `translateType` for any abbreviation
     /// reference it encounters, so dependencies fill themselves DFS-style
@@ -2711,6 +3131,9 @@ module Unification =
 
         for m in elems do
             fillUnionFieldTypes ctx m
+
+        for m in elems do
+            fillClassMembers ctx m
 
         for m in elems do
             walkModuleElem ctx m

@@ -112,6 +112,23 @@ type TExpr =
     /// `Rectangle(2.0, 3.0)`) both fold to this node — the latter peels
     /// the `Expr.App` chain in Freeze.
     | UnionCons of caseName: string * args: TExpr list * ty: SemType
+    /// Class primary-constructor invocation. `args` is the per-parameter
+    /// list — the parser's tuple wrapper (`new Point(3, 4)` parses with
+    /// a `Tuple` arg) is peeled in Freeze so consumers see the ctor's
+    /// declared arity directly. `ty` is a `TyClass`.
+    | New of className: string * args: TExpr list * ty: SemType
+    /// Instance method invocation: `r.M(args)`. `args` is the
+    /// per-parameter list (peeled the same way as `New`). `ty` is the
+    /// method's declared return type.
+    | MethodCall of receiver: TExpr * methodName: string * args: TExpr list * ty: SemType
+    /// Instance property read: `r.X` where `X` is a class property.
+    /// `ty` is the property's declared type.
+    | PropertyGet of receiver: TExpr * propertyName: string * ty: SemType
+    /// Static method invocation: `ClassName.M(args)`. Same arg-peeling
+    /// as `MethodCall`; no receiver.
+    | StaticMethodCall of className: string * methodName: string * args: TExpr list * ty: SemType
+    /// Static property read: `ClassName.X`.
+    | StaticPropertyGet of className: string * propertyName: string * ty: SemType
 
 and TMatchArm =
     {
