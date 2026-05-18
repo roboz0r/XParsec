@@ -544,6 +544,28 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
+            // ---- Generics ----
+
+            test "generic record literal carries arg-bearing type" {
+                let tast = analyse "type Box<'a> = { Value: 'a }\nlet b = { Value = 1 }"
+                Expect.equal (declType tast) (TyRecord("Box", [ MockBuiltins.tyInt ])) "b : Box<int>"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "generic ctor application carries arg-bearing type" {
+                let tast = analyse "type Option<'a> = | Some of 'a | None\nlet s = Some 1"
+                Expect.equal (declType tast) (TyUnion("Option", [ MockBuiltins.tyInt ])) "s : Option<int>"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "generic record-field access resolves via substitution" {
+                let tast = analyse "type Box<'a> = { Value: 'a }\nlet f (b : Box<int>) = b.Value"
+
+                let expected = TyFun(TyRecord("Box", [ MockBuiltins.tyInt ]), MockBuiltins.tyInt)
+                Expect.equal (declType tast) expected "f : Box<int> -> int"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
             test "qualified name resolves through provider" {
                 // Build a custom provider that knows `Math.pi`.
                 let provider: IExternalSymbolProvider =

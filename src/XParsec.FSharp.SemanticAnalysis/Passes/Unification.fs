@@ -63,8 +63,8 @@ module Unification =
         | TyConst _ -> t
         | TyFun(a, r) -> TyFun(zonk a, zonk r)
         | TyTuple items -> TyTuple(List.map zonk items)
-        | TyRecord _ -> t
-        | TyUnion _ -> t
+        | TyRecord(n, args) -> TyRecord(n, List.map zonk args)
+        | TyUnion(n, args) -> TyUnion(n, List.map zonk args)
 
     /// Move pending deferred-constraint state from `source` onto `target`.
     /// Called whenever a TyVar is no longer the equivalence-class
@@ -117,8 +117,8 @@ module Unification =
         | TyConst _ -> false
         | TyFun(a, r) -> occursAndAdjust target a || occursAndAdjust target r
         | TyTuple items -> List.exists (occursAndAdjust target) items
-        | TyRecord _ -> false
-        | TyUnion _ -> false
+        | TyRecord(_, args) -> List.exists (occursAndAdjust target) args
+        | TyUnion(_, args) -> List.exists (occursAndAdjust target) args
 
     /// Merge the Units field of two union-find roots after they've been
     /// joined into `newRoot`. Two non-equal measures emit a diagnostic; one
@@ -146,13 +146,67 @@ module Unification =
                     Severity = Error
                 }
 
+    /// Substitute TyVar roots that appear as keys in `subst` with their
+    /// target `SemType`. Walks compound shapes (TyFun, TyTuple, TyRecord,
+    /// TyUnion args) so a nested `'a` deep inside a named-type arg gets
+    /// rewritten the same way a top-level `'a` would. Other TyVars are
+    /// returned unchanged (followed through union-find but not their
+    /// `Link`s — that's `zonk`'s job). Used by `instantiate` to swap
+    /// quantified typars for fresh ones, and by record / union code to
+    /// substitute a type's `TypeParams` with the receiver's arg list at
+    /// every use site. Public so Freeze can reuse the same substitution
+    /// when reading field types off a generic receiver.
+    let rec substituteWith (subst: Dictionary<TypeVar, SemType>) (t: SemType) : SemType =
+        match t with
+        | TyVar tv ->
+            let root = UnionFind.find tv
+
+            match subst.TryGetValue root with
+            | true, target -> target
+            | false, _ ->
+                // Field / case-arg types stored on the registry start as
+                // *placeholder* TyVars that Unification's fill-in linked
+                // to the real declared type. The placeholder's own root
+                // is never in `subst` — substitute keys are the
+                // declared type's `TypeParams`. Follow `Link` so a
+                // placeholder whose target is `TyVar typarRoot` resolves
+                // to whatever `subst[typarRoot]` says.
+                //
+                // Stop at measure-bearing roots (same rule `zonk` uses):
+                // a measured TyVar's `Link` carries the bare carrier, and
+                // following through would drop the `Units` attached to
+                // the root.
+                match root.Link with
+                | ValueSome target when root.Units.IsNone -> substituteWith subst target
+                | _ -> TyVar root
+        | TyConst _ -> t
+        | TyFun(a, r) -> TyFun(substituteWith subst a, substituteWith subst r)
+        | TyTuple xs -> TyTuple [ for x in xs -> substituteWith subst x ]
+        | TyRecord(n, args) -> TyRecord(n, [ for a in args -> substituteWith subst a ])
+        | TyUnion(n, args) -> TyUnion(n, [ for a in args -> substituteWith subst a ])
+
+    /// Pair a named type's declared `TypeParams` with the args provided
+    /// at a use site. Empty when the lengths don't match — the caller has
+    /// already (or should) emit an arity diagnostic, and an empty subst
+    /// keeps the field types unsubstituted rather than silently mismatching.
+    /// Public so Freeze can rebuild the same substitution when projecting
+    /// fields off a generic receiver in a field-chain.
+    let mkNamedTypeSubst (typeParams: (string * TypeVar) list) (args: SemType list) : Dictionary<TypeVar, SemType> =
+        let subst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
+
+        if List.length typeParams = List.length args then
+            List.iter2 (fun (_, tp) arg -> subst.[UnionFind.find tp] <- arg) typeParams args
+
+        subst
+
     /// Walk a `SemType` through TyVar Links to surface a `TyRecord _` if
     /// the type has resolved to one. Returns ValueNone for free TyVars and
-    /// non-record concrete types. Inlined here so `drainPendingFieldAccess`
-    /// can recognise records pinned through a chain.
-    let rec private tryResolveRecord (t: SemType) : string voption =
+    /// non-record concrete types. The arg list rides along so
+    /// `drainPendingFieldAccess` can substitute the record's typars when
+    /// resolving deferred field accesses.
+    let rec private tryResolveRecord (t: SemType) : (string * SemType list) voption =
         match t with
-        | TyRecord n -> ValueSome n
+        | TyRecord(n, args) -> ValueSome(n, args)
         | TyVar tv ->
             let root = UnionFind.find tv
 
@@ -167,8 +221,8 @@ module Unification =
 
         match a, b with
         | TyConst n1, TyConst n2 when n1 = n2 -> ()
-        | TyRecord n1, TyRecord n2 when n1 = n2 -> ()
-        | TyUnion n1, TyUnion n2 when n1 = n2 -> ()
+        | TyRecord(n1, a1), TyRecord(n2, a2) when n1 = n2 && a1.Length = a2.Length -> List.iter2 (unify ctx key) a1 a2
+        | TyUnion(n1, a1), TyUnion(n2, a2) when n1 = n2 && a1.Length = a2.Length -> List.iter2 (unify ctx key) a1 a2
         | TyFun(a1, r1), TyFun(a2, r2) ->
             unify ctx key a1 a2
             unify ctx key r1 r2
@@ -262,22 +316,27 @@ module Unification =
     /// When a TyVar's Link is set to (or resolves to) a `TyRecord T`,
     /// resolve any field-access constraints that were parked on it. Each
     /// entry unifies the access expression's result TyVar with the field's
-    /// declared type; a missing field produces a diagnostic.
+    /// declared type; a missing field produces a diagnostic. When `T` is
+    /// generic, the receiver's arg list substitutes for the type's
+    /// declared typars so `(b : Box<int>).Value` resolves to `int`, not
+    /// `Box`'s prototype `'a`.
     and private drainPendingFieldAccess (ctx: PassContext) (root: TypeVar) (linkTarget: SemType) : unit =
         if List.isEmpty root.PendingFieldAccess then
             ()
         else
             match tryResolveRecord linkTarget with
             | ValueNone -> ()
-            | ValueSome recName ->
+            | ValueSome(recName, args) ->
                 let pending = root.PendingFieldAccess
                 root.PendingFieldAccess <- []
 
                 match ctx.RecordTypes.TryGetValue recName with
                 | true, info ->
+                    let subst = mkNamedTypeSubst info.TypeParams args
+
                     for (fieldName, useKey, resultTv) in pending do
                         match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
-                        | Some field -> unify ctx useKey (TyVar resultTv) field.Type
+                        | Some field -> unify ctx useKey (TyVar resultTv) (substituteWith subst field.Type)
                         | None ->
                             ctx.Diagnostics.Add
                                 {
@@ -334,29 +393,15 @@ module Unification =
     /// scope and must keep their identity. `scheme.Body` is already zonked
     /// by `generalise`, so we don't follow Links here.
     let private instantiate (ctx: PassContext) (scheme: TypeScheme) : SemType =
-        let subst = Dictionary<TypeVar, TypeVar>(HashIdentity.Reference)
+        let subst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
 
         for q in scheme.Quantified do
             let qRoot = UnionFind.find q
             let fresh = TypeVar()
             fresh.Level <- ctx.CurrentLevel
-            subst.[qRoot] <- fresh
+            subst.[qRoot] <- TyVar fresh
 
-        let rec walk (t: SemType) : SemType =
-            match t with
-            | TyVar tv ->
-                let root = UnionFind.find tv
-
-                match subst.TryGetValue root with
-                | true, fresh -> TyVar fresh
-                | false, _ -> TyVar root
-            | TyConst _ -> t
-            | TyFun(a, r) -> TyFun(walk a, walk r)
-            | TyTuple xs -> TyTuple [ for x in xs -> walk x ]
-            | TyRecord _ -> t
-            | TyUnion _ -> t
-
-        walk scheme.Body
+        substituteWith subst scheme.Body
 
     /// Walk `zonkedTy` and collect every union-find root whose Level strictly
     /// exceeds `outerLevel` — those are the TyVars to quantify. Dedupes by
@@ -391,8 +436,8 @@ module Unification =
         | TyConst _ -> false
         | TyFun(a, r) -> hasPendingFieldAccess a || hasPendingFieldAccess r
         | TyTuple xs -> List.exists hasPendingFieldAccess xs
-        | TyRecord _ -> false
-        | TyUnion _ -> false
+        | TyRecord(_, args) -> List.exists hasPendingFieldAccess args
+        | TyUnion(_, args) -> List.exists hasPendingFieldAccess args
 
     let private generalise (zonkedTy: SemType) (outerLevel: int) : TypeScheme =
         let quantified = ResizeArray<TypeVar>()
@@ -410,8 +455,8 @@ module Unification =
                 walk a
                 walk r
             | TyTuple xs -> List.iter walk xs
-            | TyRecord _ -> ()
-            | TyUnion _ -> ()
+            | TyRecord(_, args) -> List.iter walk args
+            | TyUnion(_, args) -> List.iter walk args
 
         walk zonkedTy
         TypeScheme(List.ofSeq quantified, zonkedTy)
@@ -520,15 +565,54 @@ module Unification =
         | "double" -> true
         | _ -> false
 
-    /// Translate a syntactic `Type<SyntaxToken>` into a `SemType`. The tiny
-    /// subset only recognises the primitive built-ins (`int`, `bool`,
-    /// `unit`) by name; anything else turns into a `TyConst <name>` whose
-    /// unification will succeed only against an identical `TyConst`. Typars
-    /// (`'a`) and generic types are TODO — they need typar-scoping plumbing
-    /// we don't have yet.
+    /// Translate a syntactic `Type<SyntaxToken>` into a `SemType`.
+    /// Reads `ctx.TyparScope` for `'a` typar resolution; callers open a
+    /// fresh scope per signature (binding or type defn) before walking.
+    /// Named-type lookups consult `ctx.RecordTypes` / `ctx.UnionTypes` to
+    /// produce arg-carrying `TyRecord` / `TyUnion`; bare references back-
+    /// fill the arg list with fresh TyVars so unification can pin them.
     let rec private translateType (ctx: PassContext) (t: Type<SyntaxToken>) : SemType =
         match t with
         | Type.ParenType(typ = inner) -> translateType ctx inner
+        | Type.VarType(Typar.Named(ident = id))
+        | Type.VarType(Typar.Static(ident = id)) ->
+            let name = ctx.NameOf id
+
+            match ctx.TyparScope.TryGetValue name with
+            | true, tv -> TyVar tv
+            | false, _ ->
+                if ctx.TyparScopeStrict then
+                    // Strict mode (type-defn fill-in): implicit free
+                    // typars aren't legal F#. Diagnose, but still mint
+                    // and memoise so subsequent occurrences resolve to
+                    // the same TyVar and don't cascade.
+                    ctx.Diagnostics.Add
+                        {
+                            Key = NodeKey.ofToken id NodeKind.TypeVarRef
+                            Message =
+                                sprintf
+                                    "Free type parameter %s is not declared in the enclosing type's type-parameter list"
+                                    name
+                            Severity = Error
+                        }
+
+                    let tv = TypeVar()
+                    tv.Level <- ctx.CurrentLevel
+                    ctx.TyparScope.[name] <- tv
+                    TyVar tv
+                else
+                    // Implicit typar introduction. Mint at the binding's
+                    // current level so generalisation at binding-group exit
+                    // picks it up; memoise so subsequent occurrences in the
+                    // same signature share identity.
+                    let tv = TypeVar()
+                    tv.Level <- ctx.CurrentLevel
+                    ctx.TyparScope.[name] <- tv
+                    TyVar tv
+        | Type.VarType(Typar.Anon _) ->
+            // `_` typar — always fresh, never stored. Distinct per
+            // occurrence, same as `Pat.Wildcard`.
+            TyVar(freshTyVar ctx)
         | Type.NamedType li when li.Idents.Length = 1 ->
             let name = ctx.NameOf li.Idents.[0]
 
@@ -541,9 +625,22 @@ module Unification =
             | "int64" -> MockBuiltins.tyInt64
             | "byte" -> MockBuiltins.tyByte
             | _ ->
-                if ctx.RecordTypes.ContainsKey name then TyRecord name
-                elif ctx.UnionTypes.ContainsKey name then TyUnion name
-                else TyConst name
+                match ctx.RecordTypes.TryGetValue name with
+                | true, info ->
+                    // Bare reference to a (possibly generic) record. For
+                    // a generic type, back-fill with fresh TyVars at the
+                    // current level — the args are unpinned at the
+                    // declaration site and get fixed by the surrounding
+                    // unification (e.g. a value annotation `r : Box`
+                    // unifies the args with whatever `r`'s usage pins).
+                    let args = [ for _ in info.TypeParams -> TyVar(freshTyVar ctx) ]
+                    TyRecord(name, args)
+                | false, _ ->
+                    match ctx.UnionTypes.TryGetValue name with
+                    | true, info ->
+                        let args = [ for _ in info.TypeParams -> TyVar(freshTyVar ctx) ]
+                        TyUnion(name, args)
+                    | false, _ -> TyConst name
         | Type.GenericType(longIdent = li; typeArgs = args) when
             li.Idents.Length = 1
             && args.Length = 1
@@ -551,8 +648,8 @@ module Unification =
             ->
             // `float<m>` / `int<kg>` — recognise the measure-shaped generic
             // and stamp the measure onto a fresh TyVar whose Link carries
-            // the carrier. Anything else (real generics) still falls through
-            // to the wildcard arm.
+            // the carrier. Anything else (real generics) falls through
+            // to the named-generic arm below.
             //
             // The parser only tags an arg as `TypeArg.Measure` when the
             // measure grammar is unambiguous; for bare `float<m>` it lands
@@ -582,12 +679,60 @@ module Unification =
                 tv.Units <- ValueSome mt
                 TyVar tv
             | ValueNone -> TyVar(freshTyVar ctx)
+        | Type.GenericType(longIdent = li; typeArgs = args) when li.Idents.Length = 1 ->
+            let nameTok = li.Idents.[0]
+            let name = ctx.NameOf nameTok
+            let diagKey = NodeKey.ofToken nameTok NodeKind.TypeGeneric
+
+            let translatedArgs =
+                [
+                    for a in args ->
+                        match a with
+                        | TypeArg.Type t -> translateType ctx t
+                        // A measure-shaped arg landing on a non-numeric
+                        // carrier shouldn't happen in well-formed code,
+                        // but stay total — emit a free TyVar.
+                        | TypeArg.Measure _ -> TyVar(freshTyVar ctx)
+                ]
+
+            let argCount = List.length translatedArgs
+
+            let diagnoseArity (expected: int) : unit =
+                ctx.Diagnostics.Add
+                    {
+                        Key = diagKey
+                        Message = sprintf "Type '%s' expects %d type argument(s) but got %d" name expected argCount
+                        Severity = Error
+                    }
+
+            match ctx.RecordTypes.TryGetValue name with
+            | true, info ->
+                let expected = List.length info.TypeParams
+
+                if expected <> argCount then
+                    diagnoseArity expected
+
+                TyRecord(name, translatedArgs)
+            | false, _ ->
+                match ctx.UnionTypes.TryGetValue name with
+                | true, info ->
+                    let expected = List.length info.TypeParams
+
+                    if expected <> argCount then
+                        diagnoseArity expected
+
+                    TyUnion(name, translatedArgs)
+                | false, _ ->
+                    // Unknown name with type args — surface as opaque
+                    // TyConst (matches today's behaviour for unrecognised
+                    // bare names; the args effectively get ignored).
+                    TyConst name
         | Type.FunctionType(fromType = from; toType = into) -> TyFun(translateType ctx from, translateType ctx into)
         | Type.TupleType(types = types) -> TyTuple [ for t in types -> translateType ctx t ]
         | _ ->
-            // TODO: VarType (typars), GenericType (non-measure), etc. Free
-            // variable until we model them properly — unification will pin
-            // it via context.
+            // Multi-segment named/generic types and other shapes (array
+            // types, anonymous records, etc.) aren't modelled yet. Hand
+            // back a free TyVar so unification can pin it via context.
             TyVar(freshTyVar ctx)
 
     /// Measure carried on `t`'s union-find root, if any. Reads `Units`
@@ -730,15 +875,48 @@ module Unification =
         else
             ValueNone, last
 
+    /// Mint a fresh instantiation of a named type. Returns the
+    /// arg-carrying SemType (`TyRecord("Box", [fresh_a])`) together
+    /// with the substitution that maps each prototype `TypeVar` in
+    /// `typeParams` onto its fresh stand-in — callers walk declared
+    /// field / case-arg types through this subst so every reference
+    /// to `'a` lines up with the value in `args`.
+    let private freshNamedInstance
+        (ctx: PassContext)
+        (typeParams: (string * TypeVar) list)
+        : SemType list * Dictionary<TypeVar, SemType> =
+        let subst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
+
+        let args =
+            [
+                for (_, tp) in typeParams ->
+                    let fresh = TypeVar()
+                    fresh.Level <- ctx.CurrentLevel
+                    let asTy = TyVar fresh
+                    subst.[UnionFind.find tp] <- asTy
+                    asTy
+            ]
+
+        args, subst
+
     /// Function-shaped type for a DU ctor reference. Nullary cases type as
     /// the union itself (no argument); single-field cases as
     /// `field -> TyUnion`; multi-field cases bundle the fields into a
-    /// tuple — F# DUs take a tuple as their single argument.
-    let private ctorType (info: UnionCaseInfo) : SemType =
-        match info.Fields.Length with
-        | 0 -> TyUnion info.UnionName
-        | 1 -> TyFun(info.Fields.[0], TyUnion info.UnionName)
-        | _ -> TyFun(TyTuple(List.ofArray info.Fields), TyUnion info.UnionName)
+    /// tuple — F# DUs take a tuple as their single argument. The
+    /// receiver union's typars are instantiated with fresh TyVars at
+    /// the current level so two independent uses of `Some` don't share
+    /// a `'a`.
+    let private ctorType (ctx: PassContext) (info: UnionCaseInfo) : SemType =
+        let unionInfo = ctx.UnionTypes.[info.UnionName]
+        let args, subst = freshNamedInstance ctx unionInfo.TypeParams
+        let unionTy = TyUnion(info.UnionName, args)
+
+        let walkedFields = info.Fields |> Array.map (substituteWith subst)
+
+        match walkedFields.Length with
+        | 0 -> unionTy
+        | 1 -> TyFun(walkedFields.[0], unionTy)
+        | _ -> TyFun(TyTuple(List.ofArray walkedFields), unionTy)
 
     /// Resolve a bare ctor name to its UnionCaseInfo. ValueNone with
     /// `count = 0` means "no such ctor"; `count >= 2` means ambiguous —
@@ -821,7 +999,9 @@ module Unification =
 
             match info with
             | ValueSome i when i.Fields.Length = 0 ->
-                let ty = TyUnion i.UnionName
+                let unionInfo = ctx.UnionTypes.[i.UnionName]
+                let args, _ = freshNamedInstance ctx unionInfo.TypeParams
+                let ty = TyUnion(i.UnionName, args)
                 let nodeTv = freshTv ctx key
                 nodeTv.Link <- ValueSome ty
                 ty
@@ -837,7 +1017,9 @@ module Unification =
                         Severity = Error
                     }
 
-                let ty = TyUnion i.UnionName
+                let unionInfo = ctx.UnionTypes.[i.UnionName]
+                let args, _ = freshNamedInstance ctx unionInfo.TypeParams
+                let ty = TyUnion(i.UnionName, args)
                 let nodeTv = freshTv ctx key
                 nodeTv.Link <- ValueSome ty
                 ty
@@ -924,18 +1106,20 @@ module Unification =
                             Severity = Error
                         }
 
+                let unionInfo = ctx.UnionTypes.[i.UnionName]
+                let args, subst = freshNamedInstance ctx unionInfo.TypeParams
                 let m = min subPats.Length i.Fields.Length
 
                 for j = 0 to m - 1 do
                     let sub = subPats.[j]
                     let subTy = inferPat ctx sub
-                    unify ctx (CstKeys.ofPat sub) subTy i.Fields.[j]
+                    unify ctx (CstKeys.ofPat sub) subTy (substituteWith subst i.Fields.[j])
 
                 // Walk any extra sub-patterns so binders still register.
                 for j = m to subPats.Length - 1 do
                     inferPat ctx subPats.[j] |> ignore
 
-                let ty = TyUnion i.UnionName
+                let ty = TyUnion(i.UnionName, args)
                 let nodeTv = freshTv ctx key
                 nodeTv.Link <- ValueSome ty
                 ty
@@ -1052,11 +1236,13 @@ module Unification =
                 let nodeTv = freshTv ctx key
                 TyVar nodeTv
             | ValueSome info ->
+                let args, subst = freshNamedInstance ctx info.TypeParams
+
                 for _, fieldName, sub in pairs do
                     let subTy = inferPat ctx sub
 
                     match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
-                    | Some field -> unify ctx (CstKeys.ofPat sub) subTy field.Type
+                    | Some field -> unify ctx (CstKeys.ofPat sub) subTy (substituteWith subst field.Type)
                     | None ->
                         ctx.Diagnostics.Add
                             {
@@ -1065,7 +1251,7 @@ module Unification =
                                 Severity = Error
                             }
 
-                let recTy = TyRecord info.Name
+                let recTy = TyRecord(info.Name, args)
                 let nodeTv = freshTv ctx key
                 nodeTv.Link <- ValueSome recTy
                 recTy
@@ -1146,7 +1332,7 @@ module Unification =
             let caseName = ctx.NameOf li.Idents.[1]
 
             match resolveQualifiedCtor ctx typeName caseName with
-            | ValueSome info -> ctorType info
+            | ValueSome info -> ctorType ctx info
             | ValueNone ->
                 ctx.Diagnostics.Add
                     {
@@ -1193,7 +1379,7 @@ module Unification =
                         let info, count = resolveCtorName ctx n
 
                         match info with
-                        | ValueSome i -> ctorType i
+                        | ValueSome i -> ctorType ctx i
                         | ValueNone when count >= 2 ->
                             ctx.Diagnostics.Add
                                 {
@@ -1617,11 +1803,18 @@ module Unification =
 
             TyVar(freshTyVar ctx)
         | ValueSome info ->
+            // Instantiate the record's typars with fresh TyVars at the
+            // current level so independent literals get independent vars.
+            // Each field initialiser unifies against the field's declared
+            // type *under this substitution* — a `'a` field types as the
+            // fresh TyVar, which pins to the initialiser's type.
+            let args, subst = freshNamedInstance ctx info.TypeParams
+
             for _, fieldName, e in pairs do
                 let eTy = infer ctx e
 
                 match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
-                | Some field -> unify ctx (CstKeys.ofExpr e) eTy field.Type
+                | Some field -> unify ctx (CstKeys.ofExpr e) eTy (substituteWith subst field.Type)
                 | None ->
                     ctx.Diagnostics.Add
                         {
@@ -1630,7 +1823,7 @@ module Unification =
                             Severity = Error
                         }
 
-            TyRecord info.Name
+            TyRecord(info.Name, args)
 
     and private inferRecordClone
         (ctx: PassContext)
@@ -1641,15 +1834,20 @@ module Unification =
         let srcTy = infer ctx src
 
         match resolveStep srcTy with
-        | TyRecord recName ->
+        | TyRecord(recName, srcArgs) ->
             match ctx.RecordTypes.TryGetValue recName with
             | true, info ->
+                // Clone preserves the source record's arg list — the
+                // override RHSes unify against the substituted field type
+                // (`'a` → the source's already-pinned arg).
+                let subst = mkNamedTypeSubst info.TypeParams srcArgs
+
                 for FieldInitializer(longIdent = li; expr = e) in inits do
                     let _, fieldName = fieldNameAndQualifier ctx li
                     let eTy = infer ctx e
 
                     match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
-                    | Some field -> unify ctx (CstKeys.ofExpr e) eTy field.Type
+                    | Some field -> unify ctx (CstKeys.ofExpr e) eTy (substituteWith subst field.Type)
                     | None ->
                         ctx.Diagnostics.Add
                             {
@@ -1658,7 +1856,7 @@ module Unification =
                                 Severity = Error
                             }
 
-                TyRecord recName
+                TyRecord(recName, srcArgs)
             | false, _ ->
                 ctx.Diagnostics.Add
                     {
@@ -1670,7 +1868,7 @@ module Unification =
                 for FieldInitializer(expr = e) in inits do
                     infer ctx e |> ignore
 
-                TyRecord recName
+                TyRecord(recName, srcArgs)
         | _ ->
             ctx.Diagnostics.Add
                 {
@@ -1687,13 +1885,18 @@ module Unification =
     /// One step of field resolution: given the receiver's resolved type
     /// and the access expression's diagnostic NodeKey, produce the
     /// access's type. Deferred when the receiver is a free TyVar.
+    /// For a generic receiver `(b : Box<int>).Value`, the declared field
+    /// type `'a` is substituted against the receiver's arg list before
+    /// being returned — so `Value` types as `int`, not as a free typar.
     and private resolveFieldStep (ctx: PassContext) (diagKey: NodeKey) (rTy: SemType) (fieldName: string) : SemType =
         match resolveStep rTy with
-        | TyRecord recName ->
+        | TyRecord(recName, args) ->
             match ctx.RecordTypes.TryGetValue recName with
             | true, info ->
                 match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
-                | Some field -> field.Type
+                | Some field ->
+                    let subst = mkNamedTypeSubst info.TypeParams args
+                    substituteWith subst field.Type
                 | None ->
                     ctx.Diagnostics.Add
                         {
@@ -1810,18 +2013,62 @@ module Unification =
             failwith "Unification: Expr.LetOrUse with no body (UseFixed) not supported"
 
     and private inferBinding (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =
-        let patTy = inferPat ctx b.headPat
+        // One typar scope per binding signature. Explicit `<'a>` typars
+        // seed it before any pattern / body walk; implicit `'a` mentions
+        // in annotations later in the signature pick up the same TyVar.
+        let savedScope = ctx.TyparScope
+        ctx.TyparScope <- Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
 
-        let rhsTy =
-            if b.argumentPats.IsEmpty then
-                infer ctx b.expr
-            else
-                // `let f x y = body` is `let f = fun x y -> body`.
-                let argTypes = [ for p in b.argumentPats -> inferPat ctx p ]
-                let bodyTy = infer ctx b.expr
-                List.foldBack (fun a r -> TyFun(a, r)) argTypes bodyTy
+        match b.typarDefns with
+        | ValueSome(TyparDefns(defns = ds)) ->
+            for TyparDefn(typar = t) in ds do
+                match t with
+                | Typar.Named(ident = id)
+                | Typar.Static(ident = id) ->
+                    let n = ctx.NameOf id
 
-        unify ctx (CstKeys.ofBinding b) patTy rhsTy
+                    if not (ctx.TyparScope.ContainsKey n) then
+                        let tv = TypeVar()
+                        tv.Level <- ctx.CurrentLevel
+                        ctx.TyparScope.[n] <- tv
+                | Typar.Anon _ -> ()
+        | ValueNone -> ()
+
+        try
+            let patTy = inferPat ctx b.headPat
+
+            let rhsTy =
+                if b.argumentPats.IsEmpty then
+                    let bodyTy = infer ctx b.expr
+
+                    match b.returnType with
+                    | ValueSome(ReturnType(typ = t)) ->
+                        // `let v : T = expr` — translate T under the
+                        // binding's typar scope and unify with the RHS.
+                        let annTy = translateType ctx t
+                        unify ctx (CstKeys.ofBinding b) bodyTy annTy
+                        annTy
+                    | ValueNone -> bodyTy
+                else
+                    // `let f x y = body` is `let f = fun x y -> body`.
+                    let argTypes = [ for p in b.argumentPats -> inferPat ctx p ]
+                    let bodyTy = infer ctx b.expr
+
+                    let bodyTy =
+                        match b.returnType with
+                        | ValueSome(ReturnType(typ = t)) ->
+                            // `let f x : T = body` — body's type unifies
+                            // with the declared return type.
+                            let annTy = translateType ctx t
+                            unify ctx (CstKeys.ofBinding b) bodyTy annTy
+                            annTy
+                        | ValueNone -> bodyTy
+
+                    List.foldBack (fun a r -> TyFun(a, r)) argTypes bodyTy
+
+            unify ctx (CstKeys.ofBinding b) patTy rhsTy
+        finally
+            ctx.TyparScope <- savedScope
 
     /// Type a `let` / `let rec` group with Rémy-level discipline:
     ///   1. Snapshot the outer level and push one level for the group.
@@ -1866,6 +2113,20 @@ module Unification =
         | ModuleElem.Expression e -> infer ctx e |> ignore
         | _ -> ()
 
+    /// Rebuild the typar scope of a type definition from the registry
+    /// entry's `TypeParams`. Each `(name, tv)` pair is keyed under the
+    /// name so a field type containing `'name` resolves to `tv` —
+    /// linking the placeholder field TyVar through the same root the
+    /// registry already holds.
+    let private scopeOfTypeParams (typeParams: (string * TypeVar) list) : Dictionary<string, TypeVar> =
+        let d = Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
+
+        for (n, tv) in typeParams do
+            if not (d.ContainsKey n) then
+                d.[n] <- tv
+
+        d
+
     /// After NameResolution stamps placeholder TyVars for every record
     /// field, walk the file's `TypeDefn.Record`s again and Link each
     /// placeholder to the real translated CST type. Done as a pre-pass so
@@ -1882,19 +2143,28 @@ module Unification =
 
                     match ctx.RecordTypes.TryGetValue name with
                     | true, info ->
-                        let n = min info.Fields.Length fields.Length
+                        let savedScope = ctx.TyparScope
+                        let savedStrict = ctx.TyparScopeStrict
+                        ctx.TyparScope <- scopeOfTypeParams info.TypeParams
+                        ctx.TyparScopeStrict <- true
 
-                        for i = 0 to n - 1 do
-                            let (RecordField(ident = id; typ = t)) = fields.[i]
-                            let translated = translateType ctx t
+                        try
+                            let n = min info.Fields.Length fields.Length
 
-                            match info.Fields.[i].Type with
-                            | TyVar tv ->
-                                let root = UnionFind.find tv
-                                root.Link <- ValueSome translated
-                            | _ -> ()
+                            for i = 0 to n - 1 do
+                                let (RecordField(ident = id; typ = t)) = fields.[i]
+                                let translated = translateType ctx t
 
-                            ignore id
+                                match info.Fields.[i].Type with
+                                | TyVar tv ->
+                                    let root = UnionFind.find tv
+                                    root.Link <- ValueSome translated
+                                | _ -> ()
+
+                                ignore id
+                        finally
+                            ctx.TyparScope <- savedScope
+                            ctx.TyparScopeStrict <- savedStrict
                     | false, _ -> ()
                 | _ -> ()
         | _ -> ()
@@ -1915,46 +2185,56 @@ module Unification =
 
                     match ctx.UnionTypes.TryGetValue name with
                     | true, info ->
-                        // Walk the case list in declaration order, skipping
-                        // any GADT cases (they don't have a registry entry
-                        // — `inspectCaseData` returns ValueNone). The
-                        // registry's `Cases` array tracks declaration order
-                        // among successfully-registered cases, so we align
-                        // by walking the CST and the array in tandem.
-                        let mutable infoIdx = 0
+                        let savedScope = ctx.TyparScope
+                        let savedStrict = ctx.TyparScopeStrict
+                        ctx.TyparScope <- scopeOfTypeParams info.TypeParams
+                        ctx.TyparScopeStrict <- true
 
-                        for UnionTypeCase(data = data) in cases do
-                            let isRegistered =
-                                match data with
-                                | UnionTypeCaseData.GadtNary _
-                                | UnionTypeCaseData.GadtNullary _ -> false
-                                | _ -> true
+                        try
+                            // Walk the case list in declaration order, skipping
+                            // any GADT cases (they don't have a registry entry
+                            // — `inspectCaseData` returns ValueNone). The
+                            // registry's `Cases` array tracks declaration order
+                            // among successfully-registered cases, so we align
+                            // by walking the CST and the array in tandem.
+                            let mutable infoIdx = 0
 
-                            if isRegistered && infoIdx < info.Cases.Length then
-                                let caseInfo = info.Cases.[infoIdx]
-                                infoIdx <- infoIdx + 1
-
-                                let fields =
+                            for UnionTypeCase(data = data) in cases do
+                                let isRegistered =
                                     match data with
-                                    | UnionTypeCaseData.Nary(fields = fs) -> fs
-                                    | _ ->
-                                        System.Collections.Immutable.ImmutableArray<UnionTypeField<SyntaxToken>>.Empty
+                                    | UnionTypeCaseData.GadtNary _
+                                    | UnionTypeCaseData.GadtNullary _ -> false
+                                    | _ -> true
 
-                                let n = min caseInfo.Fields.Length fields.Length
+                                if isRegistered && infoIdx < info.Cases.Length then
+                                    let caseInfo = info.Cases.[infoIdx]
+                                    infoIdx <- infoIdx + 1
 
-                                for i = 0 to n - 1 do
-                                    let t =
-                                        match fields.[i] with
-                                        | UnionTypeField.Unnamed(typ = t) -> t
-                                        | UnionTypeField.Named(typ = t) -> t
+                                    let fields =
+                                        match data with
+                                        | UnionTypeCaseData.Nary(fields = fs) -> fs
+                                        | _ ->
+                                            System.Collections.Immutable.ImmutableArray<UnionTypeField<SyntaxToken>>
+                                                .Empty
 
-                                    let translated = translateType ctx t
+                                    let n = min caseInfo.Fields.Length fields.Length
 
-                                    match caseInfo.Fields.[i] with
-                                    | TyVar tv ->
-                                        let root = UnionFind.find tv
-                                        root.Link <- ValueSome translated
-                                    | _ -> ()
+                                    for i = 0 to n - 1 do
+                                        let t =
+                                            match fields.[i] with
+                                            | UnionTypeField.Unnamed(typ = t) -> t
+                                            | UnionTypeField.Named(typ = t) -> t
+
+                                        let translated = translateType ctx t
+
+                                        match caseInfo.Fields.[i] with
+                                        | TyVar tv ->
+                                            let root = UnionFind.find tv
+                                            root.Link <- ValueSome translated
+                                        | _ -> ()
+                        finally
+                            ctx.TyparScope <- savedScope
+                            ctx.TyparScopeStrict <- savedStrict
                     | false, _ -> ()
                 | _ -> ()
         | _ -> ()

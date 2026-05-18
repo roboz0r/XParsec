@@ -230,4 +230,79 @@ let tests =
 
                 Expect.isFalse hasUnresolved "bare ctor name not flagged as unresolved"
             }
+
+            // ---- Generic type-parameter capture ----
+
+            test "generic record registers single TypeParam" {
+                let ctx = analyse "type Box<'a> = { Value: 'a }"
+
+                match ctx.RecordTypes.TryGetValue "Box" with
+                | true, info ->
+                    Expect.equal (List.length info.TypeParams) 1 "one typar"
+                    Expect.equal (fst info.TypeParams.[0]) "'a" "name is 'a"
+                | false, _ -> failtest "Box not registered"
+            }
+
+            test "generic record's field type shares typar identity" {
+                // `Value : 'a` — after Unification fills field types, the
+                // field's placeholder TyVar links onto the same TyVar root
+                // that's stored in TypeParams.
+                let input = "type Box<'a> = { Value: 'a }"
+                let lexed, file = parseFile input
+                let ctx = PassContext(MockBuiltins.provider, input, lexed)
+                Desugar.run ctx file
+                NameResolution.run ctx file
+                Unification.run ctx file
+
+                match ctx.RecordTypes.TryGetValue "Box" with
+                | true, info ->
+                    let _, tparTv = info.TypeParams.[0]
+                    let tparRoot = UnionFind.find tparTv
+                    let fieldTy = Unification.zonk info.Fields.[0].Type
+
+                    match fieldTy with
+                    | TyVar fieldTv ->
+                        let fieldRoot = UnionFind.find fieldTv
+                        Expect.isTrue (System.Object.ReferenceEquals(tparRoot, fieldRoot)) "field shares typar root"
+                    | other -> failtestf "expected TyVar, got %A" other
+                | false, _ -> failtest "Box not registered"
+            }
+
+            test "generic record keeps declaration order" {
+                let ctx = analyse "type Pair<'a, 'b> = { First: 'a; Second: 'b }"
+
+                match ctx.RecordTypes.TryGetValue "Pair" with
+                | true, info ->
+                    Expect.equal (List.length info.TypeParams) 2 "two typars"
+                    Expect.equal (fst info.TypeParams.[0]) "'a" "first is 'a"
+                    Expect.equal (fst info.TypeParams.[1]) "'b" "second is 'b"
+                | false, _ -> failtest "Pair not registered"
+            }
+
+            test "generic union registers TypeParams" {
+                let ctx = analyse "type Option<'a> = | Some of 'a | None"
+
+                match ctx.UnionTypes.TryGetValue "Option" with
+                | true, info ->
+                    Expect.equal (List.length info.TypeParams) 1 "one typar"
+                    Expect.equal (fst info.TypeParams.[0]) "'a" "name is 'a"
+                | false, _ -> failtest "Option not registered"
+            }
+
+            test "implicit free typar in type-def diagnoses" {
+                // `type Bad = { X: 'a }` with no `<'a>` defn — Unification's
+                // strict-mode walk over field types should fire a
+                // "Free type parameter" diagnostic.
+                let lexed, file = parseFile "type Bad = { X: 'a }"
+                let ctx = PassContext(MockBuiltins.provider, "type Bad = { X: 'a }", lexed)
+                Desugar.run ctx file
+                NameResolution.run ctx file
+                Unification.run ctx file
+
+                let hasFree =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "Free type parameter")
+
+                Expect.isTrue hasFree "implicit free typar diagnosed"
+            }
         ]

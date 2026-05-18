@@ -29,8 +29,8 @@ module Validation =
         | TyConst _ -> false
         | TyFun(a, r) -> hasFreeTyVar a || hasFreeTyVar r
         | TyTuple items -> items |> List.exists hasFreeTyVar
-        | TyRecord _ -> false
-        | TyUnion _ -> false
+        | TyRecord(_, args) -> args |> List.exists hasFreeTyVar
+        | TyUnion(_, args) -> args |> List.exists hasFreeTyVar
 
     /// `lhs <- rhs` with a single-name `lhs` whose `ResolvedBinding` says
     /// `IsMutable = false` is an error. Non-Ident LHSes (record field,
@@ -77,7 +77,7 @@ module Validation =
                     match ctx.TypeVar.TryGetValue rb.BindingSite with
                     | ValueSome tv ->
                         match Unification.zonk (TyVar tv) with
-                        | TyRecord recName ->
+                        | TyRecord(recName, _) ->
                             let fieldName = ctx.NameOf li.Idents.[1]
 
                             match ctx.RecordTypes.TryGetValue recName with
@@ -118,7 +118,7 @@ module Validation =
             match ctx.TypeVar.TryGetValue rKey with
             | ValueSome tv ->
                 match Unification.zonk (TyVar tv) with
-                | TyRecord recName ->
+                | TyRecord(recName, _) ->
                     let fieldName = ctx.NameOf li.Idents.[0]
 
                     match ctx.RecordTypes.TryGetValue recName with

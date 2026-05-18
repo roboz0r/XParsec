@@ -95,15 +95,19 @@ type SemType =
     /// Flat n-ary tuple. Unifies pairwise with same-arity TyTuple; arity
     /// mismatch is a diagnostic in Unification.
     | TyTuple of items: SemType list
-    /// Named record type. Field types are not stored inline — look up
-    /// `ctx.RecordTypes[name]` for the field list. Two TyRecords unify
-    /// iff their names match. v1 uses single-segment names; qualified
-    /// names land with namespaces.
-    | TyRecord of name: string
-    /// Named discriminated union type. Cases are not stored inline —
-    /// look up `ctx.UnionTypes[name]` for the case list. Two TyUnions
-    /// unify iff their names match. v1 single-segment names only.
-    | TyUnion of name: string
+    /// Named record type with instantiated arg list. `Box<int>` is
+    /// `TyRecord("Box", [TyConst "int"])`; a non-generic `Point` is
+    /// `TyRecord("Point", [])`. Field types are not stored inline —
+    /// look up `ctx.RecordTypes[name]` for the field-shape (and the
+    /// declared `TypeParams` used to substitute `args` into each field).
+    /// Two TyRecords unify iff their names match AND their args unify
+    /// pairwise. v1 single-segment names; qualified names land with
+    /// namespaces.
+    | TyRecord of name: string * args: SemType list
+    /// Named discriminated union type with instantiated arg list. Same
+    /// shape as TyRecord. Cases / TypeParams live in
+    /// `ctx.UnionTypes[name]`.
+    | TyUnion of name: string * args: SemType list
 
 /// Abelian-group expression over named unit atoms. Always stored in a
 /// normalised form: each exponent is in canonical Rational form, zero

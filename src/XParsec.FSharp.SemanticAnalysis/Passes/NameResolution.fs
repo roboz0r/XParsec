@@ -270,6 +270,62 @@ module NameResolution =
                     scopeMap :: scope
         }
 
+    /// Extract a `Typar`'s source-text name, dropping the leading `'` or
+    /// `^` (which live on a separate token). Anon (`_`) typars don't
+    /// participate in scope — return ValueNone so callers can skip them.
+    let private typarName (ctx: PassContext) (t: Typar<SyntaxToken>) : string voption =
+        match t with
+        | Typar.Named(ident = id)
+        | Typar.Static(ident = id) -> ValueSome(ctx.NameOf id)
+        | Typar.Anon _ -> ValueNone
+
+    /// Declared typars for a `TypeName`, in source order: prefix typars
+    /// (`'a Box`) first, then suffix typars (`Box<'a, 'b>`). Skips
+    /// anonymous typars (they can't participate in a name-keyed scope).
+    /// Used by both NameResolution (to mint `TypeParams`) and
+    /// Unification (to rebuild the scope when filling field types).
+    let typarNamesOfTypeName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : string list =
+        let (TypeName(prefixTypars = pt; typarDefns = td)) = tn
+
+        let prefix =
+            [
+                match pt with
+                | ValueNone -> ()
+                | ValueSome(PrefixTypars.Single t) ->
+                    match typarName ctx t with
+                    | ValueSome n -> yield n
+                    | ValueNone -> ()
+                | ValueSome(PrefixTypars.Multiple(typars = ts)) ->
+                    for t in ts do
+                        match typarName ctx t with
+                        | ValueSome n -> yield n
+                        | ValueNone -> ()
+            ]
+
+        let main =
+            [
+                match td with
+                | ValueNone -> ()
+                | ValueSome(TyparDefns(defns = ds)) ->
+                    for TyparDefn(typar = t) in ds do
+                        match typarName ctx t with
+                        | ValueSome n -> yield n
+                        | ValueNone -> ()
+            ]
+
+        prefix @ main
+
+    /// Mint a prototype TyVar per declared typar name. Each prototype is
+    /// stored on the registry entry and substituted out at every use site
+    /// — two `Box<…>` instantiations therefore share no variables.
+    let private mkTypeParams (names: string list) : (string * TypeVar) list =
+        [
+            for n in names ->
+                let tv = TypeVar()
+                tv.Level <- 0
+                n, tv
+        ]
+
     /// Stamp `RecordTypeInfo` entries for every `TypeDefn.Record` in this
     /// group. Field types start as placeholder TyVars; Unification fills
     /// them in once `RecordTypes` is fully populated, so a record's field
@@ -277,43 +333,51 @@ module NameResolution =
     /// file. Duplicate single-segment names diagnose here — first wins.
     let private registerRecordTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
-        | TypeDefn.Record(typeName = TypeName(ident = nameLi); fields = fields) when nameLi.Idents.Length = 1 ->
-            let nameTok = nameLi.Idents.[0]
-            let name = ctx.NameOf nameTok
+        | TypeDefn.Record(typeName = tn; fields = fields) ->
+            let (TypeName(ident = nameLi)) = tn
 
-            if ctx.RecordTypes.ContainsKey name then
-                ctx.Diagnostics.Add
-                    {
-                        Key = NodeKey.ofToken nameTok NodeKind.DeclType
-                        Message = sprintf "Duplicate record type: %s" name
-                        Severity = Error
-                    }
+            if nameLi.Idents.Length <> 1 then
+                ()
             else
-                let fieldInfos =
-                    [|
-                        for f in fields do
-                            let (RecordField(mutableToken = mt; ident = id)) = f
-                            let fName = ctx.NameOf id
-                            // Placeholder TyVar — Unification stamps the
-                            // real translated type via Link once the
-                            // registry is fully populated. Stamping a
-                            // fresh TyVar (rather than a TyConst) keeps
-                            // the late binding cheap and re-uses the
-                            // existing unification machinery.
-                            let tv = TypeVar()
-                            tv.Level <- 0
-                            yield RecordFieldInfo(fName, TyVar tv, mt.IsSome, NodeKey.ofToken id NodeKind.DeclType)
-                    |]
 
-                let info =
-                    RecordTypeInfo(name, fieldInfos, NodeKey.ofToken nameTok NodeKind.DeclType)
+                let nameTok = nameLi.Idents.[0]
+                let name = ctx.NameOf nameTok
 
-                ctx.RecordTypes.[name] <- info
+                if ctx.RecordTypes.ContainsKey name then
+                    ctx.Diagnostics.Add
+                        {
+                            Key = NodeKey.ofToken nameTok NodeKind.DeclType
+                            Message = sprintf "Duplicate record type: %s" name
+                            Severity = Error
+                        }
+                else
+                    let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
 
-                for fi in fieldInfos do
-                    match ctx.FieldIndex.TryGetValue fi.Name with
-                    | true, infos -> ctx.FieldIndex.[fi.Name] <- info :: infos
-                    | false, _ -> ctx.FieldIndex.[fi.Name] <- [ info ]
+                    let fieldInfos =
+                        [|
+                            for f in fields do
+                                let (RecordField(mutableToken = mt; ident = id)) = f
+                                let fName = ctx.NameOf id
+                                // Placeholder TyVar — Unification stamps the
+                                // real translated type via Link once the
+                                // registry is fully populated. Stamping a
+                                // fresh TyVar (rather than a TyConst) keeps
+                                // the late binding cheap and re-uses the
+                                // existing unification machinery.
+                                let tv = TypeVar()
+                                tv.Level <- 0
+                                yield RecordFieldInfo(fName, TyVar tv, mt.IsSome, NodeKey.ofToken id NodeKind.DeclType)
+                        |]
+
+                    let info =
+                        RecordTypeInfo(name, typeParams, fieldInfos, NodeKey.ofToken nameTok NodeKind.DeclType)
+
+                    ctx.RecordTypes.[name] <- info
+
+                    for fi in fieldInfos do
+                        match ctx.FieldIndex.TryGetValue fi.Name with
+                        | true, infos -> ctx.FieldIndex.[fi.Name] <- info :: infos
+                        | false, _ -> ctx.FieldIndex.[fi.Name] <- [ info ]
         | _ -> ()
 
     let private registerRecordTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
@@ -373,44 +437,52 @@ module NameResolution =
     /// registry is fully populated.
     let private registerUnionTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
-        | TypeDefn.Union(typeName = TypeName(ident = nameLi); cases = cases) when nameLi.Idents.Length = 1 ->
-            let nameTok = nameLi.Idents.[0]
-            let name = ctx.NameOf nameTok
-            let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
+        | TypeDefn.Union(typeName = tn; cases = cases) ->
+            let (TypeName(ident = nameLi)) = tn
 
-            if ctx.UnionTypes.ContainsKey name || ctx.RecordTypes.ContainsKey name then
-                ctx.Diagnostics.Add
-                    {
-                        Key = declKey
-                        Message = sprintf "Duplicate type definition: %s" name
-                        Severity = Error
-                    }
+            if nameLi.Idents.Length <> 1 then
+                ()
             else
-                let caseInfos =
-                    [|
-                        for UnionTypeCase(data = data) in cases do
-                            match inspectCaseData ctx declKey data with
-                            | ValueSome(caseName, arity, fieldNames) ->
-                                let fieldTys =
-                                    Array.init
-                                        arity
-                                        (fun _ ->
-                                            let tv = TypeVar()
-                                            tv.Level <- 0
-                                            TyVar tv
-                                        )
 
-                                yield UnionCaseInfo(caseName, name, fieldTys, fieldNames, declKey)
-                            | ValueNone -> ()
-                    |]
+                let nameTok = nameLi.Idents.[0]
+                let name = ctx.NameOf nameTok
+                let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
 
-                let info = UnionTypeInfo(name, caseInfos, declKey)
-                ctx.UnionTypes.[name] <- info
+                if ctx.UnionTypes.ContainsKey name || ctx.RecordTypes.ContainsKey name then
+                    ctx.Diagnostics.Add
+                        {
+                            Key = declKey
+                            Message = sprintf "Duplicate type definition: %s" name
+                            Severity = Error
+                        }
+                else
+                    let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
 
-                for c in caseInfos do
-                    match ctx.CtorIndex.TryGetValue c.Name with
-                    | true, infos -> ctx.CtorIndex.[c.Name] <- c :: infos
-                    | false, _ -> ctx.CtorIndex.[c.Name] <- [ c ]
+                    let caseInfos =
+                        [|
+                            for UnionTypeCase(data = data) in cases do
+                                match inspectCaseData ctx declKey data with
+                                | ValueSome(caseName, arity, fieldNames) ->
+                                    let fieldTys =
+                                        Array.init
+                                            arity
+                                            (fun _ ->
+                                                let tv = TypeVar()
+                                                tv.Level <- 0
+                                                TyVar tv
+                                            )
+
+                                    yield UnionCaseInfo(caseName, name, fieldTys, fieldNames, declKey)
+                                | ValueNone -> ()
+                        |]
+
+                    let info = UnionTypeInfo(name, typeParams, caseInfos, declKey)
+                    ctx.UnionTypes.[name] <- info
+
+                    for c in caseInfos do
+                        match ctx.CtorIndex.TryGetValue c.Name with
+                        | true, infos -> ctx.CtorIndex.[c.Name] <- c :: infos
+                        | false, _ -> ctx.CtorIndex.[c.Name] <- [ c ]
         | _ -> ()
 
     let private registerUnionTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =

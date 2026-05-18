@@ -503,4 +503,16 @@ let tests =
 
                 Expect.equal escape (Some CallerStack) "mk returns a ctor value"
             }
+
+            test "generic record literal at module top is LocalStack" {
+                let escape = escapeOf "type Box<'a> = { Value: 'a }\nlet b = { Value = 1 }" "b"
+
+                Expect.equal escape (Some LocalStack) "generic record at module-top is LocalStack"
+            }
+
+            test "generic ctor at module top is LocalStack" {
+                let escape = escapeOf "type Option<'a> = | Some of 'a | None\nlet s = Some 1" "s"
+
+                Expect.equal escape (Some LocalStack) "generic ctor at module-top is LocalStack"
+            }
         ]

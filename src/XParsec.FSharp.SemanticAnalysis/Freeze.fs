@@ -198,7 +198,7 @@ module Freeze =
             // we fall through to a function-typed External (lowering can
             // eta-expand if needed). v1 distinguishes by the result type.
             match Unification.zonk ty with
-            | TyUnion _ ->
+            | TyUnion(_, _) ->
                 let caseName = (tryCtorRef ctx e).Value
                 TExpr.UnionCons(caseName, [], ty)
             | _ ->
@@ -338,11 +338,13 @@ module Freeze =
 
                         let stepTy =
                             match Unification.zonk currTy with
-                            | TyRecord recName ->
+                            | TyRecord(recName, args) ->
                                 match ctx.RecordTypes.TryGetValue recName with
                                 | true, info ->
                                     match info.Fields |> Array.tryFind (fun f -> f.Name = segName) with
-                                    | Some field -> Unification.zonk field.Type
+                                    | Some field ->
+                                        let subst = Unification.mkNamedTypeSubst info.TypeParams args
+                                        Unification.zonk (Unification.substituteWith subst field.Type)
                                     | None -> currTy
                                 | false, _ -> currTy
                             | _ -> currTy
@@ -481,11 +483,13 @@ module Freeze =
                     finalTy
                 else
                     match Unification.zonk currTy with
-                    | TyRecord recName ->
+                    | TyRecord(recName, args) ->
                         match ctx.RecordTypes.TryGetValue recName with
                         | true, info ->
                             match info.Fields |> Array.tryFind (fun f -> f.Name = segName) with
-                            | Some field -> Unification.zonk field.Type
+                            | Some field ->
+                                let subst = Unification.mkNamedTypeSubst info.TypeParams args
+                                Unification.zonk (Unification.substituteWith subst field.Type)
                             | None -> finalTy
                         | false, _ -> finalTy
                     | _ -> finalTy

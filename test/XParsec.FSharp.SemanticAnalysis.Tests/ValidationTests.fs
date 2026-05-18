@@ -124,4 +124,18 @@ let tests =
 
                 Expect.isFalse (hasMessage ctx "value restriction") "no value-restriction on mutable DU"
             }
+
+            // ---- Generics + value restriction ----
+
+            test "mutable generic record literal is clean once pinned" {
+                // `let mutable b = { Value = 1 }` — resolved Box<int>, no free TyVar.
+                let ctx = analyse "type Box<'a> = { Value: 'a }\nlet mutable b = { Value = 1 }"
+
+                Expect.isFalse (hasMessage ctx "value restriction") "no VR diagnostic when the literal pins the typar"
+            }
+
+            test "mutable id is still diagnosed (sanity)" {
+                let ctx = analyse "let mutable id = fun x -> x"
+                Expect.isTrue (hasMessage ctx "value restriction") "free-typar mutable still fires"
+            }
         ]
