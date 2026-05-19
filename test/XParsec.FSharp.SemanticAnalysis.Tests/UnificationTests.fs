@@ -566,4 +566,54 @@ let tests =
 
                 Expect.isTrue hasStaticDiag "instance.staticMember access diagnoses"
             }
+
+            test "list literal `[1; 2; 3]` types as `list<int>`" {
+                let ctx = analyse "let xs = [1; 2; 3]"
+                let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
+
+                let expected = TyRecord("Microsoft.FSharp.Collections.list", [ MockBuiltins.tyInt ])
+
+                Expect.equal (typeOf ctx patKey) expected "xs : list<int>"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "array literal `[|1; 2; 3|]` types as `int[]`" {
+                let ctx = analyse "let xs = [|1; 2; 3|]"
+                let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
+                let expected = TyRecord("Microsoft.FSharp.Core.[]", [ MockBuiltins.tyInt ])
+                Expect.equal (typeOf ctx patKey) expected "xs : int[]"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "empty list `[]` types as `list<'a>` (element TyVar stays free)" {
+                let ctx = analyse "let xs = []"
+                let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
+
+                match typeOf ctx patKey with
+                | TyRecord("Microsoft.FSharp.Collections.list", [ TyVar _ ]) -> ()
+                | other -> failtestf "expected list<free TyVar>, got %A" other
+            }
+
+            test "list literal element types must unify" {
+                let ctx = analyse "let xs = [1; true]"
+
+                let hasMismatch =
+                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+
+                Expect.isTrue hasMismatch "type-mismatch diagnostic emitted"
+            }
+
+            test "`[| 1; 2 ]` (mismatched close) emits semantic-analysis diagnostic" {
+                // Parser virtual-inserts `|]` after seeing the real `]`, plus
+                // its own UnclosedDelimiter diagnostic. The semantic-analysis
+                // backstop must surface the breakage on `ctx.Diagnostics` so
+                // downstream consumers that don't read the parser stream
+                // (Freeze, codegen) still see a problem.
+                let ctx = analyse "let xs = [| 1; 2 ]"
+
+                let hasCloseDiag =
+                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "closing delimiter")
+
+                Expect.isTrue hasCloseDiag "mismatched-delimiter diagnostic emitted"
+            }
         ]

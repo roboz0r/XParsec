@@ -330,3 +330,16 @@ type DesugaredForm =
     /// are resolved this way too — the provider returns a fresh
     /// instantiation of the polymorphic scheme on each lookup.
     | OpName of compiledName: string
+    /// On an `Expr.EnclosedBlock(ParenKind.List, …)` /
+    /// `Expr.EmptyBlock(ParenKind.List, …)` node — `[1; 2; 3]` or `[]`.
+    /// Unification types as `Microsoft.FSharp.Collections.list<'elem>`
+    /// (single element-TyVar shared by every item); Freeze projects the
+    /// chain into nested `TExpr.UnionCons("Cons", [hd; tl])` /
+    /// `UnionCons("Nil", [])` nodes.
+    | ListLiteral
+    /// On an `Expr.EnclosedBlock(ParenKind.Array, …)` /
+    /// `Expr.EmptyBlock(ParenKind.Array, …)` node — `[|1; 2; 3|]` or
+    /// `[||]`. Same element-typing rule as `ListLiteral`; Freeze wraps
+    /// the lowered list chain in an `Array.ofList` external call so
+    /// the same nested `UnionCons` shape feeds both literal forms.
+    | ArrayLiteral

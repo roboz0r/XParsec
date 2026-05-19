@@ -299,6 +299,14 @@ module Freeze =
                     ValueNone
             | _ -> ValueNone
 
+    /// `[1; 2; 3]` parses as `EnclosedBlock(ParenKind.List, Sequential [...])`;
+    /// a one-item literal `[1]` skips the Sequential wrapper. Peel back to a
+    /// flat list of element expressions so the caller can translate each.
+    let private listLiteralItems (body: Expr<SyntaxToken>) : Expr<SyntaxToken> list =
+        match body with
+        | Expr.Sequential(exprs = items) -> [ for x in items -> x ]
+        | single -> [ single ]
+
     let rec private translateExpr (ctx: PassContext) (e: Expr<SyntaxToken>) : TExpr =
         let key = CstKeys.ofExpr e
         let ty = typeOfKey ctx key
@@ -508,6 +516,10 @@ module Freeze =
         | Expr.PrefixApp(_, operand) -> translatePrefix ctx key operand ty
         | Expr.Fun(argumentPats = argPats; expr = body) -> translateFun ctx argPats body
         | Expr.LetOrUse(bindings = bindings; body = body) -> translateLet ctx bindings body
+        | Expr.EnclosedBlock(lParen = ParenKind.List _; expr = inner) ->
+            translateListLikeLiteral ctx ty false (listLiteralItems inner)
+        | Expr.EnclosedBlock(lParen = ParenKind.Array _; expr = inner) ->
+            translateListLikeLiteral ctx ty true (listLiteralItems inner)
         | Expr.EnclosedBlock(expr = inner) -> translateExpr ctx inner
         | Expr.IfThenElse(condition = cond; thenExpr = thenE; elifBranches = elifs; elseBranch = elseB) ->
             translateIfThenElse ctx cond thenE elifs elseB ty
@@ -517,6 +529,8 @@ module Freeze =
         // carries the inferred type inline, so the annotation node has no
         // runtime representation — return the (now-constrained) inner.
         | Expr.TypeAnnotation(expr = inner) -> translateExpr ctx inner
+        | Expr.EmptyBlock(lParen = ParenKind.List _) -> translateListLikeLiteral ctx ty false []
+        | Expr.EmptyBlock(lParen = ParenKind.Array _) -> translateListLikeLiteral ctx ty true []
         | Expr.EmptyBlock _ -> unitConst ctx e
         | Expr.While(condition = cond; body = body) -> TExpr.While(translateExpr ctx cond, translateExpr ctx body, ty)
         | Expr.ForTo(ident = ident; startExpr = startE; endExpr = endE; body = body) ->
@@ -832,9 +846,11 @@ module Freeze =
             let opExpr = TExpr.External(name, opTy)
             let app1 = TExpr.App(opExpr, translateExpr ctx left, partialTy)
             TExpr.App(app1, translateExpr ctx right, resultTy)
+        | ValueSome _
         | ValueNone ->
-            // Either Desugar didn't recognise the operator (bug) or the
-            // InfixApp is malformed. Surface loudly.
+            // Either Desugar didn't recognise the operator (bug), the
+            // InfixApp is malformed, or a non-OpName form was attached
+            // (can't happen for an InfixApp key). Surface loudly.
             failwithf "Freeze: InfixApp at %O missing DesugaredForm entry" key
 
     and private translatePrefix
@@ -852,7 +868,49 @@ module Freeze =
             let opTy = TyFun(operandTy, resultTy)
             let opExpr = TExpr.External(name, opTy)
             TExpr.App(opExpr, translateExpr ctx operand, resultTy)
+        | ValueSome _
         | ValueNone -> failwithf "Freeze: PrefixApp at %O missing DesugaredForm entry" key
+
+    /// Project `[…]` / `[|…|]` literals into the shared `Cons` / `Nil`
+    /// chain Unification typed them with. Arrays additionally route through
+    /// an `Array.ofList` call so codegen sees a single lowering target —
+    /// the list chain — and applies the array conversion at the boundary.
+    /// Element type is recovered from the literal's frozen type (a
+    /// `TyRecord(name, [elem])` shape minted in `inferListLikeLiteral` /
+    /// `emptyListLikeLiteral`); a degenerate type falls back to a free
+    /// TyVar so downstream consumers see *some* element type rather than
+    /// a malformed node.
+    and private translateListLikeLiteral
+        (ctx: PassContext)
+        (literalTy: SemType)
+        (isArray: bool)
+        (items: Expr<SyntaxToken> list)
+        : TExpr =
+        let elemTy =
+            match Unification.zonk literalTy with
+            | TyRecord(_, [ elem ]) -> elem
+            | _ -> TyVar(TypeVar())
+
+        let listTy = TyRecord("Microsoft.FSharp.Collections.list", [ elemTy ])
+
+        let listExpr =
+            let nil = TExpr.UnionCons("Nil", [], listTy)
+
+            items
+            |> List.foldBack (fun item acc -> TExpr.UnionCons("Cons", [ translateExpr ctx item; acc ], listTy))
+            <| nil
+
+        if isArray then
+            let arrayTy = TyRecord("Microsoft.FSharp.Core.[]", [ elemTy ])
+            // Codegen is responsible for resolving `Array.ofList` against
+            // its target — the .NET path maps to
+            // `Microsoft.FSharp.Collections.ArrayModule.OfList`; alternate
+            // targets are free to swap the wrapper.
+            let opName = "Microsoft.FSharp.Collections.ArrayModule.OfList"
+            let opTy = TyFun(listTy, arrayTy)
+            TExpr.App(TExpr.External(opName, opTy), listExpr, arrayTy)
+        else
+            listExpr
 
     and private translateIfThenElse
         (ctx: PassContext)

@@ -102,4 +102,74 @@ let tests =
 
                 Expect.isGreaterThanOrEqual tast.Diagnostics.Length 1 "unresolved diagnostic reaches the TAST"
             }
+
+            test "`let xs = [1; 2; 3]` freezes as nested Cons / Nil over `list<int>`" {
+                let tast = analyse "let xs = [1; 2; 3]"
+                let intTy = MockBuiltins.tyInt
+                let listTy = TyRecord("Microsoft.FSharp.Collections.list", [ intTy ])
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                Expect.equal (declType tast) listTy "xs : list<int>"
+
+                match tast.Decls.[0] with
+                | TDecl.Let(_,
+                            TExpr.UnionCons("Cons",
+                                            [ TExpr.Const(TConstValue.Int 1, _)
+                                              TExpr.UnionCons("Cons",
+                                                              [ TExpr.Const(TConstValue.Int 2, _)
+                                                                TExpr.UnionCons("Cons",
+                                                                                [ TExpr.Const(TConstValue.Int 3, _)
+                                                                                  TExpr.UnionCons("Nil", [], _) ],
+                                                                                _) ],
+                                                              _) ],
+                                            outerTy),
+                            _) -> Expect.equal outerTy listTy "outer UnionCons ty"
+                | other -> failtestf "unexpected TAST shape: %A" other
+            }
+
+            test "`let xs = []` freezes as empty Nil with a free element type" {
+                let tast = analyse "let xs = []"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                match tast.Decls.[0] with
+                | TDecl.Let(_, TExpr.UnionCons("Nil", [], ty), _) ->
+                    match ty with
+                    | TyRecord("Microsoft.FSharp.Collections.list", [ _ ]) -> ()
+                    | _ -> failtestf "expected list<_> Nil, got %A" ty
+                | other -> failtestf "unexpected TAST shape: %A" other
+            }
+
+            test "`let xs = [|1; 2|]` wraps the Cons chain in Array.ofList" {
+                let tast = analyse "let xs = [|1; 2|]"
+                let intTy = MockBuiltins.tyInt
+                let listTy = TyRecord("Microsoft.FSharp.Collections.list", [ intTy ])
+                let arrayTy = TyRecord("Microsoft.FSharp.Core.[]", [ intTy ])
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                Expect.equal (declType tast) arrayTy "xs : int[]"
+
+                match tast.Decls.[0] with
+                | TDecl.Let(_,
+                            TExpr.App(TExpr.External("Microsoft.FSharp.Collections.ArrayModule.OfList", opTy),
+                                      TExpr.UnionCons("Cons", _, innerTy),
+                                      outerTy),
+                            _) ->
+                    Expect.equal opTy (TyFun(listTy, arrayTy)) "Array.ofList: list -> array"
+                    Expect.equal innerTy listTy "inner list type"
+                    Expect.equal outerTy arrayTy "outer array type"
+                | other -> failtestf "unexpected TAST shape: %A" other
+            }
+
+            test "all elements unify to a single element type" {
+                // Mixing int and bool in a list literal must surface a
+                // unification diagnostic via the shared element TyVar.
+                let tast = analyse "let xs = [1; true]"
+
+                let hasMismatch =
+                    tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+
+                Expect.isTrue hasMismatch "type-mismatch diagnostic emitted"
+            }
+
         ]

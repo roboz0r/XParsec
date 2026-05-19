@@ -62,6 +62,17 @@ module Desugar =
         | Token.OpSubtraction -> ValueSome "op_UnaryNegation"
         | _ -> ValueNone
 
+    /// `[ … ]` / `[| … |]` literals share the same lowering target — the
+    /// nested `Cons` / `Nil` chain, with arrays adding an `Array.ofList`
+    /// wrap at Freeze time. Both surface as `Expr.EnclosedBlock` (non-
+    /// empty) or `Expr.EmptyBlock` (empty); pick the right `DesugaredForm`
+    /// tag from the paren kind.
+    let private literalFormOfParen (pk: ParenKind<SyntaxToken>) : DesugaredForm voption =
+        match pk with
+        | ParenKind.List _ -> ValueSome DesugaredForm.ListLiteral
+        | ParenKind.Array _ -> ValueSome DesugaredForm.ArrayLiteral
+        | _ -> ValueNone
+
     let private visit (ctx: PassContext) (_env: unit) (e: Expr<SyntaxToken>) : unit =
         match e with
         | Expr.InfixApp(_, op, _) ->
@@ -71,6 +82,11 @@ module Desugar =
         | Expr.PrefixApp(op, _) ->
             match prefixOpName op.Token with
             | ValueSome name -> ctx.Desugared.Set(CstKeys.ofExpr e, DesugaredForm.OpName name)
+            | ValueNone -> ()
+        | Expr.EnclosedBlock(lParen = pk)
+        | Expr.EmptyBlock(lParen = pk) ->
+            match literalFormOfParen pk with
+            | ValueSome form -> ctx.Desugared.Set(CstKeys.ofExpr e, form)
             | ValueNone -> ()
         | _ -> ()
 

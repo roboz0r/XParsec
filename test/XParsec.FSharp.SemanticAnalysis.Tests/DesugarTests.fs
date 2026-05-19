@@ -49,4 +49,32 @@ let tests =
                 let ctx = analyse "let x = 1 + 2 * 3"
                 Expect.isGreaterThanOrEqual ctx.Desugared.Count 2 "at least two ops"
             }
+
+            test "list literal `[1; 2]` records DesugaredForm.ListLiteral" {
+                // "let xs = [1; 2]" — the EnclosedBlock opens with `[` at offset 9.
+                let ctx = analyse "let xs = [1; 2]"
+                let blockKey = NodeKey.ofSource 9 NodeKind.ExprEnclosedBlock
+
+                match ctx.Desugared.TryGetValue blockKey with
+                | ValueSome DesugaredForm.ListLiteral -> ()
+                | other -> failtestf "expected ListLiteral, got %A" other
+            }
+
+            test "array literal `[|1; 2|]` records DesugaredForm.ArrayLiteral" {
+                let ctx = analyse "let xs = [|1; 2|]"
+                let blockKey = NodeKey.ofSource 9 NodeKind.ExprEnclosedBlock
+
+                match ctx.Desugared.TryGetValue blockKey with
+                | ValueSome DesugaredForm.ArrayLiteral -> ()
+                | other -> failtestf "expected ArrayLiteral, got %A" other
+            }
+
+            test "empty list `[]` records ListLiteral on its EmptyBlock node" {
+                let ctx = analyse "let xs = []"
+                let blockKey = NodeKey.ofSource 9 NodeKind.ExprEmptyBlock
+
+                match ctx.Desugared.TryGetValue blockKey with
+                | ValueSome DesugaredForm.ListLiteral -> ()
+                | other -> failtestf "expected ListLiteral on EmptyBlock, got %A" other
+            }
         ]

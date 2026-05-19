@@ -2081,12 +2081,24 @@ module Unification =
             | Expr.PrefixApp(_, operand) -> inferPrefix ctx key operand
             | Expr.Fun(argumentPats = argPats; expr = body) -> inferFun ctx argPats body
             | Expr.LetOrUse(bindings = bindings; body = body) -> inferLet ctx key bindings body
+            | Expr.EnclosedBlock(lParen = ParenKind.List _; expr = inner; rParen = rTok) ->
+                checkLiteralClose ctx key rTok Token.KWRBracket "]"
+                inferListLikeLiteral ctx key inner false
+            | Expr.EnclosedBlock(lParen = ParenKind.Array _; expr = inner; rParen = rTok) ->
+                checkLiteralClose ctx key rTok Token.KWRArrayBracket "|]"
+                inferListLikeLiteral ctx key inner true
             | Expr.EnclosedBlock(expr = inner) -> infer ctx inner
             | Expr.IfThenElse(condition = cond; thenExpr = thenE; elifBranches = elifs; elseBranch = elseB) ->
                 inferIfThenElse ctx key cond thenE elifs elseB
             | Expr.Tuple(exprs = items) -> inferTuple ctx items
             | Expr.Sequential(exprs = items) -> inferSequential ctx key items
             | Expr.TypeAnnotation(expr = inner; typ = t) -> inferTypeAnnotation ctx key inner t
+            | Expr.EmptyBlock(lParen = ParenKind.List _; rParen = rTok) ->
+                checkLiteralClose ctx key rTok Token.KWRBracket "]"
+                emptyListLikeLiteral ctx false
+            | Expr.EmptyBlock(lParen = ParenKind.Array _; rParen = rTok) ->
+                checkLiteralClose ctx key rTok Token.KWRArrayBracket "|]"
+                emptyListLikeLiteral ctx true
             | Expr.EmptyBlock _ -> MockBuiltins.tyUnit
             | Expr.While(condition = cond; body = body) -> inferWhile ctx key cond body
             | Expr.ForTo(ident = ident; startExpr = startE; endExpr = endE; body = body) ->
@@ -2327,10 +2339,11 @@ module Unification =
                         }
 
                     TyVar(freshTyVar ctx)
+        | ValueSome _
         | ValueNone ->
-            // Desugar didn't recognise the operator token; leave the result
-            // as a free TypeVar (the unknown operator is a deficiency in
-            // Desugar's lookup table, not a user error here).
+            // Desugar didn't recognise the operator token (or attached a
+            // non-OpName form, which can't happen for an InfixApp key);
+            // leave the result as a free TypeVar.
             TyVar(freshTyVar ctx)
 
     and private inferPrefix (ctx: PassContext) (key: NodeKey) (operand: Expr<SyntaxToken>) : SemType =
@@ -2352,6 +2365,7 @@ module Unification =
                     }
 
                 TyVar(freshTyVar ctx)
+        | ValueSome _
         | ValueNone -> TyVar(freshTyVar ctx)
 
     and private inferIfThenElse
@@ -2419,6 +2433,83 @@ module Unification =
                 unify ctx key ty MockBuiltins.tyUnit
 
             infer ctx items.[items.Length - 1]
+
+    /// Validate that the literal's closing token survived parsing as the
+    /// expected real token. `pEnclosed` virtual-inserts the expected close
+    /// token (with a parser-side diagnostic) whenever the actual source
+    /// token is missing or mismatched — `[| 1; 2 ]` recovers as
+    /// `EnclosedBlock(ParenKind.Array, …, virtual KWRArrayBracket)` with
+    /// the real `]` left in the stream. The parser's diagnostic stream
+    /// isn't visible to downstream semantic-analysis consumers, so surface
+    /// the breakage on `ctx.Diagnostics` too — otherwise the malformed
+    /// literal types successfully and the Freeze projection emits a
+    /// well-shaped TAST as if the source were correct.
+    and private checkLiteralClose
+        (ctx: PassContext)
+        (key: NodeKey)
+        (rTok: SyntaxToken)
+        (expected: Token)
+        (display: string)
+        : unit =
+        match rTok.Index with
+        | TokenIndex.Virtual ->
+            ctx.Diagnostics.Add
+                {
+                    Key = key
+                    Message = sprintf "Mismatched or missing closing delimiter: expected '%s'" display
+                    Severity = Error
+                }
+        | TokenIndex.Regular _ when rTok.Token <> expected ->
+            // Defensive: pEnclosed only emits a real rParen when the
+            // peeked token matched the expected one, so this arm
+            // shouldn't trigger today. Surfaces any future parser
+            // change that lets a real-but-mismatched close-token slip
+            // through.
+            ctx.Diagnostics.Add
+                {
+                    Key = key
+                    Message = sprintf "Mismatched closing delimiter: expected '%s'" display
+                    Severity = Error
+                }
+        | TokenIndex.Regular _ -> ()
+
+    /// `[e1; e2; …]` / `[|e1; e2; …|]` — every element shares a single
+    /// fresh element TyVar; the literal's own type is the enclosing
+    /// `Microsoft.FSharp.Collections.list<'elem>` (or the matching array
+    /// nominal). The inner `;`-separated body parses as `Expr.Sequential`,
+    /// but we bypass `inferSequential`'s `unit`-per-leading-item rule —
+    /// the elements aren't statements.
+    and private inferListLikeLiteral
+        (ctx: PassContext)
+        (key: NodeKey)
+        (body: Expr<SyntaxToken>)
+        (isArray: bool)
+        : SemType =
+        let elemTy = TyVar(freshTyVar ctx)
+
+        let items =
+            match body with
+            | Expr.Sequential(exprs = items) -> items
+            | single -> ImmutableArray.Create(single)
+
+        for i = 0 to items.Length - 1 do
+            let itemTy = infer ctx items.[i]
+            unify ctx key itemTy elemTy
+
+        if isArray then
+            TyRecord("Microsoft.FSharp.Core.[]", [ elemTy ])
+        else
+            TyRecord("Microsoft.FSharp.Collections.list", [ elemTy ])
+
+    /// `[]` / `[||]` — empty literal. Element type stays free so the
+    /// surrounding context can pin it (`let xs : int list = []`).
+    and private emptyListLikeLiteral (ctx: PassContext) (isArray: bool) : SemType =
+        let elemTy = TyVar(freshTyVar ctx)
+
+        if isArray then
+            TyRecord("Microsoft.FSharp.Core.[]", [ elemTy ])
+        else
+            TyRecord("Microsoft.FSharp.Collections.list", [ elemTy ])
 
     and private inferWhile
         (ctx: PassContext)
