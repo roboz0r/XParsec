@@ -1,0 +1,9 @@
+# XParsec.FSharp.Lib / Printf — text formatting.
+# sformat lives upstream at Compiler/Utilities/sformat.{fsi,fs}, NOT in
+# FSharp.Core proper. FSharp.Core.fsproj pulls it in via <Link>Printf/sformat.*
+# so it ends up in the same Microsoft.FSharp.* namespace.
+
+files = [
+  "sformat.fsi",
+  "printf.fsi",
+]

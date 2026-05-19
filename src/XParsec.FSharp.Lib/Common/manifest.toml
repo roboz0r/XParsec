@@ -1,0 +1,25 @@
+# XParsec.FSharp.Lib / Common — target-agnostic core.
+# Order matches FSharp.Core.fsproj. SI.fs has no signature file in upstream
+# so the .fs is listed; everything else is .fsi only.
+
+files = [
+  "Random.fsi",
+  "local.fsi",
+  "array2.fsi",
+  "option.fsi",
+  "result.fsi",
+  "collections.fsi",
+  "seqcore.fsi",
+  "seq.fsi",
+  "string.fsi",
+  "list.fsi",
+  "array.fsi",
+  "array3.fsi",
+  "map.fsi",
+  "set.fsi",
+  "math/z.fsi",
+  "event.fsi",
+  "eventmodule.fsi",
+  "observable.fsi",
+  "SI.fs",
+]

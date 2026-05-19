@@ -1,0 +1,11 @@
+# XParsec.FSharp.Lib / Threading — async, tasks, resumable, mailbox.
+# Order matches FSharp.Core.fsproj. resumable comes first because tasks
+# depends on it; async between resumable and tasks; mailbox last because
+# it consumes async.
+
+files = [
+  "resumable.fsi",
+  "async.fsi",
+  "tasks.fsi",
+  "mailbox.fsi",
+]
