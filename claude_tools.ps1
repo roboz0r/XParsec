@@ -18,7 +18,8 @@ param(
         "XParsec.FSharp.Tests",
         "XParsec.Json.Tests",
         "XParsec.MessagePack.Tests",
-        "XParsec.Tests"
+        "XParsec.Tests",
+        "XParsec.Toml.Tests"
     )]
     [string]$TestProject,
 

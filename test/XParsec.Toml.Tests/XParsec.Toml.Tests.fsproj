@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <GenerateProgramFile>false</GenerateProgramFile>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="StringTests.fs" />
+    <Compile Include="NumberTests.fs" />
+    <Compile Include="DateTimeTests.fs" />
+    <Compile Include="ArrayTests.fs" />
+    <Compile Include="TableTests.fs" />
+    <Compile Include="DocumentTests.fs" />
+    <Compile Include="EdgeCaseTests.fs" />
+    <Compile Include="SerializerTests.fs" />
+    <Compile Include="Main.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Expecto" />
+    <PackageReference Include="YoloDev.Expecto.TestSdk" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="FSharp.Core" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\XParsec.Toml\XParsec.Toml.fsproj" />
+  </ItemGroup>
+</Project>

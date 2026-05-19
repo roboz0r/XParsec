@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Forked from Fidelity.Toml (MIT, 2026 — original author pivoted to Clef).
+    Upstream depended on XParsec 0.3.0 via PackageReference; this fork tracks
+    the in-tree XParsec project so the two evolve together. See LICENSE for
+    attribution.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="TomlTypes.fs" />
+    <Compile Include="TomlParser.fs" />
+    <Compile Include="TomlSerializer.fs" />
+    <Compile Include="Toml.fs" />
+    <None Include="LICENSE" />
+    <None Include="README.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\XParsec\XParsec.fsproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+  </ItemGroup>
+</Project>
