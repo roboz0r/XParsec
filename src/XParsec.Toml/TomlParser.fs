@@ -138,8 +138,7 @@ module TomlParser =
         |>> string
 
     /// Basic string content (between double quotes)
-    let private pBasicStringContent =
-        many (pEscape <|> pBasicChar) |>> String.concat ""
+    let private pBasicStringContent = many (pEscape <|> pBasicChar) |>> String.concat ""
 
     /// Basic string: "..."
     let private pBasicString = between (pchar '"') (pchar '"') pBasicStringContent
