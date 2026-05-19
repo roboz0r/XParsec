@@ -99,6 +99,10 @@ module Unification =
             if not (List.isEmpty source.PendingDotAccess) then
                 target.PendingDotAccess <- source.PendingDotAccess @ target.PendingDotAccess
                 source.PendingDotAccess <- []
+
+            if not (List.isEmpty source.Defaults) then
+                target.Defaults <- target.Defaults @ source.Defaults
+                source.Defaults <- []
     // TODO: fire on-unified callbacks for newly-stable SRTP bounds once
     // the SRTP / IWSAM resolution machinery exists.
 
@@ -314,6 +318,7 @@ module Unification =
                 | ValueSome t ->
                     drainPendingDotAccess ctx newRoot t
                     drainConstraints ctx key newRoot t
+                    drainSrtpBounds ctx key newRoot t
                 | ValueNone -> ()
             | ValueNone, ValueSome _ ->
                 newRoot.Link <- linkB
@@ -322,6 +327,7 @@ module Unification =
                 | ValueSome t ->
                     drainPendingDotAccess ctx newRoot t
                     drainConstraints ctx key newRoot t
+                    drainSrtpBounds ctx key newRoot t
                 | ValueNone -> ()
             | ValueSome a, ValueSome b ->
                 newRoot.Link <- linkA
@@ -331,6 +337,7 @@ module Unification =
                 | ValueSome t ->
                     drainPendingDotAccess ctx newRoot t
                     drainConstraints ctx key newRoot t
+                    drainSrtpBounds ctx key newRoot t
                 | ValueNone -> ()
         | TyVar tv, other
         | other, TyVar tv ->
@@ -364,6 +371,7 @@ module Unification =
                 root.Link <- ValueSome other
                 drainPendingDotAccess ctx root other
                 drainConstraints ctx key root other
+                drainSrtpBounds ctx key root other
         | _ ->
             ctx.Diagnostics.Add
                 {
@@ -611,6 +619,164 @@ module Unification =
 
         walk t
 
+    /// SRTP arithmetic dispatch on numeric primitives. For `op_Addition`
+    /// etc. on `int` the candidate "static member" type is `int * int ->
+    /// int`; we synthesise it here so the unifier doesn't need to know
+    /// which provider declared the primitive. Mirrors what a real
+    /// FSharp.Core `Core.CLR.fs` dispatch arm would produce.
+    and private numericPrimitives =
+        Set.ofList
+            [
+                "int"
+                "int8"
+                "int16"
+                "int32"
+                "int64"
+                "uint"
+                "uint8"
+                "uint16"
+                "uint32"
+                "uint64"
+                "byte"
+                "sbyte"
+                "nativeint"
+                "unativeint"
+                "float"
+                "float32"
+                "double"
+                "single"
+                "decimal"
+            ]
+
+    and private arithmeticBinaryOps =
+        Set.ofList [ "op_Addition"; "op_Subtraction"; "op_Multiply"; "op_Division"; "op_Modulus" ]
+
+    and private comparisonBinaryOps =
+        Set.ofList
+            [
+                "op_LessThan"
+                "op_GreaterThan"
+                "op_LessThanOrEqual"
+                "op_GreaterThanOrEqual"
+                "op_Equality"
+                "op_Inequality"
+            ]
+
+    and private tryPrimitiveTraitCandidate (memberName: string) (primName: string) (argCount: int) : SemType voption =
+        if not (Set.contains primName numericPrimitives) then
+            ValueNone
+        elif argCount = 2 && Set.contains memberName arithmeticBinaryOps then
+            let t = TyConst primName
+            ValueSome(TyFun(TyTuple [ t; t ], t))
+        elif argCount = 1 && memberName = "op_UnaryNegation" then
+            let t = TyConst primName
+            ValueSome(TyFun(t, t))
+        elif argCount = 2 && Set.contains memberName comparisonBinaryOps then
+            let t = TyConst primName
+            ValueSome(TyFun(TyTuple [ t; t ], TyConst "bool"))
+        else
+            ValueNone
+
+    /// Build the expected trait signature in tupled or curried form,
+    /// picking whichever matches the candidate's shape. F# accepts both
+    /// `static member (+)(a, b)` (tupled) and `static member (+) a b`
+    /// (curried) as satisfying a trait declared `^T * ^T -> ^T`.
+    and private unifySrtpAgainst
+        (ctx: PassContext)
+        (key: NodeKey)
+        (candidate: SemType)
+        (bound: MemberSignature)
+        : unit =
+        let tupled =
+            match bound.ArgTypes with
+            | [] -> bound.ReturnType
+            | [ a ] -> TyFun(a, bound.ReturnType)
+            | args -> TyFun(TyTuple args, bound.ReturnType)
+
+        match resolveStep candidate, bound.ArgTypes with
+        | TyFun(TyTuple _, _), _ -> unify ctx key candidate tupled
+        | _, _ :: _ :: _ ->
+            // Candidate isn't tupled — try curried decomposition.
+            let curried = List.foldBack (fun a r -> TyFun(a, r)) bound.ArgTypes bound.ReturnType
+
+            unify ctx key candidate curried
+        | _ -> unify ctx key candidate tupled
+
+    /// On-unified callback for SRTP member-trait bounds. Fires when a
+    /// participating TyVar's `Link` is set; walks bounds and dispatches
+    /// each against either the built-in primitive table (for `TyConst`
+    /// targets like `int`) or the candidate type's `ClassTypes` entry
+    /// (for `TyClass` targets). The `Resolved` flag on the shared
+    /// `MemberSignature` instance (all participating typars hold the
+    /// same record by reference) dedupes dispatch when multiple
+    /// participating typars resolve in sequence — whichever links first
+    /// runs the drain; the others see the flag set and skip. Bounds
+    /// that can't dispatch yet (target is still a free TyVar) remain on
+    /// the root for the next `Link` event.
+    ///
+    /// Diagnostics use `key` — the NodeKey of the unification step that
+    /// resolved the typar, threaded through from the caller (typically
+    /// the operator/app expression's NodeKey via `inferInfix` /
+    /// `inferApp`). That's the user's call site, which is the intended
+    /// location for "Type X has no static member Y" — pointing at the
+    /// prelude's `(+)` declaration would be unhelpful.
+    and private drainSrtpBounds (ctx: PassContext) (key: NodeKey) (root: TypeVar) (linkTarget: SemType) : unit =
+        if List.isEmpty root.SrtpBounds then
+            ()
+        else
+            let bounds = root.SrtpBounds
+            root.SrtpBounds <- []
+            let mutable remaining = []
+
+            for b in bounds do
+                if b.Resolved then
+                    ()
+                else
+                    match resolveStep linkTarget with
+                    | TyConst primName ->
+                        match tryPrimitiveTraitCandidate b.MemberName primName b.ArgTypes.Length with
+                        | ValueSome candTy ->
+                            b.Resolved <- true
+                            unifySrtpAgainst ctx key candTy b
+                        | ValueNone ->
+                            ctx.Diagnostics.Add
+                                {
+                                    Key = key
+                                    Message =
+                                        sprintf "Type '%s' has no built-in static member '%s'" primName b.MemberName
+                                    Severity = Error
+                                }
+
+                            b.Resolved <- true
+                    | TyClass(className, classArgs) ->
+                        match ctx.ClassTypes.TryGetValue className with
+                        | true, info ->
+                            match info.Members |> Array.tryFind (fun m -> m.IsStatic && m.Name = b.MemberName) with
+                            | Some m ->
+                                let subst = mkNamedTypeSubst info.TypeParams classArgs
+                                let candTy = substituteWith subst m.Type
+                                b.Resolved <- true
+                                unifySrtpAgainst ctx key candTy b
+                            | None ->
+                                ctx.Diagnostics.Add
+                                    {
+                                        Key = key
+                                        Message = sprintf "Type '%s' has no static member '%s'" className b.MemberName
+                                        Severity = Error
+                                    }
+
+                                b.Resolved <- true
+                        | false, _ ->
+                            // Unknown class — keep the bound so a later
+                            // pass might still be able to dispatch.
+                            remaining <- b :: remaining
+                    | _ ->
+                        // Target isn't a concrete type-bearing shape
+                        // yet — defer.
+                        remaining <- b :: remaining
+
+            root.SrtpBounds <- List.rev remaining
+
     let private enterLevel (ctx: PassContext) : unit =
         ctx.CurrentLevel <- ctx.CurrentLevel + 1
 
@@ -715,7 +881,116 @@ module Unification =
         | TyUnion(_, args) -> List.exists hasPendingDotAccess args
         | TyClass(_, args) -> List.exists hasPendingDotAccess args
 
+    /// Walk a `SemType`, applying any `Defaults` entries on free TyVars
+    /// whose level exceeds `outerLevel`. A default fires when its target
+    /// resolves to a concrete shape (`TyConst`, `TyFun`, `TyTuple`,
+    /// `TyRecord`, `TyUnion`, `TyClass`, or another TyVar already linked
+    /// to one). Mints no fresh TyVars; only walks Link chains. Iterates
+    /// to fixpoint over the input type — a chained default like
+    /// `default ^T3 : ^T1 ; default ^T1 : int` needs two passes.
+    ///
+    /// Defaults walked here are *consumed*: once a fire happens (or once
+    /// all candidates fail), the `Defaults` list is cleared so subsequent
+    /// passes don't re-walk dead targets. A TyVar that's been generalised
+    /// at a use-site instantiation will be re-stamped with fresh defaults
+    /// on the next call to its `Instantiate` closure.
+    let private applyDefaults (zonkedTy: SemType) (outerLevel: int) : unit =
+        let visited = HashSet<TypeVar>(HashIdentity.Reference)
+
+        let rec collect (t: SemType) : ResizeArray<TypeVar> =
+            let acc = ResizeArray<TypeVar>()
+
+            let rec go (t: SemType) =
+                match t with
+                | TyVar tv ->
+                    let root = UnionFind.find tv
+
+                    if visited.Add root then
+                        if root.Level > outerLevel && root.Link.IsNone && not (List.isEmpty root.Defaults) then
+                            acc.Add root
+
+                        match root.Link with
+                        | ValueSome target -> go target
+                        | ValueNone -> ()
+                | TyConst _ -> ()
+                | TyFun(a, r) ->
+                    go a
+                    go r
+                | TyTuple xs -> List.iter go xs
+                | TyRecord(_, args) -> List.iter go args
+                | TyUnion(_, args) -> List.iter go args
+                | TyClass(_, args) -> List.iter go args
+
+            go t
+            acc
+
+        let candidates = collect zonkedTy
+
+        // Resolve a default target to a concrete shape if reachable.
+        // Returns ValueSome ty if the target is already concrete (or
+        // chains via Link to one); ValueNone if every TyVar in the chain
+        // is still free.
+        let rec resolveTarget (t: SemType) : SemType voption =
+            match t with
+            | TyVar tv ->
+                let root = UnionFind.find tv
+
+                match root.Link with
+                | ValueSome target -> resolveTarget target
+                | ValueNone -> ValueNone
+            | _ -> ValueSome t
+
+        // Try to default a single TyVar. Returns true if a default fired.
+        let tryDefault (tv: TypeVar) : bool =
+            let mutable fired = false
+            let defaults = tv.Defaults
+
+            for target in defaults do
+                if not fired then
+                    match resolveTarget target with
+                    | ValueSome concrete when not (occursAndAdjust tv concrete) ->
+                        // Guard against self-referential defaults: F#
+                        // grammatically forbids `default ^T : ^T`, but a
+                        // chain like `default ^T3 : ^T1` paired with a
+                        // structural target (`^T1 list` etc.) could still
+                        // build a `concrete` that transitively contains
+                        // tv. Linking through would create an infinite
+                        // type. `occursAndAdjust` doubles as the unifier's
+                        // level adjustment — harmless to run during
+                        // generalisation since we want any reachable
+                        // TyVar level capped at tv's. Skip on occurs;
+                        // the default is unsatisfiable.
+                        tv.Link <- ValueSome concrete
+                        fired <- true
+                    | _ -> ()
+
+            // Whether fired or not, clear the defaults — they're either
+            // discharged or we've decided not to chase them further.
+            tv.Defaults <- []
+            fired
+
+        // Iterate to fixpoint: each pass may unblock chained defaults.
+        let mutable changed = true
+
+        while changed do
+            changed <- false
+
+            for tv in candidates do
+                if tv.Link.IsNone && not (List.isEmpty tv.Defaults) then
+                    if tryDefault tv then
+                        changed <- true
+
     let private generalise (zonkedTy: SemType) (outerLevel: int) : TypeScheme =
+        // Phase 5b: before quantifying, walk free TyVars looking for
+        // default-constraint chains (e.g. `default ^T3 : ^T1` stamped by
+        // external-symbol Instantiate). A default that resolves to a
+        // concrete shape links its source TyVar; the standard quantifier
+        // walk below then skips it (Link.IsSome). Without this pass, an
+        // unbound `^T3` would be quantified into the scheme and a
+        // top-level binding like `let x = 1 + 2` would generalise as
+        // `∀'a. 'a` instead of `int`.
+        applyDefaults zonkedTy outerLevel
+
         let quantified = ResizeArray<TypeVar>()
         let seen = HashSet<TypeVar>(HashIdentity.Reference)
 

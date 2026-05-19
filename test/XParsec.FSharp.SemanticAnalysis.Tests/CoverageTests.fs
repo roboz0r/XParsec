@@ -699,6 +699,8 @@ let tests =
                                 ValueSome(ExternalSymbols.mono name MockBuiltins.tyFloat)
                             else
                                 MockBuiltins.provider.TryLookup name
+
+                        member _.TryLookupType _ = ValueNone
                     }
 
                 let input = "let r = Math.pi"

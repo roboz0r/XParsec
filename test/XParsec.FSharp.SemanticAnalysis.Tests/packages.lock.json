@@ -131,7 +131,15 @@
         "type": "Project",
         "dependencies": {
           "FSharp.Core": "[8.0.300, )",
-          "XParsec.FSharp": "[1.0.0, )"
+          "XParsec.FSharp": "[1.0.0, )",
+          "XParsec.Toml": "[1.0.0, )"
+        }
+      },
+      "xparsec.toml": {
+        "type": "Project",
+        "dependencies": {
+          "FSharp.Core": "[8.0.300, )",
+          "XParsec": "[1.0.0, )"
         }
       }
     }

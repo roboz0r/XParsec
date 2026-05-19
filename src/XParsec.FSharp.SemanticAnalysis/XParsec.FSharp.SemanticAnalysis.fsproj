@@ -9,6 +9,7 @@
     <Compile Include="CstWalk.fs" />
     <Compile Include="SemanticInfo.fs" />
     <Compile Include="ExternalSymbols.fs" />
+    <Compile Include="FSharpLib.fs" />
     <Compile Include="SideTables.fs" />
     <Compile Include="UnionFind.fs" />
     <Compile Include="Tast.fs" />
@@ -27,9 +28,11 @@
     <None Include="docs\generalisation-plan.md" />
     <None Include="docs\measures-plan.md" />
     <None Include="docs\regions-plan.md" />
+    <None Include="docs\extract-symbols-plan.md" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\XParsec.FSharp\XParsec.FSharp.fsproj" />
+    <ProjectReference Include="..\XParsec.Toml\XParsec.Toml.fsproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />

@@ -107,6 +107,8 @@ let tests =
                                 ValueSome myIdSymbol
                             else
                                 MockBuiltins.provider.TryLookup name
+
+                        member _.TryLookupType _ = ValueNone
                     }
 
                 let input = "let r = let f = myId in f 1, f true"

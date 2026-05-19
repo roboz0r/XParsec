@@ -172,8 +172,26 @@ and [<Sealed>] MeasureTerm private (exponents: (string * Rational) list) =
 
             sb.ToString()
 
-/// TODO: real shape when SRTPs come online.
-and MemberSignature = | MemberSignaturePlaceholder
+/// Captured SRTP member-trait clause attached to a `TypeVar`'s
+/// `SrtpBounds`. `MemberName` is the compiled name (`"op_Addition"`,
+/// `"Zero"`); `ArgTypes` / `ReturnType` are the trait's expected member
+/// signature, instantiated against the fresh TyVars allocated for the
+/// containing val's typar list. `Unification.drainSrtpBounds` fires when
+/// any participating TyVar's `Link` is set and dispatches against either
+/// a built-in primitive table (for `TyConst "int"` etc.) or the candidate
+/// type's `ClassTypes` entry (for `TyClass`).
+and MemberSignature =
+    {
+        MemberName: string
+        ArgTypes: SemType list
+        ReturnType: SemType
+        /// Shared across every stamp of the *same* trait (one per
+        /// participating typar) by reference identity: all participating
+        /// TyVars' `SrtpBounds` lists hold the same record instance.
+        /// First successful dispatch flips this so other typars' drain
+        /// paths no-op when their `Link` is later set.
+        mutable Resolved: bool
+    }
 
 /// Type-parameter constraint attached to a `TypeVar`. Built from
 /// `Constraint<'T>` CST nodes by `Unification.translateConstraints` and
@@ -240,6 +258,15 @@ and [<Sealed>] TypeVar() =
     /// resolve against record fields vs class members. Authoritative on
     /// the union-find root.
     member val PendingDotAccess: (string * NodeKey * TypeVar) list = [] with get, set
+    /// Default-constraint chain for this TyVar (Phase 5b). Built from
+    /// `ExternalConstraint.Default` clauses captured on external symbols
+    /// (notably `(+)`, `(-)` etc.): `default ^T3 : ^T1` records `TyVar t1`
+    /// here, `default ^T1 : int` records `TyConst "int"`. Order matches
+    /// the source clause order; generalisation walks the list, chasing
+    /// each target through union-find, and links the TyVar to the first
+    /// concrete shape it reaches. Migrated on union-find via
+    /// `migrateBounds`. Empty for the overwhelming majority of TyVars.
+    member val Defaults: SemType list = [] with get, set
 
 module MeasureTerm =
     let empty = MeasureTerm.Empty
