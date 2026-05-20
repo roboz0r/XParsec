@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="ProjectInfo.fs" />
+    <Compile Include="Types.fs" />
+    <Compile Include="Cil.fs" />
+    <Compile Include="CilBuilder.fs" />
+    <Compile Include="Metadata.fs" />
+    <Compile Include="ICodegenProvider.fs" />
+    <Compile Include="ClrProvider.fs" />
+    <Compile Include="Emit.fs" />
+    <Compile Include="Codegen.fs" />
+    <None Include="docs\codegen-clr-plan.md" Condition="Exists('docs\codegen-clr-plan.md')" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\XParsec.FSharp.SemanticAnalysis\XParsec.FSharp.SemanticAnalysis.fsproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+  </ItemGroup>
+</Project>

@@ -13,6 +13,7 @@ param(
         "XParsec.C.Tests",
         "XParsec.CLArgs.Interactive",
         "XParsec.CLArgs.Tests",
+        "XParsec.FSharp.Codegen.Clr.Tests",
         "XParsec.FSharp.Lexer.Tests",
         "XParsec.FSharp.SemanticAnalysis.Tests",
         "XParsec.FSharp.Tests",
@@ -28,6 +29,7 @@ param(
         "XParsec",
         "XParsec.CLArgs",
         "XParsec.FSharp",
+        "XParsec.FSharp.Codegen.Clr",
         "XParsec.FSharp.SemanticAnalysis",
         "XParsec.Json"
     )]

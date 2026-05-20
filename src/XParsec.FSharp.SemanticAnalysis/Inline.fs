@@ -12,10 +12,11 @@ open System.Collections.Generic
 // ResolvedTypes validator guarantees no *other* free TyVar survives into the
 // frozen TAST. To expand at a call site, codegen resolves those typars to
 // the caller's concrete types and substitutes them through the body.
-// `inlineExpand` does exactly that type substitution. Two things stay the
-// caller's responsibility: argument (beta) reduction of the resulting lambda
-// against the actual arguments, and NodeKey freshening so independent call
-// sites don't alias each other's bound names.
+// `inlineExpand` does exactly that type substitution; `freshen` does the
+// NodeKey renaming so independent call sites don't alias each other's bound
+// names (and thus codegen local slots). One thing stays the caller's
+// responsibility: argument (beta) reduction of the resulting lambda against
+// the actual arguments — it needs the call-site args the caller holds.
 
 module Inline =
 
@@ -146,3 +147,88 @@ module Inline =
 
             if subst.Count = 0 then value else substExpr subst value
         | TDecl.Expression _ -> invalidArg "decl" "Inline.inlineExpand expects a TDecl.Let, got a TDecl.Expression"
+
+    /// Rename every binder NodeKey in `body` (and the references to it) to a
+    /// fresh key from `mint`, returning a structurally-new TExpr. Two
+    /// expansions of one inline body would otherwise share a binder key — and
+    /// so a downstream codegen local slot — making nested call sites
+    /// (`succ (succ x)`) clobber each other. A single pre-order rewrite:
+    /// every binder (`TPat.NamedSimple` keys, `TExpr.ForTo` vars) mints a
+    /// fresh key recorded `old → new`; every `TExpr.Var` is rewired through
+    /// that map. **Free** vars — keys not bound within `body` (externals,
+    /// captured outer locals) — are not in the map and pass through untouched.
+    /// Because a use is always lexically inside its binder, pre-order visits
+    /// the binder (populating the map) before any reference to it. The caller
+    /// owns `mint` so its counter is shared across every expansion in a build.
+    let freshen (mint: unit -> NodeKey) (body: TExpr) : TExpr =
+        let remap = Dictionary<NodeKey, NodeKey>()
+
+        let bind (k: NodeKey) : NodeKey =
+            let k' = mint ()
+            remap.[k] <- k'
+            k'
+
+        let useKey (k: NodeKey) : NodeKey =
+            match remap.TryGetValue k with
+            | true, k' -> k'
+            | _ -> k
+
+        let rec fP (p: TPat) : TPat =
+            match p with
+            | TPat.NamedSimple(k, t) -> TPat.NamedSimple(bind k, t)
+            | TPat.Wildcard _ -> p
+            | TPat.Const _ -> p
+            | TPat.Tuple(items, t) -> TPat.Tuple(List.map fP items, t)
+            | TPat.Record(fields, t) -> TPat.Record([ for (n, sub) in fields -> n, fP sub ], t)
+            | TPat.Union(c, fields, t) -> TPat.Union(c, List.map fP fields, t)
+
+        let rec fE (e: TExpr) : TExpr =
+            match e with
+            | TExpr.Const _ -> e
+            | TExpr.Var(k, t) -> TExpr.Var(useKey k, t)
+            | TExpr.External _ -> e
+            | TExpr.Null _ -> e
+            | TExpr.Lambda(p, b, t) ->
+                let p = fP p
+                TExpr.Lambda(p, fE b, t)
+            | TExpr.App(f, a, t) -> TExpr.App(fE f, fE a, t)
+            | TExpr.Let(b, v, body, t) ->
+                // `value` is not in the binder's scope (non-rec), but the
+                // binder key is globally unique so binding it first cannot
+                // mis-rewrite `value`; binding first keeps the rule uniform.
+                let b = fP b
+                TExpr.Let(b, fE v, fE body, t)
+            | TExpr.IfThenElse(c, th, el, t) -> TExpr.IfThenElse(fE c, fE th, fE el, t)
+            | TExpr.Tuple(items, t) -> TExpr.Tuple(List.map fE items, t)
+            | TExpr.Sequential(items, t) -> TExpr.Sequential(List.map fE items, t)
+            | TExpr.While(c, b, t) -> TExpr.While(fE c, fE b, t)
+            | TExpr.ForTo(var, s, e2, b, t) ->
+                let var = bind var
+                TExpr.ForTo(var, fE s, fE e2, fE b, t)
+            | TExpr.ForIn(p, src, b, t) ->
+                let p = fP p
+                TExpr.ForIn(p, fE src, fE b, t)
+            | TExpr.Match(sc, arms, t) -> TExpr.Match(fE sc, List.map fArm arms, t)
+            | TExpr.TryWith(b, arms, t) -> TExpr.TryWith(fE b, List.map fArm arms, t)
+            | TExpr.TryFinally(b, c, t) -> TExpr.TryFinally(fE b, fE c, t)
+            | TExpr.Assignment(l, r, t) -> TExpr.Assignment(fE l, fE r, t)
+            | TExpr.Range(s, step, e2, t) -> TExpr.Range(fE s, Option.map fE step, fE e2, t)
+            | TExpr.RecordCons(fields, t) -> TExpr.RecordCons([ for (n, v) in fields -> n, fE v ], t)
+            | TExpr.RecordClone(src, ov, t) -> TExpr.RecordClone(fE src, [ for (n, v) in ov -> n, fE v ], t)
+            | TExpr.FieldGet(r, n, t) -> TExpr.FieldGet(fE r, n, t)
+            | TExpr.FieldSet(r, n, v, t) -> TExpr.FieldSet(fE r, n, fE v, t)
+            | TExpr.UnionCons(c, args, t) -> TExpr.UnionCons(c, List.map fE args, t)
+            | TExpr.New(c, args, t) -> TExpr.New(c, List.map fE args, t)
+            | TExpr.MethodCall(r, n, args, t) -> TExpr.MethodCall(fE r, n, List.map fE args, t)
+            | TExpr.PropertyGet(r, n, t) -> TExpr.PropertyGet(fE r, n, t)
+            | TExpr.StaticMethodCall(c, n, args, t) -> TExpr.StaticMethodCall(c, n, List.map fE args, t)
+            | TExpr.StaticPropertyGet(c, n, t) -> TExpr.StaticPropertyGet(c, n, t)
+
+        and fArm (arm: TMatchArm) : TMatchArm =
+            {
+                Pat = fP arm.Pat
+                Guard = Option.map fE arm.Guard
+                Body = fE arm.Body
+            }
+
+        fE body

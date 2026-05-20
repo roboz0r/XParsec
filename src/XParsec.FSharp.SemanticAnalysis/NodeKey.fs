@@ -88,6 +88,11 @@ type NodeKind =
     /// Synthetic binder for `this` (or `as self`) inside class member
     /// bodies. One per class, shared across every member.
     | SynthThisBinding = 1003us
+    /// Freshened binder produced when an `inline` body is expanded at a call
+    /// site (`Inline.freshen`). The distinct kind keeps freshened keys from
+    /// colliding with source keys (sign bit) or other synthetics; the minter
+    /// packs a monotone per-build counter into the offset slot for uniqueness.
+    | SynthInlineExpansion = 1004us
 
 [<Struct>]
 type NodeKey =

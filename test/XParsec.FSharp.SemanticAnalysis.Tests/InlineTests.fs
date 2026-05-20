@@ -155,4 +155,76 @@ let tests =
                                TyFun(TyConst "int", TyConst "int")) -> ()
                 | other -> failtestf "expected `fun x -> x + 1` body, got %A" other
             }
+
+            // ---- freshen ----
+
+            // A minter mirroring the one codegen owns: a monotone counter
+            // packed into synthetic inline-expansion keys, shared across calls.
+            let sharedMinter () =
+                let mutable n = 0
+
+                fun () ->
+                    let k = NodeKey.ofSynthetic n NodeKind.SynthInlineExpansion
+                    n <- n + 1
+                    k
+
+            // Pull (binder key, body-Var key) out of the frozen `succ` body
+            // shape `fun x -> x + 1`.
+            let succBinderAndVar (e: TExpr) =
+                match e with
+                | TExpr.Lambda(TPat.NamedSimple(kb, _),
+                               TExpr.App(TExpr.App(TExpr.External("op_Addition", _), TExpr.Var(kv, _), _),
+                                         TExpr.Const(TConstValue.Int 1, _),
+                                         _),
+                               _) -> kb, kv
+                | other -> failtestf "unexpected succ body: %A" other
+
+            test "freshen renames binders and rewires their references" {
+                let body =
+                    match firstDecl "let inline succ x = x + 1" with
+                    | TDecl.Let(_, v, _, _) -> v
+                    | other -> failtestf "unexpected %A" other
+
+                let kb0, kv0 = succBinderAndVar body
+                Expect.equal kv0 kb0 "original body Var references the original binder"
+
+                let mint = sharedMinter ()
+                let f1 = Inline.freshen mint body
+                let f2 = Inline.freshen mint body
+
+                let kb1, kv1 = succBinderAndVar f1
+                let kb2, kv2 = succBinderAndVar f2
+
+                // (a) every binder key differs from the original and between results.
+                Expect.notEqual kb1 kb0 "first expansion's binder is fresh"
+                Expect.notEqual kb2 kb0 "second expansion's binder is fresh"
+                Expect.notEqual kb1 kb2 "the two expansions don't share a binder"
+                // (b) the internal Var is rewired to the new binder.
+                Expect.equal kv1 kb1 "first expansion's Var follows its fresh binder"
+                Expect.equal kv2 kb2 "second expansion's Var follows its fresh binder"
+            }
+
+            test "freshen leaves a free Var untouched" {
+                // `let bound = <free> in bound`: `free`'s key is never bound
+                // inside the body, so it must pass through; `bound` is rebound
+                // and its reference rewired.
+                let tyInt = MockBuiltins.tyInt
+                let freeKey = NodeKey.ofSource 999 NodeKind.ExprIdent
+                let boundKey = NodeKey.ofSource 1 NodeKind.PatIdent
+
+                let body =
+                    TExpr.Let(
+                        TPat.NamedSimple(boundKey, tyInt),
+                        TExpr.Var(freeKey, tyInt),
+                        TExpr.Var(boundKey, tyInt),
+                        tyInt
+                    )
+
+                match Inline.freshen (sharedMinter ()) body with
+                | TExpr.Let(TPat.NamedSimple(kb, _), TExpr.Var(kFree, _), TExpr.Var(kRef, _), _) ->
+                    Expect.equal kFree freeKey "free Var passes through unchanged"
+                    Expect.notEqual kb boundKey "the bound name is freshened"
+                    Expect.equal kRef kb "the bound reference follows the fresh binder"
+                | other -> failtestf "unexpected freshened shape: %A" other
+            }
         ]
