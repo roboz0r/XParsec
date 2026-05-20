@@ -1,3 +1,5 @@
 test/XParsec.FSharp.Tests/data/
 bench/XParsec.FSharp.Benchmarks/fixtures/
 src/XParsec/Readables.fs
+# FSharp.Core port — uses --compiling-fslib / inline-IL constructs Fantomas can't parse.
+src/XParsec.FSharp.Lib/
