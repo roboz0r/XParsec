@@ -19,6 +19,7 @@
     <Compile Include="Passes\Regions.fs" />
     <Compile Include="Passes\Validation.fs" />
     <Compile Include="Freeze.fs" />
+    <Compile Include="ResolvedTypes.fs" />
     <Compile Include="Pipeline.fs" />
     <None Include="README.md" />
     <None Include="docs\architecture.md" />

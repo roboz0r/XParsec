@@ -2630,12 +2630,13 @@ module Unification =
         (rules: ImmutableArray<Rule<SyntaxToken>>)
         : SemType =
         // `try body with | pat -> arm`: body and every arm share the result
-        // type. The patterns are matched against an exception value — until
-        // a real `exn` type is modelled, leave them as fresh TypeVars and
-        // only unify the result side. Arm patterns are still inferred so
-        // any names they bind have a stable TypeVar.
+        // type. The patterns match against an exception value — until a
+        // real `exn` type lands, pin the scrutinee to a placeholder
+        // `TyConst "exn"`. Leaving it as a fresh TyVar would let
+        // wildcard / variable arm patterns carry an unresolved TyVar into
+        // the TAST, which `ResolvedTypes` correctly flags.
         let resultTy = infer ctx body
-        let exnTy = TyVar(freshTyVar ctx)
+        let exnTy = TyConst "exn"
         inferRules ctx key exnTy resultTy rules
         resultTy
 

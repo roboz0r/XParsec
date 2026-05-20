@@ -88,36 +88,64 @@ mismatched-paren shape both surface diagnostics. New tests in
 `DesugarTests.fs`, `UnificationTests.fs`, and `FreezeTests.fs`
 cover each case.
 
-## D — Resolved-type validation walker
+## D — Resolved-type validation walker — **Done**
 
-**Goal:** assert that no `TExpr.*` carries a `SemType` with an
-unresolved `TypeVar` reachable via union-find Link chains after
-Freeze. Failures surface as `Diagnostic`s on `TastFile.Diagnostics`.
+**Goal:** assert that no `TExpr.*` / `TPat.*` carries a `SemType`
+with an unresolved `TypeVar` reachable via union-find Link chains
+after Freeze. Failures surface as `Diagnostic`s on
+`TastFile.Diagnostics`.
 
-**Scope:** a new pass that runs at the *end* of `Freeze.run`, or as
-a sibling validation that `Pipeline.analyse` invokes after Freeze.
-Cheap walk: every TAST node has an inline `ty: SemType`; chase each
-through union-find Links and assert it bottoms out in a concrete
+**Scope:** a sibling validation `ResolvedTypes` that
+`Pipeline.analyseWithContext` invokes after `Freeze.run`. Cheap
+walk: every TAST node has an inline `ty: SemType`; we chase each
+through union-find Links and check it bottoms out in a concrete
 shape (`TyConst`, `TyFun`, `TyTuple`, `TyRecord`, `TyUnion`, `TyClass`).
 
-Not a one-shot task — it stays on indefinitely. Codegen depends on
-it; turning it off lets latent generalisation bugs surface as
-mysterious IL-emission errors much later.
+Stays on indefinitely. Codegen depends on it; turning it off lets
+latent generalisation bugs surface as mysterious IL-emission errors
+much later.
 
-**Dependencies:** none. Can land in parallel with §A.
-
-**Decisions to make:**
+**Decisions made:**
 
 - **Hard failure vs warning?** Hard failure. An unresolved TyVar at
   this point is a bug in inference, not a user error.
-- **Free TyVars at generalised positions OK?** Yes, when they're
-  bound by the enclosing `TDecl.Let`'s generalised typars. The
-  walker tracks the in-scope quantification set and only fails on
-  TyVars not in that set.
+- **Free TyVars at generalised positions OK?** Yes — they're allowed
+  when they're a quantified typar of an enclosing generalised scheme.
+  The walker maintains a stack-scoped `HashSet<TypeVar>` (reference
+  equality on the union-find root) and pushes/pops each scheme's
+  `Quantified` roots around the corresponding `TDecl.Let` /
+  `TExpr.Let` body. Looking up the scheme by the binding's
+  `NamedSimple` `NodeKey` matches the key `Unification.generalise`
+  writes into `ctx.Scheme`.
+- **Diagnostic granularity.** One diagnostic per declaration,
+  carrying the count of offending roots — the validator is a
+  developer-facing sanity check, not a user-facing error, so per-node
+  noise isn't needed. Attribution is the binding's `NodeKey` for a
+  `NamedSimple` head, otherwise a synthetic fallback key.
+- **Where to land in the pipeline.** As a sibling pass invoked by
+  `Pipeline.analyseWithContext` after `Freeze.run`, with a final
+  `ctx.Diagnostics` re-snapshot onto the `TastFile` so its findings
+  reach `TastFile.Diagnostics`. The "end of `Freeze.run`" alternative
+  was rejected because it conflated the tree-projection step with
+  the validation step.
 
-**Test gate:** corpus tests pass with the validator on. Any latent
-inference gap surfaces as a new diagnostic and is fixed before this
-item closes.
+**Where the work landed:**
+
+- `ResolvedTypes.fs` — new top-level module, slotted between
+  `Freeze.fs` and `Pipeline.fs`.
+- `Pipeline.fs` — invokes `ResolvedTypes.run`, then rebuilds the
+  `TastFile` with the merged diagnostics.
+- `passes.md` — pipeline table grew a row 7.
+- `Passes/Unification.fs` — `inferTryWith` now pins the scrutinee
+  to `TyConst "exn"` instead of a fresh TyVar so wildcard /
+  variable arm patterns don't ship a free TyVar into the TAST.
+  Surfaced by the validator's corpus-clean gate.
+
+**Test gate (verified):** the corpus passes with the validator on
+(369 / 370 tests, 1 skipped). One latent inference gap (try-with
+arm scrutinee) was fixed before closing. New tests in
+`ResolvedTypesTests.fs` cover the clean / quantified / synthetic-
+free / synthetic-quantified cases.
 
 ## C — `inline` semantics
 

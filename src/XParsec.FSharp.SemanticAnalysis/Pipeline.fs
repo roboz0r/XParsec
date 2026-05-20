@@ -22,7 +22,16 @@ module Pipeline =
         Unification.run ctx file
         Regions.run ctx file
         Validation.run ctx file
-        let tast = Freeze.run ctx file
+        let tast0 = Freeze.run ctx file
+        ResolvedTypes.run ctx tast0
+        // Snapshot ctx.Diagnostics again so ResolvedTypes findings are
+        // visible on TastFile.Diagnostics. Freeze took its snapshot before
+        // we ran.
+        let tast =
+            { tast0 with
+                Diagnostics = List.ofSeq ctx.Diagnostics
+            }
+
         ctx, tast
 
     let analyse

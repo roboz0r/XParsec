@@ -22,6 +22,7 @@
     <Compile Include="MeasuresTests.fs" />
     <Compile Include="RegionsTests.fs" />
     <Compile Include="ValidationTests.fs" />
+    <Compile Include="ResolvedTypesTests.fs" />
     <Compile Include="ConstraintsTests.fs" />
     <Compile Include="FSharpLibTests.fs" />
     <Compile Include="Program.fs" />
