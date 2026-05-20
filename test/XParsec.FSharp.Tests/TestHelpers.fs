@@ -60,6 +60,7 @@ let private sprintToken (input: string) (pt: PositionedToken) (p1: int) =
     | Token.UnterminatedVerbatimStringLiteral
     | Token.UnterminatedString3Literal
     | Token.UnterminatedInterpolatedString
+    | Token.NewlineInSingleLineString
     | Token.InterpolatedStringFragment
     | Token.Interpolated3StringFragment
     | Token.VerbatimInterpolatedStringFragment

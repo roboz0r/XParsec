@@ -1376,6 +1376,9 @@ module TokenRepresentation =
         [<Literal>]
         let PrefixOperator = 15us
 
+        [<Literal>]
+        let NewlineInSingleLineString = 16us
+
 
         [<Literal>]
         let Other = 255us
@@ -1880,6 +1883,7 @@ type Token =
     | InvalidFormatPlaceholder = (KindInvalid ||| Invalid.InvalidFormatPlaceholder)
     | InvalidFormatPercents = (KindInvalid ||| Invalid.InvalidFormatPercents)
     | UnmatchedInterpolatedRBrace = (KindInvalid ||| Invalid.UnmatchedInterpolatedRBrace) // Single } is invalid outside an expression
+    | NewlineInSingleLineString = (KindInvalid ||| Invalid.NewlineInSingleLineString) // Newline encountered inside "..." / @"..." / $"..." when single-line config is in effect
 
     // Invalid operators
     | InvalidOperator = (KindInvalid ||| Invalid.Operator) // An invalid operator (e.g., contains only ignored prefix characters)

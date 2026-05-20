@@ -825,7 +825,8 @@ module Parsing =
         | Token.String3Close
         | Token.UnterminatedStringLiteral
         | Token.UnterminatedVerbatimStringLiteral
-        | Token.UnterminatedString3Literal -> true
+        | Token.UnterminatedString3Literal
+        | Token.NewlineInSingleLineString -> true
         | _ -> false
 
     let isPlainStringFragment (tok: Token) =

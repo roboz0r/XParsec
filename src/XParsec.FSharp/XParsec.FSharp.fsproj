@@ -9,6 +9,7 @@
     <Compile Include="Token.fs" />
     <Compile Include="Lexing.fs" />
     <Compile Include="Expr.fs" />
+    <Compile Include="StringValues.fs" />
     <Compile Include="Declarations.fs" />
     <Compile Include="Signatures.fs" />
     <Compile Include="ProgramStructure.fs" />

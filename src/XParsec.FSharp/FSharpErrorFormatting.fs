@@ -6,6 +6,24 @@ open XParsec
 open XParsec.ErrorFormatting
 open XParsec.FSharp.Lexer
 
+/// Human-readable description of a lexer-emitted invalid token. Returns
+/// `None` for tokens that don't have a specific message (caller falls back to
+/// the enum name).
+let formatInvalidTokenMessage (tok: Token) =
+    match tok with
+    | Token.NewlineInSingleLineString ->
+        Some "newline inside single-line string literal — use \"\"\"...\"\"\" for multiline"
+    | Token.UnterminatedStringLiteral -> Some "unterminated string literal — missing closing \""
+    | Token.UnterminatedVerbatimStringLiteral -> Some "unterminated verbatim string literal — missing closing \""
+    | Token.UnterminatedString3Literal -> Some "unterminated triple-quoted string literal — missing closing \"\"\""
+    | Token.UnterminatedInterpolatedString -> Some "unterminated interpolated string literal — missing closing \""
+    | _ -> None
+
+let private describeToken (tok: Token) =
+    match formatInvalidTokenMessage tok with
+    | Some msg -> msg
+    | None -> tok.ToString()
+
 let formatTokenError (error: ParseError<PositionedToken, ParseState>) =
     let state = error.Position.State
     let input = state.Input
@@ -31,11 +49,11 @@ let formatTokenError (error: ParseError<PositionedToken, ParseState>) =
 
     // 3. Define how to format individual and multiple tokens
     let formatOne (x: PositionedToken) (sb: StringBuilder) =
-        // PositionedToken.Token returns the enum, so .ToString() gives a readable name
-        sb.Append('`').Append(x.Token.ToString()).Append('`')
+        sb.Append('`').Append(describeToken x.Token).Append('`')
 
     let formatSeq (xs: PositionedToken seq) (sb: StringBuilder) =
-        let formattedTokens = xs |> Seq.map (fun x -> $"`{x.Token}`") |> String.concat ", "
+        let formattedTokens =
+            xs |> Seq.map (fun x -> $"`{describeToken x.Token}`") |> String.concat ", "
 
         sb.Append(formattedTokens)
 

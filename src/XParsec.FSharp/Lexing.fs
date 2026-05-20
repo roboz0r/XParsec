@@ -143,8 +143,8 @@ type FormatPlaceholder =
 [<RequireQualifiedAccess; Struct>]
 type LexContext =
     | Normal
-    | InterpolatedString
-    | VerbatimInterpolatedString
+    | InterpolatedString of singleLevel: int
+    | VerbatimInterpolatedString of verbatimLevel: int
     | Interpolated3String of level: int
     | InterpolatedExpression
     | BracedExpression // used for computation expressions
@@ -160,9 +160,42 @@ type LexContext =
     | VerbatimString
     | TripleQuotedString
 
+/// Orthogonal flags controlling string-related lexer semantics. Each flag
+/// gates a single deviation from today's F# lexer behaviour so a transformer
+/// can mix-and-match during migration. Defaults (`Legacy`) preserve today's F#.
+type LexerConfig =
+    {
+        /// `false` = newline inside `"..."` is an error (suggests `"""`).
+        AllowMultilineRegularStrings: bool
+        /// `false` = newline inside `@"..."` is an error.
+        AllowMultilineVerbatimStrings: bool
+        /// `false` = newline inside `$"..."` / `$@"..."` is an error.
+        AllowMultilineInterpolatedStrings: bool
+        /// `true` = single-quoted interpolated strings honour N-dollar prefixes
+        /// (`$$"...{{x}}..."`) the same way triple-quoted ones do today.
+        AllowNDollarSingleQuoted: bool
+    }
+
+    static member Legacy =
+        {
+            AllowMultilineRegularStrings = true
+            AllowMultilineVerbatimStrings = true
+            AllowMultilineInterpolatedStrings = true
+            AllowNDollarSingleQuoted = false
+        }
+
+    static member FSharp2 =
+        {
+            AllowMultilineRegularStrings = false
+            AllowMultilineVerbatimStrings = false
+            AllowMultilineInterpolatedStrings = false
+            AllowNDollarSingleQuoted = true
+        }
+
 type LexBuilder =
     {
         Source: string
+        Config: LexerConfig
         Tokens: ReadableArrayBuilder<PositionedToken>
         mutable AtStartOfLine: bool
         Context: Stack<LexContext>
@@ -220,8 +253,8 @@ module LexBuilder =
                 state.Tokens.Add(PositionedToken.Create(Token.UnterminatedVerbatimStringLiteral, idx))
             | LexContext.TripleQuotedString ->
                 state.Tokens.Add(PositionedToken.Create(Token.UnterminatedString3Literal, idx))
-            | LexContext.InterpolatedString
-            | LexContext.VerbatimInterpolatedString
+            | LexContext.InterpolatedString _
+            | LexContext.VerbatimInterpolatedString _
             | LexContext.Interpolated3String _ ->
                 state.Tokens.Add(PositionedToken.Create(Token.UnterminatedInterpolatedString, idx))
             | _ ->
@@ -248,13 +281,14 @@ module LexBuilder =
             LineStarts = lineStarts
         }
 
-    let init (input: string) =
+    let initWith (config: LexerConfig) (input: string) =
         let tokenCapacity = estimateTokenCapacity input.Length
         let lineCapacity = estimateLineCapacity input.Length
 
         let x =
             {
                 Source = input
+                Config = config
                 Tokens = ReadableArrayBuilder(tokenCapacity)
                 AtStartOfLine = true
                 Context = Stack<LexContext>()
@@ -266,6 +300,8 @@ module LexBuilder =
 
         x.LineStarts.Add(0<_>) // The first line starts at the beginning of the file
         x
+
+    let init (input: string) = initWith LexerConfig.Legacy input
 
     let currentContext (x: LexBuilder) =
         if x.Context.Count = 0 then
@@ -292,9 +328,9 @@ module LexBuilder =
 
         while result.IsNone && e.MoveNext() do
             match e.Current with
-            | LexContext.Interpolated3String level -> result <- ValueSome level
-            | LexContext.InterpolatedString
-            | LexContext.VerbatimInterpolatedString
+            | LexContext.Interpolated3String level
+            | LexContext.InterpolatedString level
+            | LexContext.VerbatimInterpolatedString level -> result <- ValueSome level
             | LexContext.PlainString
             | LexContext.VerbatimString
             | LexContext.TripleQuotedString -> result <- ValueSome 1
@@ -735,17 +771,47 @@ module Lexing =
     let private pCountDoubleQuotes = countMany1Satisfies isDoubleQuote
     let private pCountDollars = countMany1Satisfies isDollar
 
+    /// Fragment scanners stop at `\n`/`\r` when the matching multiline flag is
+    /// off so that the per-context dispatcher's `\n`/`\r` arm fires for
+    /// single-line enforcement. When the flag is on, newlines are consumed as
+    /// ordinary fragment characters (legacy behaviour).
+    let inline private pSkipFragmentCharsWithNewlineGate
+        (isFragmentChar: char -> bool)
+        (getFlag: LexerConfig -> bool)
+        (reader: Reader<char, LexBuilder, ReadableString>)
+        =
+        let allowNewlines = getFlag reader.State.Config
+        let mutable more = true
+        let mutable consumedAny = false
+
+        while more do
+            match reader.Peek() with
+            | ValueSome c when isFragmentChar c ->
+                if not allowNewlines && (c = '\n' || c = '\r') then
+                    more <- false
+                else
+                    reader.Skip()
+                    consumedAny <- true
+            | _ -> more <- false
+
+        if consumedAny then
+            preturn () reader
+        else
+            fail expectedStringLiteral reader
+
     let private pSkipPlainStringFragmentChars =
-        skipMany1Satisfies isPlainStringFragmentChar
+        pSkipFragmentCharsWithNewlineGate isPlainStringFragmentChar (fun c -> c.AllowMultilineRegularStrings)
 
     let private pSkipVerbatimStringFragmentChars =
-        skipMany1Satisfies isVerbatimStringFragmentChar
+        pSkipFragmentCharsWithNewlineGate isVerbatimStringFragmentChar (fun c -> c.AllowMultilineVerbatimStrings)
 
     let private pSkipInterpolated3FragmentChars =
         skipMany1Satisfies isInterpolated3FragmentChar
 
     let private pSkipVerbatimInterpolatedFragmentChars =
-        skipMany1Satisfies isVerbatimInterpolatedFragmentChar
+        pSkipFragmentCharsWithNewlineGate
+            isVerbatimInterpolatedFragmentChar
+            (fun c -> c.AllowMultilineInterpolatedStrings)
 
     let private pSkipUntilNewline = skipManySatisfies isNotNewline
 
@@ -1255,9 +1321,11 @@ module Lexing =
     let pVerbatimStringFragmentToken2 =
         pToken pSkipVerbatimStringFragmentChars Token.StringFragment
 
-    // Fragment: plain text inside a triple-quoted string (stops at ", %)
+    // Fragment: plain text inside a triple-quoted string (stops at ", %).
+    // Triple-quoted strings are always multiline regardless of config, so this
+    // uses the predicate directly without the verbatim newline gate.
     let pTripleStringFragmentToken =
-        pToken pSkipVerbatimStringFragmentChars Token.StringFragment
+        pToken (skipMany1Satisfies isVerbatimStringFragmentChar) Token.StringFragment
 
     // Escape sequence inside a regular string: \n, \t, \xHH, \uXXXX, \UXXXXXXXX, \DDD, etc.
     let pStringEscapeToken (reader: Reader<char, LexBuilder, ReadableString>) =
@@ -1422,23 +1490,85 @@ module Lexing =
             | _ -> fail expectedIdentCharAfterQuote reader
         | _ -> fail expectedQuote reader
 
+    /// `$"..."` (level 1) or `$$"..."`, `$$$"..."`, ... (level N) when the
+    /// config flag `AllowNDollarSingleQuoted` is true. Counts dollars then
+    /// expects a single `"`; level 1 falls through unchanged in legacy.
     let pInterpolatedStringStartToken =
-        pTokenPushCtx (pstring "$\"") Token.InterpolatedStringOpen LexContext.InterpolatedString
+        parser {
+            let! pos = getPosition
+            let! dollarCount = pCountDollars
+            let! _ = pchar '"'
 
+            let level = int dollarCount
+
+            do!
+                fun (reader: Reader<char, LexBuilder, ReadableString>) ->
+                    if level > 1 && not reader.State.Config.AllowNDollarSingleQuoted then
+                        fail expectedStringLiteral reader
+                    else
+                        preturn () reader
+
+            do!
+                updateUserState (
+                    LexBuilder.append Token.InterpolatedStringOpen pos (CtxOp.Push(LexContext.InterpolatedString level))
+                )
+        }
+
+    /// `$@"..."` / `@$"..."` (level 1) or `$$@"..."` / `@$$"..."` (level N).
+    /// The `@` always sits before any dollar(s) or between the dollars and `"`.
+    /// We accept both `@$+"` and `$+@"` shapes for symmetry with F#.
     let pVerbatimInterpolatedStartToken =
-        pTokenPushCtx
-            (anyString [| "@$\""; "$@\"" |])
-            Token.VerbatimInterpolatedStringOpen
-            LexContext.VerbatimInterpolatedString
+        parser {
+            let! pos = getPosition
+
+            let! level =
+                (parser {
+                    do! skip // '@'
+                    let! dollarCount = pCountDollars
+                    let! _ = pchar '"'
+                    return int dollarCount
+                })
+                <|> (parser {
+                    let! dollarCount = pCountDollars
+                    do! skip // '@'
+                    let! _ = pchar '"'
+                    return int dollarCount
+                })
+
+            do!
+                fun (reader: Reader<char, LexBuilder, ReadableString>) ->
+                    if level > 1 && not reader.State.Config.AllowNDollarSingleQuoted then
+                        fail expectedStringLiteral reader
+                    else
+                        preturn () reader
+
+            do!
+                updateUserState (
+                    LexBuilder.append
+                        Token.VerbatimInterpolatedStringOpen
+                        pos
+                        (CtxOp.Push(LexContext.VerbatimInterpolatedString level))
+                )
+        }
 
     let pInterpolatedStringEndToken =
-        pTokenPopCtx (pchar '"') Token.InterpolatedStringClose LexContext.InterpolatedString
+        parser {
+            let! pos = getPosition
+            let! _ = pchar '"'
+            let level = LexBuilder.level pos.State
+
+            do!
+                updateUserState (
+                    LexBuilder.append Token.InterpolatedStringClose pos (CtxOp.Pop(LexContext.InterpolatedString level))
+                )
+        }
 
     // Non-verbatim interpolated strings support escape sequences like \".
     // A backslash consumes itself and the next character as an escape pair;
     // a bare backslash at EOF causes the whole fragment to fail (matches the
     // old `pchar '\\' >>. anyChar` behaviour).
     let private pSkipInterpolatedFragmentChars (reader: Reader<char, LexBuilder, ReadableString>) =
+        let allowNewlines = reader.State.Config.AllowMultilineInterpolatedStrings
         let mutable more = true
         let mutable consumedAny = false
 
@@ -1454,8 +1584,11 @@ module Lexing =
                     // lone \ at EOF — stop without consuming
                     more <- false
             | ValueSome c when c <> '"' && c <> '{' && c <> '}' && c <> '%' ->
-                reader.Skip()
-                consumedAny <- true
+                if not allowNewlines && (c = '\n' || c = '\r') then
+                    more <- false
+                else
+                    reader.Skip()
+                    consumedAny <- true
             | _ -> more <- false
 
         if consumedAny then
@@ -1476,25 +1609,53 @@ module Lexing =
 
             do!
                 updateUserState (fun state ->
+                    let level = LexBuilder.level state
 
-                    let mutable count = int braceCount
-                    let mutable idx = int pos.Index
+                    if level = 1 then
+                        // Legacy semantics: {{ is an escape pair for '{', single { opens.
+                        let mutable count = int braceCount
+                        let mutable idx = int pos.Index
 
-                    while count > 1 do
-                        // {{ is an escape sequence for '{'
-                        LexBuilder.appendI Token.EscapeLBrace idx CtxOp.NoOp state |> ignore
-                        idx <- idx + 2
-                        count <- count - 2
+                        while count > 1 do
+                            LexBuilder.appendI Token.EscapeLBrace idx CtxOp.NoOp state |> ignore
+                            idx <- idx + 2
+                            count <- count - 2
 
-                    match count with
-                    | 0 -> state
-                    | _ ->
-                        // Single { starts an expression
-                        LexBuilder.appendI
-                            Token.InterpolatedExpressionOpen
-                            idx
-                            (CtxOp.Push LexContext.InterpolatedExpression)
+                        match count with
+                        | 0 -> state
+                        | _ ->
+                            LexBuilder.appendI
+                                Token.InterpolatedExpressionOpen
+                                idx
+                                (CtxOp.Push LexContext.InterpolatedExpression)
+                                state
+                    else
+                        // Level >= 2 (only reachable when AllowNDollarSingleQuoted is on):
+                        // mirror the triple-quoted dollar-count algorithm — exactly `level`
+                        // braces open an expression; fewer is literal; in-between is
+                        // (count - level) literal braces then an open; more than 2*level
+                        // is too many.
+                        let count = int braceCount
+                        let idx = pos.Index
+                        let diff = count - level
+
+                        if diff < 0 then
+                            LexBuilder.appendI Token.InterpolatedStringFragment idx CtxOp.NoOp state
+                        elif diff = 0 then
+                            LexBuilder.appendI
+                                Token.InterpolatedExpressionOpen
+                                idx
+                                (CtxOp.Push LexContext.InterpolatedExpression)
+                                state
+                        elif diff >= level then
+                            LexBuilder.appendI Token.TooManyLBracesInInterpolated3String idx CtxOp.NoOp state
+                        else
                             state
+                            |> LexBuilder.appendI Token.InterpolatedStringFragment idx CtxOp.NoOp
+                            |> LexBuilder.appendI
+                                Token.InterpolatedExpressionOpen
+                                (idx + diff)
+                                (CtxOp.Push LexContext.InterpolatedExpression)
                 )
         }
 
@@ -1620,29 +1781,32 @@ module Lexing =
         parser {
             let! pos = getPosition
             let! braceCount = pCountRBraces
+            let level = LexBuilder.level pos.State
 
             let mutable count = int braceCount
             let mutable idx = int pos.Index
 
-            do!
-                updateUserState (fun state ->
-                    let mutable state = state
+            if level = 1 then
+                // Legacy semantics: }} is escape pair for '}'; single } is invalid.
+                do!
+                    updateUserState (fun state ->
+                        let mutable state = state
 
-                    while count > 1 do
-                        // }} is an escape sequence for '}'
-                        // TODO: Investigate order of imperative operations in a while loop
-                        idx <- idx + 2
-                        count <- count - 2
-                        state <- LexBuilder.appendI Token.EscapeRBrace idx CtxOp.NoOp state
+                        while count > 1 do
+                            idx <- idx + 2
+                            count <- count - 2
+                            state <- LexBuilder.appendI Token.EscapeRBrace idx CtxOp.NoOp state
 
-                    state
-                )
+                        state
+                    )
 
-            match count with
-            | 0 -> return ()
-            | _ ->
-                // Single } is invalid outside an expression
-                do! updateUserState (LexBuilder.appendI Token.UnmatchedInterpolatedRBrace idx CtxOp.NoOp)
+                match count with
+                | 0 -> return ()
+                | _ -> do! updateUserState (LexBuilder.appendI Token.UnmatchedInterpolatedRBrace idx CtxOp.NoOp)
+            else
+                // Level >= 2: `}` runs in fragment context are literal — emit a single
+                // InterpolatedStringFragment spanning the whole run.
+                do! updateUserState (LexBuilder.appendI Token.InterpolatedStringFragment idx CtxOp.NoOp)
         }
 
     let pInterpolated3StringFragmentRBraces =
@@ -1710,10 +1874,12 @@ module Lexing =
                     | 0 -> state
                     | _ ->
                         // Single " ends the verbatim interpolated string
+                        let level = LexBuilder.level state
+
                         LexBuilder.appendI
                             Token.VerbatimInterpolatedStringClose
                             idx
-                            (CtxOp.Pop LexContext.VerbatimInterpolatedString)
+                            (CtxOp.Pop(LexContext.VerbatimInterpolatedString level))
                             state
                 )
         }
@@ -1763,6 +1929,35 @@ module Lexing =
             do! skipNewline
             do! updateUserState (fun state -> LexBuilder.append Token.Newline pos CtxOp.NoOp state)
         }
+
+    /// `\n`/`\r`/`\r\n` inside a single-line string context when the relevant
+    /// `AllowMultiline*Strings` flag is off. Emits an invalid token and pops
+    /// the string context so the lexer recovers at the next line.
+    let pNewlineInSingleLineString =
+        fun (reader: Reader<char, LexBuilder, ReadableString>) ->
+            let pos = reader.Position
+            let state = reader.State
+
+            let topCtx =
+                if state.Context.Count > 0 then
+                    state.Context.Peek()
+                else
+                    LexContext.Normal
+
+            // Consume \r\n, \n, or \r.
+            match reader.Peek() with
+            | ValueSome '\r' ->
+                reader.Skip()
+
+                match reader.Peek() with
+                | ValueSome '\n' -> reader.Skip()
+                | _ -> ()
+            | ValueSome '\n' -> reader.Skip()
+            | _ -> ()
+
+            reader.State <- LexBuilder.append Token.NewlineInSingleLineString pos (CtxOp.Pop topCtx) reader.State
+
+            Ok()
 
     // Well-known non-`:`-prefix operator strings, in length-major order. The `:`-starting
     // operators (`:`, `::`, `:?`, `:>`, `:=`, `:?>`) are reachable only via the first-char
@@ -2998,20 +3193,24 @@ module Lexing =
                     | ' ' -> IfDirective.pWhitespaceToken
                     | _ -> IfDirective.pIdentifierOrOther
 
-                | LexContext.InterpolatedString ->
+                | LexContext.InterpolatedString _ ->
                     match c with
                     | '{' -> pInterpolatedExpressionStartToken
                     | '}' -> pInterpolatedStringFragmentRBraces
                     | '"' -> pInterpolatedStringEndToken
                     | '%' -> pFormatSpecifierTokens
+                    | '\n'
+                    | '\r' when not state.Config.AllowMultilineInterpolatedStrings -> pNewlineInSingleLineString
                     | _ -> pInterpolatedStringFragmentToken
 
-                | LexContext.VerbatimInterpolatedString ->
+                | LexContext.VerbatimInterpolatedString _ ->
                     match c with
                     | '{' -> pInterpolatedExpressionStartToken
                     | '}' -> pInterpolatedStringFragmentRBraces
                     | '"' -> pVerbatimInterpolatedStringQuoteToken
                     | '%' -> pFormatSpecifierTokens
+                    | '\n'
+                    | '\r' when not state.Config.AllowMultilineInterpolatedStrings -> pNewlineInSingleLineString
                     | _ -> pVerbatimInterpolatedStringFragmentToken
 
                 | LexContext.Interpolated3String _ ->
@@ -3027,12 +3226,16 @@ module Lexing =
                     | '"' -> pPlainStringCloseToken
                     | '\\' -> pStringEscapeToken
                     | '%' -> pFormatSpecifierTokens
+                    | '\n'
+                    | '\r' when not state.Config.AllowMultilineRegularStrings -> pNewlineInSingleLineString
                     | _ -> pPlainStringFragmentToken
 
                 | LexContext.VerbatimString ->
                     match c with
                     | '"' -> pVerbatimStringQuoteToken2
                     | '%' -> pFormatSpecifierTokens
+                    | '\n'
+                    | '\r' when not state.Config.AllowMultilineVerbatimStrings -> pNewlineInSingleLineString
                     | _ -> pVerbatimStringFragmentToken2
 
                 | LexContext.TripleQuotedString ->
@@ -3045,6 +3248,8 @@ module Lexing =
             | Ok() -> lex reader
             | Error e -> Error e
 
-    let lexString (input: string) =
-        let reader = Reader.ofString input (LexBuilder.init input)
+    let lexStringWith (config: LexerConfig) (input: string) =
+        let reader = Reader.ofString input (LexBuilder.initWith config input)
         lex reader
+
+    let lexString (input: string) = lexStringWith LexerConfig.Legacy input

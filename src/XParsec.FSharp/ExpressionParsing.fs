@@ -2004,6 +2004,7 @@ module Expr =
         | Token.UnterminatedStringLiteral
         | Token.UnterminatedVerbatimStringLiteral
         | Token.UnterminatedString3Literal
+        | Token.NewlineInSingleLineString
         // Interpolated string close
         | Token.InterpolatedStringClose
         | Token.VerbatimInterpolatedStringClose

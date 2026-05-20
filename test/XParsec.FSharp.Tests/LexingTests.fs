@@ -60,4 +60,129 @@ let tests =
                 let name = IO.Path.GetFileName file
 
                 test $"Lexing {name}" { testLexFile file }
+
+            // Phase 4 smoke tests for N-dollar single-quoted interpolated strings.
+            // These only succeed when the lexer is given FSharp2 config; with Legacy
+            // the lexer rejects the literal and falls through to operator-then-string.
+            test "FSharp2: $$\"... {{x}} ...\" lexes as level-2 interpolated" {
+                let input = "$$\"hi {{x}} world\""
+
+                match lexStringWith LexerConfig.FSharp2 input with
+                | Error e -> failtestf "Lex failed: %A" e
+                | Ok lexed ->
+                    let tokens = lexed.Tokens |> Seq.map (fun t -> t.Token) |> List.ofSeq
+
+                    let expected =
+                        [
+                            Token.InterpolatedStringOpen
+                            Token.InterpolatedStringFragment // "hi "
+                            Token.InterpolatedExpressionOpen // {{
+                            Token.Identifier // x
+                            Token.InterpolatedExpressionClose // }}
+                            Token.InterpolatedStringFragment // " world"
+                            Token.InterpolatedStringClose
+                            Token.EOF
+                        ]
+
+                    Expect.equal tokens expected "Token sequence"
+            }
+
+            test "Legacy: $$\"... fails to open as N-dollar (lexes $$ as operator)" {
+                let input = "$$\"hi\""
+
+                match lexStringWith LexerConfig.Legacy input with
+                | Error _ -> () // legacy may reject — that's fine
+                | Ok lexed ->
+                    let tokens = lexed.Tokens |> Seq.map (fun t -> t.Token) |> List.ofSeq
+                    // Should NOT begin with InterpolatedStringOpen — first non-EOF token
+                    // should be an operator or invalid (the legacy fallback when $$ doesn't
+                    // form a valid interp prefix).
+                    Expect.notEqual tokens.Head Token.InterpolatedStringOpen "Should not lex as N-dollar interp"
+            }
+
+            test "FSharp2: $$@\"... ...\" lexes as level-2 verbatim interpolated" {
+                let input = "$$@\"hi {{x}} world\""
+
+                match lexStringWith LexerConfig.FSharp2 input with
+                | Error e -> failtestf "Lex failed: %A" e
+                | Ok lexed ->
+                    let first = lexed.Tokens.[0<_>]
+                    Expect.equal first.Token Token.VerbatimInterpolatedStringOpen "Opens as verb-interp"
+            }
+
+            // Phase 2 smoke tests for single-line string enforcement under FSharp2.
+            // Under Legacy, the same input is accepted (newline becomes part of the fragment).
+            test "FSharp2: newline inside \"...\" emits NewlineInSingleLineString" {
+                let input = "\"hello\nworld\""
+
+                match lexStringWith LexerConfig.FSharp2 input with
+                | Error e -> failtestf "Lex failed: %A" e
+                | Ok lexed ->
+                    let tokens = lexed.Tokens |> Seq.map (fun t -> t.Token) |> List.ofSeq
+
+                    Expect.contains tokens Token.NewlineInSingleLineString "NewlineInSingleLineString in output"
+            }
+
+            test "Legacy: newline inside \"...\" lexes as fragment (multiline allowed)" {
+                let input = "\"hello\nworld\""
+
+                match lexStringWith LexerConfig.Legacy input with
+                | Error e -> failtestf "Lex failed: %A" e
+                | Ok lexed ->
+                    let tokens = lexed.Tokens |> Seq.map (fun t -> t.Token) |> List.ofSeq
+
+                    Expect.isFalse
+                        (List.contains Token.NewlineInSingleLineString tokens)
+                        "No NewlineInSingleLineString in legacy"
+
+                    Expect.contains tokens Token.StringClose "Properly terminated"
+            }
+
+            test "FSharp2: newline inside @\"...\" is rejected when verbatim flag off" {
+                let input = "@\"path\nthing\""
+
+                match lexStringWith LexerConfig.FSharp2 input with
+                | Error e -> failtestf "Lex failed: %A" e
+                | Ok lexed ->
+                    let tokens = lexed.Tokens |> Seq.map (fun t -> t.Token) |> List.ofSeq
+
+                    Expect.contains tokens Token.NewlineInSingleLineString "Verbatim newline rejected"
+            }
+
+            test "FSharp2: newline inside $\"...\" emits NewlineInSingleLineString" {
+                let input = "$\"hi\nthere\""
+
+                match lexStringWith LexerConfig.FSharp2 input with
+                | Error e -> failtestf "Lex failed: %A" e
+                | Ok lexed ->
+                    let tokens = lexed.Tokens |> Seq.map (fun t -> t.Token) |> List.ofSeq
+
+                    Expect.contains tokens Token.NewlineInSingleLineString "Interp newline rejected"
+            }
+
+            test "FSharp2: newline inside \"\"\"...\"\"\" is allowed (triple-quoted always multiline)" {
+                let input = "\"\"\"hi\nthere\"\"\""
+
+                match lexStringWith LexerConfig.FSharp2 input with
+                | Error e -> failtestf "Lex failed: %A" e
+                | Ok lexed ->
+                    let tokens = lexed.Tokens |> Seq.map (fun t -> t.Token) |> List.ofSeq
+
+                    Expect.isFalse
+                        (List.contains Token.NewlineInSingleLineString tokens)
+                        "Triple-quoted newline allowed"
+
+                    Expect.contains tokens Token.String3Close "Triple close present"
+            }
+
+            test "FSharp2: CRLF inside \"...\" is also caught" {
+                let input = "\"hello\r\nworld\""
+
+                match lexStringWith LexerConfig.FSharp2 input with
+                | Error e -> failtestf "Lex failed: %A" e
+                | Ok lexed ->
+                    let tokens = lexed.Tokens |> Seq.map (fun t -> t.Token) |> List.ofSeq
+
+                    Expect.contains tokens Token.NewlineInSingleLineString "CRLF rejected"
+            }
         ]
