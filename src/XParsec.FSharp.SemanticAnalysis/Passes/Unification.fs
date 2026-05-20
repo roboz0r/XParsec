@@ -2066,6 +2066,38 @@ module Unification =
             // provider lookups or recursive shape unification.
             TyVar(freshTv ctx key)
 
+    /// Collect the ordered format specifiers of a *literal* format string by
+    /// reusing the lexer's canonical placeholder parser
+    /// (`Lexing.parseFormatSpecifierView`) over each `FormatSpecifier` part —
+    /// no second copy of the `%[flags][width][.precision][type]` grammar lives
+    /// here, and the specifier text is read directly off the source via
+    /// `ctx.ReadableOf` rather than copied out. `ValueNone` when the string
+    /// carries interpolation holes or lexer-error parts (it isn't a simple
+    /// format literal), so the printf special-case falls through to standard
+    /// inference.
+    let private formatSpecifiers (ctx: PassContext) (e: Expr<SyntaxToken>) : FormatType list voption =
+        match e with
+        | Expr.String(parts = parts) ->
+            let acc = ResizeArray<FormatType>()
+            let mutable ok = true
+
+            for part in parts do
+                match part with
+                | StringPart.Text _
+                | StringPart.EscapeSequence _
+                | StringPart.EscapePercent _
+                | StringPart.VerbatimEscapeQuote _ -> ()
+                | StringPart.FormatSpecifier t ->
+                    match Lexing.parseFormatSpecifierView (ctx.ReadableOf t) with
+                    | ValueSome placeholder -> acc.Add placeholder.Type
+                    | ValueNone -> ok <- false
+                | StringPart.Expr _
+                | StringPart.OrphanFormatSpecifier _
+                | StringPart.InvalidText _ -> ok <- false
+
+            if ok then ValueSome(List.ofSeq acc) else ValueNone
+        | _ -> ValueNone
+
     let rec private infer (ctx: PassContext) (e: Expr<SyntaxToken>) : SemType =
         let key = CstKeys.ofExpr e
         let nodeTv = freshTv ctx key
@@ -2264,15 +2296,89 @@ module Unification =
         (fn: Expr<SyntaxToken>)
         (args: ImmutableArray<Expr<SyntaxToken>>)
         : SemType =
-        let mutable currTy = infer ctx fn
+        match tryInferPrintfApp ctx key fn args with
+        | ValueSome ty -> ty
+        | ValueNone ->
+            let mutable currTy = infer ctx fn
 
-        for a in args do
-            let argTy = infer ctx a
-            let resultTy = TyVar(freshTyVar ctx)
-            unify ctx key currTy (TyFun(argTy, resultTy))
-            currTy <- resultTy
+            for a in args do
+                let argTy = infer ctx a
+                let resultTy = TyVar(freshTyVar ctx)
+                unify ctx key currTy (TyFun(argTy, resultTy))
+                currTy <- resultTy
 
-        currTy
+            currTy
+
+    /// Printf-family typing rule (front-end-gaps-plan §B). When `fn` resolves
+    /// to a recognised printf entry point (and isn't shadowed by a local
+    /// binding) and the format-string argument is a plain literal, the
+    /// format spec — not the literal's apparent `string` type — drives the
+    /// surrounding call's curried result type. The format argument is typed
+    /// as `PrintfFormat<printer, …>`; Freeze projects that node into a
+    /// `New PrintfFormat(<text>)`. Non-literal format strings (interpolated,
+    /// or a pre-built `PrintfFormat` value) return `ValueNone` and fall
+    /// through to standard inference.
+    and private tryInferPrintfApp
+        (ctx: PassContext)
+        (key: NodeKey)
+        (fn: Expr<SyntaxToken>)
+        (args: ImmutableArray<Expr<SyntaxToken>>)
+        : SemType voption =
+        let fnKey = CstKeys.ofExpr fn
+
+        // A local binding shadowing a printf name is an ordinary function —
+        // don't apply the special rule.
+        if ctx.Binding.ContainsKey fnKey then
+            ValueNone
+        else
+            match fn with
+            | Expr.Ident _
+            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _) ->
+                match PrintfSpec.tryFamily (qualifiedNameOf ctx fn) with
+                | ValueNone -> ValueNone
+                | ValueSome fam ->
+                    let idx = fam.FormatArgIndex
+
+                    if args.Length <= idx then
+                        // Format argument not supplied (e.g. a partially-
+                        // applied `fprintf writer`); defer to standard
+                        // inference against the registered generic signature.
+                        ValueNone
+                    else
+                        match formatSpecifiers ctx args.[idx] with
+                        | ValueNone -> ValueNone
+                        | ValueSome specs ->
+                            let fresh () = TyVar(freshTyVar ctx)
+
+                            match PrintfSpec.appliedTypeOf fresh specs fam with
+                            // A specifier we don't type in v1 (`%a` / `%t`);
+                            // defer to standard inference.
+                            | ValueNone -> ValueNone
+                            | ValueSome(fnTy, fmtTy, _) ->
+                                // Stamp the function node so Freeze threads the
+                                // curried result type through the App chain.
+                                (freshTv ctx fnKey).Link <- ValueSome fnTy
+
+                                let mutable currTy = fnTy
+
+                                for i in 0 .. args.Length - 1 do
+                                    let a = args.[i]
+
+                                    let argTy =
+                                        if i = idx then
+                                            // The format literal types as the
+                                            // PrintfFormat — not as `string`.
+                                            (freshTv ctx (CstKeys.ofExpr a)).Link <- ValueSome fmtTy
+                                            fmtTy
+                                        else
+                                            infer ctx a
+
+                                    let resultTy = TyVar(freshTyVar ctx)
+                                    unify ctx key currTy (TyFun(argTy, resultTy))
+                                    currTy <- resultTy
+
+                                ValueSome currTy
+            | _ -> ValueNone
 
     and private inferHighPrecApp
         (ctx: PassContext)

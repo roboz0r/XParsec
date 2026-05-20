@@ -26,6 +26,7 @@
     <Compile Include="ConstraintsTests.fs" />
     <Compile Include="FSharpLibTests.fs" />
     <Compile Include="InlineTests.fs" />
+    <Compile Include="PrintfTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

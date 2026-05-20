@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open XParsec
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
@@ -298,6 +299,15 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
         match token.Index with
         | TokenIndex.Regular iT -> this.Lexed.GetTokenString(iT, this.Input)
         | TokenIndex.Virtual -> ""
+
+    /// Allocation-free sibling of `NameOf`: a `ReadableString` view of
+    /// `token`'s source text, for consumers that re-parse a token (e.g. printf
+    /// format specifiers) without copying out a substring. Empty for virtual
+    /// (synthesised) tokens.
+    member this.ReadableOf(token: SyntaxToken) : ReadableString =
+        match token.Index with
+        | TokenIndex.Regular iT -> this.Lexed.GetTokenReadable(iT, this.Input)
+        | TokenIndex.Virtual -> ReadableString.Empty
 
 /// TODO: flesh out (range, code, sub-severities) once passes need to differentiate.
 and [<Struct>] Diagnostic =

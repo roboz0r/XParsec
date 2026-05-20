@@ -271,7 +271,23 @@ module MockBuiltins =
         ]
         |> List.map (fun (n, build) -> n, ExternalSymbols.poly n build)
 
-    let private builtins = (monoOps @ polyOps) |> Map.ofList
+    /// printf-family entry points. Registered with their *generic* signature
+    /// `… -> PrintfFormat<'T, …> -> 'T` so plain name resolution and the
+    /// non-literal-format fallback type sensibly; the literal-format typing
+    /// rule lives in `Unification` and bypasses this signature. See
+    /// [front-end-gaps-plan](docs/front-end-gaps-plan.md) §B.
+    let private printfOps =
+        let freshAt (level: int) : SemType =
+            let tv = TypeVar()
+            tv.Level <- level
+            TyVar tv
+
+        [
+            for KeyValue(name, fam) in PrintfSpec.families ->
+                name, ExternalSymbols.poly name (fun level -> PrintfSpec.genericSignature (fun () -> freshAt level) fam)
+        ]
+
+    let private builtins = (monoOps @ polyOps @ printfOps) |> Map.ofList
 
     let provider: IExternalSymbolProvider =
         { new IExternalSymbolProvider with

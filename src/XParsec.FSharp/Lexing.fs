@@ -100,6 +100,24 @@ type Lexed =
             let t1 = tokens[i + 1<_>] // Next token is guaranteed to exist (EOF)
             input.AsSpan().Slice(token.StartIndex, (t1.StartIndex - token.StartIndex))
 
+    /// A `ReadableString` view of token `i`'s source text — like
+    /// `GetTokenString` but allocation-free (it slices `input` in place via
+    /// the `ReadableString` view rather than copying out a substring). Lets a
+    /// consumer re-run a parser over a token's text without materialising it.
+    member this.GetTokenReadable(i: int<token>, input: string) : ReadableString =
+        let tokens = this.Tokens
+
+        if i < 0<_> || int i >= tokens.Length then
+            invalidArg (nameof i) "Index out of range"
+
+        let token = tokens[i]
+
+        match token.Token with
+        | Token.EOF -> ReadableString.Empty
+        | _ ->
+            let t1 = tokens[i + 1<_>] // Next token is guaranteed to exist (EOF)
+            ReadableString(input, token.StartIndex, t1.StartIndex - token.StartIndex)
+
 // Format specifications for printf formats are strings with % markers
 // that indicate format. Format placeholders consist of %[flags][width][.precision][type]
 
@@ -2438,25 +2456,39 @@ module Lexing =
                 preturn FormatType.Text reader
             | ValueSome c -> fail (Unexpected c) reader
 
-        let lFormatPlaceholder: Parser<_, _, _, ReadableString> =
-            parser {
-                let! state = getUserState
-                // let level = LexBuilder.level state
-                // do! skipNOf level '%'
-                let! flags = manyChars (anyOf "0+- ")
-                let! width = opt pbigint
-                let! precision = opt (pchar '.' >>. pbigint)
-                let! typeChar = pFormatType
+        // Parses the `[flags][width][.precision][type]` body that follows the
+        // `%`. Written as an explicit reader function (rather than a single
+        // allocated parser value) so it stays generic over the user state:
+        // the lexer runs it with `LexBuilder`, while the public
+        // `parseFormatSpecifier` reuses it with unit state — the format
+        // grammar therefore lives in exactly one place.
+        let lFormatPlaceholder
+            (reader: Reader<char, 'State, ReadableString>)
+            : ParseResult<FormatPlaceholder, char, 'State> =
+            let p =
+                parser {
+                    let! flags = manyChars (anyOf "0+- ")
+                    let! width = opt pbigint
+                    let! precision = opt (pchar '.' >>. pbigint)
+                    let! typeChar = pFormatType
 
-                return
-                    {
-                        Flags = flags
-                        Width = width
-                        Precision = precision
-                        Type = typeChar
-                    }
-            }
+                    return
+                        {
+                            Flags = flags
+                            Width = width
+                            Precision = precision
+                            Type = typeChar
+                        }
+                }
 
+            p reader
+
+        // TODO: consider caching the parsed `FormatPlaceholder` in a side-table
+        // on `LexBuilder` (token index -> FormatPlaceholder) so semantic
+        // analysis / codegen can read the structured spec without re-parsing
+        // via `parseFormatSpecifier`. Deferred deliberately: re-parsing a few
+        // short specifier strings on demand is plausibly cheaper than carrying
+        // these records on every lexed token — measure before adding the table.
         let lFormatPlaceholderToken =
             lFormatPlaceholder >>% Token.FormatPlaceholder
             <|> preturn Token.InvalidFormatPlaceholder
@@ -2536,6 +2568,33 @@ module Lexing =
                         addToken t pos.Index
                         return ()
             }
+
+    /// Parse a single printf format specifier directly out of a
+    /// `ReadableString` view — typically a slice of the original source over a
+    /// `FormatSpecifier` token (see `Lexed.GetTokenReadable`), so no substring
+    /// is copied out at all. This is the canonical implementation of the
+    /// `%[flags][width][.precision][type]` grammar; downstream consumers
+    /// (semantic analysis, codegen) reuse it rather than re-deriving the scan.
+    /// Any leading `%` characters are skipped (by advancing the reader index,
+    /// not by re-slicing). `ValueNone` when the body isn't a well-formed
+    /// placeholder.
+    let parseFormatSpecifierView (view: ReadableString) : FormatPlaceholder voption =
+        let mutable start = 0
+
+        while start < view.Length && view.[start] = '%' do
+            start <- start + 1
+
+        // `Reader(input, state, index)` starts parsing at `index`, so the
+        // leading `%` is skipped without re-slicing the view.
+        match lFormatPlaceholder (Reader(view, (), start)) with
+        | Ok placeholder -> ValueSome placeholder
+        | Error _ -> ValueNone
+
+    /// Convenience overload of `parseFormatSpecifierView` for a specifier
+    /// already held as a `string` (e.g. tests). Wraps the string in a
+    /// `ReadableString` view; the body itself is still parsed in place.
+    let parseFormatSpecifier (specifier: string) : FormatPlaceholder voption =
+        parseFormatSpecifierView (ReadableString specifier)
 
     let (|ExpressionCtx|_|) (ctx: LexContext) =
         match ctx with

@@ -715,7 +715,16 @@ module Freeze =
                 | StringPart.OrphanFormatSpecifier t -> sb.Append(ctx.NameOf t) |> ignore
                 | StringPart.InvalidText t -> sb.Append(ctx.NameOf t) |> ignore
 
-            TExpr.Const(TConstValue.String(sb.ToString()), ty)
+            let text = sb.ToString()
+
+            match Unification.zonk ty with
+            | TyClass(name, _) when name = PrintfSpec.printfFormatName ->
+                // Format literal at a printf call site (typed by
+                // `Unification.tryInferPrintfApp`). It denotes
+                // `new PrintfFormat<…>(text)` — the single `value: string`
+                // constructor — so codegen builds the format object.
+                TExpr.New(name, [ TExpr.Const(TConstValue.String text, MockBuiltins.tyString) ], ty)
+            | _ -> TExpr.Const(TConstValue.String text, ty)
         | _ -> failwithf "Freeze.translateString: not a String expr: %A" e
 
     and private translateIdent (ctx: PassContext) (e: Expr<SyntaxToken>) (key: NodeKey) (ty: SemType) : TExpr =
