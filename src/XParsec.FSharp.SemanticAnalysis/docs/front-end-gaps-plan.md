@@ -147,42 +147,86 @@ arm scrutinee) was fixed before closing. New tests in
 `ResolvedTypesTests.fs` cover the clean / quantified / synthetic-
 free / synthetic-quantified cases.
 
-## C — `inline` semantics
+## C — `inline` semantics — **Done**
 
 **Goal:** `let inline sum xs = …` retains its body in the TAST for
 per-call-site expansion at codegen time. Resolving SRTP / IWSAM
 bounds against caller-side concrete types remains in `Unification`
 (see [passes.md §Where `inline` fires](passes.md)).
 
-**Scope:**
+**Scope:** a `bool` marker on `TDecl.Let`, the binding body retained
+verbatim (Freeze already does this), and a codegen-facing
+`inlineExpand` helper.
 
-- Add `Inline: bool` to `TDecl.Let`. (Or wrap as `TDecl.LetInline of …`
-  if the discriminator-style is preferred for the rest of the TAST —
-  reuse whatever convention already lives on the `let` shape.)
-- Retain the binding's TExpr body verbatim. The body's typars stay
-  abstract; substitution at call sites happens at codegen.
-- Provide an `inlineExpand : TDecl.Let → SemType[] → TExpr` helper
-  that codegen calls per call site with the resolved type
-  substitution.
+**Dependencies:** none structurally; landed after §A and §D so the
+TAST had stabilised before the `TDecl.Let` arity bump.
 
-**Dependencies:** none structurally, but lands after §A and §D so
-TAST has stabilised before adding a new `TDecl` variant.
+**Decisions made:**
 
-**Decisions to make (locked in design discussion):**
-
+- **`Inline: bool` field, not a `TDecl.LetInline` case.** A `let` is a
+  `let` whether or not it's inline; a separate case would duplicate the
+  `binding * value * ty` payload and force every TAST consumer to handle
+  two near-identical arms. The field is positioned **before** `ty` so
+  `ty` stays last, matching the convention every other `TExpr` / `TPat` /
+  `TDecl` case follows.
+- **Source of the flag.** Freeze reads `b.inlineToken.IsSome` directly
+  off the CST `Binding` in `translateModuleElem` — no new side table.
+  (`NameResolution` already records the same bit on `ResolvedBinding`
+  for Unification's SRTP path; the TAST marker is the codegen-facing
+  companion.)
 - **Retain bodies vs eager pre-monomorphise.** Retain bodies. Eager
   expansion forecloses the IFunc-driven JIT devirt path
   ([function-representation-plan](function-representation-plan.md)) —
   every `inline`-d call site would lose the chance to dispatch
   through a constrained typar.
+- **What `inlineExpand` does (and doesn't).** It performs *type*
+  substitution only: the binding's quantified typars → the caller's
+  concrete types, walked through the retained `value`. Beta-reduction
+  of the resulting lambda against the actual arguments and NodeKey
+  freshening across call sites stay codegen's responsibility — the
+  helper's signature (`TDecl → SemType[] → TExpr`) carries no value
+  arguments by design. A monomorphic binding round-trips its body by
+  reference (zero-cost no-op). The `SemType[]` is positional: index `i`
+  pins `quantifiedTypars declTy |> List.item i`, where
+  `quantifiedTypars` collects free roots in first-occurrence pre-order
+  over the decl's generalised type — the same order
+  `Unification.generalise` quantifies in, so an order recovered from the
+  frozen TAST lines up with the scheme that produced it.
 - **Substitution depth.** v1 substitutes through one level of
   inlining at a time and lets codegen iterate. Nested inline-of-inline
   is fine: each callee's `Inline` flag drives its own expansion.
+- **Marker scope is `TDecl.Let`.** The canonical sample's
+  `let inline sum xs = …` is a module-level binding, and at module
+  level even the `let inline succ x = … in succ 41` test-gate form
+  lifts to a top-level inline `TDecl.Let` followed by the body as its
+  own `TDecl.Expression` — so the marker covers it. A *genuinely
+  nested* `let inline` inside an expression body would freeze to
+  `TExpr.Let`, which doesn't carry the flag yet; deferred until a
+  codegen thin-slice needs it ([il-emission-roadmap](il-emission-roadmap.md)
+  thin-slice 3).
 
-**Test gate:** `let inline succ x = x + 1 in succ 41` freezes with
-the body retained, and a synthetic call-site expansion produces
-`TExpr.App(External "op_Addition", 41, 1)` (modulo currying shape)
-with `ty = TyConst "int"`.
+**Where the work landed:**
+
+- `Tast.fs` — `TDecl.Let` grew an `isInline: bool` field (before `ty`).
+- `Freeze.fs` — `translateModuleElem` stamps `b.inlineToken.IsSome`.
+- `Inline.fs` — new codegen-facing module: `quantifiedTypars`,
+  `inlineExpand`, and the private `substType` / `substPat` / `substExpr`
+  walk. Slotted right after `Tast.fs` (depends only on the TAST types +
+  `UnionFind`).
+- `ResolvedTypes.fs`, `TastShape.fs` (test DSL, now renders
+  `let inline`), and the `TDecl.Let` pattern sites across the test
+  suite picked up the extra field.
+
+**Test gate (verified):** `let inline succ x = x + 1` types as
+`int -> int`, freezes with `isInline = true` and its `fun x -> x + 1`
+body retained, and `inlineExpand` returns that body verbatim (by
+reference, no typars). The polymorphic `let inline id x = x` exposes one
+quantified typar; `inlineExpand decl [| int |]` rewrites the body to a
+fully-`int` `fun x -> x` without mutating the original (a second
+expansion at `bool` still succeeds). The §C example
+`let inline succ x = x + 1 in succ 41` splits into the inline `TDecl.Let`
+plus a `succ 41` use expression, both diagnostic-clean. New tests in
+`InlineTests.fs`.
 
 ## B — Printf format string
 

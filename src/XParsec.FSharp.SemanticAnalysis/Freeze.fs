@@ -993,7 +993,7 @@ module Freeze =
                 for b in bindings ->
                     let tpat = translatePat ctx b.headPat
                     let valT = translateBinding ctx b
-                    TDecl.Let(tpat, valT, typeOfKey ctx (CstKeys.ofBinding b))
+                    TDecl.Let(tpat, valT, b.inlineToken.IsSome, typeOfKey ctx (CstKeys.ofBinding b))
             ]
         | ModuleElem.Expression e ->
             let eT = translateExpr ctx e

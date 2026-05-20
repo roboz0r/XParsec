@@ -65,7 +65,12 @@ let tests =
 
                 let synthDecls =
                     [
-                        TDecl.Let(TPat.NamedSimple(NodeKey(0UL), freeTy), TExpr.Const(TConstValue.Unit, freeTy), freeTy)
+                        TDecl.Let(
+                            TPat.NamedSimple(NodeKey(0UL), freeTy),
+                            TExpr.Const(TConstValue.Unit, freeTy),
+                            false,
+                            freeTy
+                        )
                     ]
 
                 let synth = { Decls = synthDecls; Diagnostics = [] }
@@ -94,7 +99,7 @@ let tests =
 
                 let idKey =
                     match tast.Decls with
-                    | [ TDecl.Let(TPat.NamedSimple(k, _), _, _) ] -> k
+                    | [ TDecl.Let(TPat.NamedSimple(k, _), _, _, _) ] -> k
                     | other -> failwithf "expected single NamedSimple decl, got %A" other
 
                 let scheme = ctx.Scheme.TryGetValue idKey
@@ -110,7 +115,7 @@ let tests =
                     {
                         Decls =
                             [
-                                TDecl.Let(TPat.NamedSimple(idKey, ty), TExpr.Const(TConstValue.Unit, ty), ty)
+                                TDecl.Let(TPat.NamedSimple(idKey, ty), TExpr.Const(TConstValue.Unit, ty), false, ty)
                             ]
                         Diagnostics = []
                     }

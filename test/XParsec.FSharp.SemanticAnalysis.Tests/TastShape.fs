@@ -449,8 +449,8 @@ type private Renderer() =
 
     member this.Decl(d: TDecl) : unit =
         match d with
-        | TDecl.Let(p, v, _) ->
-            push "let "
+        | TDecl.Let(p, v, isInline, _) ->
+            push (if isInline then "let inline " else "let ")
             this.Pat p
             push " = "
             this.Expr v

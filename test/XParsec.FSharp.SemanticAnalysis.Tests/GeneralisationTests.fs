@@ -15,7 +15,7 @@ let private analyseWithCtx (input: string) =
 
 let private declType (tast: TastFile) : SemType =
     match tast.Decls with
-    | [ TDecl.Let(_, _, ty) ] -> ty
+    | [ TDecl.Let(_, _, _, ty) ] -> ty
     | other -> failwithf "expected single TDecl.Let, got %A" other
 
 let private hasMismatch (tast: TastFile) =
@@ -140,7 +140,7 @@ let tests =
                     | other -> failwithf "expected two decls, got %A" other
 
                 match pairDecl with
-                | TDecl.Let(_, _, TyFun(arg, TyTuple [ a; b ])) ->
+                | TDecl.Let(_, _, _, TyFun(arg, TyTuple [ a; b ])) ->
                     // pair : 'b -> ('b * 'b) — both tuple elements share 'b.
                     Expect.equal a arg "first tuple element matches arg type"
                     Expect.equal b arg "second tuple element matches arg type"
@@ -154,7 +154,7 @@ let tests =
                 let tast = analyse "let id = fun x -> x\nlet a = id 1\nlet b = id true"
 
                 match tast.Decls with
-                | [ _; TDecl.Let(_, _, aTy); TDecl.Let(_, _, bTy) ] ->
+                | [ _; TDecl.Let(_, _, _, aTy); TDecl.Let(_, _, _, bTy) ] ->
                     Expect.equal aTy MockBuiltins.tyInt "a : int"
                     Expect.equal bTy MockBuiltins.tyBool "b : bool"
                 | other -> failwithf "expected three decls, got %A" other

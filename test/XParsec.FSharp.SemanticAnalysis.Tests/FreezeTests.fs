@@ -10,7 +10,7 @@ let private analyse (input: string) =
 
 let private declType (tast: TastFile) : SemType =
     match tast.Decls with
-    | [ TDecl.Let(_, _, ty) ] -> ty
+    | [ TDecl.Let(_, _, _, ty) ] -> ty
     | other -> failwithf "expected single TDecl.Let, got %A" other
 
 [<Tests>]
@@ -24,7 +24,7 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.Const(TConstValue.Int 1, ty), letTy) ->
+                | TDecl.Let(_, TExpr.Const(TConstValue.Int 1, ty), _, letTy) ->
                     Expect.equal ty MockBuiltins.tyInt "value type"
                     Expect.equal letTy MockBuiltins.tyInt "binding type"
                 | other -> failtestf "unexpected: %A" other
@@ -34,7 +34,7 @@ let tests =
                 let tast = analyse "let b = true"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.Const(TConstValue.Bool true, ty), _) ->
+                | TDecl.Let(_, TExpr.Const(TConstValue.Bool true, ty), _, _) ->
                     Expect.equal ty MockBuiltins.tyBool "value type bool"
                 | other -> failtestf "unexpected: %A" other
             }
@@ -47,7 +47,7 @@ let tests =
                 Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = fun v1 -> (v1 + 1)" "TAST shape"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.Lambda(_, _, lamTy), declTy) ->
+                | TDecl.Let(_, TExpr.Lambda(_, _, lamTy), _, declTy) ->
                     Expect.equal lamTy intToInt "lambda type int -> int"
                     Expect.equal declTy intToInt "decl type int -> int"
                 | other -> failtestf "unexpected decl: %A" other
@@ -63,7 +63,7 @@ let tests =
                     "TAST shape matches fun-form"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, _, declTy) -> Expect.equal declTy intToInt "decl type"
+                | TDecl.Let(_, _, _, declTy) -> Expect.equal declTy intToInt "decl type"
                 | other -> failtestf "unexpected: %A" other
             }
 
@@ -83,7 +83,7 @@ let tests =
                 let expected = NodeKey.ofSource 4 NodeKind.PatIdent
 
                 match tast.Decls.[0] with
-                | TDecl.Let(TPat.NamedSimple(bindingKey, _), _, _) -> Expect.equal bindingKey expected "binding key"
+                | TDecl.Let(TPat.NamedSimple(bindingKey, _), _, _, _) -> Expect.equal bindingKey expected "binding key"
                 | other -> failtestf "unexpected: %A" other
             }
 
@@ -93,7 +93,7 @@ let tests =
                 let xKey = NodeKey.ofSource 4 NodeKind.PatIdent
 
                 match tast.Decls with
-                | [ _; TDecl.Let(_, TExpr.Var(refKey, _), _) ] -> Expect.equal refKey xKey "y refs x"
+                | [ _; TDecl.Let(_, TExpr.Var(refKey, _), _, _) ] -> Expect.equal refKey xKey "y refs x"
                 | _ -> failtestf "unexpected decls: %A" tast.Decls
             }
 
@@ -123,6 +123,7 @@ let tests =
                                                                                 _) ],
                                                               _) ],
                                             outerTy),
+                            _,
                             _) -> Expect.equal outerTy listTy "outer UnionCons ty"
                 | other -> failtestf "unexpected TAST shape: %A" other
             }
@@ -133,7 +134,7 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.UnionCons("Nil", [], ty), _) ->
+                | TDecl.Let(_, TExpr.UnionCons("Nil", [], ty), _, _) ->
                     match ty with
                     | TyRecord("Microsoft.FSharp.Collections.list", [ _ ]) -> ()
                     | _ -> failtestf "expected list<_> Nil, got %A" ty
@@ -154,6 +155,7 @@ let tests =
                             TExpr.App(TExpr.External("Microsoft.FSharp.Collections.ArrayModule.OfList", opTy),
                                       TExpr.UnionCons("Cons", _, innerTy),
                                       outerTy),
+                            _,
                             _) ->
                     Expect.equal opTy (TyFun(listTy, arrayTy)) "Array.ofList: list -> array"
                     Expect.equal innerTy listTy "inner list type"

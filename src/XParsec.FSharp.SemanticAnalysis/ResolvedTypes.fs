@@ -218,14 +218,14 @@ module ResolvedTypes =
     /// the head pattern is a NamedSimple, otherwise a synthetic-at-0 key.
     let private declKey (d: TDecl) : NodeKey =
         match d with
-        | TDecl.Let(TPat.NamedSimple(k, _), _, _) -> k
+        | TDecl.Let(TPat.NamedSimple(k, _), _, _, _) -> k
         | _ -> NodeKey(0UL)
 
     let private walkDecl (ctx: PassContext) (allowed: HashSet<TypeVar>) (d: TDecl) : unit =
         let acc = HashSet<TypeVar>(HashIdentity.Reference)
 
         match d with
-        | TDecl.Let(binding, value, ty) ->
+        | TDecl.Let(binding, value, _, ty) ->
             let added = pushScheme ctx binding allowed
             addFreeRoots allowed acc ty
             walkPat allowed acc binding

@@ -13,6 +13,7 @@
     <Compile Include="SideTables.fs" />
     <Compile Include="UnionFind.fs" />
     <Compile Include="Tast.fs" />
+    <Compile Include="Inline.fs" />
     <Compile Include="Passes\Desugar.fs" />
     <Compile Include="Passes\NameResolution.fs" />
     <Compile Include="Passes\Unification.fs" />

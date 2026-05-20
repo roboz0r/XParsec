@@ -139,7 +139,13 @@ and TMatchArm =
 
 [<RequireQualifiedAccess>]
 type TDecl =
-    | Let of binding: TPat * value: TExpr * ty: SemType
+    /// Top-level `let` / `let rec` binding. `isInline` mirrors the source
+    /// `inline` keyword. The `value` body is retained verbatim regardless;
+    /// when `isInline` is set the flag tells codegen it may expand the body
+    /// per call site (via `Inline.inlineExpand`, substituting the caller's
+    /// concrete types for the binding's quantified typars) rather than emit
+    /// a single callable. See [front-end-gaps-plan](docs/front-end-gaps-plan.md) §C.
+    | Let of binding: TPat * value: TExpr * isInline: bool * ty: SemType
     /// Top-level expression (script fragments parse as a module with one
     /// Expression element).
     | Expression of expr: TExpr * ty: SemType

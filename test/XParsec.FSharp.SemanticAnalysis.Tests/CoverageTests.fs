@@ -10,7 +10,7 @@ let private analyse (input: string) =
 
 let private declType (tast: TastFile) : SemType =
     match tast.Decls with
-    | [ TDecl.Let(_, _, ty) ] -> ty
+    | [ TDecl.Let(_, _, _, ty) ] -> ty
     | other -> failwithf "expected single TDecl.Let, got %A" other
 
 [<Tests>]
@@ -29,7 +29,7 @@ let tests =
                     | other -> failwithf "expected two decls, got %A" other
 
                 match resultDecl with
-                | TDecl.Let(_, _, ty) -> Expect.equal ty MockBuiltins.tyInt "r : int"
+                | TDecl.Let(_, _, _, ty) -> Expect.equal ty MockBuiltins.tyInt "r : int"
                 | other -> failtestf "unexpected: %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -55,7 +55,7 @@ let tests =
                     | other -> failwithf "expected two decls, got %A" other
 
                 match resultDecl with
-                | TDecl.Let(_, _, ty) -> Expect.equal ty MockBuiltins.tyInt "r : int"
+                | TDecl.Let(_, _, _, ty) -> Expect.equal ty MockBuiltins.tyInt "r : int"
                 | other -> failtestf "unexpected: %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -83,7 +83,7 @@ let tests =
                     | other -> failwithf "expected three decls, got %A" other
 
                 match hDecl with
-                | TDecl.Let(_, _, ty) ->
+                | TDecl.Let(_, _, _, ty) ->
                     Expect.equal ty (TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)) "h : int -> int"
                 | other -> failtestf "unexpected: %A" other
 
@@ -99,7 +99,7 @@ let tests =
                     | other -> failwithf "expected three decls, got %A" other
 
                 match hDecl with
-                | TDecl.Let(_, _, ty) ->
+                | TDecl.Let(_, _, _, ty) ->
                     Expect.equal ty (TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)) "h : int -> int"
                 | other -> failtestf "unexpected: %A" other
 
@@ -256,7 +256,7 @@ let tests =
                     | other -> failwithf "expected two decls, got %A" other
 
                 match resultDecl with
-                | TDecl.Let(_, _, ty) -> Expect.equal ty MockBuiltins.tyInt "r : int"
+                | TDecl.Let(_, _, _, ty) -> Expect.equal ty MockBuiltins.tyInt "r : int"
                 | other -> failtestf "unexpected: %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -416,6 +416,7 @@ let tests =
                                                        } ],
                                                      _),
                                          _),
+                            _,
                             _) -> ()
                 | other -> failtestf "unexpected: %A" other
             }
@@ -589,7 +590,7 @@ let tests =
 
                 let valExpr =
                     match tast.Decls with
-                    | [ TDecl.Let(_, v, _) ] -> v
+                    | [ TDecl.Let(_, v, _, _) ] -> v
                     | other -> failwithf "expected one let, got %A" other
 
                 match valExpr with
@@ -608,7 +609,7 @@ let tests =
 
                 let valExpr =
                     match tast.Decls with
-                    | [ TDecl.Let(_, v, _) ] -> v
+                    | [ TDecl.Let(_, v, _, _) ] -> v
                     | other -> failwithf "expected one let, got %A" other
 
                 let body =
@@ -632,7 +633,7 @@ let tests =
 
                 let valExpr =
                     match tast.Decls with
-                    | [ TDecl.Let(_, v, _) ] -> v
+                    | [ TDecl.Let(_, v, _, _) ] -> v
                     | other -> failwithf "expected one let, got %A" other
 
                 let body =
@@ -657,7 +658,7 @@ let tests =
 
                 let valExpr =
                     match tast.Decls with
-                    | [ TDecl.Let(_, v, _) ] -> v
+                    | [ TDecl.Let(_, v, _, _) ] -> v
                     | other -> failwithf "expected one let, got %A" other
 
                 match valExpr with
@@ -676,7 +677,7 @@ let tests =
 
                 let valExpr =
                     match tast.Decls with
-                    | [ TDecl.Let(_, v, _) ] -> v
+                    | [ TDecl.Let(_, v, _, _) ] -> v
                     | other -> failwithf "expected one let, got %A" other
 
                 match valExpr with

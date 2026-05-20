@@ -10,7 +10,7 @@ let private analyse (input: string) =
 
 let private declType (tast: TastFile) : SemType =
     match tast.Decls with
-    | [ TDecl.Let(_, _, ty) ] -> ty
+    | [ TDecl.Let(_, _, _, ty) ] -> ty
     | other -> failwithf "expected single TDecl.Let, got %A" other
 
 let private hasMeasureMismatch (tast: TastFile) =
@@ -121,7 +121,7 @@ let tests =
                     analyse "let speed (d : float<m>) (t : float<s>) = d / t\nlet v = speed 100.0<m> 5.0<s>"
 
                 match tast.Decls with
-                | [ _; TDecl.Let(_, _, vTy) ] ->
+                | [ _; TDecl.Let(_, _, _, vTy) ] ->
                     let carrier, units = measuredOf vTy
                     Expect.equal carrier MockBuiltins.tyFloat "v carrier float"
                     Expect.equal units (measure [ "m", 1; "s", -1 ]) "v : float<m/s>"
