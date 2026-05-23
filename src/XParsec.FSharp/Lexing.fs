@@ -156,6 +156,11 @@ type FormatPlaceholder =
         Width: bigint voption
         Precision: bigint voption
         Type: FormatType
+        /// The raw type letter (`'x'` vs `'X'`, `'e'` vs `'E'`, …). `Type`
+        /// collapses the case-bearing specifiers, so the literal letter is kept
+        /// here for consumers that must render the .NET format in the right case
+        /// (`PrintfSpec.tryHoleFormat`).
+        TypeChar: char
     }
 
 [<RequireQualifiedAccess; Struct>]
@@ -2403,57 +2408,61 @@ module Lexing =
     [<AutoOpen>]
     module internal FormatStrings =
 
+        // Returns both the classified `FormatType` and the raw type letter; the
+        // letter lets a consumer recover the case (`%x` vs `%X`) that `FormatType`
+        // intentionally collapses. Struct tuple to avoid an allocation on the
+        // (rare) format-specifier path.
         let pFormatType (reader: Reader<char, 'State, 'Input>) =
             match reader.Peek() with
             | ValueNone -> fail EndOfInput reader
-            | ValueSome 'b' ->
+            | ValueSome('b' as c) ->
                 reader.Skip()
-                preturn FormatType.Bool reader
-            | ValueSome 's' ->
+                preturn (struct (FormatType.Bool, c)) reader
+            | ValueSome('s' as c) ->
                 reader.Skip()
-                preturn FormatType.String reader
-            | ValueSome 'c' ->
+                preturn (struct (FormatType.String, c)) reader
+            | ValueSome('c' as c) ->
                 reader.Skip()
-                preturn FormatType.Char reader
-            | ValueSome('d' | 'i') ->
+                preturn (struct (FormatType.Char, c)) reader
+            | ValueSome(('d' | 'i') as c) ->
                 reader.Skip()
-                preturn FormatType.DecimalInt reader
-            | ValueSome 'u' ->
+                preturn (struct (FormatType.DecimalInt, c)) reader
+            | ValueSome('u' as c) ->
                 reader.Skip()
-                preturn FormatType.UnsignedDecimalInt reader
-            | ValueSome('x' | 'X') ->
+                preturn (struct (FormatType.UnsignedDecimalInt, c)) reader
+            | ValueSome(('x' | 'X') as c) ->
                 reader.Skip()
-                preturn FormatType.UnsignedHex reader
-            | ValueSome 'o' ->
+                preturn (struct (FormatType.UnsignedHex, c)) reader
+            | ValueSome('o' as c) ->
                 reader.Skip()
-                preturn FormatType.UnsignedOctal reader
-            | ValueSome 'B' ->
+                preturn (struct (FormatType.UnsignedOctal, c)) reader
+            | ValueSome('B' as c) ->
                 reader.Skip()
-                preturn FormatType.UnsignedBinary reader
-            | ValueSome('e' | 'E') ->
+                preturn (struct (FormatType.UnsignedBinary, c)) reader
+            | ValueSome(('e' | 'E') as c) ->
                 reader.Skip()
-                preturn FormatType.FloatExponential reader
-            | ValueSome('f' | 'F') ->
+                preturn (struct (FormatType.FloatExponential, c)) reader
+            | ValueSome(('f' | 'F') as c) ->
                 reader.Skip()
-                preturn FormatType.FloatDecimal reader
-            | ValueSome('g' | 'G') ->
+                preturn (struct (FormatType.FloatDecimal, c)) reader
+            | ValueSome(('g' | 'G') as c) ->
                 reader.Skip()
-                preturn FormatType.FloatCompact reader
-            | ValueSome 'M' ->
+                preturn (struct (FormatType.FloatCompact, c)) reader
+            | ValueSome('M' as c) ->
                 reader.Skip()
-                preturn FormatType.Decimal reader
-            | ValueSome 'O' ->
+                preturn (struct (FormatType.Decimal, c)) reader
+            | ValueSome('O' as c) ->
                 reader.Skip()
-                preturn FormatType.Object reader
-            | ValueSome 'A' ->
+                preturn (struct (FormatType.Object, c)) reader
+            | ValueSome('A' as c) ->
                 reader.Skip()
-                preturn FormatType.Structured reader
-            | ValueSome 'a' ->
+                preturn (struct (FormatType.Structured, c)) reader
+            | ValueSome('a' as c) ->
                 reader.Skip()
-                preturn FormatType.FormatFunction reader
-            | ValueSome 't' ->
+                preturn (struct (FormatType.FormatFunction, c)) reader
+            | ValueSome('t' as c) ->
                 reader.Skip()
-                preturn FormatType.Text reader
+                preturn (struct (FormatType.Text, c)) reader
             | ValueSome c -> fail (Unexpected c) reader
 
         // Parses the `[flags][width][.precision][type]` body that follows the
@@ -2470,14 +2479,15 @@ module Lexing =
                     let! flags = manyChars (anyOf "0+- ")
                     let! width = opt pbigint
                     let! precision = opt (pchar '.' >>. pbigint)
-                    let! typeChar = pFormatType
+                    let! struct (typeKind, typeChar) = pFormatType
 
                     return
                         {
                             Flags = flags
                             Width = width
                             Precision = precision
-                            Type = typeChar
+                            Type = typeKind
+                            TypeChar = typeChar
                         }
                 }
 

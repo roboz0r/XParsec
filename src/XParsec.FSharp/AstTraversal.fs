@@ -2050,7 +2050,7 @@ and walkTypeDefn (visitor: AstVisitor<'T>) (typeDefn: TypeDefn<'T>) : unit =
         walkType visitor typ
         visitor.ExitSection ""
         visitor.ExitSection "TypeDefn.Abbrev"
-    | TypeDefn.Union(typeName, equals, cases, _, _ext) ->
+    | TypeDefn.Union(typeName, equals, cases, _, ext) ->
         visitor.EnterSection "TypeDefn.Union"
         walkTypeName visitor typeName
         visitor.VisitToken "=" equals
@@ -2085,6 +2085,19 @@ and walkTypeDefn (visitor: AstVisitor<'T>) (typeDefn: TypeDefn<'T>) : unit =
             visitor.ExitSection "Case"
 
         visitor.ExitSection ""
+
+        match ext with
+        | ValueSome(TypeExtensionElements(withTok, elems, endTok)) ->
+            visitor.VisitToken "with" withTok
+            visitor.EnterSection ""
+
+            for e in elems do
+                walkTypeDefnElement visitor e
+
+            visitor.ExitSection ""
+            visitor.VisitToken "end" endTok
+        | ValueNone -> ()
+
         visitor.ExitSection "TypeDefn.Union"
     | TypeDefn.Record(typeName, equals, lBrace, fields, rBrace, ext) ->
         visitor.EnterSection "TypeDefn.Record"

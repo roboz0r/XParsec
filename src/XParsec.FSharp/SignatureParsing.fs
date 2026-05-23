@@ -518,6 +518,8 @@ module ModuleSignature =
 
 [<RequireQualifiedAccess>]
 module ModuleSignatureElement =
+    // Needed for Attributes.parse
+    do ObjectConstruction.init ()
 
     /// Type sig group: `type [<Attrs>] Foo = ...` optionally followed by `and Bar = ...`.
     let private pTypeGroup =
