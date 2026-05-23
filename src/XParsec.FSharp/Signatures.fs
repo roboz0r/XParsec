@@ -104,6 +104,11 @@ type TypeSignature<'T> =
     | TypeExtension of typeName: TypeName<'T> * elements: TypeExtensionElementsSignature<'T>
     // Opaque type signature (no `=` body), e.g. `[<Measure>] type kg` or `type T`.
     | AbstractType of typeName: TypeName<'T>
+    // Intrinsic primitive signature: `type int = extern`. Declares "the target
+    // provides this; there is no Vesper representation" — the impl-side pair is a
+    // `TypeDefn.Abbrev` whose RHS is `Type.ILIntrinsic`. Distinct from `AbstractType`
+    // (opaque/abstract) and from `Abbrev` (a real type alias).
+    | Extern of typeName: TypeName<'T> * equals: 'T * externToken: 'T
 
 // Represents: type-signatures := type-signature ... and ... type-signature
 // The first item has no preceding 'and'; subsequent items each carry their 'and' token.

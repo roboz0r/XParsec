@@ -375,6 +375,11 @@ module TypeSignature =
                     let! d = DelegateSig.parse
                     return TypeSignature.Delegate(typeName, equals, d)
 
+                | Token.KWExtern ->
+                    // `type int = extern` — intrinsic primitive (no Vesper representation).
+                    let! ext = pExtern
+                    return TypeSignature.Extern(typeName, equals, ext)
+
                 | _ when isImplicitClassStart next ->
                     // Implicit anonymous body: no explicit class/struct/begin keyword.
                     // Synthesize virtual begin/end and use offside rule (OffsideContext.Type)

@@ -2640,6 +2640,12 @@ and walkTypeSignature (visitor: AstVisitor<'T>) (typeSig: TypeSignature<'T>) : u
         visitor.EnterSection "TypeSig.AbstractType"
         walkTypeName visitor typeName
         visitor.ExitSection "TypeSig.AbstractType"
+    | TypeSignature.Extern(typeName, equals, externTok) ->
+        visitor.EnterSection "TypeSig.Extern"
+        walkTypeName visitor typeName
+        visitor.VisitToken "=" equals
+        visitor.VisitToken "extern" externTok
+        visitor.ExitSection "TypeSig.Extern"
 
 and walkTypeSignatures (visitor: AstVisitor<'T>) (typeSigs: TypeSignatures<'T>) : unit =
     let (TypeSignatures.TypeSignatures(first, rest)) = typeSigs

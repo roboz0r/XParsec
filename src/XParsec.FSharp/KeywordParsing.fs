@@ -148,6 +148,7 @@ module internal Keywords =
     let pType: KWParser = mkKW Token.KWType "type"
     let pException: KWParser = mkKW Token.KWException "exception"
     let pDelegate: KWParser = mkKW Token.KWDelegate "delegate"
+    let pExtern: KWParser = mkKW Token.KWExtern "extern"
     let pOf: KWParser = mkKW Token.KWOf "of"
     let pNull: KWParser = mkKW Token.KWNull "null"
     let pElif: KWParser = mkKW Token.KWElif "elif"
