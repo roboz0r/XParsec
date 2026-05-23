@@ -39,12 +39,14 @@ let tests =
                                         _),
                               false,
                               _)
-                    TDecl.Expression(TExpr.App(TExpr.App(TExpr.External("printfn", _), TExpr.New(cls, _, _), _),
-                                               TExpr.Var(kxUse, _),
-                                               _),
-                                     _) ] ->
-                    Expect.equal cls PrintfSpec.printfFormatName "format ctor is PrintfFormat"
-                    Expect.equal kxUse kx "the `Var` references the let-bound NodeKey"
+                    TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _), _) ] ->
+                    // `printfn "%d" x` now lowers to a single `%d` hole bound to
+                    // the let-bound `x`'s Var (vesper-printf-plan P1).
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, TExpr.Var(kxUse, _)) ] ->
+                        Expect.equal kxUse kx "the hole's `Var` references the let-bound NodeKey"
+                        Expect.equal hole.Ty (TyConst "int") "the %d hole types as int"
+                    | other -> failtestf "unexpected Format segments: %A" other
                 | other -> failtestf "unexpected slice-2 TAST: %A" other
             }
 

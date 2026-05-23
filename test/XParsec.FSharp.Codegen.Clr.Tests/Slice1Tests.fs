@@ -15,15 +15,21 @@ let tests =
     testList
         "Slice1"
         [
-            test "`printfn \"hi\"` analyses clean and freezes to the expected shape" {
+            test "`printfn \"hi\"` analyses clean and freezes to a Format node" {
+                // No-hole literal printf now lowers to the `Vesper.Formatter`
+                // happy path (vesper-printf-plan P1): a `TExpr.Format` with a
+                // single literal segment and a stdout+newline sink — not the old
+                // `App(printfn, New PrintfFormat …)` FSharp.Core shape.
                 let tast = analyse "printfn \"hi\""
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls with
-                | [ TDecl.Expression(TExpr.App(TExpr.External("printfn", _),
-                                               TExpr.New(cls, [ TExpr.Const(TConstValue.String "hi", _) ], _),
-                                               _),
-                                     _) ] -> Expect.equal cls PrintfSpec.printfFormatName "format ctor is PrintfFormat"
+                | [ TDecl.Expression(TExpr.Format(sink, segs, _), _) ] ->
+                    Expect.equal sink (FormatSink.ToStdOut true) "printfn → stdout with newline"
+
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Lit "hi" ] -> ()
+                    | other -> failtestf "unexpected Format segments: %A" other
                 | other -> failtestf "unexpected slice-1 TAST: %A" other
             }
 

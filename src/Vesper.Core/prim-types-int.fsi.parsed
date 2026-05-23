@@ -1,0 +1,82 @@
+namespace        'namespace'       KWNamespace         tok=   0  pos=   0
+                 'Vesper'          Identifier          tok=   2  pos=  10
+  Import:
+    open         'open'            KWOpen              tok=   5  pos=  18
+                 'System'          Identifier          tok=   7  pos=  23
+  Type:
+    type         'type'            KWType              tok=  16  pos= 158
+    TypeSig.Abbrev:
+      TypeName   'sbyte'           Identifier          tok=  18  pos= 163
+      =          '='               OpEquality          tok=  20  pos= 169
+        NamedType:
+          Ident  'SByte'           Identifier          tok=  22  pos= 171
+  Type:
+    type         'type'            KWType              tok=  31  pos= 304
+    TypeSig.Abbrev:
+      TypeName   'byte'            Identifier          tok=  33  pos= 309
+      =          '='               OpEquality          tok=  35  pos= 314
+        NamedType:
+          Ident  'Byte'            Identifier          tok=  37  pos= 316
+  Type:
+    type         'type'            KWType              tok=  46  pos= 449
+    TypeSig.Abbrev:
+      TypeName   'int8'            Identifier          tok=  48  pos= 454
+      =          '='               OpEquality          tok=  50  pos= 459
+        NamedType:
+          Ident  'SByte'           Identifier          tok=  52  pos= 461
+  Type:
+    type         'type'            KWType              tok=  61  pos= 594
+    TypeSig.Abbrev:
+      TypeName   'uint8'           Identifier          tok=  63  pos= 599
+      =          '='               OpEquality          tok=  65  pos= 605
+        NamedType:
+          Ident  'Byte'            Identifier          tok=  67  pos= 607
+  Type:
+    type         'type'            KWType              tok=  76  pos= 740
+    TypeSig.Abbrev:
+      TypeName   'int16'           Identifier          tok=  78  pos= 745
+      =          '='               OpEquality          tok=  80  pos= 751
+        NamedType:
+          Ident  'Int16'           Identifier          tok=  82  pos= 753
+  Type:
+    type         'type'            KWType              tok=  91  pos= 888
+    TypeSig.Abbrev:
+      TypeName   'uint16'          Identifier          tok=  93  pos= 893
+      =          '='               OpEquality          tok=  95  pos= 900
+        NamedType:
+          Ident  'UInt16'          Identifier          tok=  97  pos= 902
+  Type:
+    type         'type'            KWType              tok= 106  pos=1037
+    TypeSig.Abbrev:
+      TypeName   'int32'           Identifier          tok= 108  pos=1042
+      =          '='               OpEquality          tok= 110  pos=1048
+        NamedType:
+          Ident  'Int32'           Identifier          tok= 112  pos=1050
+  Type:
+    type         'type'            KWType              tok= 121  pos=1185
+    TypeSig.Abbrev:
+      TypeName   'uint32'          Identifier          tok= 123  pos=1190
+      =          '='               OpEquality          tok= 125  pos=1197
+        NamedType:
+          Ident  'UInt32'          Identifier          tok= 127  pos=1199
+  Type:
+    type         'type'            KWType              tok= 136  pos=1334
+    TypeSig.Abbrev:
+      TypeName   'int64'           Identifier          tok= 138  pos=1339
+      =          '='               OpEquality          tok= 140  pos=1345
+        NamedType:
+          Ident  'Int64'           Identifier          tok= 142  pos=1347
+  Type:
+    type         'type'            KWType              tok= 151  pos=1482
+    TypeSig.Abbrev:
+      TypeName   'uint64'          Identifier          tok= 153  pos=1487
+      =          '='               OpEquality          tok= 155  pos=1494
+        NamedType:
+          Ident  'UInt64'          Identifier          tok= 157  pos=1496
+  Type:
+    type         'type'            KWType              tok= 166  pos=1632
+    TypeSig.Abbrev:
+      TypeName   'uint'            Identifier          tok= 168  pos=1637
+      =          '='               OpEquality          tok= 170  pos=1642
+        NamedType:
+          Ident  'uint32'          Identifier          tok= 172  pos=1644

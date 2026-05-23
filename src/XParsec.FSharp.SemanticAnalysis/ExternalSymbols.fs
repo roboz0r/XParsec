@@ -197,6 +197,8 @@ module MockBuiltins =
     let tyByte: SemType = TyConst "byte"
     let tyFloat: SemType = TyConst "float"
     let tyBool: SemType = TyConst "bool"
+    let tyChar: SemType = TyConst "char"
+    let tyDecimal: SemType = TyConst "decimal"
     let tyUnit: SemType = TyConst "unit"
     let tyString: SemType = TyConst "string"
     /// Placeholder for `seq<int>` — the result type of int range expressions
@@ -271,6 +273,28 @@ module MockBuiltins =
         ]
         |> List.map (fun (n, build) -> n, ExternalSymbols.poly n build)
 
+    /// Collection module functions used by the codegen slices. Registered
+    /// under their *source* qualified name (`List.fold`) because that is the
+    /// key NameResolution / Unification look the provider up with — the
+    /// compiled name (`…ListModule.Fold`) only matters to a target backend.
+    let private listFns =
+        let freshAt (level: int) : SemType =
+            let tv = TypeVar()
+            tv.Level <- level
+            TyVar tv
+
+        [
+            // val fold<'T,'State> : ('State -> 'T -> 'State) -> 'State -> 'T list -> 'State
+            "List.fold",
+            fun level ->
+                let state = freshAt level
+                let t = freshAt level
+                let folder = TyFun(state, TyFun(t, state))
+                let listOfT = TyRecord("Microsoft.FSharp.Collections.list", [ t ])
+                TyFun(folder, TyFun(state, TyFun(listOfT, state)))
+        ]
+        |> List.map (fun (n, build) -> n, ExternalSymbols.poly n build)
+
     /// printf-family entry points. Registered with their *generic* signature
     /// `… -> PrintfFormat<'T, …> -> 'T` so plain name resolution and the
     /// non-literal-format fallback type sensibly; the literal-format typing
@@ -287,7 +311,7 @@ module MockBuiltins =
                 name, ExternalSymbols.poly name (fun level -> PrintfSpec.genericSignature (fun () -> freshAt level) fam)
         ]
 
-    let private builtins = (monoOps @ polyOps @ printfOps) |> Map.ofList
+    let private builtins = (monoOps @ polyOps @ listFns @ printfOps) |> Map.ofList
 
     let provider: IExternalSymbolProvider =
         { new IExternalSymbolProvider with

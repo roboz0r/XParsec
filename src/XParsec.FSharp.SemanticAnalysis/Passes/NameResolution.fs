@@ -230,6 +230,13 @@ module NameResolution =
                                 Message = sprintf "Unresolved qualified name: %s" qualName
                                 Severity = Error
                             }
+        | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) when
+            (Desugar.symbolicOpCompiledName op.Token |> ValueOption.isSome)
+            ->
+            // `(+)` and friends used as a value resolve through the provider
+            // in Unification (no local binding to register), so this is not
+            // an unresolved-name error.
+            ()
         | Expr.LongIdentOrOp lio ->
             // Operator-form long idents (`A.(+)`, `(*)`) still need their
             // own resolution story. Surface the gap rather than silently

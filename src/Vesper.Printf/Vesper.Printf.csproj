@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Bootstrap runtime for Vesper.Printf (vesper-printf-plan P1). Hosts the
+    write-through `Formatter` ref struct the CLR backend lowers a fully-applied
+    literal `printf`/`printfn`/`sprintf` call to. Throwaway scaffolding behind a
+    stable member-name seam: when Vesper self-hosts the handler, an `.fs` impl
+    replaces this `.csproj` and the backend does not change. Consumed exactly
+    like FSharp.Core — live-assembly identity in `ClrProvider`, copied next to
+    the emitted PE by `Codegen.materialiseApp`.
+
+    The `.fsi` files in this folder are the *front-end symbol contract* (parsed
+    by XParsec.FSharp, not compiled here); only `Formatter.cs` is compiled.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>Vesper.Printf</AssemblyName>
+    <RootNamespace>Vesper</RootNamespace>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Formatter.cs" />
+  </ItemGroup>
+
+</Project>

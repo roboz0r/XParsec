@@ -4,6 +4,7 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="EqArray.fs" />
     <Compile Include="NodeKey.fs" />
     <Compile Include="CstKeys.fs" />
     <Compile Include="CstWalk.fs" />

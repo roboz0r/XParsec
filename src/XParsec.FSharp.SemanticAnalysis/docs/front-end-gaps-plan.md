@@ -175,7 +175,7 @@ TAST had stabilised before the `TDecl.Let` arity bump.
   for Unification's SRTP path; the TAST marker is the codegen-facing
   companion.)
 - **Retain bodies vs eager pre-monomorphise.** Retain bodies. Eager
-  expansion forecloses the IFunc-driven JIT devirt path
+  expansion forecloses the Fun-driven JIT devirt path
   ([function-representation-plan](function-representation-plan.md)) —
   every `inline`-d call site would lose the chance to dispatch
   through a constrained typar.
@@ -228,7 +228,7 @@ expansion at `bool` still succeeds). The §C example
 plus a `succ 41` use expression, both diagnostic-clean. New tests in
 `InlineTests.fs`.
 
-## B — Printf format string
+## B — Printf format string — **Done**
 
 **Goal:** `printfn "%d" 42 : unit` types correctly. The format spec
 in the literal drives the curried result type — `"%d"` produces
@@ -237,40 +237,112 @@ curried final shape.
 
 **Scope:**
 
-- **Format-spec parser.** New module that consumes the literal's text
-  and yields a structured list of specifiers (`%d`, `%s`, `%A`, width
-  / precision modifiers, etc.). Independent of the rest of the project
-  — pure string → structured-spec function.
-- **`PrintfFormat<_, _, _, _>` as built-in.** Registered in the
-  unifier as a special type whose typar arguments are derived from
-  the format spec, not from the literal's apparent type.
-- **Special-case rule** in `Unification` that inspects string literals
-  at `printf`-family argument positions and drives the surrounding
-  application's curried result type from the format spec rather than
-  from the literal's type.
+- **Format-spec parser (reused, not re-implemented).** The lexer already
+  classifies each `%[flags][width][.precision][type]` placeholder into a
+  `FormatType` (`Lexing.lFormatPlaceholder`), so the canonical grammar is
+  exposed once as the public `Lexing.parseFormatSpecifier : string ->
+  FormatPlaceholder voption` and the semantic layer reuses it over each
+  `StringPart.FormatSpecifier` token. The `PrintfSpec` module supplies
+  only the semantic layer on top: the `FormatType -> SemType` typing map
+  (`argType`) and the entry-point `families` table.
+- **`PrintfFormat<_, _, _, _>` as a built-in type.** Modelled as
+  `TyClass("Microsoft.FSharp.Core.PrintfFormat", [printer; state;
+  residue; result])`. The arg list is derived from the format spec at
+  the call site, not from the literal's apparent `string` type.
+- **Special-case rule** in `Unification.inferApp`
+  (`tryInferPrintfApp`) that inspects the format-string literal at the
+  recognised entry point's argument position and drives the
+  application's curried result type from the format spec.
 
-**Dependencies:** none structurally. Lands after C only because it's
-the largest single chunk and benefits from a fully stabilised front
-end before its inference special-cases get woven in.
+**Dependencies:** none structurally. Landed after C as planned.
 
-**Decisions to make:**
+**Decisions made:**
 
+- **Self-contained typing, not provider-signature-driven.** The rule
+  computes the call's whole type itself (`PrintfSpec.appliedTypeOf`):
+  the format literal types as `PrintfFormat<printer, …>` where
+  `printer` is the curried arg-types folded onto the family's tail
+  (`unit` for the writing families, `string` for `sprintf`), and the
+  function node is stamped `leading… -> PrintfFormat<…> -> printer` so
+  the normal app loop pins the value arguments. This sidesteps the
+  fragile abbreviation chain (`TextWriterFormat<'T>` = `Format<…>` =
+  `PrintfFormat<…>`) the real `printf.fsi` would otherwise force the
+  extractor to expand. The entry points are still *registered* in
+  `MockBuiltins` (generic `… -> PrintfFormat<'T,…> -> 'T` signature,
+  built from the same `PrintfSpec.families` table) so plain name
+  resolution and the non-literal fallback stay coherent.
 - **Recognised entry points.** v1 covers `printf`, `printfn`,
-  `sprintf`, `fprintf`, `eprintf`. The recognition is keyed on the
-  compiled name resolved by `IExternalSymbolProvider`, not on syntax.
-- **Spec coverage.** v1 covers `%d %s %f %b %A %O %%`. Width /
-  precision / flags lex correctly but don't change the typing
-  result. Out of scope: `%a` (callback printer), `%t` (thunk),
-  `%P` / `%M` (decimal).
-- **Non-literal format strings.** Falls through to standard inference
-  — `printfn fmt` where `fmt : PrintfFormat<…>` is already constructed.
-  Common idiom; nothing special needed once `PrintfFormat<_>` types.
+  `sprintf`, `fprintf`, `eprintf` (plus the `…n` newline variants).
+  Recognition keys on the **resolved source name** (last segment) via
+  `PrintfSpec.tryFamily`, gated on the reference *not* having a local
+  `Binding` entry — so a `let printfn = …` shadow is an ordinary
+  function. This diverges from the plan's "keyed on the compiled name
+  resolved by `IExternalSymbolProvider`": the real lib's `[<CompiledName>]`
+  values are ambiguous across entry points (`sprintf` and `ksprintf`
+  both compile to `PrintFormatToStringThen`, with *different*
+  format-arg positions), and bare `printfn` doesn't resolve through
+  the current extractor's compiled names at all. The short-name table
+  is the unambiguous, position-aware key; the shadowing gate preserves
+  the "respect name resolution, not raw syntax" intent.
+- **Spec coverage keyed on `FormatType`.** Because the typing map keys
+  on the lexer's `FormatType`, the representation keeps distinctions the
+  earlier hand-rolled scanner lost: integer bases (`%x %o %B …`) stay
+  separate `FormatType`s even though `argType` collapses them to `int`,
+  and `%A` (`Structured`) vs `%O` (`Object`) are distinct (both type as a
+  fresh typar, so codegen can re-read the `FormatType` to choose a
+  structured printer vs. a virtual `ToString`). `%M` now types as
+  `decimal` (free, once the spec is structured). Width / precision /
+  flags are parsed but don't change the typing result (`*`-driven
+  width/precision args aren't modelled — the lexer flags those as
+  `InvalidFormatPlaceholder`). `%a` (callback) and `%t` (thunk) involve
+  the `State`/`Residue` typars and aren't typed: `argType` returns
+  `ValueNone`, so `appliedTypeOf` bails and the rule falls through.
+- **Non-literal / untypeable format strings.** Interpolated literals
+  (holes), lexer-error parts, and any format containing `%a`/`%t` make
+  the rule defer to standard inference against the registered generic
+  signature. Faithful `printfn fmt` (a pre-built `PrintfFormat`) types
+  through that signature; an interpolated `printfn $"…"` or a `%a`/`%t`
+  literal is a known v1 gap (it surfaces a mismatch diagnostic rather
+  than special-casing the construct).
+- **Freeze shape.** The format literal freezes to
+  `TExpr.New("Microsoft.FSharp.Core.PrintfFormat", [Const(String text)],
+  formatTy)` — the `new PrintfFormat<…>(value)` constructor — when its
+  inferred type is the `PrintfFormat` `TyClass`. The entry point itself
+  freezes as a plain `TExpr.External` carrying the source name (the
+  existing `translateIdent` convention; the qualified compiled name is
+  a separate, broader concern).
 
-**Test gate:** `printfn "%d" 42` types as `unit` and freezes as
-`TExpr.App(App(External "Microsoft.FSharp.Core.Printf.printfn",
-PrintfFormat …), 42)` (precise shape TBD against the curried form
-the unifier picks). `printfn "%s %d" "n" 42` shows the curried result
-type runs through both args.
+**Where the work landed:**
+
+- `XParsec.FSharp/Lexing.fs` — `lFormatPlaceholder` refactored to a
+  state-generic function (drops an unused `getUserState`) so it can run
+  outside the lexer, and a public `parseFormatSpecifier : string ->
+  FormatPlaceholder voption` wrapper. Carries a TODO weighing a
+  `FormatPlaceholder` side-table on `LexBuilder` against on-demand
+  re-parsing.
+- `PrintfSpec.fs` — new module (slotted between `SemanticInfo.fs` and
+  `ExternalSymbols.fs`): the `argType` typing map over `FormatType`, the
+  `families` table, and the `formatType` / `printerType` /
+  `appliedTypeOf` / `genericSignature` SemType builders.
+- `ExternalSymbols.fs` — `MockBuiltins` registers the printf family
+  from `PrintfSpec.families`.
+- `Passes/Unification.fs` — `formatSpecifiers` helper (reuses
+  `Lexing.parseFormatSpecifier` per `FormatSpecifier` token) +
+  `tryInferPrintfApp`, invoked first from `inferApp`.
+- `Freeze.fs` — `translateString` wraps the string `Const` in a
+  `New PrintfFormat(…)` when the node's type is the `PrintfFormat`
+  class.
+
+**Test gate (verified):** `printfn "%d" 42` types as `unit` and
+freezes as `App(App(External "printfn", New
+Microsoft.FSharp.Core.PrintfFormat("%d")), 42)` — the format literal's
+`PrintfFormat` carries `printer = int -> unit`. `sprintf "%d" 42`
+types as `string`; `printfn "%s %d" "n" 42` curries the result through
+both args; `printfn "%d"` partially applies to `int -> unit`;
+`printfn "%d" true` surfaces a type-mismatch diagnostic; `fprintf w
+"%d" 42` pins `w : TextWriter`; and a local `let printfn` shadow types
+as an ordinary function. New tests in `PrintfTests.fs` (pure scanner,
+typing, and freeze shape).
 
 ## What's *not* in this plan
 

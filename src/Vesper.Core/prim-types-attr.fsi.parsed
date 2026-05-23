@@ -1,0 +1,11 @@
+namespace       'namespace'       KWNamespace         tok=   0  pos=   0
+                'Vesper'          Identifier          tok=   2  pos=  10
+  Type:
+    type        'type'            KWType              tok=   8  pos= 153
+    TypeSig.Abbrev:
+      TypeName  'Attribute'       Identifier          tok=  10  pos= 158
+      =         '='               OpEquality          tok=  12  pos= 168
+        NamedType:
+          LongIdent:
+                'System'          Identifier          tok=  14  pos= 170
+                'Attribute'       Identifier          tok=  16  pos= 177

@@ -17,6 +17,10 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\XParsec.FSharp.SemanticAnalysis\XParsec.FSharp.SemanticAnalysis.fsproj" />
+    <!-- Bootstrap printf runtime (Vesper.Printf.dll). Referenced so `ClrProvider`
+         can read its live-assembly identity (like FSharp.Core) and so it lands in
+         the output dir for `materialiseApp` to copy beside emitted PEs. -->
+    <ProjectReference Include="..\Vesper.Printf\Vesper.Printf.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />

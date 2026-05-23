@@ -1,0 +1,1287 @@
+namespace                 'namespace'       KWNamespace         tok=   0  pos=   0
+                          'Vesper'          Identifier          tok=   2  pos=  10
+  Module:
+    [<                    '[<'              KWLAttrBracket      tok=   5  pos=  18
+    NamedType:
+      Ident               'AutoOpen'        Identifier          tok=   6  pos=  20
+    >]                    '>]'              KWRAttrBracket      tok=   7  pos=  28
+    module                'module'          KWModule            tok=   9  pos=  31
+    ident                 'Arithmetic...'   Identifier          tok=  11  pos=  38
+    =                     '='               OpEquality          tok=  13  pos=  58
+    begin                 <virt>            KWBegin             tok=virt  pos= 334
+      Val:
+        val               'val'             KWVal               tok=  41  pos= 334
+        inline            'inline'          KWInline            tok=  43  pos= 338
+        ParenOp:
+                          '('               KWLParen            tok=  45  pos= 345
+          SymbolicOp      '~-'              op_UnaryNegation    tok=  46  pos= 346
+                          ')'               KWRParen            tok=  47  pos= 348
+        :                 ':'               OpColon             tok=  48  pos= 349
+        arg               'n'               Identifier          tok=  50  pos= 351
+        :                 ':'               OpColon             tok=  51  pos= 352
+        VarType:
+          Typar.Static:
+                          '^'               OpConcatenate       tok=  53  pos= 354
+                          'T'               Identifier          tok=  54  pos= 355
+        ->                '->'              OpArrowRight        tok=  56  pos= 357
+        WhenConstrainedType:
+          VarType:
+            Typar.Static:
+                          '^'               OpConcatenate       tok=  58  pos= 360
+                          'T'               Identifier          tok=  59  pos= 361
+          when            'when'            KWWhen              tok=  61  pos= 363
+          Constraint.MemberTrait:
+            Typar.Static:
+                          '^'               OpConcatenate       tok=  63  pos= 368
+                          'T'               Identifier          tok=  64  pos= 369
+            :             ':'               OpColon             tok=  65  pos= 370
+            (             '('               KWLParen            tok=  67  pos= 372
+            static        'static'          KWStatic            tok=  68  pos= 373
+            member        'member'          KWMember            tok=  70  pos= 380
+            ParenOp:
+                          '('               KWLParen            tok=  72  pos= 387
+              SymbolicOp  '~-'              op_UnaryNegation    tok=  74  pos= 389
+                          ')'               KWRParen            tok=  76  pos= 392
+            :             ':'               OpColon             tok=  77  pos= 393
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok=  79  pos= 395
+                          'T'               Identifier          tok=  80  pos= 396
+            ->            '->'              OpArrowRight        tok=  82  pos= 398
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok=  84  pos= 401
+                          'T'               Identifier          tok=  85  pos= 402
+            )             ')'               KWRParen            tok=  86  pos= 403
+          and             'and'             KWAnd               tok=  88  pos= 405
+          Constraint.Default:
+            default       'default'         KWDefault           tok=  90  pos= 409
+            Typar.Static:
+                          '^'               OpConcatenate       tok=  92  pos= 417
+                          'T'               Identifier          tok=  93  pos= 418
+            :             ':'               OpColon             tok=  94  pos= 419
+            NamedType:
+              Ident       'int'             Identifier          tok=  96  pos= 421
+      Val:
+        val               'val'             KWVal               tok= 125  pos= 712
+        inline            'inline'          KWInline            tok= 127  pos= 716
+        ParenOp:
+                          '('               KWLParen            tok= 129  pos= 723
+          SymbolicOp      '~+'              op_UnaryPlus        tok= 130  pos= 724
+                          ')'               KWRParen            tok= 131  pos= 726
+        :                 ':'               OpColon             tok= 132  pos= 727
+        arg               'value'           Identifier          tok= 134  pos= 729
+        :                 ':'               OpColon             tok= 135  pos= 734
+        VarType:
+          Typar.Static:
+                          '^'               OpConcatenate       tok= 137  pos= 736
+                          'T'               Identifier          tok= 138  pos= 737
+        ->                '->'              OpArrowRight        tok= 140  pos= 739
+        WhenConstrainedType:
+          VarType:
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 142  pos= 742
+                          'T'               Identifier          tok= 143  pos= 743
+          when            'when'            KWWhen              tok= 145  pos= 745
+          Constraint.MemberTrait:
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 147  pos= 750
+                          'T'               Identifier          tok= 148  pos= 751
+            :             ':'               OpColon             tok= 149  pos= 752
+            (             '('               KWLParen            tok= 151  pos= 754
+            static        'static'          KWStatic            tok= 152  pos= 755
+            member        'member'          KWMember            tok= 154  pos= 762
+            ParenOp:
+                          '('               KWLParen            tok= 156  pos= 769
+              SymbolicOp  '~+'              op_UnaryPlus        tok= 157  pos= 770
+                          ')'               KWRParen            tok= 158  pos= 772
+            :             ':'               OpColon             tok= 159  pos= 773
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 161  pos= 775
+                          'T'               Identifier          tok= 162  pos= 776
+            ->            '->'              OpArrowRight        tok= 164  pos= 778
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 166  pos= 781
+                          'T'               Identifier          tok= 167  pos= 782
+            )             ')'               KWRParen            tok= 168  pos= 783
+          and             'and'             KWAnd               tok= 170  pos= 785
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 172  pos= 789
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 174  pos= 797
+                          'T'               Identifier          tok= 175  pos= 798
+            :             ':'               OpColon             tok= 176  pos= 799
+            NamedType:
+              Ident       'int'             Identifier          tok= 178  pos= 801
+      Val:
+        val               'val'             KWVal               tok= 224  pos=1319
+        inline            'inline'          KWInline            tok= 226  pos=1323
+        ParenOp:
+                          '('               KWLParen            tok= 228  pos=1330
+          SymbolicOp      '+'               op_Addition         tok= 229  pos=1331
+                          ')'               KWRParen            tok= 230  pos=1332
+        :                 ':'               OpColon             tok= 231  pos=1333
+        arg               'x'               Identifier          tok= 233  pos=1335
+        :                 ':'               OpColon             tok= 234  pos=1336
+        VarType:
+          Typar.Static:
+                          '^'               OpConcatenate       tok= 236  pos=1338
+                          'T1'              Identifier          tok= 237  pos=1339
+        ->                '->'              OpArrowRight        tok= 239  pos=1342
+        arg               'y'               Identifier          tok= 241  pos=1345
+        :                 ':'               OpColon             tok= 242  pos=1346
+        VarType:
+          Typar.Static:
+                          '^'               OpConcatenate       tok= 244  pos=1348
+                          'T2'              Identifier          tok= 245  pos=1349
+        ->                '->'              OpArrowRight        tok= 247  pos=1352
+        WhenConstrainedType:
+          VarType:
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 249  pos=1355
+                          'T3'              Identifier          tok= 250  pos=1356
+          when            'when'            KWWhen              tok= 252  pos=1360
+          Constraint.MemberTrait:
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 255  pos=1366
+                          'T1'              Identifier          tok= 256  pos=1367
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 260  pos=1373
+                          'T2'              Identifier          tok= 261  pos=1374
+            :             ':'               OpColon             tok= 263  pos=1377
+            (             '('               KWLParen            tok= 265  pos=1379
+            static        'static'          KWStatic            tok= 266  pos=1380
+            member        'member'          KWMember            tok= 268  pos=1387
+            ParenOp:
+                          '('               KWLParen            tok= 270  pos=1394
+              SymbolicOp  '+'               op_Addition         tok= 271  pos=1395
+                          ')'               KWRParen            tok= 272  pos=1396
+            :             ':'               OpColon             tok= 273  pos=1397
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 275  pos=1399
+                          'T1'              Identifier          tok= 276  pos=1400
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 280  pos=1405
+                          'T2'              Identifier          tok= 281  pos=1406
+            ->            '->'              OpArrowRight        tok= 283  pos=1409
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 285  pos=1412
+                          'T3'              Identifier          tok= 286  pos=1413
+            )             ')'               KWRParen            tok= 287  pos=1415
+          and             'and'             KWAnd               tok= 289  pos=1417
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 291  pos=1421
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 293  pos=1429
+                          'T2'              Identifier          tok= 294  pos=1430
+            :             ':'               OpColon             tok= 295  pos=1432
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 297  pos=1434
+                          'T3'              Identifier          tok= 298  pos=1435
+          and             'and'             KWAnd               tok= 300  pos=1438
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 302  pos=1442
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 304  pos=1450
+                          'T3'              Identifier          tok= 305  pos=1451
+            :             ':'               OpColon             tok= 306  pos=1453
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 308  pos=1455
+                          'T1'              Identifier          tok= 309  pos=1456
+          and             'and'             KWAnd               tok= 311  pos=1459
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 313  pos=1463
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 315  pos=1471
+                          'T3'              Identifier          tok= 316  pos=1472
+            :             ':'               OpColon             tok= 317  pos=1474
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 319  pos=1476
+                          'T2'              Identifier          tok= 320  pos=1477
+          and             'and'             KWAnd               tok= 322  pos=1480
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 324  pos=1484
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 326  pos=1492
+                          'T1'              Identifier          tok= 327  pos=1493
+            :             ':'               OpColon             tok= 328  pos=1495
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 330  pos=1497
+                          'T3'              Identifier          tok= 331  pos=1498
+          and             'and'             KWAnd               tok= 333  pos=1501
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 335  pos=1505
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 337  pos=1513
+                          'T1'              Identifier          tok= 338  pos=1514
+            :             ':'               OpColon             tok= 339  pos=1516
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 341  pos=1518
+                          'T2'              Identifier          tok= 342  pos=1519
+          and             'and'             KWAnd               tok= 344  pos=1522
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 346  pos=1526
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 348  pos=1534
+                          'T1'              Identifier          tok= 349  pos=1535
+            :             ':'               OpColon             tok= 350  pos=1537
+            NamedType:
+              Ident       'int'             Identifier          tok= 352  pos=1539
+      Val:
+        val               'val'             KWVal               tok= 393  pos=1998
+        inline            'inline'          KWInline            tok= 395  pos=2002
+        ParenOp:
+                          '('               KWLParen            tok= 397  pos=2009
+          SymbolicOp      '-'               op_Subtraction      tok= 398  pos=2010
+                          ')'               KWRParen            tok= 399  pos=2011
+        :                 ':'               OpColon             tok= 400  pos=2012
+        arg               'x'               Identifier          tok= 402  pos=2014
+        :                 ':'               OpColon             tok= 403  pos=2015
+        VarType:
+          Typar.Static:
+                          '^'               OpConcatenate       tok= 405  pos=2017
+                          'T1'              Identifier          tok= 406  pos=2018
+        ->                '->'              OpArrowRight        tok= 408  pos=2021
+        arg               'y'               Identifier          tok= 410  pos=2024
+        :                 ':'               OpColon             tok= 411  pos=2025
+        VarType:
+          Typar.Static:
+                          '^'               OpConcatenate       tok= 413  pos=2027
+                          'T2'              Identifier          tok= 414  pos=2028
+        ->                '->'              OpArrowRight        tok= 416  pos=2031
+        WhenConstrainedType:
+          VarType:
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 418  pos=2034
+                          'T3'              Identifier          tok= 419  pos=2035
+          when            'when'            KWWhen              tok= 421  pos=2039
+          Constraint.MemberTrait:
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 424  pos=2045
+                          'T1'              Identifier          tok= 425  pos=2046
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 429  pos=2052
+                          'T2'              Identifier          tok= 430  pos=2053
+            :             ':'               OpColon             tok= 432  pos=2056
+            (             '('               KWLParen            tok= 434  pos=2058
+            static        'static'          KWStatic            tok= 435  pos=2059
+            member        'member'          KWMember            tok= 437  pos=2066
+            ParenOp:
+                          '('               KWLParen            tok= 439  pos=2073
+              SymbolicOp  '-'               op_Subtraction      tok= 440  pos=2074
+                          ')'               KWRParen            tok= 441  pos=2075
+            :             ':'               OpColon             tok= 442  pos=2076
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 444  pos=2078
+                          'T1'              Identifier          tok= 445  pos=2079
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 449  pos=2084
+                          'T2'              Identifier          tok= 450  pos=2085
+            ->            '->'              OpArrowRight        tok= 452  pos=2088
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 454  pos=2091
+                          'T3'              Identifier          tok= 455  pos=2092
+            )             ')'               KWRParen            tok= 456  pos=2094
+          and             'and'             KWAnd               tok= 458  pos=2096
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 460  pos=2100
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 462  pos=2108
+                          'T2'              Identifier          tok= 463  pos=2109
+            :             ':'               OpColon             tok= 464  pos=2111
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 466  pos=2113
+                          'T3'              Identifier          tok= 467  pos=2114
+          and             'and'             KWAnd               tok= 469  pos=2117
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 471  pos=2121
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 473  pos=2129
+                          'T3'              Identifier          tok= 474  pos=2130
+            :             ':'               OpColon             tok= 475  pos=2132
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 477  pos=2134
+                          'T1'              Identifier          tok= 478  pos=2135
+          and             'and'             KWAnd               tok= 480  pos=2138
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 482  pos=2142
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 484  pos=2150
+                          'T3'              Identifier          tok= 485  pos=2151
+            :             ':'               OpColon             tok= 486  pos=2153
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 488  pos=2155
+                          'T2'              Identifier          tok= 489  pos=2156
+          and             'and'             KWAnd               tok= 491  pos=2159
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 493  pos=2163
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 495  pos=2171
+                          'T1'              Identifier          tok= 496  pos=2172
+            :             ':'               OpColon             tok= 497  pos=2174
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 499  pos=2176
+                          'T3'              Identifier          tok= 500  pos=2177
+          and             'and'             KWAnd               tok= 502  pos=2180
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 504  pos=2184
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 506  pos=2192
+                          'T1'              Identifier          tok= 507  pos=2193
+            :             ':'               OpColon             tok= 508  pos=2195
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 510  pos=2197
+                          'T2'              Identifier          tok= 511  pos=2198
+          and             'and'             KWAnd               tok= 513  pos=2201
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 515  pos=2205
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 517  pos=2213
+                          'T1'              Identifier          tok= 518  pos=2214
+            :             ':'               OpColon             tok= 519  pos=2216
+            NamedType:
+              Ident       'int'             Identifier          tok= 521  pos=2218
+      Val:
+        val               'val'             KWVal               tok= 562  pos=2683
+        inline            'inline'          KWInline            tok= 564  pos=2687
+        StarOp:
+                          '('               KWLParen            tok= 566  pos=2694
+                          '*'               OpMultiply          tok= 567  pos=2695
+                          ')'               KWRParen            tok= 568  pos=2696
+        :                 ':'               OpColon             tok= 569  pos=2697
+        arg               'x'               Identifier          tok= 571  pos=2699
+        :                 ':'               OpColon             tok= 572  pos=2700
+        VarType:
+          Typar.Static:
+                          '^'               OpConcatenate       tok= 574  pos=2702
+                          'T1'              Identifier          tok= 575  pos=2703
+        ->                '->'              OpArrowRight        tok= 577  pos=2706
+        arg               'y'               Identifier          tok= 579  pos=2709
+        :                 ':'               OpColon             tok= 580  pos=2710
+        VarType:
+          Typar.Static:
+                          '^'               OpConcatenate       tok= 582  pos=2712
+                          'T2'              Identifier          tok= 583  pos=2713
+        ->                '->'              OpArrowRight        tok= 585  pos=2716
+        WhenConstrainedType:
+          VarType:
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 587  pos=2719
+                          'T3'              Identifier          tok= 588  pos=2720
+          when            'when'            KWWhen              tok= 590  pos=2723
+          Constraint.MemberTrait:
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 593  pos=2729
+                          'T1'              Identifier          tok= 594  pos=2730
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 598  pos=2736
+                          'T2'              Identifier          tok= 599  pos=2737
+            :             ':'               OpColon             tok= 601  pos=2740
+            (             '('               KWLParen            tok= 603  pos=2742
+            static        'static'          KWStatic            tok= 604  pos=2743
+            member        'member'          KWMember            tok= 606  pos=2750
+            StarOp:
+                          '('               KWLParen            tok= 608  pos=2757
+                          '*'               OpMultiply          tok= 609  pos=2758
+                          ')'               KWRParen            tok= 610  pos=2759
+            :             ':'               OpColon             tok= 611  pos=2760
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 613  pos=2762
+                          'T1'              Identifier          tok= 614  pos=2763
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 618  pos=2768
+                          'T2'              Identifier          tok= 619  pos=2769
+            ->            '->'              OpArrowRight        tok= 621  pos=2775
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 623  pos=2778
+                          'T3'              Identifier          tok= 624  pos=2779
+            )             ')'               KWRParen            tok= 625  pos=2781
+          and             'and'             KWAnd               tok= 627  pos=2783
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 629  pos=2787
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 631  pos=2795
+                          'T2'              Identifier          tok= 632  pos=2796
+            :             ':'               OpColon             tok= 633  pos=2798
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 635  pos=2800
+                          'T3'              Identifier          tok= 636  pos=2801
+          and             'and'             KWAnd               tok= 638  pos=2804
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 640  pos=2808
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 642  pos=2816
+                          'T3'              Identifier          tok= 643  pos=2817
+            :             ':'               OpColon             tok= 644  pos=2819
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 646  pos=2821
+                          'T1'              Identifier          tok= 647  pos=2822
+          and             'and'             KWAnd               tok= 649  pos=2825
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 651  pos=2829
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 653  pos=2837
+                          'T3'              Identifier          tok= 654  pos=2838
+            :             ':'               OpColon             tok= 655  pos=2840
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 657  pos=2842
+                          'T2'              Identifier          tok= 658  pos=2843
+          and             'and'             KWAnd               tok= 660  pos=2846
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 662  pos=2850
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 664  pos=2858
+                          'T1'              Identifier          tok= 665  pos=2859
+            :             ':'               OpColon             tok= 666  pos=2861
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 668  pos=2863
+                          'T3'              Identifier          tok= 669  pos=2864
+          and             'and'             KWAnd               tok= 671  pos=2867
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 673  pos=2871
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 675  pos=2879
+                          'T1'              Identifier          tok= 676  pos=2880
+            :             ':'               OpColon             tok= 677  pos=2882
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 679  pos=2884
+                          'T2'              Identifier          tok= 680  pos=2885
+          and             'and'             KWAnd               tok= 682  pos=2888
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 684  pos=2892
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 686  pos=2900
+                          'T1'              Identifier          tok= 687  pos=2901
+            :             ':'               OpColon             tok= 688  pos=2903
+            NamedType:
+              Ident       'int'             Identifier          tok= 690  pos=2905
+      Val:
+        val               'val'             KWVal               tok= 731  pos=3358
+        inline            'inline'          KWInline            tok= 733  pos=3362
+        ParenOp:
+                          '('               KWLParen            tok= 735  pos=3369
+          SymbolicOp      '/'               OpDivision          tok= 736  pos=3370
+                          ')'               KWRParen            tok= 737  pos=3371
+        :                 ':'               OpColon             tok= 738  pos=3372
+        arg               'x'               Identifier          tok= 740  pos=3374
+        :                 ':'               OpColon             tok= 741  pos=3375
+        VarType:
+          Typar.Static:
+                          '^'               OpConcatenate       tok= 743  pos=3377
+                          'T1'              Identifier          tok= 744  pos=3378
+        ->                '->'              OpArrowRight        tok= 746  pos=3381
+        arg               'y'               Identifier          tok= 748  pos=3384
+        :                 ':'               OpColon             tok= 749  pos=3385
+        VarType:
+          Typar.Static:
+                          '^'               OpConcatenate       tok= 751  pos=3387
+                          'T2'              Identifier          tok= 752  pos=3388
+        ->                '->'              OpArrowRight        tok= 754  pos=3391
+        WhenConstrainedType:
+          VarType:
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 756  pos=3394
+                          'T3'              Identifier          tok= 757  pos=3395
+          when            'when'            KWWhen              tok= 759  pos=3399
+          Constraint.MemberTrait:
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 762  pos=3405
+                          'T1'              Identifier          tok= 763  pos=3406
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 767  pos=3412
+                          'T2'              Identifier          tok= 768  pos=3413
+            :             ':'               OpColon             tok= 770  pos=3416
+            (             '('               KWLParen            tok= 772  pos=3418
+            static        'static'          KWStatic            tok= 773  pos=3419
+            member        'member'          KWMember            tok= 775  pos=3426
+            ParenOp:
+                          '('               KWLParen            tok= 777  pos=3433
+              SymbolicOp  '/'               OpDivision          tok= 778  pos=3434
+                          ')'               KWRParen            tok= 779  pos=3435
+            :             ':'               OpColon             tok= 780  pos=3436
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 782  pos=3438
+                          'T1'              Identifier          tok= 783  pos=3439
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 787  pos=3444
+                          'T2'              Identifier          tok= 788  pos=3445
+            ->            '->'              OpArrowRight        tok= 790  pos=3448
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 792  pos=3451
+                          'T3'              Identifier          tok= 793  pos=3452
+            )             ')'               KWRParen            tok= 794  pos=3454
+          and             'and'             KWAnd               tok= 796  pos=3456
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 798  pos=3460
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 800  pos=3468
+                          'T2'              Identifier          tok= 801  pos=3469
+            :             ':'               OpColon             tok= 802  pos=3471
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 804  pos=3473
+                          'T3'              Identifier          tok= 805  pos=3474
+          and             'and'             KWAnd               tok= 807  pos=3477
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 809  pos=3481
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 811  pos=3489
+                          'T3'              Identifier          tok= 812  pos=3490
+            :             ':'               OpColon             tok= 813  pos=3492
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 815  pos=3494
+                          'T1'              Identifier          tok= 816  pos=3495
+          and             'and'             KWAnd               tok= 818  pos=3498
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 820  pos=3502
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 822  pos=3510
+                          'T3'              Identifier          tok= 823  pos=3511
+            :             ':'               OpColon             tok= 824  pos=3513
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 826  pos=3515
+                          'T2'              Identifier          tok= 827  pos=3516
+          and             'and'             KWAnd               tok= 829  pos=3519
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 831  pos=3523
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 833  pos=3531
+                          'T1'              Identifier          tok= 834  pos=3532
+            :             ':'               OpColon             tok= 835  pos=3534
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 837  pos=3536
+                          'T3'              Identifier          tok= 838  pos=3537
+          and             'and'             KWAnd               tok= 840  pos=3540
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 842  pos=3544
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 844  pos=3552
+                          'T1'              Identifier          tok= 845  pos=3553
+            :             ':'               OpColon             tok= 846  pos=3555
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 848  pos=3557
+                          'T2'              Identifier          tok= 849  pos=3558
+          and             'and'             KWAnd               tok= 851  pos=3561
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 853  pos=3565
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 855  pos=3573
+                          'T1'              Identifier          tok= 856  pos=3574
+            :             ':'               OpColon             tok= 857  pos=3576
+            NamedType:
+              Ident       'int'             Identifier          tok= 859  pos=3578
+      Val:
+        val               'val'             KWVal               tok= 900  pos=4027
+        inline            'inline'          KWInline            tok= 902  pos=4031
+        ParenOp:
+                          '('               KWLParen            tok= 904  pos=4038
+          SymbolicOp      '%'               op_Modulus          tok= 905  pos=4039
+                          ')'               KWRParen            tok= 906  pos=4040
+        :                 ':'               OpColon             tok= 907  pos=4041
+        arg               'x'               Identifier          tok= 909  pos=4043
+        :                 ':'               OpColon             tok= 910  pos=4044
+        VarType:
+          Typar.Static:
+                          '^'               OpConcatenate       tok= 912  pos=4046
+                          'T1'              Identifier          tok= 913  pos=4047
+        ->                '->'              OpArrowRight        tok= 915  pos=4050
+        arg               'y'               Identifier          tok= 917  pos=4053
+        :                 ':'               OpColon             tok= 918  pos=4054
+        VarType:
+          Typar.Static:
+                          '^'               OpConcatenate       tok= 920  pos=4056
+                          'T2'              Identifier          tok= 921  pos=4057
+        ->                '->'              OpArrowRight        tok= 923  pos=4060
+        WhenConstrainedType:
+          VarType:
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 925  pos=4063
+                          'T3'              Identifier          tok= 926  pos=4064
+          when            'when'            KWWhen              tok= 928  pos=4067
+          Constraint.MemberTrait:
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 931  pos=4073
+                          'T1'              Identifier          tok= 932  pos=4074
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 936  pos=4080
+                          'T2'              Identifier          tok= 937  pos=4081
+            :             ':'               OpColon             tok= 939  pos=4084
+            (             '('               KWLParen            tok= 941  pos=4086
+            static        'static'          KWStatic            tok= 942  pos=4087
+            member        'member'          KWMember            tok= 944  pos=4094
+            ParenOp:
+                          '('               KWLParen            tok= 946  pos=4101
+              SymbolicOp  '%'               op_Modulus          tok= 947  pos=4102
+                          ')'               KWRParen            tok= 948  pos=4103
+            :             ':'               OpColon             tok= 949  pos=4104
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 951  pos=4106
+                          'T1'              Identifier          tok= 952  pos=4107
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 956  pos=4112
+                          'T2'              Identifier          tok= 957  pos=4113
+            ->            '->'              OpArrowRight        tok= 959  pos=4116
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 961  pos=4119
+                          'T3'              Identifier          tok= 962  pos=4120
+            )             ')'               KWRParen            tok= 963  pos=4122
+          and             'and'             KWAnd               tok= 965  pos=4124
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 967  pos=4128
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 969  pos=4136
+                          'T2'              Identifier          tok= 970  pos=4137
+            :             ':'               OpColon             tok= 971  pos=4139
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 973  pos=4141
+                          'T3'              Identifier          tok= 974  pos=4142
+          and             'and'             KWAnd               tok= 976  pos=4145
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 978  pos=4149
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 980  pos=4157
+                          'T3'              Identifier          tok= 981  pos=4158
+            :             ':'               OpColon             tok= 982  pos=4160
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 984  pos=4162
+                          'T1'              Identifier          tok= 985  pos=4163
+          and             'and'             KWAnd               tok= 987  pos=4166
+          Constraint.Default:
+            default       'default'         KWDefault           tok= 989  pos=4170
+            Typar.Static:
+                          '^'               OpConcatenate       tok= 991  pos=4178
+                          'T3'              Identifier          tok= 992  pos=4179
+            :             ':'               OpColon             tok= 993  pos=4181
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok= 995  pos=4183
+                          'T2'              Identifier          tok= 996  pos=4184
+          and             'and'             KWAnd               tok= 998  pos=4187
+          Constraint.Default:
+            default       'default'         KWDefault           tok=1000  pos=4191
+            Typar.Static:
+                          '^'               OpConcatenate       tok=1002  pos=4199
+                          'T1'              Identifier          tok=1003  pos=4200
+            :             ':'               OpColon             tok=1004  pos=4202
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok=1006  pos=4204
+                          'T3'              Identifier          tok=1007  pos=4205
+          and             'and'             KWAnd               tok=1009  pos=4208
+          Constraint.Default:
+            default       'default'         KWDefault           tok=1011  pos=4212
+            Typar.Static:
+                          '^'               OpConcatenate       tok=1013  pos=4220
+                          'T1'              Identifier          tok=1014  pos=4221
+            :             ':'               OpColon             tok=1015  pos=4223
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok=1017  pos=4225
+                          'T2'              Identifier          tok=1018  pos=4226
+          and             'and'             KWAnd               tok=1020  pos=4229
+          Constraint.Default:
+            default       'default'         KWDefault           tok=1022  pos=4233
+            Typar.Static:
+                          '^'               OpConcatenate       tok=1024  pos=4241
+                          'T1'              Identifier          tok=1025  pos=4242
+            :             ':'               OpColon             tok=1026  pos=4244
+            NamedType:
+              Ident       'int'             Identifier          tok=1028  pos=4246
+    end                   <virt>            KWEnd               tok=virt  pos=4259
+  Module:
+    [<                    '[<'              KWLAttrBracket      tok=1032  pos=4259
+    NamedType:
+      Ident               'AutoOpen'        Identifier          tok=1033  pos=4261
+    >]                    '>]'              KWRAttrBracket      tok=1034  pos=4269
+    module                'module'          KWModule            tok=1036  pos=4272
+    ident                 'BitwiseOpe...'   Identifier          tok=1038  pos=4279
+    =                     '='               OpEquality          tok=1040  pos=4296
+    begin                 <virt>            KWBegin             tok=virt  pos=4941
+      Val:
+        val               'val'             KWVal               tok=1089  pos=4941
+        inline            'inline'          KWInline            tok=1091  pos=4945
+        ParenOp:
+                          '('               KWLParen            tok=1093  pos=4952
+          SymbolicOp      '&&&'             op_BitwiseAnd       tok=1094  pos=4953
+                          ')'               KWRParen            tok=1095  pos=4956
+        :                 ':'               OpColon             tok=1096  pos=4957
+        arg               'x'               Identifier          tok=1098  pos=4959
+        :                 ':'               OpColon             tok=1099  pos=4960
+        VarType:
+          Typar.Static:
+                          '^'               OpConcatenate       tok=1101  pos=4962
+                          'T'               Identifier          tok=1102  pos=4963
+        ->                '->'              OpArrowRight        tok=1104  pos=4965
+        arg               'y'               Identifier          tok=1106  pos=4968
+        :                 ':'               OpColon             tok=1107  pos=4969
+        VarType:
+          Typar.Static:
+                          '^'               OpConcatenate       tok=1109  pos=4971
+                          'T'               Identifier          tok=1110  pos=4972
+        ->                '->'              OpArrowRight        tok=1112  pos=4974
+        WhenConstrainedType:
+          VarType:
+            Typar.Static:
+                          '^'               OpConcatenate       tok=1114  pos=4977
+                          'T'               Identifier          tok=1115  pos=4978
+          when            'when'            KWWhen              tok=1117  pos=4980
+          Constraint.MemberTrait:
+            Typar.Static:
+                          '^'               OpConcatenate       tok=1119  pos=4985
+                          'T'               Identifier          tok=1120  pos=4986
+            :             ':'               OpColon             tok=1121  pos=4987
+            (             '('               KWLParen            tok=1123  pos=4989
+            static        'static'          KWStatic            tok=1124  pos=4990
+            member        'member'          KWMember            tok=1126  pos=4997
+            ParenOp:
+                          '('               KWLParen            tok=1128  pos=5004
+              SymbolicOp  '&&&'             op_BitwiseAnd       tok=1129  pos=5005
+                          ')'               KWRParen            tok=1130  pos=5008
+            :             ':'               OpColon             tok=1131  pos=5009
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok=1133  pos=5011
+                          'T'               Identifier          tok=1134  pos=5012
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok=1138  pos=5016
+                          'T'               Identifier          tok=1139  pos=5017
+            ->            '->'              OpArrowRight        tok=1141  pos=5019
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok=1143  pos=5022
+                          'T'               Identifier          tok=1144  pos=5023
+            )             ')'               KWRParen            tok=1145  pos=5024
+          and             'and'             KWAnd               tok=1147  pos=5026
+          Constraint.Default:
+            default       'default'         KWDefault           tok=1149  pos=5030
+            Typar.Static:
+                          '^'               OpConcatenate       tok=1151  pos=5038
+                          'T'               Identifier          tok=1152  pos=5039
+            :             ':'               OpColon             tok=1153  pos=5040
+            NamedType:
+              Ident       'int'             Identifier          tok=1155  pos=5042
+      Val:
+        val               'val'             KWVal               tok=1205  pos=5684
+        inline            'inline'          KWInline            tok=1207  pos=5688
+        ParenOp:
+                          '('               KWLParen            tok=1209  pos=5695
+          SymbolicOp      '|||'             op_BitwiseOr        tok=1210  pos=5696
+                          ')'               KWRParen            tok=1211  pos=5699
+        :                 ':'               OpColon             tok=1212  pos=5700
+        arg               'x'               Identifier          tok=1214  pos=5702
+        :                 ':'               OpColon             tok=1215  pos=5703
+        VarType:
+          Typar.Static:
+                          '^'               OpConcatenate       tok=1217  pos=5705
+                          'T'               Identifier          tok=1218  pos=5706
+        ->                '->'              OpArrowRight        tok=1220  pos=5708
+        arg               'y'               Identifier          tok=1222  pos=5711
+        :                 ':'               OpColon             tok=1223  pos=5712
+        VarType:
+          Typar.Static:
+                          '^'               OpConcatenate       tok=1225  pos=5714
+                          'T'               Identifier          tok=1226  pos=5715
+        ->                '->'              OpArrowRight        tok=1228  pos=5717
+        WhenConstrainedType:
+          VarType:
+            Typar.Static:
+                          '^'               OpConcatenate       tok=1230  pos=5720
+                          'T'               Identifier          tok=1231  pos=5721
+          when            'when'            KWWhen              tok=1233  pos=5723
+          Constraint.MemberTrait:
+            Typar.Static:
+                          '^'               OpConcatenate       tok=1235  pos=5728
+                          'T'               Identifier          tok=1236  pos=5729
+            :             ':'               OpColon             tok=1237  pos=5730
+            (             '('               KWLParen            tok=1239  pos=5732
+            static        'static'          KWStatic            tok=1240  pos=5733
+            member        'member'          KWMember            tok=1242  pos=5740
+            ParenOp:
+                          '('               KWLParen            tok=1244  pos=5747
+              SymbolicOp  '|||'             op_BitwiseOr        tok=1245  pos=5748
+                          ')'               KWRParen            tok=1246  pos=5751
+            :             ':'               OpColon             tok=1247  pos=5752
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok=1249  pos=5754
+                          'T'               Identifier          tok=1250  pos=5755
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok=1254  pos=5759
+                          'T'               Identifier          tok=1255  pos=5760
+            ->            '->'              OpArrowRight        tok=1257  pos=5762
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok=1259  pos=5765
+                          'T'               Identifier          tok=1260  pos=5766
+            )             ')'               KWRParen            tok=1261  pos=5767
+          and             'and'             KWAnd               tok=1263  pos=5769
+          Constraint.Default:
+            default       'default'         KWDefault           tok=1265  pos=5773
+            Typar.Static:
+                          '^'               OpConcatenate       tok=1267  pos=5781
+                          'T'               Identifier          tok=1268  pos=5782
+            :             ':'               OpColon             tok=1269  pos=5783
+            NamedType:
+              Ident       'int'             Identifier          tok=1271  pos=5785
+      Val:
+        val               'val'             KWVal               tok=1321  pos=6428
+        inline            'inline'          KWInline            tok=1323  pos=6432
+        ParenOp:
+                          '('               KWLParen            tok=1325  pos=6439
+          SymbolicOp      '^^^'             op_ExclusiveOr      tok=1326  pos=6440
+                          ')'               KWRParen            tok=1327  pos=6443
+        :                 ':'               OpColon             tok=1328  pos=6444
+        arg               'x'               Identifier          tok=1330  pos=6446
+        :                 ':'               OpColon             tok=1331  pos=6447
+        VarType:
+          Typar.Static:
+                          '^'               OpConcatenate       tok=1333  pos=6449
+                          'T'               Identifier          tok=1334  pos=6450
+        ->                '->'              OpArrowRight        tok=1336  pos=6452
+        arg               'y'               Identifier          tok=1338  pos=6455
+        :                 ':'               OpColon             tok=1339  pos=6456
+        VarType:
+          Typar.Static:
+                          '^'               OpConcatenate       tok=1341  pos=6458
+                          'T'               Identifier          tok=1342  pos=6459
+        ->                '->'              OpArrowRight        tok=1344  pos=6461
+        WhenConstrainedType:
+          VarType:
+            Typar.Static:
+                          '^'               OpConcatenate       tok=1346  pos=6464
+                          'T'               Identifier          tok=1347  pos=6465
+          when            'when'            KWWhen              tok=1349  pos=6467
+          Constraint.MemberTrait:
+            Typar.Static:
+                          '^'               OpConcatenate       tok=1351  pos=6472
+                          'T'               Identifier          tok=1352  pos=6473
+            :             ':'               OpColon             tok=1353  pos=6474
+            (             '('               KWLParen            tok=1355  pos=6476
+            static        'static'          KWStatic            tok=1356  pos=6477
+            member        'member'          KWMember            tok=1358  pos=6484
+            ParenOp:
+                          '('               KWLParen            tok=1360  pos=6491
+              SymbolicOp  '^^^'             op_ExclusiveOr      tok=1361  pos=6492
+                          ')'               KWRParen            tok=1362  pos=6495
+            :             ':'               OpColon             tok=1363  pos=6496
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok=1365  pos=6498
+                          'T'               Identifier          tok=1366  pos=6499
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok=1370  pos=6503
+                          'T'               Identifier          tok=1371  pos=6504
+            ->            '->'              OpArrowRight        tok=1373  pos=6506
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok=1375  pos=6509
+                          'T'               Identifier          tok=1376  pos=6510
+            )             ')'               KWRParen            tok=1377  pos=6511
+          and             'and'             KWAnd               tok=1379  pos=6513
+          Constraint.Default:
+            default       'default'         KWDefault           tok=1381  pos=6517
+            Typar.Static:
+                          '^'               OpConcatenate       tok=1383  pos=6525
+                          'T'               Identifier          tok=1384  pos=6526
+            :             ':'               OpColon             tok=1385  pos=6527
+            NamedType:
+              Ident       'int'             Identifier          tok=1387  pos=6529
+      Val:
+        val               'val'             KWVal               tok=1434  pos=7155
+        inline            'inline'          KWInline            tok=1436  pos=7159
+        ParenOp:
+                          '('               KWLParen            tok=1438  pos=7166
+          SymbolicOp      '<<<'             op_LeftShift        tok=1439  pos=7167
+                          ')'               KWRParen            tok=1440  pos=7170
+        :                 ':'               OpColon             tok=1441  pos=7171
+        arg               'value'           Identifier          tok=1443  pos=7173
+        :                 ':'               OpColon             tok=1444  pos=7178
+        VarType:
+          Typar.Static:
+                          '^'               OpConcatenate       tok=1446  pos=7180
+                          'T'               Identifier          tok=1447  pos=7181
+        ->                '->'              OpArrowRight        tok=1449  pos=7183
+        arg               'shift'           Identifier          tok=1451  pos=7186
+        :                 ':'               OpColon             tok=1452  pos=7191
+        NamedType:
+          Ident           'int32'           Identifier          tok=1454  pos=7193
+        ->                '->'              OpArrowRight        tok=1456  pos=7199
+        WhenConstrainedType:
+          VarType:
+            Typar.Static:
+                          '^'               OpConcatenate       tok=1458  pos=7202
+                          'T'               Identifier          tok=1459  pos=7203
+          when            'when'            KWWhen              tok=1461  pos=7205
+          Constraint.MemberTrait:
+            Typar.Static:
+                          '^'               OpConcatenate       tok=1463  pos=7210
+                          'T'               Identifier          tok=1464  pos=7211
+            :             ':'               OpColon             tok=1466  pos=7213
+            (             '('               KWLParen            tok=1468  pos=7215
+            static        'static'          KWStatic            tok=1469  pos=7216
+            member        'member'          KWMember            tok=1471  pos=7223
+            ParenOp:
+                          '('               KWLParen            tok=1473  pos=7230
+              SymbolicOp  '<<<'             op_LeftShift        tok=1474  pos=7231
+                          ')'               KWRParen            tok=1475  pos=7234
+            :             ':'               OpColon             tok=1477  pos=7236
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok=1479  pos=7238
+                          'T'               Identifier          tok=1480  pos=7239
+            NamedType:
+              Ident       'int32'           Identifier          tok=1484  pos=7243
+            ->            '->'              OpArrowRight        tok=1486  pos=7249
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok=1488  pos=7252
+                          'T'               Identifier          tok=1489  pos=7253
+            )             ')'               KWRParen            tok=1490  pos=7254
+          and             'and'             KWAnd               tok=1492  pos=7256
+          Constraint.Default:
+            default       'default'         KWDefault           tok=1494  pos=7260
+            Typar.Static:
+                          '^'               OpConcatenate       tok=1496  pos=7268
+                          'T'               Identifier          tok=1497  pos=7269
+            :             ':'               OpColon             tok=1499  pos=7271
+            NamedType:
+              Ident       'int'             Identifier          tok=1501  pos=7273
+      Val:
+        val               'val'             KWVal               tok=1554  pos=8005
+        inline            'inline'          KWInline            tok=1556  pos=8009
+        ParenOp:
+                          '('               KWLParen            tok=1558  pos=8016
+          SymbolicOp      '>>>'             op_RightShift       tok=1559  pos=8017
+                          ')'               KWRParen            tok=1560  pos=8020
+        :                 ':'               OpColon             tok=1561  pos=8021
+        arg               'value'           Identifier          tok=1563  pos=8023
+        :                 ':'               OpColon             tok=1564  pos=8028
+        VarType:
+          Typar.Static:
+                          '^'               OpConcatenate       tok=1566  pos=8030
+                          'T'               Identifier          tok=1567  pos=8031
+        ->                '->'              OpArrowRight        tok=1569  pos=8033
+        arg               'shift'           Identifier          tok=1571  pos=8036
+        :                 ':'               OpColon             tok=1572  pos=8041
+        NamedType:
+          Ident           'int32'           Identifier          tok=1574  pos=8043
+        ->                '->'              OpArrowRight        tok=1576  pos=8049
+        WhenConstrainedType:
+          VarType:
+            Typar.Static:
+                          '^'               OpConcatenate       tok=1578  pos=8052
+                          'T'               Identifier          tok=1579  pos=8053
+          when            'when'            KWWhen              tok=1581  pos=8055
+          Constraint.MemberTrait:
+            Typar.Static:
+                          '^'               OpConcatenate       tok=1583  pos=8060
+                          'T'               Identifier          tok=1584  pos=8061
+            :             ':'               OpColon             tok=1585  pos=8062
+            (             '('               KWLParen            tok=1587  pos=8064
+            static        'static'          KWStatic            tok=1588  pos=8065
+            member        'member'          KWMember            tok=1590  pos=8072
+            ParenOp:
+                          '('               KWLParen            tok=1592  pos=8079
+              SymbolicOp  '>>>'             op_RightShift       tok=1593  pos=8080
+                          ')'               KWRParen            tok=1594  pos=8083
+            :             ':'               OpColon             tok=1595  pos=8084
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok=1597  pos=8086
+                          'T'               Identifier          tok=1598  pos=8087
+            NamedType:
+              Ident       'int32'           Identifier          tok=1602  pos=8091
+            ->            '->'              OpArrowRight        tok=1604  pos=8097
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok=1606  pos=8100
+                          'T'               Identifier          tok=1607  pos=8101
+            )             ')'               KWRParen            tok=1608  pos=8102
+          and             'and'             KWAnd               tok=1610  pos=8104
+          Constraint.Default:
+            default       'default'         KWDefault           tok=1612  pos=8108
+            Typar.Static:
+                          '^'               OpConcatenate       tok=1614  pos=8116
+                          'T'               Identifier          tok=1615  pos=8117
+            :             ':'               OpColon             tok=1616  pos=8118
+            NamedType:
+              Ident       'int'             Identifier          tok=1618  pos=8120
+      Val:
+        val               'val'             KWVal               tok=1665  pos=8611
+        inline            'inline'          KWInline            tok=1667  pos=8615
+        ParenOp:
+                          '('               KWLParen            tok=1669  pos=8622
+          SymbolicOp      '~~~'             op_LogicalNot       tok=1670  pos=8623
+                          ')'               KWRParen            tok=1671  pos=8626
+        :                 ':'               OpColon             tok=1672  pos=8627
+        arg               'value'           Identifier          tok=1674  pos=8629
+        :                 ':'               OpColon             tok=1675  pos=8634
+        VarType:
+          Typar.Static:
+                          '^'               OpConcatenate       tok=1677  pos=8636
+                          'T'               Identifier          tok=1678  pos=8637
+        ->                '->'              OpArrowRight        tok=1680  pos=8639
+        WhenConstrainedType:
+          VarType:
+            Typar.Static:
+                          '^'               OpConcatenate       tok=1682  pos=8642
+                          'T'               Identifier          tok=1683  pos=8643
+          when            'when'            KWWhen              tok=1685  pos=8645
+          Constraint.MemberTrait:
+            Typar.Static:
+                          '^'               OpConcatenate       tok=1687  pos=8650
+                          'T'               Identifier          tok=1688  pos=8651
+            :             ':'               OpColon             tok=1689  pos=8652
+            (             '('               KWLParen            tok=1691  pos=8654
+            static        'static'          KWStatic            tok=1692  pos=8655
+            member        'member'          KWMember            tok=1694  pos=8662
+            ParenOp:
+                          '('               KWLParen            tok=1696  pos=8669
+              SymbolicOp  '~~~'             op_LogicalNot       tok=1697  pos=8670
+                          ')'               KWRParen            tok=1698  pos=8673
+            :             ':'               OpColon             tok=1699  pos=8674
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok=1701  pos=8676
+                          'T'               Identifier          tok=1702  pos=8677
+            ->            '->'              OpArrowRight        tok=1704  pos=8679
+            VarType:
+              Typar.Static:
+                          '^'               OpConcatenate       tok=1706  pos=8682
+                          'T'               Identifier          tok=1707  pos=8683
+            )             ')'               KWRParen            tok=1708  pos=8684
+          and             'and'             KWAnd               tok=1710  pos=8686
+          Constraint.Default:
+            default       'default'         KWDefault           tok=1712  pos=8690
+            Typar.Static:
+                          '^'               OpConcatenate       tok=1714  pos=8698
+                          'T'               Identifier          tok=1715  pos=8699
+            :             ':'               OpColon             tok=1716  pos=8700
+            NamedType:
+              Ident       'int'             Identifier          tok=1718  pos=8702
+    end                   <virt>            KWEnd               tok=virt  pos=8707
+  Module:
+    [<                    '[<'              KWLAttrBracket      tok=1721  pos=8707
+    NamedType:
+      Ident               'AutoOpen'        Identifier          tok=1722  pos=8709
+    >]                    '>]'              KWRAttrBracket      tok=1723  pos=8717
+    module                'module'          KWModule            tok=1725  pos=8720
+    ident                 'Comparison...'   Identifier          tok=1727  pos=8727
+    =                     '='               OpEquality          tok=1729  pos=8747
+    begin                 <virt>            KWBegin             tok=virt  pos=9353
+      Val:
+        val               'val'             KWVal               tok=1779  pos=9353
+        inline            'inline'          KWInline            tok=1781  pos=9357
+        ParenOp:
+                          '('               KWLParen            tok=1783  pos=9364
+          SymbolicOp      '<'               op_LessThan         tok=1784  pos=9365
+                          ')'               KWRParen            tok=1785  pos=9366
+        :                 ':'               OpColon             tok=1786  pos=9367
+        arg               'x'               Identifier          tok=1788  pos=9369
+        :                 ':'               OpColon             tok=1789  pos=9370
+        VarType:
+          Typar.Named:
+                          ''T'              TypeParameter       tok=1791  pos=9372
+        ->                '->'              OpArrowRight        tok=1793  pos=9375
+        arg               'y'               Identifier          tok=1795  pos=9378
+        :                 ':'               OpColon             tok=1796  pos=9379
+        VarType:
+          Typar.Named:
+                          ''T'              TypeParameter       tok=1798  pos=9381
+        ->                '->'              OpArrowRight        tok=1800  pos=9384
+        WhenConstrainedType:
+          NamedType:
+            Ident         'bool'            Identifier          tok=1802  pos=9387
+          when            'when'            KWWhen              tok=1804  pos=9392
+          Constraint.Comparison:
+            Typar.Named:
+                          ''T'              TypeParameter       tok=1806  pos=9397
+            :             ':'               OpColon             tok=1808  pos=9400
+            comparison    'comparison'      Identifier          tok=1810  pos=9402
+      Val:
+        val               'val'             KWVal               tok=1860  pos=10016
+        inline            'inline'          KWInline            tok=1862  pos=10020
+        ParenOp:
+                          '('               KWLParen            tok=1864  pos=10027
+          SymbolicOp      '>'               op_GreaterThan      tok=1865  pos=10028
+                          ')'               KWRParen            tok=1866  pos=10029
+        :                 ':'               OpColon             tok=1867  pos=10030
+        arg               'x'               Identifier          tok=1869  pos=10032
+        :                 ':'               OpColon             tok=1870  pos=10033
+        VarType:
+          Typar.Named:
+                          ''T'              TypeParameter       tok=1872  pos=10035
+        ->                '->'              OpArrowRight        tok=1874  pos=10038
+        arg               'y'               Identifier          tok=1876  pos=10041
+        :                 ':'               OpColon             tok=1877  pos=10042
+        VarType:
+          Typar.Named:
+                          ''T'              TypeParameter       tok=1879  pos=10044
+        ->                '->'              OpArrowRight        tok=1881  pos=10047
+        WhenConstrainedType:
+          NamedType:
+            Ident         'bool'            Identifier          tok=1883  pos=10050
+          when            'when'            KWWhen              tok=1885  pos=10055
+          Constraint.Comparison:
+            Typar.Named:
+                          ''T'              TypeParameter       tok=1887  pos=10060
+            :             ':'               OpColon             tok=1888  pos=10062
+            comparison    'comparison'      Identifier          tok=1890  pos=10064
+      Val:
+        val               'val'             KWVal               tok=1940  pos=10686
+        inline            'inline'          KWInline            tok=1942  pos=10690
+        ParenOp:
+                          '('               KWLParen            tok=1944  pos=10697
+          SymbolicOp      '>='              op_GreaterThanOrEqual  tok=1945  pos=10698
+                          ')'               KWRParen            tok=1946  pos=10700
+        :                 ':'               OpColon             tok=1947  pos=10701
+        arg               'x'               Identifier          tok=1949  pos=10703
+        :                 ':'               OpColon             tok=1950  pos=10704
+        VarType:
+          Typar.Named:
+                          ''T'              TypeParameter       tok=1952  pos=10706
+        ->                '->'              OpArrowRight        tok=1954  pos=10709
+        arg               'y'               Identifier          tok=1956  pos=10712
+        :                 ':'               OpColon             tok=1957  pos=10713
+        VarType:
+          Typar.Named:
+                          ''T'              TypeParameter       tok=1959  pos=10715
+        ->                '->'              OpArrowRight        tok=1961  pos=10718
+        WhenConstrainedType:
+          NamedType:
+            Ident         'bool'            Identifier          tok=1963  pos=10721
+          when            'when'            KWWhen              tok=1965  pos=10726
+          Constraint.Comparison:
+            Typar.Named:
+                          ''T'              TypeParameter       tok=1967  pos=10731
+            :             ':'               OpColon             tok=1969  pos=10734
+            comparison    'comparison'      Identifier          tok=1971  pos=10736
+      Val:
+        val               'val'             KWVal               tok=2021  pos=11372
+        inline            'inline'          KWInline            tok=2023  pos=11376
+        ParenOp:
+                          '('               KWLParen            tok=2025  pos=11383
+          SymbolicOp      '<='              op_LessThanOrEqual  tok=2026  pos=11384
+                          ')'               KWRParen            tok=2027  pos=11386
+        :                 ':'               OpColon             tok=2028  pos=11387
+        arg               'x'               Identifier          tok=2030  pos=11389
+        :                 ':'               OpColon             tok=2031  pos=11390
+        VarType:
+          Typar.Named:
+                          ''T'              TypeParameter       tok=2033  pos=11392
+        ->                '->'              OpArrowRight        tok=2035  pos=11395
+        arg               'y'               Identifier          tok=2037  pos=11398
+        :                 ':'               OpColon             tok=2038  pos=11399
+        VarType:
+          Typar.Named:
+                          ''T'              TypeParameter       tok=2040  pos=11401
+        ->                '->'              OpArrowRight        tok=2042  pos=11404
+        WhenConstrainedType:
+          NamedType:
+            Ident         'bool'            Identifier          tok=2044  pos=11407
+          when            'when'            KWWhen              tok=2046  pos=11412
+          Constraint.Comparison:
+            Typar.Named:
+                          ''T'              TypeParameter       tok=2048  pos=11417
+            :             ':'               OpColon             tok=2049  pos=11419
+            comparison    'comparison'      Identifier          tok=2051  pos=11421
+      Val:
+        val               'val'             KWVal               tok=2104  pos=12065
+        inline            'inline'          KWInline            tok=2106  pos=12069
+        ParenOp:
+                          '('               KWLParen            tok=2108  pos=12076
+          SymbolicOp      '='               OpEquality          tok=2109  pos=12077
+                          ')'               KWRParen            tok=2110  pos=12078
+        :                 ':'               OpColon             tok=2111  pos=12079
+        arg               'x'               Identifier          tok=2113  pos=12081
+        :                 ':'               OpColon             tok=2114  pos=12082
+        VarType:
+          Typar.Named:
+                          ''T'              TypeParameter       tok=2116  pos=12084
+        ->                '->'              OpArrowRight        tok=2118  pos=12087
+        arg               'y'               Identifier          tok=2120  pos=12090
+        :                 ':'               OpColon             tok=2121  pos=12091
+        VarType:
+          Typar.Named:
+                          ''T'              TypeParameter       tok=2123  pos=12093
+        ->                '->'              OpArrowRight        tok=2125  pos=12096
+        WhenConstrainedType:
+          NamedType:
+            Ident         'bool'            Identifier          tok=2127  pos=12099
+          when            'when'            KWWhen              tok=2129  pos=12104
+          Constraint.Equality:
+            Typar.Named:
+                          ''T'              TypeParameter       tok=2131  pos=12109
+            :             ':'               OpColon             tok=2132  pos=12111
+            equality      'equality'        Identifier          tok=2134  pos=12113
+      Val:
+        val               'val'             KWVal               tok=2184  pos=12729
+        inline            'inline'          KWInline            tok=2186  pos=12733
+        ParenOp:
+                          '('               KWLParen            tok=2188  pos=12740
+          SymbolicOp      '<>'              op_Inequality       tok=2189  pos=12741
+                          ')'               KWRParen            tok=2190  pos=12743
+        :                 ':'               OpColon             tok=2191  pos=12744
+        arg               'x'               Identifier          tok=2193  pos=12746
+        :                 ':'               OpColon             tok=2194  pos=12747
+        VarType:
+          Typar.Named:
+                          ''T'              TypeParameter       tok=2195  pos=12748
+        ->                '->'              OpArrowRight        tok=2197  pos=12751
+        arg               'y'               Identifier          tok=2199  pos=12754
+        :                 ':'               OpColon             tok=2200  pos=12755
+        VarType:
+          Typar.Named:
+                          ''T'              TypeParameter       tok=2201  pos=12756
+        ->                '->'              OpArrowRight        tok=2203  pos=12759
+        WhenConstrainedType:
+          NamedType:
+            Ident         'bool'            Identifier          tok=2205  pos=12762
+          when            'when'            KWWhen              tok=2207  pos=12767
+          Constraint.Equality:
+            Typar.Named:
+                          ''T'              TypeParameter       tok=2209  pos=12772
+            :             ':'               OpColon             tok=2211  pos=12775
+            equality      'equality'        Identifier          tok=2213  pos=12777
+    end                   <virt>            KWEnd               tok=virt  pos=12786

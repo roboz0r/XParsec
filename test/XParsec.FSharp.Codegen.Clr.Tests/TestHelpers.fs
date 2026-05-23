@@ -41,6 +41,49 @@ let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifac
 
     tast, artifact
 
+/// Compile a source string against a caller-supplied `ProjectInfo` (e.g. an
+/// on-disk app build via `ProjectInfo.app`).
+let compileSourceTo (project: ProjectInfo) (input: string) : ClrArtifact =
+    let lexed, file = parseFile input
+    let tast = Pipeline.analyse MockBuiltins.provider input lexed file
+    Codegen.compile MockBuiltins.provider project tast
+
+/// `<repo-root>/tmp/<name>`, created. Walks up from the test binary to the
+/// repo root (the directory holding `claude_tools.cmd`) so emitted artifacts
+/// land somewhere stable and inspectable rather than the OS temp dir.
+let tmpDir (name: string) : string =
+    let rec up (dir: string) =
+        if isNull dir then
+            failwith "repo root not found (no claude_tools.cmd above the test binary)"
+        elif IO.File.Exists(IO.Path.Combine(dir, "claude_tools.cmd")) then
+            dir
+        else
+            up (IO.Path.GetDirectoryName dir)
+
+    let d = IO.Path.Combine(up AppContext.BaseDirectory, "tmp", name)
+    IO.Directory.CreateDirectory d |> ignore
+    d
+
+/// Run a materialised app via the `dotnet` host (`dotnet <dll>`), capturing
+/// exit code + stdout. The out-of-process counterpart to `runEntryPoint`: it
+/// proves the emitted bundle runs as a real `dotnet` app, not just an
+/// in-process `Assembly.Load`. On a non-zero exit, stderr is appended so host
+/// failures (missing runtimeconfig, unresolved reference) surface in the
+/// assertion message.
+let runOnDisk (dllPath: string) : int * string =
+    let psi = Diagnostics.ProcessStartInfo "dotnet"
+    psi.ArgumentList.Add dllPath
+    psi.WorkingDirectory <- IO.Path.GetDirectoryName dllPath
+    psi.RedirectStandardOutput <- true
+    psi.RedirectStandardError <- true
+    psi.UseShellExecute <- false
+
+    use p = Diagnostics.Process.Start psi
+    let out = p.StandardOutput.ReadToEnd()
+    let err = p.StandardError.ReadToEnd()
+    p.WaitForExit()
+    (p.ExitCode, (if p.ExitCode = 0 then out else out + err))
+
 /// Serialises the `Console.Out` capture below. Expecto runs tests in
 /// parallel, but `Console.Out` is process-global — without this lock,
 /// concurrent `runEntryPoint`s redirect each other's output (and can write to

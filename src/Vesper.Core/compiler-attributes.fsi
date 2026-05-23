@@ -1,0 +1,3 @@
+namespace Vesper
+
+open System

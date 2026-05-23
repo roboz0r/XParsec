@@ -12,6 +12,11 @@
     <Compile Include="Slice1Tests.fs" />
     <Compile Include="Slice2Tests.fs" />
     <Compile Include="Slice3Tests.fs" />
+    <Compile Include="Slice4Tests.fs" />
+    <Compile Include="Slice5Tests.fs" />
+    <Compile Include="PrintfHappyPathTests.fs" />
+    <Compile Include="FSharpCoreDepsTests.fs" />
+    <Compile Include="RunnableAppTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

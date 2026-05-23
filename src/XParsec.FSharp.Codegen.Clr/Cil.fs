@@ -129,6 +129,10 @@ module Cil =
         il.Encoder.LoadConstantI4(n)
         il.Adjust 1
 
+    let emitLdcR8 (il: Il) (x: double) : unit =
+        il.Encoder.LoadConstantR8(x)
+        il.Adjust 1
+
     /// `newobj` of a constructor taking `argc` arguments (already pushed):
     /// pops `argc`, pushes the constructed object.
     let emitNewobj (il: Il) (ctor: EntityHandle) (argc: int) : unit =
@@ -149,6 +153,40 @@ module Cil =
     let emitLdloc (il: Il) (n: int) : unit =
         il.Encoder.LoadLocal(n)
         il.Adjust 1
+
+    /// `ldloca` — push a managed pointer to local slot `n`. The receiver for a
+    /// value-type instance call (the `Vesper.Formatter` ref-struct handler) and
+    /// for invoking its `.ctor` in place.
+    let emitLdloca (il: Il) (n: int) : unit =
+        il.Encoder.LoadLocalAddress(n)
+        il.Adjust 1
+
+    /// `ldnull` — push a null reference. Used as the `unit` value (`()` is the
+    /// null `Unit`) a unit-typed expression yields.
+    let emitLdnull (il: Il) : unit =
+        il.Encoder.OpCode(ILOpCode.Ldnull)
+        il.Adjust 1
+
+    /// Load argument `n` (`ldarg`). In a closure `Invoke` body `ldarg.0` is
+    /// `this` and `ldarg.1` the single applied parameter; a `.ctor` body reads
+    /// its capture parameters at `ldarg.1` onward.
+    let emitLdarg (il: Il) (n: int) : unit =
+        il.Encoder.LoadArgument(n)
+        il.Adjust 1
+
+    /// `ldfld` — pop the object reference, push the field value (net 0). Reads
+    /// a closure's captured value off `this`.
+    let emitLdfld (il: Il) (field: EntityHandle) : unit =
+        il.Encoder.OpCode(ILOpCode.Ldfld)
+        il.Encoder.Token(field)
+        il.Adjust 0
+
+    /// `stfld` — pop the object reference and the value (net -2). Stores a
+    /// capture into a closure field from its `.ctor`.
+    let emitStfld (il: Il) (field: EntityHandle) : unit =
+        il.Encoder.OpCode(ILOpCode.Stfld)
+        il.Encoder.Token(field)
+        il.Adjust -2
 
     let emitPop (il: Il) : unit =
         il.Encoder.OpCode(ILOpCode.Pop)

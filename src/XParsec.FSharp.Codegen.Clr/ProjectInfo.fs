@@ -37,3 +37,12 @@ module ProjectInfo =
             TargetFramework = None
             FSharpCorePath = None
         }
+
+    /// A `ProjectInfo` for a runnable on-disk app: the PE lands at
+    /// `<outDir>/<assemblyName>.dll`, where `Codegen.materialiseApp` also
+    /// drops the `runtimeconfig.json` and `FSharp.Core.dll` it needs to run
+    /// under `dotnet <assemblyName>.dll`.
+    let app (assemblyName: string) (outDir: string) : ProjectInfo =
+        { defaults assemblyName with
+            OutputPath = Some(System.IO.Path.Combine(outDir, assemblyName + ".dll"))
+        }

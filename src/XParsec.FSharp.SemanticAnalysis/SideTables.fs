@@ -239,6 +239,13 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// Written by Regions. RegionId itself lives on the TypeVar; this table
     /// carries the classified EscapeState per expression.
     member val Escape = SideTable<EscapeState>() with get
+    /// Written by Unification's `tryInferPrintfApp`. Keyed by an `Expr.App`
+    /// NodeKey; present only for the printf calls P1 lowers inline (literal
+    /// format, fully applied, a `StdOut`/`StdErr`/`StringResult` sink, every
+    /// specifier in `PrintfSpec.tryHoleFormat`). Freeze reads it to mint a
+    /// `TExpr.Format` instead of the `App(printfn, New PrintfFormat …)` shape;
+    /// absence keeps the existing FSharp.Core path. See docs/vesper-printf-plan.md.
+    member val PrintfApp = SideTable<PrintfSpec.PrintfSink>() with get
     member val Diagnostics = ResizeArray<Diagnostic>() with get
     /// Current let-depth (Rémy's levels). Owned by Unification — push on
     /// entering a binding group's RHSes, pop after typing them. Generalisation

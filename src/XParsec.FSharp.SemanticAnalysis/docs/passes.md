@@ -13,6 +13,7 @@ reading the slots its predecessors wrote and writing exactly one new slot.
 | 4 | `Regions`        | `Region` table       | all prior            | Inequality-only escape analysis. |
 | 5 | `Validation`     | (diagnostics only)   | all prior            | Read-only. Exhaustiveness, value restriction, mutability. |
 | 6 | `Freeze`         | TAST                 | CST + all tables     | Single tree-to-tree projection. Discards side tables. |
+| 7 | `ResolvedTypes`  | (diagnostics only)   | TAST + `Scheme`      | Read-only. Asserts every inline `SemType` zonks to a concrete shape or a quantified typar of the enclosing scheme. Catches latent inference bugs that would otherwise surface as broken IL. |
 
 ## Pass contracts
 
@@ -43,6 +44,17 @@ types. So:
 This is the only place a downstream pass "depends on" a flag set earlier.
 It's not an optimisation; it's part of unification's correctness. See
 [architecture.md](architecture.md#where-inline-lives).
+
+At the codegen boundary, `inline` also drives per-call-site body expansion.
+`TDecl.Let` carries an `Inline` marker, the binding's body is retained in
+the TAST, and an `inlineExpand` helper substitutes the caller's resolved
+types into the body at each use site. This is the codegen-side companion
+to the unification correctness above — without retained bodies, `inline`
+bindings would lose the chance to dispatch through the constrained
+generic typars that the Fun-style function representation relies on
+([function-representation-plan](function-representation-plan.md)). See
+[front-end-gaps-plan](front-end-gaps-plan.md) §C for the work that lands
+the `Inline` marker and the expansion helper.
 
 ## Validation diagnostics
 

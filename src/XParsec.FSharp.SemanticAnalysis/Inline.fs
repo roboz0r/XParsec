@@ -116,6 +116,22 @@ module Inline =
         | TExpr.PropertyGet(r, n, t) -> TExpr.PropertyGet(sE r, n, sT t)
         | TExpr.StaticMethodCall(c, n, args, t) -> TExpr.StaticMethodCall(c, n, List.map sE args, sT t)
         | TExpr.StaticPropertyGet(c, n, t) -> TExpr.StaticPropertyGet(c, n, sT t)
+        | TExpr.Format(sink, segs, t) ->
+            let sink =
+                match sink with
+                | FormatSink.ToWriter w -> FormatSink.ToWriter(sE w)
+                | FormatSink.ToBuilder w -> FormatSink.ToBuilder(sE w)
+                | other -> other
+
+            let segs =
+                segs
+                |> EqArray.map (fun seg ->
+                    match seg with
+                    | FormatSeg.Lit _ -> seg
+                    | FormatSeg.Hole(h, a) -> FormatSeg.Hole({ h with Ty = sT h.Ty }, sE a)
+                )
+
+            TExpr.Format(sink, segs, sT t)
 
     and private substArm (subst: Dictionary<TypeVar, SemType>) (arm: TMatchArm) : TMatchArm =
         {
@@ -223,6 +239,22 @@ module Inline =
             | TExpr.PropertyGet(r, n, t) -> TExpr.PropertyGet(fE r, n, t)
             | TExpr.StaticMethodCall(c, n, args, t) -> TExpr.StaticMethodCall(c, n, List.map fE args, t)
             | TExpr.StaticPropertyGet(c, n, t) -> TExpr.StaticPropertyGet(c, n, t)
+            | TExpr.Format(sink, segs, t) ->
+                let sink =
+                    match sink with
+                    | FormatSink.ToWriter w -> FormatSink.ToWriter(fE w)
+                    | FormatSink.ToBuilder w -> FormatSink.ToBuilder(fE w)
+                    | other -> other
+
+                let segs =
+                    segs
+                    |> EqArray.map (fun seg ->
+                        match seg with
+                        | FormatSeg.Lit _ -> seg
+                        | FormatSeg.Hole(h, a) -> FormatSeg.Hole(h, fE a)
+                    )
+
+                TExpr.Format(sink, segs, t)
 
         and fArm (arm: TMatchArm) : TMatchArm =
             {

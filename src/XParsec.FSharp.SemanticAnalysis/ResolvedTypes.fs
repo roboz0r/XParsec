@@ -203,6 +203,22 @@ module ResolvedTypes =
             for a in args do
                 walkExpr ctx allowed acc a
         | TExpr.StaticPropertyGet(_, _, ty) -> addFreeRoots allowed acc ty
+        | TExpr.Format(sink, segments, ty) ->
+            addFreeRoots allowed acc ty
+
+            match sink with
+            | FormatSink.ToWriter w
+            | FormatSink.ToBuilder w -> walkExpr ctx allowed acc w
+            | FormatSink.ToStdOut _
+            | FormatSink.ToStdErr _
+            | FormatSink.ToString -> ()
+
+            for seg in segments do
+                match seg with
+                | FormatSeg.Lit _ -> ()
+                | FormatSeg.Hole(hole, arg) ->
+                    addFreeRoots allowed acc hole.Ty
+                    walkExpr ctx allowed acc arg
 
     and private walkArm (ctx: PassContext) (allowed: HashSet<TypeVar>) (acc: HashSet<TypeVar>) (arm: TMatchArm) : unit =
         walkPat allowed acc arm.Pat

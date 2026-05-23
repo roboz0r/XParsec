@@ -7,7 +7,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 // Each node carries its inferred SemType inline so target lowering doesn't
 // need to re-query the side tables.
 
-/// Literal-value payload. TODO: extend with Char as the supported subset grows.
+/// Literal-value payload.
 [<RequireQualifiedAccess>]
 type TConstValue =
     | Int of int
@@ -15,6 +15,8 @@ type TConstValue =
     | Byte of byte
     | Float of double
     | Bool of bool
+    | Char of char
+    | Decimal of decimal
     | String of string
     | Unit
 
@@ -129,6 +131,15 @@ type TExpr =
     | StaticMethodCall of className: string * methodName: string * args: TExpr list * ty: SemType
     /// Static property read: `ClassName.X`.
     | StaticPropertyGet of className: string * propertyName: string * ty: SemType
+    /// Lowered printf / string-interpolation (vesper-printf-plan P1, D9): an
+    /// output `sink` plus the interleaved literal / hole sequence in source
+    /// order. Holes carry their argument expression inline so codegen folds the
+    /// segments left-to-right, evaluating each arg at its hole (a ref-struct
+    /// handler local accumulates the result). NOT a generic saturated call —
+    /// the format literal rewrites the call's arity/arg-types, so the node
+    /// carries the printf semantics a generic call node cannot. `ty` is the
+    /// call's result (`unit` for `printf`/`printfn`, `string` for `sprintf`).
+    | Format of sink: FormatSink * segments: EqArray<FormatSeg> * ty: SemType
 
 and TMatchArm =
     {
@@ -136,6 +147,37 @@ and TMatchArm =
         Guard: TExpr option
         Body: TExpr
     }
+
+/// Where a `TExpr.Format` writes. Kept abstract from the CLR specifics so an
+/// alternate target (JS → template literal) maps it independently: a CLR target
+/// maps `ToStdOut`/`ToStdErr` to `Console.Out`/`.Error` write-through,
+/// `ToString` to a returned string. `ToWriter`/`ToBuilder` carry the explicit
+/// sink expression (`fprintf` / `bprintf`); P1 produces only the first three.
+and [<RequireQualifiedAccess>] FormatSink =
+    | ToStdOut of newline: bool
+    | ToStdErr of newline: bool
+    | ToWriter of TExpr
+    | ToBuilder of TExpr
+    | ToString
+
+/// A single hole's lowering data: its static type (drives `AppendFormatted<T>`,
+/// no box), the handler member to call (`Kind`), the optional .NET format string
+/// (`"F2"`, derived from the specifier's precision/base) and field-width
+/// alignment (negative ⇒ left-justify). `Kind`/`Format`/`Alignment` are produced
+/// by `PrintfSpec.tryHoleFormat`.
+and HoleSpec =
+    {
+        Ty: SemType
+        Kind: PrintfSpec.HoleKind
+        Format: string option
+        Alignment: int option
+    }
+
+/// One element of a `Format` node: a literal run, or a hole pairing its spec
+/// with the argument expression to evaluate at that position.
+and [<RequireQualifiedAccess>] FormatSeg =
+    | Lit of string
+    | Hole of HoleSpec * TExpr
 
 [<RequireQualifiedAccess>]
 type TDecl =

@@ -120,6 +120,13 @@ type MetadataContext() =
     member _.MethodSpec(meth: EntityHandle, instantiation: BlobBuilder) : MethodSpecificationHandle =
         mb.AddMethodSpecification(meth, mb.GetOrAddBlob(instantiation))
 
+    /// Add a `FieldDefinition` row. Like methods, fields must be added in the
+    /// order the owning types claim them (each `TypeDefinition`'s field range
+    /// runs from its `firstField` to the next type's). Used for closure
+    /// capture fields.
+    member _.AddField(attrs: FieldAttributes, name: string, signature: BlobBuilder) : FieldDefinitionHandle =
+        mb.AddFieldDefinition(attrs, mb.GetOrAddString(name), mb.GetOrAddBlob(signature))
+
     /// Add a `MethodDefinition` row. Methods must be added in the order types
     /// will claim them (see `AddProgramType`).
     member _.AddMethod
@@ -147,10 +154,36 @@ type MetadataContext() =
         )
         |> ignore
 
+    /// A concrete (instance) `TypeDefinition` whose base is an arbitrary
+    /// `EntityHandle` — a `TypeSpec` for a synthesised closure deriving from
+    /// the instantiated `FSharpFunc\`2<a,b>`. Generalises `AddProgramType`,
+    /// which hard-codes `abstract sealed` + `Object`. `firstField` /
+    /// `firstMethod` start this type's contiguous field / method ranges, so
+    /// callers must add this type's fields and methods (in type order) before
+    /// the `TypeDefinition` rows.
+    member _.AddClass
+        (
+            attrs: TypeAttributes,
+            name: string,
+            baseType: EntityHandle,
+            firstField: FieldDefinitionHandle,
+            firstMethod: MethodDefinitionHandle
+        ) : TypeDefinitionHandle =
+        mb.AddTypeDefinition(
+            attrs,
+            Unchecked.defaultof<StringHandle>,
+            mb.GetOrAddString(name),
+            baseType,
+            firstField,
+            firstMethod
+        )
+
     /// The `abstract sealed` (static) holder class for top-level members,
-    /// owning every method from `firstMethod` onward.
+    /// owning every method from `firstMethod` onward. `firstField` points past
+    /// any closure fields that precede it in the table (the holder owns none),
+    /// so its field range stays empty.
     member _.AddProgramType
-        (name: string, baseType: EntityHandle, firstMethod: MethodDefinitionHandle)
+        (name: string, baseType: EntityHandle, firstField: FieldDefinitionHandle, firstMethod: MethodDefinitionHandle)
         : TypeDefinitionHandle =
         mb.AddTypeDefinition(
             TypeAttributes.Class
@@ -162,7 +195,7 @@ type MetadataContext() =
             Unchecked.defaultof<StringHandle>,
             mb.GetOrAddString(name),
             baseType,
-            MetadataTokens.FieldDefinitionHandle(1),
+            firstField,
             firstMethod
         )
 

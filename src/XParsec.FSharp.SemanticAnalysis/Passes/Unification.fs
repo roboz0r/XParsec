@@ -1060,6 +1060,11 @@ module Unification =
         | Token.NumByteHex
         | Token.NumByteOctal
         | Token.NumByteBinary -> MockBuiltins.tyByte
+        | Token.CharLiteral -> MockBuiltins.tyChar
+        | Token.NumDecimal
+        | Token.NumDecimalHex
+        | Token.NumDecimalOctal
+        | Token.NumDecimalBinary -> MockBuiltins.tyDecimal
         | _ -> MockBuiltins.tyInt
 
     /// Walk a `Measure<SyntaxToken>` CST and produce a canonical
@@ -2098,6 +2103,42 @@ module Unification =
             if ok then ValueSome(List.ofSeq acc) else ValueNone
         | _ -> ValueNone
 
+    /// Whether every specifier of a *literal* format string is one the happy
+    /// path lowers inline (`PrintfSpec.tryHoleFormat`). Used alongside the
+    /// fully-applied + sink checks to decide whether `tryInferPrintfApp` records
+    /// a `PrintfApp` lowering marker; a `false` here keeps the FSharp.Core path.
+    /// `%%` escapes are lowerable (P2): `Freeze.translatePrintfFormat` collapses
+    /// `%%`→`%` directly when it builds the literal segment. Only interpolation
+    /// holes (`Expr`), orphan specifiers and lexer-error parts force the cold
+    /// path.
+    let private lowerablePlaceholders (ctx: PassContext) (e: Expr<SyntaxToken>) : bool =
+        match e with
+        | Expr.String(parts = parts) ->
+            let mutable ok = true
+
+            for part in parts do
+                match part with
+                | StringPart.FormatSpecifier t ->
+                    match Lexing.parseFormatSpecifierView (ctx.ReadableOf t) with
+                    | ValueSome p ->
+                        match PrintfSpec.tryHoleFormat p with
+                        | ValueSome _ -> ()
+                        | ValueNone -> ok <- false
+                    | ValueNone -> ok <- false
+                // Raw literal runs — including a `%%` escape, which the lexer
+                // hands back as raw `Text` "%%" — are lowerable; Freeze collapses
+                // `%%`→`%` in the `Lit` segment.
+                | StringPart.Text _
+                | StringPart.EscapeSequence _
+                | StringPart.VerbatimEscapeQuote _
+                | StringPart.EscapePercent _ -> ()
+                | StringPart.Expr _
+                | StringPart.OrphanFormatSpecifier _
+                | StringPart.InvalidText _ -> ok <- false
+
+            ok
+        | _ -> false
+
     let rec private infer (ctx: PassContext) (e: Expr<SyntaxToken>) : SemType =
         let key = CstKeys.ofExpr e
         let nodeTv = freshTv ctx key
@@ -2167,6 +2208,24 @@ module Unification =
         // not a qualified name. The parser doesn't emit `Expr.DotLookup`
         // for these — they ride inside a single `Expr.LongIdentOrOp`.
         match e with
+        // `(+)` and friends used as a value: resolve the operator's compiled
+        // name through the provider, instantiating its scheme like any other
+        // external symbol. Freeze projects this to `External("op_Addition", …)`.
+        | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) ->
+            match Desugar.symbolicOpCompiledName op.Token with
+            | ValueSome name ->
+                match ctx.Provider.TryLookup name with
+                | ValueSome sym -> sym.Instantiate ctx.CurrentLevel
+                | ValueNone ->
+                    ctx.Diagnostics.Add
+                        {
+                            Key = key
+                            Message = sprintf "Operator '%s' is not available from the symbol provider" name
+                            Severity = Error
+                        }
+
+                    TyVar(freshTyVar ctx)
+            | ValueNone -> TyVar(freshTyVar ctx)
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length > 1
             && ctx.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
@@ -2376,6 +2435,22 @@ module Unification =
                                     let resultTy = TyVar(freshTyVar ctx)
                                     unify ctx key currTy (TyFun(argTy, resultTy))
                                     currTy <- resultTy
+
+                                // P1 happy-path lowering marker: a fully-applied
+                                // literal call (one arg per specifier after the
+                                // format), a StdOut/StdErr/StringResult sink, and
+                                // every specifier in `tryHoleFormat`. Freeze then
+                                // mints a `TExpr.Format`; otherwise the existing
+                                // FSharp.Core path stands (so `%A`, partial
+                                // application, etc. are unaffected — additive).
+                                match PrintfSpec.sinkOf (qualifiedNameOf ctx fn) with
+                                | ValueSome sink when
+                                    idx = 0
+                                    && args.Length = specs.Length + 1
+                                    && lowerablePlaceholders ctx args.[idx]
+                                    ->
+                                    ctx.PrintfApp.Set(key, sink)
+                                | _ -> ()
 
                                 ValueSome currTy
             | _ -> ValueNone
@@ -3110,13 +3185,25 @@ module Unification =
         (_key: NodeKey)
         (parts: ImmutableArray<StringPart<SyntaxToken>>)
         : SemType =
-        // Non-interpolated strings type as `string`. Interpolated strings
-        // also type as string (the holes are typed via printf-format
-        // checking, which we don't model yet — recurse into the hole exprs
-        // so their types still get computed, but don't constrain them).
+        // Non-interpolated strings type as `string`; an interpolated string is
+        // a `string` value too — Freeze lowers it to a `TExpr.Format` with a
+        // `ToString` sink (D9). Recurse into every hole expr so its type is
+        // computed (Freeze reads it back to emit `AppendFormatted<T>`); a
+        // printf-style `%d{x}` specifier additionally constrains the hole.
         for part in parts do
             match part with
-            | StringPart.Expr(expr = e) -> infer ctx e |> ignore
+            | StringPart.Expr(formatSpecifier = fs; expr = e) ->
+                let holeTy = infer ctx e
+
+                match fs with
+                | ValueSome ft ->
+                    match Lexing.parseFormatSpecifierView (ctx.ReadableOf ft) with
+                    | ValueSome p ->
+                        match PrintfSpec.argType (fun () -> TyVar(freshTyVar ctx)) p.Type with
+                        | ValueSome t -> unify ctx (CstKeys.ofExpr e) holeTy t
+                        | ValueNone -> ()
+                    | ValueNone -> ()
+                | ValueNone -> ()
             | _ -> ()
 
         MockBuiltins.tyString

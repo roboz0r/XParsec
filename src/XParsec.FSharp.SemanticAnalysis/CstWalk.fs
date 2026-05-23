@@ -60,8 +60,17 @@ module CstWalk =
         | Expr.Missing
         | Expr.SkipsTokens _
         | Expr.Ident _
-        | Expr.String _
         | Expr.SliceAll _ -> ()
+
+        // Interpolated strings ($"…{x}…") embed expressions in their hole parts;
+        // they share the enclosing scope (no new bindings). Plain strings have no
+        // hole parts, so this no-ops for them. NameResolution / Unification must
+        // see the hole exprs so an interpolated `{name}` resolves and types.
+        | Expr.String(parts = parts) ->
+            for part in parts do
+                match part with
+                | StringPart.Expr(expr = holeExpr) -> iterExpr walker env holeExpr
+                | _ -> ()
 
         // Single-child wrappers
         | Expr.EnclosedBlock(expr = inner)

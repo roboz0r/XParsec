@@ -26,27 +26,87 @@ type CallRecipe =
 /// How to emit a constructor (`newobj`) once its arguments are on the stack.
 type CtorRecipe = { Handle: EntityHandle; ArgCount: int }
 
+/// Resolved metadata handles for lowering a `TExpr.Format` to the write-through
+/// handler (`Vesper.Formatter`). The walker owns the call *sequence* and the
+/// per-hole argument recursion — a `Format` can't be a `CallRecipe` (it
+/// interleaves literals and lazily-evaluated args around a ref-struct local).
+/// The provider supplies only the resolved handles, so the target specifics
+/// stay here. See [vesper-printf-plan](../XParsec.FSharp.SemanticAnalysis/docs/vesper-printf-plan.md).
+type FormatHandles =
+    {
+        /// `SemType` of the handler local (a value type) for `Il.DeclareLocal`.
+        HandlerLocal: SemType
+        /// `instance void .ctor(int32, int32, TextWriter)` — write-through sink.
+        CtorWriter: EntityHandle
+        /// `instance void .ctor(int32, int32)` — string sink.
+        CtorString: EntityHandle
+        /// `instance void AppendLiteral(string)`.
+        AppendLiteral: EntityHandle
+        /// `instance void Flush()` — write-through flush + buffer release.
+        Flush: EntityHandle
+        /// `instance string ToStringAndClear()` — string-sink result + release.
+        ToStringAndClear: EntityHandle
+        /// `static TextWriter System.Console.get_Out()`.
+        ConsoleOut: EntityHandle
+        /// `static TextWriter System.Console.get_Error()`.
+        ConsoleError: EntityHandle
+        /// `AppendFormatted<T>(...)` for one hole: instantiates `<T = ty>` and
+        /// picks the overload from `(hasAlignment, hasFormat)`. The walker pushes
+        /// the value, then (if present) the alignment `int32`, then the format
+        /// `string` — the C# parameter order — so the returned handle's signature
+        /// must match that order.
+        AppendFormatted: SemType * bool * bool -> EntityHandle
+        /// `instance void AppendBool(bool, int32)` — `%b` (lowercase
+        /// `true`/`false`). Alignment is always passed (0 ⇒ no padding).
+        AppendBool: EntityHandle
+        /// `instance void AppendOctal(int32, int32)` — `%o` (32-bit
+        /// two's-complement octal). Alignment always passed.
+        AppendOctal: EntityHandle
+        /// `instance void AppendUnsigned(uint32, int32)` — `%u` (the `int`
+        /// argument's bits reinterpreted as `uint`). Alignment always passed.
+        AppendUnsigned: EntityHandle
+        /// `instance void AppendZeroPaddedFloat(float64, string, int32)` — `%0w.pf`
+        /// (zero-pad a float to a total field width, after the sign; .NET has no
+        /// float format that does this). The walker pushes value, format, width.
+        AppendZeroPaddedFloat: EntityHandle
+    }
+
 /// Resolves compiled names to emission recipes for one target. The .NET
 /// implementation is `ClrProvider`. The interface is intentionally minimal in
 /// v1 — per the backend posture, the contract crystallises from the working
 /// implementation rather than up-front design.
 type ICodegenProvider =
     /// Resolve a function/operator compiled name (as carried by
-    /// `TExpr.External`) to a call recipe. `resultTy` is the application's
-    /// result type, used to instantiate generic methods (e.g. the printer
-    /// type argument of `PrintFormatLine`).
-    abstract TryEmitCall: compiledName: string * resultTy: SemType -> CallRecipe voption
+    /// `TExpr.External`) to a call recipe. `fnTy` is the head's full declared
+    /// (curried) type — every recipe reads what it needs from it: `printfn`
+    /// takes the printer = result of `fnTy`; `List.fold` reads `'T` / `'State`
+    /// from the folder parameter. A multi-typar generic call can't recover its
+    /// type arguments from the application's result alone, so the whole `fnTy`
+    /// is passed rather than just the result.
+    abstract TryEmitCall: compiledName: string * fnTy: SemType -> CallRecipe voption
 
     /// Resolve a constructor (as carried by `TExpr.New` / `TExpr.UnionCons`)
     /// to a ctor recipe. `tyArgs` are the constructed type's instantiation
     /// arguments (e.g. `PrintfFormat`'s four type parameters).
     abstract TryEmitCtor: className: string * tyArgs: SemType list -> CtorRecipe voption
 
+    /// Resolve a union-case constructor (as carried by `TExpr.UnionCons`) to a
+    /// call recipe. `tyArgs` are the union type's instantiation arguments (for
+    /// `list<int>`, `[int]`); the field values are already on the stack in
+    /// declaration order beneath the call. The list constructors are static
+    /// `call`s (`Cons` / `get_Empty`), so a `CallRecipe` fits — no new shape.
+    abstract TryEmitUnionCons: typeName: string * caseName: string * tyArgs: SemType list -> CallRecipe voption
+
     /// Resolve the application of a function *value* of type `funcTy`
     /// (a `TyFun(a, b)`) to one argument — `FSharpFunc\`2::Invoke`. The
     /// receiver function and the argument are both already on the stack
     /// (receiver beneath), so the recipe's `ArgCount` is 2.
     abstract TryEmitInvoke: funcTy: SemType -> CallRecipe voption
+
+    /// Resolved handles for lowering a `TExpr.Format` (printf / interpolation
+    /// happy path). Built fresh per `Format` node; the walker drives the call
+    /// sequence with them.
+    abstract FormatHandles: unit -> FormatHandles
 
     /// Encode a method body's declared locals into a standalone
     /// local-variable signature. Lives on the provider because encoding a
@@ -55,3 +115,16 @@ type ICodegenProvider =
 
     /// The `System.Object` type reference, for emitted classes' base type.
     abstract ObjectType: EntityHandle
+
+    /// Member ref to `System.Decimal::.ctor(int32, int32, int32, bool, uint8)`
+    /// (lo / mid / hi / isNegative / scale), for emitting a `decimal` constant
+    /// the way F# / Roslyn do — `Decimal.GetBits` supplies the five operands.
+    abstract DecimalCtor: EntityHandle
+
+    /// The distinct FSharp.Core constructs the emission referenced so far
+    /// (construct-qualified names, e.g. `Microsoft.FSharp.Core.FSharpFunc\`2`).
+    /// **Empty ⇒ the emitted PE does not depend on `FSharp.Core.dll`** — the one
+    /// place that decides whether `materialiseApp` copies it. A non-empty set
+    /// doubles as the list of constructs still pinning the dependency. Read after
+    /// emission completes (every reference is minted during the body builds).
+    abstract FSharpCoreDependencies: unit -> string list

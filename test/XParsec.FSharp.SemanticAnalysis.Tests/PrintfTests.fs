@@ -170,39 +170,43 @@ let tests =
             }
 
             // ---- Freeze shape ----
+            //
+            // A fully-applied literal call with lowerable specifiers now freezes
+            // to a `TExpr.Format` (vesper-printf-plan P1) — no `New PrintfFormat`
+            // / `App printfn`. The non-lowerable cases above (`%x`, `%a`, partial
+            // application, `fprintf`, shadowing) still type the same and keep the
+            // FSharp.Core path; this section pins the lowered shape.
 
-            test "printfn \"%d\" 42 freezes as App(App(External printfn, New PrintfFormat), 42)" {
+            test "printfn \"%d\" 42 freezes to a Format node (stdout + newline, one int hole)" {
                 let tast = analyse "let r = printfn \"%d\" 42"
 
-                Expect.equal
-                    (TastShape.prettyDecl tast.Decls.[0])
-                    "let v0 = ((printfn new Microsoft.FSharp.Core.PrintfFormat(\"%d\")) 42)"
-                    "TAST shape"
+                Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = format:stdoutln[{42}]" "TAST shape"
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            test "format literal freezes to a New of PrintfFormat with the printer type" {
+            test "the %d hole carries its static type (int), no format / alignment" {
                 let tast = analyse "let r = printfn \"%d\" 42"
 
-                // App(App(External "printfn", <format>), 42)
                 match lastDeclValue tast with
-                | TExpr.App(TExpr.App(TExpr.External("printfn", _), fmt, _), _, _) ->
-                    match fmt with
-                    | TExpr.New(name, [ TExpr.Const(TConstValue.String "%d", _) ], TyClass(tyName, printer :: _)) ->
-                        Expect.equal name PrintfSpec.printfFormatName "New className"
-                        Expect.equal tyName PrintfSpec.printfFormatName "format TyClass name"
-                        Expect.equal printer (TyFun(tyInt, tyUnit)) "printer arg is int -> unit"
-                    | other -> failtestf "unexpected format node: %A" other
-                | other -> failtestf "unexpected app shape: %A" other
+                | TExpr.Format(FormatSink.ToStdOut true, segs, ty) ->
+                    Expect.equal ty tyUnit "printfn result is unit"
+
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Int 42, _)) ] ->
+                        Expect.equal hole.Ty tyInt "the %d hole types as int"
+                        Expect.equal hole.Format None "no .NET format string for %d"
+                        Expect.equal hole.Alignment None "no alignment"
+                    | other -> failtestf "unexpected Format segments: %A" other
+                | other -> failtestf "unexpected lowered shape: %A" other
             }
 
-            test "sprintf \"%s %d\" \"n\" 42 freezes curried with both args" {
+            test "sprintf \"%s %d\" \"n\" 42 freezes to a string-sink Format with both holes" {
                 let tast = analyse "let r = sprintf \"%s %d\" \"n\" 42"
 
                 Expect.equal
                     (TastShape.prettyDecl tast.Decls.[0])
-                    "let v0 = (((sprintf new Microsoft.FSharp.Core.PrintfFormat(\"%s %d\")) \"n\") 42)"
+                    "let v0 = format:string[{\"n\"}; \" \"; {42}]"
                     "TAST shape"
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"

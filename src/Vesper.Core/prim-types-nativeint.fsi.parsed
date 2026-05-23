@@ -1,0 +1,71 @@
+namespace                'namespace'       KWNamespace         tok=   0  pos=   0
+                         'Vesper'          Identifier          tok=   2  pos=  10
+  Import:
+    open                 'open'            KWOpen              tok=   5  pos=  18
+                         'System'          Identifier          tok=   7  pos=  23
+  Type:
+    type                 'type'            KWType              tok=  16  pos= 159
+    TypeSig.Abbrev:
+      TypeName           'nativeint'       Identifier          tok=  18  pos= 164
+      =                  '='               OpEquality          tok=  20  pos= 174
+        NamedType:
+          Ident          'IntPtr'          Identifier          tok=  22  pos= 176
+  Type:
+    type                 'type'            KWType              tok=  31  pos= 313
+    TypeSig.Abbrev:
+      TypeName           'unativeint'      Identifier          tok=  33  pos= 318
+      =                  '='               OpEquality          tok=  35  pos= 329
+        NamedType:
+          Ident          'UIntPtr'         Identifier          tok=  37  pos= 331
+  Type:
+    type                 'type'            KWType              tok=  58  pos= 867
+    TypeSig.Abbrev:
+      TypeName           'nativeptr'       Identifier          tok=  60  pos= 872
+      TyparDefns:
+        <                '<'               op_LessThan         tok=  61  pos= 881
+        Typar.Named:
+                         ''T'              TypeParameter       tok=  62  pos= 882
+        when             'when'            KWWhen              tok=  64  pos= 885
+        Constraint.Unmanaged:
+          Typar.Named:
+                         ''T'              TypeParameter       tok=  66  pos= 890
+          :              ':'               OpColon             tok=  68  pos= 893
+          unmanaged      'unmanaged'       Identifier          tok=  70  pos= 895
+        >                '>'               op_GreaterThan      tok=  71  pos= 904
+      =                  '='               OpEquality          tok=  73  pos= 906
+        ILIntrinsic:
+          (#             '(#'              KWLHashParen        tok=  75  pos= 908
+          StringLiteral  '"'               StringOpen          tok=  77  pos= 911
+          Parts:
+            Text         'native int'      StringFragment      tok=  78  pos= 912
+                         '"'               StringClose         tok=  79  pos= 922
+          #)             '#)'              KWRHashParen        tok=  81  pos= 924
+  Type:
+    type                 'type'            KWType              tok= 102  pos=1463
+    TypeSig.Abbrev:
+      TypeName           'voidptr'         Identifier          tok= 104  pos=1468
+      =                  '='               OpEquality          tok= 106  pos=1476
+        ILIntrinsic:
+          (#             '(#'              KWLHashParen        tok= 108  pos=1478
+          StringLiteral  '"'               StringOpen          tok= 110  pos=1481
+          Parts:
+            Text         'void*'           StringFragment      tok= 111  pos=1482
+                         '"'               StringClose         tok= 112  pos=1487
+          #)             '#)'              KWRHashParen        tok= 114  pos=1489
+  Type:
+    type                 'type'            KWType              tok= 149  pos=2940
+    TypeSig.Abbrev:
+      TypeName           'ilsigptr'        Identifier          tok= 151  pos=2945
+      TyparDefns:
+        <                '<'               op_LessThan         tok= 152  pos=2953
+        Typar.Named:
+                         ''T'              TypeParameter       tok= 153  pos=2954
+        >                '>'               op_GreaterThan      tok= 154  pos=2956
+      =                  '='               OpEquality          tok= 156  pos=2958
+        ILIntrinsic:
+          (#             '(#'              KWLHashParen        tok= 158  pos=2960
+          StringLiteral  '"'               StringOpen          tok= 160  pos=2963
+          Parts:
+            Text         '!0*'             StringFragment      tok= 161  pos=2964
+                         '"'               StringClose         tok= 162  pos=2967
+          #)             '#)'              KWRHashParen        tok= 164  pos=2969

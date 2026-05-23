@@ -92,6 +92,13 @@ type private Renderer() =
         | TExpr.Const(TConstValue.Float n, _) -> push (n.ToString(System.Globalization.CultureInfo.InvariantCulture))
         | TExpr.Const(TConstValue.Bool true, _) -> push "true"
         | TExpr.Const(TConstValue.Bool false, _) -> push "false"
+        | TExpr.Const(TConstValue.Char c, _) ->
+            push "'"
+            push (string c)
+            push "'"
+        | TExpr.Const(TConstValue.Decimal d, _) ->
+            push (d.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            push "M"
         | TExpr.Const(TConstValue.Unit, _) -> push "()"
         | TExpr.Const(TConstValue.String s, _) ->
             push "\""
@@ -379,6 +386,38 @@ type private Renderer() =
             push "."
             push name
 
+        | TExpr.Format(sink, segments, _) ->
+            let sinkStr =
+                match sink with
+                | FormatSink.ToStdOut nl -> if nl then "stdoutln" else "stdout"
+                | FormatSink.ToStdErr nl -> if nl then "stderrln" else "stderr"
+                | FormatSink.ToWriter _ -> "writer"
+                | FormatSink.ToBuilder _ -> "builder"
+                | FormatSink.ToString -> "string"
+
+            push "format:"
+            push sinkStr
+            push "["
+
+            segments
+            |> EqArray.toList
+            |> List.iteri (fun i seg ->
+                if i > 0 then
+                    push "; "
+
+                match seg with
+                | FormatSeg.Lit s ->
+                    push "\""
+                    push s
+                    push "\""
+                | FormatSeg.Hole(_, arg) ->
+                    push "{"
+                    this.Expr arg
+                    push "}"
+            )
+
+            push "]"
+
     member this.Pat(p: TPat) : unit =
         match p with
         | TPat.NamedSimple(k, _) -> push (nameOf k)
@@ -393,6 +432,13 @@ type private Renderer() =
         | TPat.Const(TConstValue.Float n, _) -> push (n.ToString(System.Globalization.CultureInfo.InvariantCulture))
         | TPat.Const(TConstValue.Bool true, _) -> push "true"
         | TPat.Const(TConstValue.Bool false, _) -> push "false"
+        | TPat.Const(TConstValue.Char c, _) ->
+            push "'"
+            push (string c)
+            push "'"
+        | TPat.Const(TConstValue.Decimal d, _) ->
+            push (d.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            push "M"
         | TPat.Const(TConstValue.Unit, _) -> push "()"
         | TPat.Const(TConstValue.String s, _) ->
             push "\""

@@ -30,6 +30,51 @@ module Freeze =
         else
             text
 
+    /// Decode a char-literal token's source text (`'a'`, `'\n'`, `'A'`,
+    /// `'\x41'`, `'\065'`) into its `char` value. The token spans the surrounding
+    /// quotes, so the content is everything between them. The escape set mirrors
+    /// the lexer's `pCharChar` (Lexing.fs) exactly — a char literal that reaches
+    /// here already lexed clean, so any unexpected shape is a broken invariant.
+    let private parseCharLiteral (text: string) : char =
+        let inner = text.Substring(1, text.Length - 2)
+
+        if inner.Length = 1 then
+            inner.[0]
+        elif inner.Length >= 2 && inner.[0] = '\\' then
+            match inner.[1] with
+            | '"' -> '"'
+            | '\\' -> '\\'
+            | '\'' -> '\''
+            | 'n' -> '\n'
+            | 't' -> '\t'
+            | 'b' -> '\b'
+            | 'r' -> '\r'
+            | 'a' -> '\a'
+            | 'f' -> '\f'
+            | 'v' -> '\v'
+            | 'u' ->
+                char (
+                    System.UInt16.Parse(
+                        inner.Substring(2, 4),
+                        System.Globalization.NumberStyles.AllowHexSpecifier,
+                        System.Globalization.CultureInfo.InvariantCulture
+                    )
+                )
+            | 'x' ->
+                char (
+                    System.Byte.Parse(
+                        inner.Substring(2, 2),
+                        System.Globalization.NumberStyles.AllowHexSpecifier,
+                        System.Globalization.CultureInfo.InvariantCulture
+                    )
+                )
+            | d when System.Char.IsDigit d ->
+                // Trigraph `\DDD` (decimal byte).
+                char (System.Int32.Parse(inner.Substring(1, 3), System.Globalization.CultureInfo.InvariantCulture))
+            | other -> failwithf "Freeze.parseCharLiteral: unsupported char escape '\\%c' in %s" other text
+        else
+            failwithf "Freeze.parseCharLiteral: unexpected char literal text %s" text
+
     let private parseConst (ctx: PassContext) (c: Constant<SyntaxToken>) : TConstValue =
         let parseLiteral (t: SyntaxToken) : TConstValue =
             let text = ctx.NameOf t
@@ -50,6 +95,20 @@ module Freeze =
             | Token.NumByteHex
             | Token.NumByteOctal
             | Token.NumByteBinary -> TConstValue.Byte(System.Byte.Parse(stripSuffix "uy" text))
+            | Token.CharLiteral -> TConstValue.Char(parseCharLiteral text)
+            | Token.NumDecimal
+            | Token.NumDecimalHex
+            | Token.NumDecimalOctal
+            | Token.NumDecimalBinary ->
+                // Strip the `M`/`m` suffix; the remainder is an invariant-culture
+                // decimal (`3.14`, `42`). Matches `literalCarrier`'s `tyDecimal`.
+                TConstValue.Decimal(
+                    System.Decimal.Parse(
+                        stripSuffix "M" text,
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture
+                    )
+                )
             | _ ->
                 // Falls through for NumInt32 family and anything Unification
                 // hasn't classified — they're treated as plain ints.
@@ -509,6 +568,11 @@ module Freeze =
                 | a -> [ translateExpr ctx a ]
 
             TExpr.UnionCons(caseName, argsList, ty)
+        // Printf happy-path call (literal format, fully applied, lowerable
+        // specifiers) — marked by `Unification.tryInferPrintfApp`. Lower to a
+        // `TExpr.Format` *before* the `App(printfn, New PrintfFormat …)`
+        // projection below ever runs (vesper-printf-plan P1).
+        | Expr.App(_, args) when ctx.PrintfApp.ContainsKey key -> translatePrintfFormat ctx key args ty
         | Expr.App(fn, args) -> translateApp ctx fn args
         | Expr.HighPrecedenceApp(funcExpr = fn; argExpr = arg) ->
             TExpr.App(translateExpr ctx fn, translateExpr ctx arg, ty)
@@ -696,36 +760,156 @@ module Freeze =
         ]
 
     and private translateString (ctx: PassContext) (e: Expr<SyntaxToken>) (ty: SemType) : TExpr =
-        // Tiny subset: stitch together the source text of every Text /
-        // EscapeSequence / VerbatimEscapeQuote part. Interpolation holes are
-        // not yet rendered — surface them as `{<expr>}` placeholders so test
-        // output stays deterministic.
         match e with
         | Expr.String(parts = parts) ->
-            let sb = System.Text.StringBuilder()
-
-            for part in parts do
-                match part with
-                | StringPart.Text t
-                | StringPart.EscapeSequence t
-                | StringPart.FormatSpecifier t
-                | StringPart.EscapePercent t
-                | StringPart.VerbatimEscapeQuote t -> sb.Append(ctx.NameOf t) |> ignore
-                | StringPart.Expr _ -> sb.Append("{<expr>}") |> ignore
-                | StringPart.OrphanFormatSpecifier t -> sb.Append(ctx.NameOf t) |> ignore
-                | StringPart.InvalidText t -> sb.Append(ctx.NameOf t) |> ignore
-
-            let text = sb.ToString()
-
             match Unification.zonk ty with
             | TyClass(name, _) when name = PrintfSpec.printfFormatName ->
                 // Format literal at a printf call site (typed by
                 // `Unification.tryInferPrintfApp`). It denotes
                 // `new PrintfFormat<…>(text)` — the single `value: string`
                 // constructor — so codegen builds the format object.
-                TExpr.New(name, [ TExpr.Const(TConstValue.String text, MockBuiltins.tyString) ], ty)
-            | _ -> TExpr.Const(TConstValue.String text, ty)
+                TExpr.New(
+                    name,
+                    [
+                        TExpr.Const(TConstValue.String(stitchLiteralString ctx parts), MockBuiltins.tyString)
+                    ],
+                    ty
+                )
+            | _ ->
+                // An interpolated string ($"…{x}…") whose holes are all
+                // faithfully renderable lowers to a `TExpr.Format` with a
+                // `ToString` sink (D9 — the same node the printf happy path
+                // produces). Otherwise (a plain string, or an interpolation with
+                // a hole we can't render) stitch the literal text; any unrendered
+                // hole keeps its `{<expr>}` placeholder, additive over the
+                // pre-D9 behaviour.
+                match tryTranslateInterpolation ctx parts ty with
+                | Some node -> node
+                | None -> TExpr.Const(TConstValue.String(stitchLiteralString ctx parts), ty)
         | _ -> failwithf "Freeze.translateString: not a String expr: %A" e
+
+    /// Stitch the source text of a string's literal parts. Interpolation holes
+    /// have no rendering on this path, so they surface as `{<expr>}` placeholders
+    /// (deterministic test output); `translateString` only reaches here for plain
+    /// strings, printf format literals, and interpolations a hole kept off the
+    /// `TExpr.Format` path.
+    and private stitchLiteralString (ctx: PassContext) (parts: ImmutableArray<StringPart<SyntaxToken>>) : string =
+        let sb = System.Text.StringBuilder()
+
+        for part in parts do
+            match part with
+            | StringPart.Text t
+            | StringPart.EscapeSequence t
+            | StringPart.FormatSpecifier t
+            | StringPart.EscapePercent t
+            | StringPart.VerbatimEscapeQuote t -> sb.Append(ctx.NameOf t) |> ignore
+            | StringPart.Expr _ -> sb.Append("{<expr>}") |> ignore
+            | StringPart.OrphanFormatSpecifier t -> sb.Append(ctx.NameOf t) |> ignore
+            | StringPart.InvalidText t -> sb.Append(ctx.NameOf t) |> ignore
+
+        sb.ToString()
+
+    /// Classify one interpolation hole into the `(HoleKind, .NET format,
+    /// alignment)` triple a `FormatSeg.Hole` carries, or `None` if it can't be
+    /// rendered faithfully. A printf-style `%d{x}` reuses
+    /// `PrintfSpec.tryHoleFormat` (so it covers exactly the specifiers the printf
+    /// happy path does); a plain `{x}` / `{x:fmt}` is a `Formatted` hole whose
+    /// `:fmt` clause (the token text minus the leading `:`) becomes the .NET
+    /// format string. Interpolation alignment (`{x,n}`) isn't representable here —
+    /// the parser folds `x,n` into a tuple expression — so alignment is always
+    /// `None` for the plain forms.
+    and private tryInterpHoleSpec
+        (ctx: PassContext)
+        (formatSpecifier: SyntaxToken voption)
+        (formatClause: SyntaxToken voption)
+        : (PrintfSpec.HoleKind * string option * int option) option =
+        match formatSpecifier with
+        | ValueSome ft ->
+            match Lexing.parseFormatSpecifierView (ctx.ReadableOf ft) with
+            | ValueSome p ->
+                match PrintfSpec.tryHoleFormat p with
+                | ValueSome(k, f, a) -> Some(k, f, a)
+                | ValueNone -> None
+            | ValueNone -> None
+        | ValueNone ->
+            let fmt =
+                match formatClause with
+                | ValueSome fc ->
+                    let raw = ctx.NameOf fc
+                    let f = if raw.StartsWith ":" then raw.Substring 1 else raw
+                    if f.Length = 0 then None else Some f
+                | ValueNone -> None
+
+            Some(PrintfSpec.HoleKind.Formatted, fmt, None)
+
+    /// Lower an interpolated string ($"…{x}…") to a `TExpr.Format` with a
+    /// `ToString` sink (D9). Returns `None` — keeping the literal-stitch
+    /// fallback — when the string has no holes (a plain literal), or any hole
+    /// isn't faithfully renderable: a free (unresolved) hole type, an
+    /// orphan/standalone `%spec` or lexer-error part, or a printf-typed `%d{x}`
+    /// whose specifier the happy path doesn't cover.
+    and private tryTranslateInterpolation
+        (ctx: PassContext)
+        (parts: ImmutableArray<StringPart<SyntaxToken>>)
+        (ty: SemType)
+        : TExpr option =
+        let segments = ResizeArray<FormatSeg>()
+        let litRun = System.Text.StringBuilder()
+        let mutable hasHole = false
+        let mutable lowerable = true
+
+        let flushLit () =
+            if litRun.Length > 0 then
+                segments.Add(FormatSeg.Lit(litRun.ToString()))
+                litRun.Clear() |> ignore
+
+        for part in parts do
+            if lowerable then
+                match part with
+                // Literal runs. `%%` collapses to a single `%` (an interpolated
+                // string rides the same PrintfFormat machinery as printf);
+                // escape sequences stay verbatim — the same unescaping gap
+                // `stitchLiteralString` / `translatePrintfFormat` carry.
+                | StringPart.Text t
+                | StringPart.EscapeSequence t
+                | StringPart.VerbatimEscapeQuote t -> litRun.Append((ctx.NameOf t).Replace("%%", "%")) |> ignore
+                | StringPart.EscapePercent _ -> litRun.Append('%') |> ignore
+                | StringPart.Expr(formatSpecifier = fs; expr = holeExpr; formatClause = fc) ->
+                    hasHole <- true
+                    let holeTy = typeOfKey ctx (CstKeys.ofExpr holeExpr)
+
+                    match Unification.zonk holeTy with
+                    // A free hole type can't pick an `AppendFormatted<T>` — bail.
+                    | TyVar _ -> lowerable <- false
+                    | zHoleTy ->
+                        match tryInterpHoleSpec ctx fs fc with
+                        | Some(kind, netFormat, alignment) ->
+                            flushLit ()
+
+                            segments.Add(
+                                FormatSeg.Hole(
+                                    {
+                                        Ty = zHoleTy
+                                        Kind = kind
+                                        Format = netFormat
+                                        Alignment = alignment
+                                    },
+                                    translateExpr ctx holeExpr
+                                )
+                            )
+                        | None -> lowerable <- false
+                // A standalone `%spec`, an orphan specifier, or a lexer-error
+                // part has interpolation-specific semantics we don't model — keep
+                // the whole string on the literal-stitch fallback.
+                | StringPart.FormatSpecifier _
+                | StringPart.OrphanFormatSpecifier _
+                | StringPart.InvalidText _ -> lowerable <- false
+
+        if hasHole && lowerable then
+            flushLit ()
+            Some(TExpr.Format(FormatSink.ToString, EqArray.ofSeq segments, ty))
+        else
+            None
 
     and private translateIdent (ctx: PassContext) (e: Expr<SyntaxToken>) (key: NodeKey) (ty: SemType) : TExpr =
         match ctx.Binding.TryGetValue key with
@@ -738,6 +922,12 @@ module Freeze =
             let name =
                 match e with
                 | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) -> li.Idents |> Seq.map ctx.NameOf |> String.concat "."
+                | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) ->
+                    // `(+)`-as-a-value: carry the operator's compiled name so the
+                    // External matches what the provider (and codegen) key on.
+                    match Desugar.symbolicOpCompiledName op.Token with
+                    | ValueSome n -> n
+                    | ValueNone -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
                 | _ -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
 
             TExpr.External(name, ty)
@@ -833,6 +1023,101 @@ module Freeze =
             currTy <- resTy
 
         result
+
+    /// Lower a marked printf call (`Unification.tryInferPrintfApp` recorded a
+    /// `PrintfApp` sink for it) into a `TExpr.Format`: walk the literal format's
+    /// parts into interleaved `Lit` / `Hole` segments, pairing each specifier
+    /// with the next argument in spec order (the format is arg 0). The happy
+    /// path therefore never produces a `New PrintfFormat` / `App printfn`.
+    and private translatePrintfFormat
+        (ctx: PassContext)
+        (key: NodeKey)
+        (args: ImmutableArray<Expr<SyntaxToken>>)
+        (ty: SemType)
+        : TExpr =
+        let sink =
+            match ctx.PrintfApp.TryGetValue key with
+            | ValueSome s -> s
+            | ValueNone -> failwithf "Freeze.translatePrintfFormat: no PrintfApp marker at %O" key
+
+        let parts =
+            match args.[0] with
+            | Expr.String(parts = parts) -> parts
+            | other -> failwithf "Freeze.translatePrintfFormat: format arg is not a string literal: %A" other
+
+        let segments = ResizeArray<FormatSeg>()
+        let litRun = System.Text.StringBuilder()
+
+        let flushLit () =
+            if litRun.Length > 0 then
+                segments.Add(FormatSeg.Lit(litRun.ToString()))
+                litRun.Clear() |> ignore
+
+        // Holes consume the trailing args (the format is arg 0) in spec order.
+        let mutable holeIdx = 1
+
+        for part in parts do
+            match part with
+            | StringPart.Text t
+            | StringPart.EscapeSequence t
+            | StringPart.VerbatimEscapeQuote t ->
+                // Verbatim source text, matching `translateString` (escape
+                // unescaping is a separate, pre-existing gap shared with it).
+                // `%%` is the printf escape for a literal `%`; the lexer folds
+                // the escape into a raw `Text` part ("%%"), so collapse it here —
+                // there is no runtime format pass to do it. A real specifier is
+                // its own `FormatSpecifier` part, so every `%` in a raw run is
+                // half of a `%%` pair; `"%%%%"` collapses to `"%%"`.
+                litRun.Append((ctx.NameOf t).Replace("%%", "%")) |> ignore
+            | StringPart.EscapePercent _ ->
+                // `%%` denotes a literal `%`. The FSharp.Core path collapses it
+                // in its runtime format pass; there's none here, so collapse now.
+                litRun.Append('%') |> ignore
+            | StringPart.FormatSpecifier t ->
+                flushLit ()
+
+                let placeholder =
+                    match Lexing.parseFormatSpecifierView (ctx.ReadableOf t) with
+                    | ValueSome p -> p
+                    | ValueNone ->
+                        failwith "Freeze.translatePrintfFormat: unparsable specifier (marker invariant broken)"
+
+                let kind, netFormat, alignment =
+                    match PrintfSpec.tryHoleFormat placeholder with
+                    | ValueSome(k, f, a) -> k, f, a
+                    | ValueNone ->
+                        failwith "Freeze.translatePrintfFormat: unsupported specifier (marker invariant broken)"
+
+                let argExpr = args.[holeIdx]
+                holeIdx <- holeIdx + 1
+                let argT = translateExpr ctx argExpr
+                let holeTy = typeOfKey ctx (CstKeys.ofExpr argExpr)
+
+                segments.Add(
+                    FormatSeg.Hole(
+                        {
+                            Ty = holeTy
+                            Kind = kind
+                            Format = netFormat
+                            Alignment = alignment
+                        },
+                        argT
+                    )
+                )
+            | StringPart.Expr _
+            | StringPart.OrphanFormatSpecifier _
+            | StringPart.InvalidText _ ->
+                failwith "Freeze.translatePrintfFormat: non-literal format part (marker invariant broken)"
+
+        flushLit ()
+
+        let formatSink =
+            match sink with
+            | PrintfSpec.PrintfSink.StdOut nl -> FormatSink.ToStdOut nl
+            | PrintfSpec.PrintfSink.StdErr nl -> FormatSink.ToStdErr nl
+            | PrintfSpec.PrintfSink.StringResult -> FormatSink.ToString
+
+        TExpr.Format(formatSink, EqArray.ofSeq segments, ty)
 
     and private translateInfix
         (ctx: PassContext)

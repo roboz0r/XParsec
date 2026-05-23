@@ -40,11 +40,14 @@ let tests =
 
                 match tast.Decls with
                 | [ TDecl.Let(TPat.NamedSimple(kSucc, _), TExpr.Lambda _, true, TyFun(TyConst "int", TyConst "int"))
-                    TDecl.Expression(TExpr.App(TExpr.App(TExpr.External("printfn", _), TExpr.New _, _),
-                                               TExpr.App(TExpr.Var(kUse, _), TExpr.Const(TConstValue.Int 41, _), _),
-                                               _),
-                                     _) ] ->
-                    Expect.equal kUse kSucc "the call site `Var` references the inline binding's NodeKey"
+                    TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _), _) ] ->
+                    // `printfn "%d" (succ 41)` lowers to a `%d` hole whose arg is
+                    // the not-yet-expanded `succ 41` call (inline expansion runs
+                    // later, in `Emit.lower`).
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(_, TExpr.App(TExpr.Var(kUse, _), TExpr.Const(TConstValue.Int 41, _), _)) ] ->
+                        Expect.equal kUse kSucc "the call site `Var` references the inline binding's NodeKey"
+                    | other -> failtestf "unexpected Format segments: %A" other
                 | other -> failtestf "unexpected slice-3 TAST: %A" other
             }
 

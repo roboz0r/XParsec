@@ -55,6 +55,12 @@ module Desugar =
         | Token.OpComposeLeft -> ValueSome "op_ComposeLeft"
         | _ -> ValueNone
 
+    /// Compiled name for a symbolic operator used as a *value* (`(+)` →
+    /// "op_Addition"). A parenthesised operator denotes the same FSharp.Core
+    /// member the infix form desugars to, so the mapping is shared. Consumed
+    /// by NameResolution / Unification / Freeze to resolve `(op)` references.
+    let symbolicOpCompiledName (t: Token) : string voption = infixOpName t
+
     /// Token.OpSubtraction is used by both binary `a - b` (InfixApp) and
     /// unary `-x` (PrefixApp). The PrefixApp form maps to op_UnaryNegation.
     let private prefixOpName (t: Token) : string voption =
