@@ -220,7 +220,18 @@ and [<RequireQualifiedAccess>] TTypeKind =
 /// parameter of the *declaring type* is carried as `TyConst "'A"` (a name marker
 /// the backend resolves to a `GenericTypeParameter` index). For `Invoke` it is
 /// `TyFun(TyConst "'A", TyConst "'B")`.
-and TAbstractMethod = { Name: string; Signature: SemType }
+///
+/// `MethodTypeParams` are the method's *own* generic parameters in source order
+/// (e.g. `["'C"]` for `abstract Map<'C> : 'A -> 'C`), distinct from the declaring
+/// type's `TTypeDecl.TypeParams`. They are also carried as `TyConst "'C"` markers
+/// in `Signature`; the backend maps them to `GenericMethodParameter` indices (vs
+/// the declaring type's `GenericTypeParameter`). Empty ⇒ a non-generic method.
+and TAbstractMethod =
+    {
+        Name: string
+        MethodTypeParams: string list
+        Signature: SemType
+    }
 
 type TastFile =
     {
@@ -228,4 +239,13 @@ type TastFile =
         Decls: TDecl list
         /// Non-empty Errors mean the TAST is best-effort and not safe to emit from.
         Diagnostics: Diagnostic list
+        /// Primitive-binding representations harvested from this file's
+        /// `type x = (# "..." #)` intrinsic abbrevs (`PassContext.IntrinsicReprTypes`):
+        /// Vesper type name → target IL representation string (e.g. `"int"` →
+        /// `"System.Int32"`). A use site resolves to `TyConst name`; the backend
+        /// keys the emitted IL type off the *representation string* (so a platform
+        /// author retargets a primitive by editing one `.fs` line). Empty for a
+        /// file that declares no intrinsics; the backend overlays these on its
+        /// built-in defaults. See docs/selfhost-handoff.md (G7).
+        IntrinsicReprTypes: Map<string, string>
     }

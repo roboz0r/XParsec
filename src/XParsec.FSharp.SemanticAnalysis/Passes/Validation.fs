@@ -248,11 +248,7 @@ module Validation =
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
         let walker = mkWalker ctx
-
-        match file with
-        | ImplementationFile.AnonymousModule elems -> walkElems walker elems
-        | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) -> walkElems walker elems
-        | ImplementationFile.Namespaces _ -> ()
+        walkElems walker (CstWalk.implFileElems file)
 
         checkUnresolvedDotAccesses ctx
         checkValueRestriction ctx

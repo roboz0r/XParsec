@@ -1289,41 +1289,6 @@ module Freeze =
     // index. Abbrevs (incl. Part-A primitive bindings), records, unions, and
     // concrete classes surface nothing. See docs/self-host-rung1-plan.md.
 
-    /// Member name text. Only the plain-ident form is in scope for rung 1.
-    let private identOrOpName (ctx: PassContext) (id: IdentOrOp<SyntaxToken>) : string =
-        match id with
-        | IdentOrOp.Ident t -> ctx.NameOf t
-        | IdentOrOp.ParenOp(opName = OpName.SymbolicOp op) -> ctx.NameOf op
-        | _ -> ""
-
-    /// A typar's source name (e.g. `'A`). Used both as the `TypeParams` entry and
-    /// as the `TyConst` marker in a signature, so the two always agree.
-    let private typarName (ctx: PassContext) (tp: Typar<SyntaxToken>) : string =
-        match tp with
-        | Typar.Named(ident = id)
-        | Typar.Static(ident = id) -> ctx.NameOf id
-        | Typar.Anon u -> ctx.NameOf u
-
-    /// Declared type parameters of a `TypeName`: prefix typars then `<...>` defns,
-    /// in source order.
-    let private typeParamNames (ctx: PassContext) (tn: TypeName<SyntaxToken>) : string list =
-        let (TypeName(prefixTypars = pt; typarDefns = td)) = tn
-
-        [
-            match pt with
-            | ValueSome(PrefixTypars.Single tp) -> yield typarName ctx tp
-            | ValueSome(PrefixTypars.Multiple(typars = tps)) ->
-                for tp in tps do
-                    yield typarName ctx tp
-            | ValueNone -> ()
-
-            match td with
-            | ValueSome(TyparDefns(defns = defns)) ->
-                for (TyparDefn(typar = tp)) in defns do
-                    yield typarName ctx tp
-            | ValueNone -> ()
-        ]
-
     /// The simple (last-segment) name of a type definition.
     let private typeNameSimple (ctx: PassContext) (tn: TypeName<SyntaxToken>) : string =
         let (TypeName(ident = li)) = tn
@@ -1333,84 +1298,111 @@ module Freeze =
         else
             ctx.NameOf li.Idents.[li.Idents.Length - 1]
 
-    /// Translate a member-signature type. Declaring-type typars become
-    /// `TyConst "'A"` markers; named concrete types pass through as `TyConst name`.
-    /// Only the shapes a rung-1 interface needs are modelled.
-    let rec private translateSigType (ctx: PassContext) (t: Type<SyntaxToken>) : SemType =
-        match t with
-        | Type.ParenType(typ = inner) -> translateSigType ctx inner
-        | Type.VarType tp -> TyConst(typarName ctx tp)
-        | Type.NamedType li when li.Idents.Length = 1 -> TyConst(ctx.NameOf li.Idents.[0])
-        | Type.FunctionType(fromType = a; toType = b) -> TyFun(translateSigType ctx a, translateSigType ctx b)
-        | Type.TupleType(types = ts) -> TyTuple [ for t in ts -> translateSigType ctx t ]
-        | _ ->
-            // Out of scope for rung 1 (multi-segment / generic / array types in an
-            // abstract signature). The backend's typar encoder rejects this loudly.
-            TyConst "obj"
+    /// Rewrite a resolved member signature's declaring-type typars (free
+    /// `TyVar`s, identified by their zonked root) to the `TyConst "'A"` markers
+    /// the backend's typar encoder consumes. Anything else passes through
+    /// unchanged — a member-level generic or a leftover inference var stays a
+    /// `TyVar`, which the backend then rejects loudly (out of scope for rung 1).
+    let private remapDeclTypars (markers: (TypeVar * string) list) (t: SemType) : SemType =
+        let rec go t =
+            match t with
+            | TyVar tv ->
+                match
+                    markers
+                    |> List.tryPick (fun (r, n) -> if Object.ReferenceEquals(r, tv) then Some n else None)
+                with
+                | Some n -> TyConst n
+                | None -> t
+            | TyConst _ -> t
+            | TyFun(a, b) -> TyFun(go a, go b)
+            | TyTuple ts -> TyTuple(List.map go ts)
+            | TyRecord(n, args) -> TyRecord(n, List.map go args)
+            | TyUnion(n, args) -> TyUnion(n, List.map go args)
+            | TyClass(n, args) -> TyClass(n, List.map go args)
 
-    /// Build a `TAbstractMethod` from an abstract member signature. Only the
-    /// method form is in scope; a property signature disqualifies the interface.
-    let private abstractMethodOf (ctx: PassContext) (sign: MemberSig<SyntaxToken>) : TAbstractMethod option =
-        match sign with
-        | MemberSig.MethodOrPropSig(ident = ident; sign = CurriedSig(args = args; returnType = ret)) ->
-            // Each curried arg group folds into a TyFun chain ending at the
-            // return type; a multi-arg group (`a * b`) is a tuple parameter.
-            let groupTy (ArgsSpec(args = specs)) =
-                match List.ofSeq specs with
-                | [ ArgSpec(typ = t) ] -> translateSigType ctx t
-                | many -> TyTuple [ for ArgSpec(typ = t) in many -> translateSigType ctx t ]
+        go (Unification.zonk t)
 
-            let retTy = translateSigType ctx ret
-
-            let sigTy =
-                List.foldBack (fun struct (g, _arrow) acc -> TyFun(groupTy g, acc)) (List.ofSeq args) retTy
-
-            Some
-                {
-                    Name = identOrOpName ctx ident
-                    Signature = sigTy
-                }
-        | MemberSig.PropSig _ -> None
-
-    /// Classify an object-model body as an interface: every element an abstract
-    /// member signature, no base type, no `let`/`do` preamble. Returns the
-    /// abstract methods, else None (a concrete member / field / inherit ⇒ a class
-    /// or a later rung).
+    /// Classify an object-model body as an interface — every element an abstract
+    /// method signature, no base type, no `let`/`do` preamble — and build its
+    /// methods from the *resolved* member signatures NameResolution/Unification
+    /// recorded in `ctx.ClassTypes` (an `Anon`/`Interface` registers as a class).
+    /// Returns the declared typar names and methods, else None (a concrete
+    /// member / field / inherit ⇒ a class or a later rung; or the type was never
+    /// registered, e.g. a duplicate-name error upstream).
     let private tryInterfaceMethods
         (ctx: PassContext)
+        (name: string)
         (body: ObjectModelBody<SyntaxToken>)
-        : TAbstractMethod list option =
-        if body.inherits.IsSome || not body.classPreamble.IsEmpty then
+        : (string list * TAbstractMethod list) option =
+        let allAbstractMethods =
+            not body.elements.IsEmpty
+            && body.elements
+               |> Seq.forall (fun el ->
+                   match el with
+                   | TypeDefnElement.Member(MemberDefn.Member(
+                       defn = MethodOrPropDefn.AbstractSignature(MemberSig.MethodOrPropSig _))) -> true
+                   | _ -> false
+               )
+
+        if body.inherits.IsSome || not body.classPreamble.IsEmpty || not allAbstractMethods then
             None
         else
-            let methods = ResizeArray<TAbstractMethod>()
-            let mutable ok = true
+            match ctx.ClassTypes.TryGetValue name with
+            | false, _ -> None
+            | true, info ->
+                // Each declaring typar's prototype TyVar (its zonked root) maps to
+                // the source typar name used as the backend marker. The member
+                // signatures share these prototype TyVars (Unification typed them
+                // under the class's typar scope), so the remap reaches every typar.
+                let markers =
+                    [
+                        for (n, ptv) in info.TypeParams do
+                            match Unification.zonk (TyVar ptv) with
+                            | TyVar root -> yield (root, n)
+                            | _ -> ()
+                    ]
 
-            for el in body.elements do
-                match el with
-                | TypeDefnElement.Member(MemberDefn.Member(defn = MethodOrPropDefn.AbstractSignature sign)) ->
-                    match abstractMethodOf ctx sign with
-                    | Some m -> methods.Add m
-                    | None -> ok <- false
-                | _ -> ok <- false
+                let methods =
+                    [
+                        for m in info.Members do
+                            if m.Kind = ClassMemberKind.Method then
+                                // A generic method's own typars get markers too, so
+                                // the backend routes them to `GenericMethodParameter`
+                                // (declaring typars stay `GenericTypeParameter`). Both
+                                // become `TyConst "name"`; the name picks the table.
+                                let methodMarkers =
+                                    markers
+                                    @ [
+                                        for (n, ptv) in m.MethodTypeParams do
+                                            match Unification.zonk (TyVar ptv) with
+                                            | TyVar root -> yield (root, n)
+                                            | _ -> ()
+                                    ]
 
-            if ok && methods.Count > 0 then
-                Some(List.ofSeq methods)
-            else
-                None
+                                yield
+                                    {
+                                        Name = m.Name
+                                        MethodTypeParams = [ for (n, _) in m.MethodTypeParams -> n ]
+                                        Signature = remapDeclTypars methodMarkers m.Type
+                                    }
+                    ]
+
+                Some([ for (n, _) in info.TypeParams -> n ], methods)
 
     /// Surface an interface-shaped `TypeDefn` as a `TDecl.Type`. Anything else
     /// (abbrevs, records, unions, concrete classes) surfaces nothing.
     let private tryTypeDecl (ctx: PassContext) (ns: string option) (td: TypeDefn<SyntaxToken>) : TDecl option =
         let classify tn body =
-            match tryInterfaceMethods ctx body with
-            | Some methods ->
+            let name = typeNameSimple ctx tn
+
+            match tryInterfaceMethods ctx name body with
+            | Some(typars, methods) ->
                 Some(
                     TDecl.Type
                         {
-                            Name = typeNameSimple ctx tn
+                            Name = name
                             Namespace = ns
-                            TypeParams = typeParamNames ctx tn
+                            TypeParams = typars
                             Kind = TTypeKind.Interface methods
                         }
                 )
@@ -1462,4 +1454,9 @@ module Freeze =
         {
             Decls = decls
             Diagnostics = List.ofSeq ctx.Diagnostics
+            // Snapshot the primitive-binding representations NameResolution
+            // diverted out of `AbbreviationTypes`, so the backend can key the
+            // emitted IL type off the representation string (G7) without the
+            // PassContext.
+            IntrinsicReprTypes = ctx.IntrinsicReprTypes |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
         }

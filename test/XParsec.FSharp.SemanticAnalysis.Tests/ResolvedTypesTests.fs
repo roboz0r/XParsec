@@ -73,7 +73,12 @@ let tests =
                         )
                     ]
 
-                let synth = { Decls = synthDecls; Diagnostics = [] }
+                let synth =
+                    {
+                        Decls = synthDecls
+                        Diagnostics = []
+                        IntrinsicReprTypes = Map.empty
+                    }
 
                 let before = ctx.Diagnostics.Count
                 ResolvedTypes.run ctx synth
@@ -118,6 +123,7 @@ let tests =
                                 TDecl.Let(TPat.NamedSimple(idKey, ty), TExpr.Const(TConstValue.Unit, ty), false, ty)
                             ]
                         Diagnostics = []
+                        IntrinsicReprTypes = Map.empty
                     }
 
                 let before = ctx.Diagnostics.Count

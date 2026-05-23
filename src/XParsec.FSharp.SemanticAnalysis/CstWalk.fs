@@ -233,3 +233,22 @@ module CstWalk =
 
                 iterExpr walker armEnv body
             | _ -> ()
+
+    /// The module elements an analysis pass walks for an implementation file.
+    /// A `namespace`-headed file contributes every group's elements in source
+    /// order: the passes don't yet track namespace qualification (v1 has no
+    /// namespace-scoped types), so the groups are concatenated and walked as a
+    /// single element list — the same shape a module file already presents.
+    let implFileElems (file: ImplementationFile<SyntaxToken>) : ModuleElems<SyntaxToken> =
+        match file with
+        | ImplementationFile.AnonymousModule elems -> elems
+        | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) -> elems
+        | ImplementationFile.Namespaces groups ->
+            let b = ImmutableArray.CreateBuilder<ModuleElem<SyntaxToken>>()
+
+            for g in groups do
+                match g with
+                | NamespaceDeclGroup.Named(elements = elems)
+                | NamespaceDeclGroup.Global(elements = elems) -> b.AddRange elems
+
+            b.ToImmutable()

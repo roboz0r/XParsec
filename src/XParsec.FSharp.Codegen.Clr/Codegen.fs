@@ -53,7 +53,9 @@ module Codegen =
         let ctx = MetadataContext()
         ctx.AddModuleAndAssembly(project.AssemblyName)
 
-        let provider = ClrProvider(ctx)
+        // No TAST on this hand-written-body seam — the built-in primitive
+        // representations are all it can reference.
+        let provider = ClrProvider(ctx, IntrinsicRepr.defaults)
         let icodegen = provider :> ICodegenProvider
 
         let bodyOffset =
@@ -97,7 +99,9 @@ module Codegen =
         let ctx = MetadataContext()
         ctx.AddModuleAndAssembly(project.AssemblyName)
 
-        let provider = ClrProvider(ctx)
+        // This file's intrinsic bindings overlay the defaults, so a program that
+        // declares `type x = (# "..." #)` retargets `x`'s representation (G7).
+        let provider = ClrProvider(ctx, IntrinsicRepr.merge tast.IntrinsicReprTypes)
         let icodegen = provider :> ICodegenProvider
         let encodeLocals locals = icodegen.EncodeLocalSignature locals
 
@@ -243,40 +247,32 @@ module Codegen =
             a :: ps, r
         | _ -> [], t
 
-    /// Encode an abstract-method signature leaf. A declaring-type type parameter
-    /// (carried as a `TyConst "'A"` marker, looked up in `typarIx`) becomes a
-    /// `GenericTypeParameter` of that index; primitives encode directly. Anything
-    /// needing an external reference (e.g. a nested `FSharpFunc`) is out of scope
-    /// for rung 1 — the library path is intentionally provider-free, so the
-    /// emitted DLL carries no `AssemblyRef` it doesn't truly use.
-    let rec private encodeTyparLeaf (typarIx: Map<string, int>) (te: SignatureTypeEncoder) (t: SemType) : unit =
-        match t with
-        | TyConst name when typarIx.ContainsKey name -> te.GenericTypeParameter(typarIx.[name])
-        | TyConst "int" -> te.Int32()
-        | TyConst "int64" -> te.Int64()
-        | TyConst "byte" -> te.Byte()
-        | TyConst "float" -> te.Double()
-        | TyConst "bool" -> te.Boolean()
-        | TyConst "char" -> te.Char()
-        | TyConst "string" -> te.String()
-        | other -> failwithf "Codegen.assembleLibrary: abstract-method signature type not supported in rung 1: %A" other
-
-    /// `instance <ret> <name>(<params…>)` for an abstract interface method, with
-    /// the declaring type's type parameters resolved to `GenericTypeParameter`
-    /// indices.
-    let private abstractMethodSignature (typeParams: string list) (m: TAbstractMethod) : BlobBuilder =
-        let typarIx = typeParams |> List.mapi (fun i n -> n, i) |> Map.ofList
+    /// `instance <ret> <name><'C…>(<params…>)` for an abstract interface method,
+    /// with the declaring type's typars resolved to `GenericTypeParameter` indices
+    /// and the method's own typars to `GenericMethodParameter` indices. Concrete
+    /// leaves (a primitive, `unit`, a nested function type) are encoded by the
+    /// provider's `EncodeAbstractType` (G5) — the same `encodeType` the executable
+    /// path uses, so an abstract signature can reach anything the provider can
+    /// encode and the dependency surface it pins is recorded. The signature's
+    /// generic-parameter count is the method's own typar count.
+    let private abstractMethodSignature
+        (provider: ClrProvider)
+        (typeParams: string list)
+        (m: TAbstractMethod)
+        : BlobBuilder =
+        let typeIx = typeParams |> List.mapi (fun i n -> n, i) |> Map.ofList
+        let methodIx = m.MethodTypeParams |> List.mapi (fun i n -> n, i) |> Map.ofList
         let paramTys, retTy = decurry m.Signature
         let blob = BlobBuilder()
 
         BlobEncoder(blob)
-            .MethodSignature(isInstanceMethod = true)
+            .MethodSignature(genericParameterCount = List.length m.MethodTypeParams, isInstanceMethod = true)
             .Parameters(
                 List.length paramTys,
-                (fun (ret: ReturnTypeEncoder) -> encodeTyparLeaf typarIx (ret.Type()) retTy),
+                (fun (ret: ReturnTypeEncoder) -> provider.EncodeAbstractType(typeIx, methodIx, ret.Type(), retTy)),
                 (fun (pars: ParametersEncoder) ->
                     for p in paramTys do
-                        encodeTyparLeaf typarIx (pars.AddParameter().Type()) p
+                        provider.EncodeAbstractType(typeIx, methodIx, pars.AddParameter().Type(), p)
                 )
             )
 
@@ -288,6 +284,16 @@ module Codegen =
     let private assembleLibrary (project: ProjectInfo) (tast: TastFile) : ClrArtifact =
         let ctx = MetadataContext()
         ctx.AddModuleAndAssembly(project.AssemblyName)
+
+        // The provider's refs are lazy (G6), so constructing it here adds no
+        // metadata: a typar-only interface forces nothing and the PE stays
+        // dependency-free, while a richer signature (a concrete/function-typed
+        // member) reuses the provider's `encodeType` (G5) instead of the old
+        // provider-free encoder. This file's intrinsic bindings overlay the
+        // defaults, so a `type x = (# "..." #)` binding retargets `x`'s
+        // representation (G7), same as the executable path.
+        let provider = ClrProvider(ctx, IntrinsicRepr.merge tast.IntrinsicReprTypes)
+        let icodegen = provider :> ICodegenProvider
 
         let interfaces =
             tast.Decls
@@ -303,9 +309,16 @@ module Codegen =
         // first-method handle for the TypeDefinition that claims it. Each method
         // gets `Param` rows (with a valid `ParamList`) so it round-trips through
         // reflection's `GetParameters`, not just execution.
+        //
+        // `GenericParam` rows can't be added here: SRM requires them globally
+        // sorted by `CodedIndex.TypeOrMethodDef(owner)`, and a method owner can
+        // sort *before* its declaring type (a MethodDef row's coded index can be
+        // lower than a later TypeDef row's). So collect (owner, index, name) for
+        // every type and method typar and emit them sorted, once all handles exist.
         let mutable methodCount = 0
         let mutable paramCount = 0
         let pending = ResizeArray<TTypeDecl * MethodDefinitionHandle>()
+        let genericParams = ResizeArray<EntityHandle * int * string>()
 
         for (td, methods) in interfaces do
             let firstMethod = MetadataTokens.MethodDefinitionHandle(methodCount + 1)
@@ -320,14 +333,19 @@ module Codegen =
                     paramCount <- paramCount + 1
                 )
 
-                ctx.AddMethodWithParamList(
-                    abstractMethodAttrs,
-                    m.Name,
-                    abstractMethodSignature td.TypeParams m,
-                    -1,
-                    firstParam
-                )
-                |> ignore
+                let methodHandle =
+                    ctx.AddMethodWithParamList(
+                        abstractMethodAttrs,
+                        m.Name,
+                        abstractMethodSignature provider td.TypeParams m,
+                        -1,
+                        firstParam
+                    )
+
+                // The method's own typars are owned by this MethodDef (the metadata
+                // name drops the F# leading quote: `'C` ⇒ `C`).
+                m.MethodTypeParams
+                |> List.iteri (fun i n -> genericParams.Add(toEntity methodHandle, i, n.TrimStart('\'')))
 
                 methodCount <- methodCount + 1
 
@@ -354,18 +372,27 @@ module Codegen =
 
             let typeHandle = ctx.AddInterfaceType(ns, metaName, emptyFirstField, firstMethod)
 
-            // Generic-parameter rows, in index order (the metadata name drops the
-            // F# leading quote: `'A` ⇒ `A`).
+            // The type's own typars are owned by this TypeDef (the metadata name
+            // drops the F# leading quote: `'A` ⇒ `A`).
             td.TypeParams
-            |> List.iteri (fun i n -> ctx.AddGenericParameter(typeHandle, i, n.TrimStart('\'')) |> ignore)
+            |> List.iteri (fun i n -> genericParams.Add(toEntity typeHandle, i, n.TrimStart('\'')))
+
+        // Now every TypeDef / MethodDef handle exists: add the `GenericParam` rows
+        // in the order SRM validates — by the owner's `TypeOrMethodDef` coded index,
+        // then by parameter index.
+        genericParams
+        |> Seq.sortBy (fun (owner, index, _) -> (CodedIndex.TypeOrMethodDef owner, index))
+        |> Seq.iter (fun (owner, index, name) -> ctx.AddGenericParameter(owner, index, name) |> ignore)
 
         {
             AssemblyName = project.AssemblyName
             OutputPath = project.OutputPath
             Pe = ctx.SerializeLibrary()
-            // The library path is provider-free; a typar-only interface references
-            // no FSharp.Core construct.
-            FSharpCoreDependencies = []
+            // The provider now encodes the abstract signatures (G5), so this is the
+            // real dependency surface: a typar-only interface marks nothing (empty,
+            // so the DLL has no `AssemblyRef`), while a concrete/function-typed
+            // member marks what it pins (e.g. `FSharpFunc\`2` / `Unit`).
+            FSharpCoreDependencies = icodegen.FSharpCoreDependencies()
         }
 
     /// TAST + symbol context → in-memory PE artifact. The `symbols` provider

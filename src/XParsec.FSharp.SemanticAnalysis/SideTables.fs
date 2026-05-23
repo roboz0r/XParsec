@@ -156,6 +156,12 @@ type ClassMemberInfo(name: string, kind: ClassMemberKind, isStatic: bool, ty: Se
     member val IsStatic = isStatic
     member val Type = ty
     member val DeclKey = declKey
+    /// The member's *own* generic parameters (e.g. `abstract Map<'C> : ...`),
+    /// as prototype TyVars keyed by source name. NameResolution mints these so
+    /// Unification can scope the signature against them and Freeze can surface
+    /// them. Empty for an ordinary (non-generic) member. Mirrors
+    /// `ClassTypeInfo.TypeParams` at the member level.
+    member val MethodTypeParams: (string * TypeVar) list = [] with get, set
 
 /// Per-primary-constructor-arg metadata for a `TypeDefn.Class`. The
 /// declared `Type` is `ValueNone` for un-annotated arguments (a fresh

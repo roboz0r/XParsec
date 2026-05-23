@@ -1057,11 +1057,7 @@ module Regions =
                 FunctionStack = ResizeArray()
             }
 
-        let elems =
-            match file with
-            | ImplementationFile.AnonymousModule elems -> elems
-            | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) -> elems
-            | ImplementationFile.Namespaces _ -> ImmutableArray.Empty
+        let elems = CstWalk.implFileElems file
 
         for m in elems do
             walkModuleElem s ctx m

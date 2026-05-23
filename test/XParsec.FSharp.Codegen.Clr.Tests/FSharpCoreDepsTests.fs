@@ -31,6 +31,25 @@ let tests =
                 Expect.isEmpty artifact.FSharpCoreDependencies "interpolation has no FSharp.Core dependency"
             }
 
+            // G6 / P2: before the provider's refs were made `lazy`, constructing
+            // `ClrProvider` added FSharp.Core's `AssemblyRef` eagerly — so *every*
+            // executable carried a dead FSharp.Core reference row even when no IL
+            // bound against it (the use-set was empty, but the table wasn't). Now an
+            // `AssemblyRef` row is added only when a ref is actually forced, so a
+            // happy-path program's metadata genuinely references no FSharp.Core: the
+            // table matches the use-set.
+            test "a happy-path executable carries no FSharp.Core reference row (G6)" {
+                let _, artifact = compileSource "DepsCleanExe" "printfn \"%d\" 42"
+                Expect.isEmpty artifact.FSharpCoreDependencies "the use-set is empty"
+
+                let asm = Reflection.Assembly.Load(Codegen.toBytes artifact)
+                let refs = asm.GetReferencedAssemblies() |> Array.map (fun a -> a.Name)
+
+                Expect.isFalse
+                    (refs |> Array.contains "FSharp.Core")
+                    (sprintf "no FSharp.Core AssemblyRef row in the executable (refs: %A)" refs)
+            }
+
             // ---- Cold paths name exactly what pins them ----
 
             test "`printfn \"%A\"` (cold path) pins PrintfModule + PrintfFormat" {

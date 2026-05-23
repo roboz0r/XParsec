@@ -3528,6 +3528,20 @@ module Unification =
 
             walk p
 
+    /// Fold a curried member signature into a `TyFun` chain. Each arg group
+    /// is one parameter (a multi-arg group `a * b` is a tuple parameter),
+    /// translated under the caller's typar scope so declaring typars resolve
+    /// to their prototype TyVars. Used to fill abstract member signatures,
+    /// which have no body to infer.
+    let private curriedSigToSemType (ctx: PassContext) (CurriedSig(args = args; returnType = ret)) : SemType =
+        let groupTy (ArgsSpec(args = specs)) =
+            match List.ofSeq specs with
+            | [ ArgSpec(typ = t) ] -> translateType ctx t
+            | many -> TyTuple [ for ArgSpec(typ = t) in many -> translateType ctx t ]
+
+        let retTy = translateType ctx ret
+        List.foldBack (fun struct (g, _arrow) acc -> TyFun(groupTy g, acc)) (List.ofSeq args) retTy
+
     /// Walk every class member body under a typar scope seeded from
     /// `info.TypeParams` and a binding scope that supplies `this` and
     /// each ctor param. The placeholder member TyVars stored by
@@ -3664,6 +3678,53 @@ module Unification =
                                             | None -> ()
                                         finally
                                             exitLevel ctx
+                                    | MethodOrPropDefn.AbstractSignature(MemberSig.MethodOrPropSig(
+                                        ident = idOrOp; sign = csig)) ->
+                                        // Abstract members have no body to infer;
+                                        // translate the signature directly under the
+                                        // class typar scope and link the placeholder.
+                                        let mTokOpt =
+                                            match idOrOp with
+                                            | IdentOrOp.Ident t -> ValueSome t
+                                            | IdentOrOp.ParenOp(opName = OpName.SymbolicOp op) -> ValueSome op
+                                            | _ -> ValueNone
+
+                                        match mTokOpt with
+                                        | ValueSome mTok ->
+                                            let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
+
+                                            match info.Members |> Array.tryFind (fun mm -> mm.DeclKey = mKey) with
+                                            | Some mInfo ->
+                                                match mInfo.Type with
+                                                | TyVar tv ->
+                                                    let root = UnionFind.find tv
+
+                                                    // Extend the class typar scope with the
+                                                    // method's own `<'C, …>` typars so they
+                                                    // resolve to their prototype TyVars (and
+                                                    // aren't diagnosed as free) when the
+                                                    // signature is translated. Restore after.
+                                                    let savedMScope = ctx.TyparScope
+
+                                                    if not (List.isEmpty mInfo.MethodTypeParams) then
+                                                        let extended =
+                                                            Dictionary<string, TypeVar>(
+                                                                savedMScope,
+                                                                System.StringComparer.Ordinal
+                                                            )
+
+                                                        for (n, ptv) in mInfo.MethodTypeParams do
+                                                            extended.[n] <- ptv
+
+                                                        ctx.TyparScope <- extended
+
+                                                    try
+                                                        root.Link <- ValueSome(curriedSigToSemType ctx csig)
+                                                    finally
+                                                        ctx.TyparScope <- savedMScope
+                                                | _ -> ()
+                                            | None -> ()
+                                        | ValueNone -> ()
                                     | _ -> ()
                                 | _ -> ()
                         finally
@@ -3711,7 +3772,4 @@ module Unification =
             walkModuleElem ctx m
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
-        match file with
-        | ImplementationFile.AnonymousModule elems -> walkElems ctx elems
-        | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) -> walkElems ctx elems
-        | ImplementationFile.Namespaces _ -> ()
+        walkElems ctx (CstWalk.implFileElems file)

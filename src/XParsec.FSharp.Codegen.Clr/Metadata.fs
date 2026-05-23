@@ -251,10 +251,13 @@ type MetadataContext() =
         )
 
     /// A `GenericParam` row for `owner`'s type parameter at `index` (0-based).
-    /// SRM requires these added sorted by (owner, index); adding one owner's
-    /// parameters in index order satisfies that.
-    member _.AddGenericParameter(owner: TypeDefinitionHandle, index: int, name: string) : GenericParameterHandle =
-        mb.AddGenericParameter(toEntity owner, GenericParameterAttributes.None, mb.GetOrAddString(name), index)
+    /// `owner` is a `TypeDefinition` (a type's typars) or a `MethodDefinition` (a
+    /// generic method's own typars). SRM requires all `GenericParam` rows added
+    /// globally sorted by `CodedIndex.TypeOrMethodDef(owner)` then by `index`
+    /// (and validates this on serialize) — type and method owners therefore
+    /// interleave, so callers must collect every row and sort before adding.
+    member _.AddGenericParameter(owner: EntityHandle, index: int, name: string) : GenericParameterHandle =
+        mb.AddGenericParameter(owner, GenericParameterAttributes.None, mb.GetOrAddString(name), index)
 
     /// Serialise the assembled metadata + IL into a PE image.
     member _.Serialize(entryPoint: MethodDefinitionHandle) : BlobBuilder =

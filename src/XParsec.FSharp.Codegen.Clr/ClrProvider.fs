@@ -13,40 +13,54 @@ open XParsec.FSharp.SemanticAnalysis
 // Slice 1 covers `printfn "hi"`: the `PrintfFormat\`4` constructor and the
 // generic `PrintfModule.PrintFormatLine` call. Coverage grows with the slices.
 
-/// `ICodegenProvider` over the BCL + the loaded `FSharp.Core.dll`.
-type ClrProvider(ctx: MetadataContext) =
+/// `ICodegenProvider` over the BCL + the loaded `FSharp.Core.dll`. `reprs` is
+/// the Vesper-primitive-name → IL-representation map (`IntrinsicRepr.merge` of a
+/// file's intrinsic bindings over the built-in defaults); `encodeType` keys the
+/// emitted IL type off the representation string (G7).
+type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
 
-    // Reference identities from the live assemblies (version-proof).
-    let fsharpCore = typeof<Microsoft.FSharp.Core.Unit>.Assembly.GetName()
-    let coreLib = typeof<System.Object>.Assembly.GetName()
+    // Reference identities from the live assemblies (version-proof). Every
+    // `AssemblyRef` / `TypeRef` / `MemberRef` below is `lazy` (G6): the row is
+    // added — through `ctx`, which caches it — only when a ref is first *forced*
+    // (`.Value`) during emission, not at construction. So merely constructing the
+    // provider emits no metadata. An executable whose IL never touches FSharp.Core
+    // carries no FSharp.Core `AssemblyRef`, and the library path can construct a
+    // provider for a typar-only interface without pinning any assembly at all
+    // (which is what lets `assembleLibrary` reuse `encodeType` — G5 — instead of
+    // its old provider-free encoder).
+    let fsCoreRef =
+        lazy (toEntity (ctx.AssemblyRef(typeof<Microsoft.FSharp.Core.Unit>.Assembly.GetName())))
+
+    let coreRef =
+        lazy (toEntity (ctx.AssemblyRef(typeof<System.Object>.Assembly.GetName())))
+
     // The bootstrap printf runtime (Vesper.Printf.dll) hosting `Formatter`; and
     // the assembly that owns `System.Console` (its own ref assembly, not
     // CoreLib — type-forwarded at runtime). Both read live, like FSharp.Core.
-    let vesperPrintf = typeof<Vesper.PrintfRuntime>.Assembly.GetName()
-    let consoleAsm = typeof<System.Console>.Assembly.GetName()
+    let vesperRef =
+        lazy (toEntity (ctx.AssemblyRef(typeof<Vesper.PrintfRuntime>.Assembly.GetName())))
 
-    let fsCoreRef = toEntity (ctx.AssemblyRef fsharpCore)
-    let coreRef = toEntity (ctx.AssemblyRef coreLib)
-    let vesperRef = toEntity (ctx.AssemblyRef vesperPrintf)
-    let consoleRef = toEntity (ctx.AssemblyRef consoleAsm)
+    let consoleRef =
+        lazy (toEntity (ctx.AssemblyRef(typeof<System.Console>.Assembly.GetName())))
 
     // FSharp.Core type references.
-    let eUnit = toEntity (ctx.TypeRef(fsCoreRef, "Microsoft.FSharp.Core", "Unit"))
+    let eUnit =
+        lazy (toEntity (ctx.TypeRef(fsCoreRef.Value, "Microsoft.FSharp.Core", "Unit")))
 
     let ePrintfFormat4 =
-        toEntity (ctx.TypeRef(fsCoreRef, "Microsoft.FSharp.Core", "PrintfFormat`4"))
+        lazy (toEntity (ctx.TypeRef(fsCoreRef.Value, "Microsoft.FSharp.Core", "PrintfFormat`4")))
 
     let ePrintfModule =
-        toEntity (ctx.TypeRef(fsCoreRef, "Microsoft.FSharp.Core", "PrintfModule"))
+        lazy (toEntity (ctx.TypeRef(fsCoreRef.Value, "Microsoft.FSharp.Core", "PrintfModule")))
 
     let eFSharpFunc2 =
-        toEntity (ctx.TypeRef(fsCoreRef, "Microsoft.FSharp.Core", "FSharpFunc`2"))
+        lazy (toEntity (ctx.TypeRef(fsCoreRef.Value, "Microsoft.FSharp.Core", "FSharpFunc`2")))
 
     let eFSharpList1 =
-        toEntity (ctx.TypeRef(fsCoreRef, "Microsoft.FSharp.Collections", "FSharpList`1"))
+        lazy (toEntity (ctx.TypeRef(fsCoreRef.Value, "Microsoft.FSharp.Collections", "FSharpList`1")))
 
     let eListModule =
-        toEntity (ctx.TypeRef(fsCoreRef, "Microsoft.FSharp.Collections", "ListModule"))
+        lazy (toEntity (ctx.TypeRef(fsCoreRef.Value, "Microsoft.FSharp.Collections", "ListModule")))
 
     /// The abbreviation name the list-literal freeze hard-codes
     /// ([front-end-gaps-plan](../XParsec.FSharp.SemanticAnalysis/docs/front-end-gaps-plan.md)
@@ -56,33 +70,40 @@ type ClrProvider(ctx: MetadataContext) =
     let listTypeName = "Microsoft.FSharp.Collections.list"
 
     // BCL type references.
-    let eObject = toEntity (ctx.TypeRef(coreRef, "System", "Object"))
-    let eTextWriter = toEntity (ctx.TypeRef(coreRef, "System.IO", "TextWriter"))
-    let eConsole = toEntity (ctx.TypeRef(consoleRef, "System", "Console"))
-    let eFormatter = toEntity (ctx.TypeRef(vesperRef, "Vesper", "Formatter"))
-    let eDecimal = toEntity (ctx.TypeRef(coreRef, "System", "Decimal"))
+    let eObject = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "Object")))
+
+    let eTextWriter =
+        lazy (toEntity (ctx.TypeRef(coreRef.Value, "System.IO", "TextWriter")))
+
+    let eConsole = lazy (toEntity (ctx.TypeRef(consoleRef.Value, "System", "Console")))
+
+    let eFormatter =
+        lazy (toEntity (ctx.TypeRef(vesperRef.Value, "Vesper", "Formatter")))
+
+    let eDecimal = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "Decimal")))
 
     /// `instance void System.Decimal::.ctor(int32, int32, int32, bool, uint8)` —
     /// the lo/mid/hi/sign/scale constructor used to materialise a `decimal`
     /// constant from its `Decimal.GetBits` representation.
     let eDecimalCtor =
-        let s = BlobBuilder()
+        lazy
+            (let s = BlobBuilder()
 
-        BlobEncoder(s)
-            .MethodSignature(isInstanceMethod = true)
-            .Parameters(
-                5,
-                (fun (ret: ReturnTypeEncoder) -> ret.Void()),
-                (fun (pars: ParametersEncoder) ->
-                    pars.AddParameter().Type().Int32()
-                    pars.AddParameter().Type().Int32()
-                    pars.AddParameter().Type().Int32()
-                    pars.AddParameter().Type().Boolean()
-                    pars.AddParameter().Type().Byte()
-                )
-            )
+             BlobEncoder(s)
+                 .MethodSignature(isInstanceMethod = true)
+                 .Parameters(
+                     5,
+                     (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                     (fun (pars: ParametersEncoder) ->
+                         pars.AddParameter().Type().Int32()
+                         pars.AddParameter().Type().Int32()
+                         pars.AddParameter().Type().Int32()
+                         pars.AddParameter().Type().Boolean()
+                         pars.AddParameter().Type().Byte()
+                     )
+                 )
 
-        toEntity (ctx.MemberRef(eDecimal, ".ctor", s))
+             toEntity (ctx.MemberRef(eDecimal.Value, ".ctor", s)))
 
     /// The `SemType` standing for the `Vesper.Formatter` ref-struct handler
     /// local. `encodeType` maps it to the value-type signature; the printf
@@ -126,44 +147,86 @@ type ClrProvider(ctx: MetadataContext) =
     /// element is the declaring type's generic parameter `!0`).
     let encodeListOf (te: SignatureTypeEncoder) (inner: SignatureTypeEncoder -> unit) : unit =
         markFSharpCoreDep "Microsoft.FSharp.Collections.FSharpList`1"
-        let g = te.GenericInstantiation(eFSharpList1, 1, false)
+        let g = te.GenericInstantiation(eFSharpList1.Value, 1, false)
         inner (g.AddArgument())
 
     /// Encode a (zonked) `SemType` into a metadata signature type slot.
-    let rec encodeType (te: SignatureTypeEncoder) (t: SemType) : unit =
-        match zonk t with
-        | TyConst "int" -> te.Int32()
-        | TyConst "int64" -> te.Int64()
-        | TyConst "byte" -> te.Byte()
-        | TyConst "float" -> te.Double()
-        | TyConst "bool" -> te.Boolean()
-        | TyConst "char" -> te.Char()
-        | TyConst "decimal" -> te.Type(eDecimal, true)
-        | TyConst "string" -> te.String()
-        | TyConst "unit" ->
-            markFSharpCoreDep "Microsoft.FSharp.Core.Unit"
-            te.Type(eUnit, false)
-        | TyConst "System.IO.TextWriter" -> te.Type(eTextWriter, false)
-        | TyConst "Vesper.Formatter" -> te.Type(eFormatter, true)
-        | TyFun(a, b) ->
-            // `a -> b` is `FSharpFunc\`2<a, b>` at the metadata level.
-            markFSharpCoreDep "Microsoft.FSharp.Core.FSharpFunc`2"
-            let g = te.GenericInstantiation(eFSharpFunc2, 2, false)
-            encodeType (g.AddArgument()) a
-            encodeType (g.AddArgument()) b
-        | TyClass(name, args) when name = PrintfSpec.printfFormatName ->
-            markFSharpCoreDep "Microsoft.FSharp.Core.PrintfFormat`4"
-            let g = te.GenericInstantiation(ePrintfFormat4, List.length args, false)
+    /// `tryLeaf` gets first crack at each zonked node before the structural
+    /// match: when it encodes the node (returning `true`) recursion stops there.
+    /// The executable path passes a no-op (`fun _ _ -> false`); the library path
+    /// (`EncodeAbstractType`) passes a resolver for typar markers (which have no
+    /// `SemType`-level index, only a positional one), so an abstract signature
+    /// can still reach the concrete arms here — `unit`, a nested function type, a
+    /// primitive — that the old provider-free library encoder couldn't (G5).
+    let rec encodeTypeCore
+        (tryLeaf: SignatureTypeEncoder -> SemType -> bool)
+        (te: SignatureTypeEncoder)
+        (t: SemType)
+        : unit =
+        let zt = zonk t
 
-            for a in args do
-                encodeType (g.AddArgument()) a
-        | TyRecord(name, [ elem ]) when name = listTypeName ->
-            // `list<elem>` ≡ `FSharpList\`1<elem>`. Serves every list-typed
-            // slot: the `%A` printer's `FSharpFunc` arg, the `PrintfFormat`
-            // ctor / `PrintFormatLine` / `Invoke` instantiations, and any
-            // list-typed local signature.
-            encodeListOf te (fun arg -> encodeType arg elem)
-        | other -> failwithf "ClrProvider: cannot encode SemType: %A" other
+        if tryLeaf te zt then
+            ()
+        else
+            match zt with
+            // `unit` is name-keyed to `FSharp.Core.Unit` ahead of the representation
+            // rekey below — NOT its `prim-types-min` `System.ValueTuple` binding — and
+            // this is forced, not a preference, while FSharp.Core is still in the loop:
+            //   1. The FSharp.Core surfaces are typed in `Unit`. The `%A` cold path
+            //      instantiates FSharp.Core's `PrintfFormat\`4<…, Unit, Unit>` (see
+            //      `encodeFormatParam`) and a `a -> unit` closure overrides
+            //      `FSharpFunc\`2<a, Unit>::Invoke` — any other repr is a metadata
+            //      mismatch against the real members.
+            //   2. The unit *value* is emitted as `ldnull` (`()` is `Unit`'s null; see
+            //      `Cil.emitLdnull`), which is not a valid `System.ValueTuple` (a
+            //      zero-field struct needs `initobj`, not a null reference).
+            // So flipping `unit` to its declared repr is entangled with the FSharp.Core
+            // cut (handoff §D3 / P2), not a one-liner; until then a file's `unit`
+            // binding (and the two already-resolved BCL/runtime type names) can't hijack
+            // it. `TextWriter` / `Formatter` precede the rekey for the same can't-hijack
+            // reason.
+            | TyConst "unit" ->
+                markFSharpCoreDep "Microsoft.FSharp.Core.Unit"
+                te.Type(eUnit.Value, false)
+            | TyConst "System.IO.TextWriter" -> te.Type(eTextWriter.Value, false)
+            | TyConst "Vesper.Formatter" -> te.Type(eFormatter.Value, true)
+            | TyConst name when reprs.ContainsKey name ->
+                // Primitive binding: key the IL type off the representation string the
+                // name maps to (`"int"` → `"System.Int32"` → `i4`), not the Vesper
+                // name (G7). The provider-only `System.Decimal` `TypeRef` is emitted
+                // here; the reference-free value types are shared with the library
+                // encoder via `IntrinsicRepr.tryEncodeValueType`.
+                let repr = reprs.[name]
+
+                if IntrinsicRepr.tryEncodeValueType te repr then
+                    ()
+                elif repr = "System.Decimal" then
+                    te.Type(eDecimal.Value, true)
+                else
+                    failwithf "ClrProvider: no IL encoding for intrinsic representation %s (type %s)" repr name
+            | TyFun(a, b) ->
+                // `a -> b` is `FSharpFunc\`2<a, b>` at the metadata level.
+                markFSharpCoreDep "Microsoft.FSharp.Core.FSharpFunc`2"
+                let g = te.GenericInstantiation(eFSharpFunc2.Value, 2, false)
+                encodeTypeCore tryLeaf (g.AddArgument()) a
+                encodeTypeCore tryLeaf (g.AddArgument()) b
+            | TyClass(name, args) when name = PrintfSpec.printfFormatName ->
+                markFSharpCoreDep "Microsoft.FSharp.Core.PrintfFormat`4"
+                let g = te.GenericInstantiation(ePrintfFormat4.Value, List.length args, false)
+
+                for a in args do
+                    encodeTypeCore tryLeaf (g.AddArgument()) a
+            | TyRecord(name, [ elem ]) when name = listTypeName ->
+                // `list<elem>` ≡ `FSharpList\`1<elem>`. Serves every list-typed
+                // slot: the `%A` printer's `FSharpFunc` arg, the `PrintfFormat`
+                // ctor / `PrintFormatLine` / `Invoke` instantiations, and any
+                // list-typed local signature.
+                encodeListOf te (fun arg -> encodeTypeCore tryLeaf arg elem)
+            | other -> failwithf "ClrProvider: cannot encode SemType: %A" other
+
+    /// Encode a (zonked) `SemType` for the executable path — no typar markers, so
+    /// the leaf hook is a no-op.
+    and encodeType (te: SignatureTypeEncoder) (t: SemType) : unit = encodeTypeCore (fun _ _ -> false) te t
 
     let lastSegment (name: string) : string =
         let i = name.LastIndexOf '.'
@@ -175,11 +238,11 @@ type ClrProvider(ctx: MetadataContext) =
     let encodeFormatParam (te: SignatureTypeEncoder) : unit =
         markFSharpCoreDep "Microsoft.FSharp.Core.PrintfFormat`4"
         markFSharpCoreDep "Microsoft.FSharp.Core.Unit"
-        let g = te.GenericInstantiation(ePrintfFormat4, 4, false)
+        let g = te.GenericInstantiation(ePrintfFormat4.Value, 4, false)
         g.AddArgument().GenericMethodTypeParameter(0)
-        g.AddArgument().Type(eTextWriter, false)
-        g.AddArgument().Type(eUnit, false)
-        g.AddArgument().Type(eUnit, false)
+        g.AddArgument().Type(eTextWriter.Value, false)
+        g.AddArgument().Type(eUnit.Value, false)
+        g.AddArgument().Type(eUnit.Value, false)
 
     /// `printfn` → `call PrintfModule::PrintFormatLine<printer>(format)`. The
     /// `printer` (e.g. `int -> unit` for `"%d"`) is the *result* of the head's
@@ -205,7 +268,7 @@ type ClrProvider(ctx: MetadataContext) =
                 (fun (pars: ParametersEncoder) -> encodeFormatParam (pars.AddParameter().Type()))
             )
 
-        let memberRef = ctx.MemberRef(ePrintfModule, "PrintFormatLine", msig)
+        let memberRef = ctx.MemberRef(ePrintfModule.Value, "PrintFormatLine", msig)
 
         // Method specification instantiating T = resultTy.
         let inst = BlobBuilder()
@@ -230,7 +293,7 @@ type ClrProvider(ctx: MetadataContext) =
         | TyFun(a, b) ->
             let tsB = BlobBuilder()
             let te = BlobEncoder(tsB).TypeSpecificationSignature()
-            let g = te.GenericInstantiation(eFSharpFunc2, 2, false)
+            let g = te.GenericInstantiation(eFSharpFunc2.Value, 2, false)
             encodeType (g.AddArgument()) a
             encodeType (g.AddArgument()) b
             let typeSpec = ctx.TypeSpec tsB
@@ -275,7 +338,7 @@ type ClrProvider(ctx: MetadataContext) =
         // TypeSpec for the instantiated generic, used as the member-ref parent.
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
-        let g = te.GenericInstantiation(ePrintfFormat4, List.length tyArgs, false)
+        let g = te.GenericInstantiation(ePrintfFormat4.Value, List.length tyArgs, false)
 
         for a in tyArgs do
             encodeType (g.AddArgument()) a
@@ -369,7 +432,7 @@ type ClrProvider(ctx: MetadataContext) =
         markFSharpCoreDep "Microsoft.FSharp.Core.FSharpFunc`2 (closure base)"
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
-        let g = te.GenericInstantiation(eFSharpFunc2, 2, false)
+        let g = te.GenericInstantiation(eFSharpFunc2.Value, 2, false)
         encodeType (g.AddArgument()) a
         encodeType (g.AddArgument()) b
         toEntity (ctx.TypeSpec tsB)
@@ -452,9 +515,9 @@ type ClrProvider(ctx: MetadataContext) =
                 (fun (ret: ReturnTypeEncoder) -> ret.Type().GenericMethodTypeParameter(1)),
                 (fun (pars: ParametersEncoder) ->
                     let folder = pars.AddParameter().Type()
-                    let g = folder.GenericInstantiation(eFSharpFunc2, 2, false)
+                    let g = folder.GenericInstantiation(eFSharpFunc2.Value, 2, false)
                     g.AddArgument().GenericMethodTypeParameter(1)
-                    let inner = g.AddArgument().GenericInstantiation(eFSharpFunc2, 2, false)
+                    let inner = g.AddArgument().GenericInstantiation(eFSharpFunc2.Value, 2, false)
                     inner.AddArgument().GenericMethodTypeParameter(0)
                     inner.AddArgument().GenericMethodTypeParameter(1)
                     pars.AddParameter().Type().GenericMethodTypeParameter(1)
@@ -462,7 +525,7 @@ type ClrProvider(ctx: MetadataContext) =
                 )
             )
 
-        let memberRef = ctx.MemberRef(eListModule, "Fold", msig)
+        let memberRef = ctx.MemberRef(eListModule.Value, "Fold", msig)
 
         // MethodSpec instantiating <'T = elemTy, 'State = stateTy>.
         let inst = BlobBuilder()
@@ -505,11 +568,11 @@ type ClrProvider(ctx: MetadataContext) =
                     (fun (pars: ParametersEncoder) ->
                         pars.AddParameter().Type().Int32()
                         pars.AddParameter().Type().Int32()
-                        pars.AddParameter().Type().Type(eTextWriter, false)
+                        pars.AddParameter().Type().Type(eTextWriter.Value, false)
                     )
                 )
 
-            toEntity (ctx.MemberRef(eFormatter, ".ctor", s))
+            toEntity (ctx.MemberRef(eFormatter.Value, ".ctor", s))
 
         let ctorString =
             let s = BlobBuilder()
@@ -525,7 +588,7 @@ type ClrProvider(ctx: MetadataContext) =
                     )
                 )
 
-            toEntity (ctx.MemberRef(eFormatter, ".ctor", s))
+            toEntity (ctx.MemberRef(eFormatter.Value, ".ctor", s))
 
         let appendLiteral =
             let s = BlobBuilder()
@@ -538,7 +601,7 @@ type ClrProvider(ctx: MetadataContext) =
                     (fun (pars: ParametersEncoder) -> pars.AddParameter().Type().String())
                 )
 
-            toEntity (ctx.MemberRef(eFormatter, "AppendLiteral", s))
+            toEntity (ctx.MemberRef(eFormatter.Value, "AppendLiteral", s))
 
         let flush =
             let s = BlobBuilder()
@@ -547,7 +610,7 @@ type ClrProvider(ctx: MetadataContext) =
                 .MethodSignature(isInstanceMethod = true)
                 .Parameters(0, (fun (ret: ReturnTypeEncoder) -> ret.Void()), (fun (_: ParametersEncoder) -> ()))
 
-            toEntity (ctx.MemberRef(eFormatter, "Flush", s))
+            toEntity (ctx.MemberRef(eFormatter.Value, "Flush", s))
 
         let toStringAndClear =
             let s = BlobBuilder()
@@ -560,7 +623,7 @@ type ClrProvider(ctx: MetadataContext) =
                     (fun (_: ParametersEncoder) -> ())
                 )
 
-            toEntity (ctx.MemberRef(eFormatter, "ToStringAndClear", s))
+            toEntity (ctx.MemberRef(eFormatter.Value, "ToStringAndClear", s))
 
         // `instance void AppendBool(bool, int32)` / `AppendOctal(int32, int32)`
         // / `AppendUnsigned(uint32, int32)` — the dedicated handler members for
@@ -580,7 +643,7 @@ type ClrProvider(ctx: MetadataContext) =
                     )
                 )
 
-            toEntity (ctx.MemberRef(eFormatter, name, s))
+            toEntity (ctx.MemberRef(eFormatter.Value, name, s))
 
         let appendBool = appendMember "AppendBool" (fun te -> te.Boolean())
         let appendOctal = appendMember "AppendOctal" (fun te -> te.Int32())
@@ -604,7 +667,7 @@ type ClrProvider(ctx: MetadataContext) =
                     )
                 )
 
-            toEntity (ctx.MemberRef(eFormatter, "AppendZeroPaddedFloat", s))
+            toEntity (ctx.MemberRef(eFormatter.Value, "AppendZeroPaddedFloat", s))
 
         let consoleGetter (name: string) : EntityHandle =
             let s = BlobBuilder()
@@ -613,11 +676,11 @@ type ClrProvider(ctx: MetadataContext) =
                 .MethodSignature(isInstanceMethod = false)
                 .Parameters(
                     0,
-                    (fun (ret: ReturnTypeEncoder) -> ret.Type().Type(eTextWriter, false)),
+                    (fun (ret: ReturnTypeEncoder) -> ret.Type().Type(eTextWriter.Value, false)),
                     (fun (_: ParametersEncoder) -> ())
                 )
 
-            toEntity (ctx.MemberRef(eConsole, name, s))
+            toEntity (ctx.MemberRef(eConsole.Value, name, s))
 
         // `AppendFormatted<T>(value [, int alignment] [, string format])` — the
         // overload is selected by which optional params are present (alignment
@@ -642,7 +705,7 @@ type ClrProvider(ctx: MetadataContext) =
                     )
                 )
 
-            let memberRef = ctx.MemberRef(eFormatter, "AppendFormatted", s)
+            let memberRef = ctx.MemberRef(eFormatter.Value, "AppendFormatted", s)
             let inst = BlobBuilder()
             let specEnc = BlobEncoder(inst).MethodSpecificationSignature(1)
             encodeType (specEnc.AddArgument()) (zonk ty)
@@ -664,7 +727,7 @@ type ClrProvider(ctx: MetadataContext) =
             AppendZeroPaddedFloat = appendZeroPaddedFloat
         }
 
-    member _.ObjectType: EntityHandle = eObject
+    member _.ObjectType: EntityHandle = eObject.Value
 
     /// `FSharpFunc\`2<a,b>` `TypeSpec` for a closure's base type.
     member _.ClosureBaseSpec(a: SemType, b: SemType) : EntityHandle = fsharpFunc2Spec a b
@@ -681,9 +744,34 @@ type ClrProvider(ctx: MetadataContext) =
     /// Field signature for a captured value of type `ty`.
     member _.FieldSignature(ty: SemType) : BlobBuilder = fieldSignature ty
 
+    /// Encode an abstract interface-method signature leaf (the library path, G5).
+    /// A typar marker (`TyConst "'A"`) resolves to a positional generic parameter —
+    /// the method's own typars (`methodIx`) shadow the declaring type's
+    /// (`typeIx`), so they are tried first — and every other (concrete) leaf is
+    /// delegated to `encodeType`. So an abstract signature can reference `unit`, a
+    /// nested function type, a primitive, etc.; concrete leaves that pin
+    /// FSharp.Core mark the dependency, so the library path's
+    /// `FSharpCoreDependencies` is accurate. Recurses through structural types
+    /// (a higher-order `('A -> 'B) -> 'C` param) via `encodeTypeCore`, intercepting
+    /// typars at every depth — not just at the top decurried params.
+    member _.EncodeAbstractType
+        (typeIx: Map<string, int>, methodIx: Map<string, int>, te: SignatureTypeEncoder, t: SemType)
+        : unit =
+        let tryLeaf (te: SignatureTypeEncoder) (zt: SemType) : bool =
+            match zt with
+            | TyConst name when methodIx.ContainsKey name ->
+                te.GenericMethodTypeParameter(methodIx.[name])
+                true
+            | TyConst name when typeIx.ContainsKey name ->
+                te.GenericTypeParameter(typeIx.[name])
+                true
+            | _ -> false
+
+        encodeTypeCore tryLeaf te t
+
     interface ICodegenProvider with
-        member _.ObjectType = eObject
-        member _.DecimalCtor = eDecimalCtor
+        member _.ObjectType = eObject.Value
+        member _.DecimalCtor = eDecimalCtor.Value
 
         // Sorted for a deterministic, diff-friendly dependency list.
         member _.FSharpCoreDependencies() =

@@ -689,6 +689,27 @@ module NameResolution =
 
         walk b.headPat
 
+    /// Name + naming token of a member-signature `ident` (plain ident or a
+    /// symbolic operator name). Used to register abstract member signatures.
+    let private identOrOpNameTok (ctx: PassContext) (id: IdentOrOp<SyntaxToken>) : (string * SyntaxToken) voption =
+        match id with
+        | IdentOrOp.Ident t -> ValueSome(ctx.NameOf t, t)
+        | IdentOrOp.ParenOp(opName = OpName.SymbolicOp op) -> ValueSome(ctx.NameOf op, op)
+        | _ -> ValueNone
+
+    /// A member's *own* declared typars — the `<'C, …>` after the member name —
+    /// in source order. Skips anonymous typars (they can't key a name-scope).
+    let private memberTyparNames (ctx: PassContext) (tds: TyparDefns<SyntaxToken> voption) : string list =
+        match tds with
+        | ValueNone -> []
+        | ValueSome(TyparDefns(defns = ds)) ->
+            [
+                for TyparDefn(typar = t) in ds do
+                    match typarName ctx t with
+                    | ValueSome n -> yield n
+                    | ValueNone -> ()
+            ]
+
     /// Stamp `ClassTypeInfo` entries for every `TypeDefn.Class` (or
     /// `TypeDefn.Anon` — the parser emits `Anon` for the bare
     /// `type C(...) = member ...` form without an explicit `class`/`end`
@@ -772,6 +793,29 @@ module NameResolution =
                                 memberInfos.Add(
                                     ClassMemberInfo(mName, ClassMemberKind.Property, isStatic, TyVar tv, mKey)
                                 )
+                            | MethodOrPropDefn.AbstractSignature(MemberSig.MethodOrPropSig(
+                                ident = idOrOp; typarDefns = tds)) ->
+                                // An abstract method signature registers as a
+                                // `Method` member with a placeholder TyVar;
+                                // Unification's `fillClassMembers` links it to the
+                                // resolved signature, and Freeze reads these to
+                                // surface the interface. (A `PropSig` abstract
+                                // member is a property — out of scope for rung 1.)
+                                match identOrOpNameTok ctx idOrOp with
+                                | ValueSome(mName, mTok) ->
+                                    let tv = TypeVar()
+                                    tv.Level <- 0
+                                    let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
+
+                                    let cmi = ClassMemberInfo(mName, ClassMemberKind.Method, isStatic, TyVar tv, mKey)
+
+                                    // The method's own `<'C, …>` typars get prototype
+                                    // TyVars here so Unification scopes the signature
+                                    // against them and Freeze can surface them as the
+                                    // method's `GenericMethodParameter`s.
+                                    cmi.MethodTypeParams <- mkTypeParams (memberTyparNames ctx tds)
+                                    memberInfos.Add cmi
+                                | ValueNone -> ()
                             | MethodOrPropDefn.PropertyWithGetSet _
                             | MethodOrPropDefn.AbstractSignature _ ->
                                 ctx.Diagnostics.Add
@@ -981,8 +1025,4 @@ module NameResolution =
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
         let walker = mkWalker ctx
-
-        match file with
-        | ImplementationFile.AnonymousModule elems -> walkElems ctx walker elems
-        | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) -> walkElems ctx walker elems
-        | ImplementationFile.Namespaces _ -> ()
+        walkElems ctx walker (CstWalk.implFileElems file)
