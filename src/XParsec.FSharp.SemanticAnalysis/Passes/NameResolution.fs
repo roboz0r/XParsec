@@ -535,12 +535,39 @@ module NameResolution =
                 registerUnionTypeDefn ctx td
         | _ -> ()
 
+    /// Stitch the inline-IL string of a `Type.ILIntrinsic` RHS (e.g.
+    /// `(# "System.Int32" #)` → `"System.Int32"`). The instruction parts are
+    /// almost always a single `StringPart.Text`; we stitch any token-bearing
+    /// part defensively. Mirrors `Freeze.stitchLiteralString`.
+    let private ilIntrinsicString (ctx: PassContext) (parts: ImmutableArray<StringPart<SyntaxToken>>) : string =
+        let sb = System.Text.StringBuilder()
+        // TODO: Error handling for unsupported parts (Expr, InvalidText); they shouldn't proceed. Raise dianostics.
+        for part in parts do
+            match part with
+            | StringPart.Text t
+            | StringPart.EscapeSequence t
+            | StringPart.FormatSpecifier t
+            | StringPart.EscapePercent t
+            | StringPart.VerbatimEscapeQuote t
+            | StringPart.OrphanFormatSpecifier t
+            | StringPart.InvalidText t -> sb.Append(ctx.NameOf t) |> ignore
+            | StringPart.Expr _ -> ()
+
+        sb.ToString()
+
     /// Stamp an `AbbreviationInfo` entry for every `TypeDefn.Abbrev` in
     /// this group. Body is left unfilled (`Status = NotFilled`);
     /// Unification's `fillAbbreviationBodies` pre-pass forces each body
     /// once every type registration is complete, so an abbreviation's
     /// RHS can reference any other type in the same file regardless of
     /// declaration order.
+    ///
+    /// An abbrev whose RHS is `Type.ILIntrinsic` is the exception: it is a
+    /// *primitive binding*, not a transparent alias. It's recorded in
+    /// `IntrinsicReprTypes` (name → IL string) and kept out of
+    /// `AbbreviationTypes`, so `translateType` resolves the name to `TyConst name`
+    /// rather than eagerly expanding the RHS. See docs/self-host-rung1-plan.md
+    /// ("The intrinsic-impl rule").
     let private registerAbbreviationDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
         | TypeDefn.Abbrev(typeName = tn; typ = rhs) ->
@@ -558,6 +585,7 @@ module NameResolution =
                     ctx.RecordTypes.ContainsKey name
                     || ctx.UnionTypes.ContainsKey name
                     || ctx.AbbreviationTypes.ContainsKey name
+                    || ctx.IntrinsicReprTypes.ContainsKey name
                 then
                     ctx.Diagnostics.Add
                         {
@@ -566,12 +594,18 @@ module NameResolution =
                             Severity = Error
                         }
                 else
-                    let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
+                    match rhs with
+                    | Type.ILIntrinsic(instrParts = parts) ->
+                        // Primitive binding: record the representation, register
+                        // the name as a nominal intrinsic. Not a transparent abbrev.
+                        ctx.IntrinsicReprTypes.[name] <- ilIntrinsicString ctx parts
+                    | _ ->
+                        let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
 
-                    let info =
-                        AbbreviationInfo(name, typeParams, rhs, declKey, typarConstraintsOfTypeName tn)
+                        let info =
+                            AbbreviationInfo(name, typeParams, rhs, declKey, typarConstraintsOfTypeName tn)
 
-                    ctx.AbbreviationTypes.[name] <- info
+                        ctx.AbbreviationTypes.[name] <- info
         | _ -> ()
 
     let private registerAbbreviationTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =

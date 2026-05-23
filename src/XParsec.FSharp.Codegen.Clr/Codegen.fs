@@ -223,11 +223,160 @@ module Codegen =
             FSharpCoreDependencies = icodegen.FSharpCoreDependencies()
         }
 
+    // ---- Library emission: declared types, no entry point (self-host rung 1) ----
+
+    /// `Public ||| Abstract ||| Virtual ||| HideBySig ||| NewSlot` — an abstract
+    /// interface method (no body; `AddMethod` is called with `bodyOffset = -1`).
+    let private abstractMethodAttrs =
+        MethodAttributes.Public
+        ||| MethodAttributes.Abstract
+        ||| MethodAttributes.Virtual
+        ||| MethodAttributes.HideBySig
+        ||| MethodAttributes.NewSlot
+
+    /// Decurry a curried function `SemType` into (parameter types, return type).
+    /// `TyFun('A, 'B)` ⇒ `(['A], 'B)`.
+    let rec private decurry (t: SemType) : SemType list * SemType =
+        match t with
+        | TyFun(a, b) ->
+            let ps, r = decurry b
+            a :: ps, r
+        | _ -> [], t
+
+    /// Encode an abstract-method signature leaf. A declaring-type type parameter
+    /// (carried as a `TyConst "'A"` marker, looked up in `typarIx`) becomes a
+    /// `GenericTypeParameter` of that index; primitives encode directly. Anything
+    /// needing an external reference (e.g. a nested `FSharpFunc`) is out of scope
+    /// for rung 1 — the library path is intentionally provider-free, so the
+    /// emitted DLL carries no `AssemblyRef` it doesn't truly use.
+    let rec private encodeTyparLeaf (typarIx: Map<string, int>) (te: SignatureTypeEncoder) (t: SemType) : unit =
+        match t with
+        | TyConst name when typarIx.ContainsKey name -> te.GenericTypeParameter(typarIx.[name])
+        | TyConst "int" -> te.Int32()
+        | TyConst "int64" -> te.Int64()
+        | TyConst "byte" -> te.Byte()
+        | TyConst "float" -> te.Double()
+        | TyConst "bool" -> te.Boolean()
+        | TyConst "char" -> te.Char()
+        | TyConst "string" -> te.String()
+        | other -> failwithf "Codegen.assembleLibrary: abstract-method signature type not supported in rung 1: %A" other
+
+    /// `instance <ret> <name>(<params…>)` for an abstract interface method, with
+    /// the declaring type's type parameters resolved to `GenericTypeParameter`
+    /// indices.
+    let private abstractMethodSignature (typeParams: string list) (m: TAbstractMethod) : BlobBuilder =
+        let typarIx = typeParams |> List.mapi (fun i n -> n, i) |> Map.ofList
+        let paramTys, retTy = decurry m.Signature
+        let blob = BlobBuilder()
+
+        BlobEncoder(blob)
+            .MethodSignature(isInstanceMethod = true)
+            .Parameters(
+                List.length paramTys,
+                (fun (ret: ReturnTypeEncoder) -> encodeTyparLeaf typarIx (ret.Type()) retTy),
+                (fun (pars: ParametersEncoder) ->
+                    for p in paramTys do
+                        encodeTyparLeaf typarIx (pars.AddParameter().Type()) p
+                )
+            )
+
+        blob
+
+    /// Assemble a library PE: the declared interface types only, no `Main`. Method
+    /// rows are added before the `TypeDefinition` rows that claim them (and before
+    /// each type's `GenericParam` rows), keeping the metadata ranges contiguous.
+    let private assembleLibrary (project: ProjectInfo) (tast: TastFile) : ClrArtifact =
+        let ctx = MetadataContext()
+        ctx.AddModuleAndAssembly(project.AssemblyName)
+
+        let interfaces =
+            tast.Decls
+            |> List.choose (fun d ->
+                match d with
+                | TDecl.Type td ->
+                    match td.Kind with
+                    | TTypeKind.Interface methods -> Some(td, methods)
+                | _ -> None
+            )
+
+        // Every abstract method row first (no body), recording each interface's
+        // first-method handle for the TypeDefinition that claims it. Each method
+        // gets `Param` rows (with a valid `ParamList`) so it round-trips through
+        // reflection's `GetParameters`, not just execution.
+        let mutable methodCount = 0
+        let mutable paramCount = 0
+        let pending = ResizeArray<TTypeDecl * MethodDefinitionHandle>()
+
+        for (td, methods) in interfaces do
+            let firstMethod = MetadataTokens.MethodDefinitionHandle(methodCount + 1)
+
+            for m in methods do
+                let paramTys, _ = decurry m.Signature
+                let firstParam = MetadataTokens.ParameterHandle(paramCount + 1)
+
+                paramTys
+                |> List.iteri (fun i _ ->
+                    ctx.AddParameter(i + 1, sprintf "arg%d" i) |> ignore
+                    paramCount <- paramCount + 1
+                )
+
+                ctx.AddMethodWithParamList(
+                    abstractMethodAttrs,
+                    m.Name,
+                    abstractMethodSignature td.TypeParams m,
+                    -1,
+                    firstParam
+                )
+                |> ignore
+
+                methodCount <- methodCount + 1
+
+            pending.Add(td, firstMethod)
+
+        // `<Module>` (TypeDef row 1) points at the first real method; its own
+        // method range stays empty.
+        ctx.AddModuleType(MetadataTokens.MethodDefinitionHandle(1))
+
+        // Interfaces have no fields, so every field range is empty and starts at 1.
+        let emptyFirstField = MetadataTokens.FieldDefinitionHandle(1)
+
+        for (td, firstMethod) in pending do
+            let ns =
+                match td.Namespace with
+                | Some n -> n
+                | None -> ""
+
+            let metaName =
+                if List.isEmpty td.TypeParams then
+                    td.Name
+                else
+                    sprintf "%s`%d" td.Name (List.length td.TypeParams)
+
+            let typeHandle = ctx.AddInterfaceType(ns, metaName, emptyFirstField, firstMethod)
+
+            // Generic-parameter rows, in index order (the metadata name drops the
+            // F# leading quote: `'A` ⇒ `A`).
+            td.TypeParams
+            |> List.iteri (fun i n -> ctx.AddGenericParameter(typeHandle, i, n.TrimStart('\'')) |> ignore)
+
+        {
+            AssemblyName = project.AssemblyName
+            OutputPath = project.OutputPath
+            Pe = ctx.SerializeLibrary()
+            // The library path is provider-free; a typar-only interface references
+            // no FSharp.Core construct.
+            FSharpCoreDependencies = []
+        }
+
     /// TAST + symbol context → in-memory PE artifact. The `symbols` provider
     /// is accepted per the shared-inputs posture; slice 1 reads everything it
-    /// needs from the TAST and the target `ClrProvider`.
+    /// needs from the TAST and the target `ClrProvider`. `ProjectInfo.OutputKind`
+    /// routes to the executable (`Main` + `Program`) or library (declared types,
+    /// no entry point) assembler.
     let compile (_symbols: IExternalSymbolProvider) (project: ProjectInfo) (tast: TastFile) : ClrArtifact =
-        assembleProgram project tast
+        match project.OutputKind with
+        | Library -> assembleLibrary project tast
+        | Exe -> assembleProgram project tast
 
     /// Assemble a single hand-written `Main` body (a typed `Op` from the empty
     /// stack) into an artifact. The testable seam for the `Cil` body DSL,

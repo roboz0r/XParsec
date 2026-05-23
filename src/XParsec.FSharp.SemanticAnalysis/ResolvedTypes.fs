@@ -250,6 +250,10 @@ module ResolvedTypes =
         | TDecl.Expression(e, ty) ->
             addFreeRoots allowed acc ty
             walkExpr ctx allowed acc e
+        | TDecl.Type _ ->
+            // Surfaced type declarations carry no inferred TyVars to resolve
+            // (their signatures are already concrete / typar markers by Freeze).
+            ()
 
         if acc.Count > 0 then
             ctx.Diagnostics.Add

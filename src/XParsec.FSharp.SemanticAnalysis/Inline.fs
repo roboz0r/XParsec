@@ -163,6 +163,7 @@ module Inline =
 
             if subst.Count = 0 then value else substExpr subst value
         | TDecl.Expression _ -> invalidArg "decl" "Inline.inlineExpand expects a TDecl.Let, got a TDecl.Expression"
+        | TDecl.Type _ -> invalidArg "decl" "Inline.inlineExpand expects a TDecl.Let, got a TDecl.Type"
 
     /// Rename every binder NodeKey in `body` (and the references to it) to a
     /// fresh key from `mint`, returning a structurally-new TExpr. Two

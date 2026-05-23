@@ -5,6 +5,12 @@ namespace XParsec.FSharp.Codegen.Clr
 // a record of `option`-typed slots, so targets read different fields and
 // future additions stay non-breaking.
 
+/// Whether `compile` emits an executable (a synthesised `Main` entry point +
+/// the `Program` holder) or a library (declared types only, no entry point).
+type OutputKind =
+    | Exe
+    | Library
+
 type ProjectInfo =
     {
         /// Emitted assembly's simple name (no extension).
@@ -24,6 +30,9 @@ type ProjectInfo =
         /// identity from the FSharp.Core already loaded in the codegen host
         /// process (see [[project_dotnet_provider_stack]]).
         FSharpCorePath: string option
+        /// Executable (default) or library. `compile` routes `Library` to the
+        /// no-entry-point `assembleLibrary` path.
+        OutputKind: OutputKind
     }
 
 module ProjectInfo =
@@ -36,6 +45,7 @@ module ProjectInfo =
             OutputPath = None
             TargetFramework = None
             FSharpCorePath = None
+            OutputKind = Exe
         }
 
     /// A `ProjectInfo` for a runnable on-disk app: the PE lands at
@@ -45,4 +55,12 @@ module ProjectInfo =
     let app (assemblyName: string) (outDir: string) : ProjectInfo =
         { defaults assemblyName with
             OutputPath = Some(System.IO.Path.Combine(outDir, assemblyName + ".dll"))
+        }
+
+    /// A `ProjectInfo` for an in-memory library build — declared types only, no
+    /// entry point. `OutputPath` stays `None` (callers load the bytes directly);
+    /// set it for an on-disk DLL.
+    let library (assemblyName: string) : ProjectInfo =
+        { defaults assemblyName with
+            OutputKind = Library
         }

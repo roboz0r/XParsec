@@ -191,6 +191,36 @@ type TDecl =
     /// Top-level expression (script fragments parse as a module with one
     /// Expression element).
     | Expression of expr: TExpr * ty: SemType
+    /// A declared nominal type surfaced for emission. Rung 1 (self-host) emits
+    /// only the interface shape — a nominal type whose members are all abstract,
+    /// from a `TypeDefn.Anon` / `TypeDefn.Interface` body. Records / unions /
+    /// classes are later rungs. See docs/self-host-rung1-plan.md.
+    | Type of TTypeDecl
+
+/// A surfaced nominal type declaration.
+and TTypeDecl =
+    {
+        /// Simple (unqualified) type name, e.g. `"Fun"`. The metadata name gets
+        /// the arity suffix (`` Fun`2 ``) from `TypeParams.Length`.
+        Name: string
+        /// Enclosing namespace, e.g. `Some "Vesper"`; `None` for a module-level type.
+        Namespace: string option
+        /// Declared type parameters in source order (e.g. `["'A"; "'B"]`). Length
+        /// is the generic arity.
+        TypeParams: string list
+        Kind: TTypeKind
+    }
+
+and [<RequireQualifiedAccess>] TTypeKind =
+    /// An interface: a nominal type whose members are all abstract and which has
+    /// no base type / field. Rung 1's only kind.
+    | Interface of methods: TAbstractMethod list
+
+/// One abstract method. `Signature` is the curried function type; a type
+/// parameter of the *declaring type* is carried as `TyConst "'A"` (a name marker
+/// the backend resolves to a `GenericTypeParameter` index). For `Invoke` it is
+/// `TyFun(TyConst "'A", TyConst "'B")`.
+and TAbstractMethod = { Name: string; Signature: SemType }
 
 type TastFile =
     {

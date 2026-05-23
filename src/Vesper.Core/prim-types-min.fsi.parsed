@@ -1,92 +1,71 @@
-namespace                'namespace'       KWNamespace         tok=   0  pos=   0
-                         'Vesper'          Identifier          tok=   2  pos=  10
-  Import:
-    open                 'open'            KWOpen              tok=  16  pos= 164
-                         'System'          Identifier          tok=  18  pos= 169
+namespace           'namespace'       KWNamespace         tok=   0  pos=   0
+                    'Vesper'          Identifier          tok=   2  pos=  10
   Type:
-    type                 'type'            KWType              tok=  27  pos= 304
-    TypeSig.Abbrev:
-      TypeName           'int'             Identifier          tok=  29  pos= 309
-      =                  '='               OpEquality          tok=  31  pos= 313
-        NamedType:
-          Ident          'Int32'           Identifier          tok=  33  pos= 315
+    type            'type'            KWType              tok=  24  pos= 518
+    TypeSig.Extern:
+      TypeName      'int'             Identifier          tok=  26  pos= 523
+      =             '='               OpEquality          tok=  28  pos= 527
+      extern        'extern'          KWExtern            tok=  30  pos= 529
   Type:
-    type                 'type'            KWType              tok=  42  pos= 451
-    TypeSig.Abbrev:
-      TypeName           'bool'            Identifier          tok=  44  pos= 456
-      =                  '='               OpEquality          tok=  46  pos= 461
-        NamedType:
-          Ident          'Boolean'         Identifier          tok=  48  pos= 463
+    type            'type'            KWType              tok=  39  pos= 646
+    TypeSig.Extern:
+      TypeName      'bool'            Identifier          tok=  41  pos= 651
+      =             '='               OpEquality          tok=  43  pos= 656
+      extern        'extern'          KWExtern            tok=  45  pos= 658
   Type:
-    type                 'type'            KWType              tok=  67  pos= 810
+    type            'type'            KWType              tok=  54  pos= 778
+    TypeSig.Extern:
+      TypeName      'unit'            Identifier          tok=  56  pos= 783
+      =             '='               OpEquality          tok=  58  pos= 788
+      extern        'extern'          KWExtern            tok=  60  pos= 790
+  Type:
+    type            'type'            KWType              tok=  71  pos= 968
+    TypeSig.Extern:
+      PrefixTypar:
+        Typar.Named:
+                    ''T'              TypeParameter       tok=  73  pos= 973
+      TypeName      '``[]``'          BacktickedIdentifier  tok=  75  pos= 976
+      =             '='               OpEquality          tok=  77  pos= 983
+      extern        'extern'          KWExtern            tok=  79  pos= 985
+  Type:
+    type            'type'            KWType              tok=  88  pos=1147
     TypeSig.Abbrev:
       PrefixTypar:
         Typar.Named:
-                         ''T'              TypeParameter       tok=  69  pos= 815
-      TypeName           '``[]``'          BacktickedIdentifier  tok=  71  pos= 818
-      =                  '='               OpEquality          tok=  73  pos= 825
-        ILIntrinsic:
-          (#             '(#'              KWLHashParen        tok=  75  pos= 827
-          StringLiteral  '"'               StringOpen          tok=  77  pos= 830
-          Parts:
-            Text         '!0[]'            StringFragment      tok=  78  pos= 831
-                         '"'               StringClose         tok=  79  pos= 835
-          #)             '#)'              KWRHashParen        tok=  81  pos= 837
-  Type:
-    type                 'type'            KWType              tok=  98  pos=1208
-    TypeSig.Abbrev:
-      PrefixTypar:
-        Typar.Named:
-                         ''T'              TypeParameter       tok= 100  pos=1213
-      TypeName           'array'           Identifier          tok= 102  pos=1216
-      =                  '='               OpEquality          tok= 104  pos=1222
+                    ''T'              TypeParameter       tok=  90  pos=1152
+      TypeName      'array'           Identifier          tok=  92  pos=1155
+      =             '='               OpEquality          tok=  94  pos=1161
         ArrayType:
           VarType:
             Typar.Named:
-                         ''T'              TypeParameter       tok= 106  pos=1224
-                         '['               KWLBracket          tok= 107  pos=1226
-                         ']'               KWRBracket          tok= 108  pos=1227
+                    ''T'              TypeParameter       tok=  96  pos=1163
+                    '['               KWLBracket          tok=  97  pos=1165
+                    ']'               KWRBracket          tok=  98  pos=1166
   Type:
-    type                 'type'            KWType              tok= 111  pos=1230
+    type            'type'            KWType              tok= 107  pos=1305
     TypeSig.Anon:
-      TypeName           'Fun'             Identifier          tok= 113  pos=1235
+      TypeName      'Fun'             Identifier          tok= 109  pos=1310
       TyparDefns:
-        <                '<'               op_LessThan         tok= 114  pos=1238
+        <           '<'               op_LessThan         tok= 110  pos=1313
         Typar.Named:
-                         ''A'              TypeParameter       tok= 115  pos=1239
+                    ''A'              TypeParameter       tok= 111  pos=1314
         Typar.Named:
-                         ''B'              TypeParameter       tok= 118  pos=1243
-        >                '>'               op_GreaterThan      tok= 119  pos=1245
-      =                  '='               OpEquality          tok= 121  pos=1247
-      begin              <virt>            KWBegin             tok=virt  pos=1253
+                    ''B'              TypeParameter       tok= 114  pos=1318
+        >           '>'               op_GreaterThan      tok= 115  pos=1320
+      =             '='               OpEquality          tok= 117  pos=1322
+      begin         <virt>            KWBegin             tok=virt  pos=1328
         Abstract:
-          abstract       'abstract'        KWAbstract          tok= 124  pos=1253
-          member         'member'          KWMember            tok= 126  pos=1262
-          Ident          'Invoke'          Identifier          tok= 128  pos=1269
-          :              ':'               OpColon             tok= 130  pos=1276
-          arg            'arg'             Identifier          tok= 132  pos=1278
-          :              ':'               OpColon             tok= 133  pos=1281
+          abstract  'abstract'        KWAbstract          tok= 120  pos=1328
+          member    'member'          KWMember            tok= 122  pos=1337
+          Ident     'Invoke'          Identifier          tok= 124  pos=1344
+          :         ':'               OpColon             tok= 125  pos=1350
+          arg       'arg'             Identifier          tok= 127  pos=1352
+          :         ':'               OpColon             tok= 128  pos=1355
           VarType:
             Typar.Named:
-                         ''A'              TypeParameter       tok= 134  pos=1282
-          ->             '->'              OpArrowRight        tok= 136  pos=1285
+                    ''A'              TypeParameter       tok= 130  pos=1357
+          ->        '->'              OpArrowRight        tok= 132  pos=1360
           VarType:
             Typar.Named:
-                         ''B'              TypeParameter       tok= 138  pos=1288
-      end                <virt>            KWEnd               tok=virt  pos=1596
-  Type:
-    type                 'type'            KWType              tok= 157  pos=1596
-    TypeSig.Abbrev:
-      TypeName           'Unit'            Identifier          tok= 159  pos=1601
-      =                  '='               OpEquality          tok= 161  pos=1606
-        NamedType:
-          Ident          'ValueTuple'      Identifier          tok= 163  pos=1608
-    and                  'and'             KWAnd               tok= 173  pos=1746
-    TypeSig.Abbrev:
-      TypeName           'unit'            Identifier          tok= 175  pos=1750
-      =                  '='               OpEquality          tok= 177  pos=1755
-        NamedType:
-          Ident          'Unit'            Identifier          tok= 179  pos=1757
----
-WarnDirectives:
-  #nowarn 42 (Ln 4)
+                    ''B'              TypeParameter       tok= 134  pos=1363
+      end           <virt>            KWEnd               tok=virt  pos=1366

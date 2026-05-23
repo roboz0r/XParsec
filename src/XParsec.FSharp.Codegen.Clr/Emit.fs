@@ -275,6 +275,9 @@ module Emit =
             | TDecl.Let(_, _, true, _) -> None
             | TDecl.Let(p, value, false, t) -> Some(TDecl.Let(p, lowerExpr value, false, t))
             | TDecl.Expression(e, t) -> Some(TDecl.Expression(lowerExpr e, t))
+            // Type declarations have no expression to lower; they're emitted as
+            // metadata by the library path, not through the value/expr stream.
+            | TDecl.Type _ -> None
         )
 
     // ---- Closure discovery + capture analysis ----
@@ -388,6 +391,7 @@ module Emit =
             match d with
             | TDecl.Let(_, value, _, _) -> go value
             | TDecl.Expression(e, _) -> go e
+            | TDecl.Type _ -> ()
 
         [ for n in order -> lookup.[n] ], lookup
 
@@ -718,6 +722,7 @@ module Emit =
                 emitExpr env il value
                 Cil.emitStloc il slot
             | TDecl.Let _ -> ()
+            | TDecl.Type _ -> ()
 
         Cil.emitLdcI4 il 0
         Cil.emitRet il

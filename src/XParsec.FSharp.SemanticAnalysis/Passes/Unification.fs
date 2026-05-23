@@ -1191,6 +1191,12 @@ module Unification =
             | "string" -> MockBuiltins.tyString
             | "int64" -> MockBuiltins.tyInt64
             | "byte" -> MockBuiltins.tyByte
+            | _ when ctx.IntrinsicReprTypes.ContainsKey name ->
+                // Primitive binding (`type int = (# "System.Int32" #)`): a
+                // nominal intrinsic, NOT a transparent abbreviation. Resolve to
+                // `TyConst name`; the representation string is consumed later by
+                // the codegen `encodeType` rekey. See docs/self-host-rung1-plan.md.
+                TyConst name
             | _ ->
                 match ctx.AbbreviationTypes.TryGetValue name with
                 | true, info ->
@@ -1288,47 +1294,53 @@ module Unification =
                         Severity = Error
                     }
 
-            match ctx.AbbreviationTypes.TryGetValue name with
-            | true, info ->
-                forceFill ctx info
-                let expected = List.length info.TypeParams
+            if ctx.IntrinsicReprTypes.ContainsKey name then
+                // Generic primitive binding (e.g. an intrinsic with type params):
+                // nominal, not transparent — same rule as the bare-name arm above.
+                TyConst name
+            else
 
-                if expected <> argCount then
-                    diagnoseArity expected
-
-                expandAbbreviation ctx diagKey info translatedArgs
-            | false, _ ->
-                match ctx.RecordTypes.TryGetValue name with
+                match ctx.AbbreviationTypes.TryGetValue name with
                 | true, info ->
+                    forceFill ctx info
                     let expected = List.length info.TypeParams
 
                     if expected <> argCount then
                         diagnoseArity expected
 
-                    TyRecord(name, translatedArgs)
+                    expandAbbreviation ctx diagKey info translatedArgs
                 | false, _ ->
-                    match ctx.UnionTypes.TryGetValue name with
+                    match ctx.RecordTypes.TryGetValue name with
                     | true, info ->
                         let expected = List.length info.TypeParams
 
                         if expected <> argCount then
                             diagnoseArity expected
 
-                        TyUnion(name, translatedArgs)
+                        TyRecord(name, translatedArgs)
                     | false, _ ->
-                        match ctx.ClassTypes.TryGetValue name with
+                        match ctx.UnionTypes.TryGetValue name with
                         | true, info ->
                             let expected = List.length info.TypeParams
 
                             if expected <> argCount then
                                 diagnoseArity expected
 
-                            TyClass(name, translatedArgs)
+                            TyUnion(name, translatedArgs)
                         | false, _ ->
-                            // Unknown name with type args — surface as opaque
-                            // TyConst (matches today's behaviour for unrecognised
-                            // bare names; the args effectively get ignored).
-                            TyConst name
+                            match ctx.ClassTypes.TryGetValue name with
+                            | true, info ->
+                                let expected = List.length info.TypeParams
+
+                                if expected <> argCount then
+                                    diagnoseArity expected
+
+                                TyClass(name, translatedArgs)
+                            | false, _ ->
+                                // Unknown name with type args — surface as opaque
+                                // TyConst (matches today's behaviour for unrecognised
+                                // bare names; the args effectively get ignored).
+                                TyConst name
         | Type.FunctionType(fromType = from; toType = into) -> TyFun(translateType ctx from, translateType ctx into)
         | Type.TupleType(types = types) -> TyTuple [ for t in types -> translateType ctx t ]
         | Type.WhenConstrainedType(typ = inner; constraints = cs) ->

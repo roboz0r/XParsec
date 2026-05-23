@@ -503,6 +503,43 @@ type private Renderer() =
         | TDecl.Expression(e, _) ->
             push "do "
             this.Expr e
+        | TDecl.Type td ->
+            let rec tyStr t =
+                match t with
+                | TyConst n -> n
+                | TyVar _ -> "_"
+                | TyFun(a, b) -> tyStr a + " -> " + tyStr b
+                | TyTuple ts -> ts |> List.map tyStr |> String.concat " * "
+                | TyRecord(n, _)
+                | TyUnion(n, _)
+                | TyClass(n, _) -> n
+
+            push "type "
+
+            match td.Namespace with
+            | Some ns ->
+                push ns
+                push "."
+            | None -> ()
+
+            push td.Name
+
+            if not (List.isEmpty td.TypeParams) then
+                push "<"
+                push (String.concat ", " td.TypeParams)
+                push ">"
+
+            push " = interface"
+
+            match td.Kind with
+            | TTypeKind.Interface methods ->
+                for m in methods do
+                    push " member "
+                    push m.Name
+                    push " : "
+                    push (tyStr m.Signature)
+
+            push " end"
 
 let prettyExpr (e: TExpr) : string =
     let r = Renderer()

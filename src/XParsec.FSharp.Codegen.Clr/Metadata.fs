@@ -141,6 +141,36 @@ type MetadataContext() =
             Unchecked.defaultof<ParameterHandle>
         )
 
+    /// Add a `Param` row (`sequenceNumber` 1-based; 0 is the return parameter).
+    /// A method's `Param` rows must be added in sequence order, before the
+    /// `MethodDefinition` that claims them via its `ParamList`.
+    member _.AddParameter(sequenceNumber: int, name: string) : ParameterHandle =
+        mb.AddParameter(
+            ParameterAttributes.None,
+            (if String.IsNullOrEmpty name then
+                 Unchecked.defaultof<StringHandle>
+             else
+                 mb.GetOrAddString(name)),
+            sequenceNumber
+        )
+
+    /// Add a `MethodDefinition` whose `ParamList` points at `firstParam` (the
+    /// first of its `Param` rows, or the past-the-end handle when it has none).
+    /// Unlike `AddMethod` — which passes a nil `ParamList`, fine for *executing*
+    /// a body but not for reflection's `GetParameters` — this records a valid
+    /// parameter range, so the emitted method round-trips through reflection.
+    member _.AddMethodWithParamList
+        (attrs: MethodAttributes, name: string, signature: BlobBuilder, bodyOffset: int, firstParam: ParameterHandle)
+        : MethodDefinitionHandle =
+        mb.AddMethodDefinition(
+            attrs,
+            MethodImplAttributes.IL,
+            mb.GetOrAddString(name),
+            mb.GetOrAddBlob(signature),
+            bodyOffset,
+            firstParam
+        )
+
     /// The mandatory `<Module>` pseudo-type (table row 1). `firstMethod`
     /// points at the first real method so its own method range stays empty.
     member _.AddModuleType(firstMethod: MethodDefinitionHandle) : unit =
@@ -199,11 +229,50 @@ type MetadataContext() =
             firstMethod
         )
 
+    /// A generic interface `TypeDefinition` — `Interface ||| Abstract ||| Public`,
+    /// **nil base** (interfaces have no base type). `ns` is the namespace (empty ⇒
+    /// global). `firstField` / `firstMethod` start its contiguous ranges (an
+    /// interface has no fields, so `firstField` points past any preceding rows).
+    /// Generic-parameter rows are added separately afterwards via
+    /// `AddGenericParameter`.
+    member _.AddInterfaceType
+        (ns: string, name: string, firstField: FieldDefinitionHandle, firstMethod: MethodDefinitionHandle)
+        : TypeDefinitionHandle =
+        mb.AddTypeDefinition(
+            TypeAttributes.Interface ||| TypeAttributes.Abstract ||| TypeAttributes.Public,
+            (if String.IsNullOrEmpty ns then
+                 Unchecked.defaultof<StringHandle>
+             else
+                 mb.GetOrAddString(ns)),
+            mb.GetOrAddString(name),
+            Unchecked.defaultof<EntityHandle>,
+            firstField,
+            firstMethod
+        )
+
+    /// A `GenericParam` row for `owner`'s type parameter at `index` (0-based).
+    /// SRM requires these added sorted by (owner, index); adding one owner's
+    /// parameters in index order satisfies that.
+    member _.AddGenericParameter(owner: TypeDefinitionHandle, index: int, name: string) : GenericParameterHandle =
+        mb.AddGenericParameter(toEntity owner, GenericParameterAttributes.None, mb.GetOrAddString(name), index)
+
     /// Serialise the assembled metadata + IL into a PE image.
     member _.Serialize(entryPoint: MethodDefinitionHandle) : BlobBuilder =
         let header = PEHeaderBuilder(imageCharacteristics = Characteristics.ExecutableImage)
         let root = MetadataRootBuilder(mb)
         let peBuilder = ManagedPEBuilder(header, root, ilBuilder, entryPoint = entryPoint)
+        let peBlob = BlobBuilder()
+        peBuilder.Serialize(peBlob) |> ignore
+        peBlob
+
+    /// Serialise as a *library* PE: DLL characteristics, **no entry point**.
+    member _.SerializeLibrary() : BlobBuilder =
+        let header =
+            PEHeaderBuilder(imageCharacteristics = (Characteristics.ExecutableImage ||| Characteristics.Dll))
+
+        let root = MetadataRootBuilder(mb)
+        // No `entryPoint` ⇒ the PE has no managed entry point (a library).
+        let peBuilder = ManagedPEBuilder(header, root, ilBuilder)
         let peBlob = BlobBuilder()
         peBuilder.Serialize(peBlob) |> ignore
         peBlob

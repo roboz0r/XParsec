@@ -278,6 +278,15 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// every `translateType` lookup, so downstream passes see the
     /// underlying type as if the user had written it longhand.
     member val AbbreviationTypes = Dictionary<string, AbbreviationInfo>() with get
+    /// Written by NameResolution from intrinsic-binding abbrevs — a
+    /// `TypeDefn.Abbrev` whose RHS is `Type.ILIntrinsic` (e.g.
+    /// `type int = (# "System.Int32" #)`). Maps the Vesper type name to its
+    /// target representation (the inline-IL string). Unlike `AbbreviationTypes`,
+    /// these are NOT transparent: a use site resolves to `TyConst name`, not the
+    /// RHS — the binding records *how the target represents* the type, not an
+    /// alias to expand. This is the input to the future `encodeType` rekey
+    /// (codegen keying `int → I4` off the string); see docs/self-host-rung1-plan.md.
+    member val IntrinsicReprTypes = Dictionary<string, string>() with get
     /// Written by NameResolution from `TypeDefn.Class`es. Member types
     /// start as placeholder TyVars and get linked by Unification's
     /// `fillClassMembers` pre-pass.

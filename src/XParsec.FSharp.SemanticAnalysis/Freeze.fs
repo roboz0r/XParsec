@@ -1280,7 +1280,152 @@ module Freeze =
             // `let f x y = body` is `let f = fun x y -> body`.
             translateFun ctx b.argumentPats b.expr
 
-    let private translateModuleElem (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : TDecl list =
+    // ---- Interface-shaped type declarations (self-host rung 1) ----
+    //
+    // Rung 1 surfaces exactly one emittable type shape: an interface (a nominal
+    // type whose object-model body is all-abstract members, no base, no preamble).
+    // The `Invoke` signature is built straight from the CST here — a declaring-type
+    // typar becomes a `TyConst "'A"` marker the backend maps to a generic-parameter
+    // index. Abbrevs (incl. Part-A primitive bindings), records, unions, and
+    // concrete classes surface nothing. See docs/self-host-rung1-plan.md.
+
+    /// Member name text. Only the plain-ident form is in scope for rung 1.
+    let private identOrOpName (ctx: PassContext) (id: IdentOrOp<SyntaxToken>) : string =
+        match id with
+        | IdentOrOp.Ident t -> ctx.NameOf t
+        | IdentOrOp.ParenOp(opName = OpName.SymbolicOp op) -> ctx.NameOf op
+        | _ -> ""
+
+    /// A typar's source name (e.g. `'A`). Used both as the `TypeParams` entry and
+    /// as the `TyConst` marker in a signature, so the two always agree.
+    let private typarName (ctx: PassContext) (tp: Typar<SyntaxToken>) : string =
+        match tp with
+        | Typar.Named(ident = id)
+        | Typar.Static(ident = id) -> ctx.NameOf id
+        | Typar.Anon u -> ctx.NameOf u
+
+    /// Declared type parameters of a `TypeName`: prefix typars then `<...>` defns,
+    /// in source order.
+    let private typeParamNames (ctx: PassContext) (tn: TypeName<SyntaxToken>) : string list =
+        let (TypeName(prefixTypars = pt; typarDefns = td)) = tn
+
+        [
+            match pt with
+            | ValueSome(PrefixTypars.Single tp) -> yield typarName ctx tp
+            | ValueSome(PrefixTypars.Multiple(typars = tps)) ->
+                for tp in tps do
+                    yield typarName ctx tp
+            | ValueNone -> ()
+
+            match td with
+            | ValueSome(TyparDefns(defns = defns)) ->
+                for (TyparDefn(typar = tp)) in defns do
+                    yield typarName ctx tp
+            | ValueNone -> ()
+        ]
+
+    /// The simple (last-segment) name of a type definition.
+    let private typeNameSimple (ctx: PassContext) (tn: TypeName<SyntaxToken>) : string =
+        let (TypeName(ident = li)) = tn
+
+        if li.Idents.IsEmpty then
+            ""
+        else
+            ctx.NameOf li.Idents.[li.Idents.Length - 1]
+
+    /// Translate a member-signature type. Declaring-type typars become
+    /// `TyConst "'A"` markers; named concrete types pass through as `TyConst name`.
+    /// Only the shapes a rung-1 interface needs are modelled.
+    let rec private translateSigType (ctx: PassContext) (t: Type<SyntaxToken>) : SemType =
+        match t with
+        | Type.ParenType(typ = inner) -> translateSigType ctx inner
+        | Type.VarType tp -> TyConst(typarName ctx tp)
+        | Type.NamedType li when li.Idents.Length = 1 -> TyConst(ctx.NameOf li.Idents.[0])
+        | Type.FunctionType(fromType = a; toType = b) -> TyFun(translateSigType ctx a, translateSigType ctx b)
+        | Type.TupleType(types = ts) -> TyTuple [ for t in ts -> translateSigType ctx t ]
+        | _ ->
+            // Out of scope for rung 1 (multi-segment / generic / array types in an
+            // abstract signature). The backend's typar encoder rejects this loudly.
+            TyConst "obj"
+
+    /// Build a `TAbstractMethod` from an abstract member signature. Only the
+    /// method form is in scope; a property signature disqualifies the interface.
+    let private abstractMethodOf (ctx: PassContext) (sign: MemberSig<SyntaxToken>) : TAbstractMethod option =
+        match sign with
+        | MemberSig.MethodOrPropSig(ident = ident; sign = CurriedSig(args = args; returnType = ret)) ->
+            // Each curried arg group folds into a TyFun chain ending at the
+            // return type; a multi-arg group (`a * b`) is a tuple parameter.
+            let groupTy (ArgsSpec(args = specs)) =
+                match List.ofSeq specs with
+                | [ ArgSpec(typ = t) ] -> translateSigType ctx t
+                | many -> TyTuple [ for ArgSpec(typ = t) in many -> translateSigType ctx t ]
+
+            let retTy = translateSigType ctx ret
+
+            let sigTy =
+                List.foldBack (fun struct (g, _arrow) acc -> TyFun(groupTy g, acc)) (List.ofSeq args) retTy
+
+            Some
+                {
+                    Name = identOrOpName ctx ident
+                    Signature = sigTy
+                }
+        | MemberSig.PropSig _ -> None
+
+    /// Classify an object-model body as an interface: every element an abstract
+    /// member signature, no base type, no `let`/`do` preamble. Returns the
+    /// abstract methods, else None (a concrete member / field / inherit ⇒ a class
+    /// or a later rung).
+    let private tryInterfaceMethods
+        (ctx: PassContext)
+        (body: ObjectModelBody<SyntaxToken>)
+        : TAbstractMethod list option =
+        if body.inherits.IsSome || not body.classPreamble.IsEmpty then
+            None
+        else
+            let methods = ResizeArray<TAbstractMethod>()
+            let mutable ok = true
+
+            for el in body.elements do
+                match el with
+                | TypeDefnElement.Member(MemberDefn.Member(defn = MethodOrPropDefn.AbstractSignature sign)) ->
+                    match abstractMethodOf ctx sign with
+                    | Some m -> methods.Add m
+                    | None -> ok <- false
+                | _ -> ok <- false
+
+            if ok && methods.Count > 0 then
+                Some(List.ofSeq methods)
+            else
+                None
+
+    /// Surface an interface-shaped `TypeDefn` as a `TDecl.Type`. Anything else
+    /// (abbrevs, records, unions, concrete classes) surfaces nothing.
+    let private tryTypeDecl (ctx: PassContext) (ns: string option) (td: TypeDefn<SyntaxToken>) : TDecl option =
+        let classify tn body =
+            match tryInterfaceMethods ctx body with
+            | Some methods ->
+                Some(
+                    TDecl.Type
+                        {
+                            Name = typeNameSimple ctx tn
+                            Namespace = ns
+                            TypeParams = typeParamNames ctx tn
+                            Kind = TTypeKind.Interface methods
+                        }
+                )
+            | None -> None
+
+        match td with
+        | TypeDefn.Anon(typeName = tn; body = body) -> classify tn body
+        | TypeDefn.Interface(typeName = tn; body = body) -> classify tn body
+        | _ -> None
+
+    /// Joined dotted text of a namespace's long identifier.
+    let private longIdentText (ctx: PassContext) (li: LongIdent<SyntaxToken>) : string =
+        li.Idents |> Seq.map ctx.NameOf |> String.concat "."
+
+    let private translateModuleElem (ctx: PassContext) (ns: string option) (m: ModuleElem<SyntaxToken>) : TDecl list =
         match m with
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
             [
@@ -1292,15 +1437,27 @@ module Freeze =
         | ModuleElem.Expression e ->
             let eT = translateExpr ctx e
             [ TDecl.Expression(eT, typeOfKey ctx (CstKeys.ofExpr e)) ]
+        | ModuleElem.Type defs -> defs |> Seq.choose (tryTypeDecl ctx ns) |> List.ofSeq
         | _ -> []
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : TastFile =
         let decls =
             match file with
-            | ImplementationFile.AnonymousModule elems -> elems |> Seq.collect (translateModuleElem ctx) |> List.ofSeq
+            | ImplementationFile.AnonymousModule elems ->
+                elems |> Seq.collect (translateModuleElem ctx None) |> List.ofSeq
             | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) ->
-                elems |> Seq.collect (translateModuleElem ctx) |> List.ofSeq
-            | ImplementationFile.Namespaces _ -> []
+                elems |> Seq.collect (translateModuleElem ctx None) |> List.ofSeq
+            | ImplementationFile.Namespaces groups ->
+                [
+                    for g in groups do
+                        let nsName, elems =
+                            match g with
+                            | NamespaceDeclGroup.Named(longIdent = li; elements = elems) ->
+                                Some(longIdentText ctx li), elems
+                            | NamespaceDeclGroup.Global(elements = elems) -> None, elems
+
+                        yield! elems |> Seq.collect (translateModuleElem ctx nsName)
+                ]
 
         {
             Decls = decls

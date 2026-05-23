@@ -1622,6 +1622,7 @@ module FSharpLib =
         | TypeSignature.Enum(typeName = typeName)
         | TypeSignature.Delegate(typeName = typeName)
         | TypeSignature.TypeExtension(typeName = typeName)
+        | TypeSignature.Extern(typeName = typeName)
         | TypeSignature.AbstractType typeName ->
             // v1 only registers the name; body shapes for classes /
             // enums / delegates land later.
