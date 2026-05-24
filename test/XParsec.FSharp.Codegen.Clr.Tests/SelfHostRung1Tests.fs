@@ -159,27 +159,25 @@ let tests =
             // G5 / P2 (docs/selfhost-handoff.md): `assembleLibrary` reuses a
             // `ClrProvider`'s `encodeType`, so an abstract method may reference a
             // *concrete* type — here a nested function `('A -> 'B)` — that the old
-            // provider-free path would `failwith` on. The function wrapper becomes
-            // an `FSharpFunc`2`, which correctly pins FSharp.Core, now surfaced on
-            // the library path's dependency set (hard-coded empty before P2).
-            test "an interface method referencing a function type compiles via the provider (G5)" {
+            // provider-free path would `failwith` on. Post-R1 that function type
+            // encodes to `Vesper.Fun\`2` (read from Vesper.Core), so the DLL
+            // references Vesper.Core and pins **no** FSharp.Core construct.
+            test "an interface method referencing a function type encodes to Vesper.Fun via the provider (G5 / R1)" {
                 let src =
                     "namespace Vesper\n\ntype Applier<'A, 'B> =\n    abstract member Apply : f: ('A -> 'B) -> x: 'A -> 'B"
 
                 let project = ProjectInfo.library "Vesper.Applier"
                 let artifact = compileSourceTo project src
 
-                Expect.contains
+                Expect.isEmpty
                     artifact.FSharpCoreDependencies
-                    "Microsoft.FSharp.Core.FSharpFunc`2"
-                    "the function-typed parameter pins FSharpFunc`2 (now reported on the library path)"
+                    "the function-typed parameter is Vesper.Fun now — no FSharp.Core construct"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
 
-                // The lazy FSharp.Core ref was forced by the FSharpFunc encoding (vs
-                // the typar-only Fun interface, which references nothing).
                 let refs = asm.GetReferencedAssemblies() |> Array.map (fun a -> a.Name)
-                Expect.contains refs "FSharp.Core" "the DLL references FSharp.Core (via FSharpFunc)"
+                Expect.isFalse (refs |> Array.contains "FSharp.Core") "the DLL does not reference FSharp.Core (R1)"
+                Expect.contains refs "Vesper.Core" "the DLL references Vesper.Core (via Vesper.Fun)"
 
                 let applierTy = asm.GetType("Vesper.Applier`2")
                 Expect.isNotNull applierTy "the DLL contains Vesper.Applier`2"
@@ -198,13 +196,13 @@ let tests =
                 Expect.isTrue funcParam.IsGenericType "the first parameter is a generic type"
 
                 Expect.equal
-                    (funcParam.GetGenericTypeDefinition())
-                    typedefof<Microsoft.FSharp.Core.FSharpFunc<_, _>>
-                    "the first parameter is FSharpFunc`2"
+                    (funcParam.GetGenericTypeDefinition().FullName)
+                    "Vesper.Fun`2"
+                    "the first parameter is Vesper.Fun`2"
 
                 let funcArgs = funcParam.GetGenericArguments()
-                Expect.equal funcArgs.[0] typeArgs.[0] "FSharpFunc's domain is the type's 'A"
-                Expect.equal funcArgs.[1] typeArgs.[1] "FSharpFunc's range is the type's 'B"
+                Expect.equal funcArgs.[0] typeArgs.[0] "Fun's domain is the type's 'A"
+                Expect.equal funcArgs.[1] typeArgs.[1] "Fun's range is the type's 'B"
                 Expect.equal ps.[1].ParameterType typeArgs.[0] "the second parameter is the type's 'A"
                 Expect.equal apply.ReturnType typeArgs.[1] "the return is the type's 'B"
             }

@@ -1,0 +1,41 @@
+# Vesper.List — the cons-list type + the `List` module as a standalone package
+# (package-split-plan PS1: one package per type; PS2: one impl DLL per package).
+#
+# Same shape as src/Vesper.Core / src/Vesper.Option / src/Vesper.Printf: the
+# `.fsi` is the front-end symbol contract (parsed by XParsec.FSharp, walked into
+# an IExternalSymbolProvider); `list-min.fs` is the runtime impl compiled by this
+# repo's own backend → Vesper.List.dll (BCL-only, no FSharp.Core). No `.fsproj`:
+# like its siblings this tree is not built by `dotnet`/`fsc`.
+#
+# Depends on Vesper.Core (`Fun`, `unit`, `int`, `bool`) and Vesper.Option (the
+# contract's `List.GetSlice` names `int option`). `name` and `depends-on` are
+# recorded here per the package-split-plan package schema; the root-manifest /
+# a la carte loader wiring (PS-Loader) is a separate follow-up — these
+# self-contained package manifests are consumed today by the parser golden tests
+# (test/XParsec.FSharp.Tests/VesperCoreContractTests.fs).
+#
+# Per PS5 the package is named `Vesper.List` but contributes type `List` into
+# namespace `Vesper.Collections`, not `Vesper.List`.
+#
+# See ./README.md and
+# ../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md.
+
+[core]
+name = "Vesper.List"
+namespace = "Vesper.Collections"
+description = "The immutable cons-list type and the List module."
+depends-on = ["Vesper.Core", "Vesper.Option"]
+
+# Contract `.fsi` files in compile order (one, today).
+files = [
+    "list.fsi",
+]
+
+# Runtime impl `.fs` files (our-backend target source). `list-min.fs` is the
+# compiled minimal list (named `Nil`/`Cons` cases — the source `Vesper.List.dll`
+# actually builds from). `List.fs` is the verbatim `[]`/`::` + `module List`
+# target it grows into once public module-function compilation lands; it is parse-
+# tested but not yet the compiled impl, so it is not listed here.
+impl = [
+    "list-min.fs",
+]

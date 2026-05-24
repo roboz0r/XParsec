@@ -935,6 +935,57 @@ module Unification =
                     if tryDefault tv then
                         changed <- true
 
+    /// Settle the flexible list-literal containers (R3) reachable from a binding's
+    /// type *before* it generalises, so the bare container `TypeVar` is never
+    /// quantified as `∀L. L`:
+    ///   - element still free (`let xs = []`) → link the container to FSharp.Core's
+    ///     `list` now, so the *element* generalises normally (`'a list`);
+    ///   - element already concrete (`let nums = [1;2;3]`) → leave the container
+    ///     free but drop its level to the outer scope so generalisation skips it,
+    ///     deferring the FSharpList-vs-Vesper choice to `resolveListLiterals` (a
+    ///     later consumer like `List.fold` can still flip it to the Vesper list).
+    let private prepareListLiterals (ctx: PassContext) (ty: SemType) (outerLevel: int) : unit =
+        if ctx.ListLiterals.Count = 0 then
+            ()
+        else
+            let flexElem (root: TypeVar) : SemType voption =
+                let mutable result = ValueNone
+
+                for (lv, elem) in ctx.ListLiterals do
+                    if result.IsNone && System.Object.ReferenceEquals(UnionFind.find lv, root) then
+                        result <- ValueSome elem
+
+                result
+
+            let seen = HashSet<TypeVar>(HashIdentity.Reference)
+
+            let rec walk (t: SemType) =
+                match t with
+                | TyVar tv ->
+                    let root = UnionFind.find tv
+
+                    if seen.Add root then
+                        match root.Link with
+                        | ValueSome target -> walk target
+                        | ValueNone ->
+                            match flexElem root with
+                            | ValueSome elemTy when root.Level > outerLevel ->
+                                match zonk elemTy with
+                                | TyVar _ ->
+                                    root.Link <- ValueSome(TyRecord("Microsoft.FSharp.Collections.list", [ elemTy ]))
+                                | _ -> root.Level <- outerLevel
+                            | _ -> ()
+                | TyFun(a, b) ->
+                    walk a
+                    walk b
+                | TyTuple xs
+                | TyRecord(_, xs)
+                | TyUnion(_, xs)
+                | TyClass(_, xs) -> List.iter walk xs
+                | TyConst _ -> ()
+
+            walk ty
+
     let private generalise (zonkedTy: SemType) (outerLevel: int) : TypeScheme =
         // Apply defaults before quantifying: a default that resolves links
         // its source TyVar, which the quantifier walk then skips. Without
@@ -2544,18 +2595,27 @@ module Unification =
                 }
         | TokenIndex.Regular _ -> ()
 
-    /// The list type a `[…]` literal carries. A program-declared `'T list`
-    /// abbreviation (the self-host list shape — `List.fs`'s
-    /// `and 'T list = List<'T>`) retargets list literals to its RHS union;
-    /// absent it, FSharp.Core's `Microsoft.FSharp.Collections.list` nominal
-    /// is the default. Additive — a normal program never declares a `list`
-    /// abbreviation, so the shape is byte-identical to before.
+    /// The list type a `[…]` literal carries. Three cases:
+    ///   1. A program that declares its own `'T list` abbreviation (the self-host
+    ///      shape — `List.fs`'s `and 'T list = List<'T>`) resolves eagerly to its
+    ///      RHS union (unchanged).
+    ///   2. A bare program (R3): the container is left *flexible* — a fresh
+    ///      `TypeVar` registered in `ctx.ListLiterals` (with its element). A
+    ///      consumer can drive it: `List.fold`'s `Vesper.Collections.List`
+    ///      parameter flips it to the Vesper list (so the literal emits BCL-only),
+    ///      while a literal nothing else pins (`printfn "%A" [1;2;3]`) defaults
+    ///      back to FSharp.Core's `list` in `resolveListLiterals`. This is the
+    ///      consumer-driven typing handoff R3 calls for: `%A` stays `FSharpList`
+    ///      (its cold printf path), `List.fold` retargets to the Vesper list.
     and private listLiteralTy (ctx: PassContext) (key: NodeKey) (elemTy: SemType) : SemType =
         match ctx.AbbreviationTypes.TryGetValue "list" with
         | true, info ->
             forceFill ctx info
             expandAbbreviation ctx key info [ elemTy ]
-        | false, _ -> TyRecord("Microsoft.FSharp.Collections.list", [ elemTy ])
+        | false, _ ->
+            let tv = freshTyVar ctx
+            ctx.ListLiterals.Add(UnionFind.find tv, elemTy)
+            TyVar tv
 
     and private inferListLikeLiteral
         (ctx: PassContext)
@@ -3238,7 +3298,10 @@ module Unification =
                 let zonked = zonk (TyVar headTv)
 
                 if not (hasPendingDotAccess zonked) then
-                    let scheme = generalise zonked outerLevel
+                    // Settle flexible list-literal containers first (R3), then
+                    // re-zonk so the (now-linked) FSharpList element generalises.
+                    prepareListLiterals ctx zonked outerLevel
+                    let scheme = generalise (zonk zonked) outerLevel
                     ctx.Scheme.Set(key, scheme)
 
     let private walkModuleElem (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
@@ -3741,5 +3804,26 @@ module Unification =
         for m in elems do
             walkModuleElem ctx m
 
+    /// Resolve the bare-program list literals left flexible by `listLiteralTy`
+    /// (R3), after the whole file is walked so every consumer has had its say:
+    ///   - still free (no consumer drove it, e.g. `printfn "%A" [1;2;3]`) → link to
+    ///     FSharp.Core's `list`, its element carried through;
+    ///   - flipped to a list-like type (`List.fold`'s `Vesper.Collections.List`
+    ///     parameter) → reconcile the literal's element with the driven one.
+    let private resolveListLiterals (ctx: PassContext) : unit =
+        let key = NodeKey.ofSource 0 NodeKind.Unknown
+
+        for (lv, elemTy) in ctx.ListLiterals do
+            let root = UnionFind.find lv
+
+            match root.Link with
+            | ValueNone -> unify ctx key (TyVar root) (TyRecord("Microsoft.FSharp.Collections.list", [ elemTy ]))
+            | ValueSome target ->
+                match zonk target with
+                | TyRecord(_, [ a ])
+                | TyUnion(_, [ a ]) -> unify ctx key a elemTy
+                | _ -> ()
+
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
         walkElems ctx (CstWalk.implFileElems file)
+        resolveListLiterals ctx

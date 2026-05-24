@@ -29,22 +29,6 @@ let analyse (input: string) : TastFile =
     let lexed, file = parseFile input
     Pipeline.analyse MockBuiltins.provider input lexed file
 
-let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifact =
-    let lexed, file = parseFile input
-    let tast = Pipeline.analyse MockBuiltins.provider input lexed file
-
-    let artifact =
-        Codegen.compile MockBuiltins.provider (ProjectInfo.defaults assemblyName) tast
-
-    tast, artifact
-
-/// Like `compileSource` but against a caller-supplied `ProjectInfo` (e.g. an
-/// on-disk app build via `ProjectInfo.app`).
-let compileSourceTo (project: ProjectInfo) (input: string) : ClrArtifact =
-    let lexed, file = parseFile input
-    let tast = Pipeline.analyse MockBuiltins.provider input lexed file
-    Codegen.compile MockBuiltins.provider project tast
-
 /// `<repo-root>/tmp/<name>`, created. Walks up to the repo root (holding
 /// `claude_tools.cmd`) so artifacts land somewhere stable and inspectable
 /// rather than the OS temp dir.
@@ -60,6 +44,108 @@ let tmpDir (name: string) : string =
     let d = IO.Path.Combine(up AppContext.BaseDirectory, "tmp", name)
     IO.Directory.CreateDirectory d |> ignore
     d
+
+/// `src/Vesper.Core/<fileName>`, relative to this test file.
+let vesperCoreSource (fileName: string) : string =
+    IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", "Vesper.Core", fileName)
+
+/// `src/Vesper.List/<fileName>`, relative to this test file.
+let vesperListSource (fileName: string) : string =
+    IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", "Vesper.List", fileName)
+
+/// Compile `Vesper.Core.dll` from `prim-types-min.fs` (the `Vesper.Fun\`2`
+/// interface + primitive intrinsics — R1), load it into the *Default*
+/// `AssemblyLoadContext`, and return its path. An in-process user PE loaded into a
+/// fresh context resolves `Fun` through that context's fallback to Default, exactly
+/// how `Vesper.Printf` already resolves. Forced once; later compiles inject the
+/// path so their function values reference this DLL. Compiled with **no** core
+/// injected — `Vesper.Core` *defines* `Fun`. The cons-list is its own package now
+/// (`vesperListDll` → `Vesper.List.dll`, package-split-plan PS2), not concatenated
+/// here.
+let vesperCoreDll: Lazy<string> =
+    lazy
+        (let outDir = tmpDir "vesper-core"
+         let corePath = IO.Path.Combine(outDir, "Vesper.Core.dll")
+
+         let project =
+             { ProjectInfo.library "Vesper.Core" with
+                 OutputPath = Some corePath
+             }
+
+         let src = IO.File.ReadAllText(vesperCoreSource "prim-types-min.fs")
+         let lexed, file = parseFile src
+         let tast = Pipeline.analyse MockBuiltins.provider src lexed file
+         let artifact = Codegen.compile MockBuiltins.provider project tast
+         Codegen.materialise artifact
+         AssemblyLoadContext.Default.LoadFromAssemblyPath corePath |> ignore
+         corePath)
+
+/// Compile `Vesper.List.dll` from `src/Vesper.List/list-min.fs` — the
+/// `Vesper.Collections.List\`1` cons-list (`Cons`/`Nil` + `IsEmpty`/`Head`/`Tail`)
+/// as its own package (package-split-plan PS2) — load it into the *Default*
+/// `AssemblyLoadContext`, and return its path. Compiled **standalone**: the
+/// minimal list forms no function value and uses no `Fun`, so it is BCL-only and
+/// needs neither an external core nor (being the list itself) an external list.
+let vesperListDll: Lazy<string> =
+    lazy
+        (let outDir = tmpDir "vesper-list"
+         let listPath = IO.Path.Combine(outDir, "Vesper.List.dll")
+
+         let project =
+             { ProjectInfo.library "Vesper.List" with
+                 OutputPath = Some listPath
+             }
+
+         let src = IO.File.ReadAllText(vesperListSource "list-min.fs")
+         let lexed, file = parseFile src
+         let tast = Pipeline.analyse MockBuiltins.provider src lexed file
+         let artifact = Codegen.compile MockBuiltins.provider project tast
+         Codegen.materialise artifact
+         AssemblyLoadContext.Default.LoadFromAssemblyPath listPath |> ignore
+         listPath)
+
+/// Point a project at the compiled `Vesper.Core.dll` (for `Vesper.Fun`, R1) and
+/// `Vesper.List.dll` (for `Vesper.Collections.List`, package-split-plan PS2), so a
+/// program's function values + list literals resolve. Each path is injected only
+/// when absent, and never into the package that *defines* the type (a package must
+/// not reference itself): `Vesper.Core` gets no core path, `Vesper.List` no list
+/// path. Forcing each lazy loads the DLL into the Default ALC before any in-process
+/// run.
+let withCore (project: ProjectInfo) : ProjectInfo =
+    let withCorePath p =
+        if p.VesperCorePath.IsNone && p.AssemblyName <> "Vesper.Core" then
+            { p with
+                VesperCorePath = Some vesperCoreDll.Value
+            }
+        else
+            p
+
+    let withListPath p =
+        if p.VesperListPath.IsNone && p.AssemblyName <> "Vesper.List" then
+            { p with
+                VesperListPath = Some vesperListDll.Value
+            }
+        else
+            p
+
+    project |> withCorePath |> withListPath
+
+let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifact =
+    let lexed, file = parseFile input
+    let tast = Pipeline.analyse MockBuiltins.provider input lexed file
+
+    let artifact =
+        Codegen.compile MockBuiltins.provider (withCore (ProjectInfo.defaults assemblyName)) tast
+
+    tast, artifact
+
+/// Like `compileSource` but against a caller-supplied `ProjectInfo` (e.g. an
+/// on-disk app build via `ProjectInfo.app`). `withCore` injects the compiled
+/// `Vesper.Core.dll` unless the project is `Vesper.Core` itself.
+let compileSourceTo (project: ProjectInfo) (input: string) : ClrArtifact =
+    let lexed, file = parseFile input
+    let tast = Pipeline.analyse MockBuiltins.provider input lexed file
+    Codegen.compile MockBuiltins.provider (withCore project) tast
 
 /// Run a materialised app out-of-process via the `dotnet` host, the counterpart
 /// to the in-process `runEntryPoint`. On a non-zero exit, stderr is appended so

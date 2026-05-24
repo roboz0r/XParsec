@@ -244,6 +244,14 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// represents* the type, not an alias to expand. Input to the future
     /// `encodeType` rekey; see docs/self-host-rung1-plan.md.
     member val IntrinsicReprTypes = Dictionary<string, string>() with get
+    /// Bare-program list literals (R3): each `[…]` whose container type was left
+    /// *flexible* (a fresh `TypeVar`, paired with its element type) so a consumer
+    /// can drive it — `List.fold`'s `Vesper.Collections.List` parameter flips it to
+    /// the Vesper list, otherwise it defaults to FSharp.Core's `list`. Drained by
+    /// `Unification.resolveListLiterals` after the walk: a still-free literal links
+    /// to the default list, a flipped one has its element reconciled. Programs that
+    /// declare their own `list` abbrev never register here (they resolve eagerly).
+    member val ListLiterals = ResizeArray<TypeVar * SemType>() with get
     /// Member types start as placeholder TyVars and get linked by Unification's
     /// `fillClassMembers` pre-pass.
     member val ClassTypes = Dictionary<string, ClassTypeInfo>() with get

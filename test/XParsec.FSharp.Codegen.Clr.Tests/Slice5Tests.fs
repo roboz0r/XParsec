@@ -65,8 +65,31 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
+            // R3 (docs/selfhost-handoff.md): the bare-program list literal +
+            // `List.fold` now retarget onto the Vesper `List` — the literal builds a
+            // `Vesper.Collections.List` and `List.fold` is emitted inline over it
+            // (`Vesper.Fun` folder, `IsEmpty`/`Head`/`Tail`), so the canonical sample
+            // is BCL-only + `Vesper.Core`, no FSharp.Core.
             test "the full sample compiles, runs in-process, prints 15" {
                 let _, artifact = compileSource "Slice5FullSample" fullSample
+
+                Expect.isEmpty
+                    artifact.FSharpCoreDependencies
+                    (sprintf "the canonical sample pins no FSharp.Core (%A)" artifact.FSharpCoreDependencies)
+
+                // Acceptance (minimal-core-lib-plan + package-split-plan PS2): the
+                // emitted PE references Vesper.Core (Fun) AND Vesper.List (the cons-
+                // list, its own package now) and carries no Microsoft.FSharp.*
+                // AssemblyRef.
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let refs = asm.GetReferencedAssemblies() |> Array.map (fun a -> a.Name)
+                Expect.contains refs "Vesper.Core" "references Vesper.Core (Fun)"
+                Expect.contains refs "Vesper.List" "references Vesper.List (the cons-list)"
+
+                Expect.isFalse
+                    (refs |> Array.exists (fun n -> n = "FSharp.Core"))
+                    (sprintf "no FSharp.Core AssemblyRef (refs: %A)" refs)
+
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -75,7 +98,11 @@ let tests =
 
             test "the full sample runs as a standalone `dotnet <dll>` app and prints 15" {
                 let outDir = tmpDir "slice5-full-sample"
-                let project = ProjectInfo.app "XParsecFoldApp" outDir
+                // `withCore` here too, so the *same* project (carrying `VesperCorePath`
+                // + `VesperListPath`) drives both the compile and `materialiseApp`'s
+                // copy of Vesper.Core.dll + Vesper.List.dll beside the app — the bundle
+                // the out-of-process loader needs.
+                let project = withCore (ProjectInfo.app "XParsecFoldApp" outDir)
 
                 let artifact = compileSourceTo project fullSample
                 Codegen.materialiseApp project artifact

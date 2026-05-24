@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.Codegen.Clr
 
 open System.Collections.Generic
+open System.Reflection
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
@@ -16,8 +17,18 @@ open XParsec.FSharp.SemanticAnalysis
 /// `ICodegenProvider` over the BCL + the loaded `FSharp.Core.dll`. `reprs` is
 /// the Vesper-primitive-name → IL-representation map (`IntrinsicRepr.merge` of a
 /// file's intrinsic bindings over the built-in defaults); `encodeType` keys the
-/// emitted IL type off the representation string (G7).
-type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
+/// emitted IL type off the representation string (G7). `coreAssembly` is the
+/// identity of the compiled `Vesper.Core.dll` that owns `Vesper.Fun\`2` — the
+/// interface every emitted function value now references (R1 / D3); `None` when
+/// no external core is in play (compiling `Vesper.Core` itself, or a program that
+/// forms no function value), in which case forming a `TyFun` reference fails.
+type ClrProvider
+    (
+        ctx: MetadataContext,
+        reprs: Map<string, string>,
+        coreAssembly: AssemblyName option,
+        listAssembly: AssemblyName option
+    ) =
 
     // Reference identities from the live assemblies (version-proof). Every
     // `AssemblyRef` / `TypeRef` / `MemberRef` below is `lazy` (G6): the row is
@@ -56,11 +67,49 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
     let eFSharpFunc2 =
         lazy (toEntity (ctx.TypeRef(fsCoreRef.Value, "Microsoft.FSharp.Core", "FSharpFunc`2")))
 
+    // The compiled `Vesper.Core.dll`'s identity + its `Fun\`2` interface. Like
+    // every other ref these are `lazy` (G6), so a program forming no function
+    // value pins no `Vesper.Core` `AssemblyRef`. Forcing `eFun2` without a
+    // configured `coreAssembly` is a hard error — there is nowhere for the
+    // function value's `Fun` to come from (R1: `Fun` lives in `Vesper.Core`, not
+    // this assembly, and not FSharp.Core).
+    let vesperCoreRef =
+        lazy
+            (match coreAssembly with
+             | Some an -> toEntity (ctx.AssemblyRef an)
+             | None ->
+                 failwith
+                     "ClrProvider: a function value needs Vesper.Fun, but no Vesper.Core assembly is configured (set ProjectInfo.VesperCorePath).")
+
+    let eFun2 = lazy (toEntity (ctx.TypeRef(vesperCoreRef.Value, "Vesper", "Fun`2")))
+
+    // The compiled `Vesper.List.dll`'s identity (its own package now —
+    // package-split-plan PS2 — no longer part of `Vesper.Core.dll`). Mirrors
+    // `vesperCoreRef`: `lazy` (a program touching no list pins no `Vesper.List`
+    // ref), and forcing it without a configured `listAssembly` is a hard error —
+    // there is nowhere for the list type to come from. Deliberately NO fallback to
+    // `vesperCoreRef`: that would re-merge the list into Core's ref surface and
+    // mint a wrong `Vesper.Core::List\`1` while every test still passed.
+    let vesperListRef =
+        lazy
+            (match listAssembly with
+             | Some an -> toEntity (ctx.AssemblyRef an)
+             | None ->
+                 failwith
+                     "ClrProvider: a list literal / List.fold needs Vesper.Collections.List, but no Vesper.List assembly is configured (set ProjectInfo.VesperListPath).")
+
     let eFSharpList1 =
         lazy (toEntity (ctx.TypeRef(fsCoreRef.Value, "Microsoft.FSharp.Collections", "FSharpList`1")))
 
-    let eListModule =
-        lazy (toEntity (ctx.TypeRef(fsCoreRef.Value, "Microsoft.FSharp.Collections", "ListModule")))
+    // (FSharp.Core's `ListModule.Fold` ref is gone: `List.fold` is emitted inline
+    // over the Vesper list now — R3 — so nothing references it.)
+
+    /// `Vesper.Collections.List\`1` — the cons-list compiled into its own
+    /// `Vesper.List.dll` (package-split-plan PS2). A bare program's list literal +
+    /// `List.fold` retarget onto it; it references no FSharp.Core, so it pins no
+    /// FSharp.Core dependency (a `Vesper.List` `AssemblyRef` instead).
+    let eVesperList1 =
+        lazy (toEntity (ctx.TypeRef(vesperListRef.Value, "Vesper.Collections", "List`1")))
 
     /// The abbreviation name the list-literal freeze hard-codes
     /// ([front-end-gaps-plan](../XParsec.FSharp.SemanticAnalysis/docs/front-end-gaps-plan.md)
@@ -68,6 +117,12 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
     /// extractor mints `FSharpList` properly this becomes a registered
     /// `TyUnion` and the match keys on that instead — additive.
     let listTypeName = "Microsoft.FSharp.Collections.list"
+
+    /// The Vesper cons-list's `SemType` name (R3) — the front-end retargets a
+    /// bare program's list literal / `List.fold` onto it (`Unification`,
+    /// `Freeze`); `encodeType` / `TryEmitUnionCons` / `emitFold` key on it to mint
+    /// references into the compiled `Vesper.Collections.List\`1`.
+    let vesperListName = "Vesper.Collections.List"
 
     // BCL type references.
     let eObject = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "Object")))
@@ -199,6 +254,35 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
         let g = te.GenericInstantiation(eFSharpList1.Value, 1, false)
         inner (g.AddArgument())
 
+    // ---- Generic module-static-method context (R3) ----
+    //
+    // A generic top-level function (`module List.fold`) is emitted as a *generic
+    // static method*: its type parameters are the free `TypeVar`s of its
+    // signature, encoded as `GenericMethodTypeParameter` (`!!i`). The set is
+    // ambient — `SetMethodTypars` installs it (by union-find root) around the
+    // method's signature / locals / body emission and `ClearMethodTypars` removes
+    // it, so `encodeType` (and the generic-union arg encoder, for a `List<!!i>`
+    // member ref *inside* such a body) map those `TypeVar`s to `!!i`. Empty
+    // outside a generic static method, so every other emission is unchanged.
+    let mutable methodTyparRoots: TypeVar list = []
+
+    /// First crack at a zonked leaf: a `TypeVar` that is one of the current
+    /// method's type parameters encodes to `GenericMethodTypeParameter` (`!!i`).
+    let methodTyparLeaf (te: SignatureTypeEncoder) (zt: SemType) : bool =
+        match methodTyparRoots with
+        | [] -> false
+        | roots ->
+            match zt with
+            | TyVar tv ->
+                let root = UnionFind.find tv
+
+                match roots |> List.tryFindIndex (fun r -> System.Object.ReferenceEquals(r, root)) with
+                | Some i ->
+                    te.GenericMethodTypeParameter i
+                    true
+                | None -> false
+            | _ -> false
+
     /// Encode a (zonked) `SemType` into a metadata signature type slot.
     /// `tryLeaf` gets first crack at each zonked node before the structural
     /// match: when it encodes the node (returning `true`) recursion stops there.
@@ -254,9 +338,9 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
                 else
                     failwithf "ClrProvider: no IL encoding for intrinsic representation %s (type %s)" repr name
             | TyFun(a, b) ->
-                // `a -> b` is `FSharpFunc\`2<a, b>` at the metadata level.
-                markFSharpCoreDep "Microsoft.FSharp.Core.FSharpFunc`2"
-                let g = te.GenericInstantiation(eFSharpFunc2.Value, 2, false)
+                // `a -> b` is `Vesper.Fun\`2<a, b>` at the metadata level (R1 / D3),
+                // read from the compiled `Vesper.Core.dll` — no FSharp.Core.
+                let g = te.GenericInstantiation(eFun2.Value, 2, false)
                 encodeTypeCore tryLeaf (g.AddArgument()) a
                 encodeTypeCore tryLeaf (g.AddArgument()) b
             | TyClass(name, args) when name = PrintfSpec.printfFormatName ->
@@ -271,6 +355,12 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
                 // ctor / `PrintFormatLine` / `Invoke` instantiations, and any
                 // list-typed local signature.
                 encodeListOf te (fun arg -> encodeTypeCore tryLeaf arg elem)
+            | TyRecord(name, [ elem ]) when name = vesperListName ->
+                // The Vesper cons-list (R3) ≡ `Vesper.Collections.List\`1<elem>` in
+                // the compiled `Vesper.Core.dll`. No FSharp.Core dep — it lives next
+                // to `Fun`.
+                let g = te.GenericInstantiation(eVesperList1.Value, 1, false)
+                encodeTypeCore tryLeaf (g.AddArgument()) elem
             | TyUnion(name, args) when userTypes.ContainsKey name ->
                 // A user union emitted into this assembly (rung 2). Monomorphic
                 // (`TyUnion(name, [])`): reference its `TypeDefinition` directly.
@@ -288,9 +378,26 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
                         encodeTypeCore tryLeaf (g.AddArgument()) a
             | other -> failwithf "ClrProvider: cannot encode SemType: %A" other
 
-    /// Encode a (zonked) `SemType` for the executable path — no typar markers, so
-    /// the leaf hook is a no-op.
-    and encodeType (te: SignatureTypeEncoder) (t: SemType) : unit = encodeTypeCore (fun _ _ -> false) te t
+    /// Encode a (zonked) `SemType` for the executable path. The only leaf hook is
+    /// the ambient generic-method-typar resolver (`!!i`), which is empty except
+    /// while a generic static method (`List.fold`) is being emitted (R3) — so
+    /// every monomorphic emission is unchanged.
+    and encodeType (te: SignatureTypeEncoder) (t: SemType) : unit = encodeTypeCore methodTyparLeaf te t
+
+    /// Encode a `SemType` mapping each function arrow to FSharp.Core's
+    /// `FSharpFunc\`2` (curried, nested), not `Vesper.Fun`. For the FSharp.Core
+    /// *interop islands* R1 deliberately leaves on the old representation: the cold
+    /// printf printer, which is an `FSharpFunc` produced by `PrintfModule` (retargeted
+    /// by the printf engine, handoff §R9). Non-function leaves delegate to
+    /// `encodeType`, so `unit` / primitives / lists encode identically.
+    let rec encodeFSharpFunc (te: SignatureTypeEncoder) (t: SemType) : unit =
+        match zonk t with
+        | TyFun(a, b) ->
+            markFSharpCoreDep "Microsoft.FSharp.Core.FSharpFunc`2"
+            let g = te.GenericInstantiation(eFSharpFunc2.Value, 2, false)
+            encodeFSharpFunc (g.AddArgument()) a
+            encodeFSharpFunc (g.AddArgument()) b
+        | other -> encodeType te other
 
     // ---- Generic union emission (rung 2 P3d.4) ----
 
@@ -309,7 +416,11 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
             | TyConst name when typeIx.ContainsKey name ->
                 te.GenericTypeParameter(typeIx.[name])
                 true
-            | _ -> false
+            // A `List<!!i>` member-ref instantiation arg *inside* a generic static
+            // method body resolves the method's typar `TypeVar`s to `!!i` (R3);
+            // empty otherwise, so a union's own factory/member emission (whose args
+            // are the union's `TyConst "'T"` markers above, or concrete) is unchanged.
+            | _ -> methodTyparLeaf te zt
 
         encodeTypeCore tryLeaf te t
 
@@ -376,6 +487,38 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
                 )
 
             toEntity (ctx.MemberRef(parent, caseName, s))
+        | UnionMember.Member(metaName, isStatic, paramTys, retTy) ->
+            // An augmentation member (`get_Head` / a static method): the signature
+            // is written in the type's own `!0` (the marker types carried on the
+            // `TTypeMember` post-Freeze), the instantiation rides the parent
+            // `TypeSpec`. Instance members carry an implicit `this` (encoded by
+            // `isInstanceMethod = true`); the explicit params follow.
+            let s = BlobBuilder()
+
+            BlobEncoder(s)
+                .MethodSignature(isInstanceMethod = not isStatic)
+                .Parameters(
+                    List.length paramTys,
+                    (fun (ret: ReturnTypeEncoder) -> encodeUnionType typeIx (ret.Type()) retTy),
+                    (fun (pars: ParametersEncoder) ->
+                        for p in paramTys do
+                            encodeUnionType typeIx (pars.AddParameter().Type()) p
+                    )
+                )
+
+            toEntity (ctx.MemberRef(parent, metaName, s))
+
+    /// `MethodSpec` instantiating a generic static method (R3) — a call site
+    /// (`fold<int,int>`) or a recursive self-call (`fold<!!0,!!1>`, the ambient set
+    /// mapping its own typars). Each instantiation type encodes via `encodeType`.
+    let staticFnMethodSpec (handle: EntityHandle) (instTypes: SemType list) : EntityHandle =
+        let inst = BlobBuilder()
+        let specEnc = BlobEncoder(inst).MethodSpecificationSignature(List.length instTypes)
+
+        for t in instTypes do
+            encodeType (specEnc.AddArgument()) (zonk t)
+
+        toEntity (ctx.MethodSpec(handle, inst))
 
     let lastSegment (name: string) : string =
         let i = name.LastIndexOf '.'
@@ -419,10 +562,13 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
 
         let memberRef = ctx.MemberRef(ePrintfModule.Value, "PrintFormatLine", msig)
 
-        // Method specification instantiating T = resultTy.
+        // Method specification instantiating T = resultTy. The printer is an
+        // FSharp.Core `FSharpFunc` (PrintFormatLine builds it), so its arrow
+        // encodes to `FSharpFunc`, not `Vesper.Fun` — this cold path is FSharp.Core
+        // interop until the printf engine lands (R9).
         let inst = BlobBuilder()
         let specEnc = BlobEncoder(inst).MethodSpecificationSignature(1)
-        encodeType (specEnc.AddArgument()) resultTy
+        encodeFSharpFunc (specEnc.AddArgument()) resultTy
         let spec = toEntity (ctx.MethodSpec(toEntity memberRef, inst))
 
         {
@@ -431,11 +577,58 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
             Pushes = 1
         }
 
-    /// `FSharpFunc\`2<a, b>::Invoke(a) : b` for applying a function value of
-    /// type `a -> b` to one argument. The member ref is minted against the
-    /// instantiated `TypeSpec`, with the signature written in terms of the
-    /// parent's generic type parameters (`instance !1 Invoke(!0)`).
+    /// `Vesper.Fun\`2<a, b>::Invoke(a) : b` for applying a function value of
+    /// type `a -> b` to one argument (R1 / D3). The member ref is minted against
+    /// the instantiated `TypeSpec`, with the signature written in terms of the
+    /// parent's generic type parameters (`instance !1 Invoke(!0)`). `Fun` is an
+    /// interface, so the dispatch stays `callvirt`.
+    /// `Vesper.Fun\`2<a,b>::Invoke(!0) : !1` as a `MemberRef` token — applying a
+    /// function value. Shared by `emitInvoke` (the general apply path) and
+    /// `emitFold`'s inline folder application (R3).
+    let funInvokeRef (a: SemType) (b: SemType) : EntityHandle =
+        let tsB = BlobBuilder()
+        let te = BlobEncoder(tsB).TypeSpecificationSignature()
+        let g = te.GenericInstantiation(eFun2.Value, 2, false)
+        encodeType (g.AddArgument()) a
+        encodeType (g.AddArgument()) b
+        let typeSpec = ctx.TypeSpec tsB
+
+        let msig = BlobBuilder()
+
+        BlobEncoder(msig)
+            .MethodSignature(isInstanceMethod = true)
+            .Parameters(
+                1,
+                (fun (ret: ReturnTypeEncoder) -> ret.Type().GenericTypeParameter(1)),
+                (fun (pars: ParametersEncoder) -> pars.AddParameter().Type().GenericTypeParameter(0))
+            )
+
+        toEntity (ctx.MemberRef(toEntity typeSpec, "Invoke", msig))
+
     let emitInvoke (funcTy: SemType) : CallRecipe =
+        match funcTy with
+        | TyFun(a, b) ->
+            let invokeRef = funInvokeRef a b
+
+            {
+                // `callvirt`: SRM has no helper, so emit the opcode + token.
+                Emit =
+                    fun il ->
+                        il.Encoder.OpCode ILOpCode.Callvirt
+                        il.Encoder.Token invokeRef
+                // Consumes the receiver func *and* the applied arg; pushes the
+                // result. So depth adjusts by 1 - 2 = -1.
+                ArgCount = 2
+                Pushes = 1
+            }
+        | other -> failwithf "ClrProvider: cannot invoke non-function type: %A" other
+
+    /// `FSharpFunc\`2<a, b>::Invoke(a) : b` — applying a value that is an
+    /// FSharp.Core `FSharpFunc`, not a `Vesper.Fun`. R1 left exactly one such
+    /// island: the cold printf printer returned by `PrintFormatLine` (the printf
+    /// engine retargets it, handoff §R9). Same shape as `emitInvoke` but over
+    /// `FSharpFunc`2`.
+    let emitFSharpFuncInvoke (funcTy: SemType) : CallRecipe =
         markFSharpCoreDep "Microsoft.FSharp.Core.FSharpFunc`2.Invoke"
 
         match funcTy with
@@ -443,8 +636,8 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
             let tsB = BlobBuilder()
             let te = BlobEncoder(tsB).TypeSpecificationSignature()
             let g = te.GenericInstantiation(eFSharpFunc2.Value, 2, false)
-            encodeType (g.AddArgument()) a
-            encodeType (g.AddArgument()) b
+            encodeFSharpFunc (g.AddArgument()) a
+            encodeFSharpFunc (g.AddArgument()) b
             let typeSpec = ctx.TypeSpec tsB
 
             let msig = BlobBuilder()
@@ -460,13 +653,10 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
             let invokeRef = toEntity (ctx.MemberRef(toEntity typeSpec, "Invoke", msig))
 
             {
-                // `callvirt`: SRM has no helper, so emit the opcode + token.
                 Emit =
                     fun il ->
                         il.Encoder.OpCode ILOpCode.Callvirt
                         il.Encoder.Token invokeRef
-                // Consumes the receiver func *and* the applied arg; pushes the
-                // result. So depth adjusts by 1 - 2 = -1.
                 ArgCount = 2
                 Pushes = 1
             }
@@ -485,12 +675,15 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
     let emitPrintfFormatCtor (tyArgs: SemType list) : CtorRecipe =
         markFSharpCoreDep "Microsoft.FSharp.Core.PrintfFormat`4 (.ctor)"
         // TypeSpec for the instantiated generic, used as the member-ref parent.
+        // The first type arg is the printer — an FSharp.Core `FSharpFunc` (this is
+        // the cold path: it flows straight into `PrintFormatLine`), so its arrows
+        // encode to `FSharpFunc`, not `Vesper.Fun` (R1; printf engine = R9).
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
         let g = te.GenericInstantiation(ePrintfFormat4.Value, List.length tyArgs, false)
 
         for a in tyArgs do
-            encodeType (g.AddArgument()) a
+            encodeFSharpFunc (g.AddArgument()) a
 
         let typeSpec = ctx.TypeSpec tsB
 
@@ -573,30 +766,97 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
             Pushes = 1
         }
 
-    // ---- Closure synthesis support (slice 5) ----
+    // ---- Vesper cons-list recipes (R3) ----
+    //
+    // The Vesper list mirrors FSharpList's *use*, but targets
+    // `Vesper.Collections.List\`1` in the compiled `Vesper.Core.dll` (no
+    // FSharp.Core), and its empty case is the static factory `Nil()` rather than
+    // FSharpList's `get_Empty` property. All member refs hang off a `List\`1<elem>`
+    // `TypeSpec`, their signatures written in the type's own `!0`.
 
-    /// `FSharpFunc\`2<a, b>` as a `TypeSpec` `EntityHandle` — a synthesised
-    /// closure's base type. Same encoding as `encodeType`'s `TyFun` case.
-    let fsharpFunc2Spec (a: SemType) (b: SemType) : EntityHandle =
-        markFSharpCoreDep "Microsoft.FSharp.Core.FSharpFunc`2 (closure base)"
+    /// `Vesper.Collections.List\`1<elem>` as a member-ref parent `TypeSpec`.
+    let vesperListTypeSpec (elem: SemType) : EntityHandle =
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
-        let g = te.GenericInstantiation(eFSharpFunc2.Value, 2, false)
+        let g = te.GenericInstantiation(eVesperList1.Value, 1, false)
+        encodeType (g.AddArgument()) elem
+        toEntity (ctx.TypeSpec tsB)
+
+    /// Encode `List\`1<!0>` (the declaring type's own typar) into a signature slot —
+    /// the return type of `Cons` / `Nil` / `get_Tail`.
+    let encodeVesperListOfTypar (te: SignatureTypeEncoder) : unit =
+        let g = te.GenericInstantiation(eVesperList1.Value, 1, false)
+        g.AddArgument().GenericTypeParameter(0)
+
+    /// `List\`1<elem>::Cons(!0, List\`1<!0>) : List\`1<!0>` — the static cons
+    /// factory our union emission produces (head + tail already on the stack).
+    let emitVesperListCons (elem: SemType) : CallRecipe =
+        let typeSpec = vesperListTypeSpec elem
+        let msig = BlobBuilder()
+
+        BlobEncoder(msig)
+            .MethodSignature(isInstanceMethod = false)
+            .Parameters(
+                2,
+                (fun (ret: ReturnTypeEncoder) -> encodeVesperListOfTypar (ret.Type())),
+                (fun (pars: ParametersEncoder) ->
+                    pars.AddParameter().Type().GenericTypeParameter(0)
+                    encodeVesperListOfTypar (pars.AddParameter().Type())
+                )
+            )
+
+        let consRef = toEntity (ctx.MemberRef(typeSpec, "Cons", msig))
+
+        {
+            Emit = fun il -> il.Encoder.Call consRef
+            ArgCount = 2
+            Pushes = 1
+        }
+
+    /// `List\`1<elem>::Nil() : List\`1<!0>` — the static empty factory.
+    let emitVesperListNil (elem: SemType) : CallRecipe =
+        let typeSpec = vesperListTypeSpec elem
+        let msig = BlobBuilder()
+
+        BlobEncoder(msig)
+            .MethodSignature(isInstanceMethod = false)
+            .Parameters(0, (fun (ret: ReturnTypeEncoder) -> encodeVesperListOfTypar (ret.Type())), (fun _ -> ()))
+
+        let nilRef = toEntity (ctx.MemberRef(typeSpec, "Nil", msig))
+
+        {
+            Emit = fun il -> il.Encoder.Call nilRef
+            ArgCount = 0
+            Pushes = 1
+        }
+
+    /// `List\`1<elem>::get_<name>()` — a parameterless instance member ref on the
+    /// Vesper list `TypeSpec`. `encodeRet` writes the return type in the type's `!0`.
+    let vesperListGetter (elem: SemType) (name: string) (encodeRet: ReturnTypeEncoder -> unit) : EntityHandle =
+        let typeSpec = vesperListTypeSpec elem
+        let msig = BlobBuilder()
+
+        BlobEncoder(msig)
+            .MethodSignature(isInstanceMethod = true)
+            .Parameters(0, (fun (ret: ReturnTypeEncoder) -> encodeRet ret), (fun _ -> ()))
+
+        toEntity (ctx.MemberRef(typeSpec, name, msig))
+
+    // ---- Closure synthesis support (slice 5 / R1) ----
+
+    /// `Vesper.Fun\`2<a, b>` as a `TypeSpec` `EntityHandle` — the interface a
+    /// synthesised closure *implements* (R1 / D3). Same encoding as `encodeType`'s
+    /// `TyFun` case; used both for the closure's `InterfaceImpl` row and as the
+    /// `MemberRef` parent for an explicit `Invoke` override should one be needed.
+    /// A closure now derives from `System.Object` (`ObjectType` / `ObjectCtorRef`),
+    /// not `FSharpFunc`.
+    let funInterfaceSpec (a: SemType) (b: SemType) : EntityHandle =
+        let tsB = BlobBuilder()
+        let te = BlobEncoder(tsB).TypeSpecificationSignature()
+        let g = te.GenericInstantiation(eFun2.Value, 2, false)
         encodeType (g.AddArgument()) a
         encodeType (g.AddArgument()) b
         toEntity (ctx.TypeSpec tsB)
-
-    /// Member ref to the protected parameterless `FSharpFunc\`2<a,b>::.ctor()`
-    /// a closure's own ctor chains to.
-    let fsharpFuncCtorRef (a: SemType) (b: SemType) : EntityHandle =
-        let parent = fsharpFunc2Spec a b
-        let ctorSig = BlobBuilder()
-
-        BlobEncoder(ctorSig)
-            .MethodSignature(isInstanceMethod = true)
-            .Parameters(0, (fun (ret: ReturnTypeEncoder) -> ret.Void()), (fun (_: ParametersEncoder) -> ()))
-
-        toEntity (ctx.MemberRef(parent, ".ctor", ctorSig))
 
     /// `instance b Invoke(a)` — the closure's concrete `Invoke` override
     /// signature (the closure type is closed, so no `TypeSpec`-relative typars).
@@ -638,53 +898,81 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
         encodeType te ty
         blob
 
-    /// `List.fold (+) state xs` → `call ListModule::Fold<'T,'State>(folder,
-    /// state, list)`. The 2-typar generic method's `'T` / `'State` are read off
-    /// the folder parameter of the head's type `fnTy = ('State -> 'T -> 'State)
-    /// -> 'State -> 'T list -> 'State`; the member ref is the generic def and a
-    /// `MethodSpec` instantiates it. Folder, state, list are already on the
-    /// stack beneath; the call pushes the `'State` result.
+    /// `List.fold folder state xs` over the *Vesper* list (R3) — emitted **inline**
+    /// (no FSharp.Core), a tail-style loop:
+    ///
+    ///   var f = folder; var s = state; var l = xs
+    ///   while not l.IsEmpty: s <- f.Invoke(s).Invoke(l.Head); l <- l.Tail
+    ///   return s
+    ///
+    /// `'T` / `'State` are read off the head's type `fnTy = ('State -> 'T -> 'State)
+    /// -> 'State -> Vesper.List<'T> -> 'State`. Folder, state, list are already on
+    /// the stack beneath (ArgCount = 3); the loop leaves the `'State` result.
+    /// (Compiling `fold` *into* `Vesper.Core.dll` is the deferred public-module
+    /// compilation gap — see selfhost-handoff.md; until then it is emitted here.)
     let emitFold (fnTy: SemType) : CallRecipe =
-        markFSharpCoreDep "Microsoft.FSharp.Collections.ListModule.Fold"
-
         let elemTy, stateTy =
             match zonk fnTy with
             | TyFun(TyFun(state, TyFun(t, _)), _) -> t, state
             | other -> failwithf "ClrProvider: List.fold has unexpected type %A" other
 
-        // Generic method def signature:
-        //   !!1 Fold<'T,'State>(FSharpFunc`2<!!1, FSharpFunc`2<!!0,!!1>>, !!1,
-        //                       FSharpList`1<!!0>)   (!!0 = 'T, !!1 = 'State)
-        let msig = BlobBuilder()
+        let folderTy = TyFun(stateTy, TyFun(elemTy, stateTy))
+        let listTy = TyRecord(vesperListName, [ elemTy ])
 
-        BlobEncoder(msig)
-            .MethodSignature(genericParameterCount = 2, isInstanceMethod = false)
-            .Parameters(
-                3,
-                (fun (ret: ReturnTypeEncoder) -> ret.Type().GenericMethodTypeParameter(1)),
-                (fun (pars: ParametersEncoder) ->
-                    let folder = pars.AddParameter().Type()
-                    let g = folder.GenericInstantiation(eFSharpFunc2.Value, 2, false)
-                    g.AddArgument().GenericMethodTypeParameter(1)
-                    let inner = g.AddArgument().GenericInstantiation(eFSharpFunc2.Value, 2, false)
-                    inner.AddArgument().GenericMethodTypeParameter(0)
-                    inner.AddArgument().GenericMethodTypeParameter(1)
-                    pars.AddParameter().Type().GenericMethodTypeParameter(1)
-                    encodeListOf (pars.AddParameter().Type()) (fun a -> a.GenericMethodTypeParameter(0))
-                )
-            )
+        // `folder.Invoke(state)` → `Fun<state, Fun<elem,state>>::Invoke`; the result
+        // `Fun<elem,state>::Invoke(head)` → the new state.
+        let inv1 = funInvokeRef stateTy (TyFun(elemTy, stateTy))
+        let inv2 = funInvokeRef elemTy stateTy
 
-        let memberRef = ctx.MemberRef(eListModule.Value, "Fold", msig)
+        let getIsEmpty =
+            vesperListGetter elemTy "get_IsEmpty" (fun ret -> ret.Type().Boolean())
 
-        // MethodSpec instantiating <'T = elemTy, 'State = stateTy>.
-        let inst = BlobBuilder()
-        let specEnc = BlobEncoder(inst).MethodSpecificationSignature(2)
-        encodeType (specEnc.AddArgument()) elemTy
-        encodeType (specEnc.AddArgument()) stateTy
-        let spec = toEntity (ctx.MethodSpec(toEntity memberRef, inst))
+        let getHead =
+            vesperListGetter elemTy "get_Head" (fun ret -> ret.Type().GenericTypeParameter(0))
+
+        let getTail =
+            vesperListGetter elemTy "get_Tail" (fun ret -> encodeVesperListOfTypar (ret.Type()))
+
+        let emit (il: Il) =
+            let callvirt (m: EntityHandle) =
+                il.Encoder.OpCode ILOpCode.Callvirt
+                il.Encoder.Token m
+
+            // Locals: list, state, folder — popped from the stack top-down (the
+            // caller pushed folder, state, list in that order).
+            let listL = il.DeclareLocal listTy
+            let stateL = il.DeclareLocal stateTy
+            let folderL = il.DeclareLocal folderTy
+            il.Encoder.StoreLocal listL
+            il.Encoder.StoreLocal stateL
+            il.Encoder.StoreLocal folderL
+
+            let loopLbl = il.Encoder.DefineLabel()
+            let doneLbl = il.Encoder.DefineLabel()
+
+            il.Encoder.MarkLabel loopLbl
+            il.Encoder.LoadLocal listL
+            callvirt getIsEmpty
+            il.Encoder.Branch(ILOpCode.Brtrue, doneLbl)
+            // state <- folder.Invoke(state).Invoke(list.Head)
+            il.Encoder.LoadLocal folderL
+            il.Encoder.LoadLocal stateL
+            callvirt inv1
+            il.Encoder.LoadLocal listL
+            callvirt getHead
+            callvirt inv2
+            il.Encoder.StoreLocal stateL
+            // list <- list.Tail
+            il.Encoder.LoadLocal listL
+            callvirt getTail
+            il.Encoder.StoreLocal listL
+            il.Encoder.Branch(ILOpCode.Br, loopLbl)
+
+            il.Encoder.MarkLabel doneLbl
+            il.Encoder.LoadLocal stateL
 
         {
-            Emit = fun il -> il.Encoder.Call spec
+            Emit = emit
             ArgCount = 3
             Pushes = 1
         }
@@ -923,6 +1211,42 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
 
         s
 
+    /// `instance <ret> <name>(<params…>)` — a *generic* union augmentation
+    /// member's signature (R2), encoded in terms of the type's own generic
+    /// parameters (`instance !0 get_Head()` / `instance List<!0> get_Tail()`).
+    /// The implicit `this` is the type's `!0` self (encoded by `isInstanceMethod`).
+    member _.GenericInstanceMethodSignature(typars: string list, paramTys: SemType list, retTy: SemType) : BlobBuilder =
+        let typeIx = typarIx typars
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(isInstanceMethod = true)
+            .Parameters(
+                List.length paramTys,
+                (fun (ret: ReturnTypeEncoder) -> encodeUnionType typeIx (ret.Type()) retTy),
+                (fun (pars: ParametersEncoder) ->
+                    for p in paramTys do
+                        encodeUnionType typeIx (pars.AddParameter().Type()) p
+                )
+            )
+
+        s
+
+    /// Encode a *generic* union member body's locals — a local typed in the
+    /// declaring type's typar (`h : 'T`) encodes to that type's
+    /// `GenericTypeParameter` (`!0`), since the member shares the type's generic
+    /// context; concrete locals delegate to `encodeType` (R2). The executable
+    /// `EncodeLocalSignature` (no typar leaf) is used for every monomorphic body.
+    member _.EncodeGenericLocalSignature(typars: string list, locals: SemType list) : StandaloneSignatureHandle =
+        let typeIx = typarIx typars
+        let blob = BlobBuilder()
+        let enc = BlobEncoder(blob).LocalVariableSignature(List.length locals)
+
+        for t in locals do
+            encodeUnionType typeIx (enc.AddVariable().Type()) (zonk t)
+
+        ctx.AddStandaloneSignature blob
+
     /// `instance void .ctor()` — a union's parameterless constructor signature.
     member _.NullaryCtorSignature() : BlobBuilder =
         let s = BlobBuilder()
@@ -930,6 +1254,35 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
         BlobEncoder(s)
             .MethodSignature(isInstanceMethod = true)
             .Parameters(0, (fun (ret: ReturnTypeEncoder) -> ret.Void()), (fun (_: ParametersEncoder) -> ()))
+
+        s
+
+    /// Install the ambient generic-method-typar set (by union-find root) for the
+    /// generic static method about to be emitted (R3), so `encodeType` / the
+    /// generic-union arg encoder map those `TypeVar`s to `!!i`. `ClearMethodTypars`
+    /// resets it (empty ⇒ monomorphic emission, the default everywhere else).
+    member _.SetMethodTypars(typars: TypeVar list) : unit =
+        methodTyparRoots <- typars |> List.map UnionFind.find
+
+    member _.ClearMethodTypars() : unit = methodTyparRoots <- []
+
+    /// `<ret> <name><`n>(<params…>)` — a *generic* module-static-method signature
+    /// (R3): the method declares `typarCount` generic parameters, and every typar
+    /// `TypeVar` in `paramTys` / `retTy` encodes to `!!i` through the ambient set
+    /// installed by `SetMethodTypars` (`fold<!!0,!!1>`).
+    member _.GenericStaticFnSignature(typarCount: int, paramTys: SemType list, retTy: SemType) : BlobBuilder =
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(genericParameterCount = typarCount, isInstanceMethod = false)
+            .Parameters(
+                List.length paramTys,
+                (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) retTy),
+                (fun (pars: ParametersEncoder) ->
+                    for p in paramTys do
+                        encodeType (pars.AddParameter().Type()) p
+                )
+            )
 
         s
 
@@ -971,11 +1324,9 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
 
         s
 
-    /// `FSharpFunc\`2<a,b>` `TypeSpec` for a closure's base type.
-    member _.ClosureBaseSpec(a: SemType, b: SemType) : EntityHandle = fsharpFunc2Spec a b
-
-    /// Member ref to `FSharpFunc\`2<a,b>::.ctor()` for the closure ctor chain.
-    member _.FSharpFuncCtorRef(a: SemType, b: SemType) : EntityHandle = fsharpFuncCtorRef a b
+    /// `Vesper.Fun\`2<a,b>` `TypeSpec` — the interface a closure implements (R1).
+    /// Its `InterfaceImpl` row; the closure base is `ObjectType`.
+    member _.FunInterfaceSpec(a: SemType, b: SemType) : EntityHandle = funInterfaceSpec a b
 
     /// `instance b Invoke(a)` signature for the closure's `Invoke` override.
     member _.InvokeSignature(a: SemType, b: SemType) : BlobBuilder = invokeSignature a b
@@ -1038,15 +1389,22 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
                 ValueNone
 
         member _.TryEmitUnionCons(typeName, caseName, tyArgs) =
-            if typeName = listTypeName then
-                let elem =
-                    match List.map zonk tyArgs with
-                    | [ e ] -> e
-                    | other -> failwithf "ClrProvider: list type expects one type argument, got %A" other
+            let elem () =
+                match List.map zonk tyArgs with
+                | [ e ] -> e
+                | other -> failwithf "ClrProvider: list type expects one type argument, got %A" other
 
+            if typeName = listTypeName then
                 match caseName with
-                | "Cons" -> ValueSome(emitListCons elem)
-                | "Nil" -> ValueSome(emitListNil elem)
+                | "Cons" -> ValueSome(emitListCons (elem ()))
+                | "Nil" -> ValueSome(emitListNil (elem ()))
+                | _ -> ValueNone
+            elif typeName = vesperListName then
+                // The Vesper cons-list (R3) — its `Cons` / `Nil` static factories in
+                // the compiled `Vesper.Core.dll`; no FSharp.Core.
+                match caseName with
+                | "Cons" -> ValueSome(emitVesperListCons (elem ()))
+                | "Nil" -> ValueSome(emitVesperListNil (elem ()))
                 | _ -> ValueNone
             else
                 // User-defined DU constructors flow through here too; minting
@@ -1056,9 +1414,16 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
         member _.GenericUnionMemberRef(name, args, which) =
             genericUnionMemberRef name (List.map zonk args) which
 
+        member _.StaticFnMethodSpec(handle, instTypes) = staticFnMethodSpec handle instTypes
+
         member _.TryEmitInvoke(funcTy) =
             match zonk funcTy with
             | TyFun _ as ft -> ValueSome(emitInvoke ft)
+            | _ -> ValueNone
+
+        member _.TryEmitFSharpFuncInvoke(funcTy) =
+            match zonk funcTy with
+            | TyFun _ as ft -> ValueSome(emitFSharpFuncInvoke ft)
             | _ -> ValueNone
 
         member _.FormatHandles() = buildFormatHandles ()

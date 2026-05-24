@@ -43,12 +43,13 @@ declarations file by file).
 | `prim-types-nativeint.fsi` | `nativeint`/`unativeint`/`nativeptr`/`voidptr`/`ilsigptr` (target-specific) |
 | `prim-types-nd-array.fsi` | multi-dimensional array types |
 | `prim-types-attr.fsi`, `compiler-attributes.fsi` | compiler-recognised attribute hooks (stubs for now) |
-| `core-types.fsi` | `Ref`, `Option`, `ValueOption`, `Result`; `Collections.List<'T>` + `List.fold` |
+| `core-types.fsi` | `Ref`, `ValueOption`, `Result` (`Option` split out to `src/Vesper.Option/`; `Collections.List<'T>` + `List.fold` to `src/Vesper.List/`) |
 | `ops-platform.fsi` | arithmetic / bitwise / comparison — lower to per-target CIL intrinsics |
 | `ops-std.fsi` | logical / composition / pipe — target-agnostic, over `bool` / `Fun` |
 
 Impl side (`.fs`, our-backend target source — **not** built by `dotnet`/`fsc`):
-`prim-types-min.fs`, `prim-types-string.fs`, `List.fs`.
+`prim-types-min.fs`, `prim-types-string.fs`. (The cons-list impl moved to the
+standalone `src/Vesper.List/` package — see its README.)
 
 ## Naming / shape decisions
 

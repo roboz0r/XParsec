@@ -921,23 +921,67 @@ module Freeze =
         for i = 1 to li.Idents.Length - 1 do
             let seg = li.Idents.[i]
             let segName = ctx.NameOf seg
-            // Intermediate steps recover the field's declared type via TyRecord;
-            // the last step uses finalTy.
+            // Intermediate steps recover the segment's declared type from the
+            // receiver — a record/union/class field, or a union/class *instance
+            // member* return type (so a chain through a member returning a union,
+            // `xs.Tail.Head`, keeps `xs.Tail : Lst<_>` instead of collapsing to the
+            // chain's final type). The last step uses the whole chain's `finalTy`.
             let stepTy =
                 if i = li.Idents.Length - 1 then
                     finalTy
                 else
-                    match Unification.zonk currTy with
-                    | TyRecord(recName, args) ->
-                        match ctx.RecordTypes.TryGetValue recName with
-                        | true, info ->
-                            match info.Fields |> Array.tryFind (fun f -> f.Name = segName) with
-                            | Some field ->
-                                let subst = Unification.mkNamedTypeSubst info.TypeParams args
-                                Unification.zonk (Unification.substituteWith subst field.Type)
-                            | None -> finalTy
-                        | false, _ -> finalTy
-                    | _ -> finalTy
+                    let resolved =
+                        match Unification.zonk currTy with
+                        | TyRecord(recName, args) ->
+                            match ctx.RecordTypes.TryGetValue recName with
+                            | true, info ->
+                                info.Fields
+                                |> Array.tryPick (fun f ->
+                                    if f.Name = segName then
+                                        Some(
+                                            Unification.substituteWith
+                                                (Unification.mkNamedTypeSubst info.TypeParams args)
+                                                f.Type
+                                        )
+                                    else
+                                        None
+                                )
+                            | false, _ -> None
+                        | TyUnion(unionName, args) ->
+                            match ctx.UnionTypes.TryGetValue unionName with
+                            | true, info ->
+                                info.Members
+                                |> Array.tryPick (fun m ->
+                                    if m.Name = segName && not m.IsStatic then
+                                        Some(
+                                            Unification.substituteWith
+                                                (Unification.mkNamedTypeSubst info.TypeParams args)
+                                                m.Type
+                                        )
+                                    else
+                                        None
+                                )
+                            | false, _ -> None
+                        | TyClass(clsName, args) ->
+                            match ctx.ClassTypes.TryGetValue clsName with
+                            | true, info ->
+                                info.Members
+                                |> Array.tryPick (fun m ->
+                                    if m.Name = segName && not m.IsStatic then
+                                        Some(
+                                            Unification.substituteWith
+                                                (Unification.mkNamedTypeSubst info.TypeParams args)
+                                                m.Type
+                                        )
+                                    else
+                                        None
+                                )
+                            | false, _ -> None
+                        | _ -> None
+
+                    match resolved with
+                    | Some t -> Unification.zonk t
+                    | None -> finalTy
 
             // PropertyGet for a class/union member, FieldGet otherwise. Method
             // members accessed without an application keep the PropertyGet shape —
@@ -1160,6 +1204,11 @@ module Freeze =
                 match nilCase, consCase with
                 | Some n, Some c -> zonked, c.Name, n.Name
                 | _ -> TyRecord("Microsoft.FSharp.Collections.list", [ elemTy ]), "Cons", "Nil"
+            // The external Vesper list (R3): a bare-program literal a consumer drove
+            // onto `Vesper.Collections.List` (`Unification.listLiteralTy` /
+            // `resolveListLiterals`). Its `Cons` / `Nil` factories are minted by the
+            // backend's `TryEmitUnionCons` Vesper case — BCL-only, no FSharp.Core.
+            | TyRecord("Vesper.Collections.List", _) when not isArray -> zonked, "Cons", "Nil"
             | _ -> TyRecord("Microsoft.FSharp.Collections.list", [ elemTy ]), "Cons", "Nil"
 
         let listExpr =
@@ -1288,6 +1337,78 @@ module Freeze =
             | TyClass(n, args) -> TyClass(n, List.map go args)
 
         go (Unification.zonk t)
+
+    /// Apply `f` to every `SemType` embedded in a pattern (and its sub-patterns).
+    let rec private mapPatTypes (f: SemType -> SemType) (p: TPat) : TPat =
+        match p with
+        | TPat.NamedSimple(k, ty) -> TPat.NamedSimple(k, f ty)
+        | TPat.Wildcard ty -> TPat.Wildcard(f ty)
+        | TPat.Tuple(items, ty) -> TPat.Tuple(List.map (mapPatTypes f) items, f ty)
+        | TPat.Const(v, ty) -> TPat.Const(v, f ty)
+        | TPat.Record(fields, ty) -> TPat.Record([ for (n, sp) in fields -> n, mapPatTypes f sp ], f ty)
+        | TPat.Union(cn, fields, ty) -> TPat.Union(cn, List.map (mapPatTypes f) fields, f ty)
+
+    /// Rewrite every `SemType` embedded in a member body via `f`. Used to push a
+    /// generic union's declaring-typar remap (`remapDeclTypars`) through the whole
+    /// member body, so a typar-typed local / scrutinee / bound variable carries the
+    /// `TyConst "'T"` marker the backend's generic-member encoder consumes — just as
+    /// the case-field types do (P3d.4 generalised to member bodies for R2).
+    let rec private mapExprTypes (f: SemType -> SemType) (e: TExpr) : TExpr =
+        let pe = mapExprTypes f
+        let pp = mapPatTypes f
+
+        let arm (a: TMatchArm) =
+            {
+                Pat = pp a.Pat
+                Guard = Option.map pe a.Guard
+                Body = pe a.Body
+            }
+
+        match e with
+        | TExpr.Const(v, ty) -> TExpr.Const(v, f ty)
+        | TExpr.Var(k, ty) -> TExpr.Var(k, f ty)
+        | TExpr.External(n, ty) -> TExpr.External(n, f ty)
+        | TExpr.Lambda(p, b, ty) -> TExpr.Lambda(pp p, pe b, f ty)
+        | TExpr.App(fn, a, ty) -> TExpr.App(pe fn, pe a, f ty)
+        | TExpr.Let(p, v, b, ty) -> TExpr.Let(pp p, pe v, pe b, f ty)
+        | TExpr.IfThenElse(c, t, el, ty) -> TExpr.IfThenElse(pe c, pe t, pe el, f ty)
+        | TExpr.Tuple(xs, ty) -> TExpr.Tuple(List.map pe xs, f ty)
+        | TExpr.Sequential(xs, ty) -> TExpr.Sequential(List.map pe xs, f ty)
+        | TExpr.While(c, b, ty) -> TExpr.While(pe c, pe b, f ty)
+        | TExpr.ForTo(v, s, e2, b, ty) -> TExpr.ForTo(v, pe s, pe e2, pe b, f ty)
+        | TExpr.ForIn(p, src, b, ty) -> TExpr.ForIn(pp p, pe src, pe b, f ty)
+        | TExpr.Match(sc, arms, ty) -> TExpr.Match(pe sc, List.map arm arms, f ty)
+        | TExpr.TryWith(b, arms, ty) -> TExpr.TryWith(pe b, List.map arm arms, f ty)
+        | TExpr.TryFinally(b, c, ty) -> TExpr.TryFinally(pe b, pe c, f ty)
+        | TExpr.Assignment(l, r, ty) -> TExpr.Assignment(pe l, pe r, f ty)
+        | TExpr.Null ty -> TExpr.Null(f ty)
+        | TExpr.Range(s, step, stop, ty) -> TExpr.Range(pe s, Option.map pe step, pe stop, f ty)
+        | TExpr.RecordCons(fields, ty) -> TExpr.RecordCons([ for (n, v) in fields -> n, pe v ], f ty)
+        | TExpr.RecordClone(src, ov, ty) -> TExpr.RecordClone(pe src, [ for (n, v) in ov -> n, pe v ], f ty)
+        | TExpr.FieldGet(r, n, ty) -> TExpr.FieldGet(pe r, n, f ty)
+        | TExpr.FieldSet(r, n, v, ty) -> TExpr.FieldSet(pe r, n, pe v, f ty)
+        | TExpr.UnionCons(cn, args, ty) -> TExpr.UnionCons(cn, List.map pe args, f ty)
+        | TExpr.New(cn, args, ty) -> TExpr.New(cn, List.map pe args, f ty)
+        | TExpr.MethodCall(r, n, args, ty) -> TExpr.MethodCall(pe r, n, List.map pe args, f ty)
+        | TExpr.PropertyGet(r, n, ty) -> TExpr.PropertyGet(pe r, n, f ty)
+        | TExpr.StaticMethodCall(cn, n, args, ty) -> TExpr.StaticMethodCall(cn, n, List.map pe args, f ty)
+        | TExpr.StaticPropertyGet(cn, n, ty) -> TExpr.StaticPropertyGet(cn, n, f ty)
+        | TExpr.Format(sink, segs, ty) ->
+            let sink =
+                match sink with
+                | FormatSink.ToWriter w -> FormatSink.ToWriter(pe w)
+                | FormatSink.ToBuilder w -> FormatSink.ToBuilder(pe w)
+                | other -> other
+
+            let segs =
+                segs
+                |> EqArray.map (fun seg ->
+                    match seg with
+                    | FormatSeg.Lit _ -> seg
+                    | FormatSeg.Hole(h, a) -> FormatSeg.Hole({ h with Ty = f h.Ty }, pe a)
+                )
+
+            TExpr.Format(sink, segs, f ty)
 
     /// Classify an object-model body as an interface — every element an abstract
     /// method signature, no base type, no `let`/`do` preamble — and build its
@@ -1462,6 +1583,24 @@ module Freeze =
                         { Name = c.Name; Fields = fields }
                 ]
 
+            // A generic union's members must carry the declaring-typar markers the
+            // backend's generic-member encoder consumes (`!0`), exactly like the
+            // case fields above: remap the member signature (`ThisTy` / `Params` /
+            // `ReturnTy`) *and* the body's embedded types. Monomorphic unions
+            // (`markers` empty) keep the bodies untouched — `translateUnionMember`'s
+            // `TyUnion(name, [])` is already correct, so the path stays byte-identical.
+            let declTypars = [ for (n, _) in info.TypeParams -> n ]
+
+            let remapMember (m: TTypeMember) : TTypeMember =
+                let f = remapDeclTypars markers
+
+                { m with
+                    ThisTy = TyUnion(info.Name, [ for n in declTypars -> TyConst n ])
+                    Params = m.Params |> List.map (fun (k, ty) -> k, f ty)
+                    Body = mapExprTypes f m.Body
+                    ReturnTy = f m.ReturnTy
+                }
+
             let members =
                 match ext with
                 | ValueNone -> []
@@ -1469,7 +1608,7 @@ module Freeze =
                     [
                         for el in elems do
                             match translateUnionMember ctx info el with
-                            | ValueSome m -> yield m
+                            | ValueSome m -> yield (if List.isEmpty declTypars then m else remapMember m)
                             | ValueNone -> ()
                     ]
 

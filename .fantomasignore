@@ -4,3 +4,7 @@ src/XParsec/Readables.fs
 # FSharp.Core port — uses --compiling-fslib / inline-IL constructs Fantomas can't parse.
 src/XParsec.FSharp.Lib/
 src/Vesper.Core/
+# Vesper.List — same `[]`/`::` operator-union-case syntax Fantomas mangles (it
+# strips the case payloads `: 'T list` / `Head: 'T * Tail: …`). Authored to a
+# fixed shape; parser coverage is the golden `.parsed` snapshots, not Fantomas.
+src/Vesper.List/

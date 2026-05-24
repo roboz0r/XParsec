@@ -245,12 +245,18 @@ module MockBuiltins =
 
         [
             // val fold<'T,'State> : ('State -> 'T -> 'State) -> 'State -> 'T list -> 'State
+            //
+            // The list parameter is the *Vesper* list (R3): a bare program's `[…]`
+            // literal is flexible (`Unification.listLiteralTy`), so this drives it to
+            // `Vesper.Collections.List` — the literal then emits BCL-only and the
+            // fold runs over the Vesper list. (A literal nothing pins this way, e.g.
+            // under `%A`, defaults back to FSharp.Core's `list`.)
             "List.fold",
             fun level ->
                 let state = freshAt level
                 let t = freshAt level
                 let folder = TyFun(state, TyFun(t, state))
-                let listOfT = TyRecord("Microsoft.FSharp.Collections.list", [ t ])
+                let listOfT = TyRecord("Vesper.Collections.List", [ t ])
                 TyFun(folder, TyFun(state, TyFun(listOfT, state)))
         ]
         |> List.map (fun (n, build) -> n, ExternalSymbols.poly n build)

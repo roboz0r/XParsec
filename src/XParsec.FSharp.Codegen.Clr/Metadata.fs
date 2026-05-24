@@ -172,8 +172,9 @@ type MetadataContext() =
         )
         |> ignore
 
-    /// A concrete `TypeDefinition` with an arbitrary base (a closure's
-    /// instantiated `FSharpFunc\`2` `TypeSpec`, or `Object` for a union). `ns`
+    /// A concrete `TypeDefinition` with an arbitrary base (`Object` for a union or
+    /// a closure — a closure now *implements* `Vesper.Fun` via `InterfaceImpl`
+    /// rather than deriving from `FSharpFunc`). `ns`
     /// empty ⇒ global. Callers must add this type's fields and methods (in type
     /// order) before the `TypeDefinition` row, since `firstField` / `firstMethod`
     /// start its contiguous ranges.
@@ -236,6 +237,15 @@ type MetadataContext() =
             firstField,
             firstMethod
         )
+
+    /// `typeDef` declares that it implements `interfaceType` (a `TypeDef` /
+    /// `TypeRef` / `TypeSpec` — a closure's instantiated `Vesper.Fun\`2<a,b>`).
+    /// SRM validates the `InterfaceImpl` table is sorted by the `Class` column on
+    /// serialize, so callers must add rows in ascending `typeDef` order (the
+    /// closure `TypeDefinition`s are emitted ascending, so per-closure addition in
+    /// that loop is already sorted).
+    member _.AddInterfaceImplementation(typeDef: TypeDefinitionHandle, interfaceType: EntityHandle) : unit =
+        mb.AddInterfaceImplementation(typeDef, interfaceType) |> ignore
 
     /// `owner` is a `TypeDefinition` or `MethodDefinition`. SRM requires all
     /// `GenericParam` rows globally sorted by `CodedIndex.TypeOrMethodDef(owner)`

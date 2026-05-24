@@ -36,6 +36,14 @@ type UnionMember =
     /// Payload field named `<Case>_<index>`.
     | Field of caseName: string * fieldIndex: int
     | Factory of caseName: string
+    /// An augmentation member (`get_Head` instance property, `Single` static
+    /// method) of a generic union (R2). `metaName` is the emitted method name
+    /// (a property is `get_<name>`); the signature (`paramTys` / `retTy`) is in
+    /// the type's declaring-typar markers, written into the member ref as `!0`
+    /// with the parent `TypeSpec` supplying the instantiation — same shape as
+    /// `Factory`, but the member name + signature are explicit (not read from the
+    /// case table).
+    | Member of metaName: string * isStatic: bool * paramTys: SemType list * retTy: SemType
 
 /// Resolved metadata handles for lowering a `TExpr.Format` to the write-through
 /// handler (`Vesper.Formatter`). A `Format` can't be a `CallRecipe` — it
@@ -88,10 +96,24 @@ type ICodegenProvider =
     /// here — its `Def` tokens are used directly.
     abstract GenericUnionMemberRef: name: string * args: SemType list * which: UnionMember -> EntityHandle
 
+    /// A `MethodSpec` instantiating a *generic* module-static method (`fold`) at a
+    /// call site (R3). `handle` is the method's (predicted) `MethodDefinition`;
+    /// `instTypes` the per-typar instantiation recovered by matching the method's
+    /// declared parameter types against the call's actual argument types. A
+    /// recursive self-call passes the method's own typars (encoded `!!i` via the
+    /// ambient set); an external call passes concrete types.
+    abstract StaticFnMethodSpec: handle: EntityHandle * instTypes: SemType list -> EntityHandle
+
     /// Apply a function *value* of type `funcTy` to one argument —
-    /// `FSharpFunc\`2::Invoke`. Receiver and argument are both already on the
+    /// `Vesper.Fun\`2::Invoke` (R1). Receiver and argument are both already on the
     /// stack (receiver beneath), so the recipe's `ArgCount` is 2.
     abstract TryEmitInvoke: funcTy: SemType -> CallRecipe voption
+
+    /// Apply a value that is an FSharp.Core `FSharpFunc` (not a `Vesper.Fun`) —
+    /// `FSharpFunc\`2::Invoke`. R1's one remaining caller is the cold printf
+    /// printer returned by `PrintFormatLine`; the printf engine retargets it
+    /// (handoff §R9).
+    abstract TryEmitFSharpFuncInvoke: funcTy: SemType -> CallRecipe voption
 
     abstract FormatHandles: unit -> FormatHandles
 

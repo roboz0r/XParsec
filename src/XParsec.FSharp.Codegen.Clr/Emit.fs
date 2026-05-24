@@ -51,11 +51,18 @@ module Emit =
 
     /// An augmentation member emitted onto a union's `TypeDefinition`. A
     /// property's `Handle` is its `get_<name>` method; `Arity` excludes `this`.
+    /// `Handle` is the member's `Def` token — used directly for a monomorphic
+    /// union. A *generic* union reaches the member through a `MemberRef` on the
+    /// instantiated `TypeSpec` (R2), built from `MetaName` + the signature
+    /// (`ParamTys` / `RetTy`, in declaring-typar markers).
     type EmittedMember =
         {
             Handle: EntityHandle
             IsStatic: bool
             Arity: int
+            MetaName: string
+            ParamTys: SemType list
+            RetTy: SemType
         }
 
     /// A union emitted into this assembly: the shared `int` discriminant field,
@@ -96,11 +103,20 @@ module Emit =
     /// any body is built (the `MethodDefinition` handle is *predicted* from the
     /// row order). A call site `f a b` `call`s `Handle` with the first `Arity`
     /// args, then `Invoke`s the result with any remainder.
+    ///
+    /// A *generic* static method (`fold`, R3) carries its type-parameter
+    /// `TypeVar`s (the free vars of its signature, by union-find root) and its
+    /// declared parameter types: a call site recovers the per-typar instantiation
+    /// by matching `ParamTys` against the actual argument types, then `call`s a
+    /// `MethodSpec` instead of the bare `MethodDefinition`. Empty `Typars` ⇒ a
+    /// monomorphic method (a plain `call`).
     type StaticMethodRef =
         {
             Handle: EntityHandle
             Arity: int
             ResultTy: SemType
+            Typars: TypeVar list
+            ParamTys: SemType list
         }
 
     let private typeOfExpr (e: TExpr) : SemType =
@@ -143,6 +159,68 @@ module Emit =
         | TPat.Const(_, ty)
         | TPat.Record(_, ty)
         | TPat.Union(_, _, ty) -> ty
+
+    /// Resolve a `SemType`'s `TypeVar` links to their representatives (the codegen
+    /// project keeps its own copy rather than depend on the `Passes` namespace —
+    /// the `ClrProvider` has the same private helper). A free `TypeVar` stays a
+    /// `TyVar root`; a solved one resolves through to its concrete shape.
+    let rec zonk (t: SemType) : SemType =
+        match t with
+        | TyVar tv ->
+            let r = UnionFind.find tv
+
+            match r.Link with
+            | ValueSome target -> zonk target
+            | ValueNone -> TyVar r
+        | TyFun(a, b) -> TyFun(zonk a, zonk b)
+        | TyTuple xs -> TyTuple(List.map zonk xs)
+        | TyRecord(n, xs) -> TyRecord(n, List.map zonk xs)
+        | TyUnion(n, xs) -> TyUnion(n, List.map zonk xs)
+        | TyClass(n, xs) -> TyClass(n, List.map zonk xs)
+        | TyConst _ -> t
+
+    /// Recover a generic static method's per-typar instantiation at a call site
+    /// (R3): structurally match each declared parameter type (`defTys`, carrying
+    /// the method's typar `TypeVar`s) against the actual argument type, recording
+    /// the actual sub-type that lands on each typar. First occurrence wins. For a
+    /// recursive self-call the actuals reference the method's own typars, so the
+    /// result is those typars (encoded `!!i`); for an external call they are
+    /// concrete. `typars` is the ordered typar set (`StaticMethodRef.Typars`).
+    let private matchInstantiation
+        (typars: TypeVar list)
+        (defTys: SemType list)
+        (actualTys: SemType list)
+        : SemType list =
+        let roots = typars |> List.map UnionFind.find
+        let result = Array.create roots.Length ValueNone
+
+        let rec go (defT: SemType) (actT: SemType) =
+            match zonk defT, zonk actT with
+            | TyVar tv, act ->
+                let r = UnionFind.find tv
+
+                match roots |> List.tryFindIndex (fun x -> System.Object.ReferenceEquals(x, r)) with
+                | Some i ->
+                    if result.[i].IsNone then
+                        result.[i] <- ValueSome act
+                | None -> ()
+            | TyFun(a1, r1), TyFun(a2, r2) ->
+                go a1 a2
+                go r1 r2
+            | TyTuple xs, TyTuple ys when xs.Length = ys.Length -> List.iter2 go xs ys
+            | TyRecord(_, xs), TyRecord(_, ys) when xs.Length = ys.Length -> List.iter2 go xs ys
+            | TyUnion(_, xs), TyUnion(_, ys) when xs.Length = ys.Length -> List.iter2 go xs ys
+            | TyClass(_, xs), TyClass(_, ys) when xs.Length = ys.Length -> List.iter2 go xs ys
+            | _ -> ()
+
+        List.iter2 go defTys actualTys
+
+        [
+            for i in 0 .. roots.Length - 1 ->
+                match result.[i] with
+                | ValueSome t -> t
+                | ValueNone -> failwithf "Emit: could not infer instantiation for static-method type parameter %d" i
+        ]
 
     /// The single structural recursion the lowering map, the closure collector,
     /// and the free-variable walk all share (the latter two via `iterChildren`).
@@ -776,28 +854,51 @@ module Emit =
         Cil.emitNewobj il env.Provider.ExceptionCtor 1
         Cil.emitThrow il
 
-    /// Resolve an augmentation member for an instance access on `receiverTy`
-    /// (P3d.3). Only emitted unions carry members today (records / concrete
-    /// classes are P3e), so a non-union receiver is a gap.
-    let private lookupInstanceMember (env: EmitEnv) (receiverTy: SemType) (name: string) : EmittedMember =
-        let typeName =
+    /// Resolve the member-call handle for an instance access on `receiverTy`
+    /// (P3d.3, generalised to generic unions in R2). A monomorphic union uses the
+    /// member's `Def` token directly; a *generic* union goes through a `MemberRef`
+    /// on the receiver's instantiated `TypeSpec` (`List<int>::get_Head`). Only
+    /// emitted unions carry members today (records / concrete classes are P3e), so
+    /// a non-union receiver is a gap.
+    let private resolveInstanceMember (env: EmitEnv) (receiverTy: SemType) (name: string) : EntityHandle =
+        let typeName, tyArgs =
             match receiverTy with
-            | TyUnion(n, _)
-            | TyRecord(n, _) -> n
+            | TyUnion(n, xs)
+            | TyRecord(n, xs) -> n, xs
             | other -> failwithf "Emit: member '%s' access on non-union receiver %A" name other
 
         match env.Unions.TryGetValue typeName with
         | true, u ->
             match u.Members.TryGetValue name with
-            | true, m -> m
+            | true, m ->
+                if List.isEmpty u.Typars then
+                    m.Handle
+                else
+                    env.Provider.GenericUnionMemberRef(
+                        typeName,
+                        tyArgs,
+                        UnionMember.Member(m.MetaName, false, m.ParamTys, m.RetTy)
+                    )
             | false, _ -> failwithf "Emit: union '%s' has no emitted member '%s'" typeName name
         | false, _ -> failwithf "Emit: no emitted union for member access on '%s'" typeName
 
-    let private lookupStaticMember (env: EmitEnv) (typeName: string) (name: string) : EmittedMember =
+    /// The static-member equivalent. Generic-union *static* augmentation members
+    /// are out of scope in R2 (a static member's typars aren't tied to the type's
+    /// via `this`, so the front-end leaves them un-remapped — the type's generic
+    /// `Cons` / `Empty` come from its case factories instead), so a generic union
+    /// fails here loudly rather than minting a malformed `Def` call.
+    let private resolveStaticMember (env: EmitEnv) (typeName: string) (name: string) : EntityHandle =
         match env.Unions.TryGetValue typeName with
         | true, u ->
             match u.Members.TryGetValue name with
-            | true, m -> m
+            | true, m ->
+                if List.isEmpty u.Typars then
+                    m.Handle
+                else
+                    failwithf
+                        "Emit: generic-union static augmentation member '%s.%s' is out of scope (R2)"
+                        typeName
+                        name
             | false, _ -> failwithf "Emit: union '%s' has no emitted static member '%s'" typeName name
         | false, _ -> failwithf "Emit: no emitted union for static member access on '%s'" typeName
 
@@ -806,6 +907,13 @@ module Emit =
     /// rather than the FSharp.Core `Operators.FailWith` recipe.
     let private isFailwith (name: string) : bool =
         name = "failwith" || name.EndsWith ".failwith" || name.EndsWith "FailWith"
+
+    /// The cold printf path (`printfn "%A"` …). Its `PrintFormatLine` recipe leaves
+    /// an FSharp.Core `FSharpFunc` printer on the stack, so the printer is applied
+    /// via `FSharpFunc::Invoke`, not `Vesper.Fun::Invoke` (R1 leaves this FSharp.Core
+    /// island alone until the printf engine — handoff §R9).
+    let private isColdPrintf (name: string) : bool =
+        name = "printfn" || name.EndsWith ".printfn"
 
     let rec private emitExpr (env: EmitEnv) (il: Il) (e: TExpr) : unit =
         match e with
@@ -965,21 +1073,41 @@ module Emit =
                         | Some(_, ty) -> ty
                         | None -> typeOfExpr head
 
-                    foldInvoke env il funcTy rest
+                    // The cold printf printer is an FSharp.Core `FSharpFunc`, so it
+                    // is applied via `FSharpFunc::Invoke`; every other recipe result
+                    // is a native `Vesper.Fun` (R1).
+                    if isColdPrintf name then
+                        foldInvokeFSharpFunc env il funcTy rest
+                    else
+                        foldInvoke env il funcTy rest
                 | ValueNone -> failwithf "Emit: no call recipe for external '%s'" name
 
             | TExpr.Var(k, _) when env.StaticMethods.ContainsKey k ->
                 // A top-level function emitted as a static method (P3b): `call`
                 // it with the first `Arity` args (always present — a non-saturated
                 // use would have escaped to a closure, see `collectStaticFns`),
-                // then `Invoke` the result with any remainder.
+                // then `Invoke` the result with any remainder. A *generic* static
+                // method (R3) `call`s a `MethodSpec` instantiating it — recovered
+                // by matching its declared parameter types against the actual
+                // argument types (recursion yields the method's own typars ⇒ `!!i`).
                 let sm = env.StaticMethods.[k]
                 let leading, rest = List.splitAt sm.Arity spineArgs
 
                 for (a, _) in leading do
                     emitExpr env il a
 
-                Cil.emitCall il sm.Handle sm.Arity 1
+                let callHandle =
+                    if List.isEmpty sm.Typars then
+                        sm.Handle
+                    else
+                        // Each spine arg's *own* type (`collectSpine` pairs it with
+                        // the application's *result* type instead), matched against
+                        // the declared parameter types to recover the instantiation.
+                        let actualTys = leading |> List.map (fun (a, _) -> typeOfExpr a)
+                        let inst = matchInstantiation sm.Typars sm.ParamTys actualTys
+                        env.Provider.StaticFnMethodSpec(sm.Handle, inst)
+
+                Cil.emitCall il callHandle sm.Arity 1
                 foldInvoke env il sm.ResultTy rest
 
             | _ ->
@@ -1019,33 +1147,35 @@ module Emit =
 
         | TExpr.PropertyGet(receiver, name, _) ->
             // Instance property read (P3d.3): load the receiver, `call` the
-            // union's `get_<name>` (the receiver is its sole argument).
-            let m = lookupInstanceMember env (typeOfExpr receiver) name
+            // union's `get_<name>` (the receiver is its sole argument). On a
+            // generic union the call goes through a `MemberRef` on the receiver's
+            // `TypeSpec` (`List<int>::get_Head`) (R2).
+            let handle = resolveInstanceMember env (typeOfExpr receiver) name
             emitExpr env il receiver
-            Cil.emitCall il m.Handle 1 1
+            Cil.emitCall il handle 1 1
 
         | TExpr.MethodCall(receiver, name, args, _) ->
             // Instance method call (P3d.3): receiver then args, `call` the
             // member (non-virtual — the union is sealed).
-            let m = lookupInstanceMember env (typeOfExpr receiver) name
+            let handle = resolveInstanceMember env (typeOfExpr receiver) name
             emitExpr env il receiver
 
             for a in args do
                 emitExpr env il a
 
-            Cil.emitCall il m.Handle (1 + List.length args) 1
+            Cil.emitCall il handle (1 + List.length args) 1
 
         | TExpr.StaticPropertyGet(className, name, _) ->
-            let m = lookupStaticMember env className name
-            Cil.emitCall il m.Handle 0 1
+            let handle = resolveStaticMember env className name
+            Cil.emitCall il handle 0 1
 
         | TExpr.StaticMethodCall(className, name, args, _) ->
-            let m = lookupStaticMember env className name
+            let handle = resolveStaticMember env className name
 
             for a in args do
                 emitExpr env il a
 
-            Cil.emitCall il m.Handle (List.length args) 1
+            Cil.emitCall il handle (List.length args) 1
 
         | TExpr.Format(sink, segments, _) -> emitFormat env il sink segments
 
@@ -1192,6 +1322,20 @@ module Emit =
                 applyRecipe il recipe
                 funcTy <- resTy
             | ValueNone -> failwithf "Emit: cannot apply argument to value of type %A" funcTy
+
+    /// Apply a curried FSharp.Core `FSharpFunc` value (the cold printf printer)
+    /// argument by argument via `FSharpFunc::Invoke` — the FSharpFunc twin of
+    /// `foldInvoke` (R1; retargeted with the printf engine, handoff §R9).
+    and private foldInvokeFSharpFunc (env: EmitEnv) (il: Il) (funcTy0: SemType) (args: (TExpr * SemType) list) : unit =
+        let mutable funcTy = funcTy0
+
+        for (arg, resTy) in args do
+            match env.Provider.TryEmitFSharpFuncInvoke funcTy with
+            | ValueSome recipe ->
+                emitExpr env il arg
+                applyRecipe il recipe
+                funcTy <- resTy
+            | ValueNone -> failwithf "Emit: cannot apply argument to FSharpFunc value of type %A" funcTy
 
     /// Emit an expression as a statement: evaluate it and discard any value.
     let private emitStatement (env: EmitEnv) (il: Il) (e: TExpr) : unit =

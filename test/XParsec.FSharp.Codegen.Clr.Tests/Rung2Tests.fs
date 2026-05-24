@@ -525,4 +525,124 @@ let tests =
                 Expect.isNotNull headField "List<int> has the Cons_0 (Head) field"
                 Expect.equal (headField.GetValue one :?> int) 1 "Cons_0 holds the head value 1"
             }
+
+            // R2 piece 1: instance augmentation members on a *generic* union. The
+            // member signatures + bodies carry the declaring-typar marker (`!0`),
+            // and every member access on `Lst<int>` goes through a `MemberRef` on
+            // the instantiated `TypeSpec` (`Lst<int>::get_Head`).
+            let genMemberSrc =
+                String.concat
+                    "\n"
+                    [
+                        "type Lst<'T> ="
+                        "    | Nil"
+                        "    | Cons of 'T * Lst<'T>"
+                        ""
+                        "    member this.IsEmpty ="
+                        "        match this with"
+                        "        | Nil -> true"
+                        "        | Cons(_, _) -> false"
+                        ""
+                        "    member this.Head ="
+                        "        match this with"
+                        "        | Cons(h, _) -> h"
+                        "        | Nil -> failwith \"empty\""
+                        ""
+                        "    member this.Tail ="
+                        "        match this with"
+                        "        | Cons(_, t) -> t"
+                        "        | Nil -> failwith \"empty\""
+                        ""
+                        "    member this.Length ="
+                        "        match this with"
+                        "        | Nil -> 0"
+                        "        | Cons(_, t) -> 1 + t.Length"
+                    ]
+
+            test "generic union instance members run at runtime: chained Head/Tail, recursive Length (R2)" {
+                let src =
+                    genMemberSrc
+                    + "\n"
+                    + String.concat
+                        "\n"
+                        [
+                            "let xs = Cons(10, Cons(20, Cons(30, Nil)))"
+                            "printfn \"%b\" xs.IsEmpty"
+                            "printfn \"%d\" xs.Head"
+                            "printfn \"%d\" xs.Length"
+                            "printfn \"%d\" xs.Tail.Head"
+                        ]
+
+                let tast, artifact = compileSource "Rung2GenMembers" src
+
+                Expect.isEmpty
+                    tast.Diagnostics
+                    (sprintf "no diagnostics: %A" (tast.Diagnostics |> List.map (fun d -> d.Message)))
+
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+
+                let lines =
+                    output.Split('\n')
+                    |> Array.map (fun s -> s.Trim())
+                    |> Array.filter (fun s -> s.Length > 0)
+
+                Expect.equal
+                    lines
+                    [| "false"; "10"; "3"; "20" |]
+                    "xs.IsEmpty=false, xs.Head=10, xs.Length=3, xs.Tail.Head=20"
+            }
+
+            test "a generic union with members compiles to a BCL-only library DLL; members reflect + run (R2)" {
+                let src = "namespace Vesper.Collections\n\n" + genMemberSrc
+
+                let tast = analyse src
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                let project = ProjectInfo.library "Vesper.Collections.GenMembers"
+                let artifact = compileSourceTo project src
+
+                Expect.isEmpty
+                    artifact.FSharpCoreDependencies
+                    "the generic union + instance members reference no FSharp.Core construct"
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                Expect.isNull asm.EntryPoint "a library DLL has no entry point"
+
+                let refs = asm.GetReferencedAssemblies() |> Array.map (fun a -> a.Name)
+
+                Expect.isFalse
+                    (refs |> Array.contains "FSharp.Core")
+                    (sprintf "no FSharp.Core reference (refs: %A)" refs)
+
+                let listTy = asm.GetType "Vesper.Collections.Lst`1"
+                Expect.isNotNull listTy "the DLL contains Vesper.Collections.Lst`1"
+
+                let listOfInt = listTy.MakeGenericType(typeof<int>)
+                let consM = listOfInt.GetMethod "Cons"
+                let nilM = listOfInt.GetMethod "Nil"
+                Expect.isNotNull consM "Lst<int> has a static Cons factory"
+                Expect.isNotNull nilM "Lst<int> has a static Nil factory"
+
+                let nil = nilM.Invoke(null, [||])
+                let l1 = consM.Invoke(null, [| box 7; nil |])
+                let l2 = consM.Invoke(null, [| box 42; l1 |])
+
+                let getHead =
+                    listOfInt.GetMethod("get_Head", BindingFlags.Public ||| BindingFlags.Instance)
+
+                let getLength =
+                    listOfInt.GetMethod("get_Length", BindingFlags.Public ||| BindingFlags.Instance)
+
+                let getTail =
+                    listOfInt.GetMethod("get_Tail", BindingFlags.Public ||| BindingFlags.Instance)
+
+                Expect.isNotNull getHead "Lst<int> has an instance get_Head"
+                Expect.equal (getHead.ReturnType) typeof<int> "get_Head returns the type arg int (!0)"
+                Expect.equal (getHead.Invoke(l2, [||]) :?> int) 42 "l2.Head = 42"
+                Expect.equal (getLength.Invoke(l2, [||]) :?> int) 2 "l2.Length = 2 via recursive get_Length"
+
+                let tail = getTail.Invoke(l2, [||])
+                Expect.equal (getHead.Invoke(tail, [||]) :?> int) 7 "l2.Tail.Head = 7"
+            }
         ]

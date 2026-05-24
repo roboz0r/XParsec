@@ -42,6 +42,37 @@ module Codegen =
 
         sigB
 
+    /// A generic static method's type parameters (R3): the distinct free
+    /// `TypeVar` roots of its signature (parameter types, then result type), in
+    /// first-appearance order. Empty ⇒ a monomorphic method, emitted unchanged.
+    /// These same `TypeVar` objects appear in the method's body, so the backend's
+    /// ambient typar set (`ClrProvider.SetMethodTypars`) maps them to `!!i`.
+    let private staticFnTypars (fn: Emit.StaticFn) : TypeVar list =
+        let seen = HashSet<TypeVar>(HashIdentity.Reference)
+        let acc = ResizeArray<TypeVar>()
+
+        let rec go (t: SemType) =
+            match Emit.zonk t with
+            | TyVar tv ->
+                let r = UnionFind.find tv
+
+                if seen.Add r then
+                    acc.Add r
+            | TyFun(a, b) ->
+                go a
+                go b
+            | TyTuple xs
+            | TyRecord(_, xs)
+            | TyUnion(_, xs)
+            | TyClass(_, xs) -> List.iter go xs
+            | TyConst _ -> ()
+
+        for (_, pty) in fn.Params do
+            go pty
+
+        go fn.ResultTy
+        List.ofSeq acc
+
     /// Shared assembly scaffolding: module + assembly rows, a `Main` whose
     /// body comes from `build`, the `<Module>` pseudo-type, and the holder
     /// class. `build` receives the wired context + provider so callers emit
@@ -54,8 +85,10 @@ module Codegen =
         ctx.AddModuleAndAssembly(project.AssemblyName)
 
         // No TAST on this hand-written-body seam — the built-in primitive
-        // representations are all it can reference.
-        let provider = ClrProvider(ctx, IntrinsicRepr.defaults)
+        // representations are all it can reference. No external core or list either:
+        // these hand-written bodies form no function value (so `Vesper.Fun` is never
+        // needed) and no list literal (so `Vesper.List` is never needed).
+        let provider = ClrProvider(ctx, IntrinsicRepr.defaults, None, None)
         let icodegen = provider :> ICodegenProvider
 
         let bodyOffset =
@@ -166,10 +199,21 @@ module Codegen =
         let ctx = MetadataContext()
         ctx.AddModuleAndAssembly(project.AssemblyName)
 
+        // The compiled `Vesper.Core.dll` (`Fun`) and `Vesper.List.dll` (the
+        // cons-list) identities, if configured, read off the files — matching how
+        // the FSharp.Core ref is read off the loaded assembly. Each is its own
+        // package (package-split-plan PS2).
+        let coreAssembly = project.VesperCorePath |> Option.map AssemblyName.GetAssemblyName
+        let listAssembly = project.VesperListPath |> Option.map AssemblyName.GetAssemblyName
+
         // This file's intrinsic bindings overlay the defaults (G7). The provider's
         // refs are lazy (G6), so a typar-only / BCL-only build forces no
-        // FSharp.Core `AssemblyRef`; a richer signature reuses `encodeType` (G5).
-        let provider = ClrProvider(ctx, IntrinsicRepr.merge tast.IntrinsicReprTypes)
+        // FSharp.Core `AssemblyRef` (and a function-value-free / list-free build
+        // forces no `Vesper.Core` / `Vesper.List` ref); a richer signature reuses
+        // `encodeType` (G5).
+        let provider =
+            ClrProvider(ctx, IntrinsicRepr.merge tast.IntrinsicReprTypes, coreAssembly, listAssembly)
+
         let icodegen = provider :> ICodegenProvider
         let encodeLocals locals = icodegen.EncodeLocalSignature locals
 
@@ -275,6 +319,8 @@ module Codegen =
                     Handle = toEntity (MetadataTokens.MethodDefinitionHandle(staticBase + 1 + i))
                     Arity = List.length fn.Params
                     ResultTy = fn.ResultTy
+                    Typars = staticFnTypars fn
+                    ParamTys = fn.Params |> List.map snd
                 }
         )
 
@@ -312,12 +358,18 @@ module Codegen =
             ||| MethodAttributes.SpecialName
             ||| MethodAttributes.RTSpecialName
 
-        // Reuse-slot virtual (no `NewSlot`) so `Invoke` overrides the base
-        // `FSharpFunc\`2::Invoke` abstract slot by its instantiated signature.
+        // `NewSlot ||| Final` virtual: the closure derives from `System.Object`
+        // (no base `Invoke` to reuse) and *implements* the `Vesper.Fun\`2::Invoke`
+        // interface slot (R1). Implicit interface implementation — the runtime maps
+        // the instantiated interface method to this `Invoke` by name + signature
+        // (the `InterfaceImpl` row declares the interface); `Final` because a sealed
+        // closure has no further overrides.
         let invokeAttrs =
             MethodAttributes.Public
             ||| MethodAttributes.Virtual
             ||| MethodAttributes.HideBySig
+            ||| MethodAttributes.NewSlot
+            ||| MethodAttributes.Final
 
         // G8: route every emitted method through a real `Param` list (so
         // reflection's `GetParameters` works, not just execution). `Param` rows
@@ -503,6 +555,13 @@ module Codegen =
             // (`Empty = Nil`). A property is emitted as a `get_<name>` method.
             let emittedMembers = Dictionary<string, Emit.EmittedMember>()
 
+            // A property is emitted (and referenced) as `get_<name>`; a method
+            // keeps its name.
+            let memberMetaName (mem: TTypeMember) =
+                match mem.Kind with
+                | TMemberKind.Property -> "get_" + mem.Name
+                | TMemberKind.Method -> mem.Name
+
             members
             |> List.iteri (fun i (mem: TTypeMember) ->
                 let handle = MetadataTokens.MethodDefinitionHandle(methodCount + 1 + i)
@@ -512,6 +571,9 @@ module Codegen =
                         Handle = toEntity handle
                         IsStatic = mem.IsStatic
                         Arity = List.length mem.Params
+                        MetaName = memberMetaName mem
+                        ParamTys = mem.Params |> List.map snd
+                        RetTy = mem.ReturnTy
                     }
             )
 
@@ -526,10 +588,19 @@ module Codegen =
                     Members = emittedMembers
                 }
 
+            // A generic union's member bodies share the type's generic context, so
+            // a typar-typed local (`h : 'T`) encodes to `!0` (R2); a monomorphic
+            // body uses the executable local encoder.
+            let memberEncodeLocals =
+                if isGeneric then
+                    fun locals -> provider.EncodeGenericLocalSignature(td.TypeParams, locals)
+                else
+                    encodeLocals
+
             for mem in members do
                 let bodyOffset =
                     Cil.buildBody
-                        encodeLocals
+                        memberEncodeLocals
                         bodyStream
                         (Emit.emitMember
                             icodegen
@@ -542,18 +613,18 @@ module Codegen =
                             mem.Params
                             mem.Body)
 
-                let methodName =
-                    match mem.Kind with
-                    | TMemberKind.Property -> "get_" + mem.Name
-                    | TMemberKind.Method -> mem.Name
-
+                let methodName = memberMetaName mem
                 let paramTys = mem.Params |> List.map snd
 
+                // A generic union's member signatures are written in its own
+                // typars (`instance !0 get_Head()`) (R2); a monomorphic union's
+                // are concrete.
                 let signature =
-                    if mem.IsStatic then
-                        provider.StaticMethodSignature(paramTys, mem.ReturnTy)
-                    else
-                        provider.InstanceMethodSignature(paramTys, mem.ReturnTy)
+                    match isGeneric, mem.IsStatic with
+                    | true, true -> provider.GenericStaticMethodSignature(td.TypeParams, paramTys, mem.ReturnTy)
+                    | true, false -> provider.GenericInstanceMethodSignature(td.TypeParams, paramTys, mem.ReturnTy)
+                    | false, true -> provider.StaticMethodSignature(paramTys, mem.ReturnTy)
+                    | false, false -> provider.InstanceMethodSignature(paramTys, mem.ReturnTy)
 
                 let attrs =
                     if mem.IsStatic then
@@ -598,10 +669,11 @@ module Codegen =
                     toEntity h
                 )
 
-            let baseCtor = provider.FSharpFuncCtorRef(c.ParamTy, c.ResultTy)
-
+            // The closure derives from `System.Object` and implements
+            // `Vesper.Fun\`2` (R1) — its ctor chains to `Object::.ctor()`, not the
+            // old protected `FSharpFunc\`2::.ctor()`.
             let ctorBodyOffset =
-                Cil.buildBody encodeLocals bodyStream (Emit.emitClosureCtor baseCtor fieldHandles)
+                Cil.buildBody encodeLocals bodyStream (Emit.emitClosureCtor provider.ObjectCtorRef fieldHandles)
 
             let invokeBodyOffset =
                 Cil.buildBody
@@ -638,7 +710,9 @@ module Codegen =
             claimFirstMethod ctorHandle
 
             ctorHandleByNode.[c.Node] <- toEntity ctorHandle
-            closureTypes.Add(c.Name, provider.ClosureBaseSpec(c.ParamTy, c.ResultTy), firstField, ctorHandle)
+            // Carry the `Vesper.Fun\`2<param, result>` interface `TypeSpec` so the
+            // `TypeDefinition` row below can attach its `InterfaceImpl` (R1).
+            closureTypes.Add(c.Name, provider.FunInterfaceSpec(c.ParamTy, c.ResultTy), firstField, ctorHandle)
 
         // ---- Static methods (P3b), owned by the `Program` holder ----
         //
@@ -648,21 +722,42 @@ module Codegen =
         let mutable firstStaticMethod = ValueNone
 
         for fn in staticFns do
+            // A *generic* static method (`fold`, R3): install its typar set as the
+            // ambient `!!i` context for the duration of its signature / locals /
+            // body emission (the body's locals encode through `encodeLocals` =
+            // `EncodeLocalSignature` = `encodeType`, so the ambient set reaches
+            // them; the recursive self-call mints a `MethodSpec` over its own
+            // typars). Empty typars ⇒ the monomorphic path, unchanged.
+            let typars = staticMethods.[fn.Key].Typars
+            provider.SetMethodTypars typars
+
             let bodyOffset =
                 Cil.buildBody
                     encodeLocals
                     bodyStream
                     (Emit.emitStaticMethod icodegen ctx closureByNode ctorHandleByNode unions staticMethods fn)
 
+            let signature =
+                if List.isEmpty typars then
+                    provider.StaticMethodSignature(fn.Params |> List.map snd, fn.ResultTy)
+                else
+                    provider.GenericStaticFnSignature(List.length typars, fn.Params |> List.map snd, fn.ResultTy)
+
             let handle =
                 ctx.AddMethodWithParamList(
                     staticMethodAttrs,
                     fn.Name,
-                    provider.StaticMethodSignature(fn.Params |> List.map snd, fn.ResultTy),
+                    signature,
                     bodyOffset,
                     addParams (argNames (List.length fn.Params))
                 )
 
+            // The method's own typars are owned by this `MethodDefinition`
+            // (collected here, emitted in the globally-sorted `GenericParam` pass).
+            typars
+            |> List.iteri (fun i _ -> genericParams.Add(toEntity handle, i, sprintf "T%d" i))
+
+            provider.ClearMethodTypars()
             claimFirstMethod handle
 
             if firstStaticMethod.IsNone then
@@ -743,8 +838,15 @@ module Codegen =
             typars
             |> List.iteri (fun i n -> genericParams.Add(toEntity typeHandle, i, n.TrimStart('\'')))
 
-        for (name, baseSpec, firstField, ctorHandle) in closureTypes do
-            ctx.AddClass(closureAttrs, "", name, baseSpec, firstField, ctorHandle) |> ignore
+        // Each closure derives from `System.Object` and implements its
+        // `Vesper.Fun\`2<param, result>` interface (R1). The `InterfaceImpl` table
+        // is sorted by `Class`, and these `TypeDefinition`s are added ascending, so
+        // adding each row right after its `AddClass` keeps the table ordered.
+        for (name, ifaceSpec, firstField, ctorHandle) in closureTypes do
+            let closureHandle =
+                ctx.AddClass(closureAttrs, "", name, provider.ObjectType, firstField, ctorHandle)
+
+            ctx.AddInterfaceImplementation(closureHandle, ifaceSpec)
 
         // The `Program` holder owns the module's static methods (and `Main`, when
         // an executable). Emit it only when it owns something — a library of just
@@ -901,6 +1003,49 @@ module Codegen =
                     )
                 then
                     File.Copy(fsharpCoreSrc, fsharpCoreDst, true)
+
+            // The compiled `Vesper.Core.dll` (owner of `Vesper.Fun\`2`) is likewise
+            // not in the shared framework — copy it beside the PE so a function
+            // value's interface resolves at runtime (R1). Driven by the configured
+            // path: a program with no function value never forces the `Vesper.Core`
+            // ref, but copying an unreferenced dll is harmless and keeps the bundle
+            // self-describing.
+            match project.VesperCorePath with
+            | Some vesperCoreSrc ->
+                let vesperCoreDst = Path.Combine(dir, "Vesper.Core.dll")
+
+                if
+                    not (
+                        System.String.Equals(
+                            Path.GetFullPath vesperCoreSrc,
+                            Path.GetFullPath vesperCoreDst,
+                            System.StringComparison.OrdinalIgnoreCase
+                        )
+                    )
+                then
+                    File.Copy(vesperCoreSrc, vesperCoreDst, true)
+            | None -> ()
+
+            // The compiled `Vesper.List.dll` (owner of `Vesper.Collections.List\`1`)
+            // is its own package now (package-split-plan PS2) and likewise absent
+            // from the shared framework — copy it beside the PE so a list literal /
+            // `List.fold` resolves at runtime. Same `Some`-driven, harmless-if-
+            // unreferenced shape as the `Vesper.Core.dll` copy above.
+            match project.VesperListPath with
+            | Some vesperListSrc ->
+                let vesperListDst = Path.Combine(dir, "Vesper.List.dll")
+
+                if
+                    not (
+                        System.String.Equals(
+                            Path.GetFullPath vesperListSrc,
+                            Path.GetFullPath vesperListDst,
+                            System.StringComparison.OrdinalIgnoreCase
+                        )
+                    )
+                then
+                    File.Copy(vesperListSrc, vesperListDst, true)
+            | None -> ()
 
             // The bootstrap printf runtime, like FSharp.Core, is absent from the
             // shared framework — copy it beside the PE so a fully-applied literal

@@ -65,15 +65,21 @@ let tests =
                 Expect.contains deps "Microsoft.FSharp.Collections.FSharpList`1.get_Empty" "nil getter"
             }
 
-            test "a closure + List.fold pins FSharpFunc, ListModule, and FSharpList" {
+            test "List.fold over a bare-program list is BCL-only + Vesper, no FSharp.Core (R3)" {
+                // The canonical sample: the bare `[1;…]` literal flips onto the Vesper
+                // `List` (driven by `List.fold`'s Vesper-list parameter), `List.fold`
+                // is emitted inline over it with a `Vesper.Fun` folder, and the `(+)`
+                // folder is a `Vesper.Fun` closure (R1). Nothing pins FSharp.Core — R3
+                // cut the last three pins (`ListModule.Fold`, its `FSharpFunc` folder,
+                // the `FSharpList` argument).
                 let src =
                     "let inline sum xs = List.fold (+) 0 xs\nlet nums = [1; 2; 3; 4; 5]\nprintfn \"%d\" (sum nums)"
 
                 let _, artifact = compileSource "DepsFold" src
-                let deps = artifact.FSharpCoreDependencies
-                Expect.contains deps "Microsoft.FSharp.Collections.ListModule.Fold" "List.fold"
-                Expect.contains deps "Microsoft.FSharp.Core.FSharpFunc`2 (closure base)" "synthesised closure base"
-                Expect.contains deps "Microsoft.FSharp.Collections.FSharpList`1" "the list argument"
+
+                Expect.isEmpty
+                    artifact.FSharpCoreDependencies
+                    (sprintf "the canonical sample pins no FSharp.Core construct (%A)" artifact.FSharpCoreDependencies)
             }
 
             test "`materialiseApp` omits FSharp.Core.dll for a zero-dependency app, which still runs" {
