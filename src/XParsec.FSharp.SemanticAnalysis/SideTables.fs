@@ -8,6 +8,21 @@ open XParsec.FSharp.Parser
 // Side tables hold all in-flight semantic information. CST is never mutated.
 // See docs/architecture.md.
 
+/// Where a module-level `let` should be emitted: a *named* holder type (an F#
+/// module compiles to a static class) rather than the anonymous "Program" holder
+/// the backend uses for top-level functions. Recorded for every binding inside a
+/// `module Foo = …`; the backend keys this off the binding's `NodeKey` to give the
+/// emitted static method its source `Name` on the `Holder` type in `Namespace`
+/// (e.g. `Vesper.Collections.ListModule::fold`). The `Module` suffix follows the
+/// F# rule that a module sharing a name with a type in its namespace compiles to
+/// `<Name>Module`. See docs/selfhost-handoff.md (R3 "compile `fold` into the core").
+type ModuleMemberInfo =
+    {
+        Namespace: string option
+        Holder: string
+        Name: string
+    }
+
 /// Field types start as fresh TyVars stamped by NameResolution and get linked
 /// to the real translated type by Unification before any expression is typed.
 [<Sealed>]
@@ -244,6 +259,12 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// represents* the type, not an alias to expand. Input to the future
     /// `encodeType` rekey; see docs/self-host-rung1-plan.md.
     member val IntrinsicReprTypes = Dictionary<string, string>() with get
+    /// Module-level bindings inside a named `module Foo = …` (R3 deferred): each
+    /// binding's `NodeKey.Raw` → where its emitted static method belongs (a real
+    /// `Foo`/`FooModule` holder type, not the anonymous "Program" holder).
+    /// Populated by `Freeze` and snapshotted into `TastFile.ModuleMembers`; the
+    /// backend keys off it to name + place a module function (`ListModule::fold`).
+    member val ModuleMembers = Dictionary<uint64, ModuleMemberInfo>() with get
     /// Bare-program list literals (R3): each `[…]` whose container type was left
     /// *flexible* (a fresh `TypeVar`, paired with its element type) so a consumer
     /// can drive it — `List.fold`'s `Vesper.Collections.List` parameter flips it to

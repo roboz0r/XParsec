@@ -257,4 +257,9 @@ type TastFile =
         /// retargets a primitive by editing one `.fs` line). The backend overlays
         /// these on its built-in defaults. See docs/selfhost-handoff.md (G7).
         IntrinsicReprTypes: Map<string, string>
+        /// A module-level binding's `NodeKey.Raw` → its named-holder placement
+        /// (`module Foo`'s functions emit on a real `Foo`/`FooModule` static class,
+        /// not the anonymous "Program" holder). Empty for a program with no named
+        /// modules — every static method then lands on "Program" as before.
+        ModuleMembers: Map<uint64, ModuleMemberInfo>
     }

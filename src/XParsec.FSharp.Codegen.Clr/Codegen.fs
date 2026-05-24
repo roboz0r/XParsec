@@ -19,10 +19,16 @@ type ClrArtifact =
         OutputPath: string option
         /// The serialised PE image.
         Pe: BlobBuilder
+        /// Simple names of every assembly the emitted PE binds against (its
+        /// `AssemblyRef` table). Drives `materialiseApp`'s copy: a referenced
+        /// assembly with a known source (a `ProjectInfo.References` entry, or a
+        /// host-loaded FSharp.Core / Vesper.Printf fallback) is copied beside the
+        /// PE; BCL / shared-framework refs have no source and resolve at runtime.
+        ReferencedAssemblies: string list
         /// The distinct FSharp.Core constructs the emission referenced
         /// (from `ICodegenProvider.FSharpCoreDependencies`). **Empty ⇒ the PE
-        /// has no `FSharp.Core.dll` dependency**, so `materialiseApp` skips
-        /// copying it; non-empty is the list of constructs still pinning it.
+        /// has no `FSharp.Core.dll` dependency** (finer-grained than
+        /// `ReferencedAssemblies` — the §D3 cut list of *what* pins it).
         FSharpCoreDependencies: string list
     }
 
@@ -85,10 +91,10 @@ module Codegen =
         ctx.AddModuleAndAssembly(project.AssemblyName)
 
         // No TAST on this hand-written-body seam — the built-in primitive
-        // representations are all it can reference. No external core or list either:
+        // representations are all it can reference. No external references either:
         // these hand-written bodies form no function value (so `Vesper.Fun` is never
         // needed) and no list literal (so `Vesper.List` is never needed).
-        let provider = ClrProvider(ctx, IntrinsicRepr.defaults, None, None)
+        let provider = ClrProvider(ctx, IntrinsicRepr.defaults, Map.empty)
         let icodegen = provider :> ICodegenProvider
 
         let bodyOffset =
@@ -109,7 +115,13 @@ module Codegen =
         // the (empty) field table from row 1.
         ctx.AddModuleType(mainDef)
 
-        ctx.AddProgramType(project.ModuleName, provider.ObjectType, MetadataTokens.FieldDefinitionHandle(1), mainDef)
+        ctx.AddProgramType(
+            "",
+            project.ModuleName,
+            provider.ObjectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            mainDef
+        )
         |> ignore
 
         {
@@ -117,6 +129,7 @@ module Codegen =
             OutputPath = project.OutputPath
             Pe = ctx.Serialize(mainDef)
             // Captured after the body build above ran every encoder/recipe.
+            ReferencedAssemblies = ctx.ReferencedAssemblyNames
             FSharpCoreDependencies = icodegen.FSharpCoreDependencies()
         }
 
@@ -199,12 +212,19 @@ module Codegen =
         let ctx = MetadataContext()
         ctx.AddModuleAndAssembly(project.AssemblyName)
 
-        // The compiled `Vesper.Core.dll` (`Fun`) and `Vesper.List.dll` (the
-        // cons-list) identities, if configured, read off the files — matching how
-        // the FSharp.Core ref is read off the loaded assembly. Each is its own
+        // The referenced assemblies' identities, read off their files and keyed by
+        // simple name — so the emitted `AssemblyRef` matches the exact artifact, not
+        // whatever the host loaded (R4). The provider resolves a type's owning
+        // assembly by name (`Vesper.Core` → `Fun`, `Vesper.List` → the cons-list, an
+        // explicit `FSharp.Core` overriding the host fallback); each is its own
         // package (package-split-plan PS2).
-        let coreAssembly = project.VesperCorePath |> Option.map AssemblyName.GetAssemblyName
-        let listAssembly = project.VesperListPath |> Option.map AssemblyName.GetAssemblyName
+        let references =
+            project.References
+            |> List.map (fun path ->
+                let an = AssemblyName.GetAssemblyName path
+                an.Name, an
+            )
+            |> Map.ofList
 
         // This file's intrinsic bindings overlay the defaults (G7). The provider's
         // refs are lazy (G6), so a typar-only / BCL-only build forces no
@@ -212,7 +232,7 @@ module Codegen =
         // forces no `Vesper.Core` / `Vesper.List` ref); a richer signature reuses
         // `encodeType` (G5).
         let provider =
-            ClrProvider(ctx, IntrinsicRepr.merge tast.IntrinsicReprTypes, coreAssembly, listAssembly)
+            ClrProvider(ctx, IntrinsicRepr.merge tast.IntrinsicReprTypes, references)
 
         let icodegen = provider :> ICodegenProvider
         let encodeLocals locals = icodegen.EncodeLocalSignature locals
@@ -227,7 +247,29 @@ module Codegen =
 
         // Top-level functions emitted as static methods (P3b) — excluded from
         // closure discovery and resolved as direct `call`s at their use sites.
-        let staticFns, staticFnKeys = Emit.collectStaticFns lowered
+        // A binding from a named `module Foo = …` (R3 deferred) carries a holder
+        // so it lands on a real `Foo`/`FooModule` static class.
+        let staticFns, staticFnKeys = Emit.collectStaticFns tast.ModuleMembers lowered
+
+        // Emit each named module's functions on a dedicated holder type; order
+        // emission so every holder's methods form a *contiguous* `MethodDef` range
+        // — each named-holder group first (in first-appearance order), then the
+        // holder-less ("Program") functions. This single order drives both handle
+        // prediction and body emission, so the predicted handles line up with the
+        // rows actually added, and the holders' `TypeDefinition` rows stay ascending
+        // by first method.
+        let namedHolderGroups =
+            staticFns
+            |> List.choose (fun fn ->
+                match fn.Holder with
+                | Some h -> Some(h, fn)
+                | None -> None
+            )
+            |> List.groupBy fst
+            |> List.map (fun (h, pairs) -> h, List.map snd pairs)
+
+        let holderlessFns = staticFns |> List.filter (fun fn -> fn.Holder.IsNone)
+        let staticFnsEmitOrder = (namedHolderGroups |> List.collect snd) @ holderlessFns
 
         let closures, closureByNode = Emit.discoverClosures staticFnKeys lowered
         let ctorHandleByNode = Dictionary<TExpr, EntityHandle>(HashIdentity.Reference)
@@ -312,7 +354,7 @@ module Codegen =
 
         let staticMethods = Dictionary<NodeKey, Emit.StaticMethodRef>()
 
-        staticFns
+        staticFnsEmitOrder
         |> List.iteri (fun i fn ->
             staticMethods.[fn.Key] <-
                 {
@@ -714,14 +756,19 @@ module Codegen =
             // `TypeDefinition` row below can attach its `InterfaceImpl` (R1).
             closureTypes.Add(c.Name, provider.FunInterfaceSpec(c.ParamTy, c.ResultTy), firstField, ctorHandle)
 
-        // ---- Static methods (P3b), owned by the `Program` holder ----
+        // ---- Static methods (P3b) ----
         //
         // Their handles were predicted above, so recursion / cross-calls already
         // resolve; bodies reference the (now complete) closure ctor handles +
-        // union factories.
-        let mutable firstStaticMethod = ValueNone
+        // union factories. Emitted in `staticFnsEmitOrder` (named-holder groups
+        // first, then holder-less), tracking each holder's first `MethodDef` so its
+        // holder `TypeDefinition` can claim the contiguous range below.
+        let mutable holderlessFirstMethod = ValueNone
 
-        for fn in staticFns do
+        let namedHolderFirstMethod =
+            Dictionary<string option * string, MethodDefinitionHandle>(HashIdentity.Structural)
+
+        for fn in staticFnsEmitOrder do
             // A *generic* static method (`fold`, R3): install its typar set as the
             // ambient `!!i` context for the duration of its signature / locals /
             // body emission (the body's locals encode through `encodeLocals` =
@@ -760,8 +807,13 @@ module Codegen =
             provider.ClearMethodTypars()
             claimFirstMethod handle
 
-            if firstStaticMethod.IsNone then
-                firstStaticMethod <- ValueSome handle
+            match fn.Holder with
+            | Some h ->
+                if not (namedHolderFirstMethod.ContainsKey h) then
+                    namedHolderFirstMethod.[h] <- handle
+            | None ->
+                if holderlessFirstMethod.IsNone then
+                    holderlessFirstMethod <- ValueSome handle
 
         // ---- Main (executable only) ----
         let mainDef =
@@ -848,21 +900,41 @@ module Codegen =
 
             ctx.AddInterfaceImplementation(closureHandle, ifaceSpec)
 
-        // The `Program` holder owns the module's static methods (and `Main`, when
-        // an executable). Emit it only when it owns something — a library of just
-        // interfaces / unions (rung 1, or a union-only library) has no holder.
-        if emitEntryPoint || not (List.isEmpty staticFns) then
-            let programFirstField = MetadataTokens.FieldDefinitionHandle(fieldCount + 1)
+        // A holder owns no fields, so every holder's field range is empty and
+        // starts past the last (closure/union) field.
+        let holderFirstField = MetadataTokens.FieldDefinitionHandle(fieldCount + 1)
 
-            // Its method range starts at the first static method, else `Main`. (The
-            // guard above guarantees one of these exists.)
+        // Named-module holders (R3 deferred): one `abstract sealed` static class
+        // per `module Foo` (`Vesper.Collections.ListModule`), added in the same
+        // first-appearance order their methods were emitted — so their
+        // `TypeDefinition` rows stay ascending by first method, and precede the
+        // "Program" holder (whose holder-less methods follow theirs).
+        for (holderKey, _) in namedHolderGroups do
+            let ns, holderName = holderKey
+
+            ctx.AddProgramType(
+                defaultArg ns "",
+                holderName,
+                provider.ObjectType,
+                holderFirstField,
+                namedHolderFirstMethod.[holderKey]
+            )
+            |> ignore
+
+        // The anonymous "Program" holder owns the holder-less static methods (and
+        // `Main`, when an executable). Emit it only when it owns something — a
+        // library of just interfaces / unions / named-module holders has no
+        // "Program" type.
+        if emitEntryPoint || not (List.isEmpty holderlessFns) then
+            // Its method range starts at the first holder-less static method, else
+            // `Main`. (The guard above guarantees one of these exists.)
             let programFirstMethod =
-                match firstStaticMethod, mainDef with
+                match holderlessFirstMethod, mainDef with
                 | ValueSome h, _ -> h
                 | _, ValueSome m -> m
                 | ValueNone, ValueNone -> firstMethodHandle
 
-            ctx.AddProgramType(project.ModuleName, provider.ObjectType, programFirstField, programFirstMethod)
+            ctx.AddProgramType("", project.ModuleName, provider.ObjectType, holderFirstField, programFirstMethod)
             |> ignore
 
         // Now every TypeDef / MethodDef handle exists: add the `GenericParam` rows
@@ -883,7 +955,9 @@ module Codegen =
             OutputPath = project.OutputPath
             Pe = pe
             // Captured after every body build above ran its encoders/recipes, so
-            // the dependency set is complete (empty ⇒ a BCL-only PE).
+            // the reference set + dependency set are complete (empty FSharp.Core
+            // deps ⇒ a BCL-only-plus-Vesper PE).
+            ReferencedAssemblies = ctx.ReferencedAssemblyNames
             FSharpCoreDependencies = icodegen.FSharpCoreDependencies()
         }
 
@@ -952,11 +1026,12 @@ module Codegen =
         )
 
     /// Materialise a *runnable* framework-dependent app: the PE (via
-    /// `materialise`), its `runtimeconfig.json`, and a copy of `FSharp.Core.dll`
-    /// (which the shared framework does *not* carry) into the PE's directory,
-    /// where the loader's app-base probe finds it. `System.Private.CoreLib`
-    /// resolves from the shared framework automatically. After this,
-    /// `dotnet <OutputPath>` runs the program. Requires `OutputPath`.
+    /// `materialise`), its `runtimeconfig.json`, and a copy of every referenced
+    /// assembly the shared framework does *not* carry (the `Vesper.*` libraries, an
+    /// FSharp.Core cold path) into the PE's directory, where the loader's app-base
+    /// probe finds it. `System.Private.CoreLib` and the rest of the BCL resolve from
+    /// the shared framework automatically. After this, `dotnet <OutputPath>` runs the
+    /// program. Requires `OutputPath`.
     let materialiseApp (project: ProjectInfo) (artifact: ClrArtifact) : unit =
         match artifact.OutputPath with
         | None -> failwith "Codegen.materialiseApp: ProjectInfo.OutputPath must be set"
@@ -977,89 +1052,47 @@ module Codegen =
                 runtimeConfigJson tfm frameworkVersion
             )
 
-            // Copy FSharp.Core only when the PE actually references it. The
-            // happy-path printf / arithmetic / interpolation lowerings touch no
-            // FSharp.Core construct, so a program built entirely from them ships
-            // without it. `FSharpCoreDependencies` is the authoritative signal:
-            // every FSharp.Core reference is minted through `ClrProvider`, which
-            // records each use-site, so an empty set means nothing in the IL can
-            // bind against `FSharp.Core.dll`. (See its non-empty contents for the
-            // constructs still pinning the dependency — the §D3 cut list.)
-            if not (List.isEmpty artifact.FSharpCoreDependencies) then
-                let fsharpCoreSrc =
-                    match project.FSharpCorePath with
-                    | Some p -> p
-                    | None -> typeof<Microsoft.FSharp.Core.Unit>.Assembly.Location
+            // Copy each assembly the PE actually binds against (`ReferencedAssemblies`)
+            // for which we have a source. The source for a simple name is the
+            // `ProjectInfo.References` entry that supplied it; for the two
+            // host-resolved fallbacks the provider allows — FSharp.Core (the R9
+            // cold-printf island) and Vesper.Printf (the happy-path formatter) — the
+            // host-loaded copy, unless a reference already overrides it. A name with
+            // no source (the BCL) resolves from the shared framework and is skipped.
+            // A reference the PE never bound against is absent from the set, so it is
+            // not shipped — that is what keeps a happy-path bundle FSharp.Core-free.
+            let referenceSources =
+                let fromProject =
+                    project.References
+                    |> List.map (fun path -> AssemblyName.GetAssemblyName(path).Name, path)
+                    |> Map.ofList
 
-                let fsharpCoreDst = Path.Combine(dir, "FSharp.Core.dll")
+                let withFallback name (hostPath: unit -> string) m =
+                    if Map.containsKey name m then
+                        m
+                    else
+                        Map.add name (hostPath ()) m
 
-                if
-                    not (
-                        System.String.Equals(
-                            Path.GetFullPath fsharpCoreSrc,
-                            Path.GetFullPath fsharpCoreDst,
-                            System.StringComparison.OrdinalIgnoreCase
+                fromProject
+                |> withFallback "FSharp.Core" (fun () -> typeof<Microsoft.FSharp.Core.Unit>.Assembly.Location)
+                |> withFallback "Vesper.Printf" (fun () -> typeof<Vesper.PrintfRuntime>.Assembly.Location)
+
+            for refName in artifact.ReferencedAssemblies do
+                match Map.tryFind refName referenceSources with
+                | Some src ->
+                    // The loader probes the app base by *simple name*, so the
+                    // destination file is always `<simpleName>.dll` regardless of the
+                    // source file name.
+                    let dst = Path.Combine(dir, refName + ".dll")
+
+                    if
+                        not (
+                            System.String.Equals(
+                                Path.GetFullPath src,
+                                Path.GetFullPath dst,
+                                System.StringComparison.OrdinalIgnoreCase
+                            )
                         )
-                    )
-                then
-                    File.Copy(fsharpCoreSrc, fsharpCoreDst, true)
-
-            // The compiled `Vesper.Core.dll` (owner of `Vesper.Fun\`2`) is likewise
-            // not in the shared framework — copy it beside the PE so a function
-            // value's interface resolves at runtime (R1). Driven by the configured
-            // path: a program with no function value never forces the `Vesper.Core`
-            // ref, but copying an unreferenced dll is harmless and keeps the bundle
-            // self-describing.
-            match project.VesperCorePath with
-            | Some vesperCoreSrc ->
-                let vesperCoreDst = Path.Combine(dir, "Vesper.Core.dll")
-
-                if
-                    not (
-                        System.String.Equals(
-                            Path.GetFullPath vesperCoreSrc,
-                            Path.GetFullPath vesperCoreDst,
-                            System.StringComparison.OrdinalIgnoreCase
-                        )
-                    )
-                then
-                    File.Copy(vesperCoreSrc, vesperCoreDst, true)
-            | None -> ()
-
-            // The compiled `Vesper.List.dll` (owner of `Vesper.Collections.List\`1`)
-            // is its own package now (package-split-plan PS2) and likewise absent
-            // from the shared framework — copy it beside the PE so a list literal /
-            // `List.fold` resolves at runtime. Same `Some`-driven, harmless-if-
-            // unreferenced shape as the `Vesper.Core.dll` copy above.
-            match project.VesperListPath with
-            | Some vesperListSrc ->
-                let vesperListDst = Path.Combine(dir, "Vesper.List.dll")
-
-                if
-                    not (
-                        System.String.Equals(
-                            Path.GetFullPath vesperListSrc,
-                            Path.GetFullPath vesperListDst,
-                            System.StringComparison.OrdinalIgnoreCase
-                        )
-                    )
-                then
-                    File.Copy(vesperListSrc, vesperListDst, true)
-            | None -> ()
-
-            // The bootstrap printf runtime, like FSharp.Core, is absent from the
-            // shared framework — copy it beside the PE so a fully-applied literal
-            // printf (lowered to `Vesper.Formatter` calls) resolves at runtime.
-            let vesperPrintfSrc = typeof<Vesper.PrintfRuntime>.Assembly.Location
-            let vesperPrintfDst = Path.Combine(dir, "Vesper.Printf.dll")
-
-            if
-                not (
-                    System.String.Equals(
-                        Path.GetFullPath vesperPrintfSrc,
-                        Path.GetFullPath vesperPrintfDst,
-                        System.StringComparison.OrdinalIgnoreCase
-                    )
-                )
-            then
-                File.Copy(vesperPrintfSrc, vesperPrintfDst, true)
+                    then
+                        File.Copy(src, dst, true)
+                | None -> ()

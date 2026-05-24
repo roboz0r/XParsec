@@ -25,10 +25,17 @@ type MetadataContext() =
     let mb = MetadataBuilder()
     let ilBuilder = BlobBuilder()
     let asmRefs = Dictionary<string, AssemblyReferenceHandle>()
+    let asmRefNames = HashSet<string>()
     let typeRefs = Dictionary<struct (int * string * string), TypeReferenceHandle>()
 
     member _.Builder = mb
     member _.IlBuilder = ilBuilder
+
+    /// Simple names of every assembly an `AssemblyRef` row was minted for — the
+    /// emitted PE's actual reference set. `materialiseApp` copies the ones it has a
+    /// source for (a project reference, or a host-loaded FSharp.Core / Vesper.Printf
+    /// fallback); the BCL refs have no source and resolve from the shared framework.
+    member _.ReferencedAssemblyNames: string list = List.ofSeq asmRefNames
 
     /// Cheap to recreate per body — the struct just wraps `ilBuilder`.
     member _.BodyStream = MethodBodyStreamEncoder(ilBuilder)
@@ -63,6 +70,7 @@ type MetadataContext() =
     /// the emitted reference matches whatever is loaded in the host process.
     member _.AssemblyRef(name: AssemblyName) : AssemblyReferenceHandle =
         let key = name.FullName
+        asmRefNames.Add name.Name |> ignore
 
         match asmRefs.TryGetValue key with
         | true, h -> h
@@ -201,10 +209,17 @@ type MetadataContext() =
 
     /// The `abstract sealed` (static) holder for top-level members. `firstField`
     /// points past any preceding closure fields (the holder owns none), so its
-    /// field range stays empty.
+    /// field range stays empty. `ns` is empty for the anonymous "Program" holder
+    /// and `Some "Vesper.Collections"` for a compiled F# module (`ListModule`,
+    /// R3 deferred) — both are the same `abstract sealed` static-class shape.
     member _.AddProgramType
-        (name: string, baseType: EntityHandle, firstField: FieldDefinitionHandle, firstMethod: MethodDefinitionHandle)
-        : TypeDefinitionHandle =
+        (
+            ns: string,
+            name: string,
+            baseType: EntityHandle,
+            firstField: FieldDefinitionHandle,
+            firstMethod: MethodDefinitionHandle
+        ) : TypeDefinitionHandle =
         mb.AddTypeDefinition(
             TypeAttributes.Class
             ||| TypeAttributes.Public
@@ -212,7 +227,10 @@ type MetadataContext() =
             ||| TypeAttributes.Sealed
             ||| TypeAttributes.AutoLayout
             ||| TypeAttributes.BeforeFieldInit,
-            Unchecked.defaultof<StringHandle>,
+            (if String.IsNullOrEmpty ns then
+                 Unchecked.defaultof<StringHandle>
+             else
+                 mb.GetOrAddString(ns)),
             mb.GetOrAddString(name),
             baseType,
             firstField,

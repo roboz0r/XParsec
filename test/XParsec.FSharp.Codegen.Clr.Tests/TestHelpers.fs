@@ -82,10 +82,14 @@ let vesperCoreDll: Lazy<string> =
 
 /// Compile `Vesper.List.dll` from `src/Vesper.List/list-min.fs` — the
 /// `Vesper.Collections.List\`1` cons-list (`Cons`/`Nil` + `IsEmpty`/`Head`/`Tail`)
-/// as its own package (package-split-plan PS2) — load it into the *Default*
-/// `AssemblyLoadContext`, and return its path. Compiled **standalone**: the
-/// minimal list forms no function value and uses no `Fun`, so it is BCL-only and
-/// needs neither an external core nor (being the list itself) an external list.
+/// **and** the `Vesper.Collections.ListModule::fold` static method (R3 deferred:
+/// `fold` is compiled into the DLL now) — as its own package (package-split-plan
+/// PS2), load it into the *Default* `AssemblyLoadContext`, and return its path.
+/// Compiled with the core injected: `fold`'s folder parameter is a `Vesper.Fun`,
+/// so the DLL now carries a `Vesper.Core` `AssemblyRef` (it was BCL-only while only
+/// the list type shipped). It needs no external *list* (it defines the list
+/// itself), so only `Vesper.Core` is in `References` — not via `withCore` (defined
+/// below), just the core path directly, since `vesperCoreDll` is forced here too.
 let vesperListDll: Lazy<string> =
     lazy
         (let outDir = tmpDir "vesper-list"
@@ -94,6 +98,7 @@ let vesperListDll: Lazy<string> =
          let project =
              { ProjectInfo.library "Vesper.List" with
                  OutputPath = Some listPath
+                 References = [ vesperCoreDll.Value ]
              }
 
          let src = IO.File.ReadAllText(vesperListSource "list-min.fs")
@@ -104,31 +109,29 @@ let vesperListDll: Lazy<string> =
          AssemblyLoadContext.Default.LoadFromAssemblyPath listPath |> ignore
          listPath)
 
-/// Point a project at the compiled `Vesper.Core.dll` (for `Vesper.Fun`, R1) and
-/// `Vesper.List.dll` (for `Vesper.Collections.List`, package-split-plan PS2), so a
-/// program's function values + list literals resolve. Each path is injected only
-/// when absent, and never into the package that *defines* the type (a package must
-/// not reference itself): `Vesper.Core` gets no core path, `Vesper.List` no list
-/// path. Forcing each lazy loads the DLL into the Default ALC before any in-process
-/// run.
+/// Add the compiled `Vesper.Core.dll` (for `Vesper.Fun`, R1) and `Vesper.List.dll`
+/// (for `Vesper.Collections.List`, package-split-plan PS2) to a project's
+/// `References`, so a program's function values + list literals resolve. Each path
+/// is added only when absent, and never into the package that *defines* the type (a
+/// package must not reference itself): `Vesper.Core` gets no core ref, `Vesper.List`
+/// no list ref. Forcing each lazy loads the DLL into the Default ALC before any
+/// in-process run.
 let withCore (project: ProjectInfo) : ProjectInfo =
-    let withCorePath p =
-        if p.VesperCorePath.IsNone && p.AssemblyName <> "Vesper.Core" then
-            { p with
-                VesperCorePath = Some vesperCoreDll.Value
-            }
+    let ensure (asmName: string) (dll: Lazy<string>) (refs: string list) =
+        if
+            project.AssemblyName = asmName
+            || refs |> List.exists (fun p -> IO.Path.GetFileNameWithoutExtension p = asmName)
+        then
+            refs
         else
-            p
+            refs @ [ dll.Value ]
 
-    let withListPath p =
-        if p.VesperListPath.IsNone && p.AssemblyName <> "Vesper.List" then
-            { p with
-                VesperListPath = Some vesperListDll.Value
-            }
-        else
-            p
-
-    project |> withCorePath |> withListPath
+    { project with
+        References =
+            project.References
+            |> ensure "Vesper.Core" vesperCoreDll
+            |> ensure "Vesper.List" vesperListDll
+    }
 
 let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifact =
     let lexed, file = parseFile input

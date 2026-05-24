@@ -94,6 +94,12 @@ module Emit =
         {
             Key: NodeKey
             Name: string
+            /// `Some(namespace, holderName)` when this binding came from a named
+            /// `module Foo = …` (R3 deferred): it emits as a public static method
+            /// named `Name` on a `Foo`/`FooModule` holder type rather than on the
+            /// anonymous "Program" holder (which carries the `None` functions). The
+            /// front-end records this in `TastFile.ModuleMembers`.
+            Holder: (string option * string) option
             Params: (NodeKey * SemType) list
             Body: TExpr
             ResultTy: SemType
@@ -574,7 +580,10 @@ module Emit =
     ///      (direct `call`s). A value-local reference would need a capture field,
     ///      which a static method has no `this` to hold.
     /// Rule 2 is a fixpoint, resolved by removing offenders until stable.
-    let collectStaticFns (decls: TDecl list) : StaticFn list * HashSet<NodeKey> =
+    let collectStaticFns
+        (moduleMembers: Map<uint64, ModuleMemberInfo>)
+        (decls: TDecl list)
+        : StaticFn list * HashSet<NodeKey> =
         let candidates = Dictionary<NodeKey, (NodeKey * SemType) list * TExpr>()
         let order = ResizeArray<NodeKey>()
 
@@ -653,10 +662,20 @@ module Emit =
                     if eligible.Contains k then
                         let ps, body = candidates.[k]
 
+                        // A binding inside a named module emits with its source
+                        // name on its holder type (R3 deferred); a top-level
+                        // function keeps the anonymous `fn$<offset>` name on the
+                        // "Program" holder (`Holder = None`).
+                        let name, holder =
+                            match Map.tryFind k.Raw moduleMembers with
+                            | Some info -> info.Name, Some(info.Namespace, info.Holder)
+                            | None -> sprintf "fn$%d" k.Offset, None
+
                         yield
                             {
                                 Key = k
-                                Name = sprintf "fn$%d" k.Offset
+                                Name = name
+                                Holder = holder
                                 Params = ps
                                 Body = body
                                 ResultTy = typeOfExpr body

@@ -21,6 +21,7 @@
     <Compile Include="SelfHostR1Tests.fs" />
     <Compile Include="Rung2Tests.fs" />
     <Compile Include="SelfHostR3Tests.fs" />
+    <Compile Include="SelfHostR4Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

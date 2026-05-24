@@ -18,26 +18,27 @@ type ProjectInfo =
         /// The *emitted* assembly's TFM (the codegen project itself always
         /// targets net8.0). `None` uses the default.
         TargetFramework: string option
-        /// `None` derives the reference identity from the FSharp.Core already
-        /// loaded in the codegen host process.
-        FSharpCorePath: string option
-        /// Path to the compiled `Vesper.Core.dll` whose `Vesper.Fun\`2` interface
-        /// every emitted function value implements (R1 / D3). `Some path` lets the
-        /// backend mint the `Vesper.Core` `AssemblyRef` (identity read off the
-        /// file) and `materialiseApp` copy it beside the PE. `None` means no
-        /// external core — correct when compiling `Vesper.Core` itself (it *defines*
-        /// `Fun`) or a program with no function values; a program that *does* form a
-        /// function value then fails to encode (`Vesper.Fun` is unreferenceable).
-        VesperCorePath: string option
-        /// Path to the compiled `Vesper.List.dll` whose `Vesper.Collections.List\`1`
-        /// a list literal / `List.fold` reference (package-split-plan PS2 — the list
-        /// is its own package now, no longer in `Vesper.Core.dll`). `Some path` lets
-        /// the backend mint the `Vesper.List` `AssemblyRef` (identity read off the
-        /// file) and `materialiseApp` copy it beside the PE. `None` means no external
-        /// list — correct when compiling `Vesper.List` itself or a program with no
-        /// list; a program that *does* use a list then fails to encode (the list
-        /// type is unreferenceable).
-        VesperListPath: string option
+        /// Paths to the assemblies this build references that are *not* resolved off
+        /// the codegen host. Each path's identity is read off the file, so the
+        /// emitted `AssemblyRef` matches that exact artifact rather than whatever the
+        /// compiler happens to have loaded (R4 — the "host build dep" no longer leaks
+        /// into the emitted program). The backend resolves which referenced assembly
+        /// provides a given type by simple name:
+        ///   - `Vesper.Core` owns `Vesper.Fun\`2` (every function value implements it
+        ///     — R1 / D3); a function value with no `Vesper.Core` reference fails to
+        ///     encode (`Fun` is unreferenceable).
+        ///   - `Vesper.List` owns `Vesper.Collections.List\`1` (a list literal /
+        ///     `List.fold` — package-split-plan PS2); a list with no `Vesper.List`
+        ///     reference fails to encode.
+        ///   - `FSharp.Core` / `Vesper.Printf` are *optional* here: when not listed,
+        ///     the provider falls back to the host-loaded copy (so the R9 cold-printf
+        ///     island and the happy-path formatter resolve without the caller wiring
+        ///     a path); when listed, that file's identity wins.
+        /// A package never references itself (`Vesper.Core` lists no core, etc.).
+        /// `materialiseApp` copies the referenced assemblies the emitted PE actually
+        /// binds against beside it (so a happy-path bundle, referencing no
+        /// FSharp.Core, ships none).
+        References: string list
         OutputKind: OutputKind
     }
 
@@ -49,14 +50,13 @@ module ProjectInfo =
             ModuleName = "Program"
             OutputPath = None
             TargetFramework = None
-            FSharpCorePath = None
-            VesperCorePath = None
-            VesperListPath = None
+            References = []
             OutputKind = Exe
         }
 
-    /// On-disk app at `<outDir>/<assemblyName>.dll`, where `materialiseApp`
-    /// also drops the `runtimeconfig.json` + `FSharp.Core.dll` it needs to run.
+    /// On-disk app at `<outDir>/<assemblyName>.dll`, where `materialiseApp` also
+    /// drops the `runtimeconfig.json` and copies the referenced assemblies the PE
+    /// binds (its `Vesper.*` libraries / an FSharp.Core cold path) beside it to run.
     let app (assemblyName: string) (outDir: string) : ProjectInfo =
         { defaults assemblyName with
             OutputPath = Some(System.IO.Path.Combine(outDir, assemblyName + ".dll"))

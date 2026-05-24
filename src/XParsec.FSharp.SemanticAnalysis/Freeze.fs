@@ -1650,9 +1650,16 @@ module Freeze =
     let private longIdentText (ctx: PassContext) (li: LongIdent<SyntaxToken>) : string =
         li.Idents |> Seq.map ctx.NameOf |> String.concat "."
 
+    /// `holder` is the enclosing named module's compiled holder-type name (R3
+    /// deferred): `Some` for elements inside a `module Foo = …`, `None` at the
+    /// namespace/file top level. A `let` binding under a holder records its
+    /// `NodeKey` → `ModuleMemberInfo` so the backend emits it as a named public
+    /// static method on that holder (e.g. `ListModule::fold`) rather than on the
+    /// anonymous "Program" holder.
     let rec private translateModuleElem
         (ctx: PassContext)
         (ns: string option)
+        (holder: string option)
         (m: ModuleElem<SyntaxToken>)
         : TDecl list =
         match m with
@@ -1660,6 +1667,22 @@ module Freeze =
             [
                 for b in bindings ->
                     let tpat = translatePat ctx b.headPat
+
+                    // Inside a named module: record where this binding's static
+                    // method belongs (its source name on the holder type).
+                    match holder with
+                    | Some h ->
+                        match memberNameOfBinding ctx b with
+                        | ValueSome nm ->
+                            ctx.ModuleMembers.[(CstKeys.ofBinding b).Raw] <-
+                                {
+                                    Namespace = ns
+                                    Holder = h
+                                    Name = nm
+                                }
+                        | ValueNone -> ()
+                    | None -> ()
+
                     let valT = translateBinding ctx b
                     TDecl.Let(tpat, valT, b.inlineToken.IsSome, typeOfKey ctx (CstKeys.ofBinding b))
             ]
@@ -1667,13 +1690,33 @@ module Freeze =
             let eT = translateExpr ctx e
             [ TDecl.Expression(eT, typeOfKey ctx (CstKeys.ofExpr e)) ]
         | ModuleElem.Type defs -> defs |> Seq.choose (tryTypeDecl ctx ns) |> List.ofSeq
-        // A nested `module Foo = …` surfaces its body flat at the enclosing
-        // namespace (v1 has no module-scoped types), mirroring the analysis
-        // passes' `CstWalk.implFileElems` flattening. Proper module nesting is a
-        // later rung (docs/selfhost-handoff.md G10).
-        | ModuleElem.Module(ModuleDefn.ModuleDefn(body = ModuleDefnBody(elements = inner))) ->
+        // A nested `module Foo = …` still surfaces its body flat at the enclosing
+        // namespace (v1 has no module-scoped *types*), mirroring the analysis
+        // passes' `CstWalk.implFileElems` flattening — but its *functions* now
+        // carry the holder name `Foo`, suffixed `FooModule` when a type of the same
+        // name shares the namespace (the exact F# rule that mandates
+        // `[<CompilationRepresentation(ModuleSuffix)>]`), so they emit onto a real
+        // holder type. Deeper nesting takes the innermost module's name (matching
+        // the existing flatten; proper module qualification is a later rung —
+        // docs/selfhost-handoff.md G10/R8).
+        | ModuleElem.Module(ModuleDefn.ModuleDefn(ident = ident; body = ModuleDefnBody(elements = inner))) ->
             match inner with
-            | ValueSome innerElems -> innerElems |> Seq.collect (translateModuleElem ctx ns) |> List.ofSeq
+            | ValueSome innerElems ->
+                let moduleName = ctx.NameOf ident
+
+                let holderName =
+                    if
+                        ctx.UnionTypes.ContainsKey moduleName
+                        || ctx.RecordTypes.ContainsKey moduleName
+                        || ctx.ClassTypes.ContainsKey moduleName
+                    then
+                        moduleName + "Module"
+                    else
+                        moduleName
+
+                innerElems
+                |> Seq.collect (translateModuleElem ctx ns (Some holderName))
+                |> List.ofSeq
             | ValueNone -> []
         | _ -> []
 
@@ -1681,9 +1724,9 @@ module Freeze =
         let decls =
             match file with
             | ImplementationFile.AnonymousModule elems ->
-                elems |> Seq.collect (translateModuleElem ctx None) |> List.ofSeq
+                elems |> Seq.collect (translateModuleElem ctx None None) |> List.ofSeq
             | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) ->
-                elems |> Seq.collect (translateModuleElem ctx None) |> List.ofSeq
+                elems |> Seq.collect (translateModuleElem ctx None None) |> List.ofSeq
             | ImplementationFile.Namespaces groups ->
                 [
                     for g in groups do
@@ -1693,7 +1736,7 @@ module Freeze =
                                 Some(longIdentText ctx li), elems
                             | NamespaceDeclGroup.Global(elements = elems) -> None, elems
 
-                        yield! elems |> Seq.collect (translateModuleElem ctx nsName)
+                        yield! elems |> Seq.collect (translateModuleElem ctx nsName None)
                 ]
 
         {
@@ -1702,4 +1745,7 @@ module Freeze =
             // Snapshot so the backend can key the emitted IL type off the
             // representation string (G7) without the PassContext.
             IntrinsicReprTypes = ctx.IntrinsicReprTypes |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
+            // Snapshot the named-module placements (R3 deferred): the backend keys
+            // off a binding's `NodeKey.Raw` to emit it on its holder type.
+            ModuleMembers = ctx.ModuleMembers |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
         }

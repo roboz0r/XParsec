@@ -14,42 +14,70 @@ open XParsec.FSharp.SemanticAnalysis
 // Slice 1 covers `printfn "hi"`: the `PrintfFormat\`4` constructor and the
 // generic `PrintfModule.PrintFormatLine` call. Coverage grows with the slices.
 
-/// `ICodegenProvider` over the BCL + the loaded `FSharp.Core.dll`. `reprs` is
-/// the Vesper-primitive-name → IL-representation map (`IntrinsicRepr.merge` of a
+/// `ICodegenProvider` over the BCL + the referenced assemblies. `reprs` is the
+/// Vesper-primitive-name → IL-representation map (`IntrinsicRepr.merge` of a
 /// file's intrinsic bindings over the built-in defaults); `encodeType` keys the
-/// emitted IL type off the representation string (G7). `coreAssembly` is the
-/// identity of the compiled `Vesper.Core.dll` that owns `Vesper.Fun\`2` — the
-/// interface every emitted function value now references (R1 / D3); `None` when
-/// no external core is in play (compiling `Vesper.Core` itself, or a program that
-/// forms no function value), in which case forming a `TyFun` reference fails.
-type ClrProvider
-    (
-        ctx: MetadataContext,
-        reprs: Map<string, string>,
-        coreAssembly: AssemblyName option,
-        listAssembly: AssemblyName option
-    ) =
+/// emitted IL type off the representation string (G7). `references` maps an
+/// assembly's *simple name* to the identity read off its file (`ProjectInfo.References`),
+/// so an emitted `AssemblyRef` matches that exact artifact, not whatever the host
+/// loaded (R4). The provider looks up a type's owning assembly by name:
+/// `Vesper.Core` for `Vesper.Fun\`2` (R1 / D3) and `Vesper.List` for the cons-list
+/// (PS2) are *required* (a `TyFun` / list with no such reference fails to encode —
+/// correct when compiling that package itself, or a program that forms neither);
+/// `FSharp.Core` (the R9 cold-printf island) and `Vesper.Printf` (the happy-path
+/// formatter) fall back to the host-loaded copy when not referenced explicitly.
+type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>, references: Map<string, AssemblyName>) =
 
-    // Reference identities from the live assemblies (version-proof). Every
-    // `AssemblyRef` / `TypeRef` / `MemberRef` below is `lazy` (G6): the row is
-    // added — through `ctx`, which caches it — only when a ref is first *forced*
-    // (`.Value`) during emission, not at construction. So merely constructing the
-    // provider emits no metadata. An executable whose IL never touches FSharp.Core
-    // carries no FSharp.Core `AssemblyRef`, and the library path can construct a
-    // provider for a typar-only interface without pinning any assembly at all
-    // (which is what lets `assembleLibrary` reuse `encodeType` — G5 — instead of
-    // its old provider-free encoder).
+    // Resolve an assembly's identity by simple name: a `ProjectInfo.References`
+    // entry (read off the file — R4) wins; otherwise a host-loaded fallback for the
+    // assemblies the provider allows to default (FSharp.Core / Vesper.Printf).
+    let refOrHost (simpleName: string) (hostFallback: unit -> AssemblyName) : AssemblyName =
+        match references.TryFind simpleName with
+        | Some an -> an
+        | None -> hostFallback ()
+
+    // Resolve a *required* reference's identity by simple name — a `Vesper.*`
+    // library with no host fallback. Forced lazily, so the failure surfaces only
+    // when the missing type is actually needed.
+    let refRequired (simpleName: string) (need: string) : AssemblyName =
+        match references.TryFind simpleName with
+        | Some an -> an
+        | None ->
+            failwithf
+                "ClrProvider: %s, but no %s assembly is referenced (add its path to ProjectInfo.References)."
+                need
+                simpleName
+
+    // Reference identities, by simple name (version-proof). Every `AssemblyRef` /
+    // `TypeRef` / `MemberRef` below is `lazy` (G6): the row is added — through
+    // `ctx`, which caches it — only when a ref is first *forced* (`.Value`) during
+    // emission, not at construction. So merely constructing the provider emits no
+    // metadata. An executable whose IL never touches FSharp.Core carries no
+    // FSharp.Core `AssemblyRef`, and the library path can construct a provider for a
+    // typar-only interface without pinning any assembly at all (which is what lets
+    // `assembleLibrary` reuse `encodeType` — G5 — instead of its old provider-free
+    // encoder).
     let fsCoreRef =
-        lazy (toEntity (ctx.AssemblyRef(typeof<Microsoft.FSharp.Core.Unit>.Assembly.GetName())))
+        lazy
+            (toEntity (
+                ctx.AssemblyRef(
+                    refOrHost "FSharp.Core" (fun () -> typeof<Microsoft.FSharp.Core.Unit>.Assembly.GetName())
+                )
+            ))
 
     let coreRef =
         lazy (toEntity (ctx.AssemblyRef(typeof<System.Object>.Assembly.GetName())))
 
     // The bootstrap printf runtime (Vesper.Printf.dll) hosting `Formatter`; and
     // the assembly that owns `System.Console` (its own ref assembly, not
-    // CoreLib — type-forwarded at runtime). Both read live, like FSharp.Core.
+    // CoreLib — type-forwarded at runtime). `Vesper.Printf` takes the same
+    // reference-or-host resolution as FSharp.Core; `System.Console` is a BCL ref
+    // that resolves from the shared framework, so it always reads live.
     let vesperRef =
-        lazy (toEntity (ctx.AssemblyRef(typeof<Vesper.PrintfRuntime>.Assembly.GetName())))
+        lazy
+            (toEntity (
+                ctx.AssemblyRef(refOrHost "Vesper.Printf" (fun () -> typeof<Vesper.PrintfRuntime>.Assembly.GetName()))
+            ))
 
     let consoleRef =
         lazy (toEntity (ctx.AssemblyRef(typeof<System.Console>.Assembly.GetName())))
@@ -70,33 +98,26 @@ type ClrProvider
     // The compiled `Vesper.Core.dll`'s identity + its `Fun\`2` interface. Like
     // every other ref these are `lazy` (G6), so a program forming no function
     // value pins no `Vesper.Core` `AssemblyRef`. Forcing `eFun2` without a
-    // configured `coreAssembly` is a hard error — there is nowhere for the
-    // function value's `Fun` to come from (R1: `Fun` lives in `Vesper.Core`, not
-    // this assembly, and not FSharp.Core).
+    // `Vesper.Core` reference is a hard error — there is nowhere for the function
+    // value's `Fun` to come from (R1: `Fun` lives in `Vesper.Core`, not this
+    // assembly, and not FSharp.Core).
     let vesperCoreRef =
-        lazy
-            (match coreAssembly with
-             | Some an -> toEntity (ctx.AssemblyRef an)
-             | None ->
-                 failwith
-                     "ClrProvider: a function value needs Vesper.Fun, but no Vesper.Core assembly is configured (set ProjectInfo.VesperCorePath).")
+        lazy (toEntity (ctx.AssemblyRef(refRequired "Vesper.Core" "a function value needs Vesper.Fun")))
 
     let eFun2 = lazy (toEntity (ctx.TypeRef(vesperCoreRef.Value, "Vesper", "Fun`2")))
 
     // The compiled `Vesper.List.dll`'s identity (its own package now —
     // package-split-plan PS2 — no longer part of `Vesper.Core.dll`). Mirrors
     // `vesperCoreRef`: `lazy` (a program touching no list pins no `Vesper.List`
-    // ref), and forcing it without a configured `listAssembly` is a hard error —
+    // ref), and forcing it without a `Vesper.List` reference is a hard error —
     // there is nowhere for the list type to come from. Deliberately NO fallback to
     // `vesperCoreRef`: that would re-merge the list into Core's ref surface and
     // mint a wrong `Vesper.Core::List\`1` while every test still passed.
     let vesperListRef =
         lazy
-            (match listAssembly with
-             | Some an -> toEntity (ctx.AssemblyRef an)
-             | None ->
-                 failwith
-                     "ClrProvider: a list literal / List.fold needs Vesper.Collections.List, but no Vesper.List assembly is configured (set ProjectInfo.VesperListPath).")
+            (toEntity (
+                ctx.AssemblyRef(refRequired "Vesper.List" "a list literal / List.fold needs Vesper.Collections.List")
+            ))
 
     let eFSharpList1 =
         lazy (toEntity (ctx.TypeRef(fsCoreRef.Value, "Microsoft.FSharp.Collections", "FSharpList`1")))
@@ -110,6 +131,14 @@ type ClrProvider
     /// FSharp.Core dependency (a `Vesper.List` `AssemblyRef` instead).
     let eVesperList1 =
         lazy (toEntity (ctx.TypeRef(vesperListRef.Value, "Vesper.Collections", "List`1")))
+
+    /// `Vesper.Collections.ListModule` in `Vesper.List.dll` (R3 deferred): the
+    /// compiled holder type for the `List` module's functions (the `ModuleSuffix`
+    /// representation gives it the `ListModule` name). `emitFold` mints a
+    /// `MemberRef` + `MethodSpec` on it — `fold` is compiled into the DLL now, not
+    /// inlined.
+    let eListModule =
+        lazy (toEntity (ctx.TypeRef(vesperListRef.Value, "Vesper.Collections", "ListModule")))
 
     /// The abbreviation name the list-literal freeze hard-codes
     /// ([front-end-gaps-plan](../XParsec.FSharp.SemanticAnalysis/docs/front-end-gaps-plan.md)
@@ -830,18 +859,6 @@ type ClrProvider
             Pushes = 1
         }
 
-    /// `List\`1<elem>::get_<name>()` — a parameterless instance member ref on the
-    /// Vesper list `TypeSpec`. `encodeRet` writes the return type in the type's `!0`.
-    let vesperListGetter (elem: SemType) (name: string) (encodeRet: ReturnTypeEncoder -> unit) : EntityHandle =
-        let typeSpec = vesperListTypeSpec elem
-        let msig = BlobBuilder()
-
-        BlobEncoder(msig)
-            .MethodSignature(isInstanceMethod = true)
-            .Parameters(0, (fun (ret: ReturnTypeEncoder) -> encodeRet ret), (fun _ -> ()))
-
-        toEntity (ctx.MemberRef(typeSpec, name, msig))
-
     // ---- Closure synthesis support (slice 5 / R1) ----
 
     /// `Vesper.Fun\`2<a, b>` as a `TypeSpec` `EntityHandle` — the interface a
@@ -898,81 +915,66 @@ type ClrProvider
         encodeType te ty
         blob
 
-    /// `List.fold folder state xs` over the *Vesper* list (R3) — emitted **inline**
-    /// (no FSharp.Core), a tail-style loop:
-    ///
-    ///   var f = folder; var s = state; var l = xs
-    ///   while not l.IsEmpty: s <- f.Invoke(s).Invoke(l.Head); l <- l.Tail
-    ///   return s
-    ///
-    /// `'T` / `'State` are read off the head's type `fnTy = ('State -> 'T -> 'State)
-    /// -> 'State -> Vesper.List<'T> -> 'State`. Folder, state, list are already on
-    /// the stack beneath (ArgCount = 3); the loop leaves the `'State` result.
-    /// (Compiling `fold` *into* `Vesper.Core.dll` is the deferred public-module
-    /// compilation gap — see selfhost-handoff.md; until then it is emitted here.)
+    /// `List.fold folder state xs` over the *Vesper* list — a `call` to the `fold`
+    /// compiled into `Vesper.List.dll` (R3 deferred: public module-function
+    /// compilation; it was emitted inline before this DLL hosted `fold`). Builds
+    /// the external generic-static-method ref
+    ///   `Vesper.Collections.ListModule::fold<!!0,!!1>
+    ///        (Fun<!!0, Fun<!!1, !!0>>, !!0, List<!!1>) : !!0`
+    /// then a `MethodSpec` instantiating `<'State, 'T>` recovered from the head type
+    /// `fnTy = ('State -> 'T -> 'State) -> 'State -> Vesper.List<'T> -> 'State`.
+    /// Folder, state, list are already on the stack (ArgCount = 3); the call leaves
+    /// the `'State` result. The folder's arrow stays `Vesper.Fun` and the list its
+    /// `Vesper.Collections.List`, so the recipe pins `Vesper.List` (+ `Vesper.Core`
+    /// via the `Fun` instantiation), no FSharp.Core.
     let emitFold (fnTy: SemType) : CallRecipe =
         let elemTy, stateTy =
             match zonk fnTy with
             | TyFun(TyFun(state, TyFun(t, _)), _) -> t, state
             | other -> failwithf "ClrProvider: List.fold has unexpected type %A" other
 
-        let folderTy = TyFun(stateTy, TyFun(elemTy, stateTy))
-        let listTy = TyRecord(vesperListName, [ elemTy ])
+        // The generic `fold` signature is encoded with two fresh ambient typars
+        // (`'State` ⇒ `!!0`, `'T` ⇒ `!!1`): `encodeType` maps them — and the `Fun`
+        // / `List` generic instances built over them — through `methodTyparLeaf`,
+        // exactly as the producer side emits the method's own signature.
+        let stateTv = TypeVar()
+        let tTv = TypeVar()
+        let sT = TyVar stateTv
+        let eT = TyVar tTv
+        let folderT = TyFun(sT, TyFun(eT, sT))
+        let listT = TyRecord(vesperListName, [ eT ])
 
-        // `folder.Invoke(state)` → `Fun<state, Fun<elem,state>>::Invoke`; the result
-        // `Fun<elem,state>::Invoke(head)` → the new state.
-        let inv1 = funInvokeRef stateTy (TyFun(elemTy, stateTy))
-        let inv2 = funInvokeRef elemTy stateTy
+        let foldSig =
+            let saved = methodTyparRoots
+            methodTyparRoots <- [ UnionFind.find stateTv; UnionFind.find tTv ]
+            let s = BlobBuilder()
 
-        let getIsEmpty =
-            vesperListGetter elemTy "get_IsEmpty" (fun ret -> ret.Type().Boolean())
+            BlobEncoder(s)
+                .MethodSignature(genericParameterCount = 2, isInstanceMethod = false)
+                .Parameters(
+                    3,
+                    (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) sT),
+                    (fun (pars: ParametersEncoder) ->
+                        encodeType (pars.AddParameter().Type()) folderT
+                        encodeType (pars.AddParameter().Type()) sT
+                        encodeType (pars.AddParameter().Type()) listT
+                    )
+                )
 
-        let getHead =
-            vesperListGetter elemTy "get_Head" (fun ret -> ret.Type().GenericTypeParameter(0))
+            methodTyparRoots <- saved
+            s
 
-        let getTail =
-            vesperListGetter elemTy "get_Tail" (fun ret -> encodeVesperListOfTypar (ret.Type()))
+        let foldRef = ctx.MemberRef(eListModule.Value, "fold", foldSig)
 
-        let emit (il: Il) =
-            let callvirt (m: EntityHandle) =
-                il.Encoder.OpCode ILOpCode.Callvirt
-                il.Encoder.Token m
-
-            // Locals: list, state, folder — popped from the stack top-down (the
-            // caller pushed folder, state, list in that order).
-            let listL = il.DeclareLocal listTy
-            let stateL = il.DeclareLocal stateTy
-            let folderL = il.DeclareLocal folderTy
-            il.Encoder.StoreLocal listL
-            il.Encoder.StoreLocal stateL
-            il.Encoder.StoreLocal folderL
-
-            let loopLbl = il.Encoder.DefineLabel()
-            let doneLbl = il.Encoder.DefineLabel()
-
-            il.Encoder.MarkLabel loopLbl
-            il.Encoder.LoadLocal listL
-            callvirt getIsEmpty
-            il.Encoder.Branch(ILOpCode.Brtrue, doneLbl)
-            // state <- folder.Invoke(state).Invoke(list.Head)
-            il.Encoder.LoadLocal folderL
-            il.Encoder.LoadLocal stateL
-            callvirt inv1
-            il.Encoder.LoadLocal listL
-            callvirt getHead
-            callvirt inv2
-            il.Encoder.StoreLocal stateL
-            // list <- list.Tail
-            il.Encoder.LoadLocal listL
-            callvirt getTail
-            il.Encoder.StoreLocal listL
-            il.Encoder.Branch(ILOpCode.Br, loopLbl)
-
-            il.Encoder.MarkLabel doneLbl
-            il.Encoder.LoadLocal stateL
+        // `MethodSpec` instantiating the call site's concrete `<'State, 'T>`.
+        let inst = BlobBuilder()
+        let specEnc = BlobEncoder(inst).MethodSpecificationSignature(2)
+        encodeType (specEnc.AddArgument()) stateTy
+        encodeType (specEnc.AddArgument()) elemTy
+        let foldSpec = toEntity (ctx.MethodSpec(toEntity foldRef, inst))
 
         {
-            Emit = emit
+            Emit = fun il -> il.Encoder.Call foldSpec
             ArgCount = 3
             Pushes = 1
         }

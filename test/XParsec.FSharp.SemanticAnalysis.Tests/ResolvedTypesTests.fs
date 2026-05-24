@@ -78,6 +78,7 @@ let tests =
                         Decls = synthDecls
                         Diagnostics = []
                         IntrinsicReprTypes = Map.empty
+                        ModuleMembers = Map.empty
                     }
 
                 let before = ctx.Diagnostics.Count
@@ -124,6 +125,7 @@ let tests =
                             ]
                         Diagnostics = []
                         IntrinsicReprTypes = Map.empty
+                        ModuleMembers = Map.empty
                     }
 
                 let before = ctx.Diagnostics.Count

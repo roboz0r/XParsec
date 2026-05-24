@@ -11,13 +11,14 @@ namespace Vesper.Collections
 // list literal binds to the union by arity (nullary terminator + binary cons),
 // not by case name.
 //
-// `List.fold` is **not** compiled here yet. R3 chose to emit it *inline* over this
-// type in the consuming program (the backend `emitFold` walks
-// `IsEmpty` / `Head` / `Tail` + `Vesper.Fun::Invoke`); compiling `fold` *into*
-// this DLL needs public module-function compilation (a self-reference to `Fun`
-// and a real `Vesper.Collections.ListModule` holder) — the deferred gap in
-// selfhost-handoff.md. `Head` / `Tail` use `failwith` (lowered to a BCL
-// `System.Exception`) so this DLL carries no `FSharp.Core` reference.
+// `List.fold` is compiled *into* this DLL now (R3 deferred — public
+// module-function compilation): the `module List` below emits as a real
+// `Vesper.Collections.ListModule` static class, so a consuming program calls
+// `ListModule::fold<'State,'T>` via a `MethodSpec` rather than inlining the loop.
+// Because `fold`'s folder parameter is a `Vesper.Fun`, this DLL now carries a
+// `Vesper.Core` `AssemblyRef` (it had none while only the minimal list shipped).
+// `Head` / `Tail` use `failwith` (lowered to a BCL `System.Exception`) so the
+// list type itself still references no `FSharp.Core`.
 
 type List<'T> =
     | Nil
@@ -37,3 +38,17 @@ type List<'T> =
         match this with
         | Nil -> failwith "The input list was empty."
         | Cons(_, t) -> t
+
+// Compiles to the `Vesper.Collections.ListModule` static class (the
+// `ModuleSuffix` representation gives the module the holder name `ListModule`
+// because the type `List` shares its name in this namespace). `fold` is the only
+// operation R3 needs; the rest of the module is additive. The folder's arrows
+// desugar to `Vesper.Fun`; each application lowers to `callvirt Fun::Invoke`.
+[<RequireQualifiedAccess>]
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module List =
+
+    let rec fold (folder: 'State -> 'T -> 'State) (state: 'State) (list: List<'T>) : 'State =
+        match list with
+        | Nil -> state
+        | Cons(h, t) -> fold folder (folder state h) t

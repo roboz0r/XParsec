@@ -207,7 +207,20 @@ let tests =
                 Expect.isTrue hasClosure "a closure type was emitted for the capturing addN"
             }
 
-            test "a function inside a nested module compiles + runs as a static method (prints 42)" {
+            // R3 deferred: a named `module M = …` now compiles to an `M` holder type
+            // carrying its functions under their *source* names (no `fn$` mangling,
+            // not on the "Program" holder) — exercised here in an executable.
+            let moduleStaticMethod (bytes: byte[]) (holder: string) (name: string) : MethodInfo =
+                let asm = loadAssembly bytes
+
+                match asm.GetTypes() |> Array.tryFind (fun t -> t.FullName = holder) with
+                | None -> failtestf "no `%s` holder type emitted for the nested module" holder
+                | Some t ->
+                    match t.GetMethod(name, BindingFlags.Public ||| BindingFlags.Static) with
+                    | null -> failtestf "`%s` is not a public static method on the `%s` holder" name holder
+                    | m -> m
+
+            test "a function inside a nested module compiles + runs as a static method on its holder (prints 42)" {
                 let src =
                     "let start = 0\nmodule M =\n    let twice x = x + x\nprintfn \"%d\" (twice 21)"
 
@@ -216,7 +229,10 @@ let tests =
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Trim()) "42" "twice 21 = 42 — the nested-module function ran"
-                Expect.equal (staticFnMethods bytes).Length 1 "the nested `twice` is the one static method"
+
+                let twice = moduleStaticMethod bytes "M" "twice"
+                Expect.isTrue twice.IsStatic "twice is a static method on the M holder"
+                Expect.isEmpty (staticFnMethods bytes) "carries its source name `twice`, not an anonymous `fn$`"
             }
 
             test "a recursive function inside a nested module recurses (prints 15)" {
@@ -228,7 +244,10 @@ let tests =
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Trim()) "15" "sumTo 5 = 15 via a self-recursive static call from a nested module"
-                Expect.equal (staticFnMethods bytes).Length 1 "sumTo is the one static method"
+
+                let sumTo = moduleStaticMethod bytes "M" "sumTo"
+                Expect.isTrue sumTo.IsStatic "sumTo is a static method on the M holder"
+                Expect.isEmpty (staticFnMethods bytes) "carries its source name `sumTo`, not an anonymous `fn$`"
             }
 
             test "a recursive static-method program runs as a standalone `dotnet <dll>` app (prints 15)" {

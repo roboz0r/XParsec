@@ -98,10 +98,10 @@ let tests =
 
             test "the full sample runs as a standalone `dotnet <dll>` app and prints 15" {
                 let outDir = tmpDir "slice5-full-sample"
-                // `withCore` here too, so the *same* project (carrying `VesperCorePath`
-                // + `VesperListPath`) drives both the compile and `materialiseApp`'s
-                // copy of Vesper.Core.dll + Vesper.List.dll beside the app — the bundle
-                // the out-of-process loader needs.
+                // `withCore` here too, so the *same* project (carrying the
+                // `Vesper.Core` + `Vesper.List` references) drives both the compile and
+                // `materialiseApp`'s copy of Vesper.Core.dll + Vesper.List.dll beside
+                // the app — the bundle the out-of-process loader needs.
                 let project = withCore (ProjectInfo.app "XParsecFoldApp" outDir)
 
                 let artifact = compileSourceTo project fullSample

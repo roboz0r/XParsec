@@ -20,7 +20,7 @@ let tests =
     testList
         "SelfHostR3"
         [
-            test "Vesper.List.dll exports Vesper.Collections.List`1 with Cons/Nil + IsEmpty/Head/Tail (its own package)" {
+            test "Vesper.List.dll exports List`1 (Cons/Nil + IsEmpty/Head/Tail) and ListModule::fold (its own package)" {
                 // The cons-list is its own package now (package-split-plan PS2):
                 // forcing the lazy compiles `src/Vesper.List/list-min.fs` into a
                 // standalone Vesper.List.dll and loads it.
@@ -41,17 +41,34 @@ let tests =
                     Expect.isNotNull (t.GetMethod "get_Head") "List`1 has an instance get_Head"
                     Expect.isNotNull (t.GetMethod "get_Tail") "List`1 has an instance get_Tail"
 
+                // R3 deferred: `module List` compiles to a `Vesper.Collections.ListModule`
+                // static class holding the public `fold` (a 2-typar generic static method).
+                let listModule =
+                    listAsm.GetTypes()
+                    |> Array.tryFind (fun t -> t.FullName = "Vesper.Collections.ListModule")
+
+                match listModule with
+                | None -> failtest "Vesper.List.dll has no Vesper.Collections.ListModule"
+                | Some m ->
+                    let fold = m.GetMethod "fold"
+                    Expect.isNotNull fold "ListModule has a static fold"
+                    Expect.isTrue fold.IsStatic "fold is static"
+                    Expect.isTrue fold.IsGenericMethodDefinition "fold is a generic method definition"
+                    Expect.equal (fold.GetGenericArguments().Length) 2 "fold has two generic parameters"
+
                 let refs = listAsm.GetReferencedAssemblies() |> Array.map (fun a -> a.Name)
 
-                // BCL-only: the minimal list uses no `Fun`, so it references neither
-                // FSharp.Core nor Vesper.Core ("pay for what you use").
+                // The list type itself uses no FSharp.Core (its `Head`/`Tail` use
+                // `failwith` → BCL `System.Exception`); `fold` uses `Vesper.Fun`, so
+                // the DLL now references `Vesper.Core` (it had no ref while only the
+                // minimal list shipped). Still no FSharp.Core ("pay for what you use").
                 Expect.isFalse
                     (refs |> Array.contains "FSharp.Core")
                     (sprintf "Vesper.List.dll is FSharp.Core-free (refs: %A)" refs)
 
-                Expect.isFalse
+                Expect.isTrue
                     (refs |> Array.contains "Vesper.Core")
-                    (sprintf "Vesper.List.dll pins no Vesper.Core (minimal list uses no Fun) (refs: %A)" refs)
+                    (sprintf "Vesper.List.dll references Vesper.Core (fold's folder is a Vesper.Fun) (refs: %A)" refs)
             }
 
             // A generic match over a generic union (no recursion / no function
