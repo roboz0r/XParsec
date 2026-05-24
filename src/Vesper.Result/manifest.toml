@@ -1,0 +1,36 @@
+# Vesper.Result — the result type + the `Result` module as a standalone package
+# (package-split-plan PS1: one package per type; PS2: one impl DLL per package).
+#
+# Same shape as src/Vesper.Core / src/Vesper.Option / src/Vesper.Printf: the
+# `.fsi` is the front-end symbol contract (parsed by XParsec.FSharp, walked into
+# an IExternalSymbolProvider); `result.fs` is the runtime impl compiled by this
+# repo's own backend → Vesper.Result.dll (BCL-only, no FSharp.Core). No `.fsproj`:
+# like its siblings this tree is not built by `dotnet`/`fsc`.
+#
+# Depends on Vesper.Core (`Fun`, `unit`, `bool`, `int`). `name` and `depends-on`
+# are recorded here per the package-split-plan package schema; the root-manifest
+# / a la carte loader wiring (PS-Loader) is a separate follow-up — these
+# self-contained package manifests are consumed today by the parser golden tests
+# (test/XParsec.FSharp.Tests/VesperCoreContractTests.fs).
+#
+# Per PS5 the package is named `Vesper.Result` but contributes type `Result` into
+# namespace `Vesper`, not `Vesper.Result`.
+#
+# See ./README.md and
+# ../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md.
+
+[core]
+name = "Vesper.Result"
+namespace = "Vesper"
+description = "The result type and the Result module."
+depends-on = ["Vesper.Core"]
+
+# Contract `.fsi` files in compile order (one, today).
+files = [
+    "result.fsi",
+]
+
+# Runtime impl `.fs` files (our-backend target source).
+impl = [
+    "result.fs",
+]
