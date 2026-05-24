@@ -7,22 +7,20 @@ open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open System.Reflection.PortableExecutable
 
-// The metadata-construction layer (no LicenseToCIL analog, no stack typing):
-// ordered construction of the metadata graph over `MetadataBuilder` +
-// `BlobBuilder`. See [codegen-clr-plan](../XParsec.FSharp.SemanticAnalysis/docs/codegen-clr-plan.md) §B.
+// Ordered construction of the metadata graph over `MetadataBuilder` +
+// `BlobBuilder`.
 
 [<AutoOpen>]
 module internal Handles =
 
-    /// Widen any specific metadata handle to `EntityHandle` via its
-    /// `op_Implicit`. SRTP picks the `-> EntityHandle` overload (each handle
-    /// struct also has one to `Handle`); doing it explicitly keeps us off F#'s
-    /// implicit-conversion warning, which `TreatWarningsAsErrors` would fail.
+    /// Widen a specific metadata handle to `EntityHandle`. Done explicitly to
+    /// stay off F#'s implicit-conversion warning, which `TreatWarningsAsErrors`
+    /// would fail; SRTP picks the `-> EntityHandle` overload over `-> Handle`.
     let inline toEntity (h: ^T) : EntityHandle =
         (^T: (static member op_Implicit: ^T -> EntityHandle) h)
 
-/// In-memory metadata + IL builders plus reference caches. Deeply stateful
-/// (the SRM writers are), but the mutation never leaks past `compile`.
+/// Deeply stateful (the SRM writers are), but the mutation never leaks past
+/// `compile`.
 type MetadataContext() =
     let mb = MetadataBuilder()
     let ilBuilder = BlobBuilder()
@@ -32,8 +30,7 @@ type MetadataContext() =
     member _.Builder = mb
     member _.IlBuilder = ilBuilder
 
-    /// A `MethodBodyStreamEncoder` over the shared IL builder. Cheap to
-    /// recreate per body — the struct just wraps `ilBuilder`.
+    /// Cheap to recreate per body — the struct just wraps `ilBuilder`.
     member _.BodyStream = MethodBodyStreamEncoder(ilBuilder)
 
     member _.UserString(s: string) : UserStringHandle = mb.GetOrAddUserString(s)
@@ -62,9 +59,8 @@ type MetadataContext() =
         )
         |> ignore
 
-    /// Cached `AssemblyReference`, identified by the loaded assembly's name /
-    /// version / public-key token so the emitted reference matches whatever is
-    /// loaded in the host process (robust for in-process execution).
+    /// Identified by the loaded assembly's name / version / public-key token, so
+    /// the emitted reference matches whatever is loaded in the host process.
     member _.AssemblyRef(name: AssemblyName) : AssemblyReferenceHandle =
         let key = name.FullName
 
@@ -95,7 +91,6 @@ type MetadataContext() =
             asmRefs[key] <- h
             h
 
-    /// Cached `TypeReference` within `scope` (an assembly ref, normally).
     member _.TypeRef(scope: EntityHandle, ns: string, name: string) : TypeReferenceHandle =
         let key = struct (MetadataTokens.GetToken scope, ns, name)
 
@@ -112,23 +107,18 @@ type MetadataContext() =
     member _.TypeSpec(signature: BlobBuilder) : TypeSpecificationHandle =
         mb.AddTypeSpecification(mb.GetOrAddBlob(signature))
 
-    /// A standalone signature row — used for a method body's local-variable
-    /// signature (built with `BlobEncoder.LocalVariableSignature`).
     member _.AddStandaloneSignature(signature: BlobBuilder) : StandaloneSignatureHandle =
         mb.AddStandaloneSignature(mb.GetOrAddBlob(signature))
 
     member _.MethodSpec(meth: EntityHandle, instantiation: BlobBuilder) : MethodSpecificationHandle =
         mb.AddMethodSpecification(meth, mb.GetOrAddBlob(instantiation))
 
-    /// Add a `FieldDefinition` row. Like methods, fields must be added in the
-    /// order the owning types claim them (each `TypeDefinition`'s field range
-    /// runs from its `firstField` to the next type's). Used for closure
-    /// capture fields.
+    /// Fields must be added in the order the owning types claim them (each
+    /// `TypeDefinition`'s field range runs from its `firstField` to the next type's).
     member _.AddField(attrs: FieldAttributes, name: string, signature: BlobBuilder) : FieldDefinitionHandle =
         mb.AddFieldDefinition(attrs, mb.GetOrAddString(name), mb.GetOrAddBlob(signature))
 
-    /// Add a `MethodDefinition` row. Methods must be added in the order types
-    /// will claim them (see `AddProgramType`).
+    /// Methods must be added in the order types will claim them.
     member _.AddMethod
         (attrs: MethodAttributes, name: string, signature: BlobBuilder, bodyOffset: int)
         : MethodDefinitionHandle =
@@ -154,11 +144,9 @@ type MetadataContext() =
             sequenceNumber
         )
 
-    /// Add a `MethodDefinition` whose `ParamList` points at `firstParam` (the
-    /// first of its `Param` rows, or the past-the-end handle when it has none).
-    /// Unlike `AddMethod` — which passes a nil `ParamList`, fine for *executing*
-    /// a body but not for reflection's `GetParameters` — this records a valid
-    /// parameter range, so the emitted method round-trips through reflection.
+    /// Records a valid `ParamList` range (the first `Param` row, or past-the-end
+    /// when none). Unlike `AddMethod`'s nil `ParamList` — fine for *executing* a
+    /// body but not for reflection's `GetParameters` — this round-trips through reflection.
     member _.AddMethodWithParamList
         (attrs: MethodAttributes, name: string, signature: BlobBuilder, bodyOffset: int, firstParam: ParameterHandle)
         : MethodDefinitionHandle =
@@ -184,15 +172,11 @@ type MetadataContext() =
         )
         |> ignore
 
-    /// A concrete (instance) `TypeDefinition` whose base is an arbitrary
-    /// `EntityHandle` — a `TypeSpec` for a synthesised closure deriving from
-    /// the instantiated `FSharpFunc\`2<a,b>`, or `Object` for an emitted union.
-    /// Generalises `AddProgramType`, which hard-codes `abstract sealed` +
-    /// `Object`. `ns` is the namespace (empty ⇒ global — a synthesised closure
-    /// has none; a declared union carries its `namespace X`). `firstField` /
-    /// `firstMethod` start this type's contiguous field / method ranges, so
-    /// callers must add this type's fields and methods (in type order) before
-    /// the `TypeDefinition` rows.
+    /// A concrete `TypeDefinition` with an arbitrary base (a closure's
+    /// instantiated `FSharpFunc\`2` `TypeSpec`, or `Object` for a union). `ns`
+    /// empty ⇒ global. Callers must add this type's fields and methods (in type
+    /// order) before the `TypeDefinition` row, since `firstField` / `firstMethod`
+    /// start its contiguous ranges.
     member _.AddClass
         (
             attrs: TypeAttributes,
@@ -214,10 +198,9 @@ type MetadataContext() =
             firstMethod
         )
 
-    /// The `abstract sealed` (static) holder class for top-level members,
-    /// owning every method from `firstMethod` onward. `firstField` points past
-    /// any closure fields that precede it in the table (the holder owns none),
-    /// so its field range stays empty.
+    /// The `abstract sealed` (static) holder for top-level members. `firstField`
+    /// points past any preceding closure fields (the holder owns none), so its
+    /// field range stays empty.
     member _.AddProgramType
         (name: string, baseType: EntityHandle, firstField: FieldDefinitionHandle, firstMethod: MethodDefinitionHandle)
         : TypeDefinitionHandle =
@@ -235,11 +218,9 @@ type MetadataContext() =
             firstMethod
         )
 
-    /// A generic interface `TypeDefinition` — `Interface ||| Abstract ||| Public`,
-    /// **nil base** (interfaces have no base type). `ns` is the namespace (empty ⇒
-    /// global). `firstField` / `firstMethod` start its contiguous ranges (an
-    /// interface has no fields, so `firstField` points past any preceding rows).
-    /// Generic-parameter rows are added separately afterwards via
+    /// An interface `TypeDefinition` — **nil base** (interfaces have none). `ns`
+    /// empty ⇒ global. An interface has no fields, so `firstField` points past
+    /// any preceding rows. Generic-parameter rows are added separately via
     /// `AddGenericParameter`.
     member _.AddInterfaceType
         (ns: string, name: string, firstField: FieldDefinitionHandle, firstMethod: MethodDefinitionHandle)
@@ -256,16 +237,13 @@ type MetadataContext() =
             firstMethod
         )
 
-    /// A `GenericParam` row for `owner`'s type parameter at `index` (0-based).
-    /// `owner` is a `TypeDefinition` (a type's typars) or a `MethodDefinition` (a
-    /// generic method's own typars). SRM requires all `GenericParam` rows added
-    /// globally sorted by `CodedIndex.TypeOrMethodDef(owner)` then by `index`
-    /// (and validates this on serialize) — type and method owners therefore
-    /// interleave, so callers must collect every row and sort before adding.
+    /// `owner` is a `TypeDefinition` or `MethodDefinition`. SRM requires all
+    /// `GenericParam` rows globally sorted by `CodedIndex.TypeOrMethodDef(owner)`
+    /// then `index` (validated on serialize) — type and method owners interleave,
+    /// so callers must collect every row and sort before adding.
     member _.AddGenericParameter(owner: EntityHandle, index: int, name: string) : GenericParameterHandle =
         mb.AddGenericParameter(owner, GenericParameterAttributes.None, mb.GetOrAddString(name), index)
 
-    /// Serialise the assembled metadata + IL into a PE image.
     member _.Serialize(entryPoint: MethodDefinitionHandle) : BlobBuilder =
         let header = PEHeaderBuilder(imageCharacteristics = Characteristics.ExecutableImage)
         let root = MetadataRootBuilder(mb)

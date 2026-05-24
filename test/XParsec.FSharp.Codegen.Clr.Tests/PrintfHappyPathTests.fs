@@ -5,15 +5,11 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Vesper.Printf P1 — the fully-applied literal happy path lowered to the
-// `Vesper.Formatter` write-through handler (no `PrintfFormat`, no closure, no
-// FSharp.Core on the printf path). Each runtime case loads the emitted PE
-// in-process and captures `Console.Out`. The "stays on the cold path" cases
-// prove the lowering is additive: a specifier P1 doesn't handle keeps the
-// existing FSharp.Core path (so `%A`, `%x`, partial application, … still work).
-// See docs/vesper-printf-plan.md / docs/printf-handoff.md.
+// Vesper.Printf happy path: fully-applied literal printf lowered to the
+// `Vesper.Formatter` write-through handler. The lowering is additive — any
+// specifier the happy path doesn't handle keeps the existing FSharp.Core cold
+// path. See docs/vesper-printf-plan.md / docs/printf-handoff.md.
 
-/// A single top-level decl, or fail.
 let private soleDecl (src: string) : TDecl =
     let tast = analyse src
     Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics for: %s" src)
@@ -28,10 +24,10 @@ let private runPrints (name: string) (src: string) (expected: string) =
     Expect.equal exitCode 0 (sprintf "Main returns 0 for: %s" src)
     Expect.equal (output.Trim()) expected (sprintf "%s prints %s" src expected)
 
-/// Compile + run `src` in-process and assert its output matches `expected`,
-/// trimming only the trailing newline `printfn` adds (so leading/embedded
-/// alignment spaces survive the comparison). Pair with an `expected` computed by
-/// the test process's own `sprintf` to assert byte-for-byte parity with real F#.
+/// Compile + run `src`, asserting output matches `expected`. Trims only the
+/// trailing newline (so leading/embedded alignment spaces survive) and pairs
+/// with an `expected` from the test process's own `sprintf` for byte-for-byte
+/// parity with real F#.
 let private runParity (name: string) (src: string) (expected: string) =
     let _, artifact = compileSource name src
     let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
@@ -43,8 +39,6 @@ let tests =
     testList
         "PrintfHappyPath"
         [
-            // ---- The happy path produces a Format node ----
-
             test "`printfn \"%s\"` lowers to a single string hole" {
                 match soleDecl "printfn \"%s\" \"world\"" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _), _) ->
@@ -78,8 +72,6 @@ let tests =
             }
 
             test "`%%` lowers, collapsing to a single literal percent (P2)" {
-                // P2: `%%` is now on the happy path — Freeze collapses it to a
-                // literal `%` in the `Lit` segment (no runtime format pass).
                 match soleDecl "printfn \"100%%\"" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _), _) ->
                     match EqArray.toList segs with
@@ -109,8 +101,6 @@ let tests =
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
             }
-
-            // ---- P2 specifiers: the widened happy path (Format node) ----
 
             test "`%x` lowers to a Formatted hole with the `\"x\"` .NET format" {
                 match soleDecl "printfn \"%x\" 255" with
@@ -230,8 +220,6 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            // ---- Specifiers that stay on the FSharp.Core cold path (additive) ----
-
             test "`%g` (compact float) is NOT lowered (exponent case)" {
                 match soleDecl "printfn \"%g\" 1.5" with
                 | TDecl.Expression(TExpr.Format _, _) -> failtest "%g must stay on the cold path"
@@ -269,8 +257,6 @@ let tests =
                 | other -> failtestf "unexpected TAST for %%A: %A" other
             }
 
-            // ---- End-to-end (in-process) ----
-
             test "`printfn \"%s\"` prints the string" { runPrints "PHpString" "printfn \"%s\" \"world\"" "world" }
 
             test "multi-hole `printfn \"%d and %s\"` prints both in order" {
@@ -295,8 +281,6 @@ let tests =
             test "`sprintf` result feeds another printf" {
                 runPrints "PHpSprintf" "printfn \"%s\" (sprintf \"%d!\" 42)" "42!"
             }
-
-            // ---- P2 runtime parity (emitted output == in-process F# sprintf) ----
 
             test "`%x` prints lowercase hex" { runParity "PHpHex" "printfn \"%x\" 255" (sprintf "%x" 255) }
 
@@ -337,8 +321,6 @@ let tests =
                 runParity "PHpZeroHex" "printfn \"%08x\" 255" (sprintf "%08x" 255)
             }
 
-            // ---- A1: `%c` / `%M`, unblocked by the char / decimal const subset ----
-
             test "`%c` lowers to a Formatted char hole (no format string)" {
                 match soleDecl "printfn \"%c\" 'a'" with
                 | TDecl.Expression(TExpr.Format(_, segs, _), _) ->
@@ -373,8 +355,6 @@ let tests =
                 | other -> failtestf "unexpected TAST for %%.2M: %A" other
             }
 
-            // ---- A1 runtime parity (emitted output == in-process F# sprintf) ----
-
             test "`%c` prints the char" { runParity "PHpChar" "printfn \"%c\" 'a'" (sprintf "%c" 'a') }
 
             test "`%c` prints a punctuation char" { runParity "PHpCharP" "printfn \"%c\" '*'" (sprintf "%c" '*') }
@@ -395,8 +375,6 @@ let tests =
                 runParity "PHpDecS" "printfn \"%M\" 1.50M" (sprintf "%M" 1.50M)
             }
 
-            // ---- A1 const subset round-trips through a local slot (typing + binding) ----
-
             test "a char literal binds to a local and reloads" {
                 runParity "PHpCharLet" "let c = 'Q'\nprintfn \"%c\" c" (sprintf "%c" 'Q')
             }
@@ -404,8 +382,6 @@ let tests =
             test "a decimal literal binds to a local and reloads" {
                 runParity "PHpDecLet" "let d = 1.5M\nprintfn \"%M\" d" (sprintf "%M" 1.5M)
             }
-
-            // ---- B1: `+` / space forced-sign flags via a section format string ----
 
             test "`%+d` (forced sign) lowers to a Formatted hole with a section format" {
                 match soleDecl "printfn \"%+d\" 42" with
@@ -451,8 +427,6 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            // ---- B1 runtime parity (emitted output == in-process F# sprintf) ----
-
             test "`%+d` prints a forced + on a positive int" {
                 runParity "PHpPlusD" "printfn \"%+d\" 42" (sprintf "%+d" 42)
             }
@@ -475,17 +449,13 @@ let tests =
                 runParity "PHpPlusF" "printfn \"%+.2f\" 3.14159" (sprintf "%+.2f" 3.14159)
             }
 
-            // The negative *section* (`-0.00`) is runtime-proven by the negative
-            // `%+d`/`% d` cases above (same section-format mechanism); a negative
-            // *float* can't be produced here (float arithmetic / unary negation
-            // aren't in the codegen subset), so the float `-` section is covered
-            // by the shape test's `"+0.00;-0.00"` format string rather than a run.
+            // A negative *float* can't be produced in the codegen subset (no float
+            // arithmetic / unary negation), so the float `-` section is covered only
+            // by the shape test's `"+0.00;-0.00"` assertion, not a run.
 
             test "`%+8.2f` composes the forced sign with width-as-alignment" {
                 runParity "PHpPlusFAlign" "printfn \"%+8.2f\" 3.14159" (sprintf "%+8.2f" 3.14159)
             }
-
-            // ---- B2: `0`-on-float via the ZeroPaddedFloat handler member ----
 
             test "`%08.2f` lowers to a ZeroPaddedFloat hole (format body + width)" {
                 match soleDecl "printfn \"%08.2f\" 3.14159" with
@@ -512,12 +482,10 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            // ---- B2 runtime parity (emitted output == in-process F# sprintf) ----
-            // A negative *float* can't be produced in the codegen subset (no float
-            // arithmetic / unary negation), so the sign-then-zeros placement (F#
-            // `%08.2f` of `-3.14159` is `"-0003.14"`) is exercised only by the C#
-            // handler's logic; the runs below cover positive / zero / wider-than-
-            // field cases.
+            // A negative *float* can't be produced in the codegen subset, so the
+            // sign-then-zeros placement (F# `%08.2f` of `-3.14159` is `"-0003.14"`)
+            // is exercised only by the C# handler; the runs below cover positive /
+            // zero / wider-than-field cases.
 
             test "`%08.2f` zero-pads a positive float to width 8" {
                 runParity "PHpZFloat" "printfn \"%08.2f\" 3.14159" (sprintf "%08.2f" 3.14159)
@@ -538,8 +506,6 @@ let tests =
             test "`%02.2f` leaves a body wider than the field untouched" {
                 runParity "PHpZFloatN" "printfn \"%02.2f\" 3.14159" (sprintf "%02.2f" 3.14159)
             }
-
-            // ---- E: `$"..."` interpolation lowers to the same Format node (D9) ----
 
             test "`$\"x={1}\"` lowers to a ToString Format node" {
                 match soleDecl "$\"x={1}\"" with
@@ -580,8 +546,6 @@ let tests =
                 | TDecl.Expression(TExpr.Const(TConstValue.String "hello", _), _) -> ()
                 | other -> failtestf "a plain string must not become a Format node: %A" other
             }
-
-            // ---- E runtime parity (emitted output == in-process F# interpolation) ----
 
             test "`$\"n={42}\"` prints the interpolated int" {
                 runParity "InterpInt" "printfn \"%s\" $\"n={42}\"" (sprintf "%s" $"n={42}")

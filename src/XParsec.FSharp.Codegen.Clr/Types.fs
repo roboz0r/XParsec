@@ -5,25 +5,21 @@ open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 
-// The fundamental types of the method-body DSL (LicenseToCIL's `Stack.fs` /
-// `Types.fs`): the phantom stack-depth markers, the mutable emission state
-// `Il`, and the `Op<'in,'out>` instruction alias. The opcode catalogue
-// (`module Cil`) and the `cil { }` CE build on these in `Cil.fs` /
-// `CilBuilder.fs`. See [codegen-clr-plan](../XParsec.FSharp.SemanticAnalysis/docs/codegen-clr-plan.md) §A.
+// The method-body DSL fundamentals: the phantom stack-depth markers, the
+// mutable emission state `Il`, and the `Op<'in,'out>` instruction alias.
 
-/// Phantom stack-depth markers (LicenseToCIL `Stack.fs`). `E S` is the empty
-/// stack, `E S S` one element, and so on. Always `null` at runtime — only the
-/// nesting, checked by the type system, is load-bearing.
+/// Phantom stack-depth markers. `E S` is the empty stack, `E S S` one element,
+/// and so on. Always `null` at runtime — only the nesting, checked by the type
+/// system, is load-bearing.
 [<AllowNullLiteral>]
 type E = class end
 
 [<AllowNullLiteral>]
 type S<'a> = class end
 
-/// Mutable emission state threaded through every op. Wraps the SRM
-/// `InstructionEncoder` (which itself holds the code + control-flow builders by
-/// reference, so copying the struct is free and writes land in the same
-/// buffers) and accumulates the peak stack depth.
+/// Wraps the SRM `InstructionEncoder` (which holds the code + control-flow
+/// builders by reference, so copying the struct is free and writes land in the
+/// same buffers) and accumulates the peak stack depth.
 type Il(encoder: InstructionEncoder) =
     let mutable depth = 0
     let mutable maxDepth = 0
@@ -31,58 +27,43 @@ type Il(encoder: InstructionEncoder) =
 
     member _.Encoder = encoder
 
-    /// Current logical stack depth.
     member _.Depth = depth
 
-    /// Peak stack depth seen so far — the `maxStack` for `AddMethodBody`.
+    /// The `maxStack` for `AddMethodBody`.
     member _.MaxStack = maxDepth
 
-    /// The declared locals in slot order — drives the local-variable
-    /// signature `buildBody` hands to `AddMethodBody`.
     member _.Locals = locals
 
-    /// Declare a fresh local of `ty`, returning its slot index for
-    /// `ldloc` / `stloc`.
     member _.DeclareLocal(ty: SemType) : int =
         let slot = locals.Count
         locals.Add ty
         slot
 
-    /// Apply a net stack-depth delta (e.g. `+1` for a load, `-1` for `pop`).
     member _.Adjust(delta: int) =
         depth <- depth + delta
 
         if depth > maxDepth then
             maxDepth <- depth
 
-    /// Restore the logical stack depth to a previously saved value. The depth
-    /// tracker follows IL linearly, but at a branch merge the two arms each
-    /// leave the same depth while the tracker has only counted one — so after
-    /// emitting one arm a caller resets the depth to the arms' shared base
-    /// before emitting the next. Never lowers `maxDepth` (it has already seen
-    /// the peak).
+    /// Restore the logical stack depth to a saved value. At a branch merge the
+    /// arms each leave the same depth while the linear tracker has counted only
+    /// one, so a caller resets to the arms' shared base before the next arm.
+    /// Never lowers `maxDepth` (it has already seen the peak).
     member _.SetDepth(d: int) = depth <- d
 
-/// `Op<'stackin,'stackout>` — an instruction (or sequence) that transforms the
-/// phantom stack state `'stackin` into `'stackout` while emitting into `Il`.
 type Op<'stackin, 'stackout> = S<'stackin> -> S<'stackout> -> Il -> unit
 
-/// The intrinsic-representation rekey (docs/selfhost-handoff.md G7). A Vesper
-/// primitive resolves to `TyConst name`; the backend keys the emitted IL type
-/// off the *representation string* `name` maps to (`"int"` → `"System.Int32"` →
-/// `i4`) rather than the Vesper name. The map flows from each file's
+/// The intrinsic-representation rekey: a Vesper primitive resolves to
+/// `TyConst name`, and the backend keys the emitted IL type off the
+/// *representation string* `name` maps to (`"int"` → `"System.Int32"` → `i4`)
+/// rather than the Vesper name. The map flows from each file's
 /// `type x = (# "..." #)` intrinsics (`TastFile.IntrinsicReprTypes`) overlaid on
 /// the built-in `defaults`, so a platform author retargets a primitive by
 /// editing one `.fs` line.
 module IntrinsicRepr =
 
-    /// Vesper primitive name → IL representation string, matching the
-    /// `(# "..." #)` intrinsics declared in `src/Vesper.Core/prim-types-min.fs`.
-    /// The front-end resolves these names to `TyConst name` directly (its
-    /// built-in primitive set), so a normal program's `TastFile.IntrinsicReprTypes`
-    /// is empty and these defaults supply the representation. `unit` is omitted:
-    /// the current backend still maps it to `FSharp.Core.Unit` (a name arm in
-    /// `encodeType`), not to its `prim-types-min` `System.ValueTuple` binding.
+    /// `unit` is omitted: the backend still maps it to `FSharp.Core.Unit` (a name
+    /// arm in `encodeType`), not to its `prim-types-min` `System.ValueTuple` binding.
     let defaults: Map<string, string> =
         Map
             [
@@ -96,15 +77,13 @@ module IntrinsicRepr =
                 "string", "System.String"
             ]
 
-    /// Overlay a file's intrinsic bindings on the defaults — a file entry
-    /// (`type int = (# "System.Int64" #)`) wins, so retargeting is one `.fs` edit.
+    /// A file entry wins over the defaults, so retargeting is one `.fs` edit.
     let merge (fileMap: Map<string, string>) : Map<string, string> =
         Map.fold (fun acc k v -> Map.add k v acc) defaults fileMap
 
-    /// Emit a representation string that maps to a value type needing no external
-    /// reference (every primitive except `System.Decimal`, whose `TypeRef` only
-    /// the provider holds). Returns `false` when `repr` isn't one of these — the
-    /// caller decides whether that's an error or has its own fallback.
+    /// Value types needing no external reference (every primitive except
+    /// `System.Decimal`, whose `TypeRef` only the provider holds). `false` when
+    /// `repr` isn't one of these — the caller decides whether that's an error.
     let tryEncodeValueType (te: SignatureTypeEncoder) (repr: string) : bool =
         match repr with
         | "System.Int32" ->

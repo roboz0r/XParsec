@@ -50,7 +50,6 @@ module CstWalk =
         walker.Visit env e
 
         match e with
-        // Leaves — no sub-Exprs
         | Expr.Const _
         | Expr.EmptyBlock _
         | Expr.LongIdentOrOp _
@@ -62,17 +61,15 @@ module CstWalk =
         | Expr.Ident _
         | Expr.SliceAll _ -> ()
 
-        // Interpolated strings ($"…{x}…") embed expressions in their hole parts;
-        // they share the enclosing scope (no new bindings). Plain strings have no
-        // hole parts, so this no-ops for them. NameResolution / Unification must
-        // see the hole exprs so an interpolated `{name}` resolves and types.
+        // Interpolated-string hole exprs share the enclosing scope (no new
+        // bindings). NameResolution / Unification must see them so an
+        // interpolated `{name}` resolves and types.
         | Expr.String(parts = parts) ->
             for part in parts do
                 match part with
                 | StringPart.Expr(expr = holeExpr) -> iterExpr walker env holeExpr
                 | _ -> ()
 
-        // Single-child wrappers
         | Expr.EnclosedBlock(expr = inner)
         | Expr.DotLookup(expr = inner)
         | Expr.TypeApp(expr = inner)
@@ -88,7 +85,6 @@ module CstWalk =
         | Expr.SliceFrom(expr = inner)
         | Expr.SliceTo(expr = inner) -> iterExpr walker env inner
 
-        // Multi-child
         | Expr.App(funcExpr = fn; argExprs = args) ->
             iterExpr walker env fn
 
@@ -136,7 +132,6 @@ module CstWalk =
             for x in args do
                 iterExpr walker env x
 
-        // Scope-introducing
         | Expr.Fun(argumentPats = argPats; expr = body) ->
             let bodyEnv = walker.EnterFun env argPats
             iterExpr walker bodyEnv body

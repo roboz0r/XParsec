@@ -18,7 +18,7 @@ let tests =
         "NameResolution"
         [
             test "let-in: body ident resolves to local binding" {
-                // "let x = 1 in x" — body `x` at offset 13, binding `x` at offset 4.
+                // body x at offset 13, binding x at offset 4.
                 let ctx = analyse "let x = 1 in x"
                 let bodyKey = NodeKey.ofSource 13 NodeKind.ExprIdent
                 let bindingKey = NodeKey.ofSource 4 NodeKind.PatIdent
@@ -29,8 +29,7 @@ let tests =
             }
 
             test "lambda parameter is in scope for body" {
-                // "let id = fun x -> x" — lambda body `x` resolves to param `x`.
-                // Parameter `x` is at offset 13, body `x` at offset 18.
+                // param x at offset 13, body x at offset 18.
                 let ctx = analyse "let id = fun x -> x"
                 let bodyKey = NodeKey.ofSource 18 NodeKind.ExprIdent
                 let paramKey = NodeKey.ofSource 13 NodeKind.PatIdent
@@ -41,8 +40,7 @@ let tests =
             }
 
             test "function-form let: argument is in scope for body" {
-                // "let f x = x" — body `x` resolves to arg pattern `x`.
-                // Arg `x` at offset 6, body `x` at offset 10.
+                // arg x at offset 6, body x at offset 10.
                 let ctx = analyse "let f x = x"
                 let bodyKey = NodeKey.ofSource 10 NodeKind.ExprIdent
                 let argKey = NodeKey.ofSource 6 NodeKind.PatIdent
@@ -53,8 +51,7 @@ let tests =
             }
 
             test "shadowing: inner binding wins" {
-                // "let x = 1 in let x = 2 in x" — inner x at offset 17.
-                // The body uses the inner binding, not the outer.
+                // inner binding x at offset 17 (body uses it, not the outer).
                 let ctx = analyse "let x = 1 in let x = 2 in x"
                 let bodyKey = NodeKey.ofSource 26 NodeKind.ExprIdent
                 let innerBindingKey = NodeKey.ofSource 17 NodeKind.PatIdent
@@ -65,9 +62,8 @@ let tests =
             }
 
             test "module-level let visible to next module element" {
-                // "let x = 1\nlet y = x" — second let's RHS `x` resolves to first let's `x`.
                 let ctx = analyse "let x = 1\nlet y = x"
-                // After "let x = 1\n" (10 chars), "let y = " brings us to offset 18 for `x`.
+                // use x at 18: 10-char first line + "let y = ".
                 let useKey = NodeKey.ofSource 18 NodeKind.ExprIdent
                 let bindingKey = NodeKey.ofSource 4 NodeKind.PatIdent
 
@@ -87,8 +83,7 @@ let tests =
             }
 
             test "external symbol from provider does not emit diagnostic" {
-                // `true` is in MockBuiltins. It resolves through the provider,
-                // so no diagnostic — and no Binding entry (external).
+                // `true` resolves through the provider → no diagnostic, no Binding entry (external).
                 let ctx = analyse "let x = true"
                 let useKey = NodeKey.ofSource 8 NodeKind.ExprIdent
                 Expect.equal ctx.Diagnostics.Count 0 "no diagnostics for known external"
@@ -96,7 +91,7 @@ let tests =
             }
 
             test "let mutable: binding-site IsMutable is true" {
-                // `let mutable n = 0` — pattern `n` at offset 12.
+                // pat n at offset 12.
                 let ctx = analyse "let mutable n = 0"
                 let bindingKey = NodeKey.ofSource 12 NodeKind.PatIdent
 
@@ -115,7 +110,7 @@ let tests =
             }
 
             test "use of a mutable binding: use-site IsMutable mirrors binding" {
-                // `let mutable n = 0 in n` — use `n` at offset 21.
+                // use n at offset 21.
                 let ctx = analyse "let mutable n = 0 in n"
                 let useKey = NodeKey.ofSource 21 NodeKind.ExprIdent
 
@@ -167,8 +162,6 @@ let tests =
                 | false, _ -> failtest "record type P not registered"
             }
 
-            // ---- Discriminated unions ----
-
             test "union type definition registers in ctx.UnionTypes" {
                 let ctx =
                     analyse "type S =\n    | Circle of float\n    | Rectangle of float * float\n    | Point"
@@ -210,13 +203,11 @@ let tests =
             }
 
             test "nullary ctor in pattern binds nothing" {
-                // `match v with | Point -> ()` — `Point` is a known ctor,
-                // not a binder. The ident at offset 21 should NOT have a
-                // self-binding entry.
+                // `Point` is a known ctor, not a binder, so its pattern ident must
+                // have no self-binding entry.
                 let ctx = analyse "type S = | Point\nmatch 0 with | Point -> 0 | _ -> 0"
 
-                // The Point ident in the pattern is at... let me look up the offset
-                // Source: "type S = | Point\n" is 17 chars. "match 0 with | " is +15 → offset 32. So Point starts at 32.
+                // Point ident at 32: 17-char type decl + "match 0 with | ".
                 let patKey = NodeKey.ofSource 32 NodeKind.PatIdent
                 let hasBinding = ctx.Binding.ContainsKey patKey
                 Expect.isFalse hasBinding "Point pattern should not be a binding site"
@@ -230,8 +221,6 @@ let tests =
 
                 Expect.isFalse hasUnresolved "bare ctor name not flagged as unresolved"
             }
-
-            // ---- Generic type-parameter capture ----
 
             test "generic record registers single TypeParam" {
                 let ctx = analyse "type Box<'a> = { Value: 'a }"
@@ -306,8 +295,6 @@ let tests =
                 Expect.isTrue hasFree "implicit free typar diagnosed"
             }
 
-            // ---- Type abbreviations ----
-
             test "monomorphic abbreviation registers with no TypeParams" {
                 let ctx = analyse "type Name = string"
 
@@ -346,8 +333,6 @@ let tests =
 
                 Expect.isTrue hasDup "duplicate-type diagnostic emitted"
             }
-
-            // ---- Classes ----
 
             test "class type registers in ctx.ClassTypes with ctor params and members" {
                 let ctx = analyse "type C(x: int) =\n    member this.X = x"

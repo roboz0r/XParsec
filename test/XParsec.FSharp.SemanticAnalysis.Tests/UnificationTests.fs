@@ -24,21 +24,19 @@ let tests =
         "Unification"
         [
             test "integer literal types as int" {
-                // "let x = 1" — pattern x at offset 4, RHS literal at offset 8.
+                // pat x at offset 4.
                 let ctx = analyse "let x = 1"
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
                 Expect.equal (typeOf ctx patKey) MockBuiltins.tyInt "x : int"
             }
 
             test "infix `+` types as int -> int -> int -> int (mono operator)" {
-                // "let x = 1 + 2" — pat x's type should be int.
                 let ctx = analyse "let x = 1 + 2"
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
                 Expect.equal (typeOf ctx patKey) MockBuiltins.tyInt "x : int"
             }
 
             test "lambda body type propagates to function type" {
-                // "let f = fun x -> x + 1" — f : int -> int.
                 let ctx = analyse "let f = fun x -> x + 1"
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
                 let expected = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
@@ -46,7 +44,6 @@ let tests =
             }
 
             test "function-form let infers parameter type from body" {
-                // "let f x = x + 1" — f : int -> int.
                 let ctx = analyse "let f x = x + 1"
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
                 let expected = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
@@ -54,10 +51,8 @@ let tests =
             }
 
             test "application instantiates identity to argument type" {
-                // "let result = let id = fun x -> x in id 42" — wrap in a named
-                // binding so the let-in is unambiguously an expression (avoids the
-                // parser disambiguating into a different top-level shape). `result`
-                // pat is at offset 4.
+                // Wrap in a named binding so the let-in is unambiguously an
+                // expression (else the parser picks a different top-level shape).
                 let ctx = analyse "let result = let id = fun x -> x in id 42"
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
                 Expect.equal (typeOf ctx patKey) MockBuiltins.tyInt "result : int"
@@ -84,11 +79,8 @@ let tests =
                 Expect.equal (typeOf ctx patKey) MockBuiltins.tyInt "x : int"
             }
 
-            // ---- Records ----
-
             test "record literal infers record type from field set" {
-                // "type R = { X: int; Y: int }\nlet r = { X = 1; Y = 2 }"
-                //  Newline at 27, "let r = " puts pat r at offset 32.
+                // pat r at 32: 27-char type decl + "let r = ".
                 let ctx = analyse "type R = { X: int; Y: int }\nlet r = { X = 1; Y = 2 }"
 
                 let patKey = NodeKey.ofSource 32 NodeKind.PatIdent
@@ -128,7 +120,7 @@ let tests =
             }
 
             test "field access on free TyVar pinned by use" {
-                // `let f r = r.X in let _ = f { X = 1 }` — the call pins r to R.
+                // The use `f { X = 1 }` pins r to R.
                 let ctx = analyse "type R = { X: int }\nlet f r = r.X\nlet u = f { X = 1 }"
 
                 let fatigueFree =
@@ -139,13 +131,10 @@ let tests =
             }
 
             test "record clone types as source record" {
-                // type R = { X: int; Y: int }
-                // let p = { X = 1; Y = 2 }
-                // let q = { p with Y = 5 }
                 let ctx =
                     analyse "type R = { X: int; Y: int }\nlet p = { X = 1; Y = 2 }\nlet q = { p with Y = 5 }"
 
-                // p : R at offset 32, q : R at offset 57.
+                // q pat at offset 57.
                 let qKey = NodeKey.ofSource 57 NodeKind.PatIdent
                 Expect.equal (typeOf ctx qKey) (TyRecord("R", [])) "q : R"
 
@@ -161,11 +150,8 @@ let tests =
                 Expect.isTrue hasNoField "unknown-field diagnostic emitted"
             }
 
-            // ---- Discriminated unions ----
-
             test "nullary ctor reference types as the union" {
-                // "type S = | Point\nlet p = Point"
-                //  Newline at 16, "let p = " puts pat p at offset 21.
+                // pat p at 21: 16-char type decl + "let p = ".
                 let ctx = analyse "type S = | Point\nlet p = Point"
 
                 let patKey = NodeKey.ofSource 21 NodeKind.PatIdent
@@ -174,8 +160,7 @@ let tests =
             }
 
             test "single-arg ctor application types as the union" {
-                // "type S = | Circle of float\nlet c = Circle 1.0"
-                //  Newline at 26, "let c = " puts pat c at offset 31.
+                // pat c at 31: 26-char type decl + "let c = ".
                 let ctx = analyse "type S = | Circle of float\nlet c = Circle 1.0"
 
                 let patKey = NodeKey.ofSource 31 NodeKind.PatIdent
@@ -184,8 +169,7 @@ let tests =
             }
 
             test "multi-arg ctor application takes a tuple" {
-                // "type S = | Rect of float * float\nlet r = Rect(2.0, 3.0)"
-                //  Newline at 32, "let r = " puts pat r at offset 37.
+                // pat r at 37: 32-char type decl + "let r = ".
                 let ctx = analyse "type S = | Rect of float * float\nlet r = Rect(2.0, 3.0)"
 
                 let patKey = NodeKey.ofSource 37 NodeKind.PatIdent
@@ -194,8 +178,7 @@ let tests =
             }
 
             test "ctor used as a value types as a function" {
-                // "type S = | Circle of float\nlet f = Circle"
-                //  Newline at 26, "let f = " puts pat f at offset 31.
+                // pat f at 31: 26-char type decl + "let f = ".
                 let ctx = analyse "type S = | Circle of float\nlet f = Circle"
 
                 let patKey = NodeKey.ofSource 31 NodeKind.PatIdent
@@ -204,13 +187,12 @@ let tests =
             }
 
             test "ctor pattern unifies scrutinee with TyUnion" {
-                // "type S = | Circle of float\nlet area s = match s with | Circle r -> r"
-                //  Receiver `s` is the function parameter; via the `Circle r` arm,
-                //  scrutinee unifies with TyUnion("S", []). `area` has type `S -> float`.
+                // Via the `Circle r` arm the scrutinee unifies with TyUnion("S", []),
+                // so `area : S -> float`.
                 let ctx =
                     analyse "type S = | Circle of float\nlet area s = match s with | Circle r -> r"
 
-                // "type S = | Circle of float\n" is 27 chars. "let area s = " puts area pat at 31 and s param at 36.
+                // area pat at 31 (27-char type decl + "let "), s param at 36.
                 let areaKey = NodeKey.ofSource 31 NodeKind.PatIdent
                 let expected = TyFun(TyUnion("S", []), MockBuiltins.tyFloat)
                 Expect.equal (typeOf ctx areaKey) expected "area : S -> float"
@@ -236,12 +218,9 @@ let tests =
                 Expect.equal (typeOf ctx patKey) (TyUnion("R2", [])) "x : R2"
             }
 
-            // ---- Generics ----
-
             test "generic record literal pins typar to int" {
-                // `let b = { Value = 1 }` against `type Box<'a> = { Value: 'a }`
                 let ctx = analyse "type Box<'a> = { Value: 'a }\nlet b = { Value = 1 }"
-                // "type Box<'a> = { Value: 'a }\n" is 29 chars. "let b = " puts pat at 33.
+                // pat at 33: 29-char type decl + "let b = ".
                 let patKey = NodeKey.ofSource 33 NodeKind.PatIdent
                 Expect.equal (typeOf ctx patKey) (TyRecord("Box", [ MockBuiltins.tyInt ])) "b : Box<int>"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
@@ -268,9 +247,8 @@ let tests =
             }
 
             test "generic ctor pins typar to int" {
-                // `Some 1` against `type Option<'a> = | Some of 'a | None`
                 let ctx = analyse "type Option<'a> = | Some of 'a | None\nlet s = Some 1"
-                // "type Option<'a> = | Some of 'a | None\n" is 38 chars. pat at 42.
+                // pat at 42: 38-char type decl + "let ".
                 let patKey = NodeKey.ofSource 42 NodeKind.PatIdent
                 Expect.equal (typeOf ctx patKey) (TyUnion("Option", [ MockBuiltins.tyInt ])) "s : Option<int>"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
@@ -288,7 +266,6 @@ let tests =
             }
 
             test "two parameter typars share 'a identity" {
-                // `let pair (x: 'a) (y: 'a) = x, y` — pair : 'a -> 'a -> ('a * 'a)
                 // Use site `pair 1 "hello"` triggers a mismatch (int vs string for 'a).
                 let ctx =
                     analyse "let pair (x: 'a) (y: 'a) : 'a * 'a = x, y\nlet _ = pair 1 \"hello\""
@@ -318,9 +295,8 @@ let tests =
             }
 
             test "field access on generic record substitutes typar" {
-                // `let f (b : Box<int>) = b.Value` — f : Box<int> -> int
                 let ctx = analyse "type Box<'a> = { Value: 'a }\nlet f (b : Box<int>) = b.Value"
-                // Pat f at offset 33.
+                // pat f at offset 33.
                 let patKey = NodeKey.ofSource 33 NodeKind.PatIdent
                 let expected = TyFun(TyRecord("Box", [ MockBuiltins.tyInt ]), MockBuiltins.tyInt)
                 Expect.equal (typeOf ctx patKey) expected "f : Box<int> -> int"
@@ -328,7 +304,6 @@ let tests =
             }
 
             test "two record literals of same generic type use independent typars" {
-                // `let x : Box<int> = { Value = 1 }; let y : Box<string> = { Value = "s" }`
                 // No mismatch — independent instantiations.
                 let ctx =
                     analyse
@@ -337,11 +312,8 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics across independent uses"
             }
 
-            // ---- Type abbreviations ----
-
             test "monomorphic abbreviation transparently unifies" {
-                // "type Name = string\nlet n : Name = \"x\""
-                // After "type Name = string\n" (19 chars), "let " puts pat n at offset 23.
+                // pat n at 23: 19-char type decl + "let ".
                 let ctx = analyse "type Name = string\nlet n : Name = \"x\""
                 let patKey = NodeKey.ofSource 23 NodeKind.PatIdent
                 Expect.equal (typeOf ctx patKey) MockBuiltins.tyString "n : string"
@@ -349,9 +321,8 @@ let tests =
             }
 
             test "generic abbreviation expands" {
-                // "type Pair<'a> = 'a * 'a\nlet p : Pair<int> = (1, 2)"
                 let ctx = analyse "type Pair<'a> = 'a * 'a\nlet p : Pair<int> = (1, 2)"
-                // "type Pair<'a> = 'a * 'a\n" is 24 chars. "let p = " offset 28.
+                // pat p at 28: 24-char type decl + "let ".
                 let patKey = NodeKey.ofSource 28 NodeKind.PatIdent
                 let expected = TyTuple [ MockBuiltins.tyInt; MockBuiltins.tyInt ]
                 Expect.equal (typeOf ctx patKey) expected "p : int * int"
@@ -359,9 +330,8 @@ let tests =
             }
 
             test "chained abbreviation expands transitively" {
-                // "type A = B\ntype B = int\nlet x : A = 1"
                 let ctx = analyse "type A = B\ntype B = int\nlet x : A = 1"
-                // "type A = B\n" is 11, "type B = int\n" is 13, total 24. "let " puts pat x at 28.
+                // pat x at 28: 11 + 13 char type decls + "let ".
                 let patKey = NodeKey.ofSource 28 NodeKind.PatIdent
                 Expect.equal (typeOf ctx patKey) MockBuiltins.tyInt "x : int"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
@@ -371,8 +341,7 @@ let tests =
                 // Pair declared after its first use as IntPair.
                 let ctx =
                     analyse "type IntPair = Pair<int>\ntype Pair<'a> = 'a * 'a\nlet p : IntPair = (1, 2)"
-                // "type IntPair = Pair<int>\n" is 25, "type Pair<'a> = 'a * 'a\n" is 24, total 49.
-                // "let " puts pat p at offset 53.
+                // pat p at 53: 25 + 24 char type decls + "let ".
                 let patKey = NodeKey.ofSource 53 NodeKind.PatIdent
                 let expected = TyTuple [ MockBuiltins.tyInt; MockBuiltins.tyInt ]
                 Expect.equal (typeOf ctx patKey) expected "p : int * int"
@@ -399,7 +368,7 @@ let tests =
 
             test "abbreviation to function type" {
                 let ctx = analyse "type Endo<'a> = 'a -> 'a\nlet inc : Endo<int> = fun x -> x + 1"
-                // "type Endo<'a> = 'a -> 'a\n" is 25 chars. "let " puts pat inc at offset 29.
+                // pat inc at 29: 25-char type decl + "let ".
                 let patKey = NodeKey.ofSource 29 NodeKind.PatIdent
                 let expected = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
                 Expect.equal (typeOf ctx patKey) expected "inc : int -> int"
@@ -409,8 +378,7 @@ let tests =
             test "abbreviation referencing a record" {
                 let ctx =
                     analyse "type Box<'a> = { Value: 'a }\ntype IntBox = Box<int>\nlet b : IntBox = { Value = 1 }"
-                // "type Box<'a> = { Value: 'a }\n" is 29, "type IntBox = Box<int>\n" is 23. Total 52.
-                // "let " puts pat b at offset 56.
+                // pat b at 56: 29 + 23 char type decls + "let ".
                 let patKey = NodeKey.ofSource 56 NodeKind.PatIdent
                 Expect.equal (typeOf ctx patKey) (TyRecord("Box", [ MockBuiltins.tyInt ])) "b : Box<int>"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
@@ -419,8 +387,7 @@ let tests =
             test "abbreviation inside a record field type" {
                 let ctx =
                     analyse "type IntPair = int * int\ntype R = { Pair: IntPair }\nlet r = { Pair = (1, 2) }"
-                // "type IntPair = int * int\n" is 25, "type R = { Pair: IntPair }\n" is 27. Total 52.
-                // "let " puts pat r at offset 56.
+                // pat r at 56: 25 + 27 char type decls + "let ".
                 let patKey = NodeKey.ofSource 56 NodeKind.PatIdent
                 Expect.equal (typeOf ctx patKey) (TyRecord("R", [])) "r : R"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
@@ -436,14 +403,10 @@ let tests =
                 Expect.isTrue hasFree "implicit free typar diagnosed"
             }
 
-            // ---- Classes ----
-
             test "construct via new" {
                 let ctx =
                     analyse "type Point(x: int, y: int) =\n    member this.X = x\nlet p = new Point(3, 4)"
-                // "type Point(x: int, y: int) =\n" is 29 chars,
-                // "    member this.X = x\n" is 22 chars. Total 51.
-                // "let " puts pat p at offset 55.
+                // pat p at 55: 29 + 22 char decl lines + "let ".
                 let patKey = NodeKey.ofSource 55 NodeKind.PatIdent
                 Expect.equal (typeOf ctx patKey) (TyClass("Point", [])) "p : TyClass Point"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
@@ -471,9 +434,7 @@ let tests =
             test "property read pins receiver via annotation" {
                 let ctx =
                     analyse "type Point(x: int, y: int) =\n    member this.X = x\nlet f (p : Point) = p.X"
-                // "type Point(x: int, y: int) =\n" is 29 chars,
-                // "    member this.X = x\n" is 22. Total 51.
-                // "let " puts pat f at offset 55.
+                // pat f at 55: 29 + 22 char decl lines + "let ".
                 let patKey = NodeKey.ofSource 55 NodeKind.PatIdent
                 let expected = TyFun(TyClass("Point", []), MockBuiltins.tyInt)
                 Expect.equal (typeOf ctx patKey) expected "f : Point -> int"
@@ -484,9 +445,7 @@ let tests =
                 let ctx =
                     analyse
                         "type Point(x: int, y: int) =\n    member this.Magnitude () = x * x + y * y\nlet m (p : Point) = p.Magnitude()"
-                // "type Point(x: int, y: int) =\n" is 29,
-                // "    member this.Magnitude () = x * x + y * y\n" is 45. Total 74.
-                // "let " puts pat m at offset 78.
+                // pat m at 78: 29 + 45 char decl lines + "let ".
                 let patKey = NodeKey.ofSource 78 NodeKind.PatIdent
                 let expected = TyFun(TyClass("Point", []), MockBuiltins.tyInt)
                 Expect.equal (typeOf ctx patKey) expected "m : Point -> int"
@@ -503,9 +462,7 @@ let tests =
             test "generic class instantiation" {
                 let ctx =
                     analyse "type Box<'a>(value: 'a) =\n    member this.Value = value\nlet b = Box(1)"
-                // "type Box<'a>(value: 'a) =\n" is 26 chars,
-                // "    member this.Value = value\n" is 30. Total 56.
-                // "let " puts pat b at offset 60.
+                // pat b at 60: 26 + 30 char decl lines + "let ".
                 let patKey = NodeKey.ofSource 60 NodeKind.PatIdent
                 Expect.equal (typeOf ctx patKey) (TyClass("Box", [ MockBuiltins.tyInt ])) "b : Box<int>"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
@@ -535,12 +492,9 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
-            // ---- Static members ----
-
             test "static property read via class name" {
                 let ctx = analyse "type C() =\n    static member Origin = (0, 0)\nlet o = C.Origin"
-                // "type C() =\n" is 11, "    static member Origin = (0, 0)\n" is 34. Total 45.
-                // "let " puts pat o at offset 49.
+                // pat o at 49: 11 + 34 char decl lines + "let ".
                 let patKey = NodeKey.ofSource 49 NodeKind.PatIdent
                 let expected = TyTuple [ MockBuiltins.tyInt; MockBuiltins.tyInt ]
                 Expect.equal (typeOf ctx patKey) expected "o : int * int"
@@ -556,8 +510,7 @@ let tests =
             }
 
             test "static member on receiver instance diagnoses" {
-                // F# spec: static members are accessed via the type name.
-                // Accessing through an instance should diagnose.
+                // F# spec: static members are accessed via the type name, not an instance.
                 let ctx =
                     analyse "type C() =\n    static member M () = 1\nlet c = new C()\nlet r = c.M()"
 

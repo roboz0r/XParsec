@@ -27,8 +27,6 @@ let tests =
     testList
         "Coverage"
         [
-            // ---- Pipe operators ----
-
             test "`x |> f` types as the result of applying f to x" {
                 let tast = analyse "let f x = x + 1\nlet r = 1 |> f"
 
@@ -71,7 +69,7 @@ let tests =
             }
 
             test "pipe shape mismatch emits diagnostic" {
-                // `1 |> 2` — right-hand side must be a function.
+                // RHS of |> must be a function.
                 let tast = analyse "let r = 1 |> 2"
 
                 let hasMismatch =
@@ -80,10 +78,7 @@ let tests =
                 Expect.isTrue hasMismatch "pipe of int |> int triggers mismatch"
             }
 
-            // ---- Compose operators ----
-
             test "`f >> g` types as 'a -> 'c" {
-                // f : int -> int, g : int -> int, so f >> g : int -> int.
                 let tast = analyse "let f x = x + 1\nlet g x = x * 2\nlet h = f >> g"
 
                 let hDecl =
@@ -116,7 +111,7 @@ let tests =
             }
 
             test "compose with mismatched arms emits diagnostic" {
-                // f : int -> int, g : bool -> int — middle types don't agree.
+                // Middle types disagree (int result vs bool arg).
                 let tast = analyse "let f x = x + 1\nlet g (b: bool) = 0\nlet h = f >> g"
 
                 let hasMismatch =
@@ -124,8 +119,6 @@ let tests =
 
                 Expect.isTrue hasMismatch "incompatible arms trigger mismatch"
             }
-
-            // ---- TryWith / TryFinally ----
 
             test "`try body with | _ -> body2` types as body's type" {
                 let tast = analyse "let r = try 1 with | _ -> 2"
@@ -169,19 +162,16 @@ let tests =
                 Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = try 1 finally ()" "try-finally shape"
             }
 
-            // ---- Assignment ----
-
             test "`x <- y` types as unit" {
-                // Assignment expression itself types as unit. The LHS must be
-                // a mutable binding (otherwise Validation flags it — see
-                // ValidationTests).
+                // The LHS must be a mutable binding (otherwise Validation flags it —
+                // see ValidationTests).
                 let tast = analyse "let r = let mutable x = 0 in x <- 1"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
                 Expect.equal (declType tast) MockBuiltins.tyUnit "r : unit"
             }
 
             test "assignment unifies left and right" {
-                // x is int (constrained by + 0); RHS is bool — should mismatch.
+                // x is int (constrained by + 0); RHS is bool → mismatch.
                 let tast = analyse "let f x = x + 0; x <- true"
 
                 let hasMismatch =
@@ -195,8 +185,6 @@ let tests =
 
                 Expect.stringContains (TastShape.prettyDecl tast.Decls.[0]) "<-" "renders <-"
             }
-
-            // ---- Pat.Typed ----
 
             test "typed pattern annotates parameter type" {
                 let tast = analyse "let f (x: int) = x"
@@ -223,8 +211,6 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // ---- Pat.Or ----
-
             test "or-pattern with literal alternatives" {
                 let tast = analyse "let f x = match x with | 0 | 1 -> true | _ -> false"
                 let intToBool = TyFun(MockBuiltins.tyInt, MockBuiltins.tyBool)
@@ -233,7 +219,7 @@ let tests =
             }
 
             test "or-pattern with incompatible alternatives is diagnosed" {
-                // `0 | true` — int vs bool patterns can't unify.
+                // int vs bool patterns can't unify.
                 let tast = analyse "let f x = match x with | 0 | true -> 1 | _ -> 2"
 
                 let hasMismatch =
@@ -241,8 +227,6 @@ let tests =
 
                 Expect.isTrue hasMismatch "or-pattern type mismatch reported"
             }
-
-            // ---- Multi-segment qualified names ----
 
             test "unknown qualified name still emits diagnostic" {
                 let tast = analyse "let r = Foo.bar"
@@ -253,8 +237,6 @@ let tests =
 
                 Expect.isTrue hasUnresolved "qualified diagnostic emitted"
             }
-
-            // ---- HighPrecedenceApp ----
 
             test "high-precedence app `f(x)` types like `f x`" {
                 let tast = analyse "let f x = x + 1\nlet r = f(3)"
@@ -290,8 +272,6 @@ let tests =
 
                 Expect.isTrue hasMismatch "applying an int triggers mismatch"
             }
-
-            // ---- Range / SteppedRange ----
 
             test "`1..10` types as seq<int>" {
                 let tast = analyse "let r = 1..10"
@@ -344,8 +324,6 @@ let tests =
                 Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = (1..2..10)" "stepped range shape"
             }
 
-            // ---- ForIn over ranges ----
-
             test "`for i in 1..10 do ()` types as unit with no diagnostic" {
                 let tast = analyse "let r = for i in 1..10 do ()"
                 Expect.equal (declType tast) MockBuiltins.tyUnit "r : unit"
@@ -373,8 +351,6 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "parens around range don't disable the special case"
             }
 
-            // ---- Null ----
-
             test "`null` types as a free TypeVar" {
                 let tast = analyse "let n = null"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -388,8 +364,6 @@ let tests =
                 let tast = analyse "let n = null"
                 Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = null" "null shape"
             }
-
-            // ---- Pat.EmptyBlock ----
 
             test "`let () = ()` types and translates" {
                 let tast = analyse "let () = ()"
@@ -429,8 +403,6 @@ let tests =
                             _) -> ()
                 | other -> failtestf "unexpected: %A" other
             }
-
-            // ---- Records ----
 
             test "record literal TAST shape" {
                 let tast = analyse "type R = { X: int; Y: int }\nlet r = { X = 1; Y = 2 }"
@@ -500,8 +472,6 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // ---- Discriminated unions ----
-
             test "nullary ctor TAST shape" {
                 let tast = analyse "type S = | Point\nlet p = Point"
 
@@ -555,8 +525,6 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // ---- Generics ----
-
             test "generic record literal carries arg-bearing type" {
                 let tast = analyse "type Box<'a> = { Value: 'a }\nlet b = { Value = 1 }"
                 Expect.equal (declType tast) (TyRecord("Box", [ MockBuiltins.tyInt ])) "b : Box<int>"
@@ -577,8 +545,6 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // ---- Type abbreviations ----
-
             test "TAST: monomorphic abbreviation erases to underlying type" {
                 let tast = analyse "type Name = string\nlet n : Name = \"x\""
                 Expect.equal (declType tast) MockBuiltins.tyString "declType is string"
@@ -591,8 +557,6 @@ let tests =
                 Expect.equal (declType tast) expected "declType is int * int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
-
-            // ---- Classes ----
 
             test "TAST: `new Point(3, 4)` shapes as TExpr.New" {
                 let tast =
@@ -661,8 +625,6 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // ---- Static members ----
-
             test "TAST: `C.Origin` shapes as StaticPropertyGet" {
                 let tast = analyse "type C() =\n    static member Origin = 42\nlet o = C.Origin"
 
@@ -702,7 +664,6 @@ let tests =
             }
 
             test "qualified name resolves through provider" {
-                // Build a custom provider that knows `Math.pi`.
                 let provider: IExternalSymbolProvider =
                     { new IExternalSymbolProvider with
                         member _.TryLookup name =

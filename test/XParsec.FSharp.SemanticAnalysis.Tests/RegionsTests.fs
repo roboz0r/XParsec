@@ -89,7 +89,7 @@ let tests =
 
                 let fEscape =
                     let ctx, file = analyse input
-                    // Find `f` inside useLocal's body — walk the CST.
+
                     let rec findInExpr e =
                         match e with
                         | Expr.LetOrUse(bindings = bs; body = body) ->
@@ -174,7 +174,6 @@ let tests =
 
                 Expect.equal mkEscape (Some CallerStack) "mk returns nested closures → CallerStack"
 
-                // Look up x (mk's parameter) and check its escape state.
                 let xKey =
                     let elems =
                         match file with
@@ -423,7 +422,6 @@ let tests =
                 let input = "let mkCounter () = let mutable n = 0 in fun () -> n"
                 let ctx, file = analyse input
 
-                // Find n's binding key by walking mkCounter's body.
                 let nKey =
                     let elems =
                         match file with

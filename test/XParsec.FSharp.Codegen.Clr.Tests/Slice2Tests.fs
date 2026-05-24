@@ -5,16 +5,6 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Thin-slice #2:
-//
-//   let x = 1 + 2
-//   printfn "%d" x
-//
-// Adds arithmetic intrinsics (`add`), local slots for top-level `let`s, and
-// the *consumption* half of the function-representation problem: `printfn "%d"`
-// hands back an `int -> unit` printer that the trailing argument is applied to
-// via `callvirt FSharpFunc\`2::Invoke`. Closure synthesis stays out of scope.
-
 [<Tests>]
 let tests =
     testList
@@ -40,8 +30,6 @@ let tests =
                               false,
                               _)
                     TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _), _) ] ->
-                    // `printfn "%d" x` now lowers to a single `%d` hole bound to
-                    // the let-bound `x`'s Var (vesper-printf-plan P1).
                     match EqArray.toList segs with
                     | [ FormatSeg.Hole(hole, TExpr.Var(kxUse, _)) ] ->
                         Expect.equal kxUse kx "the hole's `Var` references the let-bound NodeKey"

@@ -8,12 +8,7 @@ open XParsec.FSharp.SemanticAnalysis
 // Post: ctx.Desugared populated for every CST node whose semantics differ
 //       from its surface form.
 //
-// Annotation-only: NEVER rewrites the CST. Mints synthetic NodeKeys via
-// NodeKey.ofSynthetic and stores a DesugaredForm describing how to interpret
-// each construct.
-//
-// Recursion is delegated to CstWalk.iterExpr; this pass only supplies the
-// Visit hook. No scope state is needed.
+// Annotation-only: NEVER rewrites the CST.
 //
 // TODO — constructs that will need desugaring:
 //   - `x |> f`, `x ||> f y`             -> Application
@@ -26,8 +21,7 @@ open XParsec.FSharp.SemanticAnalysis
 
 module Desugar =
 
-    /// Maps an infix operator's Token enum value to its compiled name. Only
-    /// the supported subset is listed; extend as more operators come online.
+    /// Only the supported subset is listed; extend as more operators come online.
     let private infixOpName (t: Token) : string voption =
         match t with
         | Token.OpAddition -> ValueSome "op_Addition"
@@ -70,9 +64,7 @@ module Desugar =
 
     /// `[ … ]` / `[| … |]` literals share the same lowering target — the
     /// nested `Cons` / `Nil` chain, with arrays adding an `Array.ofList`
-    /// wrap at Freeze time. Both surface as `Expr.EnclosedBlock` (non-
-    /// empty) or `Expr.EmptyBlock` (empty); pick the right `DesugaredForm`
-    /// tag from the paren kind.
+    /// wrap at Freeze time.
     let private literalFormOfParen (pk: ParenKind<SyntaxToken>) : DesugaredForm voption =
         match pk with
         | ParenKind.List _ -> ValueSome DesugaredForm.ListLiteral
@@ -114,11 +106,10 @@ module Desugar =
                 CstWalk.iterExpr walker () b.expr
         | ModuleElem.Expression e -> CstWalk.iterExpr walker () e
         | ModuleElem.Type defs ->
-            // Recurse into class / anon-class member bodies and union
-            // augmentation members (P3d.3) so the InfixApp / PrefixApp ops they
-            // contain pick up their compiled-name entries in `ctx.Desugared`.
-            // Without this, Unification's `inferInfix` falls through to a free
-            // TyVar and the member's body type doesn't pin to a concrete type.
+            // Recurse into member bodies (incl. union augmentation, P3d.3) so the
+            // ops they contain get compiled-name entries. Without this,
+            // Unification's `inferInfix` falls through to a free TyVar and the
+            // member's body type doesn't pin to a concrete type.
             let walkMemberElems (elems: TypeDefnElement<SyntaxToken> seq) =
                 for el in elems do
                     match el with

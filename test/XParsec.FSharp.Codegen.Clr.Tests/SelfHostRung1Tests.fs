@@ -7,15 +7,12 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // Self-hosting rung 1 (docs/self-host-rung1-plan.md): compile the real
-// `src/Vesper.Core/prim-types-min.fs` with our own backend into a *library* —
-// `Vesper.Core.dll` — that emits the `Fun<'A,'B>` interface and references no
-// `FSharp.Core`. The intrinsic abbrevs (`type int = (# "System.Int32" #)` …)
-// surface nothing (their effect is the Part-A registry); the only emitted type
-// is the interface. This is the first time the backend emits a declared nominal
-// type and produces an entry-point-free assembly.
+// `src/Vesper.Core/prim-types-min.fs` into a `Vesper.Core.dll` library that
+// emits the `Fun<'A,'B>` interface and references no `FSharp.Core`. The
+// intrinsic abbrevs (`type int = (# "System.Int32" #)` …) surface nothing —
+// their effect is the Part-A registry — so the only emitted type is the interface.
 
-/// `src/Vesper.Core/<fileName>`, relative to this test file (mirrors the
-/// VesperCoreContractTests / parser-golden resolution).
+/// `src/Vesper.Core/<fileName>`, relative to this test file.
 let private vesperCorePath (fileName: string) =
     Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", "Vesper.Core", fileName)
 
@@ -29,12 +26,8 @@ let tests =
                 let project = ProjectInfo.library "Vesper.Core"
                 let artifact = compileSourceTo project src
 
-                // The library path is provider-free; a typar-only interface pins
-                // no FSharp.Core construct.
                 Expect.isEmpty artifact.FSharpCoreDependencies "the Fun interface references no FSharp.Core construct"
 
-                // Load the emitted PE and reflect over it (the conformance smoke
-                // test — the metadata round-trips to a real, loadable interface).
                 let asm = loadAssembly (Codegen.toBytes artifact)
 
                 let funTy = asm.GetType("Vesper.Fun`2")
@@ -52,14 +45,11 @@ let tests =
                 Expect.isTrue invoke.IsAbstract "Invoke is abstract"
                 Expect.isTrue invoke.IsVirtual "Invoke is virtual"
 
-                // `Invoke('A) : 'B` — the parameter is the type's first generic
-                // parameter, the return its second.
                 let ps = invoke.GetParameters()
                 Expect.equal ps.Length 1 "Invoke takes one argument"
                 Expect.equal ps.[0].ParameterType typars.[0] "the argument is 'A"
                 Expect.equal invoke.ReturnType typars.[1] "the return is 'B"
 
-                // No FSharp.Core (nor any other) dependency in the metadata.
                 let refs = asm.GetReferencedAssemblies() |> Array.map (fun a -> a.Name)
 
                 Expect.isFalse
@@ -67,15 +57,11 @@ let tests =
                     (sprintf "Vesper.Core.dll must not reference FSharp.Core (refs: %A)" refs)
             }
 
-            // G4 item 5 (docs/selfhost-handoff.md): an abstract method may declare
-            // its *own* generic parameters. The backend emits them as method-owned
-            // `GenericParam` rows and routes the signature's `'B` to a
-            // `GenericMethodParameter` (vs the type's `'A` ⇒ `GenericTypeParameter`).
-            // The rows must be globally sorted by `CodedIndex.TypeOrMethodDef` — the
-            // method's `'B` (a MethodDef owner) sorts *before* the type's `'A` (a
-            // later TypeDef owner), so a naive type-then-method emit would produce an
-            // unsorted table and SRM would reject it on serialize. A clean reflect
-            // here proves the ordering is right.
+            // G4 item 5 (docs/selfhost-handoff.md): an abstract method declaring its
+            // *own* generic parameters. `GenericParam` rows must be globally sorted
+            // by `CodedIndex.TypeOrMethodDef` — the method's `'B` (a MethodDef owner)
+            // sorts *before* the type's `'A` (a later TypeDef owner), so a naive
+            // type-then-method emit produces an unsorted table SRM rejects on serialize.
             test "compiles a generic interface method to a generic MethodDef with interleaved GenericParam rows" {
                 let src =
                     "namespace Vesper\n\ntype Mapper<'A> =\n    abstract member Map<'B> : arg: 'A -> 'B"
@@ -104,23 +90,17 @@ let tests =
                 Expect.equal methodArgs.Length 1 "Map has one method type parameter"
                 Expect.equal methodArgs.[0].Name "B" "the method type parameter is 'B"
 
-                // `Map('A) : 'B` — the parameter is the declaring type's 'A, the
-                // return the method's own 'B.
                 let ps = map.GetParameters()
                 Expect.equal ps.Length 1 "Map takes one argument"
                 Expect.equal ps.[0].ParameterType typeArgs.[0] "the argument is the type's 'A"
                 Expect.equal map.ReturnType methodArgs.[0] "the return is the method's 'B"
             }
 
-            // G7 (docs/selfhost-handoff.md): the backend keys a primitive's
-            // emitted IL type off its *representation string* — the value a
-            // `type x = (# "..." #)` intrinsic binds (carried on
-            // `TastFile.IntrinsicReprTypes`, overlaid on the built-in defaults) —
-            // not a hard-coded Vesper name. So a custom `type myint = (# … #)` in
-            // the source drives what `myint` emits as, and retargeting it is a
-            // one-line `.fs` edit. Compile the same interface twice with different
-            // bindings and watch the parameter / return type follow the string —
-            // the Part-A registry finally earning its keep.
+            // G7 (docs/selfhost-handoff.md): the backend keys a primitive's emitted
+            // IL type off its *representation string* — the value a `type x = (# "..." #)`
+            // intrinsic binds (on `TastFile.IntrinsicReprTypes`) — not a hard-coded
+            // Vesper name, so retargeting is a one-line `.fs` edit. Compiling the same
+            // interface twice with different bindings, the param/return type follows it.
             test "an interface method's custom intrinsic primitive is emitted from its representation string (G7)" {
                 let unwrapOf (asmSuffix: string) (repr: string) : System.Reflection.MethodInfo =
                     let src =
@@ -144,13 +124,10 @@ let tests =
                     Expect.isNotNull unwrap "IBox has an Unwrap method"
                     unwrap
 
-                // `myint = System.Int32` ⇒ the parameter and return emit as `int32`.
                 let asInt = unwrapOf "I32" "System.Int32"
                 Expect.equal (asInt.GetParameters().[0].ParameterType) typeof<int> "System.Int32 ⇒ int32 parameter"
                 Expect.equal asInt.ReturnType typeof<int> "System.Int32 ⇒ int32 return"
 
-                // Retarget the one `.fs` line to `System.Int64`: the emitted type
-                // follows the representation string, with no codegen change.
                 let asInt64 = unwrapOf "I64" "System.Int64"
 
                 Expect.equal
@@ -161,14 +138,10 @@ let tests =
                 Expect.equal asInt64.ReturnType typeof<int64> "retargeted to System.Int64 ⇒ int64 return"
             }
 
-            // The same rekey on the executable path (`ClrProvider.encodeType`): a
-            // program that declares its own intrinsic and uses it in a function
-            // value's type drives the synthesised closure's `Invoke` / local
-            // signatures off the representation string. Before G7, `encodeType`
-            // had no arm for a custom `TyConst "myint"` and would `failwith`; now
-            // the file's binding (overlaid on the defaults) resolves it. The
-            // closure is built but never invoked — the program just proves the
-            // signature encoded and the assembly runs.
+            // The same rekey on the executable path (`ClrProvider.encodeType`).
+            // Before G7, `encodeType` had no arm for a custom `TyConst "myint"` and
+            // would `failwith`. The closure is built but never invoked — the program
+            // only proves the signature encoded and the assembly runs.
             test "a program's custom intrinsic resolves through encodeType on the executable path (G7)" {
                 let src =
                     "type myint = (# \"System.Int32\" #)\nlet boxId : myint -> myint = fun x -> x\nprintfn \"ok\""
@@ -183,16 +156,12 @@ let tests =
                     "the custom-intrinsic-typed closure encoded via the repr rekey and the app ran"
             }
 
-            // G5 / P2 (docs/selfhost-handoff.md): the provider's refs are now
-            // `lazy` (G6), so `assembleLibrary` constructs a `ClrProvider` and
-            // reuses its `encodeType` instead of the old provider-free encoder.
-            // An abstract method may now reference a *concrete* type — here a
-            // nested function `('A -> 'B)` — that the provider-free path would
-            // `failwith` on. The typar leaves stay positional generic parameters
-            // (intercepted at every depth, not just the top decurried params); the
-            // function wrapper becomes an `FSharpFunc\`2`, which (correctly) pins
-            // FSharp.Core — now surfaced on the library path's dependency set,
-            // which was hard-coded empty before P2.
+            // G5 / P2 (docs/selfhost-handoff.md): `assembleLibrary` reuses a
+            // `ClrProvider`'s `encodeType`, so an abstract method may reference a
+            // *concrete* type — here a nested function `('A -> 'B)` — that the old
+            // provider-free path would `failwith` on. The function wrapper becomes
+            // an `FSharpFunc`2`, which correctly pins FSharp.Core, now surfaced on
+            // the library path's dependency set (hard-coded empty before P2).
             test "an interface method referencing a function type compiles via the provider (G5)" {
                 let src =
                     "namespace Vesper\n\ntype Applier<'A, 'B> =\n    abstract member Apply : f: ('A -> 'B) -> x: 'A -> 'B"
@@ -207,9 +176,8 @@ let tests =
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
 
-                // The lazy FSharp.Core ref was forced by the FSharpFunc encoding, so
-                // the metadata genuinely references FSharp.Core now (vs the typar-only
-                // Fun interface, which references nothing).
+                // The lazy FSharp.Core ref was forced by the FSharpFunc encoding (vs
+                // the typar-only Fun interface, which references nothing).
                 let refs = asm.GetReferencedAssemblies() |> Array.map (fun a -> a.Name)
                 Expect.contains refs "FSharp.Core" "the DLL references FSharp.Core (via FSharpFunc)"
 
@@ -223,8 +191,6 @@ let tests =
                 let apply = applierTy.GetMethod("Apply")
                 Expect.isNotNull apply "Applier`2 has an Apply method"
 
-                // `Apply(('A -> 'B), 'A) : 'B` — param0 is `FSharpFunc<'A,'B>`, param1
-                // the type's 'A, the return the type's 'B.
                 let ps = apply.GetParameters()
                 Expect.equal ps.Length 2 "Apply takes two arguments"
 

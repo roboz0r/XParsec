@@ -8,17 +8,13 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // Rung 2 of the self-hosting ladder (docs/self-host-rung2-plan.md): the backend
 // expression compiler — `if`/`then`/`else`, `match`, recursion, and our-own
-// union construction + deconstruction. Built incrementally against minimal
-// source the front-end already type-checks (P3a), proven in the executable path
-// before the library packaging (P3c).
+// union construction + deconstruction.
 
 [<Tests>]
 let tests =
     testList
         "Rung2"
         [
-            // ---- P3a.1: if/then/else ----
-
             test "`if true then 1 else 2` takes the then-branch (prints 1)" {
                 let _, artifact =
                     compileSource "Rung2IfTrue" "printfn \"%d\" (if true then 1 else 2)"
@@ -36,8 +32,6 @@ let tests =
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Trim()) "2" "else-branch value"
             }
-
-            // ---- P3a.2: match over literal / wildcard / named patterns ----
 
             test "`match` on an int literal arm hits the matching case" {
                 let _, artifact =
@@ -66,8 +60,6 @@ let tests =
                 Expect.equal (output.Trim()) "6" "the named arm bound 5 and computed 5 + 1"
             }
 
-            // ---- P3a.3: front-end surfaces a monomorphic union as TTypeKind.Union ----
-
             let unionSrc =
                 "type Lst =\n    | Nil\n    | Cons of int * Lst\nlet head =\n    match Cons(7, Nil) with\n    | Nil -> 0\n    | Cons(h, _) -> h\nprintfn \"%d\" head"
 
@@ -95,8 +87,6 @@ let tests =
                 | other -> failtestf "unexpected unions: %A" other
             }
 
-            // ---- P3a.4 + P3a.5: emit the union, construct it, match-deconstruct ----
-
             test "construct `Cons(7, Nil)` and read its head via match (prints 7)" {
                 let _, artifact = compileSource "Rung2UnionHead" unionSrc
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
@@ -114,8 +104,6 @@ let tests =
                 Expect.equal (output.Trim()) "0" "the Nil arm matched on a constructed Nil"
             }
 
-            // ---- P3a.6: recursion (a recursive function over the union) ----
-
             let recSrc =
                 "type Lst =\n    | Nil\n    | Cons of int * Lst\nlet rec sumList xs =\n    match xs with\n    | Nil -> 0\n    | Cons(h, t) -> h + sumList t\nprintfn \"%d\" (sumList (Cons(1, Cons(2, Cons(3, Nil)))))"
 
@@ -123,7 +111,6 @@ let tests =
                 let tast = analyse recSrc
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
-                // The body's recursive call must resolve to the `sumList` binding.
                 let fnKey =
                     tast.Decls
                     |> List.tryPick (fun d ->
@@ -139,8 +126,6 @@ let tests =
                 let _, artifact = compileSource "Rung2Recursion" recSrc
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
-                // Lowered to a static method (P3b), so the self-recursion is a
-                // direct `call` of its own handle rather than `this.Invoke`.
                 Expect.equal (output.Trim()) "6" "sumList [1;2;3] = 6 via self-recursive static call"
             }
 
@@ -154,15 +139,6 @@ let tests =
                 Expect.equal (output.Trim()) "20" "the nested `Cons(_, Cons(y, _))` bound the tail's head"
             }
 
-            // ---- P3b: top-level functions as static methods (+ G8 ParamLists) ----
-            //
-            // A top-level `let [rec] f p… = body` that never escapes as a value
-            // (every use is a saturated call) and captures no module-level local
-            // is emitted as a real static method (`fn$<offset>`) instead of a
-            // closure: a saturated call site `call`s it directly, recursion is a
-            // direct self-call, and every method carries a real `Param` list (G8).
-
-            // The emitted `fn$<offset>` static methods of a loaded assembly.
             let staticFnMethods (bytes: byte[]) : MethodInfo[] =
                 let asm = loadAssembly bytes
 
@@ -181,8 +157,8 @@ let tests =
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Trim()) "42" "twice 21 = 42 via a direct static call"
 
-                // G8: the method round-trips through reflection — a nil `ParamList`
-                // would throw `BadImageFormatException` on `GetParameters`.
+                // G8: a nil `ParamList` would throw `BadImageFormatException` on
+                // `GetParameters`, so the reflection round-trip guards it.
                 match staticFnMethods bytes with
                 | [| m |] ->
                     Expect.isTrue m.IsStatic "emitted as a static method"
@@ -231,14 +207,6 @@ let tests =
                 Expect.isTrue hasClosure "a closure type was emitted for the capturing addN"
             }
 
-            // ---- P3d.2: nested-module walking composes with the backend ----
-            //
-            // A function inside a nested `module M = …` flattens to a top-level
-            // decl (`CstWalk.implFileElems` for the analysis passes, Freeze for
-            // surfacing), so the P3b static-method machinery emits it exactly like
-            // a top-level function. This is the motivating shape: a `module List`
-            // holding a `let rec fold`. The body was dropped before P3d.2.
-
             test "a function inside a nested module compiles + runs as a static method (prints 42)" {
                 let src =
                     "let start = 0\nmodule M =\n    let twice x = x + x\nprintfn \"%d\" (twice 21)"
@@ -280,41 +248,30 @@ let tests =
                 Expect.equal (output.Trim()) "15" "the recursive static method runs as a real assembly"
             }
 
-            // ---- P3c: converge the assemblers — emit a union + module as a
-            // *library* DLL (no Main). The executable path proved the union /
-            // match / recursion machinery above; P3c folds the library path into
-            // the same converged assembler, so the very same declarations ship as
-            // an entry-point-free DLL. Acceptance: load the union reflectively from
-            // a BCL-only DLL and exercise its case factories + a module fold.
-            //
-            // A higher-order `fold` (taking a folder function) is P3d: a function
-            // parameter is an `FSharpFunc\`2`, which would pin FSharp.Core and break
-            // "BCL-only". So the module fold here is the concrete `sum`.
+            // P3c: emit a union + module as a *library* DLL (no Main) via the
+            // converged assembler. The fold here is the concrete `sum` rather than
+            // a higher-order `fold`: a function parameter would be an `FSharpFunc`2`,
+            // pinning FSharp.Core and breaking "BCL-only".
 
             test "a union + recursive module fold ships as a BCL-only library DLL (P3c)" {
                 let src =
                     "namespace Vesper.Collections\n\ntype IntList =\n    | Empty\n    | Cons of int * IntList\n\nlet rec sum xs =\n    match xs with\n    | Empty -> 0\n    | Cons(h, t) -> h + sum t"
 
-                // The front-end accepts the namespaced union + recursive fold clean.
                 let tast = analyse src
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 let project = ProjectInfo.library "Vesper.Collections"
                 let artifact = compileSourceTo project src
 
-                // BCL-only: neither the union (int / self fields) nor the fold
-                // (int → int, no function parameter) pins an FSharp.Core construct.
                 Expect.isEmpty
                     artifact.FSharpCoreDependencies
                     "the union + concrete fold reference no FSharp.Core construct"
 
-                // Load the PE once into an isolated context; every reflected
-                // member + constructed value below must come from this single
-                // `asm`, or a cross-`Invoke` would mix two type identities (a
-                // second load of the same bytes is a *different* assembly).
+                // Every reflected member + constructed value below must come from
+                // this single `asm` — a second load of the same bytes is a *different*
+                // assembly, so a cross-`Invoke` would mix two type identities.
                 let asm = loadAssembly (Codegen.toBytes artifact)
 
-                // A library: no managed entry point, no FSharp.Core reference row.
                 Expect.isNull asm.EntryPoint "a library DLL has no entry point"
 
                 let refs = asm.GetReferencedAssemblies() |> Array.map (fun a -> a.Name)
@@ -323,8 +280,6 @@ let tests =
                     (refs |> Array.contains "FSharp.Core")
                     (sprintf "no FSharp.Core reference (refs: %A)" refs)
 
-                // The union landed in its declared namespace with both case
-                // factories as public static methods.
                 let listTy = asm.GetType("Vesper.Collections.IntList")
                 Expect.isNotNull listTy "the DLL contains Vesper.Collections.IntList"
 
@@ -333,7 +288,6 @@ let tests =
                 Expect.isNotNull emptyM "IntList has a static Empty factory"
                 Expect.isNotNull consM "IntList has a static Cons factory"
 
-                // The module-level fold, emitted as a static method (`fn$<offset>`).
                 let sumM =
                     asm.GetTypes()
                     |> Array.collect (fun t ->
@@ -343,10 +297,6 @@ let tests =
 
                 match sumM with
                 | [| sumM |] ->
-                    // Reflectively build [1; 2; 3] via the factories — the round-trip
-                    // that proves the emitted union is a real, constructible type — then
-                    // fold it with the static method (real IL: a `match` over the union
-                    // plus self-recursion).
                     let empty = emptyM.Invoke(null, [||])
                     let l1 = consM.Invoke(null, [| box 3; empty |])
                     let l2 = consM.Invoke(null, [| box 2; l1 |])
@@ -355,17 +305,6 @@ let tests =
                     Expect.equal (result :?> int) 6 "sum [1;2;3] = 6 via the emitted static fold"
                 | other -> failtestf "expected one static fold method, got %A" (other |> Array.map (fun m -> m.Name))
             }
-
-            // ---- P3d.3: union augmentation members ----
-            //
-            // A union with instance properties (`IsEmpty`/`Head`/`Length`),
-            // self-recursive instance access (`Length` reads `t.Length`), static
-            // members (`Empty`/`Single`), and `failwith` (the `Head`/`Nil` arm).
-            // Exercises the whole member pipeline: NameResolution registers +
-            // walks bodies, Unification fills + dispatches dot-access, Freeze
-            // surfaces members with bodies, and the backend emits instance/static
-            // methods + `MethodCall`/`PropertyGet`/`StaticMethodCall`/
-            // `StaticPropertyGet` + `raise`/`throw`.
 
             let memberUnionSrc =
                 String.concat
@@ -471,21 +410,8 @@ let tests =
                 let single = listTy.GetMethod("Single", BindingFlags.Public ||| BindingFlags.Static)
 
                 Expect.isNotNull single "Single is emitted as a static method"
-                // G8: parameters round-trip through reflection (a real Param row).
                 Expect.equal (single.GetParameters().Length) 1 "Single has one real Param row"
             }
-
-            // ---- P3d.4: generic union emission ----
-            //
-            // A *generic* union (`List<'T>`) is a real generic `TypeDefinition`:
-            // its fields/factories are typed in `!0`, and every member access — a
-            // construction (`Cons(…)`), a `match` deconstruction, and the factory
-            // bodies — goes through a `MemberRef` on the instantiated `TypeSpec`
-            // (`List<int>::Cons` externally, `List<!0>::Cons` internally). The
-            // monomorphic single-class shape is reused with these `TypeSpec`-keyed
-            // tokens. This makes the front-end leg's `[1; 2; 3]`-onto-our-own-list
-            // resolution actually *runnable*, and a generic `List<'T>` compilable
-            // to a BCL-only DLL (rung-2 acceptance).
 
             let genUnionSrc =
                 String.concat
@@ -517,10 +443,6 @@ let tests =
                     "Cons(1, Cons(2, Cons(3, Nil))) folds to 6 over our own generic Lst<'T>"
             }
 
-            // The headline of the front-end leg made runnable: a `[1; 2; 3]` literal
-            // in a program that declares its own `List<'T>` (+ the `'T list` abbrev)
-            // builds *our* list via the generic case factories, and a `match` over
-            // its `Empty`/`Cons` cases folds it — no FSharp.Core list at all.
             let listLitSrc =
                 String.concat
                     "\n"
@@ -543,8 +465,6 @@ let tests =
                     tast.Diagnostics
                     (sprintf "no diagnostics: %A" (tast.Diagnostics |> List.map (fun d -> d.Message)))
 
-                // BCL-only: the literal builds our own union (not FSharp.Core's
-                // list), and the concrete `%d` printf touches no FSharp.Core.
                 Expect.isEmpty
                     artifact.FSharpCoreDependencies
                     "a `[1;2;3]` over our own list + a concrete printf references no FSharp.Core"
@@ -590,9 +510,6 @@ let tests =
                 Expect.isTrue listTy.IsGenericTypeDefinition "List`1 is a generic type definition"
                 Expect.equal (listTy.GetGenericArguments().Length) 1 "List`1 has one type parameter"
 
-                // Construct `List<int>` reflectively and build [1] via the generic
-                // case factories — the round-trip that proves the emitted generic
-                // union is a real, instantiable, constructible type.
                 let listOfInt = listTy.MakeGenericType(typeof<int>)
                 let emptyM = listOfInt.GetMethod "Empty"
                 let consM = listOfInt.GetMethod "Cons"

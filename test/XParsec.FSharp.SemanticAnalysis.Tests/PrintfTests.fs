@@ -35,8 +35,6 @@ let tests =
     testList
         "Printf"
         [
-            // ---- Canonical specifier parser (shared with the lexer) ----
-
             test "specifier parser: %d -> DecimalInt" { Expect.equal (specType "%d") FormatType.DecimalInt "%d" }
 
             test "specifier parser: integer bases stay distinct" {
@@ -58,8 +56,6 @@ let tests =
                     Expect.equal ph.Precision (ValueSome(bigint 2)) "precision 2"
                 | ValueNone -> failtest "expected a placeholder"
             }
-
-            // ---- FormatType -> SemType typing map ----
 
             test "argType: every integer base types as int" {
                 let fresh () = TyConst "FRESH"
@@ -86,8 +82,6 @@ let tests =
                 Expect.equal (PrintfSpec.argType fresh FormatType.FormatFunction) ValueNone "%a deferred"
                 Expect.equal (PrintfSpec.argType fresh FormatType.Text) ValueNone "%t deferred"
             }
-
-            // ---- Typing ----
 
             test "printfn \"%d\" 42 : unit" {
                 let tast = analyse "let r = printfn \"%d\" 42"
@@ -169,8 +163,6 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // ---- Freeze shape ----
-            //
             // A fully-applied literal call with lowerable specifiers now freezes
             // to a `TExpr.Format` (vesper-printf-plan P1) — no `New PrintfFormat`
             // / `App printfn`. The non-lowerable cases above (`%x`, `%a`, partial

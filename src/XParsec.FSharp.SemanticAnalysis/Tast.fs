@@ -7,7 +7,6 @@ namespace XParsec.FSharp.SemanticAnalysis
 // Each node carries its inferred SemType inline so target lowering doesn't
 // need to re-query the side tables.
 
-/// Literal-value payload.
 [<RequireQualifiedAccess>]
 type TConstValue =
     | Int of int
@@ -20,30 +19,24 @@ type TConstValue =
     | String of string
     | Unit
 
-/// Binding-side pattern in the TAST. Strips trivia / parens from `Pat<T>`
-/// but keeps the destructuring shape so a downstream consumer can introduce
-/// every bound name without re-walking the CST.
+/// Keeps the destructuring shape so a downstream consumer can introduce every
+/// bound name without re-walking the CST.
 [<RequireQualifiedAccess>]
 type TPat =
-    /// Single named binding. `binding` is the source-position NodeKey of the
-    /// introducing pattern; references via `TExpr.Var` use the same key.
+    /// `binding` is the source-position NodeKey of the introducing pattern;
+    /// references via `TExpr.Var` use the same key.
     | NamedSimple of binding: NodeKey * ty: SemType
-    /// `_` placeholder. Has a type (the matched value's type) but binds
-    /// nothing.
+    /// `_` placeholder. Has a type (the matched value's type) but binds nothing.
     | Wildcard of ty: SemType
-    /// `(a, b, …)`. `ty` is always a `TyTuple` of the elements' types.
+    /// `ty` is always a `TyTuple` of the elements' types.
     | Tuple of items: TPat list * ty: SemType
-    /// Literal pattern (match arms): `| 0 -> …`, `| true -> …`.
     | Const of value: TConstValue * ty: SemType
-    /// `{ X = px; Y = py }` — destructures by field name. `ty` is a
-    /// `TyRecord`. May list a subset of the record's fields; unlisted
+    /// `ty` is a `TyRecord`. May list a subset of the record's fields; unlisted
     /// fields are simply not bound.
     | Record of fields: (string * TPat) list * ty: SemType
-    /// Discriminated-union ctor pattern. `caseName` is the ctor name
-    /// (e.g. `"Circle"`); `fields` is the per-field sub-pattern list,
-    /// empty for nullary cases. `ty` is always a `TyUnion`. The
-    /// declaring union is recoverable via `ctx.CtorIndex[caseName]` at
-    /// consumption time.
+    /// `fields` is the per-field sub-pattern list, empty for nullary cases. `ty`
+    /// is always a `TyUnion`. The declaring union is recoverable via
+    /// `ctx.CtorIndex[caseName]` at consumption time.
     | Union of caseName: string * fields: TPat list * ty: SemType
 
 [<RequireQualifiedAccess>]
@@ -55,9 +48,7 @@ type TExpr =
     /// name so target plugins can dispatch (`op_Addition` -> CIL `add` on
     /// .NET, native `+` on Rust, etc. — see [[project_inline_il_target_specific]]).
     | External of compiledName: string * ty: SemType
-    /// `param` is the lambda's parameter pattern (with full destructure).
     | Lambda of param: TPat * body: TExpr * ty: SemType
-    /// Curried; multi-arg applications nest.
     | App of fn: TExpr * arg: TExpr * ty: SemType
     | Let of binding: TPat * value: TExpr * body: TExpr * ty: SemType
     | IfThenElse of cond: TExpr * thenExpr: TExpr * elseExpr: TExpr * ty: SemType
@@ -123,22 +114,17 @@ type TExpr =
     /// per-parameter list (peeled the same way as `New`). `ty` is the
     /// method's declared return type.
     | MethodCall of receiver: TExpr * methodName: string * args: TExpr list * ty: SemType
-    /// Instance property read: `r.X` where `X` is a class property.
-    /// `ty` is the property's declared type.
     | PropertyGet of receiver: TExpr * propertyName: string * ty: SemType
-    /// Static method invocation: `ClassName.M(args)`. Same arg-peeling
-    /// as `MethodCall`; no receiver.
+    /// Same arg-peeling as `MethodCall`; no receiver.
     | StaticMethodCall of className: string * methodName: string * args: TExpr list * ty: SemType
-    /// Static property read: `ClassName.X`.
     | StaticPropertyGet of className: string * propertyName: string * ty: SemType
-    /// Lowered printf / string-interpolation (vesper-printf-plan P1, D9): an
-    /// output `sink` plus the interleaved literal / hole sequence in source
-    /// order. Holes carry their argument expression inline so codegen folds the
-    /// segments left-to-right, evaluating each arg at its hole (a ref-struct
-    /// handler local accumulates the result). NOT a generic saturated call —
-    /// the format literal rewrites the call's arity/arg-types, so the node
-    /// carries the printf semantics a generic call node cannot. `ty` is the
-    /// call's result (`unit` for `printf`/`printfn`, `string` for `sprintf`).
+    /// Lowered printf / string-interpolation (vesper-printf-plan P1, D9):
+    /// `segments` is the interleaved literal / hole sequence in source order,
+    /// each hole carrying its argument expression inline (codegen folds left to
+    /// right, evaluating each arg at its hole). NOT a generic saturated call —
+    /// the format literal rewrites the call's arity/arg-types, so the node carries
+    /// printf semantics a generic call node cannot. `ty` is the call's result
+    /// (`unit` for `printf`/`printfn`, `string` for `sprintf`).
     | Format of sink: FormatSink * segments: EqArray<FormatSeg> * ty: SemType
 
 and TMatchArm =
@@ -148,10 +134,8 @@ and TMatchArm =
         Body: TExpr
     }
 
-/// Where a `TExpr.Format` writes. Kept abstract from the CLR specifics so an
-/// alternate target (JS → template literal) maps it independently: a CLR target
-/// maps `ToStdOut`/`ToStdErr` to `Console.Out`/`.Error` write-through,
-/// `ToString` to a returned string. `ToWriter`/`ToBuilder` carry the explicit
+/// Kept abstract from CLR specifics so an alternate target (JS → template
+/// literal) maps it independently. `ToWriter`/`ToBuilder` carry the explicit
 /// sink expression (`fprintf` / `bprintf`); P1 produces only the first three.
 and [<RequireQualifiedAccess>] FormatSink =
     | ToStdOut of newline: bool
@@ -160,11 +144,9 @@ and [<RequireQualifiedAccess>] FormatSink =
     | ToBuilder of TExpr
     | ToString
 
-/// A single hole's lowering data: its static type (drives `AppendFormatted<T>`,
-/// no box), the handler member to call (`Kind`), the optional .NET format string
-/// (`"F2"`, derived from the specifier's precision/base) and field-width
-/// alignment (negative ⇒ left-justify). `Kind`/`Format`/`Alignment` are produced
-/// by `PrintfSpec.tryHoleFormat`.
+/// `Ty` is the static type (drives `AppendFormatted<T>`, no box). `Alignment` is
+/// the field width (negative ⇒ left-justify). `Kind`/`Format`/`Alignment` are
+/// produced by `PrintfSpec.tryHoleFormat`.
 and HoleSpec =
     {
         Ty: SemType
@@ -173,62 +155,46 @@ and HoleSpec =
         Alignment: int option
     }
 
-/// One element of a `Format` node: a literal run, or a hole pairing its spec
-/// with the argument expression to evaluate at that position.
 and [<RequireQualifiedAccess>] FormatSeg =
     | Lit of string
     | Hole of HoleSpec * TExpr
 
 [<RequireQualifiedAccess>]
 type TDecl =
-    /// Top-level `let` / `let rec` binding. `isInline` mirrors the source
-    /// `inline` keyword. The `value` body is retained verbatim regardless;
-    /// when `isInline` is set the flag tells codegen it may expand the body
-    /// per call site (via `Inline.inlineExpand`, substituting the caller's
-    /// concrete types for the binding's quantified typars) rather than emit
-    /// a single callable. See [front-end-gaps-plan](docs/front-end-gaps-plan.md) §C.
+    /// The `value` body is retained verbatim regardless; when `isInline` is set
+    /// the flag tells codegen it may expand the body per call site (via
+    /// `Inline.inlineExpand`) rather than emit a single callable. See
+    /// [front-end-gaps-plan](docs/front-end-gaps-plan.md) §C.
     | Let of binding: TPat * value: TExpr * isInline: bool * ty: SemType
-    /// Top-level expression (script fragments parse as a module with one
-    /// Expression element).
     | Expression of expr: TExpr * ty: SemType
-    /// A declared nominal type surfaced for emission. Rung 1 (self-host) emits
-    /// only the interface shape — a nominal type whose members are all abstract,
-    /// from a `TypeDefn.Anon` / `TypeDefn.Interface` body. Records / unions /
+    /// Rung 1 (self-host) emits only the interface shape. Records / unions /
     /// classes are later rungs. See docs/self-host-rung1-plan.md.
     | Type of TTypeDecl
 
-/// A surfaced nominal type declaration.
 and TTypeDecl =
     {
         /// Simple (unqualified) type name, e.g. `"Fun"`. The metadata name gets
         /// the arity suffix (`` Fun`2 ``) from `TypeParams.Length`.
         Name: string
-        /// Enclosing namespace, e.g. `Some "Vesper"`; `None` for a module-level type.
+        /// `None` for a module-level type.
         Namespace: string option
-        /// Declared type parameters in source order (e.g. `["'A"; "'B"]`). Length
-        /// is the generic arity.
+        /// Declared type parameters in source order (e.g. `["'A"; "'B"]`).
         TypeParams: string list
         Kind: TTypeKind
     }
 
 and [<RequireQualifiedAccess>] TTypeKind =
-    /// An interface: a nominal type whose members are all abstract and which has
-    /// no base type / field. Rung 1's only kind.
+    /// A nominal type whose members are all abstract and which has no base type /
+    /// field. Rung 1's only kind.
     | Interface of methods: TAbstractMethod list
-    /// A discriminated union: its cases in declaration order (the index is the
-    /// runtime tag), plus any augmentation members (`with member …` /
-    /// `static member …`). Rung 2 emits a monomorphic union as a single
-    /// reference class with an `int` tag field plus one field per (case,
-    /// position); `TExpr.UnionCons` constructs it (a per-case static factory
-    /// sets the tag + fields) and `match` over `TPat.Union` deconstructs it (tag
-    /// test + field reads). P3d.3 adds the augmentation members — instance /
-    /// static methods + properties, emitted as real `MethodDefinition` rows on
-    /// the union's `TypeDefinition`. See docs/self-host-rung2-plan.md.
+    /// `cases` in declaration order (the index is the runtime tag), plus any
+    /// augmentation members (`with member …` / `static member …`). See
+    /// docs/self-host-rung2-plan.md.
     | Union of cases: TUnionCase list * members: TTypeMember list
 
-/// One case of a `TTypeKind.Union`. `Fields` are the case's payload in
-/// declaration order; a field's name is `ValueNone` when the source is
-/// positional (`Cons of 'T * list`). Empty `Fields` ⇒ a nullary case (`Nil`).
+/// `Fields` are the case's payload in declaration order; a field's name is
+/// `ValueNone` when the source is positional (`Cons of 'T * list`). Empty
+/// `Fields` ⇒ a nullary case (`Nil`).
 and TUnionCase =
     {
         Name: string
@@ -236,26 +202,21 @@ and TUnionCase =
     }
 
 and [<RequireQualifiedAccess>] TMemberKind =
-    /// `member this.M args = …` / `static member M args = …` — invoked through
-    /// `TExpr.MethodCall` / `TExpr.StaticMethodCall`.
+    /// Invoked through `TExpr.MethodCall` / `TExpr.StaticMethodCall`.
     | Method
-    /// `member this.P = …` / `static member P = …` — a parameterless getter,
-    /// read through `TExpr.PropertyGet` / `TExpr.StaticPropertyGet`. Emitted as
-    /// a `get_<Name>` method (no `PropertyDefinition` row yet — see P3d.3).
+    /// A parameterless getter, read through `TExpr.PropertyGet` /
+    /// `TExpr.StaticPropertyGet`. Emitted as a `get_<Name>` method (no
+    /// `PropertyDefinition` row yet — see P3d.3).
     | Property
 
-/// One augmentation member of a `TTypeKind.Union` (P3d.3): its body lowered for
-/// emission. An instance member's body sees `this` (its `ThisKey`, resolved to
-/// `ldarg.0`) and its parameters; a static member's body sees only its
-/// parameters. The backend emits each as an instance / static method on the
-/// union's `TypeDefinition`.
+/// An instance member's body sees `this` (its `ThisKey`, resolved to `ldarg.0`)
+/// and its parameters; a static member's body sees only its parameters.
 and TTypeMember =
     {
         Name: string
         IsStatic: bool
         Kind: TMemberKind
-        /// The `this` binder's NodeKey (instance members only); `ValueNone` for
-        /// a static member.
+        /// Instance members only; `ValueNone` for a static member.
         ThisKey: NodeKey voption
         /// The declaring type (a `TyUnion`) — the receiver type for an instance
         /// member's `this`.
@@ -267,10 +228,9 @@ and TTypeMember =
         ReturnTy: SemType
     }
 
-/// One abstract method. `Signature` is the curried function type; a type
-/// parameter of the *declaring type* is carried as `TyConst "'A"` (a name marker
-/// the backend resolves to a `GenericTypeParameter` index). For `Invoke` it is
-/// `TyFun(TyConst "'A", TyConst "'B")`.
+/// `Signature` is the curried function type; a type parameter of the *declaring
+/// type* is carried as `TyConst "'A"` (a name marker the backend resolves to a
+/// `GenericTypeParameter` index).
 ///
 /// `MethodTypeParams` are the method's *own* generic parameters in source order
 /// (e.g. `["'C"]` for `abstract Map<'C> : 'A -> 'C`), distinct from the declaring
@@ -290,13 +250,11 @@ type TastFile =
         Decls: TDecl list
         /// Non-empty Errors mean the TAST is best-effort and not safe to emit from.
         Diagnostics: Diagnostic list
-        /// Primitive-binding representations harvested from this file's
-        /// `type x = (# "..." #)` intrinsic abbrevs (`PassContext.IntrinsicReprTypes`):
         /// Vesper type name → target IL representation string (e.g. `"int"` →
-        /// `"System.Int32"`). A use site resolves to `TyConst name`; the backend
-        /// keys the emitted IL type off the *representation string* (so a platform
-        /// author retargets a primitive by editing one `.fs` line). Empty for a
-        /// file that declares no intrinsics; the backend overlays these on its
-        /// built-in defaults. See docs/selfhost-handoff.md (G7).
+        /// `"System.Int32"`), from this file's `type x = (# "..." #)` intrinsic
+        /// abbrevs. A use site resolves to `TyConst name`; the backend keys the
+        /// emitted IL type off the *representation string* (so a platform author
+        /// retargets a primitive by editing one `.fs` line). The backend overlays
+        /// these on its built-in defaults. See docs/selfhost-handoff.md (G7).
         IntrinsicReprTypes: Map<string, string>
     }

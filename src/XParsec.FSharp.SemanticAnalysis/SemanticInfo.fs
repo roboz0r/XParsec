@@ -4,8 +4,8 @@ open System.Numerics
 
 // See docs/typevar.md for the 3-axis design.
 
-/// Sequential ints. Revisit if region analysis ever wants union-find
-/// (it shouldn't — regions are inequality, not equality).
+/// Revisit if region analysis ever wants union-find (it shouldn't — regions
+/// are inequality, not equality).
 [<Struct>]
 type RegionId =
     val Raw: int
@@ -95,23 +95,17 @@ type SemType =
     /// Flat n-ary tuple. Unifies pairwise with same-arity TyTuple; arity
     /// mismatch is a diagnostic in Unification.
     | TyTuple of items: SemType list
-    /// Named record type with instantiated arg list. `Box<int>` is
-    /// `TyRecord("Box", [TyConst "int"])`; a non-generic `Point` is
-    /// `TyRecord("Point", [])`. Field types are not stored inline —
-    /// look up `ctx.RecordTypes[name]` for the field-shape (and the
-    /// declared `TypeParams` used to substitute `args` into each field).
-    /// Two TyRecords unify iff their names match AND their args unify
-    /// pairwise. v1 single-segment names; qualified names land with
+    /// Field types are not stored inline — look up `ctx.RecordTypes[name]` for
+    /// the field-shape (and the declared `TypeParams` used to substitute `args`
+    /// into each field). Two TyRecords unify iff their names match AND their
+    /// args unify pairwise. v1 single-segment names; qualified names land with
     /// namespaces.
     | TyRecord of name: string * args: SemType list
-    /// Named discriminated union type with instantiated arg list. Same
-    /// shape as TyRecord. Cases / TypeParams live in
-    /// `ctx.UnionTypes[name]`.
+    /// Same shape as TyRecord. Cases / TypeParams live in `ctx.UnionTypes[name]`.
     | TyUnion of name: string * args: SemType list
-    /// Named class type with instantiated arg list. Same shape as
-    /// `TyRecord` / `TyUnion`; member lookup is a side-channel on
-    /// `ctx.ClassTypes`. Two `TyClass` unify iff their names match
-    /// AND their args unify pairwise.
+    /// Same shape as `TyRecord` / `TyUnion`; member lookup is a side-channel on
+    /// `ctx.ClassTypes`. Two `TyClass` unify iff their names match AND their
+    /// args unify pairwise.
     | TyClass of name: string * args: SemType list
 
 /// Abelian-group expression over named unit atoms. Always stored in a
@@ -125,10 +119,8 @@ and [<Sealed>] MeasureTerm private (exponents: (string * Rational) list) =
 
     static member Empty = MeasureTerm([])
 
-    /// Build a `MeasureTerm` from a raw, possibly un-normalised list of
-    /// `(unit, exponent)` pairs. Duplicate units are merged (their
-    /// exponents summed), zero exponents are dropped, and the result is
-    /// sorted by unit name.
+    /// Normalises a raw list: duplicate units are merged (exponents summed),
+    /// zero exponents dropped, result sorted by unit name.
     static member ofList(raw: (string * Rational) list) : MeasureTerm =
         raw
         |> List.groupBy fst

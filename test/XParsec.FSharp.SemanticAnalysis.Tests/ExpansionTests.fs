@@ -18,8 +18,6 @@ let tests =
     testList
         "Expansion"
         [
-            // ---- Extended operator coverage ----
-
             test "`<` types as int -> int -> bool, result is bool" {
                 let tast = analyse "let b = 1 < 2"
                 Expect.equal (declType tast) MockBuiltins.tyBool "b : bool"
@@ -44,8 +42,6 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // ---- PrefixApp (unary -) ----
-
             test "unary minus on int types as int" {
                 // `-x` (where x is a variable) forces a PrefixApp; `-5` would
                 // be folded into a negative literal by the parser.
@@ -63,8 +59,6 @@ let tests =
 
                 Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = fun v1 -> ((-v1) + 0)" "TAST shape"
             }
-
-            // ---- IfThenElse ----
 
             test "if true then 1 else 2 types as int" {
                 let tast = analyse "let r = if true then 1 else 2"
@@ -95,8 +89,6 @@ let tests =
                 Expect.equal (declType tast) intToInt "abs : int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
-
-            // ---- Tuples ----
 
             test "pair of ints types as int * int" {
                 let tast = analyse "let p = 1, 2"
@@ -131,8 +123,6 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // ---- Sequential ----
-
             test "`()` literal types as unit" {
                 let tast = analyse "let x = ()"
                 Expect.equal (declType tast) MockBuiltins.tyUnit "x : unit"
@@ -152,7 +142,7 @@ let tests =
             }
 
             test "non-unit expression in non-tail position emits diagnostic" {
-                // `1; 2` — first element is int, not unit. Triggers a mismatch.
+                // First element is int, not unit → mismatch.
                 let tast = analyse "let r = 1; 2"
 
                 let hasMismatch =
@@ -160,8 +150,6 @@ let tests =
 
                 Expect.isTrue hasMismatch "non-unit head triggers mismatch"
             }
-
-            // ---- TypeAnnotation ----
 
             test "(e : int) constrains e to int" {
                 let tast = analyse "let f x = (x : int) + 1"
@@ -187,8 +175,6 @@ let tests =
                 Expect.equal (declType tast) intToInt "g : int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
-
-            // ---- let rec ----
 
             test "let rec: self-reference resolves" {
                 // Without `rec`, the inner `f` would be unresolved (or shadowed).
@@ -227,16 +213,12 @@ let tests =
                 Expect.isTrue hasOccurs "self-returning rec function triggers occurs check"
             }
 
-            // ---- Combined ----
-
             test "compound: bool from && and comparison" {
                 let tast = analyse "let inRange x = x > 0 && x < 100"
                 let intToBool = TyFun(MockBuiltins.tyInt, MockBuiltins.tyBool)
                 Expect.equal (declType tast) intToBool "inRange : int -> bool"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
-
-            // ---- Loops ----
 
             test "`while true do ()` types as unit" {
                 let tast = analyse "let r = while true do ()"
@@ -298,8 +280,6 @@ let tests =
                 Expect.isTrue hasMismatch "bool range triggers mismatch"
             }
 
-            // ---- Numeric literal widening ----
-
             test "float literal types as float" {
                 let tast = analyse "let pi = 3.14"
                 Expect.equal (declType tast) MockBuiltins.tyFloat "pi : float"
@@ -337,8 +317,6 @@ let tests =
                 Expect.isTrue hasMismatch "int + int64 triggers mismatch"
             }
 
-            // ---- String literals ----
-
             test "plain string literal types as string" {
                 let tast = analyse "let s = \"hello\""
                 Expect.equal (declType tast) MockBuiltins.tyString "s : string"
@@ -353,8 +331,6 @@ let tests =
                 let tast = analyse "let s = @\"C:\\foo\""
                 Expect.equal (declType tast) MockBuiltins.tyString "s : string"
             }
-
-            // ---- Wildcard pattern in lambda ----
 
             test "`fun _ -> 0` types as 'a -> int" {
                 // The wildcard's TypeVar stays free, so the function type is
@@ -376,8 +352,6 @@ let tests =
                 | TyFun(_, TyFun(TyConst "int", TyConst "int")) -> ()
                 | other -> failtestf "expected 'a -> int -> int, got %A" other
             }
-
-            // ---- Tuple patterns ----
 
             test "lambda with tuple param: `fun (a, b) -> a + b`" {
                 let tast = analyse "let f = fun (a, b) -> a + b"
@@ -420,8 +394,6 @@ let tests =
                 Expect.equal (declType tast) expected "f : (int * int) * int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
-
-            // ---- Match expressions ----
 
             test "match on int with int patterns and int body types as int" {
                 let tast = analyse "let f x = match x with | 0 -> 1 | _ -> 2"
@@ -499,10 +471,8 @@ let tests =
 
                 match tast.Decls.[0] with
                 | TDecl.Let(TPat.Tuple([ TPat.NamedSimple(_, _); TPat.NamedSimple(_, _) ], _), _, _, _) ->
-                    // For function-form let, the TDecl.Let binds `f` to a
-                    // Lambda whose param is the tuple pattern. So `f`'s own
-                    // pattern is just NamedSimple, and the tuple sits on
-                    // the Lambda. Adjust expectations.
+                    // For function-form let, `f`'s own pattern is NamedSimple and the
+                    // tuple sits on the Lambda — not on the TDecl.Let.
                     failtest "did not expect TDecl.Let to be the tuple pattern itself"
                 | TDecl.Let(TPat.NamedSimple _,
                             TExpr.Lambda(TPat.Tuple([ TPat.NamedSimple _; TPat.NamedSimple _ ], _), _, _),

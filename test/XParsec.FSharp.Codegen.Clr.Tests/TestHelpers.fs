@@ -9,9 +9,7 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 
-/// Lex + parse a source string into Lexed + an ImplementationFile (script
-/// fragments wrap as AnonymousModule). Raises on failure. Mirrors the
-/// semantic-analysis test helper.
+/// Lex + parse a source string; script fragments wrap as `AnonymousModule`.
 let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
     // `Result.Ok`/`Result.Error` are qualified because `open ...SemanticAnalysis`
     // brings `Severity.Error` into scope, which would otherwise shadow them.
@@ -27,12 +25,10 @@ let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
             lexed, ImplementationFile.AnonymousModule elems
         | Result.Ok ast -> failwithf "unexpected AST: %A" ast
 
-/// Analyse a source string to a `TastFile` with the mock provider.
 let analyse (input: string) : TastFile =
     let lexed, file = parseFile input
     Pipeline.analyse MockBuiltins.provider input lexed file
 
-/// Compile a source string straight to a `ClrArtifact`.
 let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifact =
     let lexed, file = parseFile input
     let tast = Pipeline.analyse MockBuiltins.provider input lexed file
@@ -42,16 +38,16 @@ let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifac
 
     tast, artifact
 
-/// Compile a source string against a caller-supplied `ProjectInfo` (e.g. an
+/// Like `compileSource` but against a caller-supplied `ProjectInfo` (e.g. an
 /// on-disk app build via `ProjectInfo.app`).
 let compileSourceTo (project: ProjectInfo) (input: string) : ClrArtifact =
     let lexed, file = parseFile input
     let tast = Pipeline.analyse MockBuiltins.provider input lexed file
     Codegen.compile MockBuiltins.provider project tast
 
-/// `<repo-root>/tmp/<name>`, created. Walks up from the test binary to the
-/// repo root (the directory holding `claude_tools.cmd`) so emitted artifacts
-/// land somewhere stable and inspectable rather than the OS temp dir.
+/// `<repo-root>/tmp/<name>`, created. Walks up to the repo root (holding
+/// `claude_tools.cmd`) so artifacts land somewhere stable and inspectable
+/// rather than the OS temp dir.
 let tmpDir (name: string) : string =
     let rec up (dir: string) =
         if isNull dir then
@@ -65,11 +61,9 @@ let tmpDir (name: string) : string =
     IO.Directory.CreateDirectory d |> ignore
     d
 
-/// Run a materialised app via the `dotnet` host (`dotnet <dll>`), capturing
-/// exit code + stdout. The out-of-process counterpart to `runEntryPoint`: it
-/// proves the emitted bundle runs as a real `dotnet` app, not just an
-/// in-process `Assembly.Load`. On a non-zero exit, stderr is appended so host
-/// failures (missing runtimeconfig, unresolved reference) surface in the
+/// Run a materialised app out-of-process via the `dotnet` host, the counterpart
+/// to the in-process `runEntryPoint`. On a non-zero exit, stderr is appended so
+/// host failures (missing runtimeconfig, unresolved reference) surface in the
 /// assertion message.
 let runOnDisk (dllPath: string) : int * string =
     let psi = Diagnostics.ProcessStartInfo "dotnet"
@@ -106,9 +100,6 @@ let loadAssembly (bytes: byte[]) : Assembly =
 /// an already-disposed `StringWriter`).
 let private consoleLock = obj ()
 
-/// Load emitted PE bytes into an isolated context, invoke the entry point with
-/// empty args, and capture both the exit code and anything written to
-/// `Console.Out`.
 let runEntryPoint (bytes: byte[]) : int * string =
     let asm = loadAssembly bytes
     let entry = asm.EntryPoint

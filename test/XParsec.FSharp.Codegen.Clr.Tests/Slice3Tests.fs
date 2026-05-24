@@ -5,25 +5,11 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Thin-slice #3:
-//
-//   let inline succ x = x + 1
-//   printfn "%d" (succ 41)
-//
-// `inline` needs no function value at runtime: the retained body is expanded
-// into the call site and beta-reduced against the args, lowering to a local
-// slot + the `add` intrinsic — only slice-2 mechanics. The work is entirely
-// in the TAST walker (`Emit`) plus `Inline.freshen`; no IL / metadata / provider
-// change. NodeKey freshening is what makes nested call sites (`succ (succ x)`)
-// each get their own slot instead of clobbering one.
-
 [<Tests>]
 let tests =
     testList
         "Slice3"
         [
-            // ---- Milestone 2: the expression-level `Let` lowering ----
-
             test "`printfn \"%d\" (let y = 41 in y + 1)` prints 42 (Let, no inline machinery)" {
                 let _, artifact = compileSource "Slice3Let" "printfn \"%d\" (let y = 41 in y + 1)"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
@@ -32,8 +18,6 @@ let tests =
                 Expect.equal (output.Trim()) "42" "the inner let-bound y is reloaded and incremented"
             }
 
-            // ---- Milestone 3: inline expansion at the call site ----
-
             test "the inline sample analyses clean and splits into an inline Let + a Var call site" {
                 let tast = analyse "let inline succ x = x + 1\nprintfn \"%d\" (succ 41)"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -41,9 +25,6 @@ let tests =
                 match tast.Decls with
                 | [ TDecl.Let(TPat.NamedSimple(kSucc, _), TExpr.Lambda _, true, TyFun(TyConst "int", TyConst "int"))
                     TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _), _) ] ->
-                    // `printfn "%d" (succ 41)` lowers to a `%d` hole whose arg is
-                    // the not-yet-expanded `succ 41` call (inline expansion runs
-                    // later, in `Emit.lower`).
                     match EqArray.toList segs with
                     | [ FormatSeg.Hole(_, TExpr.App(TExpr.Var(kUse, _), TExpr.Const(TConstValue.Int 41, _), _)) ] ->
                         Expect.equal kUse kSucc "the call site `Var` references the inline binding's NodeKey"

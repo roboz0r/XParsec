@@ -6,12 +6,11 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
 
-// The only tree-to-tree transformation in the pipeline. Every previous pass
-// annotated via side tables; freeze projects those annotations into a fresh
-// TAST.
+// The only tree-to-tree transformation in the pipeline: projects the side-table
+// annotations from previous passes into a fresh TAST.
 //
-// Side tables can be discarded after this returns. The TAST is sharable;
-// the CST + side tables are scoped to one compilation.
+// Invariant: side tables can be discarded after this returns. The TAST is
+// sharable; the CST + side tables are scoped to one compilation.
 
 module Freeze =
 
@@ -20,21 +19,17 @@ module Freeze =
         | ValueSome tv -> Unification.zonk (TyVar tv)
         | ValueNone -> TyVar(TypeVar())
 
-    /// Strip type/format suffixes the lexer leaves on a numeric token (e.g.
-    /// `42L` -> "42", `0xFFuy` -> "0xFF", `1.5f` -> "1.5"). We only strip the
-    /// suffixes that map to literal kinds Unification recognises; the
-    /// remainder is fed to the corresponding BCL parser.
+    /// Only strip the suffixes that map to literal kinds Unification recognises;
+    /// the remainder is fed to the corresponding BCL parser.
     let private stripSuffix (suffix: string) (text: string) =
         if text.EndsWith(suffix, System.StringComparison.OrdinalIgnoreCase) then
             text.Substring(0, text.Length - suffix.Length)
         else
             text
 
-    /// Decode a char-literal token's source text (`'a'`, `'\n'`, `'A'`,
-    /// `'\x41'`, `'\065'`) into its `char` value. The token spans the surrounding
-    /// quotes, so the content is everything between them. The escape set mirrors
-    /// the lexer's `pCharChar` (Lexing.fs) exactly — a char literal that reaches
-    /// here already lexed clean, so any unexpected shape is a broken invariant.
+    /// The escape set mirrors the lexer's `pCharChar` (Lexing.fs) exactly — a
+    /// char literal that reaches here already lexed clean, so any unexpected
+    /// shape is a broken invariant.
     let private parseCharLiteral (text: string) : char =
         let inner = text.Substring(1, text.Length - 2)
 
@@ -100,8 +95,8 @@ module Freeze =
             | Token.NumDecimalHex
             | Token.NumDecimalOctal
             | Token.NumDecimalBinary ->
-                // Strip the `M`/`m` suffix; the remainder is an invariant-culture
-                // decimal (`3.14`, `42`). Matches `literalCarrier`'s `tyDecimal`.
+                // Remainder is an invariant-culture decimal. Matches
+                // `literalCarrier`'s `tyDecimal`.
                 TConstValue.Decimal(
                     System.Decimal.Parse(
                         stripSuffix "M" text,
@@ -110,17 +105,16 @@ module Freeze =
                     )
                 )
             | _ ->
-                // Falls through for NumInt32 family and anything Unification
-                // hasn't classified — they're treated as plain ints.
+                // NumInt32 family and anything Unification hasn't classified are
+                // treated as plain ints.
                 TConstValue.Int(Int32.Parse text)
 
         match c with
         | Constant.Literal t -> parseLiteral t
         | Constant.MeasuredLiteral(value = t) -> parseLiteral t
 
-    /// Walk a CST pattern into a TPat. EnclosedBlock and Typed peel; Tuple
-    /// recurses. Patterns Unification doesn't understand yet fall through
-    /// loudly so the gap surfaces at translation time.
+    /// Patterns Unification doesn't understand yet fall through loudly so the
+    /// gap surfaces at translation time.
     let rec private translatePat (ctx: PassContext) (p: Pat<SyntaxToken>) : TPat =
         let key = CstKeys.ofPat p
         let ty = typeOfKey ctx key
@@ -130,8 +124,7 @@ module Freeze =
             let n = ctx.NameOf t
             n.Length > 0 && System.Char.IsUpper n.[0] && ctx.CtorIndex.ContainsKey n
             ->
-            // Nullary ctor in pattern position — reinterpret as a ctor
-            // pattern that binds nothing. Must precede the plain
+            // Nullary ctor in pattern position. Must precede the plain
             // NamedSimple arm.
             TPat.Union(ctx.NameOf t, [], ty)
         | Pat.NamedSimple _ -> TPat.NamedSimple(key, ty)
@@ -140,19 +133,15 @@ module Freeze =
         | Pat.Tuple(patterns = pats) -> TPat.Tuple([ for sub in pats -> translatePat ctx sub ], ty)
         | Pat.Const c -> TPat.Const(parseConst ctx c, ty)
         | Pat.As(pat = inner) ->
-            // The `as`-name itself isn't surfaced in TPat yet — translate the
-            // inner pattern and rely on downstream Var lookups to find the
-            // alias via the CST + side tables.
+            // The `as`-name isn't surfaced in TPat yet — downstream Var lookups
+            // find the alias via the CST + side tables.
             translatePat ctx inner
         | Pat.Typed(pat = inner) ->
-            // Annotation is consumed by Unification; runtime shape is the
-            // inner pattern.
+            // Annotation is consumed by Unification; runtime shape is the inner.
             translatePat ctx inner
         | Pat.Or(left = leftPat) ->
-            // Both sides must bind the same names with matching types
-            // (Validation's job). Pick the left side for shape — until or-
-            // patterns are first-class in TPat, downstream consumers see
-            // only one arm of the alternation.
+            // Both sides must bind the same names (Validation's job). Until or-
+            // patterns are first-class in TPat, pick the left arm for shape.
             translatePat ctx leftPat
         | Pat.EmptyBlock _ -> TPat.Const(TConstValue.Unit, ty)
         | Pat.Record(fieldPats = fieldPats) ->
@@ -177,8 +166,6 @@ module Freeze =
 
             let subPats =
                 if args.Length = 1 then
-                    // Strip an `EnclosedBlock(Tuple [...])` or `Tuple [...]`
-                    // wrapper for multi-field ctor patterns.
                     match args.[0] with
                     | Pat.EnclosedBlock(pat = Pat.Tuple(patterns = pats)) -> [ for sub in pats -> translatePat ctx sub ]
                     | Pat.EnclosedBlock(pat = inner) -> [ translatePat ctx inner ]
@@ -190,16 +177,14 @@ module Freeze =
             TPat.Union(caseName, subPats, ty)
         | _ -> failwithf "Freeze.translatePat: TODO %A" p
 
-    /// `()` literal. Distinct entry point because `Expr.EmptyBlock` carries
-    /// `ParenKind` + closing token, not a `Constant`.
+    /// `()` literal. Distinct from `parseConst` because `Expr.EmptyBlock`
+    /// carries `ParenKind` + closing token, not a `Constant`.
     let private unitConst (ctx: PassContext) (e: Expr<SyntaxToken>) : TExpr =
         let key = CstKeys.ofExpr e
         TExpr.Const(TConstValue.Unit, typeOfKey ctx key)
 
-    /// Try to interpret `e` as a class-name reference (single-segment
-    /// uppercase ident that's in `ctx.ClassTypes` and has no local
-    /// `Binding` entry — i.e. it really is a class name, not a
-    /// shadowing local). Returns `ValueNone` for anything else.
+    /// Class-name reference only when there's no local `Binding` entry — i.e. it
+    /// really is a class name, not a shadowing local.
     let private tryClassRef (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption =
         let key = CstKeys.ofExpr e
 
@@ -225,8 +210,7 @@ module Freeze =
 
     /// Peel an `Expr.App` argument that may be a single `EnclosedBlock`
     /// wrapping a `Tuple` (the F# parser shape for `Point(3, 4)`) so
-    /// downstream consumers see the constructor's declared arity
-    /// directly.
+    /// downstream consumers see the constructor's declared arity directly.
     let private peelCtorArgs
         (ctx: PassContext)
         (translate: Expr<SyntaxToken> -> TExpr)
@@ -255,9 +239,8 @@ module Freeze =
         | Expr.EmptyBlock _ -> []
         | a -> [ translate a ]
 
-    /// Look up `memberName` on the resolved nominal type `typeName` — a class or
-    /// (P3d.3) a union augmentation. Returns the member-info entry, or
-    /// `ValueNone` if the type / member is unknown.
+    /// Look up `memberName` on `typeName` — a class or (P3d.3) a union
+    /// augmentation.
     let private tryClassMember (ctx: PassContext) (typeName: string) (memberName: string) : ClassMemberInfo voption =
         let pick (members: ClassMemberInfo[]) =
             match members |> Array.tryFind (fun m -> m.Name = memberName) with
@@ -271,11 +254,9 @@ module Freeze =
             | true, info -> pick info.Members
             | false, _ -> ValueNone
 
-    /// Resolve a multi-segment `head.M` long-ident to a (receiver-type,
-    /// member-info) pair when the head segment is a local binding and
-    /// its resolved type is a `TyClass` whose member `M` is known. Used
-    /// by Freeze to fold method-call / property-read patterns that the
-    /// parser emits as `LongIdent` rather than `DotLookup`.
+    /// Resolve `head.M` when the head is a local binding of a `TyClass`/`TyUnion`
+    /// with a known member `M`. The parser folds the dot into the long ident
+    /// rather than emitting `DotLookup` when the head is a regular identifier.
     let private tryLongIdentClassTail
         (ctx: PassContext)
         (li: LongIdent<SyntaxToken>)
@@ -302,11 +283,9 @@ module Freeze =
                         | ValueNone -> ValueNone
                     | _ -> ValueNone
 
-    /// Resolve a two-segment `ClassName.MemberName` long-ident to the
-    /// static member info, when both segments name a known class /
-    /// static member. Returns `ValueNone` if either is unknown or the
-    /// member is an instance member (use `tryLongIdentClassTail` for
-    /// instance dispatch on a local binding).
+    /// Resolve `ClassName.MemberName` to its static member info. `ValueNone` if
+    /// either is unknown or the member is an instance member (use
+    /// `tryLongIdentClassTail` for instance dispatch on a local binding).
     let private tryLongIdentStaticMember
         (ctx: PassContext)
         (li: LongIdent<SyntaxToken>)
@@ -329,11 +308,9 @@ module Freeze =
                 | true, info -> pick info.Members
                 | false, _ -> ValueNone
 
-    /// Try to interpret `e` as a DU ctor reference and return the case
-    /// name. Handles single-segment `Circle`, two-segment `Result2.Ok`,
-    /// and either inside an `Expr.Ident` or `Expr.LongIdentOrOp`. Returns
-    /// `ValueNone` for anything else (including local bindings whose
-    /// names happen to match a ctor — they have a `Binding` entry).
+    /// DU ctor reference (`Circle`, `Result2.Ok`), returning the case name.
+    /// Excludes local bindings whose names happen to match a ctor — they have a
+    /// `Binding` entry.
     let private tryCtorRef (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption =
         let key = CstKeys.ofExpr e
 
@@ -369,8 +346,7 @@ module Freeze =
             | _ -> ValueNone
 
     /// `[1; 2; 3]` parses as `EnclosedBlock(ParenKind.List, Sequential [...])`;
-    /// a one-item literal `[1]` skips the Sequential wrapper. Peel back to a
-    /// flat list of element expressions so the caller can translate each.
+    /// a one-item literal `[1]` skips the Sequential wrapper.
     let private listLiteralItems (body: Expr<SyntaxToken>) : Expr<SyntaxToken> list =
         match body with
         | Expr.Sequential(exprs = items) -> [ for x in items -> x ]
@@ -387,13 +363,11 @@ module Freeze =
             && ctx.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
             ->
             // `r.X` (or chained `r.X.Y`) parsed as a single multi-segment
-            // LongIdent. The head segment was resolved by NameResolution
-            // as a local binding; subsequent segments are field accesses.
+            // LongIdent: head resolved as a local binding, rest field accesses.
             translateLongIdentFieldChain ctx li ty
-        // `new T(args)` constructor call — Unification stamps `ty`
-        // with the `TyClass` (carrying any generic args). The CST-side
-        // fallback is purely defensive for error paths where
-        // Unification couldn't pin the receiver.
+        // `new T(args)` — Unification stamps `ty` with the `TyClass`. The CST-side
+        // fallback is purely defensive for error paths where Unification couldn't
+        // pin the receiver.
         | Expr.New(typ = t; expr = argExpr) ->
             let className =
                 match Unification.zonk ty with
@@ -411,8 +385,8 @@ module Freeze =
 
             let args = peelOneArg (translateExpr ctx) argExpr
             TExpr.New(className, args, ty)
-        // Class-name-as-function application: `Point(3, 4)`. The parser
-        // gives `Expr.App (Ident Point, [EnclosedBlock(Tuple)])`.
+        // Class-name-as-function application: `Point(3, 4)` parses as
+        // `Expr.App (Ident Point, [EnclosedBlock(Tuple)])`.
         | Expr.App(fn, args) when (tryClassRef ctx fn).IsSome ->
             let className = (tryClassRef ctx fn).Value
             let argsList = peelCtorArgs ctx (translateExpr ctx) args
@@ -422,8 +396,7 @@ module Freeze =
             let argsList = peelOneArg (translateExpr ctx) arg
             TExpr.New(className, argsList, ty)
         // Class instance method invocation: `r.M(args)` →
-        // `App(DotLookup(r, ., M), args)`. We detect it by inspecting
-        // the receiver's resolved type and the member kind.
+        // `App(DotLookup(r, ., M), args)`.
         | Expr.App(funcExpr = Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li); argExprs = args) when
             li.Idents.Length = 1
             && (
@@ -456,10 +429,9 @@ module Freeze =
             let argsList = peelOneArg (translateExpr ctx) arg
             TExpr.MethodCall(translateExpr ctx r, memberName, argsList, ty)
         // `p.M(args)` parses as `App` / `HighPrecedenceApp` whose fn is
-        // an `Expr.LongIdentOrOp(LongIdent [p; M])` — the parser folds
-        // the dot into the long ident rather than emitting `DotLookup`
-        // when the head is a regular identifier. Detect and fold to
-        // MethodCall.
+        // `Expr.LongIdentOrOp(LongIdent [p; M])` — the parser folds the dot into
+        // the long ident rather than emitting `DotLookup` when the head is a
+        // regular identifier. Fold to MethodCall.
         | Expr.App(funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) as fn; argExprs = args) when
             (match tryLongIdentClassTail ctx li with
              | ValueSome(_, _, m) -> m.Kind = ClassMemberKind.Method
@@ -484,10 +456,9 @@ module Freeze =
                 let argsList = peelOneArg (translateExpr ctx) arg
                 TExpr.MethodCall(receiver, memberName, argsList, ty)
             | ValueNone -> failwithf "Freeze: unreachable %A" fn
-        // `p.X` (property) parses as `Expr.LongIdentOrOp(LongIdent[p; X])`
-        // when the head is a regular identifier. Fold to PropertyGet if
-        // X resolves to a class property; otherwise leave to the chained
-        // FieldGet path below.
+        // `p.X` (property) parses as `Expr.LongIdentOrOp(LongIdent[p; X])` when
+        // the head is a regular identifier. Anything not a class property falls
+        // to the chained FieldGet path below.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             (match tryLongIdentClassTail ctx li with
              | ValueSome(_, _, m) -> m.Kind = ClassMemberKind.Property
@@ -499,7 +470,6 @@ module Freeze =
                 let receiver = TExpr.Var(bindingSite, receiverTy)
                 TExpr.PropertyGet(receiver, memberName, ty)
             | ValueNone -> failwith "Freeze: unreachable"
-        // `ClassName.M(args)` — static method invocation.
         | Expr.App(funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) as fn; argExprs = args) when
             (match tryLongIdentStaticMember ctx li with
              | ValueSome(_, m) -> m.Kind = ClassMemberKind.Method
@@ -534,30 +504,24 @@ module Freeze =
                 TExpr.StaticPropertyGet(className, memberName, ty)
             | ValueNone -> failwith "Freeze: unreachable"
         | _ when (tryCtorRef ctx e).IsSome ->
-            // Bare or qualified ctor reference outside an App. Nullary
-            // ctors translate as `UnionCons(name, [], ty)`; ctor-as-value
-            // (`let f = Circle`) types as `TyFun(_, TyUnion _)` — in that
-            // case the TAST node is still a UnionCons-like reference, but
-            // we fall through to a function-typed External (lowering can
-            // eta-expand if needed). v1 distinguishes by the result type.
+            // Bare or qualified ctor reference outside an App. v1 distinguishes
+            // nullary ctor (→ `UnionCons`) from ctor-as-value (`let f = Circle`,
+            // typed `TyFun(_, TyUnion _)` → External) by the result type.
             match Unification.zonk ty with
             | TyUnion(_, _) ->
                 let caseName = (tryCtorRef ctx e).Value
                 TExpr.UnionCons(caseName, [], ty)
             | _ ->
-                // Function-typed ctor reference (ctor-as-value). Emit a
-                // External — codegen can eta-expand to a UnionCons lambda.
+                // Function-typed ctor-as-value; codegen can eta-expand to a
+                // UnionCons lambda.
                 let caseName = (tryCtorRef ctx e).Value
                 TExpr.External(caseName, ty)
         | Expr.Ident _
         | Expr.LongIdentOrOp _ -> translateIdent ctx e key ty
         | Expr.App(fn, args) when (tryCtorRef ctx fn).IsSome ->
-            // Ctor application: `Circle 1.0` or `Rectangle(2.0, 3.0)`.
-            // The parser hands `Rectangle(2.0, 3.0)` as `Expr.App` with a
-            // single `Expr.EnclosedBlock(Tuple)` argument; F# treats DU
-            // arguments as a single tuple, but the TAST flattens it back
-            // to a per-field list so consumers see the ctor's declared
-            // arity directly.
+            // Ctor application: `Circle 1.0` or `Rectangle(2.0, 3.0)`. F# treats
+            // DU arguments as a single tuple; the TAST flattens it back to a
+            // per-field list so consumers see the ctor's declared arity directly.
             let caseName = (tryCtorRef ctx fn).Value
 
             let argsList =
@@ -580,9 +544,8 @@ module Freeze =
                 | a -> [ translateExpr ctx a ]
 
             TExpr.UnionCons(caseName, argsList, ty)
-        // Printf happy-path call (literal format, fully applied, lowerable
-        // specifiers) — marked by `Unification.tryInferPrintfApp`. Lower to a
-        // `TExpr.Format` *before* the `App(printfn, New PrintfFormat …)`
+        // Printf happy-path call, marked by `Unification.tryInferPrintfApp`. Must
+        // lower to a `TExpr.Format` *before* the `App(printfn, New PrintfFormat …)`
         // projection below ever runs (vesper-printf-plan P1).
         | Expr.App(_, args) when ctx.PrintfApp.ContainsKey key -> translatePrintfFormat ctx key args ty
         | Expr.App(fn, args) -> translateApp ctx fn args
@@ -601,9 +564,8 @@ module Freeze =
             translateIfThenElse ctx cond thenE elifs elseB ty
         | Expr.Tuple(exprs = items) -> TExpr.Tuple([ for x in items -> translateExpr ctx x ], ty)
         | Expr.Sequential(exprs = items) -> TExpr.Sequential([ for x in items -> translateExpr ctx x ], ty)
-        // The annotation only constrained types in Unification; the TAST
-        // carries the inferred type inline, so the annotation node has no
-        // runtime representation — return the (now-constrained) inner.
+        // The annotation has no runtime representation — it only constrained
+        // types in Unification; the TAST carries the inferred type inline.
         | Expr.TypeAnnotation(expr = inner) -> translateExpr ctx inner
         | Expr.EmptyBlock(lParen = ParenKind.List _) -> translateListLikeLiteral ctx ty false []
         | Expr.EmptyBlock(lParen = ParenKind.Array _) -> translateListLikeLiteral ctx ty true []
@@ -618,10 +580,9 @@ module Freeze =
         | Expr.Match(matchExpr = scrutinee; rules = Rules(rules = rules)) ->
             TExpr.Match(translateExpr ctx scrutinee, translateRules ctx rules, ty)
         | Expr.Function(rules = Rules(rules = rules)) ->
-            // `function …` ~ `fun x -> match x with …`. The synthesised
-            // parameter has no source token, so mint a synthetic key under
-            // the function-keyword's offset and let the Match scrutinee
-            // reference it.
+            // `function …` ~ `fun x -> match x with …`. The synthesised parameter
+            // has no source token, so mint a synthetic key under the
+            // function-keyword's offset for the Match scrutinee to reference.
             let funcKey = CstKeys.ofExpr e
 
             let paramKey = NodeKey.ofSynthetic funcKey.Offset NodeKind.SynthLambdaBody
@@ -639,8 +600,7 @@ module Freeze =
         | Expr.TryFinally(tryExpr = body; finallyExpr = finallyE) ->
             TExpr.TryFinally(translateExpr ctx body, translateExpr ctx finallyE, ty)
         | Expr.Assignment(leftExpr = left; rightExpr = right) ->
-            // `r.X <- v` folds to FieldSet; everything else falls through
-            // to Assignment.
+            // `r.X <- v` folds to FieldSet; everything else to Assignment.
             let unwrapped =
                 let rec unwrap e =
                     match e with
@@ -658,16 +618,13 @@ module Freeze =
                 li.Idents.Length > 1
                 && ctx.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
                 ->
-                // `r.X <- v` parsed as Assignment(LongIdent[r;X], <-, v).
-                // The head-resolved chain peels into FieldGet for the
-                // intermediate segments and a final FieldSet for the
-                // assigned slot.
+                // `r.X <- v` parsed as Assignment(LongIdent[r;X], <-, v). The
+                // head-resolved chain peels into FieldGet for the intermediate
+                // segments and a final FieldSet for the assigned slot.
                 let receiverIdents = li.Idents
                 let lastIdx = receiverIdents.Length - 1
 
                 let receiverChain =
-                    // Translate everything up to the last segment as a
-                    // FieldGet chain; the last segment becomes FieldSet.
                     let head = receiverIdents.[0]
                     let headKey = NodeKey.ofToken head NodeKind.ExprIdent
 
@@ -740,8 +697,7 @@ module Freeze =
                 | ValueSome m when m.Kind = ClassMemberKind.Property ->
                     TExpr.PropertyGet(translateExpr ctx r, memberName, ty)
                 | _ ->
-                    // Method-as-value or unresolved member — fall back
-                    // to an External so codegen has something to emit.
+                    // Method-as-value or unresolved member.
                     TExpr.PropertyGet(translateExpr ctx r, memberName, ty)
             | _ -> TExpr.FieldGet(translateExpr ctx r, memberName, ty)
         | Expr.Null _ -> TExpr.Null ty
@@ -749,8 +705,8 @@ module Freeze =
         | Expr.SteppedRange(fromExpr = a; stepExpr = s; toExpr = b) ->
             TExpr.Range(translateExpr ctx a, Some(translateExpr ctx s), translateExpr ctx b, ty)
         | _ ->
-            // TODO: extend as the subset grows. Until then, surface the
-            // unhandled case loudly rather than emitting a broken TExpr.
+            // TODO: extend as the subset grows; surface the unhandled case
+            // loudly rather than emitting a broken TExpr.
             failwithf "Freeze.translateExpr: TODO %A" e
 
     and private translateRules (ctx: PassContext) (rules: ImmutableArray<Rule<SyntaxToken>>) : TMatchArm list =
@@ -778,9 +734,8 @@ module Freeze =
             match Unification.zonk ty with
             | TyClass(name, _) when name = PrintfSpec.printfFormatName ->
                 // Format literal at a printf call site (typed by
-                // `Unification.tryInferPrintfApp`). It denotes
-                // `new PrintfFormat<…>(text)` — the single `value: string`
-                // constructor — so codegen builds the format object.
+                // `Unification.tryInferPrintfApp`). It denotes `new
+                // PrintfFormat<…>(text)` — the single `value: string` ctor.
                 TExpr.New(
                     name,
                     [
@@ -789,23 +744,18 @@ module Freeze =
                     ty
                 )
             | _ ->
-                // An interpolated string ($"…{x}…") whose holes are all
-                // faithfully renderable lowers to a `TExpr.Format` with a
-                // `ToString` sink (D9 — the same node the printf happy path
-                // produces). Otherwise (a plain string, or an interpolation with
-                // a hole we can't render) stitch the literal text; any unrendered
-                // hole keeps its `{<expr>}` placeholder, additive over the
-                // pre-D9 behaviour.
+                // A faithfully-renderable interpolation lowers to a `TExpr.Format`
+                // (D9). Otherwise (plain string, or an unrenderable hole) stitch
+                // the literal text, keeping any unrendered hole's `{<expr>}`
+                // placeholder — additive over the pre-D9 behaviour.
                 match tryTranslateInterpolation ctx parts ty with
                 | Some node -> node
                 | None -> TExpr.Const(TConstValue.String(stitchLiteralString ctx parts), ty)
         | _ -> failwithf "Freeze.translateString: not a String expr: %A" e
 
-    /// Stitch the source text of a string's literal parts. Interpolation holes
-    /// have no rendering on this path, so they surface as `{<expr>}` placeholders
-    /// (deterministic test output); `translateString` only reaches here for plain
-    /// strings, printf format literals, and interpolations a hole kept off the
-    /// `TExpr.Format` path.
+    /// Interpolation holes have no rendering on this path, so they surface as
+    /// `{<expr>}` placeholders. Only reached for plain strings, printf format
+    /// literals, and interpolations a hole kept off the `TExpr.Format` path.
     and private stitchLiteralString (ctx: PassContext) (parts: ImmutableArray<StringPart<SyntaxToken>>) : string =
         let sb = System.Text.StringBuilder()
 
@@ -826,11 +776,10 @@ module Freeze =
     /// alignment)` triple a `FormatSeg.Hole` carries, or `None` if it can't be
     /// rendered faithfully. A printf-style `%d{x}` reuses
     /// `PrintfSpec.tryHoleFormat` (so it covers exactly the specifiers the printf
-    /// happy path does); a plain `{x}` / `{x:fmt}` is a `Formatted` hole whose
-    /// `:fmt` clause (the token text minus the leading `:`) becomes the .NET
-    /// format string. Interpolation alignment (`{x,n}`) isn't representable here —
-    /// the parser folds `x,n` into a tuple expression — so alignment is always
-    /// `None` for the plain forms.
+    /// happy path does); a plain `{x}` / `{x:fmt}` is a `Formatted` hole.
+    /// Interpolation alignment (`{x,n}`) isn't representable here — the parser
+    /// folds `x,n` into a tuple expression — so alignment is always `None` for
+    /// the plain forms.
     and private tryInterpHoleSpec
         (ctx: PassContext)
         (formatSpecifier: SyntaxToken voption)
@@ -855,12 +804,11 @@ module Freeze =
 
             Some(PrintfSpec.HoleKind.Formatted, fmt, None)
 
-    /// Lower an interpolated string ($"…{x}…") to a `TExpr.Format` with a
-    /// `ToString` sink (D9). Returns `None` — keeping the literal-stitch
-    /// fallback — when the string has no holes (a plain literal), or any hole
-    /// isn't faithfully renderable: a free (unresolved) hole type, an
-    /// orphan/standalone `%spec` or lexer-error part, or a printf-typed `%d{x}`
-    /// whose specifier the happy path doesn't cover.
+    /// Lower an interpolated string ($"…{x}…") to a `TExpr.Format` (D9). Returns
+    /// `None` — keeping the literal-stitch fallback — when the string has no
+    /// holes, or any hole isn't faithfully renderable: a free (unresolved) hole
+    /// type, an orphan/standalone `%spec` or lexer-error part, or a printf-typed
+    /// `%d{x}` whose specifier the happy path doesn't cover.
     and private tryTranslateInterpolation
         (ctx: PassContext)
         (parts: ImmutableArray<StringPart<SyntaxToken>>)
@@ -879,10 +827,10 @@ module Freeze =
         for part in parts do
             if lowerable then
                 match part with
-                // Literal runs. `%%` collapses to a single `%` (an interpolated
-                // string rides the same PrintfFormat machinery as printf);
-                // escape sequences stay verbatim — the same unescaping gap
-                // `stitchLiteralString` / `translatePrintfFormat` carry.
+                // `%%` collapses to `%` (an interpolated string rides the same
+                // PrintfFormat machinery as printf); escape sequences stay
+                // verbatim — the unescaping gap `stitchLiteralString` /
+                // `translatePrintfFormat` carry.
                 | StringPart.Text t
                 | StringPart.EscapeSequence t
                 | StringPart.VerbatimEscapeQuote t -> litRun.Append((ctx.NameOf t).Replace("%%", "%")) |> ignore
@@ -911,9 +859,9 @@ module Freeze =
                                 )
                             )
                         | None -> lowerable <- false
-                // A standalone `%spec`, an orphan specifier, or a lexer-error
-                // part has interpolation-specific semantics we don't model — keep
-                // the whole string on the literal-stitch fallback.
+                // A standalone `%spec`, orphan specifier, or lexer-error part has
+                // interpolation-specific semantics we don't model — keep the whole
+                // string on the literal-stitch fallback.
                 | StringPart.FormatSpecifier _
                 | StringPart.OrphanFormatSpecifier _
                 | StringPart.InvalidText _ -> lowerable <- false
@@ -928,10 +876,9 @@ module Freeze =
         match ctx.Binding.TryGetValue key with
         | ValueSome rb -> TExpr.Var(rb.BindingSite, ty)
         | ValueNone ->
-            // No Binding entry => NameResolution resolved through the
-            // provider. Re-query for the name. Multi-segment qualified
-            // names are joined with `.` so `External` carries the same key
-            // the provider sees.
+            // No Binding entry => NameResolution resolved through the provider.
+            // Multi-segment names are joined with `.` so `External` carries the
+            // same key the provider sees.
             let name =
                 match e with
                 | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) -> li.Idents |> Seq.map ctx.NameOf |> String.concat "."
@@ -945,9 +892,8 @@ module Freeze =
 
             TExpr.External(name, ty)
 
-    /// Fold a multi-segment `r.X.Y…` LongIdent into nested `FieldGet`
-    /// nodes. The head segment's TAST node is a `Var` pointing back at the
-    /// local binding; each subsequent segment unwraps one field.
+    /// Fold a multi-segment `r.X.Y…` LongIdent into nested `FieldGet` nodes. The
+    /// head segment's TAST node is a `Var` pointing back at the local binding.
     and private translateLongIdentFieldChain
         (ctx: PassContext)
         (li: LongIdent<SyntaxToken>)
@@ -958,10 +904,8 @@ module Freeze =
         let headBinding = ctx.Binding.TryGetValue headKey
 
         let headTy =
-            // The head's TyVar lives under the same key NameResolution
-            // wrote — but Unification didn't allocate a Side-table entry
-            // for the synthetic head key, so fall back to the binding
-            // site's TyVar.
+            // Unification didn't allocate a side-table entry for the synthetic
+            // head key, so fall back to the binding site's TyVar.
             match headBinding with
             | ValueSome rb -> typeOfKey ctx rb.BindingSite
             | ValueNone -> finalTy
@@ -977,8 +921,8 @@ module Freeze =
         for i = 1 to li.Idents.Length - 1 do
             let seg = li.Idents.[i]
             let segName = ctx.NameOf seg
-            // Walk through TyRecord to find the field's declared type for
-            // each intermediate step; the last step uses finalTy.
+            // Intermediate steps recover the field's declared type via TyRecord;
+            // the last step uses finalTy.
             let stepTy =
                 if i = li.Idents.Length - 1 then
                     finalTy
@@ -995,10 +939,9 @@ module Freeze =
                         | false, _ -> finalTy
                     | _ -> finalTy
 
-            // Use PropertyGet when the receiver is a class and the
-            // segment is a property; FieldGet otherwise. Method members
-            // accessed without an application keep PropertyGet as
-            // their TAST shape — codegen can eta-expand if needed.
+            // PropertyGet for a class/union member, FieldGet otherwise. Method
+            // members accessed without an application keep the PropertyGet shape —
+            // codegen can eta-expand if needed.
             let node =
                 match Unification.zonk currTy with
                 | TyClass(clsName, _) ->
@@ -1006,9 +949,9 @@ module Freeze =
                     | true, info when info.Members |> Array.exists (fun m -> m.Name = segName) ->
                         TExpr.PropertyGet(curr, segName, stepTy)
                     | _ -> TExpr.FieldGet(curr, segName, stepTy)
-                // A union receiver's segment is an augmentation member (P3d.3):
-                // `xs.IsEmpty`, `t.Length`. Surfaced as a `PropertyGet` (codegen
-                // calls its `get_<name>`); anything unknown stays a `FieldGet`.
+                // A union receiver's segment is an augmentation member (P3d.3,
+                // `xs.IsEmpty`) → `PropertyGet` (codegen calls its `get_<name>`);
+                // anything unknown stays a `FieldGet`.
                 | TyUnion(unionName, _) ->
                     match ctx.UnionTypes.TryGetValue unionName with
                     | true, info when info.Members |> Array.exists (fun m -> m.Name = segName) ->
@@ -1046,8 +989,7 @@ module Freeze =
         result
 
     /// Lower a marked printf call (`Unification.tryInferPrintfApp` recorded a
-    /// `PrintfApp` sink for it) into a `TExpr.Format`: walk the literal format's
-    /// parts into interleaved `Lit` / `Hole` segments, pairing each specifier
+    /// `PrintfApp` sink for it) into a `TExpr.Format`, pairing each specifier
     /// with the next argument in spec order (the format is arg 0). The happy
     /// path therefore never produces a `New PrintfFormat` / `App printfn`.
     and private translatePrintfFormat
@@ -1082,17 +1024,16 @@ module Freeze =
             | StringPart.Text t
             | StringPart.EscapeSequence t
             | StringPart.VerbatimEscapeQuote t ->
-                // Verbatim source text, matching `translateString` (escape
-                // unescaping is a separate, pre-existing gap shared with it).
-                // `%%` is the printf escape for a literal `%`; the lexer folds
-                // the escape into a raw `Text` part ("%%"), so collapse it here —
-                // there is no runtime format pass to do it. A real specifier is
-                // its own `FormatSpecifier` part, so every `%` in a raw run is
-                // half of a `%%` pair; `"%%%%"` collapses to `"%%"`.
+                // Verbatim source text (escape unescaping is a pre-existing gap
+                // shared with `translateString`). `%%` is the printf escape for a
+                // literal `%`; the lexer folds it into a raw `Text` part, and
+                // there's no runtime format pass to collapse it, so collapse here.
+                // A real specifier is its own `FormatSpecifier` part, so every `%`
+                // in a raw run is half of a `%%` pair.
                 litRun.Append((ctx.NameOf t).Replace("%%", "%")) |> ignore
             | StringPart.EscapePercent _ ->
-                // `%%` denotes a literal `%`. The FSharp.Core path collapses it
-                // in its runtime format pass; there's none here, so collapse now.
+                // `%%` denotes a literal `%`; no runtime format pass here, so
+                // collapse now (the FSharp.Core path does it at runtime).
                 litRun.Append('%') |> ignore
             | StringPart.FormatSpecifier t ->
                 flushLit ()
@@ -1149,11 +1090,10 @@ module Freeze =
         : TExpr =
         match ctx.Desugared.TryGetValue key with
         | ValueSome(DesugaredForm.OpName name) ->
-            // Reconstruct the operator's type from the known arms instead
-            // of re-instantiating the scheme. Re-instantiation would mint
-            // fresh TypeVars that the existing TyVar table doesn't link
-            // anywhere, so the External's carried type would not match the
-            // App chain's resolved arms.
+            // Reconstruct the operator's type from the resolved arms, not by
+            // re-instantiating the scheme: re-instantiation would mint fresh
+            // TypeVars the existing TyVar table doesn't link, so the External's
+            // carried type wouldn't match the App chain's resolved arms.
             let leftTy = typeOfKey ctx (CstKeys.ofExpr left)
             let rightTy = typeOfKey ctx (CstKeys.ofExpr right)
             let partialTy = TyFun(rightTy, resultTy)
@@ -1163,9 +1103,8 @@ module Freeze =
             TExpr.App(app1, translateExpr ctx right, resultTy)
         | ValueSome _
         | ValueNone ->
-            // Either Desugar didn't recognise the operator (bug), the
-            // InfixApp is malformed, or a non-OpName form was attached
-            // (can't happen for an InfixApp key). Surface loudly.
+            // Desugar always attaches an OpName for an InfixApp key; reaching
+            // here is a bug. Surface loudly.
             failwithf "Freeze: InfixApp at %O missing DesugaredForm entry" key
 
     and private translatePrefix
@@ -1176,9 +1115,8 @@ module Freeze =
         : TExpr =
         match ctx.Desugared.TryGetValue key with
         | ValueSome(DesugaredForm.OpName name) ->
-            // See translateInfix: reconstruct the operator's type from the
-            // resolved operand + result rather than re-instantiating the
-            // scheme.
+            // See translateInfix: reconstruct from the resolved operand + result
+            // rather than re-instantiating the scheme.
             let operandTy = typeOfKey ctx (CstKeys.ofExpr operand)
             let opTy = TyFun(operandTy, resultTy)
             let opExpr = TExpr.External(name, opTy)
@@ -1186,15 +1124,12 @@ module Freeze =
         | ValueSome _
         | ValueNone -> failwithf "Freeze: PrefixApp at %O missing DesugaredForm entry" key
 
-    /// Project `[…]` / `[|…|]` literals into the shared `Cons` / `Nil`
-    /// chain Unification typed them with. Arrays additionally route through
-    /// an `Array.ofList` call so codegen sees a single lowering target —
-    /// the list chain — and applies the array conversion at the boundary.
-    /// Element type is recovered from the literal's frozen type (a
-    /// `TyRecord(name, [elem])` shape minted in `inferListLikeLiteral` /
-    /// `emptyListLikeLiteral`); a degenerate type falls back to a free
-    /// TyVar so downstream consumers see *some* element type rather than
-    /// a malformed node.
+    /// Project `[…]` / `[|…|]` literals into the shared `Cons` / `Nil` chain
+    /// Unification typed them with. Arrays additionally route through `Array.ofList`
+    /// so codegen sees a single lowering target — the list chain. Element type is
+    /// recovered from the literal's frozen type; a degenerate type falls back to a
+    /// free TyVar so downstream consumers see *some* element type, not a malformed
+    /// node.
     and private translateListLikeLiteral
         (ctx: PassContext)
         (literalTy: SemType)
@@ -1211,11 +1146,10 @@ module Freeze =
 
         // A program-declared list union (resolved via the `'T list = List<'T>`
         // abbrev — see `Unification.listLiteralTy`) drives `[…]` construction
-        // through that union's own case factories: the nullary case is the
-        // empty terminator, the single binary case is cons. Absent it (a normal
-        // program, or an array literal), the FSharp.Core `Cons`/`Nil` nominal is
-        // the default. Arrays never retarget — they always route through the
-        // FSharp.Core list chain + the `Array.ofList` boundary below.
+        // through that union's own case factories: nullary case = empty
+        // terminator, single binary case = cons. Absent it (a normal program, or
+        // any array literal), the FSharp.Core `Cons`/`Nil` nominal is the default.
+        // Arrays never retarget — always the list chain + `Array.ofList` boundary.
         let listTy, consName, nilName =
             match zonked with
             | TyUnion(unionName, _) when not isArray && ctx.UnionTypes.ContainsKey unionName ->
@@ -1237,9 +1171,7 @@ module Freeze =
 
         if isArray then
             let arrayTy = TyRecord("Microsoft.FSharp.Core.[]", [ elemTy ])
-            // Codegen is responsible for resolving `Array.ofList` against
-            // its target — the .NET path maps to
-            // `Microsoft.FSharp.Collections.ArrayModule.OfList`; alternate
+            // Codegen resolves `Array.ofList` against its target; alternate
             // targets are free to swap the wrapper.
             let opName = "Microsoft.FSharp.Collections.ArrayModule.OfList"
             let opTy = TyFun(listTy, arrayTy)
@@ -1260,8 +1192,7 @@ module Freeze =
             | ValueSome(ElseBranch(expr = e)) -> e
             | ValueNone -> failwith "Freeze: if-then without else not yet supported"
 
-        // Fold elifs right-to-left, nesting each as the else-branch of the
-        // previous. Result is `if cond then thenE else (if c1 then e1 else (… else elseExpr))`.
+        // Fold elifs right-to-left, each nested as the else-branch of the previous.
         let mutable nestedElse = translateExpr ctx elseExpr
 
         for i = elifs.Length - 1 downto 0 do
@@ -1310,8 +1241,7 @@ module Freeze =
 
             result
         | ValueNone ->
-            // `Expr.LetOrUse(body = ValueNone)` is `use fixed`, which the
-            // tiny subset doesn't support. Surface loudly when it appears.
+            // `Expr.LetOrUse(body = ValueNone)` is `use fixed`, not yet supported.
             failwith "Freeze: Expr.LetOrUse with no body (UseFixed) not supported"
 
     and private translateBinding (ctx: PassContext) (b: Binding<SyntaxToken>) : TExpr =
@@ -1321,16 +1251,13 @@ module Freeze =
             // `let f x y = body` is `let f = fun x y -> body`.
             translateFun ctx b.argumentPats b.expr
 
-    // ---- Interface-shaped type declarations (self-host rung 1) ----
-    //
-    // Rung 1 surfaces exactly one emittable type shape: an interface (a nominal
-    // type whose object-model body is all-abstract members, no base, no preamble).
-    // The `Invoke` signature is built straight from the CST here — a declaring-type
-    // typar becomes a `TyConst "'A"` marker the backend maps to a generic-parameter
-    // index. Abbrevs (incl. Part-A primitive bindings), records, unions, and
-    // concrete classes surface nothing. See docs/self-host-rung1-plan.md.
+    // Interface-shaped type declarations (self-host rung 1).
+    // Rung 1 surfaces exactly one emittable type shape: an interface (an
+    // object-model body of all-abstract members, no base, no preamble). A
+    // declaring-type typar becomes a `TyConst "'A"` marker the backend maps to a
+    // generic-parameter index. Abbrevs (incl. Part-A primitive bindings), records,
+    // unions, and concrete classes surface nothing. See docs/self-host-rung1-plan.md.
 
-    /// The simple (last-segment) name of a type definition.
     let private typeNameSimple (ctx: PassContext) (tn: TypeName<SyntaxToken>) : string =
         let (TypeName(ident = li)) = tn
 
@@ -1339,11 +1266,10 @@ module Freeze =
         else
             ctx.NameOf li.Idents.[li.Idents.Length - 1]
 
-    /// Rewrite a resolved member signature's declaring-type typars (free
-    /// `TyVar`s, identified by their zonked root) to the `TyConst "'A"` markers
-    /// the backend's typar encoder consumes. Anything else passes through
-    /// unchanged — a member-level generic or a leftover inference var stays a
-    /// `TyVar`, which the backend then rejects loudly (out of scope for rung 1).
+    /// Rewrite declaring-type typars (free `TyVar`s, by zonked root) to the
+    /// `TyConst "'A"` markers the backend's typar encoder consumes. Anything else
+    /// passes through unchanged — a leftover inference var stays a `TyVar`, which
+    /// the backend rejects loudly (out of scope for rung 1).
     let private remapDeclTypars (markers: (TypeVar * string) list) (t: SemType) : SemType =
         let rec go t =
             match t with
@@ -1365,11 +1291,9 @@ module Freeze =
 
     /// Classify an object-model body as an interface — every element an abstract
     /// method signature, no base type, no `let`/`do` preamble — and build its
-    /// methods from the *resolved* member signatures NameResolution/Unification
-    /// recorded in `ctx.ClassTypes` (an `Anon`/`Interface` registers as a class).
-    /// Returns the declared typar names and methods, else None (a concrete
-    /// member / field / inherit ⇒ a class or a later rung; or the type was never
-    /// registered, e.g. a duplicate-name error upstream).
+    /// methods from the *resolved* member signatures in `ctx.ClassTypes` (an
+    /// `Anon`/`Interface` registers as a class). None for a concrete
+    /// member/field/inherit (a class or later rung) or a never-registered type.
     let private tryInterfaceMethods
         (ctx: PassContext)
         (name: string)
@@ -1391,10 +1315,9 @@ module Freeze =
             match ctx.ClassTypes.TryGetValue name with
             | false, _ -> None
             | true, info ->
-                // Each declaring typar's prototype TyVar (its zonked root) maps to
-                // the source typar name used as the backend marker. The member
-                // signatures share these prototype TyVars (Unification typed them
-                // under the class's typar scope), so the remap reaches every typar.
+                // The member signatures share these prototype TyVars (Unification
+                // typed them under the class's typar scope), so the remap reaches
+                // every typar.
                 let markers =
                     [
                         for (n, ptv) in info.TypeParams do
@@ -1407,10 +1330,10 @@ module Freeze =
                     [
                         for m in info.Members do
                             if m.Kind = ClassMemberKind.Method then
-                                // A generic method's own typars get markers too, so
+                                // A generic method's own typars get markers too so
                                 // the backend routes them to `GenericMethodParameter`
-                                // (declaring typars stay `GenericTypeParameter`). Both
-                                // become `TyConst "name"`; the name picks the table.
+                                // (declaring typars stay `GenericTypeParameter`); the
+                                // `TyConst "name"` picks the table.
                                 let methodMarkers =
                                     markers
                                     @ [
@@ -1442,11 +1365,10 @@ module Freeze =
 
         walk b.headPat
 
-    /// Flatten a member binding's argument patterns into `(bindingKey, ty)`
-    /// pairs, in declaration order — the parameter list a member's emitted
-    /// method binds (`this` is separate). The binding key is the same one
-    /// `translatePat` mints, so a `Var` reference in the body resolves to it.
-    /// Only simple parameters (a single ident per arg group) are surfaced (v1).
+    /// Member parameter list as `(bindingKey, ty)` pairs in declaration order
+    /// (`this` is separate). The binding key is the same one `translatePat` mints,
+    /// so a `Var` reference in the body resolves to it. Only simple parameters (a
+    /// single ident per arg group) are surfaced (v1).
     let private memberParams (ctx: PassContext) (b: Binding<SyntaxToken>) : (NodeKey * SemType) list =
         [
             for p in b.argumentPats do
@@ -1456,8 +1378,7 @@ module Freeze =
         ]
 
     /// Translate one union augmentation member element into a `TTypeMember`
-    /// (P3d.3). Methods / properties carry their lowered body; a property has no
-    /// parameters. Instance members reference `this` via `info.ThisKey`.
+    /// (P3d.3). Instance members reference `this` via `info.ThisKey`.
     let private translateUnionMember
         (ctx: PassContext)
         (info: UnionTypeInfo)
@@ -1502,11 +1423,10 @@ module Freeze =
         | _ -> ValueNone
 
     /// Surface a `TypeDefn.Union` as a `TDecl.Type` from the resolved
-    /// `UnionTypeInfo` (registered by NameResolution, field-typed by
-    /// Unification). Field types are zonked, and any declaring-type typar is
-    /// remapped to a `TyConst "'A"` marker (a no-op for a monomorphic union —
-    /// `TypeParams` empty — but the right shape for the generic union rung).
-    /// Augmentation members (`ext`) are surfaced as `TTypeMember`s (P3d.3).
+    /// `UnionTypeInfo`. Any declaring-type typar is remapped to a `TyConst "'A"`
+    /// marker (a no-op for a monomorphic union — `TypeParams` empty — but the
+    /// right shape for the generic union rung). Augmentation members (`ext`) are
+    /// surfaced as `TTypeMember`s (P3d.3).
     let private tryUnionType
         (ctx: PassContext)
         (ns: string option)
@@ -1588,7 +1508,6 @@ module Freeze =
         | TypeDefn.Union(typeName = tn; extensions = ext) -> tryUnionType ctx ns (typeNameSimple ctx tn) ext
         | _ -> None
 
-    /// Joined dotted text of a namespace's long identifier.
     let private longIdentText (ctx: PassContext) (li: LongIdent<SyntaxToken>) : string =
         li.Idents |> Seq.map ctx.NameOf |> String.concat "."
 
@@ -1609,10 +1528,10 @@ module Freeze =
             let eT = translateExpr ctx e
             [ TDecl.Expression(eT, typeOfKey ctx (CstKeys.ofExpr e)) ]
         | ModuleElem.Type defs -> defs |> Seq.choose (tryTypeDecl ctx ns) |> List.ofSeq
-        // A nested `module Foo = …` surfaces its body declarations flat at the
-        // enclosing namespace (v1 has no module-scoped types), mirroring the
-        // analysis passes' `CstWalk.implFileElems` flattening. Proper module
-        // nesting is a later rung (docs/selfhost-handoff.md G10).
+        // A nested `module Foo = …` surfaces its body flat at the enclosing
+        // namespace (v1 has no module-scoped types), mirroring the analysis
+        // passes' `CstWalk.implFileElems` flattening. Proper module nesting is a
+        // later rung (docs/selfhost-handoff.md G10).
         | ModuleElem.Module(ModuleDefn.ModuleDefn(body = ModuleDefnBody(elements = inner))) ->
             match inner with
             | ValueSome innerElems -> innerElems |> Seq.collect (translateModuleElem ctx ns) |> List.ofSeq
@@ -1641,9 +1560,7 @@ module Freeze =
         {
             Decls = decls
             Diagnostics = List.ofSeq ctx.Diagnostics
-            // Snapshot the primitive-binding representations NameResolution
-            // diverted out of `AbbreviationTypes`, so the backend can key the
-            // emitted IL type off the representation string (G7) without the
-            // PassContext.
+            // Snapshot so the backend can key the emitted IL type off the
+            // representation string (G7) without the PassContext.
             IntrinsicReprTypes = ctx.IntrinsicReprTypes |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
         }

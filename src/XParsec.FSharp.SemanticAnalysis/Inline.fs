@@ -3,20 +3,18 @@ namespace XParsec.FSharp.SemanticAnalysis
 open System.Collections.Generic
 
 // Codegen-facing helper for `let inline` expansion. Lives here (not in a
-// pass) because the front-end pipeline never calls it — it's invoked by the
-// downstream codegen layer once per call site, after Freeze has produced a
-// self-contained TAST and the side tables have been discarded.
+// pass) because the front-end pipeline never calls it — codegen invokes it
+// once per call site, after Freeze has produced a self-contained TAST and the
+// side tables have been discarded.
 //
 // The retained body of an `inline` binding carries its typars as free
 // `TyVar` roots: the binding's generalised scheme quantified them, and the
 // ResolvedTypes validator guarantees no *other* free TyVar survives into the
-// frozen TAST. To expand at a call site, codegen resolves those typars to
-// the caller's concrete types and substitutes them through the body.
-// `inlineExpand` does exactly that type substitution; `freshen` does the
-// NodeKey renaming so independent call sites don't alias each other's bound
-// names (and thus codegen local slots). One thing stays the caller's
-// responsibility: argument (beta) reduction of the resulting lambda against
-// the actual arguments — it needs the call-site args the caller holds.
+// frozen TAST. `inlineExpand` substitutes those typars to the caller's
+// concrete types; `freshen` does the NodeKey renaming so independent call
+// sites don't alias each other's bound names (and thus codegen local slots).
+// The caller still owns argument (beta) reduction of the resulting lambda
+// against the actual arguments — it needs the call-site args the caller holds.
 
 module Inline =
 
@@ -54,10 +52,9 @@ module Inline =
         go declTy
         List.ofSeq acc
 
-    /// Substitute typar roots present in `subst`. The frozen TAST is already
-    /// zonked, so a free typar shows up as `TyVar root` with no Link — we
-    /// chase to the union-find root and swap it for the caller's type. Roots
-    /// absent from `subst` are returned unchanged (still abstract).
+    /// Substitute typar roots present in `subst`. The frozen TAST is zonked,
+    /// so a free typar is `TyVar root` with no Link; chase to the union-find
+    /// root and swap. Roots absent from `subst` stay abstract.
     let rec private substType (subst: Dictionary<TypeVar, SemType>) (t: SemType) : SemType =
         match t with
         | TyVar tv ->

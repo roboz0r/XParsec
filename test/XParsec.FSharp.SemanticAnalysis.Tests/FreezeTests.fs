@@ -88,7 +88,7 @@ let tests =
             }
 
             test "TVar references the original headPat NodeKey" {
-                // "let x = 1\nlet y = x" — y's RHS references x's binding key.
+                // y's RHS references x's binding key.
                 let tast = analyse "let x = 1\nlet y = x"
                 let xKey = NodeKey.ofSource 4 NodeKind.PatIdent
 

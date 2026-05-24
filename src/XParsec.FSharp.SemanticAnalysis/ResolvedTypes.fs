@@ -6,12 +6,10 @@ open System.Collections.Generic
 // Post: ctx.Diagnostics carries an Error per TDecl whose TAST still
 //       references an unresolved TyVar.
 //
-// Cheap sanity walk: every TAST node carries an inline `ty: SemType`. After
-// generalisation + freeze, every reachable TyVar should either bottom out in
-// a concrete shape (TyConst, TyFun, TyTuple, TyRecord, TyUnion, TyClass) via
-// union-find Link chains, or be a quantified typar of the enclosing
-// generalised `let`. Anything else is an inference bug — codegen would later
-// fail in much less informative ways.
+// Invariant checked: after generalisation + freeze, every reachable TyVar
+// should either bottom out in a concrete shape via union-find Link chains, or
+// be a quantified typar of the enclosing generalised `let`. Anything else is
+// an inference bug — codegen would later fail in much less informative ways.
 //
 // Stays on indefinitely (see docs/front-end-gaps-plan.md §D). Turning it off
 // lets latent generalisation bugs surface as broken IL much later.

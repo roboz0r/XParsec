@@ -17,7 +17,7 @@ let tests =
         "Desugar"
         [
             test "InfixApp with `+` -> OpName \"op_Addition\"" {
-                // "let x = 1 + 2" — InfixApp keys on the operator's offset (`+` at offset 10).
+                // InfixApp keys on the operator's offset (`+` at 10).
                 let ctx = analyse "let x = 1 + 2"
                 let infixKey = NodeKey.ofSource 10 NodeKind.ExprInfixApp
 
@@ -41,17 +41,13 @@ let tests =
             }
 
             test "nested InfixApp records both operators" {
-                // "let x = 1 + 2 * 3" — outer InfixApp at offset 8 ('+'),
-                // inner InfixApp at offset 12 ('*' RHS).
-                // Left-associative parsing makes outer left = '1 + 2', so
-                // the outer-most InfixApp spans the whole expression and
-                // starts at offset 8; the inner is `2 * 3` at offset 12.
+                // Left-assoc parsing: outer InfixApp ('+') at 8, inner ('*') at 12.
                 let ctx = analyse "let x = 1 + 2 * 3"
                 Expect.isGreaterThanOrEqual ctx.Desugared.Count 2 "at least two ops"
             }
 
             test "list literal `[1; 2]` records DesugaredForm.ListLiteral" {
-                // "let xs = [1; 2]" — the EnclosedBlock opens with `[` at offset 9.
+                // EnclosedBlock `[` at offset 9.
                 let ctx = analyse "let xs = [1; 2]"
                 let blockKey = NodeKey.ofSource 9 NodeKind.ExprEnclosedBlock
 

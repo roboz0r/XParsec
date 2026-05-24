@@ -5,23 +5,18 @@ open Expecto
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// `ClrArtifact.FSharpCoreDependencies` records — positively — which FSharp.Core
-// constructs the emission referenced. Empty ⇒ the PE has no `FSharp.Core.dll`
-// dependency, so `materialiseApp` ships the app without it; non-empty is the
-// list of constructs still pinning the dependency (the §D3 cut list). Every
-// FSharp.Core reference is minted through `ClrProvider`, which marks each
-// use-site, so the set is authoritative.
+// `ClrArtifact.FSharpCoreDependencies` records which FSharp.Core constructs the
+// emission referenced. Empty ⇒ no `FSharp.Core.dll` dependency, so
+// `materialiseApp` ships the app without it; non-empty is the §D3 cut list. The
+// set is authoritative because every FSharp.Core reference is minted (and
+// marked) through `ClrProvider`.
 
 [<Tests>]
 let tests =
     testList
         "FSharpCoreDeps"
         [
-            // ---- The happy path pins nothing ----
-
             test "a happy-path `printfn` references no FSharp.Core construct" {
-                // Lowered to `Vesper.Formatter` + `System.Console`; arithmetic and
-                // literals touch no FSharp.Core type. So the set is empty.
                 let _, artifact = compileSource "DepsHappyPrintf" "printfn \"%d\" 42"
                 Expect.isEmpty artifact.FSharpCoreDependencies "happy-path printf has no FSharp.Core dependency"
             }
@@ -31,13 +26,10 @@ let tests =
                 Expect.isEmpty artifact.FSharpCoreDependencies "interpolation has no FSharp.Core dependency"
             }
 
-            // G6 / P2: before the provider's refs were made `lazy`, constructing
-            // `ClrProvider` added FSharp.Core's `AssemblyRef` eagerly — so *every*
-            // executable carried a dead FSharp.Core reference row even when no IL
-            // bound against it (the use-set was empty, but the table wasn't). Now an
-            // `AssemblyRef` row is added only when a ref is actually forced, so a
-            // happy-path program's metadata genuinely references no FSharp.Core: the
-            // table matches the use-set.
+            // G6 / P2: the provider's refs are `lazy`, so an `AssemblyRef` row is
+            // added only when a ref is actually forced. Before that, constructing
+            // `ClrProvider` added FSharp.Core's `AssemblyRef` eagerly — every
+            // executable carried a dead reference row even with an empty use-set.
             test "a happy-path executable carries no FSharp.Core reference row (G6)" {
                 let _, artifact = compileSource "DepsCleanExe" "printfn \"%d\" 42"
                 Expect.isEmpty artifact.FSharpCoreDependencies "the use-set is empty"
@@ -49,8 +41,6 @@ let tests =
                     (refs |> Array.contains "FSharp.Core")
                     (sprintf "no FSharp.Core AssemblyRef row in the executable (refs: %A)" refs)
             }
-
-            // ---- Cold paths name exactly what pins them ----
 
             test "`printfn \"%A\"` (cold path) pins PrintfModule + PrintfFormat" {
                 let _, artifact = compileSource "DepsColdPrintf" "printfn \"%A\" 42"
@@ -85,8 +75,6 @@ let tests =
                 Expect.contains deps "Microsoft.FSharp.Core.FSharpFunc`2 (closure base)" "synthesised closure base"
                 Expect.contains deps "Microsoft.FSharp.Collections.FSharpList`1" "the list argument"
             }
-
-            // ---- The on-disk payoff: a zero-dependency app ships without FSharp.Core ----
 
             test "`materialiseApp` omits FSharp.Core.dll for a zero-dependency app, which still runs" {
                 let outDir = tmpDir "no-fsharpcore-app"

@@ -7,25 +7,15 @@ open XParsec.FSharp.Lexer
 // The format grammar itself is NOT re-implemented here: the lexer already
 // classifies each `%[flags][width][.precision][type]` placeholder into a
 // `FormatType` (see `Lexing.parseFormatSpecifier`). This module supplies only
-// the *semantic* layer on top of that:
-//   1. `argType` — the `FormatType -> SemType` typing map (which value type a
-//      specifier consumes), collapsing the cases that type identically (all
-//      integer bases -> int; `%A`/`%O` -> a fresh type variable) while leaving
-//      the `FormatType` itself to carry the finer distinction for codegen.
-//   2. A small table describing the printf entry points (`printf`, `printfn`,
-//      `sprintf`, `fprintf`, `eprintf`, …) — which positional argument carries
-//      the format string, and the `PrintfFormat<_,_,_,_>` type-arg shape each
-//      family imposes.
+// the *semantic* layer on top of that.
 //
 // Named `PrintfSpec` (not `Printf`) so it never collides with the bare
 // `Printf` module auto-opened from `Microsoft.FSharp.Core`.
 
 module PrintfSpec =
 
-    /// Canonical compiled name for the `PrintfFormat<_,_,_,_>` type. The
-    /// format literal at a printf call site freezes to a `New` of this type
-    /// (a single `value: string` constructor), and the entry points' format
-    /// parameter is `PrintfFormat<'Printer, 'State, 'Residue, 'Result>`.
+    /// The format literal at a printf call site freezes to a `New` of this type
+    /// (a single `value: string` constructor).
     [<Literal>]
     let printfFormatName = "Microsoft.FSharp.Core.PrintfFormat"
 
@@ -34,24 +24,18 @@ module PrintfSpec =
     let private tyTextWriter: SemType = TyConst "System.IO.TextWriter"
 
     /// Target-agnostic classification of a printf entry point's output sink,
-    /// resolved from the entry-point name. Drives the happy-path lowering's
-    /// `FormatSink` (a CLR target maps `StdOut`/`StdErr` to
-    /// `Console.Out`/`.Error`; a JS target would map them to its own console).
-    /// Recorded on `PassContext.PrintfApp` for the calls P1 lowers inline; see
-    /// docs/vesper-printf-plan.md.
+    /// resolved from the entry-point name. Recorded on `PassContext.PrintfApp`
+    /// for the calls P1 lowers inline; see docs/vesper-printf-plan.md.
     [<RequireQualifiedAccess>]
     type PrintfSink =
         | StdOut of newline: bool
         | StdErr of newline: bool
         | StringResult
 
-    /// The output sink of a (possibly qualified) printf entry point, for the P1
-    /// happy-path families only — `printf` / `printfn` / `eprintf` / `eprintfn`
-    /// / `sprintf`, all with the format at arg 0. `fprintf` / `bprintf` (an
-    /// explicit writer/builder leading arg) and every other name return
-    /// `ValueNone`, keeping the existing FSharp.Core path. Keyed on the last
-    /// `.`-segment so `Printf.printfn` and bare `printfn` both hit (mirrors
-    /// `tryFamily`).
+    /// P1 happy-path families only — all with the format at arg 0. `fprintf` /
+    /// `bprintf` and every other name return `ValueNone`, keeping the existing
+    /// FSharp.Core path. Keyed on the last `.`-segment so `Printf.printfn` and
+    /// bare `printfn` both hit (mirrors `tryFamily`).
     let sinkOf (name: string) : PrintfSink voption =
         let short =
             let dot = name.LastIndexOf '.'
@@ -65,17 +49,14 @@ module PrintfSpec =
         | "sprintf" -> ValueSome PrintfSink.StringResult
         | _ -> ValueNone
 
-    /// How a hole is lowered at the call site — picks the `Vesper.Formatter`
-    /// member `Emit.emitFormat` calls. `Ty` alone can't disambiguate (`%o` and
-    /// `%u` are both `int`-typed), so `tryHoleFormat` tags each hole with a kind.
-    /// `Formatted` is the default (everything that maps onto
-    /// `AppendFormatted<T>` under a .NET format string); the others need a
-    /// dedicated handler member because they have no such mapping.
+    /// `Ty` alone can't disambiguate (`%o` and `%u` are both `int`-typed), so
+    /// `tryHoleFormat` tags each hole with a kind. `Formatted` is the default
+    /// (everything that maps onto `AppendFormatted<T>` under a .NET format
+    /// string); the others need a dedicated handler member because they have no
+    /// such mapping.
     ///
     /// Lives here (not in `Tast.fs`) because `PrintfSpec.fs` compiles before
-    /// `Tast.fs`, and `tryHoleFormat` — the single place that classifies a
-    /// specifier — must name the kind it returns. `Tast.HoleSpec.Kind`
-    /// references it.
+    /// `Tast.fs` and `Tast.HoleSpec.Kind` references it.
     [<RequireQualifiedAccess>]
     type HoleKind =
         /// `AppendFormatted<Ty>(v [,alignment] [,format])`.
@@ -284,12 +265,11 @@ module PrintfSpec =
             | FormatType.Text -> ValueNone
 
     /// SemType of the argument a specifier consumes, or `ValueNone` for the
-    /// specifiers v1 doesn't type. `%A` (`Structured`) and `%O` (`Object`)
-    /// both consume a polymorphic argument — a fresh type variable from
-    /// `fresh` — and the `%A`-vs-`%O` distinction, irrelevant to typing, stays
-    /// in the `FormatType` for codegen. `%a` (callback) and `%t` (thunk)
-    /// involve the `State`/`Residue` typars and aren't modelled yet, so they
-    /// return `ValueNone`; the caller then falls through to standard inference.
+    /// specifiers v1 doesn't type. `%A`/`%O` both consume a polymorphic argument
+    /// (a fresh type variable); the `%A`-vs-`%O` distinction, irrelevant to
+    /// typing, stays in the `FormatType` for codegen. `%a`/`%t` aren't modelled
+    /// yet, so they return `ValueNone` and the caller falls through to standard
+    /// inference.
     let argType (fresh: unit -> SemType) (t: FormatType) : SemType voption =
         match t with
         | FormatType.Bool -> ValueSome(TyConst "bool")
@@ -309,13 +289,11 @@ module PrintfSpec =
         | FormatType.FormatFunction
         | FormatType.Text -> ValueNone
 
-    /// Per-entry-point description. `FormatArgIndex` is the positional slot of
-    /// the format string (0 for `printf`/`sprintf`/…; 1 for `fprintf`, after
-    /// the `TextWriter`). `Tail` is the final result of the curried printer
-    /// (`unit` for the writing families, `string` for `sprintf`). `State` /
-    /// `Residue` / `Result` are the remaining `PrintfFormat` type args.
-    /// `LeadingArgTypes` is the expected types of the arguments before the
-    /// format (length = `FormatArgIndex`).
+    /// `FormatArgIndex` is the positional slot of the format string (0 for
+    /// `printf`/`sprintf`/…; 1 for `fprintf`, after the `TextWriter`). `Tail` is
+    /// the final result of the curried printer (`unit` for the writing families,
+    /// `string` for `sprintf`). `LeadingArgTypes` is the expected types of the
+    /// arguments before the format (length = `FormatArgIndex`).
     type Family =
         {
             FormatArgIndex: int
@@ -326,9 +304,6 @@ module PrintfSpec =
             LeadingArgTypes: SemType list
         }
 
-    /// TextWriter-backed families (`printf`, `printfn`, `eprintf`, …): the
-    /// printer ends in `unit`, the format is `PrintfFormat<_, TextWriter,
-    /// unit, unit>`.
     let private writerFamily (formatArgIndex: int) (leading: SemType list) : Family =
         {
             FormatArgIndex = formatArgIndex
@@ -339,8 +314,6 @@ module PrintfSpec =
             LeadingArgTypes = leading
         }
 
-    /// `sprintf` builds a string: printer ends in `string`, the format is
-    /// `PrintfFormat<_, unit, string, string>`.
     let private stringFamily: Family =
         {
             FormatArgIndex = 0
@@ -351,11 +324,9 @@ module PrintfSpec =
             LeadingArgTypes = []
         }
 
-    /// Recognised printf entry points, keyed by source short name. v1 covers
-    /// `printf`, `printfn`, `sprintf`, `fprintf`, `eprintf` (plus the `…n`
-    /// newline variants). `bprintf` / the `k*`-continuation family are out of
-    /// scope — they carry extra leading arguments and aren't needed by the
-    /// canonical sample.
+    /// Keyed by source short name. `bprintf` / the `k*`-continuation family are
+    /// out of scope — they carry extra leading arguments and aren't needed by
+    /// the canonical sample.
     let families: Map<string, Family> =
         [
             "printf", writerFamily 0 []
@@ -368,9 +339,8 @@ module PrintfSpec =
         ]
         |> Map.ofList
 
-    /// Resolve a (possibly qualified) name to its printf family, keyed on the
-    /// last `.`-separated segment so `Printf.printfn` and a bare `printfn`
-    /// both hit. `ValueNone` for non-printf names.
+    /// Keyed on the last `.`-separated segment so `Printf.printfn` and a bare
+    /// `printfn` both hit.
     let tryFamily (name: string) : Family voption =
         let short =
             let dot = name.LastIndexOf '.'
@@ -380,21 +350,17 @@ module PrintfSpec =
         | Some f -> ValueSome f
         | None -> ValueNone
 
-    /// Build `PrintfFormat<printer, state, residue, result>`.
     let formatType (printer: SemType) (fam: Family) : SemType =
         TyClass(printfFormatName, [ printer; fam.State; fam.Residue; fam.Result ])
 
-    /// Curry resolved argument types onto the family's tail, e.g. `[int] ->
-    /// int -> unit`, `[string; int] -> string -> int -> unit`.
+    /// Curry resolved argument types onto the family's tail.
     let printerType (argTypes: SemType list) (fam: Family) : SemType =
         List.foldBack (fun a r -> TyFun(a, r)) argTypes fam.Tail
 
-    /// The entry point's full curried type for a known specifier list, plus
-    /// the format type and printer type computed along the way. Shape:
-    /// `leading… -> PrintfFormat<printer,…> -> printer`. `ValueNone` when any
-    /// specifier isn't typeable in v1 (`%a` / `%t`) — the caller then defers
-    /// to standard inference. `fresh` supplies a type variable per polymorphic
-    /// (`%A` / `%O`) argument.
+    /// Shape: `leading… -> PrintfFormat<printer,…> -> printer`, plus the format
+    /// type and printer type computed along the way. `ValueNone` when any
+    /// specifier isn't typeable in v1 (`%a` / `%t`) — the caller then defers to
+    /// standard inference.
     let appliedTypeOf
         (fresh: unit -> SemType)
         (specs: FormatType list)
@@ -420,9 +386,8 @@ module PrintfSpec =
             ValueSome(fnTy, fmt, printer)
 
     /// The entry point's *generic* signature `leading… -> PrintfFormat<'T,…>
-    /// -> 'T`, where `'T` is a single fresh printer type variable. Used by
-    /// `MockBuiltins` to register the symbol so the non-literal fallback (and
-    /// plain name resolution) sees a coherent type.
+    /// -> 'T`. Used by `MockBuiltins` so the non-literal fallback (and plain name
+    /// resolution) sees a coherent type.
     let genericSignature (fresh: unit -> SemType) (fam: Family) : SemType =
         let printer = fresh ()
         let fmt = formatType printer fam

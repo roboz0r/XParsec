@@ -17,26 +17,23 @@ open XParsec.FSharp.SemanticAnalysis
 
 module Regions =
 
-    /// Per-region graph node. `Level` is the let-depth the region lives at
-    /// (its lifetime upper bound). `MintFunctionLevel` is the let-depth of
-    /// the innermost enclosing function-body at mint time; the seed rule
-    /// `Level < MintFunctionLevel` catches values that escape that
-    /// function's frame.
+    /// `Level` is the let-depth the region lives at (its lifetime upper bound).
+    /// `MintFunctionLevel` is the let-depth of the innermost enclosing
+    /// function-body at mint time; the seed rule `Level < MintFunctionLevel`
+    /// catches values that escape that function's frame.
     type private RegionNode =
         {
             Id: RegionId
             Level: int
             MintFunctionLevel: int
             IsLambda: bool
-            /// True for the cell region of a `let mutable` binding. Lowers
-            /// the lambda-reach threshold from 2 to 1 (any closure capture
-            /// forces HeapShared — .NET hoists captured mutables into a
-            /// compiler-generated ref cell, Rust requires Rc<RefCell<…>>).
-            /// See docs/mutable-plan.md.
+            /// True for the cell region of a `let mutable` binding. Lowers the
+            /// lambda-reach threshold from 2 to 1: any closure capture forces
+            /// HeapShared (.NET hoists captured mutables into a ref cell, Rust
+            /// requires Rc<RefCell<…>>). See docs/mutable-plan.md.
             IsMutableCell: bool
-            /// Force-seed (used by the conservative fallback to mark
-            /// unhandled constructs as HeapShared without relying on the
-            /// level / lambda-count heuristics).
+            /// Force-seed: the conservative fallback uses it to mark unhandled
+            /// constructs HeapShared without the level / lambda-count heuristics.
             InitialState: EscapeState voption
             mutable Outlives: ResizeArray<RegionId>
         }
@@ -79,13 +76,13 @@ module Regions =
             /// re-deriving it from the TyVar.
             BindingRegions: Dictionary<NodeKey, RegionId>
             mutable LetLevel: int
-            /// Let-level of the binding whose RHS we are currently
-            /// evaluating. Allocations inside the RHS use this as their
-            /// `Level` so they share the binding's lifetime upper bound.
+            /// Let-level of the binding whose RHS we are currently evaluating.
+            /// Allocations inside the RHS use this as their `Level` so they
+            /// share the binding's lifetime upper bound.
             mutable EnclosingLet: int
-            /// Stack of let-levels at function-body entry. The top is the
-            /// "frame depth" of the innermost enclosing function — used by
-            /// the seed rule and as `MintFunctionLevel` on new regions.
+            /// Stack of let-levels at function-body entry. The top is the frame
+            /// depth of the innermost enclosing function — used by the seed rule
+            /// and as `MintFunctionLevel` on new regions.
             FunctionStack: ResizeArray<int>
         }
 
@@ -100,10 +97,9 @@ module Regions =
     let private exitFun (s: State) : unit =
         s.FunctionStack.RemoveAt(s.FunctionStack.Count - 1)
 
-    /// Resolve a `SemType` through its UnionFind root's Link chain (one
-    /// pass — no walk into compound shapes). Same shape as
-    /// `Unification.resolveStep` but inlined here so Regions doesn't need
-    /// to depend on Unification's private surface.
+    /// Resolve a `SemType` through its UnionFind root's Link chain (no walk
+    /// into compound shapes). Same as `Unification.resolveStep` but inlined so
+    /// Regions doesn't depend on Unification's private surface.
     let rec private resolveLink (t: SemType) : SemType =
         match t with
         | TyVar tv ->
@@ -114,11 +110,10 @@ module Regions =
             | ValueNone -> TyVar root
         | _ -> t
 
-    /// "Does this type represent an allocation we should track?" Primitive
-    /// scalars (`int`, `bool`, …) and `unit` don't allocate; function
-    /// types (closures), tuples, and other named composites do. Free
-    /// TyVars resolve as non-allocating — conservative on the "don't
-    /// stamp" side; the caller can override for known-allocating
+    /// Does this type represent an allocation we should track? Primitive
+    /// scalars and `unit` don't allocate; closures, tuples, and named
+    /// composites do. Free TyVars resolve as non-allocating — conservative on
+    /// the "don't stamp" side; the caller can override for known-allocating
     /// constructors (Fun, Tuple).
     let rec private isAllocation (t: SemType) : bool =
         match resolveLink t with
@@ -180,20 +175,20 @@ module Regions =
                 && (li.Idents.Length = 1 && ctx.CtorIndex.ContainsKey last
                     || li.Idents.Length = 2 && ctx.UnionTypes.ContainsKey(ctx.NameOf li.Idents.[0])))
             ->
-            // Ctor pattern: head binds nothing; sub-patterns introduce
-            // binders. The sub-pattern arg may be a single tuple in the
-            // multi-field case — recurse and let the Tuple arm flatten.
+            // Ctor pattern: head binds nothing; sub-patterns introduce binders.
+            // A multi-field arg may be a single tuple — recurse and let the
+            // Tuple arm flatten.
             [
                 for sub in args do
                     yield! bindersOfPat ctx sub
             ]
         | _ -> []
 
-    /// Find every binding-site NodeKey referenced by `body` whose binder
-    /// lies outside `body`. The `locals` set is seeded with the lambda's
-    /// own parameter pattern keys and grown as the walker enters any
-    /// internal scope-introducing construct. Any Ident use whose
-    /// `BindingSite` isn't in `locals` is a free variable.
+    /// Find every binding-site NodeKey referenced by `body` whose binder lies
+    /// outside `body` (the free variables). `locals` is seeded with the
+    /// lambda's own parameter pattern keys and grown as the walker enters any
+    /// internal scope-introducing construct; any Ident use whose `BindingSite`
+    /// isn't in `locals` is free.
     let private collectFreeVarBindingSites
         (ctx: PassContext)
         (paramBinders: NodeKey list)
@@ -226,10 +221,8 @@ module Regions =
                                 locals.Add(k) |> ignore
                 EnterBindingRhs =
                     fun () _ _ b ->
-                        // Sibling names are already added when the let-body
-                        // is entered (or pre-added for the rec self-reference
-                        // via EnterLetBody below); function-form arg pats
-                        // are local to this RHS.
+                        // Sibling names are already added via EnterLetBody;
+                        // function-form arg pats are local to this RHS.
                         if not b.argumentPats.IsEmpty then
                             for p in b.argumentPats do
                                 for k in bindersOfPat ctx p do
@@ -250,12 +243,10 @@ module Regions =
                             locals.Add(k) |> ignore
             }
 
-        // EnterBindingRhs above handles inner let-bodies, but the body's
-        // own outer let-bindings need their headPats in `locals` before any
-        // sibling RHS runs. The walker calls EnterBindingRhs per binding
-        // and EnterLetBody only when stepping into the body of the let,
-        // so headPats of a let-group are visible to sibling RHSes via the
-        // walker pre-collecting them here.
+        // A let-group's headPats must be in `locals` before any sibling RHS
+        // runs. The walker calls EnterLetBody only when stepping into the
+        // let's body, so it pre-collects headPats so they're visible to
+        // sibling RHSes.
         CstWalk.iterExpr walker () body
         result
 
@@ -283,26 +274,22 @@ module Regions =
         | Expr.RecordClone(expr = src; fieldInitializers = inits) -> recordCloneRegion s ctx src inits
         | Expr.New(expr = argExpr) -> newRegion s ctx argExpr
         | Expr.DotLookup(expr = inner) ->
-            // Field read: the access expression's region is the receiver's
-            // region — accessing a field doesn't produce a new allocation
-            // (unless the field's own type allocates, but that's tracked
-            // via the receiver's region). Walk the inner expression so its
-            // capture edges still register.
+            // Field read produces no new allocation, so the access region is
+            // the receiver's region (the field's own allocation is tracked via
+            // the receiver). Walk inner so its capture edges still register.
             inferRegion s ctx inner
         | Expr.Assignment(leftExpr = l; rightExpr = r) ->
-            // `lhs <- rhs`: the value stored into the cell must escape at
-            // least as wide as the cell. Edge runs rhs → cell so that
-            // propagation pushes the cell's state BACK onto every value
-            // stored into it: once the cell is seeded HeapShared by the
-            // threshold-of-1 closure-capture rule, each rhs lubs up to
-            // match. This is the OPPOSITE direction from tuple-holds-item
-            // (`AddEdge(tuple, item)`, tuple lubs up from items); the use
-            // cases differ — tuples need "any item heap-shared ⇒ tuple
-            // heap-shared," cells need "cell heap-shared ⇒ stored values
-            // heap-shared." AddEdge short-circuits on RegionId.Unknown,
-            // so non-Ident LHSes (record fields, array indices) that
-            // route through the conservative fallback need no special-
-            // case here.
+            // `lhs <- rhs`: the stored value must escape at least as wide as
+            // the cell. Edge runs rhs → cell so propagation pushes the cell's
+            // state BACK onto every value stored into it (once the cell is
+            // seeded HeapShared by the threshold-of-1 closure-capture rule,
+            // each rhs lubs up to match). This is the OPPOSITE direction from
+            // tuple-holds-item (`AddEdge(tuple, item)`, tuple lubs up from
+            // items): tuples need "any item heap-shared ⇒ tuple heap-shared",
+            // cells need "cell heap-shared ⇒ stored values heap-shared".
+            // AddEdge short-circuits on RegionId.Unknown, so non-Ident LHSes
+            // (record fields, array indices) routing through the conservative
+            // fallback need no special case here.
             let lhsR = inferRegion s ctx l
             let rhsR = inferRegion s ctx r
             s.Graph.AddEdge(rhsR, lhsR)
@@ -340,16 +327,15 @@ module Regions =
             inferRegion s ctx b |> ignore
             RegionId.Unknown
         | _ ->
-            // Conservative fallback for nodes Regions doesn't have a
-            // precise rule for: mint a region pre-seeded HeapShared so the
-            // solver classifies the value as widely as possible. Safe but
-            // pessimistic — extend the precise cases above as the subset
-            // grows. See docs/regions-plan.md §Conservative fallback.
+            // Conservative fallback for nodes with no precise rule: mint a
+            // region pre-seeded HeapShared. Safe but pessimistic — extend the
+            // precise cases above as the subset grows. See
+            // docs/regions-plan.md §Conservative fallback.
             s.Graph.Fresh(level = 0, mintFn = 0, isLambda = false, isMutableCell = false, seed = ValueSome HeapShared)
 
     and private walkUnitBody (s: State) (ctx: PassContext) (e: Expr<SyntaxToken>) : RegionId =
-        // While / ForTo / ForIn — type unit, no allocation. Walk the
-        // sub-expressions so any captures inside are still registered.
+        // While / ForTo / ForIn — type unit, no allocation. Walk sub-expressions
+        // so any captures inside are still registered.
         match e with
         | Expr.While(condition = cond; body = body) ->
             inferRegion s ctx cond |> ignore
@@ -376,8 +362,8 @@ module Regions =
         | ValueNone -> RegionId.Unknown // external — no region
 
     and private seqRegion (s: State) (ctx: PassContext) (items: ImmutableArray<Expr<SyntaxToken>>) : RegionId =
-        // Evaluate every item for side-effects (capture edges). The
-        // sequence's region is the LAST item — intermediates don't escape.
+        // Evaluate every item for side-effects (capture edges). The sequence's
+        // region is the LAST item — intermediates don't escape.
         let n = items.Length
 
         if n = 0 then
@@ -410,10 +396,9 @@ module Regions =
         r
 
     and private newRegion (s: State) (ctx: PassContext) (argExpr: Expr<SyntaxToken>) : RegionId =
-        // `new T(args)` allocates a class instance. Treat it like a
-        // tuple/record allocation: mint a region at the enclosing let-
-        // level, with one outgoing edge per constructor argument so the
-        // object's lifetime upper-bounds its arguments' lifetimes.
+        // `new T(args)` — like a tuple/record allocation: a region at the
+        // enclosing let-level, one outgoing edge per constructor argument so
+        // the object's lifetime upper-bounds its arguments' lifetimes.
         let r =
             s.Graph.Fresh(
                 level = s.EnclosingLet,
@@ -432,14 +417,13 @@ module Regions =
         (ctx: PassContext)
         (inits: ImmutableArray<FieldInitializer<SyntaxToken>>)
         : RegionId =
-        // Records allocate like tuples: one outgoing edge per field
-        // initialiser (record outlives each field's value). Mutable-field
-        // cell allocation is deferred to v1.5 — the conservative
-        // approximation here ties the field's storage lifetime to the
-        // record's own region. Assignment to a record field then routes
-        // the RHS through the receiver's region rather than a separate
-        // cell region; classifying that as too escape-wide is the safe
-        // direction.
+        // Records allocate like tuples: one outgoing edge per field initialiser
+        // (record outlives each field's value). Mutable-field cell allocation
+        // is deferred to v1.5; the conservative approximation here ties the
+        // field's storage lifetime to the record's own region. Assignment to a
+        // record field then routes the RHS through the receiver's region rather
+        // than a separate cell region — classifying that as too escape-wide is
+        // the safe direction.
         let r =
             s.Graph.Fresh(
                 level = s.EnclosingLet,
@@ -461,10 +445,9 @@ module Regions =
         (src: Expr<SyntaxToken>)
         (inits: ImmutableArray<FieldInitializer<SyntaxToken>>)
         : RegionId =
-        // Conservative v1: the clone is a new allocation that outlives both
-        // the source record and every override RHS. Sharing regions with
-        // the source's individual fields lands when the precise field-cell
-        // model does.
+        // Conservative v1: the clone is a new allocation that outlives both the
+        // source record and every override RHS. Sharing regions with the
+        // source's individual fields lands when the precise field-cell model does.
         let srcR = inferRegion s ctx src
 
         let r =
@@ -490,9 +473,9 @@ module Regions =
         (argPats: ImmutableArray<Pat<SyntaxToken>>)
         (body: Expr<SyntaxToken>)
         : RegionId =
-        // Mint the closure's region BEFORE entering the body, so the seed
-        // rule sees the outer function-stack top (= the function this
-        // lambda is being constructed inside of).
+        // Mint the closure's region BEFORE entering the body, so the seed rule
+        // sees the outer function-stack top (the function this lambda is
+        // constructed inside of).
         let r =
             s.Graph.Fresh(
                 level = s.EnclosingLet,
@@ -508,8 +491,8 @@ module Regions =
                     yield! bindersOfPat ctx p
             ]
 
-        // Capture edges first (computed before any body recursion, so the
-        // walker's `locals` set sees the right scope shape).
+        // Capture edges first, before any body recursion, so the walker's
+        // `locals` set sees the right scope shape.
         let freeVars = collectFreeVarBindingSites ctx paramBinders body
 
         for bs in freeVars do
@@ -519,32 +502,28 @@ module Regions =
 
         enterFun s
 
-        // Parameter regions live inside the lambda's own frame — register
-        // them AFTER enterFun so they pick up the new function-stack top
-        // as their MintFunctionLevel. Mirrors processBinding's order for
-        // function-form bindings.
+        // Parameter regions live inside the lambda's own frame — register AFTER
+        // enterFun so they pick up the new function-stack top as their
+        // MintFunctionLevel. Mirrors processBinding's order for function-form
+        // bindings.
         for p in argPats do
             registerParam s ctx p
 
         let bodyRegion = inferRegion s ctx body
         exitFun s
 
-        // Propagate the body's escape state up to the closure (if the
-        // function returns an allocating value, that value escapes the
-        // function's frame and the closure must reflect that). Skip when
-        // the body is a primitive / unit (no region).
+        // If the function returns an allocating value, that value escapes the
+        // function's frame and the closure must reflect that.
         s.Graph.AddEdge(r, bodyRegion)
         r
 
     and private registerParam (s: State) (ctx: PassContext) (p: Pat<SyntaxToken>) : unit =
-        // Mint ONE region per parameter pattern and thread it through
-        // every binder via recordBindingRegion — the same rule
-        // let-bindings use. For `(a, b)` the elements alias parts of the
-        // same tuple value; for `x as y` both names alias the same
-        // value. Sharing a region over-approximates safely (matches the
-        // "if any escapes, treat siblings as escaping" direction) and
-        // keeps parameter destructuring and let-destructuring on one
-        // rule. Empty-binder patterns (Const / Wildcard) skip the mint.
+        // Mint ONE region per parameter pattern, threaded through every binder
+        // via recordBindingRegion — same rule let-bindings use. Sharing a
+        // region for `(a, b)` / `x as y` over-approximates safely ("if any
+        // escapes, treat siblings as escaping") and keeps parameter and
+        // let-destructuring on one rule. Empty-binder patterns (Const /
+        // Wildcard) skip the mint.
         match bindersOfPat ctx p with
         | [] -> ()
         | _ ->
@@ -557,11 +536,9 @@ module Regions =
         (e: Expr<SyntaxToken>)
         (rules: ImmutableArray<Rule<SyntaxToken>>)
         : RegionId =
-        // `function p1 -> e1 | …` ~ `fun x -> match x with …` — a closure
-        // with one synthetic parameter. No real param NodeKey to register,
-        // so we walk the arms via the body region path. Free vars are the
-        // union of free vars over all arms (no params bind anything outside
-        // the arm).
+        // `function p1 -> e1 | …` ~ `fun x -> match x with …` — a closure with
+        // one synthetic parameter. No real param NodeKey to register, so we
+        // walk the arms via the body region path.
         let r =
             s.Graph.Fresh(
                 level = s.EnclosingLet,
@@ -571,9 +548,8 @@ module Regions =
                 seed = ValueNone
             )
 
-        // Free vars: pattern binders within each arm are local to that arm.
-        // Collect across arms by treating each arm's pattern as the local
-        // binder set for that arm's body/guard.
+        // Pattern binders within each arm are local to that arm: treat each
+        // arm's pattern as the local binder set for its body/guard.
         for r' in rules do
             match r' with
             | Rule.Rule(pat = pat; guard = guard; expr = body) ->
@@ -635,13 +611,12 @@ module Regions =
         s.EnclosingLet <- s.LetLevel
         s.LetLevel <- s.LetLevel + 1
 
-        // Pre-pass: mint a closure region for every function-form binding
-        // in the group and record it under its headPat. Sibling references
-        // (mutual let-rec, or `and` clauses generally) need the region in
-        // BindingRegions before any body walk runs, otherwise the
-        // freeVars lookup misses the sibling and drops the capture edge.
-        // Plain bindings can't be pre-minted — their region IS the RHS's
-        // region, which we only learn after walking the RHS.
+        // Pre-pass: mint a closure region for every function-form binding and
+        // record it under its headPat. Sibling references (mutual let-rec, or
+        // `and` clauses) need the region in BindingRegions before any body walk,
+        // otherwise the freeVars lookup misses the sibling and drops the capture
+        // edge. Plain bindings can't be pre-minted — their region IS the RHS's
+        // region, only known after walking the RHS.
         for b in bindings do
             if not b.argumentPats.IsEmpty then
                 let r =
@@ -663,17 +638,15 @@ module Regions =
 
     and private processBinding (s: State) (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =
         if b.argumentPats.IsEmpty then
-            // Plain binding: region(binding) = region(rhs). For
-            // pass-through values (Ident on RHS) this naturally shares
-            // the source's region (test "identifier reuse shares region").
+            // Plain binding: region(binding) = region(rhs). For pass-through
+            // values (Ident on RHS) this naturally shares the source's region.
             let rhsR = inferRegion s ctx b.expr
 
             if b.mutableToken.IsSome then
-                // `let mutable x = rhs`: the cell is distinct from the rhs
-                // value. The cell outlives every value stored into it; the
-                // rhs lubs up to match if the cell is later classified
-                // wider. See docs/mutable-plan.md §Why mutable cells need
-                // a separate region.
+                // `let mutable x = rhs`: the cell is distinct from the rhs value.
+                // The cell outlives every value stored into it; the rhs lubs up
+                // to match if the cell is later classified wider. See
+                // docs/mutable-plan.md §Why mutable cells need a separate region.
                 let cell =
                     s.Graph.Fresh(
                         level = s.EnclosingLet,
@@ -688,17 +661,16 @@ module Regions =
             else
                 recordBindingRegion s ctx b.headPat rhsR
         else
-            // Function-form binding. The closure region was pre-minted
-            // and recorded in processBindingGroup; look it up here.
+            // Function-form binding: the closure region was pre-minted in
+            // processBindingGroup; look it up here.
             let headKey = CstKeys.ofPat b.headPat
 
             let r =
                 match s.BindingRegions.TryGetValue headKey with
                 | true, r -> r
                 | false, _ ->
-                    // Defensive: any function-form binding routed through
-                    // processBindingGroup is pre-minted. Mint on demand
-                    // so the pass remains total against future callers.
+                    // Defensive: processBindingGroup pre-mints, but mint on
+                    // demand so the pass stays total against future callers.
                     let r =
                         s.Graph.Fresh(
                             level = s.EnclosingLet,
@@ -734,11 +706,10 @@ module Regions =
             exitFun s
 
     and private recordBindingRegion (s: State) (ctx: PassContext) (p: Pat<SyntaxToken>) (r: RegionId) : unit =
-        // Map every binder this pattern introduces to `r`. For a
-        // NamedSimple this is just the head; for tuples/as we recurse so
-        // each name shares the same region (rough approximation —
-        // destructuring projects each element, but for the v1 subset
-        // value-shape destructuring is rare).
+        // Map every binder this pattern introduces to `r`. Tuples/as recurse so
+        // each name shares the same region — a rough approximation
+        // (destructuring projects each element), but value-shape destructuring
+        // is rare in the v1 subset.
         match p with
         | Pat.NamedSimple _ ->
             let key = CstKeys.ofPat p
@@ -825,7 +796,6 @@ module Regions =
         for r' in rules do
             match r' with
             | Rule.Rule(pat = pat; guard = guard; expr = body) ->
-                // Match-arm patterns introduce binders local to the arm.
                 registerParam s ctx pat
 
                 match guard with
@@ -955,8 +925,8 @@ module Regions =
         | ModuleElem.Expression e -> inferRegion s ctx e |> ignore
         | _ -> ()
 
-    /// Count distinct lambda regions reachable from `start` via outlives
-    /// edges (used by the HeapShared seed rule).
+    /// Distinct lambda regions reachable from `start` via outlives edges (the
+    /// HeapShared seed rule's input).
     let private countReachableLambdas (g: RegionGraph) (start: RegionId) : int =
         let visited = HashSet<int>()
         let stack = Stack<RegionId>()
@@ -989,21 +959,19 @@ module Regions =
         let n = g.Count
         let state = Array.create n LocalStack
 
-        // Apply seeds.
         for i = 0 to n - 1 do
             let node = g.NodeOf(RegionId(i))
 
             match node.InitialState with
             | ValueSome s -> state.[i] <- s
             | ValueNone ->
-                // Level rule fires only inside a function (MintFunctionLevel
-                // is 0 for module-top mints — no escape frame to cross).
-                // Lambdas need a STRICT inequality because the closure
-                // itself lives at its bind level — a same-level closure
-                // (`let f x = ... in f 3` inside another function) doesn't
-                // escape. Non-lambda allocations (tuples, app results,
-                // if-results) use `<=` because anything constructed at the
-                // function's frame level can flow out as the return value.
+                // Level rule fires only inside a function (MintFunctionLevel is
+                // 0 for module-top mints — no escape frame to cross). Lambdas
+                // need a STRICT inequality: the closure lives at its bind level,
+                // so a same-level closure (`let f x = ... in f 3` inside another
+                // function) doesn't escape. Non-lambda allocations (tuples, app
+                // results, if-results) use `<=` because anything constructed at
+                // the function's frame level can flow out as the return value.
                 if node.MintFunctionLevel > 0 then
                     let escapes =
                         if node.IsLambda then
@@ -1014,14 +982,12 @@ module Regions =
                     if escapes then
                         state.[i] <- lub state.[i] CallerStack
 
-                // Lambda-count rule: reachable through ≥ N distinct
-                // lambdas → HeapShared. Skips lambda regions themselves so
-                // a single closure that captures itself indirectly isn't
-                // promoted spuriously. Threshold is 2 for ordinary regions
-                // (tuples, app results) and 1 for mutable cells — any
-                // closure capture of a mutable forces heap allocation
-                // (.NET ref-cell hoisting / Rust Rc<RefCell<_>>). See
-                // docs/mutable-plan.md.
+                // Lambda-count rule: reachable through ≥ N distinct lambdas →
+                // HeapShared. Skips lambda regions themselves so a closure that
+                // captures itself indirectly isn't promoted spuriously.
+                // Threshold is 2 for ordinary regions and 1 for mutable cells —
+                // any closure capture of a mutable forces heap allocation (.NET
+                // ref-cell hoisting / Rust Rc<RefCell<_>>). See docs/mutable-plan.md.
                 if not node.IsLambda then
                     let reach = countReachableLambdas g (RegionId(i))
                     let threshold = if node.IsMutableCell then 1 else 2
@@ -1064,7 +1030,6 @@ module Regions =
 
         let state = solve s.Graph
 
-        // Project per-expression / per-binding escape state via TyVar.Region.
         for kv in ctx.TypeVar.AsDictionary() do
             let tv = UnionFind.find kv.Value
 

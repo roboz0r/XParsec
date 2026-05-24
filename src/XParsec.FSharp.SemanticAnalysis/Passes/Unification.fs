@@ -11,9 +11,7 @@ open XParsec.FSharp.SemanticAnalysis
 //       via UnionFind.find. ctx.Scheme populated for every generalisable
 //       `let`-bound name (single-name headPats — see `shouldGeneralise`).
 //
-// Algorithm J + Rémy's levels: fresh TypeVar per AST node, constraints
-// generated and unified on the fly. Generalisation happens at the close of
-// each binding group; instantiation at every use of a scheme-bearing name.
+// Algorithm J + Rémy's levels.
 //
 // Tiny-subset omissions (TODO):
 //   - Value restriction is split: the *generalisation gate* on
@@ -30,12 +28,10 @@ open XParsec.FSharp.SemanticAnalysis
 
 module Unification =
 
-    /// Walk TyVar links to the equivalence-class representative; if the rep
-    /// has a Link, return its target (one level deep — call recursively for
-    /// full resolution). Stops at a measure-bearing root so the measure
-    /// stays attached: `unify` and `unitsOf` need the TyVar wrapper to
-    /// see Units, and following Link straight through to the bare carrier
-    /// would drop them.
+    /// One level deep — call recursively for full resolution. Stops at a
+    /// measure-bearing root so the measure stays attached: `unify` and
+    /// `unitsOf` need the TyVar wrapper to see Units, and following Link
+    /// straight through to the bare carrier would drop them.
     let private resolveStep (t: SemType) : SemType =
         match t with
         | TyVar tv ->
@@ -46,9 +42,8 @@ module Unification =
             | _ -> TyVar root
         | _ -> t
 
-    /// Fully resolve a SemType: walk all TyVar chains AND recurse into TyFun
-    /// arms. Used by Freeze (and tests) to materialise the final inferred
-    /// type for a node. A measure-bearing TyVar (`Units` set on its root)
+    /// Fully resolve a SemType: walk all TyVar chains AND recurse into
+    /// compound shapes. A measure-bearing TyVar (`Units` set on its root)
     /// is preserved as a TyVar rather than collapsed into its carrier —
     /// the measure rides on the root, so downstream consumers can read it
     /// off the returned `TyVar` (already a root).
@@ -67,11 +62,9 @@ module Unification =
         | TyUnion(n, args) -> TyUnion(n, List.map zonk args)
         | TyClass(n, args) -> TyClass(n, List.map zonk args)
 
-    /// Merge `source.Constraints` into `target.Constraints`, collapsing
-    /// any pair whose `Kind` already appears on the target. Two
-    /// constraints with the same `Kind` discharge to the same predicate;
-    /// keeping both would fire the diagnostic twice for what is, from
-    /// the satisfaction-checker's point of view, one rule.
+    /// Collapses any pair whose `Kind` already appears on the target: two
+    /// constraints with the same `Kind` discharge to the same predicate, so
+    /// keeping both would fire the diagnostic twice for one rule.
     let private mergeConstraints (target: TypeVar) (additions: SemanticConstraint list) : unit =
         let mutable acc = target.Constraints
 
@@ -81,7 +74,6 @@ module Unification =
 
         target.Constraints <- acc
 
-    /// Move pending deferred-constraint state from `source` onto `target`.
     /// Called whenever a TyVar is no longer the equivalence-class
     /// representative (either after union-find collapse, or when its Link is
     /// set). Bounds attached to a non-representative would otherwise never
@@ -137,10 +129,8 @@ module Unification =
         | TyUnion(_, args) -> List.exists (occursAndAdjust target) args
         | TyClass(_, args) -> List.exists (occursAndAdjust target) args
 
-    /// Merge the Units field of two union-find roots after they've been
-    /// joined into `newRoot`. Two non-equal measures emit a diagnostic; one
-    /// of them is kept on the survivor so further unifications against it
-    /// stay coherent. ValueNone on one side propagates from the other.
+    /// Two non-equal measures emit a diagnostic; one of them is kept on the
+    /// survivor so further unifications against it stay coherent.
     let private mergeUnits
         (ctx: PassContext)
         (key: NodeKey)
@@ -164,15 +154,10 @@ module Unification =
                 }
 
     /// Substitute TyVar roots that appear as keys in `subst` with their
-    /// target `SemType`. Walks compound shapes (TyFun, TyTuple, TyRecord,
-    /// TyUnion args) so a nested `'a` deep inside a named-type arg gets
-    /// rewritten the same way a top-level `'a` would. Other TyVars are
+    /// target `SemType`, recursing into compound shapes. Other TyVars are
     /// returned unchanged (followed through union-find but not their
-    /// `Link`s — that's `zonk`'s job). Used by `instantiate` to swap
-    /// quantified typars for fresh ones, and by record / union code to
-    /// substitute a type's `TypeParams` with the receiver's arg list at
-    /// every use site. Public so Freeze can reuse the same substitution
-    /// when reading field types off a generic receiver.
+    /// `Link`s — that's `zonk`'s job). Public so Freeze can reuse the same
+    /// substitution when reading field types off a generic receiver.
     let rec substituteWith (subst: Dictionary<TypeVar, SemType>) (t: SemType) : SemType =
         match t with
         | TyVar tv ->
@@ -181,18 +166,14 @@ module Unification =
             match subst.TryGetValue root with
             | true, target -> target
             | false, _ ->
-                // Field / case-arg types stored on the registry start as
-                // *placeholder* TyVars that Unification's fill-in linked
-                // to the real declared type. The placeholder's own root
-                // is never in `subst` — substitute keys are the
-                // declared type's `TypeParams`. Follow `Link` so a
-                // placeholder whose target is `TyVar typarRoot` resolves
-                // to whatever `subst[typarRoot]` says.
-                //
-                // Stop at measure-bearing roots (same rule `zonk` uses):
-                // a measured TyVar's `Link` carries the bare carrier, and
-                // following through would drop the `Units` attached to
-                // the root.
+                // Field / case-arg types stored on the registry are
+                // *placeholder* TyVars whose root is never in `subst` (keys
+                // are the declared type's `TypeParams`). Follow `Link` so a
+                // placeholder targeting `TyVar typarRoot` resolves to
+                // whatever `subst[typarRoot]` says. Stop at measure-bearing
+                // roots (same rule `zonk` uses): a measured TyVar's `Link`
+                // carries the bare carrier, and following through would drop
+                // the `Units` on the root.
                 match root.Link with
                 | ValueSome target when root.Units.IsNone -> substituteWith subst target
                 | _ -> TyVar root
@@ -203,12 +184,11 @@ module Unification =
         | TyUnion(n, args) -> TyUnion(n, [ for a in args -> substituteWith subst a ])
         | TyClass(n, args) -> TyClass(n, [ for a in args -> substituteWith subst a ])
 
-    /// Pair a named type's declared `TypeParams` with the args provided
-    /// at a use site. Empty when the lengths don't match — the caller has
-    /// already (or should) emit an arity diagnostic, and an empty subst
-    /// keeps the field types unsubstituted rather than silently mismatching.
-    /// Public so Freeze can rebuild the same substitution when projecting
-    /// fields off a generic receiver in a field-chain.
+    /// Empty when the lengths don't match — the caller has already (or
+    /// should) emit an arity diagnostic, and an empty subst keeps the field
+    /// types unsubstituted rather than silently mismatching. Public so
+    /// Freeze can rebuild the same substitution when projecting fields off a
+    /// generic receiver in a field-chain.
     let mkNamedTypeSubst (typeParams: (string * TypeVar) list) (args: SemType list) : Dictionary<TypeVar, SemType> =
         let subst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
 
@@ -217,11 +197,9 @@ module Unification =
 
         subst
 
-    /// Walk a `SemType` through TyVar Links to surface a `TyRecord _` if
-    /// the type has resolved to one. Returns ValueNone for free TyVars and
-    /// non-record concrete types. The arg list rides along so
-    /// `drainPendingDotAccess` can substitute the record's typars when
-    /// resolving deferred field accesses.
+    /// Walk a `SemType` through TyVar Links to surface a `TyRecord _`. The
+    /// arg list rides along so `drainPendingDotAccess` can substitute the
+    /// record's typars when resolving deferred field accesses.
     let rec private tryResolveRecord (t: SemType) : (string * SemType list) voption =
         match t with
         | TyRecord(n, args) -> ValueSome(n, args)
@@ -233,9 +211,7 @@ module Unification =
             | ValueNone -> ValueNone
         | _ -> ValueNone
 
-    /// Mirror of `tryResolveRecord` for `TyClass`. Used by the drain path
-    /// so a deferred dot-access against a now-pinned class receiver picks
-    /// up the right member registry.
+    /// Mirror of `tryResolveRecord` for `TyClass`.
     let rec private tryResolveClass (t: SemType) : (string * SemType list) voption =
         match t with
         | TyClass(n, args) -> ValueSome(n, args)
@@ -247,9 +223,7 @@ module Unification =
             | ValueNone -> ValueNone
         | _ -> ValueNone
 
-    /// Mirror of `tryResolveClass` for `TyUnion`. Used by the drain path so a
-    /// deferred dot-access against a now-pinned union receiver finds the union's
-    /// augmentation members (P3d.3).
+    /// Mirror of `tryResolveClass` for `TyUnion` (P3d.3 augmentation members).
     let rec private tryResolveUnion (t: SemType) : (string * SemType list) voption =
         match t with
         | TyUnion(n, args) -> ValueSome(n, args)
@@ -261,23 +235,19 @@ module Unification =
             | ValueNone -> ValueNone
         | _ -> ValueNone
 
-    /// Three-valued result of evaluating a constraint against a candidate
-    /// type. `Defer` is the "I don't know yet" answer: the target is
-    /// still free (or compound-with-free-args) and a future unification
-    /// might pin it. `drainConstraints` keeps deferred constraints on
-    /// the TyVar so they re-fire on the next `Link` change.
+    /// `Defer` is the "I don't know yet" answer: the target is still free
+    /// (or compound-with-free-args) and a future unification might pin it.
+    /// `drainConstraints` keeps deferred constraints on the TyVar so they
+    /// re-fire on the next `Link` change.
     type private ConstraintOutcome =
         | Satisfied
         | Violated
         | Defer
 
-    /// The primitive carrier set used by `primitiveSupports`. Includes
-    /// every non-string primitive `MockBuiltins` mints — `string` is
-    /// handled separately since it's a reference type.
+    /// `string` is excluded and handled separately since it's a reference type.
     let private primitiveValueTypes =
         Set.ofList [ "int"; "int64"; "byte"; "bool"; "float"; "float32"; "char"; "unit" ]
 
-    /// Source-text rendering of a `SemanticConstraintKind` for diagnostics.
     let private constraintKindName (k: SemanticConstraintKind) : string =
         match k with
         | SemanticConstraintKind.Equality -> "equality"
@@ -320,9 +290,7 @@ module Unification =
 
             migrateBounds newRoot merged
             mergeUnits ctx key newRoot unitsA unitsB
-            // Migrate Link: if one side carried a concrete target and the
-            // survivor doesn't, copy it across. If both sides carried links,
-            // unify them so the carrier types agree.
+            // If both sides carried links, unify them so the carriers agree.
             match linkA, linkB with
             | ValueNone, ValueNone -> ()
             | ValueSome _, ValueNone ->
@@ -394,14 +362,10 @@ module Unification =
                     Severity = Error
                 }
 
-    /// When a TyVar's Link is set to (or resolves to) a `TyRecord T` or
-    /// `TyClass T`, resolve any dot-access constraints that were parked
-    /// on it. Each entry unifies the access expression's result TyVar
-    /// with the field's / member's declared type; a missing field /
-    /// member produces a diagnostic. When `T` is generic, the receiver's
-    /// arg list substitutes for the type's declared typars so
-    /// `(b : Box<int>).Value` resolves to `int`, not `Box`'s prototype
-    /// `'a`.
+    /// When a TyVar's Link resolves to a `TyRecord`/`TyClass`/`TyUnion`,
+    /// resolve any dot-access constraints parked on it. When `T` is generic,
+    /// the receiver's arg list substitutes for the type's declared typars so
+    /// `(b : Box<int>).Value` resolves to `int`, not `Box`'s prototype `'a`.
     and private drainPendingDotAccess (ctx: PassContext) (root: TypeVar) (linkTarget: SemType) : unit =
         if List.isEmpty root.PendingDotAccess then
             ()
@@ -462,8 +426,7 @@ module Unification =
                                     Severity = Error
                                 }
                 | ValueNone ->
-                    // A deferred dot-access against a union receiver: resolve to
-                    // the union's augmentation members (P3d.3).
+                    // Union augmentation members (P3d.3).
                     match tryResolveUnion linkTarget with
                     | ValueNone -> ()
                     | ValueSome(unionName, args) ->
@@ -496,12 +459,9 @@ module Unification =
                                         Severity = Error
                                     }
 
-    /// Built-in primitive support table. `ValueSome true` is a definitive
-    /// "yes, this constraint holds on `name`"; `ValueSome false` is a
-    /// definitive "no, violation"; `ValueNone` means "not in the table,
-    /// fall through to structural / deferred handling". The set covers
-    /// the primitives `MockBuiltins` mints — extend as new ground types
-    /// reach the analyser.
+    /// `ValueSome true` = constraint holds; `ValueSome false` = violation;
+    /// `ValueNone` = not in the table, fall through to structural / deferred
+    /// handling.
     and private primitiveSupports (kind: SemanticConstraintKind) (name: string) : bool voption =
         let isValueType = Set.contains name primitiveValueTypes
         let isString = name = "string"
@@ -530,7 +490,6 @@ module Unification =
             elif isString then ValueSome false
             else ValueNone
 
-    /// Folded outcome of evaluating a list of `checkConstraint` results.
     /// `Violated` is sticky (once any element fails, the whole compound
     /// fails); `Defer` propagates only when no element has failed but at
     /// least one is still pending.
@@ -547,11 +506,8 @@ module Unification =
 
         result
 
-    /// Decide whether `c` is satisfied by `t`. The receiver shape is
-    /// resolved through TyVar links one step at a time; nested compounds
-    /// (TyTuple / TyRecord / TyUnion) recurse compositionally. Free
-    /// TyVars return `Defer` so the next `Link` assignment re-fires the
-    /// check via `drainConstraints`.
+    /// Free TyVars return `Defer` so the next `Link` assignment re-fires the
+    /// check via `drainConstraints`; nested compounds recurse compositionally.
     and private checkConstraint (ctx: PassContext) (c: SemanticConstraint) (t: SemType) : ConstraintOutcome =
         match c.Kind, resolveStep t with
         | _, TyVar _ -> Defer
@@ -605,15 +561,12 @@ module Unification =
             Defer
         | SemanticConstraintKind.NotNull, _ -> Defer
 
-    /// On-unified callback for type-parameter constraints. Walks
-    /// `root.Constraints`, evaluates each against the new Link target,
-    /// and emits diagnostics for any that fail. Constraints that resolve
-    /// (Satisfied) are dropped; ones that defer remain on the root and
-    /// re-fire next time `Link` changes (which, after the first set,
-    /// only happens during union-find collapse). For compound `Defer`
-    /// outcomes (the target is a TyRecord/TyUnion/TyTuple with free
-    /// arg TyVars), copy the constraint onto each still-free arg so the
-    /// next Link on any of them re-evaluates the rule compositionally.
+    /// On-unified callback for type-parameter constraints. Satisfied
+    /// constraints are dropped; deferred ones remain on the root and re-fire
+    /// next time `Link` changes (which, after the first set, only happens
+    /// during union-find collapse). For compound `Defer` outcomes, copy the
+    /// constraint onto each still-free arg so the next Link on any of them
+    /// re-evaluates the rule compositionally.
     and private drainConstraints (ctx: PassContext) (key: NodeKey) (root: TypeVar) (linkTarget: SemType) : unit =
         if List.isEmpty root.Constraints then
             ()
@@ -642,11 +595,9 @@ module Unification =
 
             root.Constraints <- List.rev remaining
 
-    /// Attach `c` to any free-TyVar arg reachable inside `linkTarget`.
-    /// Used by `drainConstraints` when a compound shape (TyRecord /
-    /// TyUnion / TyTuple) is partially resolved: the parent constraint
-    /// is satisfied iff every component supports it, so a still-free
-    /// component carries the same constraint forward.
+    /// When a compound shape is partially resolved, the parent constraint is
+    /// satisfied iff every component supports it, so a still-free component
+    /// carries the same constraint forward.
     and private propagateToFreeArgs (ctx: PassContext) (c: SemanticConstraint) (t: SemType) : unit =
         let rec walk t =
             match resolveStep t with
@@ -669,8 +620,7 @@ module Unification =
     /// SRTP arithmetic dispatch on numeric primitives. For `op_Addition`
     /// etc. on `int` the candidate "static member" type is `int * int ->
     /// int`; we synthesise it here so the unifier doesn't need to know
-    /// which provider declared the primitive. Mirrors what a real
-    /// FSharp.Core `Core.CLR.fs` dispatch arm would produce.
+    /// which provider declared the primitive.
     and private numericPrimitives =
         Set.ofList
             [
@@ -743,30 +693,21 @@ module Unification =
         match resolveStep candidate, bound.ArgTypes with
         | TyFun(TyTuple _, _), _ -> unify ctx key candidate tupled
         | _, _ :: _ :: _ ->
-            // Candidate isn't tupled — try curried decomposition.
             let curried = List.foldBack (fun a r -> TyFun(a, r)) bound.ArgTypes bound.ReturnType
 
             unify ctx key candidate curried
         | _ -> unify ctx key candidate tupled
 
-    /// On-unified callback for SRTP member-trait bounds. Fires when a
-    /// participating TyVar's `Link` is set; walks bounds and dispatches
-    /// each against either the built-in primitive table (for `TyConst`
-    /// targets like `int`) or the candidate type's `ClassTypes` entry
-    /// (for `TyClass` targets). The `Resolved` flag on the shared
-    /// `MemberSignature` instance (all participating typars hold the
-    /// same record by reference) dedupes dispatch when multiple
-    /// participating typars resolve in sequence — whichever links first
-    /// runs the drain; the others see the flag set and skip. Bounds
-    /// that can't dispatch yet (target is still a free TyVar) remain on
-    /// the root for the next `Link` event.
+    /// On-unified callback for SRTP member-trait bounds. The `Resolved` flag
+    /// on the shared `MemberSignature` instance (all participating typars
+    /// hold the same record by reference) dedupes dispatch when multiple
+    /// participating typars resolve in sequence — whichever links first runs
+    /// the drain; the others see the flag set and skip. Bounds that can't
+    /// dispatch yet (target is still a free TyVar) remain on the root.
     ///
-    /// Diagnostics use `key` — the NodeKey of the unification step that
-    /// resolved the typar, threaded through from the caller (typically
-    /// the operator/app expression's NodeKey via `inferInfix` /
-    /// `inferApp`). That's the user's call site, which is the intended
-    /// location for "Type X has no static member Y" — pointing at the
-    /// prelude's `(+)` declaration would be unhelpful.
+    /// Diagnostics use `key` — the user's call site, threaded through from
+    /// the caller — so "Type X has no static member Y" points there rather
+    /// than at the prelude's `(+)` declaration.
     and private drainSrtpBounds (ctx: PassContext) (key: NodeKey) (root: TypeVar) (linkTarget: SemType) : unit =
         if List.isEmpty root.SrtpBounds then
             ()
@@ -818,8 +759,7 @@ module Unification =
                             // pass might still be able to dispatch.
                             remaining <- b :: remaining
                     | _ ->
-                        // Target isn't a concrete type-bearing shape
-                        // yet — defer.
+                        // Target not yet a concrete type-bearing shape — defer.
                         remaining <- b :: remaining
 
             root.SrtpBounds <- List.rev remaining
@@ -830,43 +770,37 @@ module Unification =
     let private exitLevel (ctx: PassContext) : unit =
         ctx.CurrentLevel <- ctx.CurrentLevel - 1
 
-    /// Allocate a fresh, unkeyed TypeVar at the current let-depth. Used for
-    /// intermediate "result" TyVars in apps, ifs, matches — anything not
-    /// directly tied to a CST node's NodeKey.
+    /// Fresh unkeyed TypeVar — for intermediate "result" TyVars not tied to
+    /// a CST node's NodeKey.
     let private freshTyVar (ctx: PassContext) : TypeVar =
         let tv = TypeVar()
         tv.Level <- ctx.CurrentLevel
         tv
 
-    /// Allocate a fresh TypeVar for `key`, stamped at the current level, and
-    /// store it in ctx.TypeVar. Overwrites any prior entry — callers that
-    /// need "get or allocate" (e.g. for forward-referenced let-rec siblings)
-    /// must go through `tvOf`.
+    /// Overwrites any prior entry — callers that need "get or allocate"
+    /// (e.g. forward-referenced let-rec siblings) must go through `tvOf`.
     let private freshTv (ctx: PassContext) (key: NodeKey) : TypeVar =
         let tv = TypeVar()
         tv.Level <- ctx.CurrentLevel
         ctx.TypeVar.Set(key, tv)
         tv
 
-    /// Look up the TypeVar previously stored for a node. Fresh-allocates if
-    /// missing — happens for binding-site patterns that haven't been visited
-    /// yet by inferPat, including forward references inside `let rec` groups.
+    /// Get-or-allocate: fresh-allocates if missing — happens for binding-site
+    /// patterns not yet visited by inferPat, including forward references
+    /// inside `let rec` groups.
     let private tvOf (ctx: PassContext) (key: NodeKey) : TypeVar =
         match ctx.TypeVar.TryGetValue key with
         | ValueSome tv -> tv
         | ValueNone -> freshTv ctx key
 
-    /// Mint fresh TyVars at the current level for every quantifier of
-    /// `scheme`, then walk `scheme.Body` rewriting each quantified TyVar to
-    /// its fresh counterpart. Mirrors `ExternalSymbol.Instantiate` for the
-    /// finite set of `'a`s captured by a user-written `let`. Non-quantified
-    /// TyVars are left alone — they're free with respect to the surrounding
-    /// scope and must keep their identity. `scheme.Body` is already zonked
-    /// by `generalise`, so we don't follow Links here.
+    /// Mint fresh TyVars per quantifier, then rewrite `scheme.Body`.
+    /// Non-quantified TyVars are left alone — they're free w.r.t. the
+    /// surrounding scope and must keep their identity. `scheme.Body` is
+    /// already zonked by `generalise`, so we don't follow Links here.
     let private instantiate (ctx: PassContext) (scheme: TypeScheme) : SemType =
         let subst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
-        // Build the substitution and remember each fresh TyVar so the
-        // scheme's per-quantifier constraints can be re-stamped onto it.
+        // freshOf remembers each fresh TyVar so per-quantifier constraints
+        // can be re-stamped onto it below.
         let freshOf = Dictionary<TypeVar, TypeVar>(HashIdentity.Reference)
 
         for q in scheme.Quantified do
@@ -876,10 +810,9 @@ module Unification =
             subst.[qRoot] <- TyVar fresh
             freshOf.[qRoot] <- fresh
 
-        // Re-stamp constraints onto the freshly minted instance TyVars.
-        // A use site that pins the fresh TyVar will then re-evaluate
-        // satisfaction against its own substitution; the original
-        // quantified TyVars stay constraint-bearing for the next call.
+        // Re-stamp constraints onto the fresh instance TyVars so each use
+        // site re-evaluates satisfaction against its own substitution; the
+        // original quantified TyVars stay constraint-bearing for the next call.
         for (qTv, c) in scheme.Constraints do
             let qRoot = UnionFind.find qTv
 
@@ -891,17 +824,6 @@ module Unification =
 
         substituteWith subst scheme.Body
 
-    /// Walk `zonkedTy` and collect every union-find root whose Level strictly
-    /// exceeds `outerLevel` — those are the TyVars to quantify. Dedupes by
-    /// reference identity (a single TyVar can appear in multiple positions).
-    /// Quantified TyVars stay live in the union-find graph; the scheme just
-    /// captures their identities so `instantiate` can swap them per use.
-    ///
-    /// A TyVar with a concrete `Link` is not free — it has been pinned to a
-    /// specific target. We skip those even though they survive zonking when
-    /// they carry `Units` (measure-bearing TyVars). Treating them as ground
-    /// matches v1 "no measure polymorphism" — each `let f (x : float<m>) …`
-    /// has the measure baked in.
     /// True if `t` contains a TyVar whose root carries a deferred
     /// `PendingDotAccess` constraint. Such a binding cannot be safely
     /// generalised in v1 — quantifying a TyVar with pending dot accesses
@@ -928,19 +850,16 @@ module Unification =
         | TyUnion(_, args) -> List.exists hasPendingDotAccess args
         | TyClass(_, args) -> List.exists hasPendingDotAccess args
 
-    /// Walk a `SemType`, applying any `Defaults` entries on free TyVars
-    /// whose level exceeds `outerLevel`. A default fires when its target
-    /// resolves to a concrete shape (`TyConst`, `TyFun`, `TyTuple`,
-    /// `TyRecord`, `TyUnion`, `TyClass`, or another TyVar already linked
-    /// to one). Mints no fresh TyVars; only walks Link chains. Iterates
-    /// to fixpoint over the input type — a chained default like
+    /// Apply `Defaults` entries on free TyVars whose level exceeds
+    /// `outerLevel`. A default fires when its target resolves to a concrete
+    /// shape. Iterates to fixpoint — a chained default like
     /// `default ^T3 : ^T1 ; default ^T1 : int` needs two passes.
     ///
     /// Defaults walked here are *consumed*: once a fire happens (or once
     /// all candidates fail), the `Defaults` list is cleared so subsequent
-    /// passes don't re-walk dead targets. A TyVar that's been generalised
-    /// at a use-site instantiation will be re-stamped with fresh defaults
-    /// on the next call to its `Instantiate` closure.
+    /// passes don't re-walk dead targets. A TyVar generalised at a use-site
+    /// instantiation is re-stamped with fresh defaults on the next call to
+    /// its `Instantiate` closure.
     let private applyDefaults (zonkedTy: SemType) (outerLevel: int) : unit =
         let visited = HashSet<TypeVar>(HashIdentity.Reference)
 
@@ -973,10 +892,7 @@ module Unification =
 
         let candidates = collect zonkedTy
 
-        // Resolve a default target to a concrete shape if reachable.
-        // Returns ValueSome ty if the target is already concrete (or
-        // chains via Link to one); ValueNone if every TyVar in the chain
-        // is still free.
+        // ValueNone if every TyVar in the chain is still free.
         let rec resolveTarget (t: SemType) : SemType voption =
             match t with
             | TyVar tv ->
@@ -987,7 +903,6 @@ module Unification =
                 | ValueNone -> ValueNone
             | _ -> ValueSome t
 
-        // Try to default a single TyVar. Returns true if a default fired.
         let tryDefault (tv: TypeVar) : bool =
             let mutable fired = false
             let defaults = tv.Defaults
@@ -996,23 +911,16 @@ module Unification =
                 if not fired then
                     match resolveTarget target with
                     | ValueSome concrete when not (occursAndAdjust tv concrete) ->
-                        // Guard against self-referential defaults: F#
-                        // grammatically forbids `default ^T : ^T`, but a
-                        // chain like `default ^T3 : ^T1` paired with a
-                        // structural target (`^T1 list` etc.) could still
-                        // build a `concrete` that transitively contains
-                        // tv. Linking through would create an infinite
-                        // type. `occursAndAdjust` doubles as the unifier's
-                        // level adjustment — harmless to run during
-                        // generalisation since we want any reachable
-                        // TyVar level capped at tv's. Skip on occurs;
-                        // the default is unsatisfiable.
+                        // Occurs guard: a chain like `default ^T3 : ^T1`
+                        // with a structural target (`^T1 list`) could build
+                        // a `concrete` transitively containing tv; linking
+                        // through would create an infinite type. Skip on
+                        // occurs — the default is unsatisfiable.
                         tv.Link <- ValueSome concrete
                         fired <- true
                     | _ -> ()
 
-            // Whether fired or not, clear the defaults — they're either
-            // discharged or we've decided not to chase them further.
+            // Clear regardless — discharged, or not worth chasing further.
             tv.Defaults <- []
             fired
 
@@ -1028,14 +936,10 @@ module Unification =
                         changed <- true
 
     let private generalise (zonkedTy: SemType) (outerLevel: int) : TypeScheme =
-        // Phase 5b: before quantifying, walk free TyVars looking for
-        // default-constraint chains (e.g. `default ^T3 : ^T1` stamped by
-        // external-symbol Instantiate). A default that resolves to a
-        // concrete shape links its source TyVar; the standard quantifier
-        // walk below then skips it (Link.IsSome). Without this pass, an
-        // unbound `^T3` would be quantified into the scheme and a
-        // top-level binding like `let x = 1 + 2` would generalise as
-        // `∀'a. 'a` instead of `int`.
+        // Apply defaults before quantifying: a default that resolves links
+        // its source TyVar, which the quantifier walk then skips. Without
+        // this, `let x = 1 + 2` would generalise as `∀'a. 'a` instead of
+        // `int` (the unbound `^T3` from external-symbol Instantiate).
         applyDefaults zonkedTy outerLevel
 
         let quantified = ResizeArray<TypeVar>()
@@ -1059,9 +963,8 @@ module Unification =
 
         walk zonkedTy
 
-        // Collect constraints from each quantified TyVar's union-find
-        // root. `instantiate` swaps these onto the fresh substitutions
-        // per use site so satisfaction is re-evaluated independently.
+        // `instantiate` swaps these onto fresh substitutions per use site
+        // so satisfaction is re-evaluated independently.
         let constraints =
             [
                 for tv in quantified do
@@ -1088,7 +991,6 @@ module Unification =
             | Pat.NamedSimple _ -> true
             | _ -> false
 
-    /// SemType of the carrier of a single literal token (`int`, `float`, …).
     /// Pulled out of `inferConst` so the measured-literal arm can stamp this
     /// onto a TyVar's `Link` while the measure rides on `Units`.
     let private literalCarrier (t: SyntaxToken) : SemType =
@@ -1114,9 +1016,8 @@ module Unification =
         | Token.NumDecimalBinary -> MockBuiltins.tyDecimal
         | _ -> MockBuiltins.tyInt
 
-    /// Walk a `Measure<SyntaxToken>` CST and produce a canonical
-    /// `MeasureTerm`. Multi-segment qualified unit names (`Microsoft.FSharp.SI.kg`)
-    /// and measure typars (`'u`) are v2 — they produce an empty term plus a
+    /// Multi-segment qualified unit names (`Microsoft.FSharp.SI.kg`) and
+    /// measure typars (`'u`) are v2 — they produce an empty term plus a
     /// diagnostic so the rest of inference continues without measure noise.
     let rec private translateMeasure (ctx: PassContext) (diagKey: NodeKey) (m: Measure<SyntaxToken>) : MeasureTerm =
         match m with
@@ -1149,10 +1050,8 @@ module Unification =
             MeasureTerm.empty
 
     let private inferConst (ctx: PassContext) (c: Constant<SyntaxToken>) : SemType =
-        // Dispatch covers the numeric / boolean tokens that lex into a
-        // Constant.Literal. Anything we don't recognise still types as int
-        // (matches the parser's most common case) — extend as new literal
-        // kinds become reachable.
+        // Unrecognised tokens still type as int (the parser's commonest case)
+        // — extend as new literal kinds become reachable.
         match c with
         | Constant.Literal t -> literalCarrier t
         | Constant.MeasuredLiteral(value = t; measure = m) ->
@@ -1165,8 +1064,8 @@ module Unification =
             TyVar tv
 
     /// Built-in numeric type names that can carry a measure annotation
-    /// (`float<m>`, `int<kg>`, etc.). User-defined `[<Measure>]`-aware types
-    /// land when records / DUs do.
+    /// (`float<m>`, `int<kg>`). User-defined `[<Measure>]`-aware types land
+    /// when records / DUs do.
     let private isNumericCarrier (name: string) : bool =
         match name with
         | "int"
@@ -1179,12 +1078,10 @@ module Unification =
         | "double" -> true
         | _ -> false
 
-    /// Translate a syntactic `Type<SyntaxToken>` into a `SemType`.
     /// Reads `ctx.TyparScope` for `'a` typar resolution; callers open a
     /// fresh scope per signature (binding or type defn) before walking.
-    /// Named-type lookups consult `ctx.RecordTypes` / `ctx.UnionTypes` to
-    /// produce arg-carrying `TyRecord` / `TyUnion`; bare references back-
-    /// fill the arg list with fresh TyVars so unification can pin them.
+    /// Bare references to generic named types back-fill the arg list with
+    /// fresh TyVars so unification can pin them.
     let rec private translateType (ctx: PassContext) (t: Type<SyntaxToken>) : SemType =
         match t with
         | Type.ParenType(typ = inner) -> translateType ctx inner
@@ -1196,10 +1093,9 @@ module Unification =
             | true, tv -> TyVar tv
             | false, _ ->
                 if ctx.TyparScopeStrict then
-                    // Strict mode (type-defn fill-in): implicit free
-                    // typars aren't legal F#. Diagnose, but still mint
-                    // and memoise so subsequent occurrences resolve to
-                    // the same TyVar and don't cascade.
+                    // Strict (type-defn fill-in): implicit free typars aren't
+                    // legal F#. Diagnose, but still mint and memoise so later
+                    // occurrences share the TyVar and don't cascade.
                     ctx.Diagnostics.Add
                         {
                             Key = NodeKey.ofToken id NodeKind.TypeVarRef
@@ -1215,10 +1111,9 @@ module Unification =
                     ctx.TyparScope.[name] <- tv
                     TyVar tv
                 else
-                    // Implicit typar introduction. Mint at the binding's
-                    // current level so generalisation at binding-group exit
-                    // picks it up; memoise so subsequent occurrences in the
-                    // same signature share identity.
+                    // Implicit typar: mint at the binding's current level so
+                    // generalisation at binding-group exit picks it up;
+                    // memoise so later occurrences share identity.
                     let tv = TypeVar()
                     tv.Level <- ctx.CurrentLevel
                     ctx.TyparScope.[name] <- tv
@@ -1247,10 +1142,8 @@ module Unification =
             | _ ->
                 match ctx.AbbreviationTypes.TryGetValue name with
                 | true, info ->
-                    // Eager expansion: force the body, then substitute
-                    // fresh TyVars for every declared typar (bare reference
-                    // to a generic abbreviation works the same way as a
-                    // bare reference to a generic record / union).
+                    // Eager expansion: force the body, then substitute fresh
+                    // TyVars for every declared typar.
                     forceFill ctx info
                     let args = [ for _ in info.TypeParams -> TyVar(freshTyVar ctx) ]
                     let diagKey = NodeKey.ofToken li.Idents.[0] NodeKind.TypeNamed
@@ -1258,11 +1151,9 @@ module Unification =
                 | false, _ ->
                     match ctx.RecordTypes.TryGetValue name with
                     | true, info ->
-                        // Bare reference to a (possibly generic) record. For
-                        // a generic type, back-fill with fresh TyVars at the
-                        // current level — the args are unpinned at the
-                        // declaration site and get fixed by the surrounding
-                        // unification (e.g. a value annotation `r : Box`
+                        // Back-fill generic args with fresh TyVars at the
+                        // current level — unpinned at the declaration site,
+                        // fixed by surrounding unification (e.g. `r : Box`
                         // unifies the args with whatever `r`'s usage pins).
                         let args = [ for _ in info.TypeParams -> TyVar(freshTyVar ctx) ]
                         TyRecord(name, args)
@@ -1282,10 +1173,8 @@ module Unification =
             && args.Length = 1
             && isNumericCarrier (ctx.NameOf li.Idents.[0])
             ->
-            // `float<m>` / `int<kg>` — recognise the measure-shaped generic
-            // and stamp the measure onto a fresh TyVar whose Link carries
-            // the carrier. Anything else (real generics) falls through
-            // to the named-generic arm below.
+            // `float<m>` / `int<kg>` — stamp the measure onto a fresh TyVar
+            // whose Link carries the carrier.
             //
             // The parser only tags an arg as `TypeArg.Measure` when the
             // measure grammar is unambiguous; for bare `float<m>` it lands
@@ -1333,12 +1222,9 @@ module Unification =
 
             resolveNamedGeneric ctx diagKey name translatedArgs
         | Type.SuffixedType(baseType = baseTy; longIdent = li) when li.Idents.Length = 1 ->
-            // Postfix generic syntax: `'T list` ≡ `list<'T>`. The suffix
-            // longident is the type constructor; the base type is its single
-            // argument (so `'T list` resolves the `list` abbreviation exactly
-            // like the prefix `list<'T>` would). Multi-arg postfix forms
-            // (`(int, string) Map`) parse the base as a tuple and fall to the
-            // single-arg arity diagnostic — out of scope for v1.
+            // Postfix generic syntax: `'T list` ≡ `list<'T>`. Multi-arg
+            // postfix forms (`(int, string) Map`) parse the base as a tuple
+            // and fall to the single-arg arity diagnostic — out of scope for v1.
             let nameTok = li.Idents.[0]
             let name = ctx.NameOf nameTok
             let diagKey = NodeKey.ofToken nameTok NodeKind.TypeGeneric
@@ -1350,17 +1236,16 @@ module Unification =
             translateConstraints ctx cs
             inner
         | _ ->
-            // Multi-segment named/generic types and other shapes (array
-            // types, anonymous records, etc.) aren't modelled yet. Hand
-            // back a free TyVar so unification can pin it via context.
+            // Multi-segment named/generic types and other shapes (arrays,
+            // anonymous records, etc.) aren't modelled yet. Hand back a free
+            // TyVar so unification can pin it via context.
             TyVar(freshTyVar ctx)
 
-    /// Resolve a single-segment generic type reference (`name<args>` or the
-    /// equivalent postfix `args name`) against the type registries, in the
-    /// same precedence the bare-name arm uses: intrinsic binding → transparent
-    /// abbreviation → record → union → class → opaque `TyConst`. An arity
-    /// mismatch diagnoses but still produces the best-effort shape. Shared by
-    /// the `GenericType` and `SuffixedType` arms above.
+    /// Resolve a single-segment generic type reference against the type
+    /// registries, in the same precedence the bare-name arm uses: intrinsic
+    /// binding → transparent abbreviation → record → union → class → opaque
+    /// `TyConst`. An arity mismatch diagnoses but still produces a
+    /// best-effort shape.
     and private resolveNamedGeneric
         (ctx: PassContext)
         (diagKey: NodeKey)
@@ -1382,8 +1267,7 @@ module Unification =
                 diagnoseArity expected
 
         if ctx.IntrinsicReprTypes.ContainsKey name then
-            // Generic primitive binding (e.g. an intrinsic with type params):
-            // nominal, not transparent — same rule as the bare-name arm.
+            // Generic primitive binding: nominal, not transparent.
             TyConst name
         else
             match ctx.AbbreviationTypes.TryGetValue name with
@@ -1407,16 +1291,13 @@ module Unification =
                             checkArity (List.length info.TypeParams)
                             TyClass(name, translatedArgs)
                         | false, _ ->
-                            // Unknown name with type args — surface as opaque
-                            // TyConst (matches today's behaviour for unrecognised
-                            // bare names; the args effectively get ignored).
+                            // Unknown name with type args — opaque TyConst,
+                            // args ignored (matches the bare-name arm).
                             TyConst name
 
-    /// Translate a `Constraint<'T>` CST node into a `SemanticConstraint`
-    /// and attach it to the constrained typar's TyVar through the
-    /// current `ctx.TyparScope`. Unsupported kinds (Coercion, MemberTrait,
-    /// etc.) are skipped — they belong to their own resolution phases.
-    /// An unknown typar name diagnoses the same way `Type.VarType` does.
+    /// Attach to the constrained typar's TyVar through the current
+    /// `ctx.TyparScope`. Unsupported kinds (Coercion, MemberTrait, etc.) are
+    /// skipped — they belong to their own resolution phases.
     and private translateConstraint (ctx: PassContext) (c: Constraint<SyntaxToken>) : unit =
         let typarTokenOf (t: Typar<SyntaxToken>) : SyntaxToken voption =
             match t with
@@ -1467,31 +1348,25 @@ module Unification =
         | Constraint.Unmanaged _
         | Constraint.Delegate _
         | Constraint.Default _ ->
-            // v1 skips these — each has its own resolution phase
-            // (SRTPs / IWSAMs / attribute pass). Silent skip rather than
-            // a diagnostic, matching how `Measure.Anonymous` and friends
-            // surface today.
+            // v1 skips these — each has its own resolution phase (SRTPs /
+            // IWSAMs / attribute pass). Silent skip, not a diagnostic.
             ()
 
-    /// Translate every `Constraint` in a `TyparConstraints` block under
-    /// the current `ctx.TyparScope`. The scope must already contain the
-    /// constrained typars — callers (binding-level, type-defn fill-in,
-    /// inline `WhenConstrainedType`) seed it first.
+    /// The scope must already contain the constrained typars — callers
+    /// (binding-level, type-defn fill-in, inline `WhenConstrainedType`)
+    /// seed it first.
     and private translateConstraints (ctx: PassContext) (tcs: TyparConstraints<SyntaxToken>) : unit =
         let (TyparConstraints(constraints = cs)) = tcs
 
         for c in cs do
             translateConstraint ctx c
 
-    /// Force the body of an abbreviation, translating its RHS under a
-    /// typar scope seeded from its `TypeParams`. Idempotent — already-
-    /// `Filled` entries short-circuit. Re-entry through a recursive
-    /// abbreviation reference detects the cycle (`InProgress`), emits a
-    /// diagnostic, and freezes `Status` to `Filled` without setting
-    /// `Body`. The outer call notices `Status` was flipped mid-walk and
-    /// skips assigning `Body`, leaving `ValueNone` so the expansion arm
-    /// substitutes a fresh TyVar per use site instead of sharing a
-    /// stale one.
+    /// Idempotent — already-`Filled` entries short-circuit. Re-entry through
+    /// a recursive abbreviation reference detects the cycle (`InProgress`),
+    /// emits a diagnostic, and freezes `Status` to `Filled` without setting
+    /// `Body`. The outer call notices `Status` flipped mid-walk and skips
+    /// assigning `Body`, leaving `ValueNone` so the expansion arm
+    /// substitutes a fresh TyVar per use site instead of a stale one.
     and private forceFill (ctx: PassContext) (info: AbbreviationInfo) : unit =
         match info.Status with
         | AbbreviationStatus.Filled -> ()
@@ -1531,17 +1406,13 @@ module Unification =
                 ctx.TyparScopeStrict <- savedStrict
                 info.Status <- AbbreviationStatus.Filled
 
-    /// Expand an abbreviation reference: substitute the user-supplied (or
-    /// fresh) args for the declared `TypeParams` in the stored body.
     /// Returns a fresh TyVar if `Body = ValueNone` (cycle detected, or
-    /// fill-in not yet run) — unification stays best-effort rather than
-    /// cascading.
+    /// fill-in not yet run) — best-effort rather than cascading.
     ///
-    /// Constraints on the prototype typars are evaluated against the
-    /// supplied args here: unlike records / unions, an abbreviation has
-    /// no fresh-instance step that would let `drainConstraints` fire
-    /// on its own. A Violated outcome diagnoses immediately; a Defer
-    /// outcome propagates the constraint to any free TyVar inside the
+    /// Constraints on the prototype typars are evaluated against the supplied
+    /// args here: unlike records / unions, an abbreviation has no
+    /// fresh-instance step that would let `drainConstraints` fire on its own.
+    /// A Defer outcome propagates the constraint to any free TyVar inside the
     /// supplied arg so a later unification re-fires the check.
     and private expandAbbreviation
         (ctx: PassContext)
@@ -1578,21 +1449,16 @@ module Unification =
             substituteWith subst body
         | ValueNone -> TyVar(freshTyVar ctx)
 
-    /// Measure carried on `t`'s union-find root, if any. Reads `Units`
-    /// straight off the root — does NOT use `resolveStep`, since that
-    /// would follow a measured TyVar through its `Link` to the bare
-    /// carrier and drop the measure. Returns ValueNone for plain
-    /// `TyConst` (dimensionless), function types, tuples, and free
-    /// variables.
+    /// Reads `Units` straight off the root — does NOT use `resolveStep`,
+    /// which would follow a measured TyVar through its `Link` to the bare
+    /// carrier and drop the measure.
     let private unitsOf (t: SemType) : MeasureTerm voption =
         match t with
         | TyVar tv -> (UnionFind.find tv).Units
         | _ -> ValueNone
 
-    /// Underlying numeric carrier of a (possibly measure-wrapped) type.
-    /// For a `TyVar` whose Link points at `TyConst "float"`, returns
-    /// `TyConst "float"`. For a plain TyConst, returns itself. For a free
-    /// variable (no Link), returns the variable so a later unification can
+    /// Underlying numeric carrier of a (possibly measure-wrapped) type. A
+    /// free variable (no Link) is returned as-is so a later unification can
     /// pin it.
     let private carrierOf (t: SemType) : SemType =
         match resolveStep t with
@@ -1604,17 +1470,13 @@ module Unification =
             | ValueNone -> TyVar root
         | other -> other
 
-    /// Allocate a fresh TyVar at the current level pre-stamped with a
-    /// carrier link and (optionally) a measure. The dispatcher uses this
-    /// for the result type of a measured arithmetic operation.
+    /// Fresh TyVar pre-stamped with a carrier link and (optionally) a measure.
     let private freshTyVarWith (ctx: PassContext) (carrier: SemType) (units: MeasureTerm voption) : TypeVar =
         let tv = freshTyVar ctx
         tv.Link <- ValueSome carrier
         tv.Units <- units
         tv
 
-    /// Compiled names for comparison operators that return `bool` regardless
-    /// of operand measure (provided the measures match).
     let private isComparisonOp (name: string) : bool =
         match name with
         | "op_Equality"
@@ -1625,13 +1487,12 @@ module Unification =
         | "op_GreaterThanOrEqual" -> true
         | _ -> false
 
-    /// Measure-aware arithmetic dispatcher. Fires before the provider
-    /// lookup in `inferInfix` so measured `+`, `-`, `*`, `/`, and comparison
-    /// operators get measure-correct result types and surface a dedicated
-    /// "Measure mismatch" diagnostic rather than a generic carrier-type
-    /// mismatch. Returns `None` for the all-dimensionless case (or for
-    /// operators we don't dispatch); the caller falls through to the
-    /// existing provider path.
+    /// Fires before the provider lookup in `inferInfix` so measured
+    /// arithmetic / comparison operators get measure-correct result types and
+    /// a dedicated "Measure mismatch" diagnostic rather than a generic
+    /// carrier-type mismatch. Returns `None` for the all-dimensionless case
+    /// (or operators we don't dispatch); the caller falls through to the
+    /// provider path.
     let private tryMeasuredArith
         (ctx: PassContext)
         (key: NodeKey)
@@ -1703,10 +1564,9 @@ module Unification =
                 Some MockBuiltins.tyBool
             | _ -> None
 
-    /// Field-initializer / field-pattern long-ident inspection. v1 only
-    /// supports single-segment (`X`) and two-segment qualified (`R.X`)
-    /// forms. Multi-segment qualifiers (`A.B.X`) fall through as ValueNone
-    /// for the qualifier and the last segment for the field name.
+    /// v1 only supports single-segment (`X`) and two-segment qualified
+    /// (`R.X`) forms. Multi-segment qualifiers (`A.B.X`) fall through as
+    /// ValueNone for the qualifier and the last segment for the field name.
     let private fieldNameAndQualifier (ctx: PassContext) (li: LongIdent<SyntaxToken>) : string voption * string =
         let idents = li.Idents
         let last = ctx.NameOf idents.[idents.Length - 1]
@@ -1718,12 +1578,10 @@ module Unification =
         else
             ValueNone, last
 
-    /// Mint a fresh instantiation of a named type. Returns the
-    /// arg-carrying SemType (`TyRecord("Box", [fresh_a])`) together
-    /// with the substitution that maps each prototype `TypeVar` in
-    /// `typeParams` onto its fresh stand-in — callers walk declared
-    /// field / case-arg types through this subst so every reference
-    /// to `'a` lines up with the value in `args`.
+    /// Returns the fresh args together with the substitution mapping each
+    /// prototype `TypeVar` onto its fresh stand-in — callers walk declared
+    /// field / case-arg types through this subst so every reference to `'a`
+    /// lines up with the value in `args`.
     let private freshNamedInstance
         (ctx: PassContext)
         (typeParams: (string * TypeVar) list)
@@ -1736,11 +1594,10 @@ module Unification =
                     let fresh = TypeVar()
                     fresh.Level <- ctx.CurrentLevel
                     let protoRoot = UnionFind.find tp
-                    // Copy prototype constraints onto the fresh
-                    // instance so every use site re-evaluates
-                    // satisfaction independently (a `Set<int>` and a
-                    // `Set<int -> int>` each see their own copy of the
-                    // `'a : comparison` rule).
+                    // Copy prototype constraints onto the fresh instance so
+                    // every use site re-evaluates satisfaction independently
+                    // (a `Set<int>` and a `Set<int -> int>` each get their own
+                    // copy of `'a : comparison`).
                     fresh.Constraints <- protoRoot.Constraints
                     let asTy = TyVar fresh
                     subst.[protoRoot] <- asTy
@@ -1749,13 +1606,10 @@ module Unification =
 
         args, subst
 
-    /// Class-name-as-function: produces a function value whose argument
-    /// shape matches the primary constructor and whose result is the
-    /// constructed `TyClass`. Used by `inferIdent` to type bare
-    /// `Point(3, 4)` calls (no `new` keyword) through the existing
-    /// function-application machinery.
-    ///
-    /// Returns `ValueNone` if `name` isn't in `ctx.ClassTypes`.
+    /// Function value whose argument shape matches the primary constructor
+    /// and whose result is the constructed `TyClass`. Routes bare
+    /// `Point(3, 4)` calls (no `new`) through the function-application
+    /// machinery. `ValueNone` if `name` isn't in `ctx.ClassTypes`.
     let private tryClassCtorAsFunction (ctx: PassContext) (name: string) : SemType voption =
         match ctx.ClassTypes.TryGetValue name with
         | true, info ->
@@ -1781,13 +1635,10 @@ module Unification =
         | ValueSome t -> t
         | ValueNone -> TyVar(freshTyVar ctx)
 
-    /// Function-shaped type for a DU ctor reference. Nullary cases type as
-    /// the union itself (no argument); single-field cases as
-    /// `field -> TyUnion`; multi-field cases bundle the fields into a
-    /// tuple — F# DUs take a tuple as their single argument. The
-    /// receiver union's typars are instantiated with fresh TyVars at
-    /// the current level so two independent uses of `Some` don't share
-    /// a `'a`.
+    /// Function-shaped type for a DU ctor reference. Multi-field cases bundle
+    /// the fields into a tuple — F# DUs take a tuple as their single argument.
+    /// The receiver union's typars are instantiated fresh so two independent
+    /// uses of `Some` don't share a `'a`.
     let private ctorType (ctx: PassContext) (info: UnionCaseInfo) : SemType =
         let unionInfo = ctx.UnionTypes.[info.UnionName]
         let args, subst = freshNamedInstance ctx unionInfo.TypeParams
@@ -1800,9 +1651,8 @@ module Unification =
         | 1 -> TyFun(walkedFields.[0], unionTy)
         | _ -> TyFun(TyTuple(List.ofArray walkedFields), unionTy)
 
-    /// Resolve a bare ctor name to its UnionCaseInfo. ValueNone with
-    /// `count = 0` means "no such ctor"; `count >= 2` means ambiguous —
-    /// the caller emits the appropriate diagnostic.
+    /// ValueNone with `count = 0` means "no such ctor"; `count >= 2` means
+    /// ambiguous — the caller emits the appropriate diagnostic.
     let private resolveCtorName (ctx: PassContext) (name: string) : UnionCaseInfo voption * int =
         match ctx.CtorIndex.TryGetValue name with
         | false, _ -> ValueNone, 0
@@ -1810,8 +1660,7 @@ module Unification =
         | true, infos -> ValueNone, List.length infos
 
     /// Resolve a qualified ctor reference `Type.Case` against the union
-    /// registry. ValueSome on a match; ValueNone when the type isn't a
-    /// known union, or doesn't declare the named case.
+    /// registry.
     let private resolveQualifiedCtor (ctx: PassContext) (typeName: string) (caseName: string) : UnionCaseInfo voption =
         match ctx.UnionTypes.TryGetValue typeName with
         | false, _ -> ValueNone
@@ -1820,13 +1669,10 @@ module Unification =
             | Some c -> ValueSome c
             | None -> ValueNone
 
-    /// Try to find the unique record type whose declared field set equals
-    /// `names` (order-insensitive, duplicates rejected). Returns ValueNone
-    /// when zero matches or multiple match — the caller emits the
-    /// appropriate diagnostic.
+    /// Unique record type whose declared field set equals `names`
+    /// (order-insensitive). Returns (info, candidateCount); candidateCount
+    /// disambiguates the "no match" vs "ambiguous" diagnostic paths.
     let private findUniqueRecordByFieldSet (ctx: PassContext) (names: string list) : RecordTypeInfo voption * int =
-        // Returns (info, candidateCount). candidateCount disambiguates the
-        // "no match" vs "ambiguous" diagnostic paths.
         match names with
         | [] -> ValueNone, 0
         | first :: _ ->
@@ -1847,12 +1693,10 @@ module Unification =
                 | [] -> ValueNone, 0
                 | many -> ValueNone, List.length many
 
-    /// Strip a `Pat.EnclosedBlock` and a single-element tuple wrapper
-    /// from a pattern. `Circle(r)` parses as `Circle (EnclosedBlock r)`;
-    /// `Rectangle(w, h)` as `Circle (EnclosedBlock (Tuple [w; h]))`;
-    /// `Rectangle w h` (curried syntax) as multiple separate args. v1
-    /// supports tuple-argument form and a bare single arg — both are
-    /// what the F# DU ctor application convention emits.
+    /// `Circle(r)` parses as `Circle (EnclosedBlock r)`; `Rectangle(w, h)`
+    /// as `Circle (EnclosedBlock (Tuple [w; h]))`. v1 supports the
+    /// tuple-argument form and a bare single arg — both are what the F# DU
+    /// ctor application convention emits.
     let private unwrapCtorArgPattern (p: Pat<SyntaxToken>) : Pat<SyntaxToken> list =
         match p with
         | Pat.EnclosedBlock(pat = Pat.Tuple(patterns = pats)) -> List.ofSeq pats
@@ -1861,10 +1705,9 @@ module Unification =
         | _ -> [ p ]
 
     let rec private inferPat (ctx: PassContext) (p: Pat<SyntaxToken>) : SemType =
-        // Each pattern node gets its own TypeVar keyed on its NodeKey. For
-        // compound patterns (Tuple, EnclosedBlock, As) the outer TypeVar is
-        // linked to the underlying shape so a single lookup against any
-        // pattern node returns the right type.
+        // Each pattern node gets its own TypeVar keyed on its NodeKey; for
+        // compound patterns the outer TypeVar is linked to the underlying
+        // shape so a lookup against any pattern node returns the right type.
         let key = CstKeys.ofPat p
 
         match p with
@@ -1872,10 +1715,9 @@ module Unification =
             let n = ctx.NameOf t
             n.Length > 0 && System.Char.IsUpper n.[0] && ctx.CtorIndex.ContainsKey n
             ->
-            // Uppercase-leading bare ident in pattern position that
-            // matches a known ctor — reinterpret as a nullary ctor
-            // pattern. Multi-candidate ctors with the same name require a
-            // qualifier; diagnose ambiguity and best-effort to the first.
+            // Uppercase-leading bare ident matching a known ctor —
+            // reinterpret as a nullary ctor pattern. Multi-candidate names
+            // require a qualifier; diagnose ambiguity, best-effort otherwise.
             let n = ctx.NameOf t
             let info, count = resolveCtorName ctx n
 
@@ -1965,10 +1807,8 @@ module Unification =
 
                 TyVar(freshTv ctx key)
             | ValueSome i ->
-                // F# DU application takes a tuple as its single argument;
-                // the parser wraps multi-arg ctor patterns in
-                // `EnclosedBlock(Tuple [...])`. `unwrapCtorArgPattern`
-                // flattens that to the field list.
+                // The parser wraps multi-arg ctor patterns in
+                // `EnclosedBlock(Tuple [...])`; flatten to the field list.
                 let subPats =
                     if args.Length = 1 then
                         unwrapCtorArgPattern args.[0]
@@ -2039,10 +1879,8 @@ module Unification =
             nodeTv.Link <- ValueSome MockBuiltins.tyUnit
             MockBuiltins.tyUnit
         | Pat.Or(left = leftPat; right = rightPat) ->
-            // F# requires both sides to bind the same set of names with
-            // matching types. Validation will check the name set; here we
-            // unify the patterns' overall types so the scrutinee constraint
-            // is consistent.
+            // Validation checks the name set; here we only unify the
+            // patterns' overall types for scrutinee consistency.
             let leftTy = inferPat ctx leftPat
             let rightTy = inferPat ctx rightPat
             unify ctx key leftTy rightTy
@@ -2110,8 +1948,7 @@ module Unification =
 
             match candidate with
             | ValueNone ->
-                // Still walk sub-patterns so binders are inferred — they
-                // attach as free TyVars without unification noise.
+                // Walk sub-patterns so binders register as free TyVars.
                 for _, _, sub in pairs do
                     inferPat ctx sub |> ignore
 
@@ -2142,15 +1979,11 @@ module Unification =
             // provider lookups or recursive shape unification.
             TyVar(freshTv ctx key)
 
-    /// Collect the ordered format specifiers of a *literal* format string by
-    /// reusing the lexer's canonical placeholder parser
-    /// (`Lexing.parseFormatSpecifierView`) over each `FormatSpecifier` part —
-    /// no second copy of the `%[flags][width][.precision][type]` grammar lives
-    /// here, and the specifier text is read directly off the source via
-    /// `ctx.ReadableOf` rather than copied out. `ValueNone` when the string
-    /// carries interpolation holes or lexer-error parts (it isn't a simple
-    /// format literal), so the printf special-case falls through to standard
-    /// inference.
+    /// Reuses the lexer's canonical placeholder parser
+    /// (`Lexing.parseFormatSpecifierView`) so no second copy of the format
+    /// grammar lives here. `ValueNone` when the string carries interpolation
+    /// holes or lexer-error parts (not a simple format literal), so the
+    /// printf special-case falls through to standard inference.
     let private formatSpecifiers (ctx: PassContext) (e: Expr<SyntaxToken>) : FormatType list voption =
         match e with
         | Expr.String(parts = parts) ->
@@ -2174,14 +2007,11 @@ module Unification =
             if ok then ValueSome(List.ofSeq acc) else ValueNone
         | _ -> ValueNone
 
-    /// Whether every specifier of a *literal* format string is one the happy
-    /// path lowers inline (`PrintfSpec.tryHoleFormat`). Used alongside the
-    /// fully-applied + sink checks to decide whether `tryInferPrintfApp` records
-    /// a `PrintfApp` lowering marker; a `false` here keeps the FSharp.Core path.
-    /// `%%` escapes are lowerable (P2): `Freeze.translatePrintfFormat` collapses
-    /// `%%`→`%` directly when it builds the literal segment. Only interpolation
-    /// holes (`Expr`), orphan specifiers and lexer-error parts force the cold
-    /// path.
+    /// Whether every specifier is one the happy path lowers inline
+    /// (`PrintfSpec.tryHoleFormat`); a `false` keeps the FSharp.Core cold
+    /// path. `%%` escapes are lowerable (P2): Freeze collapses `%%`→`%` in the
+    /// literal segment. Only interpolation holes (`Expr`), orphan specifiers
+    /// and lexer-error parts force the cold path.
     let private lowerablePlaceholders (ctx: PassContext) (e: Expr<SyntaxToken>) : bool =
         match e with
         | Expr.String(parts = parts) ->
@@ -2196,9 +2026,7 @@ module Unification =
                         | ValueSome _ -> ()
                         | ValueNone -> ok <- false
                     | ValueNone -> ok <- false
-                // Raw literal runs — including a `%%` escape, which the lexer
-                // hands back as raw `Text` "%%" — are lowerable; Freeze collapses
-                // `%%`→`%` in the `Lit` segment.
+                // A `%%` escape arrives as raw `Text` "%%" — still lowerable.
                 | StringPart.Text _
                 | StringPart.EscapeSequence _
                 | StringPart.VerbatimEscapeQuote _
@@ -2257,9 +2085,8 @@ module Unification =
             | Expr.Range(fromExpr = a; toExpr = b) -> inferRange ctx key a ValueNone b
             | Expr.SteppedRange(fromExpr = a; stepExpr = s; toExpr = b) -> inferRange ctx key a (ValueSome s) b
             | Expr.Null _ ->
-                // `null` lacks a constraint in the tiny subset (no
-                // reference-type bound yet). Hand back a free TypeVar so
-                // surrounding context can pin it.
+                // No reference-type bound yet — free TypeVar so surrounding
+                // context can pin it.
                 TyVar(freshTyVar ctx)
             | Expr.Record(fieldInitializers = inits) -> inferRecord ctx key inits
             | Expr.RecordClone(expr = src; fieldInitializers = inits) -> inferRecordClone ctx key src inits
@@ -2274,14 +2101,14 @@ module Unification =
         inferredTy
 
     and private inferIdent (ctx: PassContext) (e: Expr<SyntaxToken>) (key: NodeKey) : SemType =
-        // First: a multi-segment LongIdent whose head segment resolved as
-        // a local binding is a record-field access chain (`r.X`, `r.X.Y`),
-        // not a qualified name. The parser doesn't emit `Expr.DotLookup`
-        // for these — they ride inside a single `Expr.LongIdentOrOp`.
+        // A multi-segment LongIdent whose head is a local binding is a
+        // record-field access chain (`r.X.Y`), not a qualified name — the
+        // parser rides these inside a single `Expr.LongIdentOrOp` rather
+        // than emitting `Expr.DotLookup`.
         match e with
-        // `(+)` and friends used as a value: resolve the operator's compiled
-        // name through the provider, instantiating its scheme like any other
-        // external symbol. Freeze projects this to `External("op_Addition", …)`.
+        // `(+)` used as a value: resolve the operator's compiled name through
+        // the provider, instantiating its scheme like any external symbol.
+        // Freeze projects this to `External("op_Addition", …)`.
         | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) ->
             match Desugar.symbolicOpCompiledName op.Token with
             | ValueSome name ->
@@ -2302,11 +2129,9 @@ module Unification =
             && ctx.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
             ->
             inferLongIdentFieldChain ctx key li
-        // Qualified static member: `Math.Pi`, `Box.Empty`. The class
-        // name lives in `ctx.ClassTypes`; the second segment must be
-        // a member whose `IsStatic = true`. The class's typars are
-        // instantiated fresh per use site so two independent
-        // `Box.Empty ()` calls don't share a `'a`.
+        // Qualified static member: `Math.Pi`, `Box.Empty`. Typars are
+        // instantiated fresh per use site so two `Box.Empty ()` calls don't
+        // share a `'a`.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length = 2
             && not (ctx.Binding.ContainsKey key)
@@ -2324,15 +2149,12 @@ module Unification =
 
             let m = info.Members |> Array.find (fun m -> m.IsStatic && m.Name = memberName)
 
-            // Instantiate the class's typars fresh per use site so
-            // generic statics (`Box.Empty<'a>`) don't share variables
-            // across uses.
             let _, subst = freshNamedInstance ctx info.TypeParams
             substituteWith subst m.Type
-        // Qualified static member on a *union*: `Lst.Empty`, `Lst.Single` (P3d.3).
-        // Checked before the ctor arm below so a static member shadows the
-        // not-a-case diagnostic; a name that is a case (not a static member)
-        // fails this guard and falls through to the ctor arm.
+        // Qualified static member on a *union*: `Lst.Empty` (P3d.3). Checked
+        // before the ctor arm so a static member shadows the not-a-case
+        // diagnostic; a name that is a case (not a static member) fails this
+        // guard and falls through to the ctor arm.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length = 2
             && not (ctx.Binding.ContainsKey key)
@@ -2352,8 +2174,8 @@ module Unification =
 
             let _, subst = freshNamedInstance ctx info.TypeParams
             substituteWith subst m.Type
-        // Qualified ctor reference: `Result2.Ok` resolves via the union
-        // registry (bypasses the CtorIndex ambiguity check).
+        // Qualified ctor reference `Result2.Ok` — via the union registry,
+        // bypassing the CtorIndex ambiguity check.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length = 2
             && not (ctx.Binding.ContainsKey key)
@@ -2376,23 +2198,18 @@ module Unification =
         | _ ->
             match ctx.Binding.TryGetValue key with
             | ValueSome rb ->
-                // Local binding — the BindingSite is the headPat NodeKey. If the
-                // binding has been generalised already, instantiate the scheme so
-                // independent use-sites get independent variables (mirrors the
-                // external-symbol path). Otherwise fall back to the monomorphic
-                // TyVar minted by inferPat — this includes uses inside a sibling's
-                // RHS within the same `let rec` group, which is exactly what
-                // forbids polymorphic recursion.
+                // Already-generalised binding: instantiate its scheme for
+                // independent use-sites. Otherwise the monomorphic TyVar from
+                // inferPat — including uses inside a sibling's RHS in the same
+                // `let rec` group, which is what forbids polymorphic recursion.
                 match ctx.Scheme.TryGetValue rb.BindingSite with
                 | ValueSome scheme -> instantiate ctx scheme
                 | ValueNone -> TyVar(tvOf ctx rb.BindingSite)
             | ValueNone ->
-                // No local binding. Try the provider first — provider hits
-                // beat ctor-name resolution when both exist (consistent with
-                // F# shadowing: a let-bound `Ok` would have a Binding entry
-                // and never reach here; but a provider symbol is genuinely
-                // a different namespace). For bare single-segment idents
-                // that aren't in the provider, check the ctor registry.
+                // Provider first — provider hits beat ctor-name resolution
+                // when both exist (a let-bound `Ok` would have a Binding entry
+                // and never reach here). Bare single-segment idents absent
+                // from the provider fall to the ctor registry.
                 let name = qualifiedNameOf ctx e
 
                 match ctx.Provider.TryLookup name with
@@ -2425,19 +2242,15 @@ module Unification =
 
                             TyVar(freshTyVar ctx)
                         | ValueNone ->
-                            // Class-name-as-function: `Point(3, 4)` parses
-                            // as `Expr.App (Expr.Ident "Point", ...)`. The
-                            // class registry holds the ctor signature; mint
-                            // a fresh instance and return the ctor as a
-                            // function value so `inferApp` types the call
-                            // through the normal function arm.
+                            // Class-name-as-function: `Point(3, 4)` parses as
+                            // `Expr.App (Expr.Ident "Point", ...)`. Return the
+                            // ctor as a function value so `inferApp` types the
+                            // call through the normal function arm.
                             classCtorAsFunction ctx n
                     | ValueNone -> TyVar(freshTyVar ctx)
 
-    /// Source-level rendering of an ident/qualified-name expression. For
-    /// single-segment idents this is just the token text; for multi-segment
-    /// `LongIdent.LongIdent` it joins segments with `.` so the provider can
-    /// look up dotted names like `Math.PI` directly.
+    /// Joins multi-segment names with `.` so the provider can look up dotted
+    /// names like `Math.PI` directly.
     and private qualifiedNameOf (ctx: PassContext) (e: Expr<SyntaxToken>) : string =
         match e with
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) -> li.Idents |> Seq.map ctx.NameOf |> String.concat "."
@@ -2462,15 +2275,12 @@ module Unification =
 
             currTy
 
-    /// Printf-family typing rule (front-end-gaps-plan §B). When `fn` resolves
-    /// to a recognised printf entry point (and isn't shadowed by a local
-    /// binding) and the format-string argument is a plain literal, the
-    /// format spec — not the literal's apparent `string` type — drives the
-    /// surrounding call's curried result type. The format argument is typed
-    /// as `PrintfFormat<printer, …>`; Freeze projects that node into a
-    /// `New PrintfFormat(<text>)`. Non-literal format strings (interpolated,
-    /// or a pre-built `PrintfFormat` value) return `ValueNone` and fall
-    /// through to standard inference.
+    /// Printf-family typing rule (front-end-gaps-plan §B). When `fn` is a
+    /// recognised printf entry point (not shadowed by a local binding) with a
+    /// plain-literal format argument, the format spec — not the literal's
+    /// apparent `string` type — drives the call's curried result type. The
+    /// format argument types as `PrintfFormat<printer, …>`. Non-literal
+    /// format strings return `ValueNone` and fall through to standard inference.
     and private tryInferPrintfApp
         (ctx: PassContext)
         (key: NodeKey)
@@ -2493,9 +2303,8 @@ module Unification =
                     let idx = fam.FormatArgIndex
 
                     if args.Length <= idx then
-                        // Format argument not supplied (e.g. a partially-
-                        // applied `fprintf writer`); defer to standard
-                        // inference against the registered generic signature.
+                        // Format argument not supplied (e.g. partially-applied
+                        // `fprintf writer`); defer to standard inference.
                         ValueNone
                     else
                         match formatSpecifiers ctx args.[idx] with
@@ -2530,13 +2339,12 @@ module Unification =
                                     unify ctx key currTy (TyFun(argTy, resultTy))
                                     currTy <- resultTy
 
-                                // P1 happy-path lowering marker: a fully-applied
-                                // literal call (one arg per specifier after the
-                                // format), a StdOut/StdErr/StringResult sink, and
-                                // every specifier in `tryHoleFormat`. Freeze then
-                                // mints a `TExpr.Format`; otherwise the existing
-                                // FSharp.Core path stands (so `%A`, partial
-                                // application, etc. are unaffected — additive).
+                                // P1 happy-path lowering marker: fully-applied
+                                // literal call, a StdOut/StdErr/StringResult
+                                // sink, and every specifier in `tryHoleFormat`
+                                // → Freeze mints a `TExpr.Format`. Otherwise the
+                                // FSharp.Core path stands (additive — `%A`,
+                                // partial application, etc. unaffected).
                                 match PrintfSpec.sinkOf (qualifiedNameOf ctx fn) with
                                 | ValueSome sink when
                                     idx = 0
@@ -2555,8 +2363,7 @@ module Unification =
         (fn: Expr<SyntaxToken>)
         (arg: Expr<SyntaxToken>)
         : SemType =
-        // `f(x)` — high-precedence one-arg application. Same shape as
-        // `Expr.App fn [|arg|]`, just a separate CST case for the parser.
+        // `f(x)` — same shape as `Expr.App fn [|arg|]`, a separate CST case.
         let fnTy = infer ctx fn
         let argTy = infer ctx arg
         let resultTy = TyVar(freshTyVar ctx)
@@ -2570,9 +2377,8 @@ module Unification =
         (stepE: Expr<SyntaxToken> voption)
         (toE: Expr<SyntaxToken>)
         : SemType =
-        // `a..b` / `a..step..b` — endpoints (and step) constrained to int
-        // in the tiny subset; result is the `seq<int>` placeholder. Real F#
-        // is generic over any type with the `..` operator overload.
+        // Tiny subset: endpoints (and step) constrained to int, result the
+        // `seq<int>` placeholder. Real F# is generic over the `..` overload.
         let fromTy = infer ctx fromE
         unify ctx key fromTy MockBuiltins.tyInt
 
@@ -2616,9 +2422,8 @@ module Unification =
                     TyVar(freshTyVar ctx)
         | ValueSome _
         | ValueNone ->
-            // Desugar didn't recognise the operator token (or attached a
-            // non-OpName form, which can't happen for an InfixApp key);
-            // leave the result as a free TypeVar.
+            // Desugar didn't recognise the operator (non-OpName can't happen
+            // for an InfixApp key) — leave the result free.
             TyVar(freshTyVar ctx)
 
     and private inferPrefix (ctx: PassContext) (key: NodeKey) (operand: Expr<SyntaxToken>) : SemType =
@@ -2673,8 +2478,7 @@ module Unification =
             unify ctx key thenTy elseTy
             thenTy
         | ValueNone ->
-            // `if c then e` (no else) requires e : unit. Tiny subset
-            // doesn't have unit yet — surface as a diagnostic.
+            // `if c then e` (no else) requires e : unit — not yet supported.
             ctx.Diagnostics.Add
                 {
                     Key = key
@@ -2697,9 +2501,7 @@ module Unification =
         TyTuple [ for e in items -> infer ctx e ]
 
     and private inferSequential (ctx: PassContext) (key: NodeKey) (items: ImmutableArray<Expr<SyntaxToken>>) : SemType =
-        // `e1; e2; …; en` — all but the last must be unit, result is the
-        // last's type. A `Sequential` with fewer than two items shouldn't
-        // come from the parser, but if it does, fall through harmlessly.
+        // All but the last must be unit; result is the last's type.
         if items.Length = 0 then
             MockBuiltins.tyUnit
         else
@@ -2709,15 +2511,11 @@ module Unification =
 
             infer ctx items.[items.Length - 1]
 
-    /// Validate that the literal's closing token survived parsing as the
-    /// expected real token. `pEnclosed` virtual-inserts the expected close
-    /// token (with a parser-side diagnostic) whenever the actual source
-    /// token is missing or mismatched — `[| 1; 2 ]` recovers as
-    /// `EnclosedBlock(ParenKind.Array, …, virtual KWRArrayBracket)` with
-    /// the real `]` left in the stream. The parser's diagnostic stream
-    /// isn't visible to downstream semantic-analysis consumers, so surface
-    /// the breakage on `ctx.Diagnostics` too — otherwise the malformed
-    /// literal types successfully and the Freeze projection emits a
+    /// `pEnclosed` virtual-inserts the expected close token (with a
+    /// parser-side diagnostic) when the source token is missing or
+    /// mismatched. That parser diagnostic isn't visible to semantic-analysis
+    /// consumers, so surface the breakage on `ctx.Diagnostics` too —
+    /// otherwise the malformed literal types successfully and Freeze emits a
     /// well-shaped TAST as if the source were correct.
     and private checkLiteralClose
         (ctx: PassContext)
@@ -2735,11 +2533,9 @@ module Unification =
                     Severity = Error
                 }
         | TokenIndex.Regular _ when rTok.Token <> expected ->
-            // Defensive: pEnclosed only emits a real rParen when the
-            // peeked token matched the expected one, so this arm
-            // shouldn't trigger today. Surfaces any future parser
-            // change that lets a real-but-mismatched close-token slip
-            // through.
+            // Defensive: pEnclosed only emits a real rParen when the peeked
+            // token matched, so this can't trigger today — guards against a
+            // future parser change letting a mismatched close-token through.
             ctx.Diagnostics.Add
                 {
                     Key = key
@@ -2748,19 +2544,12 @@ module Unification =
                 }
         | TokenIndex.Regular _ -> ()
 
-    /// `[e1; e2; …]` / `[|e1; e2; …|]` — every element shares a single
-    /// fresh element TyVar; the literal's own type is the enclosing
-    /// `Microsoft.FSharp.Collections.list<'elem>` (or the matching array
-    /// nominal). The inner `;`-separated body parses as `Expr.Sequential`,
-    /// but we bypass `inferSequential`'s `unit`-per-leading-item rule —
-    /// the elements aren't statements.
-    /// The list type a `[…]` literal carries. A program-declared
-    /// `'T list = …` abbreviation (the self-host list shape — `List.fs`'s
+    /// The list type a `[…]` literal carries. A program-declared `'T list`
+    /// abbreviation (the self-host list shape — `List.fs`'s
     /// `and 'T list = List<'T>`) retargets list literals to its RHS union;
     /// absent it, FSharp.Core's `Microsoft.FSharp.Collections.list` nominal
     /// is the default. Additive — a normal program never declares a `list`
-    /// abbreviation, so `AbbreviationTypes` has no `"list"` entry and the
-    /// shape is byte-identical to before (Slice4 stays on FSharp.Core).
+    /// abbreviation, so the shape is byte-identical to before.
     and private listLiteralTy (ctx: PassContext) (key: NodeKey) (elemTy: SemType) : SemType =
         match ctx.AbbreviationTypes.TryGetValue "list" with
         | true, info ->
@@ -2790,8 +2579,7 @@ module Unification =
         else
             listLiteralTy ctx key elemTy
 
-    /// `[]` / `[||]` — empty literal. Element type stays free so the
-    /// surrounding context can pin it (`let xs : int list = []`).
+    /// Element type stays free so context can pin it (`let xs : int list = []`).
     and private emptyListLikeLiteral (ctx: PassContext) (key: NodeKey) (isArray: bool) : SemType =
         let elemTy = TyVar(freshTyVar ctx)
 
@@ -2824,7 +2612,6 @@ module Unification =
         unify ctx key startTy MockBuiltins.tyInt
         let endTy = infer ctx endE
         unify ctx key endTy MockBuiltins.tyInt
-        // Bind the loop variable as int via a TypeVar keyed on its NodeKey.
         let varKey = CstKeys.ofForToVar ident
         let varTv = freshTv ctx varKey
         varTv.Link <- ValueSome MockBuiltins.tyInt
@@ -2839,10 +2626,8 @@ module Unification =
         (src: Expr<SyntaxToken>)
         (body: Expr<SyntaxToken>)
         : SemType =
-        // Special-cased: when the source is an int range we know the
-        // element type and can bind the pattern to int. For everything
-        // else there's no `seq<T>` machinery yet, so the pattern stays
-        // unconstrained and we emit an Info to flag the gap.
+        // Int-range source: element type is int. No `seq<T>` machinery yet
+        // for anything else — pattern stays unconstrained, Info flags the gap.
         let srcTy = infer ctx src
         let patTy = inferPat ctx pat
 
@@ -2904,9 +2689,9 @@ module Unification =
         resultTy
 
     and private inferFunction (ctx: PassContext) (key: NodeKey) (rules: ImmutableArray<Rule<SyntaxToken>>) : SemType =
-        // `function p1 -> e1 | p2 -> e2` ~ `fun x -> match x with p1 -> e1 | p2 -> e2`.
-        // The synthesised parameter's TypeVar IS the scrutinee's TypeVar —
-        // every arm's pattern unifies with it.
+        // `function … ` ~ `fun x -> match x with …`. The synthesised
+        // parameter's TypeVar IS the scrutinee's — every arm's pattern
+        // unifies with it.
         let paramTy = TyVar(freshTyVar ctx)
         let resultTy = TyVar(freshTyVar ctx)
         inferRules ctx key paramTy resultTy rules
@@ -2918,12 +2703,10 @@ module Unification =
         (body: Expr<SyntaxToken>)
         (rules: ImmutableArray<Rule<SyntaxToken>>)
         : SemType =
-        // `try body with | pat -> arm`: body and every arm share the result
-        // type. The patterns match against an exception value — until a
-        // real `exn` type lands, pin the scrutinee to a placeholder
-        // `TyConst "exn"`. Leaving it as a fresh TyVar would let
-        // wildcard / variable arm patterns carry an unresolved TyVar into
-        // the TAST, which `ResolvedTypes` correctly flags.
+        // Until a real `exn` type lands, pin the scrutinee to placeholder
+        // `TyConst "exn"`. A fresh TyVar would let wildcard / variable arm
+        // patterns carry an unresolved TyVar into the TAST, which
+        // `ResolvedTypes` correctly flags.
         let resultTy = infer ctx body
         let exnTy = TyConst "exn"
         inferRules ctx key exnTy resultTy rules
@@ -2935,8 +2718,6 @@ module Unification =
         (body: Expr<SyntaxToken>)
         (finallyE: Expr<SyntaxToken>)
         : SemType =
-        // `try body finally cleanup` — body's type is the result; cleanup
-        // must be unit.
         let resultTy = infer ctx body
         let finallyTy = infer ctx finallyE
         unify ctx key finallyTy MockBuiltins.tyUnit
@@ -2948,9 +2729,7 @@ module Unification =
         (left: Expr<SyntaxToken>)
         (right: Expr<SyntaxToken>)
         : SemType =
-        // `lhs <- rhs` — the assignment expression has type unit. The LHS
-        // and RHS must agree in type. (Mutability of the LHS binding is a
-        // Validation concern; here we only typecheck.)
+        // Mutability of the LHS is a Validation concern; here we only typecheck.
         let leftTy = infer ctx left
         let rightTy = infer ctx right
         unify ctx key leftTy rightTy
@@ -3025,11 +2804,9 @@ module Unification =
 
             TyVar(freshTyVar ctx)
         | ValueSome info ->
-            // Instantiate the record's typars with fresh TyVars at the
-            // current level so independent literals get independent vars.
-            // Each field initialiser unifies against the field's declared
-            // type *under this substitution* — a `'a` field types as the
-            // fresh TyVar, which pins to the initialiser's type.
+            // Fresh typars per literal so independent literals get independent
+            // vars; each initialiser unifies against the field type *under this
+            // substitution*, pinning a `'a` field to the initialiser's type.
             let args, subst = freshNamedInstance ctx info.TypeParams
 
             for _, fieldName, e in pairs do
@@ -3059,9 +2836,8 @@ module Unification =
         | TyRecord(recName, srcArgs) ->
             match ctx.RecordTypes.TryGetValue recName with
             | true, info ->
-                // Clone preserves the source record's arg list — the
-                // override RHSes unify against the substituted field type
-                // (`'a` → the source's already-pinned arg).
+                // Clone preserves the source's arg list — overrides unify
+                // against the substituted field type (`'a` → source's arg).
                 let subst = mkNamedTypeSubst info.TypeParams srcArgs
 
                 for FieldInitializer(longIdent = li; expr = e) in inits do
@@ -3104,14 +2880,12 @@ module Unification =
 
             TyVar(freshTyVar ctx)
 
-    /// One step of dot-access resolution: given the receiver's resolved
-    /// type and the access expression's diagnostic NodeKey, produce the
-    /// access's type. Deferred when the receiver is a free TyVar. For a
-    /// generic receiver `(b : Box<int>).Value`, the declared field /
-    /// member type `'a` is substituted against the receiver's arg list
-    /// before being returned — so `Value` types as `int`, not as a free
-    /// typar. Both record-field and class-member access route through
-    /// this entry point; the shape of the receiver discriminates.
+    /// One step of dot-access resolution. Deferred when the receiver is a
+    /// free TyVar. For a generic receiver `(b : Box<int>).Value`, the
+    /// declared field / member type `'a` is substituted against the
+    /// receiver's arg list so `Value` types as `int`, not a free typar.
+    /// Record-field, class- and union-member access all route through here;
+    /// the receiver's shape discriminates.
     and private resolveFieldStep (ctx: PassContext) (diagKey: NodeKey) (rTy: SemType) (memberName: string) : SemType =
         match resolveStep rTy with
         | TyRecord(recName, args) ->
@@ -3147,8 +2921,8 @@ module Unification =
                     let subst = mkNamedTypeSubst info.TypeParams args
                     substituteWith subst m.Type
                 | None ->
-                    // Distinguish "no such member" from "the member is
-                    // static — access via class name, not an instance".
+                    // Distinguish "no such member" from "member is static —
+                    // access via class name, not an instance".
                     let isStaticHit =
                         info.Members |> Array.exists (fun m -> m.Name = memberName && m.IsStatic)
 
@@ -3181,9 +2955,8 @@ module Unification =
 
                 TyVar(freshTyVar ctx)
         | TyUnion(unionName, args) ->
-            // Instance member access on a union receiver (P3d.3): `xs.Head`,
-            // `t.Length`. Mirrors the `TyClass` arm against the union's
-            // augmentation members.
+            // Union instance member access (P3d.3) — mirrors the `TyClass`
+            // arm against the union's augmentation members.
             match ctx.UnionTypes.TryGetValue unionName with
             | true, info ->
                 match info.Members |> Array.tryFind (fun m -> m.Name = memberName && not m.IsStatic) with
@@ -3247,12 +3020,9 @@ module Unification =
         let rTy = infer ctx receiver
         resolveFieldStep ctx key rTy fieldName
 
-    /// `new T(args)` — translate `T` (resolving to a `TyClass`), build
-    /// the primary-constructor's expected argument shape, unify the
-    /// supplied argument against it, and return the constructed
-    /// `TyClass`. Mirrors a single application against the value
-    /// returned by `classCtorAsFunction` — kept inline so a bare
-    /// `Expr.New` doesn't need to fabricate an `Expr.App` first.
+    /// `new T(args)`. Mirrors a single application against the value returned
+    /// by `classCtorAsFunction` — kept inline so a bare `Expr.New` doesn't
+    /// need to fabricate an `Expr.App` first.
     and private inferNew
         (ctx: PassContext)
         (key: NodeKey)
@@ -3302,10 +3072,9 @@ module Unification =
             infer ctx argExpr |> ignore
             TyVar(freshTyVar ctx)
 
-    /// `r.X.Y…` parsed as a single multi-segment `Expr.LongIdentOrOp`.
-    /// The head segment was resolved by NameResolution as a local binding
-    /// — type it through `ctx.Binding`/`ctx.Scheme` (same path as
-    /// `inferIdent` for a single-segment ident), then walk the remaining
+    /// `r.X.Y…` parsed as a single multi-segment `Expr.LongIdentOrOp`. The
+    /// head segment was resolved by NameResolution as a local binding — type
+    /// it through `ctx.Binding`/`ctx.Scheme`, then walk the remaining
     /// segments as a field-access chain.
     and private inferLongIdentFieldChain (ctx: PassContext) (key: NodeKey) (li: LongIdent<SyntaxToken>) : SemType =
         let head = li.Idents.[0]
@@ -3335,11 +3104,10 @@ module Unification =
         (_key: NodeKey)
         (parts: ImmutableArray<StringPart<SyntaxToken>>)
         : SemType =
-        // Non-interpolated strings type as `string`; an interpolated string is
-        // a `string` value too — Freeze lowers it to a `TExpr.Format` with a
-        // `ToString` sink (D9). Recurse into every hole expr so its type is
+        // Interpolated strings are `string` too — Freeze lowers them to a
+        // `TExpr.Format` (D9). Recurse into every hole expr so its type is
         // computed (Freeze reads it back to emit `AppendFormatted<T>`); a
-        // printf-style `%d{x}` specifier additionally constrains the hole.
+        // `%d{x}` specifier additionally constrains the hole.
         for part in parts do
             match part with
             | StringPart.Expr(formatSpecifier = fs; expr = e) ->
@@ -3380,16 +3148,13 @@ module Unification =
         match body with
         | ValueSome bodyExpr -> infer ctx bodyExpr
         | ValueNone ->
-            // `Expr.LetOrUse(body = ValueNone)` is `use fixed` (module-level
-            // lets are ModuleElems, not Expr.LetOrUse). Tiny subset doesn't
-            // support pinning — surface loudly so Freeze doesn't see a
-            // best-effort type for an unsupported construct.
+            // `body = ValueNone` is `use fixed` — pinning unsupported; fail
+            // loudly rather than hand Freeze a best-effort type.
             failwith "Unification: Expr.LetOrUse with no body (UseFixed) not supported"
 
     and private inferBinding (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =
-        // One typar scope per binding signature. Explicit `<'a>` typars
-        // seed it before any pattern / body walk; implicit `'a` mentions
-        // in annotations later in the signature pick up the same TyVar.
+        // One typar scope per binding signature: explicit `<'a>` typars seed
+        // it first so later implicit `'a` mentions share the same TyVar.
         let savedScope = ctx.TyparScope
         ctx.TyparScope <- Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
 
@@ -3421,8 +3186,6 @@ module Unification =
 
                     match b.returnType with
                     | ValueSome(ReturnType(typ = t)) ->
-                        // `let v : T = expr` — translate T under the
-                        // binding's typar scope and unify with the RHS.
                         let annTy = translateType ctx t
                         unify ctx (CstKeys.ofBinding b) bodyTy annTy
                         annTy
@@ -3435,8 +3198,6 @@ module Unification =
                     let bodyTy =
                         match b.returnType with
                         | ValueSome(ReturnType(typ = t)) ->
-                            // `let f x : T = body` — body's type unifies
-                            // with the declared return type.
                             let annTy = translateType ctx t
                             unify ctx (CstKeys.ofBinding b) bodyTy annTy
                             annTy
@@ -3448,18 +3209,14 @@ module Unification =
         finally
             ctx.TyparScope <- savedScope
 
-    /// Type a `let` / `let rec` group with Rémy-level discipline:
-    ///   1. Snapshot the outer level and push one level for the group.
-    ///   2. Pre-allocate single-name sibling headPat TyVars so forward
-    ///      references from inside one RHS (or any nested let within) find
-    ///      the sibling's TyVar at this group's level rather than lazy-mint
-    ///      at a deeper one — which would let a nested let generalise a
-    ///      var that actually belongs to an un-typed outer sibling.
-    ///   3. Type every binding's RHS at the pushed level (sibling lookups
-    ///      stay monomorphic — no scheme is written until step 5).
-    ///   4. Pop back to the outer level.
-    ///   5. Generalise each `shouldGeneralise` binding against the outer
-    ///      level and write its scheme to `ctx.Scheme`.
+    /// Type a `let` / `let rec` group with Rémy-level discipline. Key
+    /// subtlety: pre-allocate single-name sibling headPat TyVars (step 2) so
+    /// forward references from inside one RHS (or a nested let) find the
+    /// sibling's TyVar at this group's level rather than lazy-minting at a
+    /// deeper one — which would let a nested let generalise a var that
+    /// actually belongs to an un-typed outer sibling. RHSes type at the
+    /// pushed level (sibling lookups stay monomorphic — no scheme written
+    /// yet); generalisation happens against the outer level after popping.
     and private inferBindingGroup (ctx: PassContext) (bindings: ImmutableArray<Binding<SyntaxToken>>) : unit =
         let outerLevel = ctx.CurrentLevel
         enterLevel ctx
@@ -3491,11 +3248,9 @@ module Unification =
         | ModuleElem.Expression e -> infer ctx e |> ignore
         | _ -> ()
 
-    /// Rebuild the typar scope of a type definition from the registry
-    /// entry's `TypeParams`. Each `(name, tv)` pair is keyed under the
-    /// name so a field type containing `'name` resolves to `tv` —
-    /// linking the placeholder field TyVar through the same root the
-    /// registry already holds.
+    /// Rebuild a type definition's typar scope from the registry entry's
+    /// `TypeParams`, so a field type containing `'name` resolves to the same
+    /// root the registry already holds.
     let private scopeOfTypeParams (typeParams: (string * TypeVar) list) : Dictionary<string, TypeVar> =
         let d = Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
 
@@ -3505,12 +3260,10 @@ module Unification =
 
         d
 
-    /// After NameResolution stamps placeholder TyVars for every record
-    /// field, walk the file's `TypeDefn.Record`s again and Link each
-    /// placeholder to the real translated CST type. Done as a pre-pass so
-    /// a record's field type can reference another record declared
-    /// elsewhere in the same file — at this point every record name is
-    /// already in `ctx.RecordTypes`, so `translateType`'s lookup succeeds.
+    /// Link each placeholder field TyVar (stamped by NameResolution) to its
+    /// real translated CST type. Done as a pre-pass so a record's field type
+    /// can reference another record declared elsewhere in the same file —
+    /// every record name is already in `ctx.RecordTypes` by now.
     let private fillRecordFieldTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
         match m with
         | ModuleElem.Type defs ->
@@ -3551,12 +3304,9 @@ module Unification =
                 | _ -> ()
         | _ -> ()
 
-    /// After NameResolution stamps placeholder TyVars for every union case
-    /// field, walk the file's `TypeDefn.Union`s again and Link each
-    /// placeholder to the real translated CST type. Same shape as
-    /// `fillRecordFieldTypes` — runs after every record/union is in the
-    /// registry so a case's field type can name another DU declared
-    /// elsewhere in the same file.
+    /// Same shape as `fillRecordFieldTypes` for union case fields — runs
+    /// after every record/union is in the registry so a case's field type can
+    /// name another DU declared elsewhere in the same file.
     let private fillUnionFieldTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
         match m with
         | ModuleElem.Type defs ->
@@ -3577,16 +3327,10 @@ module Unification =
                             | ValueSome cs -> translateConstraints ctx cs
                             | ValueNone -> ()
 
-                            // Walk the case list in declaration order. A case is
-                            // registered iff its head names a case — mirror
-                            // `NameResolution.unionCaseName`'s accept set
-                            // (plain ident, `([])`, or a symbolic `(::)`-style
-                            // op) so this CST walk stays index-aligned with the
-                            // registry's `Cases` array (which only holds the
-                            // named cases). Field types come from the case's
-                            // payload, whichever syntax produced it: `Nary`
-                            // fields, or the explicit-return (GADT-syntax) form's
-                            // uncurried-signature args.
+                            // A case is registered iff its head names a case —
+                            // mirror `NameResolution.unionCaseName`'s accept
+                            // set so this CST walk stays index-aligned with the
+                            // registry's `Cases` array (named cases only).
                             let headNames (head: IdentOrOp<SyntaxToken>) =
                                 match head with
                                 | IdentOrOp.Ident _
@@ -3640,11 +3384,9 @@ module Unification =
                 | _ -> ()
         | _ -> ()
 
-    /// Translate the primary constructor argument types under the class's
-    /// typar scope and Link each placeholder TyVar to its declared type.
-    /// `Pat.Typed` carries an annotation; un-annotated arguments leave
-    /// the placeholder as a free TyVar so a use site can pin it via
-    /// argument-type unification in `inferNew` / `inferApp`.
+    /// Link each ctor-param placeholder TyVar to its declared type.
+    /// Un-annotated arguments leave the placeholder free so a use site can
+    /// pin it via argument-type unification in `inferNew` / `inferApp`.
     let private fillClassCtorParamTypes
         (ctx: PassContext)
         (info: ClassTypeInfo)
@@ -3681,11 +3423,9 @@ module Unification =
 
             walk p
 
-    /// Fold a curried member signature into a `TyFun` chain. Each arg group
-    /// is one parameter (a multi-arg group `a * b` is a tuple parameter),
-    /// translated under the caller's typar scope so declaring typars resolve
-    /// to their prototype TyVars. Used to fill abstract member signatures,
-    /// which have no body to infer.
+    /// Fold a curried member signature into a `TyFun` chain (a multi-arg
+    /// group `a * b` is a tuple parameter), under the caller's typar scope.
+    /// Used to fill abstract member signatures, which have no body to infer.
     let private curriedSigToSemType (ctx: PassContext) (CurriedSig(args = args; returnType = ret)) : SemType =
         let groupTy (ArgsSpec(args = specs)) =
             match List.ofSeq specs with
@@ -3696,13 +3436,11 @@ module Unification =
         List.foldBack (fun struct (g, _arrow) acc -> TyFun(groupTy g, acc)) (List.ofSeq args) retTy
 
     /// Walk every class member body under a typar scope seeded from
-    /// `info.TypeParams` and a binding scope that supplies `this` and
-    /// each ctor param. The placeholder member TyVars stored by
-    /// NameResolution are pre-populated into `ctx.TypeVar` keyed on the
-    /// member's headPat NodeKey so `inferBinding`'s `tvOf` reuses them
-    /// — letting `inferBinding`'s final `unify patTy rhsTy` link the
-    /// placeholder directly to the inferred member type. AutoProperty
-    /// has no `Binding`, so its placeholder is linked manually.
+    /// `info.TypeParams` plus a binding scope supplying `this` and each ctor
+    /// param. Placeholder member TyVars are pre-populated into `ctx.TypeVar`
+    /// so `inferBinding`'s `tvOf` reuses them and its final
+    /// `unify patTy rhsTy` links the placeholder to the inferred member type.
+    /// AutoProperty has no `Binding`, so its placeholder is linked manually.
     let private fillClassMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
         let common (td: TypeDefn<SyntaxToken>) =
             match td with
@@ -3727,27 +3465,20 @@ module Unification =
                         ctx.TyparScopeStrict <- true
 
                         try
-                            // Translate ctor-param type annotations now,
-                            // under the class's typar scope (so `'a`
-                            // resolves to the registry's prototype typar).
+                            // Under the class's typar scope so `'a` resolves
+                            // to the registry's prototype typar.
                             fillClassCtorParamTypes ctx info pc
 
                             // Seed `ctx.TypeVar` so `inferIdent` lookups
-                            // against the param/`this` binding sites
-                            // return these TyVars. ctor params: pull
-                            // out the underlying TyVar from each
-                            // placeholder's `info.CtorParams[i].Type`.
+                            // against the param binding sites return these.
                             for p in info.CtorParams do
                                 match p.Type with
                                 | TyVar tv -> ctx.TypeVar.Set(p.DeclKey, tv)
                                 | _ -> ()
 
-                            // `this` TyVar: a fresh TyVar at the
-                            // current level pre-linked to `TyClass`
-                            // over the class's prototype typars. The
-                            // prototype-typar instance lets generic
-                            // class member bodies that mention `'a`
-                            // share identity with the registry typars.
+                            // `this`: fresh TyVar pre-linked to `TyClass` over
+                            // the class's prototype typars, so a generic member
+                            // body mentioning `'a` shares identity with them.
                             let thisTv = TypeVar()
                             thisTv.Level <- ctx.CurrentLevel
 
@@ -3756,14 +3487,9 @@ module Unification =
                             thisTv.Link <- ValueSome(TyClass(info.Name, selfArgs))
                             ctx.TypeVar.Set(info.ThisKey, thisTv)
 
-                            // Type each member's body. Static members
-                            // are typed under the same typar scope but
-                            // their body never sees `this` / ctor
-                            // params (NameResolution gives them an
-                            // empty binding scope). Placeholder TyVars
-                            // for static members live in the same
-                            // `info.Members` array — IsStatic
-                            // discriminates downstream lookups.
+                            // Static member bodies never see `this` / ctor
+                            // params (NameResolution gives them an empty
+                            // binding scope); IsStatic discriminates downstream.
                             for el in body.elements do
                                 match el with
                                 | TypeDefnElement.Member(MemberDefn.Member(defn = d)) ->
@@ -3784,9 +3510,6 @@ module Unification =
                                         | ValueSome mTok ->
                                             let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
 
-                                            // Pre-seed ctx.TypeVar with the
-                                            // placeholder TyVar so inferPat's
-                                            // tvOf reuses it.
                                             let mInfoOpt = info.Members |> Array.tryFind (fun m -> m.DeclKey = mKey)
 
                                             match mInfoOpt with
@@ -3833,9 +3556,8 @@ module Unification =
                                             exitLevel ctx
                                     | MethodOrPropDefn.AbstractSignature(MemberSig.MethodOrPropSig(
                                         ident = idOrOp; sign = csig)) ->
-                                        // Abstract members have no body to infer;
-                                        // translate the signature directly under the
-                                        // class typar scope and link the placeholder.
+                                        // No body to infer — translate the
+                                        // signature directly and link the placeholder.
                                         let mTokOpt =
                                             match idOrOp with
                                             | IdentOrOp.Ident t -> ValueSome t
@@ -3852,11 +3574,9 @@ module Unification =
                                                 | TyVar tv ->
                                                     let root = UnionFind.find tv
 
-                                                    // Extend the class typar scope with the
-                                                    // method's own `<'C, …>` typars so they
-                                                    // resolve to their prototype TyVars (and
-                                                    // aren't diagnosed as free) when the
-                                                    // signature is translated. Restore after.
+                                                    // Extend the scope with the method's own
+                                                    // `<'C, …>` typars so they resolve to their
+                                                    // prototype TyVars (not diagnosed as free).
                                                     let savedMScope = ctx.TyparScope
 
                                                     if not (List.isEmpty mInfo.MethodTypeParams) then
@@ -3887,13 +3607,9 @@ module Unification =
                 | ValueNone -> ()
         | _ -> ()
 
-    /// Walk every union augmentation member body (P3d.3). Mirrors
-    /// `fillClassMembers` but reads the union's `extensions.elements` and binds
-    /// `this` to a `TyUnion` over the union's prototype typars (a v1 union has no
-    /// primary-constructor params). Each member's placeholder TyVar (stored by
-    /// NameResolution) is pre-seeded into `ctx.TypeVar` so `inferBinding`'s final
-    /// unify links it to the inferred member type (a `TyFun` for a method, the
-    /// body type for a property).
+    /// Union augmentation member bodies (P3d.3). Mirrors `fillClassMembers`
+    /// but reads `extensions.elements` and binds `this` to a `TyUnion` over
+    /// the union's prototype typars (a v1 union has no primary-ctor params).
     let private fillUnionMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
         match m with
         | ModuleElem.Type defs ->
@@ -3913,9 +3629,8 @@ module Unification =
                         ctx.TyparScopeStrict <- true
 
                         try
-                            // `this` TyVar pre-linked to `TyUnion` over the union's
-                            // prototype typars, so a generic member body that
-                            // mentions `'a` shares identity with the registry typars.
+                            // `this` pre-linked to `TyUnion` over the union's
+                            // prototype typars (shared identity for generic bodies).
                             let thisTv = TypeVar()
                             thisTv.Level <- ctx.CurrentLevel
                             let selfArgs = [ for (_, ptv) in info.TypeParams -> TyVar ptv ]
@@ -3989,13 +3704,10 @@ module Unification =
                 | _ -> ()
         | _ -> ()
 
-    /// Force every abbreviation body in source order. Each call into
-    /// `forceFill` recurses through `translateType` for any abbreviation
-    /// reference it encounters, so dependencies fill themselves DFS-style
-    /// regardless of declaration order. Already-`Filled` entries are
-    /// no-ops; cycles are diagnosed once. Runs before record / union
-    /// field fill so a record field or DU case-arg referencing an
-    /// abbreviation by name sees the expanded type.
+    /// `forceFill` recurses through `translateType`, so dependencies fill
+    /// DFS-style regardless of declaration order. Runs before record / union
+    /// field fill so a field or case-arg referencing an abbreviation by name
+    /// sees the expanded type.
     let private fillAbbreviationBodies (ctx: PassContext) (elems: ModuleElems<SyntaxToken>) : unit =
         for m in elems do
             match m with

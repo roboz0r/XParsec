@@ -5,21 +5,12 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Thin-slice #1: `printfn "hi"`. The first end-to-end milestone — it proves the
-// assembly writer, FSharp.Core resolution, the entry point, the metadata layer,
-// the body DSL, and the simplest provider call, with no closure / list / inline
-// / arithmetic machinery.
-
 [<Tests>]
 let tests =
     testList
         "Slice1"
         [
             test "`printfn \"hi\"` analyses clean and freezes to a Format node" {
-                // No-hole literal printf now lowers to the `Vesper.Formatter`
-                // happy path (vesper-printf-plan P1): a `TExpr.Format` with a
-                // single literal segment and a stdout+newline sink — not the old
-                // `App(printfn, New PrintfFormat …)` FSharp.Core shape.
                 let tast = analyse "printfn \"hi\""
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 

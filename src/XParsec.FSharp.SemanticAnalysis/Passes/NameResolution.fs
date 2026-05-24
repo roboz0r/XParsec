@@ -9,11 +9,9 @@ open XParsec.FSharp.SemanticAnalysis
 //       local binding. Unresolved names that the provider also doesn't know
 //       become Error diagnostics.
 //
-// Recursion is delegated to CstWalk.iterExpr; this pass supplies a Visit
-// hook plus the three scope-introducing hooks (EnterFun, EnterBindingRhs,
-// EnterLetBody). The walker thread-restores scope automatically at each
-// recursive boundary, so the caller's scope is never polluted by a
-// lambda/let body's locals.
+// Recursion is delegated to CstWalk.iterExpr; the walker thread-restores
+// scope automatically at each recursive boundary, so the caller's scope is
+// never polluted by a lambda/let body's locals.
 //
 // Notes for the tiny subset:
 //   - Operators inside InfixApp / PrefixApp are NOT resolved here. Desugar
@@ -23,15 +21,14 @@ open XParsec.FSharp.SemanticAnalysis
 //     re-queries the provider when it sees a missing binding entry.
 //   - IsInline is always false for the tiny subset. It'll get a real value
 //     when the inline keyword is handled.
-//   - IsMutable mirrors the binding's `mutableToken`. Propagated to every
+//   - IsMutable mirrors the binding's `mutableToken`, propagated to every
 //     use-site entry so Validation's assignment check can `ctx.Binding[lhsKey]`
-//     directly. The binding site itself also gets a self-entry
-//     (`BindingSite = key`) so Validation's value-restriction loop can
-//     iterate mutable bindings by filtering `kv.Key = rb.BindingSite`.
+//     directly. The binding site also gets a self-entry (`BindingSite = key`)
+//     so Validation's value-restriction loop can iterate mutable bindings by
+//     filtering `kv.Key = rb.BindingSite`.
 
 module NameResolution =
 
-    /// Per-scope entry: the binding site's NodeKey plus its mutability.
     /// Mutability propagates from the scope entry to every use-site
     /// `ResolvedBinding` that resolves through it, so downstream passes
     /// (Validation's immutable-assignment check) don't need a second hop.
@@ -63,11 +60,9 @@ module NameResolution =
             | ValueSome _ -> ()
             | ValueNone ->
                 // DU ctor references resolve through `ctx.CtorIndex` in
-                // Unification, not through `ctx.Binding`. Same for
-                // class names used as ctor-as-function (`Point(3, 4)`)
-                // — they live in `ctx.ClassTypes`. Suppress the
-                // "Unresolved identifier" diagnostic so neither
-                // surfaces as unresolved.
+                // Unification, not `ctx.Binding`; class names used as
+                // ctor-as-function (`Point(3, 4)`) live in `ctx.ClassTypes`.
+                // Suppress the "Unresolved identifier" diagnostic for both.
                 if ctx.CtorIndex.ContainsKey name || ctx.ClassTypes.ContainsKey name then
                     ()
                 else
@@ -78,26 +73,23 @@ module NameResolution =
                             Severity = Error
                         }
 
-    /// True if `name` could only be a constructor reference in pattern
-    /// position: starts with an uppercase letter AND is registered in
-    /// `ctx.CtorIndex`. F# spec convention is to treat uppercase-leading
-    /// pattern idents as ctor references, but we additionally require a
-    /// registry hit so unrelated uppercase binders (`let X = 1; match v
-    /// with | X -> …` in code that has no DU named X) still bind. Empty
-    /// strings (virtual tokens) never match.
+    /// True if `name` is a constructor reference in pattern position.
+    /// F# spec convention treats uppercase-leading pattern idents as ctor
+    /// references, but we additionally require a registry hit so unrelated
+    /// uppercase binders (`let X = 1; match v with | X -> …` in code with
+    /// no DU named X) still bind. Empty strings (virtual tokens) never match.
     let private isCtorName (ctx: PassContext) (name: string) : bool =
         name.Length > 0
         && System.Char.IsUpper name.[0]
         && ctx.CtorIndex.ContainsKey name
 
-    /// Every (name, NodeKey) pair introduced by a pattern. Recurses through
-    /// parens, tuples, as-bindings, and type annotations; returns [] for
-    /// patterns that bind nothing (Wildcard, Const).
+    /// Every (name, NodeKey) pair introduced by a pattern; [] for patterns
+    /// that bind nothing (Wildcard, Const, nullary ctors).
     let rec private bindingsOfPat (ctx: PassContext) (p: Pat<SyntaxToken>) : (string * NodeKey) list =
         match p with
         | Pat.NamedSimple t when isCtorName ctx (ctx.NameOf t) ->
-            // Uppercase-leading ident whose name matches a known nullary
-            // ctor — reinterpret as a ctor pattern, binds nothing.
+            // Uppercase-leading ident matching a known nullary ctor —
+            // reinterpret as a ctor pattern, binds nothing.
             []
         | Pat.NamedSimple t -> [ ctx.NameOf t, CstKeys.ofPat p ]
         | Pat.Wildcard _
@@ -113,8 +105,8 @@ module NameResolution =
             li.Idents.Length >= 1
             && isCtorName ctx (ctx.NameOf li.Idents.[li.Idents.Length - 1])
             ->
-            // Ctor pattern: `Circle r`, `Rectangle(w, h)`, `Result1.Ok x`.
-            // The head names bind nothing; sub-patterns introduce binders.
+            // Ctor pattern (`Circle r`, `Result1.Ok x`): head binds nothing,
+            // sub-patterns introduce binders.
             [
                 for sub in args do
                     yield! bindingsOfPat ctx sub
@@ -162,10 +154,9 @@ module NameResolution =
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
             resolveIdent ctx scope li.Idents.[0] (CstKeys.ofExpr e)
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) ->
-            // Multi-segment LongIdent: this could be a chained field
-            // access (`r.X`, `r.X.Y`) when the head segment is a local,
-            // OR a qualified name (`Module.value`, `Math.PI`) that the
-            // provider knows about. Try the local first — record-field
+            // Multi-segment LongIdent is either a chained field access
+            // (`r.X.Y`, head is a local) or a qualified name (`Math.PI`,
+            // provider knows it). Try the local first — record-field
             // resolution happens in Unification once it sees the head's
             // resolved type.
             let head = li.Idents.[0]
@@ -181,11 +172,10 @@ module NameResolution =
 
             match lookup scope with
             | ValueSome(bindingSite, isMutable) ->
-                // Register the head segment as a use of the local binding.
-                // The LongIdent expression itself is keyed under
-                // NodeKind.ExprLongIdent; the head's binding entry uses the
-                // ExprIdent kind on the head token so subsequent passes can
-                // look up the receiver's type by the same key.
+                // The LongIdent expression is keyed under ExprLongIdent; the
+                // head's binding entry uses the ExprIdent kind on the head
+                // token so subsequent passes can look up the receiver's type
+                // by the same key.
                 ctx.Binding.Set(
                     NodeKey.ofToken head NodeKind.ExprIdent,
                     {
@@ -200,8 +190,8 @@ module NameResolution =
                 match ctx.Provider.TryLookup qualName with
                 | ValueSome _ -> ()
                 | ValueNone ->
-                    // `Result2.Ok` — two-segment qualified ctor reference.
-                    // Resolves through `ctx.UnionTypes`; suppress here so
+                    // `Result2.Ok` — two-segment qualified ctor reference,
+                    // resolves through `ctx.UnionTypes`; suppress so
                     // Unification can pick it up.
                     let isQualifiedCtor =
                         li.Idents.Length = 2
@@ -210,11 +200,10 @@ module NameResolution =
                             let caseName = ctx.NameOf li.Idents.[1]
                             info.Cases |> Array.exists (fun c -> c.Name = caseName))
 
-                    // `Math.Pi` / `Box.Empty` — two-segment qualified
-                    // static member reference. Same suppression
-                    // posture as ctors: Unification handles the type
-                    // side. A union augmentation static member (`Lst.Empty`,
-                    // `Lst.Single`, P3d.3) suppresses the same way.
+                    // `Math.Pi` / `Box.Empty` — two-segment qualified static
+                    // member reference. Same suppression posture as ctors.
+                    // Union augmentation static members (`Lst.Empty`, P3d.3)
+                    // suppress the same way.
                     let isQualifiedStatic =
                         li.Idents.Length = 2
                         && (let typeName = ctx.NameOf li.Idents.[0]
@@ -241,13 +230,11 @@ module NameResolution =
             (Desugar.symbolicOpCompiledName op.Token |> ValueOption.isSome)
             ->
             // `(+)` and friends used as a value resolve through the provider
-            // in Unification (no local binding to register), so this is not
-            // an unresolved-name error.
+            // in Unification (no local binding), so not an unresolved-name error.
             ()
         | Expr.LongIdentOrOp lio ->
-            // Operator-form long idents (`A.(+)`, `(*)`) still need their
-            // own resolution story. Surface the gap rather than silently
-            // skipping.
+            // TODO: operator-form long idents (`A.(+)`, `(*)`) need their own
+            // resolution story. Surface the gap rather than silently skipping.
             let firstTok = CstKeys.firstTokenOfLongIdentOrOp lio
             let displayName = ctx.NameOf firstTok
 
@@ -265,9 +252,9 @@ module NameResolution =
             EnterFun = fun scope argPats -> extendScope ctx argPats Map.empty :: scope
             EnterBindingRhs =
                 fun scope isRec siblings b ->
-                    // `let rec`: sibling names (including this binding's own name,
-                    // so recursive self-reference resolves) are in scope for the RHS.
-                    // Function-form: push parameter names on top of that.
+                    // `let rec`: sibling names (including this binding's own
+                    // name, so recursive self-reference resolves) are in scope
+                    // for the RHS. Function-form: push parameter names on top.
                     let mutable s = scope
 
                     if isRec then
@@ -297,9 +284,8 @@ module NameResolution =
                     scopeMap :: scope
         }
 
-    /// Extract a `Typar`'s source-text name, dropping the leading `'` or
-    /// `^` (which live on a separate token). Anon (`_`) typars don't
-    /// participate in scope — return ValueNone so callers can skip them.
+    /// A `Typar`'s source-text name; the leading `'`/`^` live on a separate
+    /// token. Anon (`_`) typars don't participate in scope — ValueNone.
     let private typarName (ctx: PassContext) (t: Typar<SyntaxToken>) : string voption =
         match t with
         | Typar.Named(ident = id)
@@ -307,10 +293,10 @@ module NameResolution =
         | Typar.Anon _ -> ValueNone
 
     /// Declared typars for a `TypeName`, in source order: prefix typars
-    /// (`'a Box`) first, then suffix typars (`Box<'a, 'b>`). Skips
-    /// anonymous typars (they can't participate in a name-keyed scope).
-    /// Used by both NameResolution (to mint `TypeParams`) and
-    /// Unification (to rebuild the scope when filling field types).
+    /// (`'a Box`) first, then suffix typars (`Box<'a, 'b>`). Skips anonymous
+    /// typars (can't participate in a name-keyed scope). Used by both
+    /// NameResolution (mint `TypeParams`) and Unification (rebuild the scope
+    /// when filling field types).
     let typarNamesOfTypeName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : string list =
         let (TypeName(prefixTypars = pt; typarDefns = td)) = tn
 
@@ -342,10 +328,9 @@ module NameResolution =
 
         prefix @ main
 
-    /// Extract the `when 'a : ...` clause attached to a `TypeName`'s
-    /// `TyparDefns`, if any. Captured onto the registry entry so
-    /// Unification's fill-in pass can attach each constraint to the
-    /// prototype TyVars without re-walking the CST.
+    /// The `when 'a : ...` clause attached to a `TypeName`, if any. Captured
+    /// onto the registry entry so Unification's fill-in pass can attach each
+    /// constraint to the prototype TyVars without re-walking the CST.
     let private typarConstraintsOfTypeName (tn: TypeName<SyntaxToken>) : TyparConstraints<SyntaxToken> voption =
         let (TypeName(typarDefns = td)) = tn
 
@@ -353,9 +338,9 @@ module NameResolution =
         | ValueSome(TyparDefns(constraints = ValueSome tc)) -> ValueSome tc
         | _ -> ValueNone
 
-    /// Mint a prototype TyVar per declared typar name. Each prototype is
-    /// stored on the registry entry and substituted out at every use site
-    /// — two `Box<…>` instantiations therefore share no variables.
+    /// Mint a prototype TyVar per declared typar name. Each is stored on the
+    /// registry entry and substituted out at every use site, so two `Box<…>`
+    /// instantiations share no variables.
     let private mkTypeParams (names: string list) : (string * TypeVar) list =
         [
             for n in names ->
@@ -364,11 +349,10 @@ module NameResolution =
                 n, tv
         ]
 
-    /// Stamp `RecordTypeInfo` entries for every `TypeDefn.Record` in this
-    /// group. Field types start as placeholder TyVars; Unification fills
-    /// them in once `RecordTypes` is fully populated, so a record's field
-    /// type can reference another record declared elsewhere in the same
-    /// file. Duplicate single-segment names diagnose here — first wins.
+    /// Stamp `RecordTypeInfo` entries for every `TypeDefn.Record`. Field types
+    /// start as placeholder TyVars; Unification fills them once `RecordTypes`
+    /// is fully populated, so a field type can reference another record
+    /// declared elsewhere in the same file. Duplicate names diagnose here.
     let private registerRecordTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
         | TypeDefn.Record(typeName = tn; fields = fields) ->
@@ -400,11 +384,8 @@ module NameResolution =
                             for f in fields do
                                 let (RecordField(mutableToken = mt; ident = id)) = f
                                 let fName = ctx.NameOf id
-                                // Placeholder TyVar — Unification stamps the
-                                // real translated type via Link once the
-                                // registry is fully populated. Stamping a
-                                // fresh TyVar (rather than a TyConst) keeps
-                                // the late binding cheap and re-uses the
+                                // Placeholder TyVar (not a TyConst) so Unification
+                                // can Link the real type later, reusing the
                                 // existing unification machinery.
                                 let tv = TypeVar()
                                 tv.Level <- 0
@@ -435,12 +416,10 @@ module NameResolution =
                 registerRecordTypeDefn ctx td
         | _ -> ()
 
-    /// Map a union-case head to its case name. A plain identifier keeps its
-    /// text; the two operator-named cases that matter are FSharp.Core's list
-    /// constructors — `([])` (the empty case, compiled `Empty`) and `(::)`
-    /// (cons, compiled `Cons`). Any other symbolic operator keeps its source
-    /// text. Heads we can't name (`(*)`, range/active-pattern ops) yield `""`,
-    /// which `inspectCaseData` reads as "drop this case".
+    /// Map a union-case head to its case name. The operator-named cases that
+    /// matter are FSharp.Core's list constructors — `([])` → `Empty`, `(::)`
+    /// → `Cons`. Heads we can't name (`(*)`, range/active-pattern ops) yield
+    /// `""`, which `inspectCaseData` reads as "drop this case".
     let private unionCaseName (ctx: PassContext) (head: IdentOrOp<SyntaxToken>) : string =
         match head with
         | IdentOrOp.Ident t -> ctx.NameOf t
@@ -452,11 +431,10 @@ module NameResolution =
         | _ -> ""
 
     /// Pull a ctor case's name + arity + per-field names from
-    /// `UnionTypeCaseData`. Handles the plain forms plus operator-named cases
-    /// (`([])`/`(::)`) and the explicit-return (GADT-syntax) forms FSharp.Core's
-    /// list uses (`| ([]) : 'T list`, `| (::) : Head: 'T * Tail: 'T list -> 'T list`).
-    /// The return type is treated as the declaring union; true GADTs (a return
-    /// type refining the declaring typars) remain out of scope.
+    /// `UnionTypeCaseData`. Handles plain forms, operator-named cases, and the
+    /// explicit-return (GADT-syntax) forms FSharp.Core's list uses. The return
+    /// type is treated as the declaring union; true GADTs (a return type
+    /// refining the declaring typars) remain out of scope.
     let private inspectCaseData
         (ctx: PassContext)
         (data: UnionTypeCaseData<SyntaxToken>)
@@ -498,10 +476,9 @@ module NameResolution =
             else
                 ValueSome(n, specs.Length, gadtNames specs)
 
-    /// Stamp `UnionTypeInfo` entries for every `TypeDefn.Union` in this
-    /// group. Mirrors `registerRecordTypeDefn`: field types start as
-    /// placeholder TyVars; Unification's pre-pass fills them in once the
-    /// registry is fully populated.
+    /// Stamp `UnionTypeInfo` entries for every `TypeDefn.Union`. Mirrors
+    /// `registerRecordTypeDefn`: field types start as placeholder TyVars;
+    /// Unification's pre-pass fills them once the registry is populated.
     let private registerUnionTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
         | TypeDefn.Union(typeName = tn; cases = cases) ->
@@ -562,9 +539,9 @@ module NameResolution =
         | _ -> ()
 
     /// Stitch the inline-IL string of a `Type.ILIntrinsic` RHS (e.g.
-    /// `(# "System.Int32" #)` → `"System.Int32"`). The instruction parts are
-    /// almost always a single `StringPart.Text`; we stitch any token-bearing
-    /// part defensively. Mirrors `Freeze.stitchLiteralString`.
+    /// `(# "System.Int32" #)` → `"System.Int32"`). Parts are almost always a
+    /// single `StringPart.Text`; any token-bearing part is stitched
+    /// defensively. Mirrors `Freeze.stitchLiteralString`.
     let private ilIntrinsicString (ctx: PassContext) (parts: ImmutableArray<StringPart<SyntaxToken>>) : string =
         let sb = System.Text.StringBuilder()
         // TODO: Error handling for unsupported parts (Expr, InvalidText); they shouldn't proceed. Raise dianostics.
@@ -581,12 +558,10 @@ module NameResolution =
 
         sb.ToString()
 
-    /// Stamp an `AbbreviationInfo` entry for every `TypeDefn.Abbrev` in
-    /// this group. Body is left unfilled (`Status = NotFilled`);
-    /// Unification's `fillAbbreviationBodies` pre-pass forces each body
-    /// once every type registration is complete, so an abbreviation's
-    /// RHS can reference any other type in the same file regardless of
-    /// declaration order.
+    /// Stamp an `AbbreviationInfo` entry for every `TypeDefn.Abbrev`. Body is
+    /// left unfilled; Unification's `fillAbbreviationBodies` pre-pass forces
+    /// each body once every type registration is complete, so an RHS can
+    /// reference any other type in the same file regardless of declaration order.
     ///
     /// An abbrev whose RHS is `Type.ILIntrinsic` is the exception: it is a
     /// *primitive binding*, not a transparent alias. It's recorded in
@@ -641,10 +616,9 @@ module NameResolution =
                 registerAbbreviationDefn ctx td
         | _ -> ()
 
-    /// Walk a `PrimaryConstrArgs` and collect parameter names. v1 accepts
-    /// only simple patterns: `Pat.NamedSimple`, `Pat.Typed (NamedSimple, t)`,
-    /// `Pat.Tuple` of those, possibly enclosed. Anything else surfaces a
-    /// diagnostic and contributes no parameters.
+    /// Collect constructor parameter names. v1 accepts only simple patterns
+    /// (`NamedSimple`, `Typed (NamedSimple, t)`, `Tuple` of those, possibly
+    /// enclosed); anything else surfaces a diagnostic and contributes nothing.
     let private extractCtorParams
         (ctx: PassContext)
         (declKey: NodeKey)
@@ -660,10 +634,8 @@ module NameResolution =
                 match p with
                 | Pat.NamedSimple id ->
                     let name = ctx.NameOf id
-                    // Use the ident token's offset under a synthetic kind
-                    // so the param's binding-site key is distinct from any
-                    // collision with a regular Pat.NamedSimple at the same
-                    // offset.
+                    // Synthetic kind keeps the param's binding-site key distinct
+                    // from a regular Pat.NamedSimple at the same offset.
                     let pKey = NodeKey.ofToken id NodeKind.PatIdent
                     let tv = TypeVar()
                     tv.Level <- 0
@@ -679,9 +651,8 @@ module NameResolution =
                     for sub in pats do
                         walk sub
                 | _ ->
-                    // Point the diagnostic at the offending sub-pattern
-                    // when we can build a key for it; fall back to the
-                    // class's `declKey` for shapes that don't have a
+                    // Point the diagnostic at the offending sub-pattern when we
+                    // can key it; fall back to `declKey` for shapes without a
                     // CstKeys arm yet.
                     let patKey =
                         try
@@ -700,11 +671,10 @@ module NameResolution =
             walk p
             results.ToArray()
 
-    /// Pull a member's name from its head pattern (`b.headPat`). Members
-    /// have `this.M`-shaped head patterns parsed as `Pat.NamedSimple` for
-    /// the member-name token; the `this` (or alias) is in `MethodOrPropDefn`'s
-    /// `ident` field, not part of the head pattern. Returns `ValueNone`
-    /// when we can't extract a single-segment name (unsupported shape).
+    /// A member's name from its head pattern. `this.M`-shaped head patterns
+    /// parse as `Pat.NamedSimple` for the member-name token; the `this` (or
+    /// alias) is in `MethodOrPropDefn`'s `ident` field, not the head pattern.
+    /// ValueNone when no single-segment name can be extracted.
     let private memberNameOf (ctx: PassContext) (b: Binding<SyntaxToken>) : (string * SyntaxToken) voption =
         let rec walk (p: Pat<SyntaxToken>) =
             match p with
@@ -715,16 +685,14 @@ module NameResolution =
 
         walk b.headPat
 
-    /// Name + naming token of a member-signature `ident` (plain ident or a
-    /// symbolic operator name). Used to register abstract member signatures.
     let private identOrOpNameTok (ctx: PassContext) (id: IdentOrOp<SyntaxToken>) : (string * SyntaxToken) voption =
         match id with
         | IdentOrOp.Ident t -> ValueSome(ctx.NameOf t, t)
         | IdentOrOp.ParenOp(opName = OpName.SymbolicOp op) -> ValueSome(ctx.NameOf op, op)
         | _ -> ValueNone
 
-    /// A member's *own* declared typars — the `<'C, …>` after the member name —
-    /// in source order. Skips anonymous typars (they can't key a name-scope).
+    /// A member's *own* declared typars — the `<'C, …>` after the member name,
+    /// in source order. Skips anonymous typars (can't key a name-scope).
     let private memberTyparNames (ctx: PassContext) (tds: TyparDefns<SyntaxToken> voption) : string list =
         match tds with
         | ValueNone -> []
@@ -738,9 +706,9 @@ module NameResolution =
 
     /// Extract `ClassMemberInfo` placeholders from a type body's / augmentation's
     /// member elements. Shared by class registration (`body.elements`) and union
-    /// augmentation registration (`extensions.elements`) — both carry the same
-    /// `TypeDefnElement` shape (P3d.3). Member types are placeholder TyVars here;
-    /// Unification's `fillClassMembers` / `fillUnionMembers` links them.
+    /// augmentation registration (`extensions.elements`) — same `TypeDefnElement`
+    /// shape (P3d.3). Member types are placeholder TyVars here; Unification's
+    /// `fillClassMembers` / `fillUnionMembers` links them.
     let private extractMembers
         (ctx: PassContext)
         (declKey: NodeKey)
@@ -780,11 +748,10 @@ module NameResolution =
 
                     memberInfos.Add(ClassMemberInfo(mName, ClassMemberKind.Property, isStatic, TyVar tv, mKey))
                 | MethodOrPropDefn.AbstractSignature(MemberSig.MethodOrPropSig(ident = idOrOp; typarDefns = tds)) ->
-                    // An abstract method signature registers as a `Method` member
-                    // with a placeholder TyVar; Unification links it to the
-                    // resolved signature, and Freeze reads these to surface the
-                    // interface. (A `PropSig` abstract member is a property — out
-                    // of scope for rung 1.)
+                    // Abstract method signature registers as a `Method` member
+                    // with a placeholder TyVar; Unification links the resolved
+                    // signature, Freeze surfaces the interface. (A `PropSig`
+                    // abstract member is a property — out of scope for rung 1.)
                     match identOrOpNameTok ctx idOrOp with
                     | ValueSome(mName, mTok) ->
                         let tv = TypeVar()
@@ -794,7 +761,7 @@ module NameResolution =
                         let cmi = ClassMemberInfo(mName, ClassMemberKind.Method, isStatic, TyVar tv, mKey)
 
                         // The method's own `<'C, …>` typars get prototype TyVars
-                        // here so Unification scopes the signature against them and
+                        // so Unification scopes the signature against them and
                         // Freeze can surface them as `GenericMethodParameter`s.
                         cmi.MethodTypeParams <- mkTypeParams (memberTyparNames ctx tds)
                         memberInfos.Add cmi
@@ -829,10 +796,9 @@ module NameResolution =
 
     /// Stamp `ClassTypeInfo` entries for every `TypeDefn.Class` (or
     /// `TypeDefn.Anon` — the parser emits `Anon` for the bare
-    /// `type C(...) = member ...` form without an explicit `class`/`end`
-    /// wrapper). Member types are placeholder TyVars at this point;
-    /// Unification's `fillClassMembers` pre-pass walks each member body
-    /// and links the placeholders to the inferred type.
+    /// `type C(...) = member ...` form without an explicit `class`/`end`).
+    /// Member types are placeholder TyVars; Unification's `fillClassMembers`
+    /// pre-pass walks each member body and links them to the inferred type.
     let private registerClassTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
         let common =
             match td with
@@ -901,10 +867,9 @@ module NameResolution =
         | _ -> ()
 
     /// Stamp augmentation members onto an already-registered `UnionTypeInfo`
-    /// (P3d.3). Runs after `registerUnionTypes`; mirrors the class member
-    /// registration but reads the union's `extensions.elements` and supplies a
-    /// shared synthetic `this` binder (a v1 union has no primary ctor / `as`
-    /// alias, so `this` is always named `"this"`).
+    /// (P3d.3). Must run after `registerUnionTypes`; reads the union's
+    /// `extensions.elements`. A v1 union has no primary ctor / `as` alias, so
+    /// `this` is always named `"this"`.
     let private registerUnionMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
         match m with
         | ModuleElem.Type defs ->
@@ -924,13 +889,11 @@ module NameResolution =
                 | _ -> ()
         | _ -> ()
 
-    /// Walk every class member body with a scope that binds `this`
-    /// (or the user-supplied `as` alias) and every primary-constructor
-    /// argument. Writes a binding-site self-entry to `ctx.Binding` for
-    /// each (mirrors `bindingsToScope` for module-level lets).
-    /// Member-body walks share one `Scope` per class; sibling members
-    /// in the same class can therefore reference one another only via
-    /// `this.OtherMember` (member names are not in lexical scope).
+    /// Walk every class member body with a scope that binds `this` (or the
+    /// `as` alias) and every primary-constructor argument, writing a
+    /// binding-site self-entry to `ctx.Binding` for each. Member names are NOT
+    /// in lexical scope: sibling members reference one another only via
+    /// `this.OtherMember`.
     let private walkClassBodies
         (ctx: PassContext)
         (walker: CstWalk.ExprWalker<Scope list>)
@@ -950,10 +913,6 @@ module NameResolution =
                 | ValueSome(name, body) ->
                     match ctx.ClassTypes.TryGetValue name with
                     | true, info ->
-                        // Build the class-body scope: `this` + every
-                        // ctor param. Each entry's binding-site key is
-                        // the ident token's PatIdent offset (ctor params)
-                        // or the class's synthetic ThisKey (this).
                         let mutable scopeMap: Scope = Map.empty
                         scopeMap <- Map.add info.ThisName (info.ThisKey, false) scopeMap
 
@@ -978,9 +937,8 @@ module NameResolution =
                                 }
                             )
 
-                        // Instance scope: `this` + ctor params.
-                        // Static scope: empty (statics don't see `this`
-                        // or ctor args — F# class members spec §8.7).
+                        // Static scope is empty: statics don't see `this` or
+                        // ctor args (F# class members spec §8.7).
                         let instanceScope = [ scopeMap ]
                         let staticScope: Scope list = [ Map.empty ]
 
@@ -992,14 +950,10 @@ module NameResolution =
                                 match d with
                                 | MethodOrPropDefn.Method(defn = b)
                                 | MethodOrPropDefn.Property(defn = b) ->
-                                    // Mirror how module-level lets enter
-                                    // a binding RHS: extend scope with
-                                    // any argument-pattern binders so
-                                    // method parameters resolve from
-                                    // inside the body. The headPat
-                                    // (member name) doesn't enter scope
-                                    // — class members are accessed via
-                                    // `this.M`, not as lexical names.
+                                    // Extend scope with argument-pattern binders
+                                    // so method parameters resolve. The headPat
+                                    // (member name) does NOT enter scope — members
+                                    // are accessed via `this.M`, not lexically.
                                     let mutable inner = scope
 
                                     if not b.argumentPats.IsEmpty then
@@ -1015,8 +969,7 @@ module NameResolution =
 
     /// Walk every union augmentation member body (P3d.3). Mirrors
     /// `walkClassBodies` but reads `extensions.elements` and binds only `this`
-    /// (a v1 union has no primary-constructor arguments). Instance members see
-    /// `this` + their argument binders; static members see only their arguments.
+    /// (a v1 union has no primary-constructor arguments).
     let private walkUnionBodies
         (ctx: PassContext)
         (walker: CstWalk.ExprWalker<Scope list>)
@@ -1083,9 +1036,8 @@ module NameResolution =
             for b in bindings do
                 let rhsScope = walker.EnterBindingRhs scope isRecursive bindings b
                 CstWalk.iterExpr walker rhsScope b.expr
-            // Extend the topmost scope so later module elements can see these
-            // bindings. `bindingsToScope` writes binding-site self-entries to
-            // ctx.Binding as a side effect — same path used by EnterLetBody.
+            // `bindingsToScope` writes binding-site self-entries to ctx.Binding
+            // as a side effect — same path used by EnterLetBody.
             let newEntries = bindingsToScope ctx bindings
 
             match scope with
@@ -1105,13 +1057,9 @@ module NameResolution =
         (elems: ModuleElems<SyntaxToken>)
         =
         // Pre-pass: register every record / union type so subsequent
-        // expression walks (and Unification) can resolve literals /
-        // field accesses / ctor uses against the registry. Mirrors the
-        // let-rec collect-then-infer ordering inside a module. Records
-        // and unions are independent in v1 (no module/namespace types),
-        // so the order between them doesn't matter — but both must
-        // finish before `bindingsOfPat` runs on any pattern, since the
-        // ctor-vs-binder disambiguation reads `ctx.CtorIndex`.
+        // expression walks (and Unification) resolve against the registry.
+        // Both must finish before `bindingsOfPat` runs on any pattern, since
+        // the ctor-vs-binder disambiguation reads `ctx.CtorIndex`.
         for m in elems do
             registerRecordTypes ctx m
 
@@ -1128,14 +1076,12 @@ module NameResolution =
         for m in elems do
             registerUnionMembers ctx m
 
-        // Class member bodies are not walked by `walkModuleElem` (it
-        // skips `ModuleElem.Type`). Walk them here with each class's
-        // own scope (`this` + ctor params) so member-body idents have
-        // Binding entries before Unification types them.
+        // `walkModuleElem` skips `ModuleElem.Type`, so class member bodies are
+        // walked here with each class's own scope (`this` + ctor params), so
+        // member-body idents have Binding entries before Unification types them.
         for m in elems do
             walkClassBodies ctx walker m
 
-        // Union augmentation member bodies, same treatment (P3d.3).
         for m in elems do
             walkUnionBodies ctx walker m
 

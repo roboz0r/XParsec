@@ -80,8 +80,6 @@ let tests =
                 Expect.isFalse (hasMessage ctx "value restriction") "no VR diagnostic when params are annotated"
             }
 
-            // ---- Records ----
-
             test "assignment to immutable field diagnoses" {
                 let ctx =
                     analyse "type R = { X: int; mutable Y: int }\nlet r = { X = 1; Y = 2 }\nr.X <- 5"
@@ -125,8 +123,6 @@ let tests =
                 Expect.isFalse (hasMessage ctx "value restriction") "no value-restriction on mutable DU"
             }
 
-            // ---- Generics + value restriction ----
-
             test "mutable generic record literal is clean once pinned" {
                 // `let mutable b = { Value = 1 }` — resolved Box<int>, no free TyVar.
                 let ctx = analyse "type Box<'a> = { Value: 'a }\nlet mutable b = { Value = 1 }"
@@ -138,8 +134,6 @@ let tests =
                 let ctx = analyse "let mutable id = fun x -> x"
                 Expect.isTrue (hasMessage ctx "value restriction") "free-typar mutable still fires"
             }
-
-            // ---- Classes ----
 
             test "unresolved member on class receiver still diagnoses" {
                 let ctx = analyse "let f p = p.NotAMember"

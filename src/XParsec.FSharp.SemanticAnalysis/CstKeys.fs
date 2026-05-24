@@ -2,11 +2,9 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open XParsec.FSharp.Parser
 
-// Map CST nodes to their NodeKey. Each Expr / Pat DU case has a corresponding
-// NodeKind tag; the NodeKey is (firstToken.StartIndex, kind).
-//
-// Cases outside the tiny subset fall through to failwith — extend the match
-// arms as the constraint generator grows to handle more node kinds.
+// NodeKey is (firstToken.StartIndex, kind). Cases outside the tiny subset fall
+// through to failwith — extend the match arms as the constraint generator grows
+// to handle more node kinds.
 
 module CstKeys =
 

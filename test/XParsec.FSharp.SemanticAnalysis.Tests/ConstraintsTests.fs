@@ -43,8 +43,6 @@ let tests =
     testList
         "Constraints"
         [
-            // ---- NameResolution: TyparConstraints capture ----
-
             test "generic record with constraints captures TyparConstraints" {
                 let ctx = analyseNR "type Set<'a when 'a : comparison> = { Items: 'a list }"
                 let info = ctx.RecordTypes.["Set"]
@@ -63,8 +61,6 @@ let tests =
                 let info = ctx.RecordTypes.["Box"]
                 Expect.isTrue info.TyparConstraints.IsNone "no TyparConstraints"
             }
-
-            // ---- Unification: primitive satisfaction ----
 
             test "equality constraint satisfied by int" {
                 let ctx =
@@ -136,8 +132,6 @@ let tests =
                 Expect.isTrue (hasMessage ctx "not struct") "not-struct-violation diagnostic"
             }
 
-            // ---- Unification: constraint propagation through generics ----
-
             test "generic record use site that satisfies the constraint" {
                 let ctx =
                     analyseUnif "type Set<'a when 'a : comparison> = { Items: 'a }\nlet s : Set<int> = { Items = 1 }"
@@ -168,16 +162,12 @@ let tests =
                 Expect.isFalse (hasMessage ctx "does not support") "no constraint diagnostic"
             }
 
-            // ---- Unification: inline `WhenConstrainedType` ----
-
             test "inline WhenConstrainedType attaches a constraint that fires at use" {
                 let ctx =
                     analyseUnif "let f (x: ('a when 'a : equality)) = x\nlet _ = f (fun a -> a)"
 
                 Expect.isTrue (hasMessage ctx "equality") "equality diagnostic from inline when"
             }
-
-            // ---- Unification: multiple constraints ----
 
             test "multiple constraints attach to the same typar" {
                 let ctx =
@@ -199,8 +189,6 @@ let tests =
                 Expect.equal (countMessage ctx "equality") 1 "single equality diagnostic"
             }
 
-            // ---- Unification: deferred / second-use behaviour ----
-
             test "first use satisfies; second use violates → one diagnostic only" {
                 let ctx =
                     analyseUnif
@@ -208,8 +196,6 @@ let tests =
 
                 Expect.equal (countMessage ctx "equality") 1 "second use diagnoses; first does not"
             }
-
-            // ---- Full pipeline / TAST coverage ----
 
             test "TAST shape for a constraint-bearing binding is unchanged" {
                 let ctx =

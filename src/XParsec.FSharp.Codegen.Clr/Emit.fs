@@ -7,32 +7,22 @@ open XParsec.FSharp.SemanticAnalysis
 
 // The TAST walker: `TExpr` → IL, via the depth-tracked untyped `Cil` helpers
 // (the dynamic compiled-name → recipe dispatch can't preserve the phantom
-// stack types across the provider boundary; hand-written bodies that can use
-// the typed `Op` surface live in the tests).
+// stack types across the provider boundary).
 //
-// Slices 2–4 grew coverage to arithmetic intrinsics, `let`/`Var` locals, the
-// `FSharpFunc.Invoke` *consumption* path, `let inline` expansion, and list
-// construction.
-//
-// Slice 5 adds the function-*value* half: closure synthesis. A `lower` pre-pass
-// expands every `inline` reference (so the walker never sees one) and
-// eta-reifies every function-typed `External` used as a value into an explicit
-// lambda chain — after lowering, every `TExpr.Lambda` is a function value, and
-// every such value is realised at runtime as an `FSharpFunc\`2` subclass.
-// `discoverClosures` enumerates those lambdas leaves-first with their captured
-// free variables; `Codegen` emits one synthesised type per closure and feeds
-// the ctor handles back so a `Lambda`-as-value lowers to `newobj`. Variable
-// resolution is now per-method: in `Main` a `Var` is a local; in a closure
-// `Invoke` it is the parameter (`ldarg.1`) or a capture (`ldarg.0; ldfld`).
+// A `lower` pre-pass expands every `inline` reference and eta-reifies every
+// function-typed `External` used as a value into an explicit lambda chain — so
+// afterwards every `TExpr.Lambda` is a function value, realised at runtime as
+// an `FSharpFunc\`2` subclass. `discoverClosures` enumerates those lambdas
+// leaves-first with their captured free variables. Variable resolution is
+// per-method: in `Main` a `Var` is a local; in a closure `Invoke` it is the
+// parameter (`ldarg.1`) or a capture (`ldarg.0; ldfld`).
 
 module Emit =
 
-    /// A synthesised closure: one `FSharpFunc\`2<ParamTy, ResultTy>` subclass.
-    /// `Node` is the originating `TExpr.Lambda` (matched by reference identity
-    /// in the *lowered* tree, which both discovery and emission share, so a
-    /// `Lambda`-as-value resolves to its ctor handle). `Captures` is the free
-    /// variables in stable order = field order = ctor-arg order = the order
-    /// they are pushed at the construction site.
+    /// One `FSharpFunc\`2<ParamTy, ResultTy>` subclass. `Node` (the originating
+    /// `TExpr.Lambda`) is matched by reference identity in the *lowered* tree
+    /// that both discovery and emission share. `Captures` order = field order =
+    /// ctor-arg order = the order pushed at the construction site.
     type Closure =
         {
             Node: TExpr
@@ -42,18 +32,16 @@ module Emit =
             ResultTy: SemType
             Body: TExpr
             Captures: (NodeKey * SemType) list
-            /// The binding key of the `let [rec] f = <this lambda>` the closure is
-            /// the value of, when it has one. A recursive self-reference (`f` in
-            /// its own body) resolves to `this` (`ldarg.0`) in the `Invoke` body
-            /// rather than being captured — so `f` calls itself with no
-            /// self-capture chicken-and-egg at construction. `ValueNone` for an
-            /// anonymous lambda. See docs/self-host-rung2-plan.md (P3a.6).
+            /// The binding key of the `let [rec] f = <this lambda>` this is the
+            /// value of, when any. A recursive self-reference resolves to `this`
+            /// (`ldarg.0`) in the `Invoke` body rather than being captured, so
+            /// there's no self-capture chicken-and-egg at construction.
+            /// `ValueNone` for an anonymous lambda.
             SelfKey: NodeKey voption
         }
 
-    /// One case of an emitted union: its runtime `Tag`, the static factory that
-    /// constructs it (`call`ed by `TExpr.UnionCons`), and the field handles its
-    /// payload lives in (declaration order, read by a `TPat.Union` match).
+    /// One case of an emitted union: its runtime `Tag`, the static factory
+    /// `TExpr.UnionCons` `call`s, and its payload field handles in declaration order.
     type EmittedCase =
         {
             Tag: int
@@ -61,9 +49,8 @@ module Emit =
             Fields: EntityHandle list
         }
 
-    /// An augmentation member emitted onto a union's `TypeDefinition` (P3d.3):
-    /// the method handle plus what a call site needs. A property's `Handle` is
-    /// its `get_<name>` method. `Arity` excludes the implicit `this`.
+    /// An augmentation member emitted onto a union's `TypeDefinition`. A
+    /// property's `Handle` is its `get_<name>` method; `Arity` excludes `this`.
     type EmittedMember =
         {
             Handle: EntityHandle
@@ -71,20 +58,16 @@ module Emit =
             Arity: int
         }
 
-    /// A union type emitted into this assembly (rung 2): the shared `int`
-    /// discriminant field plus each case's emission handles, and (P3d.3) its
-    /// augmentation members by name (driving `MethodCall` / `PropertyGet` /
-    /// `StaticMethodCall` / `StaticPropertyGet`).
+    /// A union emitted into this assembly: the shared `int` discriminant field,
+    /// each case's emission handles, and its augmentation members by name.
     ///
     /// `Typars` is the declaring type's generic parameters; **empty ⇒ a
-    /// monomorphic union** (the single sealed class with `Def`-token member
-    /// access). A *generic* union (`Typars` non-empty, P3d.4) is a real generic
-    /// `TypeDefinition`, so a construction / match site reaches its members
-    /// through `ICodegenProvider.GenericUnionMemberRef name args …` (a `MemberRef`
-    /// on the instantiated `TypeSpec`) rather than the `Def`-token `TagField` /
-    /// `EmittedCase.Factory` / `EmittedCase.Fields` (which stay valid only for the
-    /// monomorphic case). `Name` is the union's simple name, the registry key the
-    /// provider mints refs against.
+    /// monomorphic union** (a single sealed class with `Def`-token member
+    /// access). A *generic* union reaches its members through
+    /// `ICodegenProvider.GenericUnionMemberRef` (a `MemberRef` on the
+    /// instantiated `TypeSpec`) rather than the `Def`-token `TagField` /
+    /// `EmittedCase.Factory` / `EmittedCase.Fields` (valid only for the
+    /// monomorphic case). `Name` is the registry key the provider mints refs against.
     type EmittedUnion =
         {
             Name: string
@@ -94,14 +77,12 @@ module Emit =
             Members: Dictionary<string, EmittedMember>
         }
 
-    /// A top-level function binding lowered to a **static method** (rung 2 P3b):
-    /// `let [rec] f p0 p1 … = body` becomes `static <ResultTy> f(p0, p1, …)`.
-    /// The curried lambda's parameters are flattened to method parameters
-    /// (`ldarg.i`); the body is compiled in place. Eligible only when the
-    /// function never escapes as a value (every use is a saturated call) and
-    /// captures no module-level local — see `collectStaticFns`. A recursive
-    /// self-call lowers to a direct `call` of the method's own handle, so no
-    /// closure / `this.Invoke` self-reference is needed.
+    /// A top-level function binding lowered to a **static method**:
+    /// `let [rec] f p0 p1 … = body` becomes `static <ResultTy> f(p0, p1, …)`,
+    /// the curried parameters flattened to method parameters. Eligible only when
+    /// the function never escapes as a value and captures no module-level local —
+    /// see `collectStaticFns`. A recursive self-call is a direct `call` of the
+    /// method's own handle, so no closure self-reference is needed.
     type StaticFn =
         {
             Key: NodeKey
@@ -113,9 +94,8 @@ module Emit =
 
     /// The emission handle + shape of a static-method function, resolved before
     /// any body is built (the `MethodDefinition` handle is *predicted* from the
-    /// row order — see `Codegen.assembleProgram`). A saturated call site `f a b`
-    /// `call`s `Handle` with the first `Arity` args, then `Invoke`s the result
-    /// with any remainder (`ResultTy` threads that fold).
+    /// row order). A call site `f a b` `call`s `Handle` with the first `Arity`
+    /// args, then `Invoke`s the result with any remainder.
     type StaticMethodRef =
         {
             Handle: EntityHandle
@@ -123,7 +103,6 @@ module Emit =
             ResultTy: SemType
         }
 
-    /// The inferred type carried inline on any `TExpr` node.
     let private typeOfExpr (e: TExpr) : SemType =
         match e with
         | TExpr.Const(_, ty) -> ty
@@ -156,7 +135,6 @@ module Emit =
         | TExpr.StaticPropertyGet(_, _, ty) -> ty
         | TExpr.Format(_, _, ty) -> ty
 
-    /// The type carried inline on any `TPat` node (every case stores its type).
     let private typeOfPat (p: TPat) : SemType =
         match p with
         | TPat.NamedSimple(_, ty)
@@ -166,9 +144,8 @@ module Emit =
         | TPat.Record(_, ty)
         | TPat.Union(_, _, ty) -> ty
 
-    /// Rebuild every immediate sub-expression of `e` through `f`. The single
-    /// structural recursion the lowering map, the closure collector, and the
-    /// free-variable walk all share (the latter two via `iterChildren`).
+    /// The single structural recursion the lowering map, the closure collector,
+    /// and the free-variable walk all share (the latter two via `iterChildren`).
     let private mapChildren (f: TExpr -> TExpr) (e: TExpr) : TExpr =
         match e with
         | TExpr.Const _
@@ -238,9 +215,8 @@ module Emit =
 
             TExpr.Format(sink, segs, t)
 
-    /// Visit every immediate sub-expression of `e` for side effects, reusing
-    /// `mapChildren` (the rebuilt tree is discarded — only the discovery /
-    /// free-variable passes call this, each a one-shot pre-pass).
+    /// Reuses `mapChildren`, discarding the rebuilt tree — only the one-shot
+    /// discovery / free-variable pre-passes call this.
     let private iterChildren (f: TExpr -> unit) (e: TExpr) : unit =
         mapChildren
             (fun c ->
@@ -257,16 +233,12 @@ module Emit =
         | TExpr.App(fn, arg, ty) -> collectSpine ((arg, ty) :: acc) fn
         | head -> head, acc
 
-    /// Rebuild a left-associated `App` spine from a head and `(arg, resultTy)`
-    /// pairs (the inverse of `collectSpine`).
     let private rebuildApp (head: TExpr) (args: (TExpr * SemType) list) : TExpr =
         List.fold (fun acc (arg, resTy) -> TExpr.App(acc, arg, resTy)) head args
 
-    /// Peel a curried `Lambda` chain of simple (`NamedSimple`) parameters into
-    /// the parameter list and the innermost body. A non-`NamedSimple` parameter
-    /// (or a non-lambda) stops the peel, so the "arity" is the count of leading
-    /// simple-param lambdas. Drives static-method parameter flattening and the
-    /// matching escape analysis.
+    /// Peel a curried `Lambda` chain of simple (`NamedSimple`) parameters. A
+    /// non-`NamedSimple` parameter (or a non-lambda) stops the peel, so the
+    /// "arity" is the count of leading simple-param lambdas.
     let rec private peelLambda (e: TExpr) : (NodeKey * SemType) list * TExpr =
         match e with
         | TExpr.Lambda(TPat.NamedSimple(k, pty), body, _) ->
@@ -275,8 +247,8 @@ module Emit =
         | _ -> [], e
 
     /// Beta-reduce a curried lambda (an inline expansion's output) against its
-    /// spine arguments, lowering each application to a `TExpr.Let`. The lambda
-    /// count must match the spine-arg count for a fully applied call.
+    /// spine args, lowering each application to a `TExpr.Let`. Lambda count must
+    /// match spine-arg count for a fully applied call.
     let rec private betaReduce (fn: TExpr) (args: (TExpr * SemType) list) : TExpr =
         match fn, args with
         | _, [] -> fn
@@ -293,11 +265,10 @@ module Emit =
         | TyFun _ -> true
         | _ -> false
 
-    /// Lower a decl list into a closure-bearing, inline-free, External-value-
-    /// free tree. After this, every `TExpr.Lambda` is a function value the
-    /// closure machinery realises, and every `External` is either a call head
-    /// or has non-function type. Inline bindings are dropped (fully expanded at
-    /// their use sites); the call-site args drive beta reduction.
+    /// Lower a decl list into a closure-bearing, inline-free, External-value-free
+    /// tree. After this, every `TExpr.Lambda` is a function value and every
+    /// `External` is either a call head or has non-function type. Inline bindings
+    /// are dropped (fully expanded at their use sites).
     let lower (decls: TDecl list) : TDecl list =
         let inlines = Dictionary<NodeKey, TDecl>()
 
@@ -315,9 +286,8 @@ module Emit =
             counter <- counter + 1
             k
 
-        // `External(name, a -> b -> … -> r)` used as a value becomes
-        // `fun p0 -> fun p1 -> … -> name p0 p1 …` — the eta-reification that
-        // turns an operator/function name into a constructible closure.
+        // Eta-reify `External(name, a -> … -> r)` used as a value into
+        // `fun p0 -> … -> name p0 …`, turning a function name into a closure.
         let etaExpand (name: string) (ty: SemType) : TExpr =
             let rec arrows t =
                 match t with
@@ -354,13 +324,10 @@ module Emit =
                 let head, spineArgs = collectSpine [] e
 
                 match head with
-                | TExpr.Var(k, _) when inlines.ContainsKey k ->
-                    // Inline call site: expand the body, beta-reduce against
-                    // the args into a `Let` chain, then lower that.
-                    lowerExpr (betaReduce (expandInline k) spineArgs)
+                | TExpr.Var(k, _) when inlines.ContainsKey k -> lowerExpr (betaReduce (expandInline k) spineArgs)
                 | _ ->
-                    // The head stays in call position (an `External` head is a
-                    // recipe call — not eta-reified); the args are values.
+                    // An `External` head is a recipe call, so it stays in call
+                    // position and is not eta-reified; the args are values.
                     let head' =
                         match head with
                         | TExpr.External _ -> head
@@ -377,8 +344,7 @@ module Emit =
             | TDecl.Let(_, _, true, _) -> None
             | TDecl.Let(p, value, false, t) -> Some(TDecl.Let(p, lowerExpr value, false, t))
             | TDecl.Expression(e, t) -> Some(TDecl.Expression(lowerExpr e, t))
-            // Type declarations have no expression to lower; they're emitted as
-            // metadata by the library path, not through the value/expr stream.
+            // Type declarations are emitted as metadata, not through the expr stream.
             | TDecl.Type _ -> None
         )
 
@@ -396,11 +362,9 @@ module Emit =
 
         go p
 
-    /// The free variables of a closure body (referenced `Var` keys minus the
-    /// parameter and any binder introduced within the body), in first-
-    /// occurrence order. Drives capture field order. `staticFnKeys` are
-    /// top-level functions lowered to static methods (P3b): a reference to one
-    /// is a direct `call`, not a captured value, so it is excluded here.
+    /// The free variables of a closure body, in first-occurrence order — drives
+    /// capture field order. `staticFnKeys` are excluded: a reference to a
+    /// static-method function is a direct `call`, not a captured value.
     let private freeVars
         (staticFnKeys: HashSet<NodeKey>)
         (paramKey: NodeKey)
@@ -468,11 +432,8 @@ module Emit =
 
     // ---- Static-method classification (P3b) ----
 
-    /// The free `Var` keys of `body`, excluding `boundKeys` (the function's own
-    /// parameters) and any binder introduced within the body. Unlike `freeVars`
-    /// this keeps only the keys (no types, no static-method exclusion) — it
-    /// drives the capture test in `collectStaticFns`, which must *see* every
-    /// referenced binding to decide eligibility.
+    /// Like `freeVars` but keeps only keys (no types, no static-method exclusion):
+    /// the capture test in `collectStaticFns` must *see* every referenced binding.
     let private freeVarKeys (boundKeys: NodeKey seq) (body: TExpr) : HashSet<NodeKey> =
         let bound = HashSet<NodeKey>(boundKeys)
         let acc = HashSet<NodeKey>()
@@ -526,22 +487,16 @@ module Emit =
         acc
 
     /// Classify which top-level function bindings can be emitted as **static
-    /// methods** rather than closures (P3b). A candidate is `let [rec] f p0 … =
-    /// body` whose value (after `lower`) peels to at least one simple parameter.
-    /// It is eligible only when:
-    ///   1. it never *escapes* — every use in the whole program is a saturated
-    ///      call (≥ arity arguments), so it is never needed as a function value;
-    ///      a bare or under-applied reference forces the closure representation.
-    ///   2. it captures no module-level local — its body's free variables (minus
-    ///      its parameters and self) are all themselves eligible static functions
-    ///      (resolved as direct `call`s). A reference to a value local would need
-    ///      a capture field, which a static method has no `this` to hold.
-    /// Rule 2 is a fixpoint (eligibility depends on the eligibility of the
-    /// functions a body calls), resolved by removing offenders until stable.
-    /// Returns the eligible functions in source order plus their key set.
+    /// methods** rather than closures. A candidate is `let [rec] f p0 … = body`
+    /// whose value peels to at least one simple parameter. Eligible only when:
+    ///   1. it never *escapes* — every use is a saturated call, so it is never
+    ///      needed as a function value (a bare/under-applied reference forces a closure).
+    ///   2. it captures no module-level local — its free variables (minus its
+    ///      parameters and self) are all themselves eligible static functions
+    ///      (direct `call`s). A value-local reference would need a capture field,
+    ///      which a static method has no `this` to hold.
+    /// Rule 2 is a fixpoint, resolved by removing offenders until stable.
     let collectStaticFns (decls: TDecl list) : StaticFn list * HashSet<NodeKey> =
-        // Candidate (key → arity, params, body) for every top-level curried-lambda
-        // binding with at least one simple parameter.
         let candidates = Dictionary<NodeKey, (NodeKey * SemType) list * TExpr>()
         let order = ResizeArray<NodeKey>()
 
@@ -588,8 +543,7 @@ module Emit =
             | TDecl.Expression(e, _) -> walkUses e
             | TDecl.Type _ -> ()
 
-        // Each candidate's free vars (excluding its own params) — the capture set
-        // that rule 2 tests against the eligible set.
+        // Each candidate's capture set (free vars minus its own params), tested by rule 2.
         let bodyFree =
             Dictionary<NodeKey, HashSet<NodeKey>>(
                 seq {
@@ -599,9 +553,8 @@ module Emit =
                 }
             )
 
-        // Fixpoint: start from the non-escaping candidates and drop any whose
-        // free vars reach outside the eligible set (a module local or a
-        // non-eligible function). A candidate's own self-reference is allowed.
+        // Fixpoint: from the non-escaping candidates, drop any whose free vars
+        // reach outside the eligible set (own self-reference allowed).
         let eligible = HashSet<NodeKey>(order |> Seq.filter (escapes.Contains >> not))
         let mutable changed = true
 
@@ -635,12 +588,10 @@ module Emit =
         staticFns, eligible
 
     /// Enumerate every `Lambda` in the lowered tree leaves-first (a closure
-    /// before any closure that constructs it), with its capture set. The
-    /// returned dictionary maps each lambda node (by reference) to its
-    /// `Closure`, so the walker resolves a `Lambda`-as-value to its metadata.
-    /// `staticFnKeys` are the top-level functions emitted as static methods
-    /// (P3b): their outer lambda is *not* a closure (only the bodies are walked
-    /// for inner closures), and a reference to one is a direct call.
+    /// before any closure that constructs it), with its capture set; the returned
+    /// dictionary maps each lambda node (by reference) to its `Closure`.
+    /// `staticFnKeys`' outer lambdas are *not* closures (only their bodies are
+    /// walked for inner closures), since a reference to one is a direct call.
     let discoverClosures
         (staticFnKeys: HashSet<NodeKey>)
         (decls: TDecl list)
@@ -650,9 +601,7 @@ module Emit =
         let mutable counter = 0
 
         // `selfKey` is the binding key when this node is the immediate value of a
-        // `let f = …`; it applies only if the node is a lambda (a recursive
-        // self-reference resolves to `this`). Children are walked with no self-key
-        // except a `let`-bound lambda inside a body (`let rec` nested in a body).
+        // `let f = …` lambda — a recursive self-reference resolves to `this`.
         let rec go (selfKey: NodeKey voption) (e: TExpr) =
             (match e with
              | TExpr.Let(TPat.NamedSimple(k, _), (TExpr.Lambda _ as v), body, _) ->
@@ -687,8 +636,8 @@ module Emit =
 
         for d in decls do
             match d with
-            // A static-method function: its curried lambda is not a closure, but
-            // its body may still construct inner closures — walk only the body.
+            // A static-method function's lambda is not a closure, but its body
+            // may still construct inner closures — walk only the body.
             | TDecl.Let(TPat.NamedSimple(k, _), value, _, _) when staticFnKeys.Contains k ->
                 let _, body = peelLambda value
                 go ValueNone body
@@ -701,15 +650,13 @@ module Emit =
 
     // ---- The walker ----
 
-    /// Per-method codegen context. `Slots` maps locals of the *current* method
-    /// to slot indices; `Args` maps a method parameter to its `ldarg` index (a
-    /// closure `Invoke` has one entry at index 1 — `this` is index 0; a static
-    /// method has its flattened parameters at indices 0…N-1; `Main` has none).
-    /// `CaptureFields` give a closure `Invoke` its capture resolution (empty in
-    /// `Main` / a static method). The shared dictionaries: `ClosureByNode`
-    /// resolves a `Lambda` value to its `Closure`, `CtorHandleByNode` (filled
-    /// leaves-first) to its ctor handle, and `StaticMethods` resolves a
-    /// top-level function reference to a direct `call` (P3b).
+    /// Per-method codegen context. `Slots` maps the current method's locals to
+    /// slot indices; `Args` maps a method parameter to its `ldarg` index (closure
+    /// `Invoke`: `this` is 0, the parameter 1; static method: flattened params
+    /// 0…N-1; `Main`: none). `CaptureFields` resolves a closure's captures. The
+    /// shared dictionaries `ClosureByNode` / `CtorHandleByNode` / `StaticMethods`
+    /// resolve a `Lambda` value, its (leaves-first) ctor handle, and a top-level
+    /// function reference to a direct `call`.
     type private EmitEnv =
         {
             Provider: ICodegenProvider
@@ -717,22 +664,16 @@ module Emit =
             Slots: Dictionary<NodeKey, int>
             ClosureByNode: Dictionary<TExpr, Closure>
             CtorHandleByNode: Dictionary<TExpr, EntityHandle>
-            /// Method parameters of the *current* method → `ldarg` index.
             Args: Dictionary<NodeKey, int>
-            /// The recursive self-binding of the current closure `Invoke` body, if
-            /// any — resolved to `this` (`ldarg.0`). `ValueNone` in `Main` and in
-            /// a static method (whose self-call is a direct `call`, not `this`).
+            /// The recursive self of the current closure `Invoke` body — resolved
+            /// to `this` (`ldarg.0`). `ValueNone` in `Main` / a static method
+            /// (whose self-call is a direct `call`).
             SelfKey: NodeKey voption
             CaptureFields: Dictionary<NodeKey, EntityHandle>
-            /// Unions emitted into this assembly, by type name — drives
-            /// `TExpr.UnionCons` (construct) and `TPat.Union` (deconstruct).
             Unions: Dictionary<string, EmittedUnion>
-            /// Top-level functions emitted as static methods (P3b), by binding
-            /// key — drives the direct-`call` arm of `TExpr.App`.
             StaticMethods: Dictionary<NodeKey, StaticMethodRef>
         }
 
-    /// Run a recipe whose operands are already on the stack, settling depth.
     let private applyRecipe (il: Il) (recipe: CallRecipe) : unit =
         recipe.Emit il
         il.Adjust(recipe.Pushes - recipe.ArgCount)

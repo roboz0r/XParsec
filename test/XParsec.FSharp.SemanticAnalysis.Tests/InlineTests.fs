@@ -26,8 +26,6 @@ let tests =
     testList
         "Inline"
         [
-            // ---- The Inline marker ----
-
             test "`let inline` sets isInline on the TDecl.Let" {
                 match firstDecl "let inline succ x = x + 1" with
                 | TDecl.Let(_, _, true, _) -> ()
@@ -55,8 +53,6 @@ let tests =
                 Expect.equal (declType tast) (TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)) "succ : int -> int"
             }
 
-            // ---- quantifiedTypars ----
-
             test "monomorphic inline binding has no quantified typars" {
                 match firstDecl "let inline succ x = x + 1" with
                 | TDecl.Let(_, _, _, declTy) -> Expect.isEmpty (Inline.quantifiedTypars declTy) "no typars"
@@ -69,8 +65,6 @@ let tests =
                     Expect.equal (List.length (Inline.quantifiedTypars declTy)) 1 "id has a single typar"
                 | other -> failtestf "unexpected %A" other
             }
-
-            // ---- inlineExpand ----
 
             test "expanding a monomorphic binding returns its body unchanged" {
                 let decl = firstDecl "let inline succ x = x + 1"
@@ -126,8 +120,6 @@ let tests =
                 Expect.throws (fun () -> Inline.inlineExpand decl [||] |> ignore) "expects a TDecl.Let"
             }
 
-            // ---- The §C test-gate example end to end ----
-
             test "`let inline succ x = x + 1 in succ 41` splits into an inline decl + use site" {
                 // At module level the parser lifts `let inline succ … in body`
                 // into a top-level inline binding followed by the body as its
@@ -155,8 +147,6 @@ let tests =
                                TyFun(TyConst "int", TyConst "int")) -> ()
                 | other -> failtestf "expected `fun x -> x + 1` body, got %A" other
             }
-
-            // ---- freshen ----
 
             // A minter mirroring the one codegen owns: a monotone counter
             // packed into synthetic inline-expansion keys, shared across calls.

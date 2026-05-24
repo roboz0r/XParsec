@@ -5,13 +5,10 @@ open Expecto
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The "real `dotnet my.dll`" milestone from `il-emission-roadmap.md`. The
-// slice tests load the emitted PE in-process (`Assembly.Load`); this proves the
-// same PE runs as a standalone framework-dependent app under the `dotnet` host.
-// The only thing beyond the PE is deployment plumbing: a `runtimeconfig.json`
-// beside the dll (the host won't start without one) and a copy of
-// `FSharp.Core.dll` (absent from the shared framework). `materialiseApp` writes
-// both; `runOnDisk` shells out to `dotnet <dll>` and captures the result.
+// Proves the emitted PE runs as a standalone framework-dependent app under the
+// `dotnet` host, not just in-process. Beyond the PE, the host needs deployment
+// plumbing `materialiseApp` writes: a `runtimeconfig.json` (the host won't start
+// without one) and a copy of `FSharp.Core.dll` (absent from the shared framework).
 
 [<Tests>]
 let tests =

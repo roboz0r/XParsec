@@ -38,8 +38,7 @@ module Validation =
     /// array slot, dotted access) are out of scope for v1 — they route
     /// through different mutability rules that land with records / arrays.
     let private checkAssignment (ctx: PassContext) (l: Expr<SyntaxToken>) : unit =
-        // Peel `(x)` and `(x : T)` wrappers — they don't change the LHS's
-        // mutability story.
+        // Peel `(x)` and `(x : T)` wrappers — they don't change mutability.
         let rec unwrap e =
             match e with
             | Expr.EnclosedBlock(expr = inner)
@@ -110,10 +109,8 @@ module Validation =
                     }
             | _ -> ()
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
-            // `r.X <- v` — diagnose if X is declared immutable on r's
-            // resolved record type. Free TyVar receivers (unresolved
-            // record) skip silently; the deferred-field-access check
-            // surfaces those.
+            // Free TyVar receivers (unresolved record) skip silently; the
+            // deferred-field-access check surfaces those.
             let rKey = CstKeys.ofExpr r
 
             match ctx.TypeVar.TryGetValue rKey with
@@ -208,9 +205,8 @@ module Validation =
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Do(expr = e)) -> CstWalk.iterExpr walker () e
         | ModuleElem.Expression e -> CstWalk.iterExpr walker () e
         | ModuleElem.Type defs ->
-            // Walk class / anon-class member bodies for assignment
-            // checks etc. Records / DUs / abbreviations have no
-            // expression bodies that affect Validation.
+            // Records / DUs / abbreviations have no expression bodies that
+            // affect Validation; only class-like member bodies are walked.
             for td in defs do
                 let bodyOpt =
                     match td with
@@ -232,8 +228,8 @@ module Validation =
                             | _ -> ()
                         | _ -> ()
                 | ValueNone -> ()
-        // Surface unhandled module elements rather than silently skipping
-        // them — Validation needs to grow new arms as the subset expands.
+        // Fail loudly rather than silently skip — grow new arms as the subset
+        // expands.
         | ModuleElem.Exception _ -> failwith "Validation: ModuleElem.Exception not implemented"
         // `CstWalk.implFileElems` flattens a nested module's body into the
         // element list before `walkElems` runs, so a `ModuleElem.Module` never

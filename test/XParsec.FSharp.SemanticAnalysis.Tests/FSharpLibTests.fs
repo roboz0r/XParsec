@@ -611,8 +611,6 @@ let tests =
                 NameResolution.run ctx file
                 Unification.run ctx file
 
-                // "type V() =\n" is 11 chars; "    static member (+) (a: V, b: V) = V()\n" lands the next decl at 53.
-                // "let r" puts pat `r` at offset 57.
                 let vIdx = input.IndexOf "let r" + 4
                 let patKey = NodeKey.ofSource vIdx NodeKind.PatIdent
 

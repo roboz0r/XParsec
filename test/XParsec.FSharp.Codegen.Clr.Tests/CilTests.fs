@@ -5,12 +5,6 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Standalone exercise of the `Cil` body DSL + metadata/PE path, independent of
-// any TAST — the roadmap's "Cil tested by emitting a hand-written body and
-// asserting behaviour". The body computes an arithmetic result and returns it
-// as the process exit code, so a round-trip through load + invoke proves both
-// the typed `Op` surface and the assembler.
-
 [<Tests>]
 let tests =
     testList
@@ -33,7 +27,6 @@ let tests =
             }
 
             test "the `combine` form composes the same body" {
-                // Same program, built with explicit `combine` rather than the CE.
                 let body =
                     Cil.combine
                         (Cil.ldcI4 1)
@@ -80,9 +73,8 @@ let tests =
             }
 
             test "a value round-trips through a declared local slot" {
-                // Exercises `DeclareLocal` + the local-variable signature +
-                // typed `stloc` / `ldloc`, driven imperatively over `Il` since
-                // the typed `Op` CE can't thread a slot index without `Bind`.
+                // Driven imperatively over `Il` because the typed `Op` CE can't
+                // thread a slot index without `Bind`.
                 let body (il: Il) =
                     let slot = il.DeclareLocal MockBuiltins.tyInt
                     Cil.ldcI4 20 null null il

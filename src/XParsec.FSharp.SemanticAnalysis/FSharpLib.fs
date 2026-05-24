@@ -16,7 +16,6 @@ open XParsec.FSharp.Parser
 /// extraction design.
 module FSharpLib =
 
-    /// One bucket entry from the root manifest's `[[bucket]]` array.
     type BucketEntry =
         {
             Name: string
@@ -28,7 +27,6 @@ module FSharpLib =
             DependsOn: string list
         }
 
-    /// The root manifest at `<libRoot>/manifest.toml`.
     type RootManifest =
         {
             UpstreamCommit: string
@@ -37,29 +35,22 @@ module FSharpLib =
             Buckets: BucketEntry list
         }
 
-    /// One file resolved through the manifests; absolute path on disk plus
-    /// the bucket it came from. Order in a `LoadedLib` reflects the
-    /// topological bucket order followed by each bucket's manifest's
-    /// `files` array.
+    /// One file resolved through the manifests. Order in a `LoadedLib`
+    /// reflects the topological bucket order followed by each bucket's
+    /// manifest's `files` array.
     type LibFile =
         {
             BucketName: string
             /// Relative path from the bucket directory (e.g. `"math/z.fsi"`).
             Relative: string
-            /// Absolute path on disk; ready for `File.ReadAllText`.
             Absolute: string
         }
 
-    /// Final output of `loadAll` — flat compile-ordered list of files
-    /// across all buckets, plus the upstream pin recorded in the root
-    /// manifest.
     type LoadedLib =
         {
             Root: RootManifest
             Files: LibFile list
         }
-
-    // ---------------------- TOML helpers ----------------------
 
     let private asString (v: TomlValue) : string option =
         match v with
@@ -84,8 +75,6 @@ module FSharpLib =
         match Map.tryFind key t with
         | Some(TomlValue.Array xs) -> xs |> List.choose asString |> Some
         | _ -> None
-
-    // ---------------------- Manifest parsing ----------------------
 
     let private parseRootManifest (doc: TomlDocument) : Result<RootManifest, string> =
         let upstream = Map.tryFind "upstream" doc |> Option.bind asTable
@@ -215,11 +204,8 @@ module FSharpLib =
                                     Files = List.ofSeq files
                                 }
 
-    // ---------------------- Parsing ----------------------
-
-    /// Result of parsing one source file, with the lexer's token table and
-    /// source text retained so subsequent passes can extract identifier text
-    /// off a `SyntaxToken`.
+    /// The lexer's token table and source text are retained so subsequent
+    /// passes can extract identifier text off a `SyntaxToken`.
     type ParsedFile =
         {
             File: LibFile
@@ -264,54 +250,39 @@ module FSharpLib =
                     }
             | Error e -> Error(ErrorFormatting.splitAndFormatTokenErrors e)
 
-    /// Parse one source file and return only the AST. Convenience wrapper
-    /// over `parseFileFull` for callers that don't need the lexer table.
     let parseFile (file: LibFile) : Result<FSharpAst<SyntaxToken>, string> =
         parseFileFull file |> Result.map (fun p -> p.Ast)
-
-    // ---------------------- External-symbol extraction ----------------------
 
     /// Mutable accumulator threaded through `extractSymbols` across every
     /// file in `LoadedLib.Files`. Cross-bucket references resolve through
     /// the accumulated tables.
     [<Sealed>]
     type ExtractCtx() =
-        /// `compiledName -> ExternalSymbol`, the table backing the provider.
         member val Symbols = Dictionary<string, ExternalSymbol>(StringComparer.Ordinal) with get
         /// File-level diagnostics — parse failures, AST-shape rejections.
-        /// `buildProvider` surfaces these in its return tuple; tests can
-        /// filter against them to detect regressions in parsing.
+        /// Kept distinct from `Skipped`; tests filter against them to detect
+        /// parsing regressions.
         member val Diagnostics = ResizeArray<LibFile * string>() with get
-        /// Per-val extraction failures — unresolved type names, unsupported
-        /// shapes (anonymous records, measures, etc.). Captured separately
-        /// from `Diagnostics` so file-level health stays visible: an .fsi
-        /// can extract 90% of its vals fine and still parse cleanly. Tools
-        /// that want a full audit of dropped symbols read this list.
+        /// Per-val extraction failures. Captured separately from
+        /// `Diagnostics` so file-level health stays visible: an .fsi can
+        /// extract 90% of its vals fine and still parse cleanly.
         member val Skipped = ResizeArray<LibFile * string>() with get
-        /// Type-name index: short name -> (arity, compiledName). Populated
-        /// by `TypeSignature` walks so subsequent `NamedType` / `GenericType`
-        /// references can resolve. Multiple entries with the same short name
-        /// are allowed; first declaration wins (warn-and-take-first per the
-        /// open-questions section of the plan).
+        /// Type-name index: short name -> (arity, compiledName). Multiple
+        /// entries with the same short name are allowed; first declaration
+        /// wins (warn-and-take-first per the plan).
         member val Types = Dictionary<string, int * string>(StringComparer.Ordinal) with get
-        /// Every registered qualified compiled name. Used by the resolver to
-        /// accept fully-qualified references that disagree with the short-
-        /// name index (e.g. cross-bucket name clashes that the first-wins
-        /// rule otherwise hides).
+        /// Every registered qualified compiled name. Lets the resolver accept
+        /// fully-qualified references that disagree with the short-name index
+        /// (e.g. cross-bucket name clashes the first-wins rule otherwise hides).
         member val QualifiedTypes = HashSet<string>(StringComparer.Ordinal) with get
-        /// Type-shape index: qualified compiled name -> body shape.
-        /// Populated by Phase-4 `extractTypeBody` after `registerTypeDecl`
-        /// has recorded the short-name entry. Only records, unions, and
-        /// abbreviations are populated in v1; classes and other shapes
-        /// land later.
+        /// Type-shape index: qualified compiled name -> body shape. Only
+        /// records, unions, and abbreviations are populated in v1; classes
+        /// and other shapes land later.
         member val TypeShapes = Dictionary<string, ExternalTypeShape>(StringComparer.Ordinal) with get
 
-    /// Auto-open prefixes that F# applies implicitly to FSharp.Core symbols.
-    /// Short-name lookups (`"op_Addition"`, `"None"`, `"id"`) hit the
-    /// provider through these as candidate qualifiers — call-site code in
-    /// the unifier doesn't need to know which module owns which symbol.
-    /// Order matches F#'s prelude open order; earlier entries win on
-    /// collision.
+    /// Auto-open prefixes that F# applies implicitly to FSharp.Core symbols,
+    /// tried as candidate qualifiers for short-name lookups. Order matches
+    /// F#'s prelude open order; earlier entries win on collision.
     let private autoOpenPrefixes =
         [|
             "Microsoft.FSharp.Core.Operators"
@@ -331,14 +302,11 @@ module FSharpLib =
                     match ctx.Symbols.TryGetValue name with
                     | true, sym -> ValueSome sym
                     | _ ->
-                        // Short-name miss — try auto-open prefixes. F#'s
-                        // open-Pervasives behaviour: `1 + 2`'s desugared
-                        // `op_Addition` lives in `Microsoft.FSharp.Core.Operators`,
-                        // not at the root; this fallback bridges short
-                        // names to the qualified compiled name without
-                        // forcing every call site to spell the prefix.
-                        // Only fires when the name has no dot (already-
-                        // qualified lookups already missed above).
+                        // Short-name miss — try auto-open prefixes. `1 + 2`'s
+                        // desugared `op_Addition` lives in
+                        // `Microsoft.FSharp.Core.Operators`, not at the root.
+                        // Only fires for dot-free names (already-qualified
+                        // lookups missed above).
                         if name.IndexOf '.' >= 0 then
                             ValueNone
                         else
@@ -374,8 +342,6 @@ module FSharpLib =
                             hit
             }
 
-    // ---------------------- Token-text helpers ----------------------
-
     let private nameOfTok (lexed: Lexed) (input: string) (tok: SyntaxToken) : string =
         match tok.Index with
         | TokenIndex.Regular iT -> lexed.GetTokenString(iT, input)
@@ -393,14 +359,10 @@ module FSharpLib =
         else
             nameOfTok lexed input li.Idents.[li.Idents.Length - 1]
 
-    // ---------------------- Operator compiled-name table ----------------------
-
     /// Map an operator token (`+`, `<|`, etc.) to its compiled name
-    /// (`op_Addition`, `op_PipeLeft`, etc.). The Token-enum match covers
-    /// the well-known operators that the lexer has dedicated enum values
-    /// for; otherwise we fall back to the operator-text encoding (which
-    /// covers most generic operators that the lexer collapses to
-    /// `OpGeneric`).
+    /// (`op_Addition`, `op_PipeLeft`, etc.). The Token-enum match covers the
+    /// well-known operators with dedicated enum values; the text fallback
+    /// covers generic operators the lexer collapses to `OpGeneric`.
     let private opTokenToCompiled (tok: SyntaxToken) (text: string) : string voption =
         match tok.Token with
         | Token.OpAddition -> ValueSome "op_Addition"
@@ -421,9 +383,8 @@ module FSharpLib =
         | Token.OpComposeRight -> ValueSome "op_ComposeRight"
         | Token.OpComposeLeft -> ValueSome "op_ComposeLeft"
         | _ ->
-            // Common generic-operator fallbacks. Only the operators that
-            // appear inside `.fsi` val sigs need to land here; the type
-            // checker will pick them up by compiled name.
+            // Only operators that appear inside `.fsi` val sigs need to land
+            // here; the type checker picks them up by compiled name.
             match text with
             | "|>" -> ValueSome "op_PipeRight"
             | "<|" -> ValueSome "op_PipeLeft"
@@ -453,11 +414,8 @@ module FSharpLib =
             // Active-pattern compiled names are non-trivial — defer.
             ValueNone
 
-    // ---------------------- Attribute helpers ----------------------
-
-    /// Walk an attribute list and return the first attribute whose short
-    /// name (last segment) matches one of the candidates (without the
-    /// optional `Attribute` suffix).
+    /// First attribute whose short name (last segment) matches a candidate,
+    /// ignoring the optional `Attribute` suffix.
     let private findAttribute
         (lexed: Lexed)
         (input: string)
@@ -509,8 +467,7 @@ module FSharpLib =
         | ObjectConstruction(_, e) -> ValueSome e
         | InterfaceConstruction _ -> ValueNone
 
-    /// Extract the underlying text of a parsed string-literal expression.
-    /// Concatenates Text / EscapeSequence parts; ignores expression holes
+    /// Text of a parsed string-literal expression. Ignores expression holes
     /// and other interpolation artefacts (compiled-name args are non-
     /// interpolated strings in practice).
     let private stringExprText
@@ -525,15 +482,13 @@ module FSharpLib =
             | StringPart.Text tok -> sb.Append(nameOfTok lexed input tok) |> ignore
             | StringPart.EscapeSequence tok ->
                 let raw = nameOfTok lexed input tok
-                // Cheap decoding for the common cases we'd see in attribute
-                // arguments. Full escape-handling lives in the lexer; here
-                // we just preserve the source-level text.
+                // Preserve source-level text; full escape decoding is the
+                // lexer's job and unneeded for attribute args.
                 sb.Append raw |> ignore
             | _ -> ()
 
         sb.ToString()
 
-    /// Find a `[<CompiledName("Foo")>]` and return `"Foo"`.
     let private tryCompiledName
         (lexed: Lexed)
         (input: string)
@@ -545,9 +500,8 @@ module FSharpLib =
             match constructionExpr oc with
             | ValueNone -> ValueNone
             | ValueSome argExpr ->
-                // Argument is `("Foo")` — strip the outer parens, then look
-                // for either an `Expr.String` (the typical shape) or an
-                // older `Expr.Const(Constant.Literal _)` fallback.
+                // Argument is `("Foo")`; accept either `Expr.String` (typical)
+                // or an older `Expr.Const(Constant.Literal _)` fallback.
                 let rec stripParens (e: Expr<SyntaxToken>) =
                     match e with
                     | Expr.EnclosedBlock(_, inner, _) -> stripParens inner
@@ -571,9 +525,8 @@ module FSharpLib =
             match constructionExpr oc with
             | ValueNone -> false
             | ValueSome argExpr ->
-                // Argument may be `(CompilationRepresentationFlags.ModuleSuffix)` —
-                // we just look for the token text "ModuleSuffix" anywhere in
-                // the expression. Cheap and good enough for the v1 walker.
+                // Heuristic: look for the token text "ModuleSuffix" anywhere
+                // in the expression. Good enough for the v1 walker.
                 let rec containsModuleSuffix (e: Expr<SyntaxToken>) =
                     match e with
                     | Expr.EnclosedBlock(_, inner, _) -> containsModuleSuffix inner
@@ -586,8 +539,6 @@ module FSharpLib =
                     | _ -> false
 
                 containsModuleSuffix argExpr
-
-    // ---------------------- Type translator ----------------------
 
     /// SemType template parameterised over a fresh-TyVar array (one per
     /// declared typar in the val's merged typar list). Independent
@@ -631,8 +582,6 @@ module FSharpLib =
         member _.Entries = order.ToArray()
 
     /// Raw `when`-clause capture, before typar names are mapped to indices.
-    /// Order matches source order so diagnostic-friendly downstream code can
-    /// reference declarations cleanly.
     [<RequireQualifiedAccess>]
     type private RawConstraint =
         | Trait of typarName: string * kind: SemanticConstraintKind
@@ -799,10 +748,9 @@ module FSharpLib =
                         ]
 
                 if not (List.isEmpty names) then
-                    // `static member (+) : ^T1 * ^T2 -> ^T3` — the signature
-                    // is a `CurriedSig`; the args ride as one `ArgsSpec`
-                    // joined by asterisks. Property signatures (`Zero : ^T`)
-                    // surface as a zero-arg curried sig.
+                    // `static member (+) : ^T1 * ^T2 -> ^T3` parses as a
+                    // `CurriedSig` (args as one asterisk-joined `ArgsSpec`).
+                    // Property sigs (`Zero : ^T`) are a zero-arg curried sig.
                     let sign =
                         match memberSig with
                         | MemberSig.MethodOrPropSig(ident = ident; sign = s) -> ValueSome(ident, s)
@@ -814,10 +762,9 @@ module FSharpLib =
                         match identOrOpName lexed input ident with
                         | ValueNone -> ()
                         | ValueSome mName ->
-                            // Flatten the single `ArgsSpec * asterisks` group
-                            // into the trait's arg list. F# trait sigs are
-                            // tupled by convention (`^T * ^T -> ^T`), parsing
-                            // as one ArgsSpec with N args.
+                            // F# trait sigs are tupled by convention
+                            // (`^T * ^T -> ^T`), parsing as one ArgsSpec with
+                            // N args; flatten it into the trait's arg list.
                             let argTys =
                                 [
                                     for k in 0 .. args.Length - 1 do
@@ -889,8 +836,7 @@ module FSharpLib =
             Ok(fun ts -> ts.[idx])
 
         | Type.VarType(Typar.Anon _) ->
-            // Anonymous typar: pick a uniquifying synthetic name so it
-            // doesn't collide with same-named anonymous typars elsewhere.
+            // Synthetic name so distinct anonymous typars don't collide.
             let synthetic = sprintf "_anon%d" typars.Count
             let idx = typars.IndexOf(synthetic, TyparKind.Regular)
             Ok(fun ts -> ts.[idx])
@@ -932,8 +878,7 @@ module FSharpLib =
                 | Ok compiled -> Ok(fun ts -> TyRecord(compiled, [ for b in bs -> b ts ]))
 
         | Type.SuffixedType(baseTy, li) ->
-            // `'T list` ≡ `List<'T>` — translate base, wrap in TyRecord
-            // keyed by the longident.
+            // `'T list` ≡ `List<'T>`.
             let name = longIdentName lexed input li
 
             match translateType ctx lexed input opens typars constraints baseTy with
@@ -944,8 +889,7 @@ module FSharpLib =
                 | Ok compiled -> Ok(fun ts -> TyRecord(compiled, [ fb ts ]))
 
         | Type.ArrayType(baseTy, _, commas, _) ->
-            // `'T[]`, `'T[,]`, … — rank = commas + 1. Model as a one-arg
-            // TyRecord keyed by `array<rank>` so unification stays simple.
+            // rank = commas + 1; key by `array<rank>` so unification stays simple.
             let rank = commas.Length + 1
 
             match translateType ctx lexed input opens typars constraints baseTy with
@@ -955,11 +899,9 @@ module FSharpLib =
                 Ok(fun ts -> TyRecord(name, [ fb ts ]))
 
         | Type.WhenConstrainedType(inner, clauses) ->
-            // Phase 5: capture the clauses into the constraint collector,
-            // then translate the underlying type. The collector is
-            // resolved (name -> index) once the body is fully walked, so
-            // referencing a typar declared anywhere in the val still
-            // works.
+            // Capture clauses now; the collector is resolved (name -> index)
+            // only once the body is fully walked, so a clause referencing a
+            // typar declared anywhere in the val still resolves.
             captureConstraints lexed input constraints clauses
             translateType ctx lexed input opens typars constraints inner
 
@@ -967,8 +909,8 @@ module FSharpLib =
         | Type.AnonymousSubtype(_, inner) -> translateType ctx lexed input opens typars constraints inner
 
         | Type.DottedType(baseTy, _, _) ->
-            // Phase 1: treat `T.NestedName` as opaque — pass through the
-            // base. Properly modelling nested types lands later.
+            // Treat `T.NestedName` as opaque (pass the base); proper nested-type
+            // modelling lands later.
             translateType ctx lexed input opens typars constraints baseTy
 
         | Type.UnionType _ -> Error "Union types (e.g. `obj | null`) not supported"
@@ -978,8 +920,6 @@ module FSharpLib =
         | Type.AnonRecordType _ -> Error "Anonymous record types not supported"
         | Type.Missing -> Error "Missing type"
         | Type.SkipsTokens _ -> Error "Recovery-skipped type"
-
-    // ---------------------- Curried-sig translation ----------------------
 
     let private translateArgsSpec
         (ctx: ExtractCtx)
@@ -993,7 +933,6 @@ module FSharpLib =
         let (ArgsSpec(args, _)) = argsSpec
 
         if args.Length = 0 then
-            // Empty arg group — model as `unit`. Rare in well-formed sigs.
             Ok(fun _ -> TyConst "unit")
         elif args.Length = 1 then
             let (ArgSpec(_, _, t)) = args.[0]
@@ -1030,7 +969,7 @@ module FSharpLib =
         match translateType ctx lexed input opens typars constraints retTy with
         | Error e -> Error e
         | Ok retBuilder ->
-            // Walk args in reverse so the final function nests right-assoc:
+            // Args nest right-assoc:
             //   `int -> string -> bool` ≡ `TyFun(int, TyFun(string, bool))`.
             let mutable err = None
             let argBuilders = ResizeArray<SemBuilder>(args.Length)
@@ -1059,8 +998,6 @@ module FSharpLib =
 
                 Ok final
 
-    // ---------------------- Explicit-typar pre-registration ----------------------
-
     let private registerExplicitTypars
         (lexed: Lexed)
         (input: string)
@@ -1082,8 +1019,6 @@ module FSharpLib =
                     typars.IndexOf(name, TyparKind.Static) |> ignore
                 | Typar.Anon _ -> ()
 
-    // ---------------------- Access / attribute filtering ----------------------
-
     let private isAccessible (access: Access<SyntaxToken> voption) : bool =
         match access with
         | ValueNone
@@ -1091,12 +1026,9 @@ module FSharpLib =
         | ValueSome(Access.Internal _)
         | ValueSome(Access.Private _) -> false
 
-    // ---------------------- Compiled-name assembly ----------------------
-
-    /// Build the compiled name for a val from the current path and the
-    /// ident-or-op. Respects `[<CompiledName(_)>]` (overrides the source
-    /// ident) and the `ModuleSuffix` flag stamped on the innermost module
-    /// (already baked into `path`'s last segment by the walker).
+    /// Build the compiled name for a val. Respects `[<CompiledName(_)>]`
+    /// (overrides the source ident) and the `ModuleSuffix` flag (already
+    /// baked into `path`'s last segment by the walker).
     let private compiledNameForVal
         (lexed: Lexed)
         (input: string)
@@ -1119,8 +1051,6 @@ module FSharpLib =
             else
                 ValueSome(qualifier + "." + n)
 
-    // ---------------------- Val extraction ----------------------
-
     /// Resolve a `RawConstraint`'s typar names against the val's typar
     /// collector, dropping entries that reference an undeclared typar.
     /// `Trait` and `MemberTrait` entries fold to opaque markers; `Default`
@@ -1138,9 +1068,8 @@ module FSharpLib =
         (typars: TyparCollector)
         (raw: RawConstraint list)
         : ExternalConstraint list =
-        // Fresh sink for any constraints the target type happens to carry
-        // (rare — `default ^T : <ty when ... >` is exotic). We don't surface
-        // these on the symbol; they're typically empty.
+        // Sink for any constraints a target type carries (exotic, not
+        // surfaced on the symbol).
         let throwaway = ConstraintCollector()
 
         raw
@@ -1162,8 +1091,7 @@ module FSharpLib =
                 if List.isEmpty indices then
                     None
                 else
-                    // Translate each arg type and the return type. Any
-                    // translation failure drops the whole entry — better
+                    // Any translation failure drops the whole entry — better
                     // to under-stamp the trait than to mis-stamp it.
                     let mutable failed = false
                     let argBuilders = ResizeArray<SemBuilder>(argTys.Length)
@@ -1215,10 +1143,9 @@ module FSharpLib =
 
                 match translateCurriedSig ctx lexed input opens collector constraints signature with
                 | Error e ->
-                    // Skip and record so unresolved names don't masquerade
-                    // as opaque TyConsts. Per-val skips go to `Skipped`,
-                    // not `Diagnostics`; the latter stays reserved for
-                    // file-level parse failures.
+                    // Skip so unresolved names don't masquerade as opaque
+                    // TyConsts. Per-val skips go to `Skipped`, not
+                    // `Diagnostics` (reserved for file-level parse failures).
                     ctx.Skipped.Add(file, sprintf "%s: %s" compiled e)
                 | Ok build ->
                     let typarCount = collector.Count
@@ -1226,9 +1153,8 @@ module FSharpLib =
                     let resolved =
                         resolveConstraints ctx lexed input opens collector (constraints.Snapshot())
 
-                    // Pre-split into trait-style entries (which we apply at
-                    // instantiation time) and everything else (kept on the
-                    // symbol for diagnostic / Phase 5b consumption).
+                    // Trait-style entries are applied at instantiation time;
+                    // everything else stays on the symbol for diagnostics.
                     let traitConstraints =
                         resolved
                         |> List.choose (fun c ->
@@ -1237,12 +1163,10 @@ module FSharpLib =
                             | _ -> None
                         )
 
-                    // Default constraints: source typar index + target
-                    // SemBuilder (over the symbol's typar array). Applied
-                    // at instantiation time so the source TyVar's
+                    // Applied at instantiation time so the source TyVar's
                     // `Defaults` list carries the resolved target;
-                    // generalisation walks the list when a TyVar is still
-                    // free and links it to the first concrete shape.
+                    // generalisation walks the list when a TyVar is still free
+                    // and links it to the first concrete shape.
                     let defaultConstraints =
                         resolved
                         |> List.choose (fun c ->
@@ -1251,12 +1175,10 @@ module FSharpLib =
                             | _ -> None
                         )
 
-                    // SRTP member-trait constraints: participating typar
-                    // indices + member name + arg/return builders.
-                    // Stamped on every participating fresh TyVar's
-                    // `SrtpBounds`; `Unification.drainSrtpBounds` fires
-                    // the first time any of them gets a `Link`, sharing
-                    // a `Resolved` ref so the others no-op.
+                    // Stamped on every participating fresh TyVar's `SrtpBounds`;
+                    // `Unification.drainSrtpBounds` fires the first time any of
+                    // them gets a `Link`, sharing a `Resolved` ref so the others
+                    // no-op.
                     let memberTraitConstraints =
                         resolved
                         |> List.choose (fun c ->
@@ -1285,10 +1207,8 @@ module FSharpLib =
                                 for (i, kind) in traitConstraints do
                                     if i >= 0 && i < freshTvs.Length then
                                         // External symbols carry no source-side
-                                        // NodeKey; stamp `Unknown` and let the
-                                        // diagnostic surface attribute the
-                                        // constraint to the use site instead of
-                                        // the declaration site.
+                                        // NodeKey; stamp `Unknown` so diagnostics
+                                        // attribute the constraint to the use site.
                                         let cstr: SemanticConstraint =
                                             {
                                                 Kind = kind
@@ -1297,25 +1217,19 @@ module FSharpLib =
 
                                         freshTvs.[i].Constraints <- cstr :: freshTvs.[i].Constraints
 
-                                // Apply defaults in declaration order. Each
-                                // default's target is evaluated against the
-                                // fresh-TyVar array; the source TyVar
-                                // accumulates the resolved target on its
-                                // Defaults list (newest-last so source order
-                                // is preserved when generalisation walks it
-                                // for the first concrete shape).
+                                // Defaults accumulate newest-last so source
+                                // order is preserved when generalisation later
+                                // walks the list for the first concrete shape.
                                 for (i, builder) in defaultConstraints do
                                     if i >= 0 && i < freshTvs.Length then
                                         let target = builder fresh
                                         let tv = freshTvs.[i]
                                         tv.Defaults <- tv.Defaults @ [ target ]
 
-                                // Stamp each SRTP member trait onto every
-                                // participating fresh TyVar's `SrtpBounds`.
-                                // A shared `Resolved` ref dedupes dispatch:
-                                // whichever participating typar resolves
-                                // first runs the drain; the others see the
-                                // flag flipped and skip.
+                                // Shared `Resolved` ref dedupes dispatch:
+                                // whichever participating typar resolves first
+                                // runs the drain; the others see it flipped and
+                                // skip.
                                 for (idxs, mName, argBs, retB) in memberTraitConstraints do
                                     let argTys = [ for b in argBs -> b fresh ]
                                     let retTy = retB fresh
@@ -1343,8 +1257,6 @@ module FSharpLib =
                         }
 
                     ctx.Symbols.[compiled] <- sym
-
-    // ---------------------- Type-declaration registration ----------------------
 
     let private registerPrefixTypars
         (lexed: Lexed)
@@ -1417,16 +1329,13 @@ module FSharpLib =
                     else
                         qualifier + "." + short
 
-                // First declaration wins — silently keep older entries on
-                // collision (warn-and-take-first per the plan).
+                // First declaration wins on collision.
                 if not (ctx.Types.ContainsKey short) then
                     ctx.Types.[short] <- (arity, compiled)
 
                 ctx.QualifiedTypes.Add compiled |> ignore
                 ValueSome(struct (compiled, arity))
 
-    /// Pre-register the declared typars of a `TypeName` into a fresh
-    /// `TyparCollector`, returning the collector ready for the body walk.
     let private collectorForTypeName (lexed: Lexed) (input: string) (typeName: TypeName<SyntaxToken>) : TyparCollector =
         let (TypeName(_, _, prefix, _, defns, _)) = typeName
         let collector = TyparCollector()
@@ -1434,12 +1343,10 @@ module FSharpLib =
         registerExplicitTypars lexed input collector defns
         collector
 
-    /// `Ok` only if every typar the body translator touched was declared
-    /// in the type's prefix / typar-defns — otherwise the shape would be
-    /// instantiable with a wrong-length array. Phase 4 v1 skips the body
-    /// in that case (and a per-file diagnostic is added) but keeps the
-    /// short-name registration so other types can still reference it
-    /// nominally.
+    /// `Ok` only if every typar the body touched was declared in the type's
+    /// prefix / typar-defns — otherwise the shape would be instantiable with
+    /// a wrong-length array. v1 skips the body in that case but keeps the
+    /// short-name registration so other types can still reference it nominally.
     let private bodyTyparsOk (collector: TyparCollector) (declaredArity: int) : Result<unit, string> =
         if collector.Count <= declaredArity then
             Ok()
@@ -1524,9 +1431,8 @@ module FSharpLib =
             match ioo with
             | IdentOrOp.Ident tok -> ValueSome(nameOfTok lexed input tok)
             | _ ->
-                // Operator-named cases like FSharp.Core list's `([])`/`(::)`
-                // exist; v1 names them by their compiled-op form so the
-                // table still uniquely identifies them.
+                // Operator-named cases (FSharp.Core list's `([])`/`(::)`) are
+                // named by their compiled-op form to stay uniquely identified.
                 identOrOpName lexed input ioo
 
         for i in 0 .. cases.Length - 1 do
@@ -1628,13 +1534,9 @@ module FSharpLib =
             // enums / delegates land later.
             registerTypeDecl ctx lexed input path typeName |> ignore
 
-    // ---------------------- Module-signature walker ----------------------
-
-    /// Walk a flat list of module-signature elements once to harvest the
-    /// `open Foo.Bar` clauses, returning their joined longident strings in
-    /// declaration order. The caller prepends to its inherited list so the
-    /// scope's own opens are tried *first* (newest-first) during
-    /// resolution.
+    /// Harvest the `open Foo.Bar` clauses from a flat element list. The
+    /// caller prepends to its inherited list so a scope's own opens are
+    /// tried *first* (newest-first) during resolution.
     let private collectOpens
         (lexed: Lexed)
         (input: string)
@@ -1646,13 +1548,12 @@ module FSharpLib =
             match elems.[i] with
             | ModuleSignatureElement.Import(ImportDecl.ImportDecl(_, li)) -> acc.Add(longIdentName lexed input li)
             | ModuleSignatureElement.Import(ImportDecl.ImportDeclType _) ->
-                // `open type Foo` brings only Foo's static members into
-                // scope, not Foo itself as a prefix. Ignore for v1.
+                // `open type Foo` brings only Foo's static members into scope,
+                // not Foo as a prefix. Ignore for v1.
                 ()
             | _ -> ()
 
-        // Newest first: a later `open` shadows earlier ones, so the most
-        // recently opened prefix should be tried first when resolving.
+        // Newest first: a later `open` shadows earlier ones.
         List.ofSeq (Seq.rev acc)
 
     let rec private extractModuleSigElement
@@ -1689,9 +1590,8 @@ module FSharpLib =
 
                 let childPath = suffixed :: path
                 let (ModuleSignatureBody(_, elems, _)) = body
-                // The module body's own `open`s join the inherited list,
-                // newest-first. The module itself is also an implicit open
-                // prefix (its qualified path).
+                // The module's own qualified path is itself an implicit open
+                // prefix, ahead of the inherited opens but behind the body's.
                 let modulePath = String.concat "." (List.rev childPath)
                 let childOpens = collectOpens lexed input elems @ (modulePath :: opens)
 
@@ -1719,8 +1619,8 @@ module FSharpLib =
 
         let nsName = String.concat "." (List.rev nsPath)
         let ownOpens = collectOpens lexed input elems
-        // The namespace's qualified path is implicitly in scope, and any
-        // top-level `open` outside any namespace group is inherited.
+        // The namespace's qualified path is implicitly in scope; top-level
+        // opens outside any namespace group are inherited.
         let opens =
             if nsName.Length = 0 then
                 ownOpens @ fileOpens
@@ -1747,7 +1647,7 @@ module FSharpLib =
                 [ for i in 0 .. li.Idents.Length - 1 -> nameOfTok lexed input li.Idents.[i] ]
                 |> List.rev
 
-            // Apply ModuleSuffix to the innermost segment if requested.
+            // ModuleSuffix applies to the innermost segment only.
             let pathRev =
                 match pathRev, suffix with
                 | head :: rest, true -> (head + "Module") :: rest
@@ -1760,16 +1660,13 @@ module FSharpLib =
             for i in 0 .. elems.Length - 1 do
                 extractModuleSigElement ctx file lexed input opens pathRev elems.[i]
 
-    /// Walk one parsed signature file, mutating the context.
     let extractSymbols (ctx: ExtractCtx) (parsed: ParsedFile) : unit =
         match parsed.Ast with
         | FSharpAst.SignatureFile sf ->
             match sf with
             | SignatureFile.Namespaces groups ->
                 for i in 0 .. groups.Length - 1 do
-                    // Each namespace decl group starts a fresh open scope
-                    // (file-level opens before a `namespace` are rare in
-                    // practice and parse into the first group's body).
+                    // Each namespace decl group starts a fresh open scope.
                     extractNamespaceGroup ctx parsed.File parsed.Lexed parsed.Input [] groups.[i]
             | SignatureFile.NamedModule nm -> extractNamedModuleSig ctx parsed.File parsed.Lexed parsed.Input [] nm
             | SignatureFile.AnonymousModule elems ->
@@ -1777,11 +1674,7 @@ module FSharpLib =
 
                 for i in 0 .. elems.Length - 1 do
                     extractModuleSigElement ctx parsed.File parsed.Lexed parsed.Input opens [] elems.[i]
-        | _ ->
-            // Implementation / script files: not the lib's normal shape.
-            ctx.Diagnostics.Add(parsed.File, "Skipped: not a signature file")
-
-    // ---------------------- Provider construction ----------------------
+        | _ -> ctx.Diagnostics.Add(parsed.File, "Skipped: not a signature file")
 
     /// Builds an `IExternalSymbolProvider` backed by XParsec.FSharp.Lib.
     /// Returns the provider plus per-file errors so callers can decide
@@ -1801,9 +1694,8 @@ module FSharpLib =
             Ok(ExtractCtx.toProvider ctx, List.ofSeq ctx.Diagnostics)
 
     /// Composes two providers: tries `primary` first, falls back to
-    /// `secondary`. Useful for wiring `buildProvider` over the manifests
-    /// while keeping `MockBuiltins.provider` as a backstop for whatever
-    /// `extractSymbols` doesn't cover yet.
+    /// `secondary` (e.g. `MockBuiltins.provider` as a backstop for whatever
+    /// `extractSymbols` doesn't cover yet).
     let chain (primary: IExternalSymbolProvider) (secondary: IExternalSymbolProvider) : IExternalSymbolProvider =
         { new IExternalSymbolProvider with
             member _.TryLookup(name) =
@@ -1817,12 +1709,8 @@ module FSharpLib =
                 | ValueNone -> secondary.TryLookupType name
         }
 
-    // ---------------------- Cached default provider ----------------------
-
-    /// Lazy cache keyed by `libRoot` so production callers that ask for
-    /// the lib provider repeatedly (e.g. per-file pipelines) parse the
-    /// ~28-file lib at most once per root. Thread-safe: each `Lazy<_>`
-    /// publishes the result via .NET's standard lazy publication.
+    /// Lazy cache keyed by `libRoot` so repeated callers parse the lib at
+    /// most once per root. Thread-safe via `Lazy<_>` publication.
     let private cachedProviders =
         System.Collections.Concurrent.ConcurrentDictionary<
             string,
@@ -1831,12 +1719,8 @@ module FSharpLib =
             StringComparer.Ordinal
         )
 
-    /// Production-path entry point: loads `FSharpLib.buildProvider` once
-    /// per `libRoot` and caches the result. Subsequent calls with the
-    /// same path return the cached provider without re-parsing. Use this
-    /// from production wiring that doesn't want to manage the lifecycle
-    /// directly; tests that need a fresh provider should call
-    /// `buildProvider` instead.
+    /// Production-path entry point: caches `buildProvider` per `libRoot`.
+    /// Tests that need a fresh provider should call `buildProvider` instead.
     let defaultProvider (libRoot: string) : Result<IExternalSymbolProvider * (LibFile * string) list, string> =
         let normalised = Path.GetFullPath libRoot
 
