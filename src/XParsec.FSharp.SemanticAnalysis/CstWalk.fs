@@ -264,3 +264,30 @@ module CstWalk =
                 | NamespaceDeclGroup.Global(elements = elems) -> add elems
 
         b.ToImmutable()
+
+    /// The signature elements a pass walks for a signature (`.fsi`) file — the
+    /// `.fsi` analogue of `implFileElems`. A `namespace`-headed file contributes
+    /// every group's elements in source order, and a nested `module Foo = …` body
+    /// is spliced into the enclosing list (recursing through arbitrary nesting),
+    /// for the same reasons as `implFileElems` (v1 has no namespace- or
+    /// module-scoped types). Used by the sig/impl `Conformance` check.
+    let sigFileElems (file: SignatureFile<SyntaxToken>) : ModuleSignatureElements<SyntaxToken> =
+        let b = ImmutableArray.CreateBuilder<ModuleSignatureElement<SyntaxToken>>()
+
+        let rec add (elems: ModuleSignatureElements<SyntaxToken>) =
+            for e in elems do
+                match e with
+                | ModuleSignatureElement.Module(ModuleSignature.ModuleSignature(
+                    body = ModuleSignatureBody(elements = inner))) -> add inner
+                | _ -> b.Add e
+
+        match file with
+        | SignatureFile.AnonymousModule elems -> add elems
+        | SignatureFile.NamedModule(NamedModuleSignature.NamedModuleSignature(elements = elems)) -> add elems
+        | SignatureFile.Namespaces groups ->
+            for g in groups do
+                match g with
+                | NamespaceDeclGroupSignature.Named(elements = elems)
+                | NamespaceDeclGroupSignature.Global(elements = elems) -> add elems
+
+        b.ToImmutable()
