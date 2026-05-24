@@ -114,32 +114,33 @@ module Desugar =
                 CstWalk.iterExpr walker () b.expr
         | ModuleElem.Expression e -> CstWalk.iterExpr walker () e
         | ModuleElem.Type defs ->
-            // Recurse into class / anon-class member bodies so the
-            // InfixApp / PrefixApp ops they contain pick up their
-            // compiled-name entries in `ctx.Desugared`. Without this,
-            // Unification's `inferInfix` falls through to a free TyVar
-            // and the member's body type doesn't pin to a concrete type.
-            for td in defs do
-                let bodyOpt =
-                    match td with
-                    | TypeDefn.Class(body = b)
-                    | TypeDefn.Anon(body = b)
-                    | TypeDefn.Struct(body = b)
-                    | TypeDefn.Interface(body = b) -> ValueSome b
-                    | _ -> ValueNone
-
-                match bodyOpt with
-                | ValueSome body ->
-                    for el in body.elements do
-                        match el with
-                        | TypeDefnElement.Member(MemberDefn.Member(defn = d)) ->
-                            match d with
-                            | MethodOrPropDefn.Method(defn = b)
-                            | MethodOrPropDefn.Property(defn = b) -> CstWalk.iterExpr walker () b.expr
-                            | MethodOrPropDefn.AutoProperty(expr = e) -> CstWalk.iterExpr walker () e
-                            | _ -> ()
+            // Recurse into class / anon-class member bodies and union
+            // augmentation members (P3d.3) so the InfixApp / PrefixApp ops they
+            // contain pick up their compiled-name entries in `ctx.Desugared`.
+            // Without this, Unification's `inferInfix` falls through to a free
+            // TyVar and the member's body type doesn't pin to a concrete type.
+            let walkMemberElems (elems: TypeDefnElement<SyntaxToken> seq) =
+                for el in elems do
+                    match el with
+                    | TypeDefnElement.Member(MemberDefn.Member(defn = d)) ->
+                        match d with
+                        | MethodOrPropDefn.Method(defn = b)
+                        | MethodOrPropDefn.Property(defn = b) -> CstWalk.iterExpr walker () b.expr
+                        | MethodOrPropDefn.AutoProperty(expr = e) -> CstWalk.iterExpr walker () e
                         | _ -> ()
-                | ValueNone -> ()
+                    | _ -> ()
+
+            for td in defs do
+                match td with
+                | TypeDefn.Class(body = b)
+                | TypeDefn.Anon(body = b)
+                | TypeDefn.Struct(body = b)
+                | TypeDefn.Interface(body = b) -> walkMemberElems b.elements
+                | TypeDefn.Union(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
+                    walkMemberElems elems
+                | TypeDefn.Record(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
+                    walkMemberElems elems
+                | _ -> ()
         | _ -> ()
 
     let private walkElems (walker: CstWalk.ExprWalker<unit>) (elems: ModuleElems<SyntaxToken>) =

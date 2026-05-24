@@ -235,7 +235,10 @@ module Validation =
         // Surface unhandled module elements rather than silently skipping
         // them — Validation needs to grow new arms as the subset expands.
         | ModuleElem.Exception _ -> failwith "Validation: ModuleElem.Exception not implemented"
-        | ModuleElem.Module _ -> failwith "Validation: ModuleElem.Module (nested module) not implemented"
+        // `CstWalk.implFileElems` flattens a nested module's body into the
+        // element list before `walkElems` runs, so a `ModuleElem.Module` never
+        // reaches here — its contents are walked as ordinary top-level elements.
+        | ModuleElem.Module _ -> ()
         | ModuleElem.ModuleAbbrev _ -> failwith "Validation: ModuleElem.ModuleAbbrev not implemented"
         | ModuleElem.Import _ -> failwith "Validation: ModuleElem.Import not implemented"
         | ModuleElem.CompilerDirective _ -> failwith "Validation: ModuleElem.CompilerDirective not implemented"

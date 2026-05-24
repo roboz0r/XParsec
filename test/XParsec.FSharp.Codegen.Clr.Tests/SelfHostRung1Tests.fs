@@ -35,7 +35,7 @@ let tests =
 
                 // Load the emitted PE and reflect over it (the conformance smoke
                 // test — the metadata round-trips to a real, loadable interface).
-                let asm = Assembly.Load(Codegen.toBytes artifact)
+                let asm = loadAssembly (Codegen.toBytes artifact)
 
                 let funTy = asm.GetType("Vesper.Fun`2")
                 Expect.isNotNull funTy "the DLL contains Vesper.Fun`2"
@@ -85,7 +85,7 @@ let tests =
 
                 Expect.isEmpty artifact.FSharpCoreDependencies "a typar-only signature pins no FSharp.Core"
 
-                let asm = Assembly.Load(Codegen.toBytes artifact)
+                let asm = loadAssembly (Codegen.toBytes artifact)
 
                 let mapperTy = asm.GetType("Vesper.Mapper`1")
                 Expect.isNotNull mapperTy "the DLL contains Vesper.Mapper`1"
@@ -137,7 +137,7 @@ let tests =
                         artifact.FSharpCoreDependencies
                         "a primitive-only interface pins no FSharp.Core construct"
 
-                    let asm = Assembly.Load(Codegen.toBytes artifact)
+                    let asm = loadAssembly (Codegen.toBytes artifact)
                     let boxTy = asm.GetType("Vesper.IBox")
                     Expect.isNotNull boxTy "the DLL contains Vesper.IBox"
                     let unwrap = boxTy.GetMethod("Unwrap")
@@ -205,7 +205,7 @@ let tests =
                     "Microsoft.FSharp.Core.FSharpFunc`2"
                     "the function-typed parameter pins FSharpFunc`2 (now reported on the library path)"
 
-                let asm = Assembly.Load(Codegen.toBytes artifact)
+                let asm = loadAssembly (Codegen.toBytes artifact)
 
                 // The lazy FSharp.Core ref was forced by the FSharpFunc encoding, so
                 // the metadata genuinely references FSharp.Core now (vs the typar-only

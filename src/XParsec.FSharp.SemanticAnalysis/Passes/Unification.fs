@@ -247,6 +247,20 @@ module Unification =
             | ValueNone -> ValueNone
         | _ -> ValueNone
 
+    /// Mirror of `tryResolveClass` for `TyUnion`. Used by the drain path so a
+    /// deferred dot-access against a now-pinned union receiver finds the union's
+    /// augmentation members (P3d.3).
+    let rec private tryResolveUnion (t: SemType) : (string * SemType list) voption =
+        match t with
+        | TyUnion(n, args) -> ValueSome(n, args)
+        | TyVar tv ->
+            let root = UnionFind.find tv
+
+            match root.Link with
+            | ValueSome target -> tryResolveUnion target
+            | ValueNone -> ValueNone
+        | _ -> ValueNone
+
     /// Three-valued result of evaluating a constraint against a candidate
     /// type. `Defer` is the "I don't know yet" answer: the target is
     /// still free (or compound-with-free-args) and a future unification
@@ -421,7 +435,6 @@ module Unification =
                             }
             | ValueNone ->
                 match tryResolveClass linkTarget with
-                | ValueNone -> ()
                 | ValueSome(clsName, args) ->
                     let pending = root.PendingDotAccess
                     root.PendingDotAccess <- []
@@ -448,6 +461,40 @@ module Unification =
                                     Message = sprintf "Unknown class type '%s'" clsName
                                     Severity = Error
                                 }
+                | ValueNone ->
+                    // A deferred dot-access against a union receiver: resolve to
+                    // the union's augmentation members (P3d.3).
+                    match tryResolveUnion linkTarget with
+                    | ValueNone -> ()
+                    | ValueSome(unionName, args) ->
+                        let pending = root.PendingDotAccess
+                        root.PendingDotAccess <- []
+
+                        match ctx.UnionTypes.TryGetValue unionName with
+                        | true, info ->
+                            let subst = mkNamedTypeSubst info.TypeParams args
+
+                            for (memberName, useKey, resultTv) in pending do
+                                match
+                                    info.Members |> Array.tryFind (fun m -> m.Name = memberName && not m.IsStatic)
+                                with
+                                | Some m -> unify ctx useKey (TyVar resultTv) (substituteWith subst m.Type)
+                                | None ->
+                                    ctx.Diagnostics.Add
+                                        {
+                                            Key = useKey
+                                            Message =
+                                                sprintf "Type '%s' has no instance member '%s'" unionName memberName
+                                            Severity = Error
+                                        }
+                        | false, _ ->
+                            for (_, useKey, _) in pending do
+                                ctx.Diagnostics.Add
+                                    {
+                                        Key = useKey
+                                        Message = sprintf "Unknown union type '%s'" unionName
+                                        Severity = Error
+                                    }
 
     /// Built-in primitive support table. `ValueSome true` is a definitive
     /// "yes, this constraint holds on `name`"; `ValueSome false` is a
@@ -1284,63 +1331,18 @@ module Unification =
                         | TypeArg.Measure _ -> TyVar(freshTyVar ctx)
                 ]
 
-            let argCount = List.length translatedArgs
-
-            let diagnoseArity (expected: int) : unit =
-                ctx.Diagnostics.Add
-                    {
-                        Key = diagKey
-                        Message = sprintf "Type '%s' expects %d type argument(s) but got %d" name expected argCount
-                        Severity = Error
-                    }
-
-            if ctx.IntrinsicReprTypes.ContainsKey name then
-                // Generic primitive binding (e.g. an intrinsic with type params):
-                // nominal, not transparent — same rule as the bare-name arm above.
-                TyConst name
-            else
-
-                match ctx.AbbreviationTypes.TryGetValue name with
-                | true, info ->
-                    forceFill ctx info
-                    let expected = List.length info.TypeParams
-
-                    if expected <> argCount then
-                        diagnoseArity expected
-
-                    expandAbbreviation ctx diagKey info translatedArgs
-                | false, _ ->
-                    match ctx.RecordTypes.TryGetValue name with
-                    | true, info ->
-                        let expected = List.length info.TypeParams
-
-                        if expected <> argCount then
-                            diagnoseArity expected
-
-                        TyRecord(name, translatedArgs)
-                    | false, _ ->
-                        match ctx.UnionTypes.TryGetValue name with
-                        | true, info ->
-                            let expected = List.length info.TypeParams
-
-                            if expected <> argCount then
-                                diagnoseArity expected
-
-                            TyUnion(name, translatedArgs)
-                        | false, _ ->
-                            match ctx.ClassTypes.TryGetValue name with
-                            | true, info ->
-                                let expected = List.length info.TypeParams
-
-                                if expected <> argCount then
-                                    diagnoseArity expected
-
-                                TyClass(name, translatedArgs)
-                            | false, _ ->
-                                // Unknown name with type args — surface as opaque
-                                // TyConst (matches today's behaviour for unrecognised
-                                // bare names; the args effectively get ignored).
-                                TyConst name
+            resolveNamedGeneric ctx diagKey name translatedArgs
+        | Type.SuffixedType(baseType = baseTy; longIdent = li) when li.Idents.Length = 1 ->
+            // Postfix generic syntax: `'T list` ≡ `list<'T>`. The suffix
+            // longident is the type constructor; the base type is its single
+            // argument (so `'T list` resolves the `list` abbreviation exactly
+            // like the prefix `list<'T>` would). Multi-arg postfix forms
+            // (`(int, string) Map`) parse the base as a tuple and fall to the
+            // single-arg arity diagnostic — out of scope for v1.
+            let nameTok = li.Idents.[0]
+            let name = ctx.NameOf nameTok
+            let diagKey = NodeKey.ofToken nameTok NodeKind.TypeGeneric
+            resolveNamedGeneric ctx diagKey name [ translateType ctx baseTy ]
         | Type.FunctionType(fromType = from; toType = into) -> TyFun(translateType ctx from, translateType ctx into)
         | Type.TupleType(types = types) -> TyTuple [ for t in types -> translateType ctx t ]
         | Type.WhenConstrainedType(typ = inner; constraints = cs) ->
@@ -1352,6 +1354,63 @@ module Unification =
             // types, anonymous records, etc.) aren't modelled yet. Hand
             // back a free TyVar so unification can pin it via context.
             TyVar(freshTyVar ctx)
+
+    /// Resolve a single-segment generic type reference (`name<args>` or the
+    /// equivalent postfix `args name`) against the type registries, in the
+    /// same precedence the bare-name arm uses: intrinsic binding → transparent
+    /// abbreviation → record → union → class → opaque `TyConst`. An arity
+    /// mismatch diagnoses but still produces the best-effort shape. Shared by
+    /// the `GenericType` and `SuffixedType` arms above.
+    and private resolveNamedGeneric
+        (ctx: PassContext)
+        (diagKey: NodeKey)
+        (name: string)
+        (translatedArgs: SemType list)
+        : SemType =
+        let argCount = List.length translatedArgs
+
+        let diagnoseArity (expected: int) : unit =
+            ctx.Diagnostics.Add
+                {
+                    Key = diagKey
+                    Message = sprintf "Type '%s' expects %d type argument(s) but got %d" name expected argCount
+                    Severity = Error
+                }
+
+        let checkArity (expected: int) : unit =
+            if expected <> argCount then
+                diagnoseArity expected
+
+        if ctx.IntrinsicReprTypes.ContainsKey name then
+            // Generic primitive binding (e.g. an intrinsic with type params):
+            // nominal, not transparent — same rule as the bare-name arm.
+            TyConst name
+        else
+            match ctx.AbbreviationTypes.TryGetValue name with
+            | true, info ->
+                forceFill ctx info
+                checkArity (List.length info.TypeParams)
+                expandAbbreviation ctx diagKey info translatedArgs
+            | false, _ ->
+                match ctx.RecordTypes.TryGetValue name with
+                | true, info ->
+                    checkArity (List.length info.TypeParams)
+                    TyRecord(name, translatedArgs)
+                | false, _ ->
+                    match ctx.UnionTypes.TryGetValue name with
+                    | true, info ->
+                        checkArity (List.length info.TypeParams)
+                        TyUnion(name, translatedArgs)
+                    | false, _ ->
+                        match ctx.ClassTypes.TryGetValue name with
+                        | true, info ->
+                            checkArity (List.length info.TypeParams)
+                            TyClass(name, translatedArgs)
+                        | false, _ ->
+                            // Unknown name with type args — surface as opaque
+                            // TyConst (matches today's behaviour for unrecognised
+                            // bare names; the args effectively get ignored).
+                            TyConst name
 
     /// Translate a `Constraint<'T>` CST node into a `SemanticConstraint`
     /// and attach it to the constrained typar's TyVar through the
@@ -2180,10 +2239,10 @@ module Unification =
             | Expr.TypeAnnotation(expr = inner; typ = t) -> inferTypeAnnotation ctx key inner t
             | Expr.EmptyBlock(lParen = ParenKind.List _; rParen = rTok) ->
                 checkLiteralClose ctx key rTok Token.KWRBracket "]"
-                emptyListLikeLiteral ctx false
+                emptyListLikeLiteral ctx key false
             | Expr.EmptyBlock(lParen = ParenKind.Array _; rParen = rTok) ->
                 checkLiteralClose ctx key rTok Token.KWRArrayBracket "|]"
-                emptyListLikeLiteral ctx true
+                emptyListLikeLiteral ctx key true
             | Expr.EmptyBlock _ -> MockBuiltins.tyUnit
             | Expr.While(condition = cond; body = body) -> inferWhile ctx key cond body
             | Expr.ForTo(ident = ident; startExpr = startE; endExpr = endE; body = body) ->
@@ -2268,6 +2327,29 @@ module Unification =
             // Instantiate the class's typars fresh per use site so
             // generic statics (`Box.Empty<'a>`) don't share variables
             // across uses.
+            let _, subst = freshNamedInstance ctx info.TypeParams
+            substituteWith subst m.Type
+        // Qualified static member on a *union*: `Lst.Empty`, `Lst.Single` (P3d.3).
+        // Checked before the ctor arm below so a static member shadows the
+        // not-a-case diagnostic; a name that is a case (not a static member)
+        // fails this guard and falls through to the ctor arm.
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
+            li.Idents.Length = 2
+            && not (ctx.Binding.ContainsKey key)
+            && (
+                match ctx.UnionTypes.TryGetValue(ctx.NameOf li.Idents.[0]) with
+                | true, info ->
+                    let n = ctx.NameOf li.Idents.[1]
+                    info.Members |> Array.exists (fun m -> m.IsStatic && m.Name = n)
+                | false, _ -> false
+            )
+            ->
+            let unionName = ctx.NameOf li.Idents.[0]
+            let memberName = ctx.NameOf li.Idents.[1]
+            let info = ctx.UnionTypes.[unionName]
+
+            let m = info.Members |> Array.find (fun m -> m.IsStatic && m.Name = memberName)
+
             let _, subst = freshNamedInstance ctx info.TypeParams
             substituteWith subst m.Type
         // Qualified ctor reference: `Result2.Ok` resolves via the union
@@ -2672,6 +2754,20 @@ module Unification =
     /// nominal). The inner `;`-separated body parses as `Expr.Sequential`,
     /// but we bypass `inferSequential`'s `unit`-per-leading-item rule —
     /// the elements aren't statements.
+    /// The list type a `[…]` literal carries. A program-declared
+    /// `'T list = …` abbreviation (the self-host list shape — `List.fs`'s
+    /// `and 'T list = List<'T>`) retargets list literals to its RHS union;
+    /// absent it, FSharp.Core's `Microsoft.FSharp.Collections.list` nominal
+    /// is the default. Additive — a normal program never declares a `list`
+    /// abbreviation, so `AbbreviationTypes` has no `"list"` entry and the
+    /// shape is byte-identical to before (Slice4 stays on FSharp.Core).
+    and private listLiteralTy (ctx: PassContext) (key: NodeKey) (elemTy: SemType) : SemType =
+        match ctx.AbbreviationTypes.TryGetValue "list" with
+        | true, info ->
+            forceFill ctx info
+            expandAbbreviation ctx key info [ elemTy ]
+        | false, _ -> TyRecord("Microsoft.FSharp.Collections.list", [ elemTy ])
+
     and private inferListLikeLiteral
         (ctx: PassContext)
         (key: NodeKey)
@@ -2692,17 +2788,17 @@ module Unification =
         if isArray then
             TyRecord("Microsoft.FSharp.Core.[]", [ elemTy ])
         else
-            TyRecord("Microsoft.FSharp.Collections.list", [ elemTy ])
+            listLiteralTy ctx key elemTy
 
     /// `[]` / `[||]` — empty literal. Element type stays free so the
     /// surrounding context can pin it (`let xs : int list = []`).
-    and private emptyListLikeLiteral (ctx: PassContext) (isArray: bool) : SemType =
+    and private emptyListLikeLiteral (ctx: PassContext) (key: NodeKey) (isArray: bool) : SemType =
         let elemTy = TyVar(freshTyVar ctx)
 
         if isArray then
             TyRecord("Microsoft.FSharp.Core.[]", [ elemTy ])
         else
-            TyRecord("Microsoft.FSharp.Collections.list", [ elemTy ])
+            listLiteralTy ctx key elemTy
 
     and private inferWhile
         (ctx: PassContext)
@@ -3084,6 +3180,48 @@ module Unification =
                     }
 
                 TyVar(freshTyVar ctx)
+        | TyUnion(unionName, args) ->
+            // Instance member access on a union receiver (P3d.3): `xs.Head`,
+            // `t.Length`. Mirrors the `TyClass` arm against the union's
+            // augmentation members.
+            match ctx.UnionTypes.TryGetValue unionName with
+            | true, info ->
+                match info.Members |> Array.tryFind (fun m -> m.Name = memberName && not m.IsStatic) with
+                | Some m ->
+                    let subst = mkNamedTypeSubst info.TypeParams args
+                    substituteWith subst m.Type
+                | None ->
+                    let isStaticHit =
+                        info.Members |> Array.exists (fun m -> m.Name = memberName && m.IsStatic)
+
+                    let msg =
+                        if isStaticHit then
+                            sprintf
+                                "Member '%s' on type '%s' is static; access it via '%s.%s'"
+                                memberName
+                                unionName
+                                unionName
+                                memberName
+                        else
+                            sprintf "Type '%s' has no instance member '%s'" unionName memberName
+
+                    ctx.Diagnostics.Add
+                        {
+                            Key = diagKey
+                            Message = msg
+                            Severity = Error
+                        }
+
+                    TyVar(freshTyVar ctx)
+            | false, _ ->
+                ctx.Diagnostics.Add
+                    {
+                        Key = diagKey
+                        Message = sprintf "Unknown union type '%s'" unionName
+                        Severity = Error
+                    }
+
+                TyVar(freshTyVar ctx)
         | TyVar tv ->
             let root = UnionFind.find tv
             let resultTv = freshTyVar ctx
@@ -3439,41 +3577,56 @@ module Unification =
                             | ValueSome cs -> translateConstraints ctx cs
                             | ValueNone -> ()
 
-                            // Walk the case list in declaration order, skipping
-                            // any GADT cases (they don't have a registry entry
-                            // — `inspectCaseData` returns ValueNone). The
-                            // registry's `Cases` array tracks declaration order
-                            // among successfully-registered cases, so we align
-                            // by walking the CST and the array in tandem.
+                            // Walk the case list in declaration order. A case is
+                            // registered iff its head names a case — mirror
+                            // `NameResolution.unionCaseName`'s accept set
+                            // (plain ident, `([])`, or a symbolic `(::)`-style
+                            // op) so this CST walk stays index-aligned with the
+                            // registry's `Cases` array (which only holds the
+                            // named cases). Field types come from the case's
+                            // payload, whichever syntax produced it: `Nary`
+                            // fields, or the explicit-return (GADT-syntax) form's
+                            // uncurried-signature args.
+                            let headNames (head: IdentOrOp<SyntaxToken>) =
+                                match head with
+                                | IdentOrOp.Ident _
+                                | IdentOrOp.ParenOp(opName = OpName.NilOp _)
+                                | IdentOrOp.ParenOp(opName = OpName.SymbolicOp _) -> true
+                                | _ -> false
+
+                            let caseHeadFields data =
+                                match data with
+                                | UnionTypeCaseData.Nullary(name = h) -> struct (headNames h, [])
+                                | UnionTypeCaseData.GadtNullary(name = h) -> struct (headNames h, [])
+                                | UnionTypeCaseData.Nary(name = h; fields = fs) ->
+                                    let tys =
+                                        [
+                                            for f in fs ->
+                                                match f with
+                                                | UnionTypeField.Unnamed(typ = t) -> t
+                                                | UnionTypeField.Named(typ = t) -> t
+                                        ]
+
+                                    struct (headNames h, tys)
+                                | UnionTypeCaseData.GadtNary(
+                                    name = h; sign = UncurriedSig(args = ArgsSpec(args = specs))) ->
+                                    let tys = [ for ArgSpec(typ = t) in specs -> t ]
+                                    struct (headNames h, tys)
+
                             let mutable infoIdx = 0
 
                             for UnionTypeCase(data = data) in cases do
-                                let isRegistered =
-                                    match data with
-                                    | UnionTypeCaseData.GadtNary _
-                                    | UnionTypeCaseData.GadtNullary _ -> false
-                                    | _ -> true
+                                let struct (isRegistered, fieldTypes) = caseHeadFields data
 
                                 if isRegistered && infoIdx < info.Cases.Length then
                                     let caseInfo = info.Cases.[infoIdx]
                                     infoIdx <- infoIdx + 1
 
-                                    let fields =
-                                        match data with
-                                        | UnionTypeCaseData.Nary(fields = fs) -> fs
-                                        | _ ->
-                                            System.Collections.Immutable.ImmutableArray<UnionTypeField<SyntaxToken>>
-                                                .Empty
-
-                                    let n = min caseInfo.Fields.Length fields.Length
+                                    let fieldTypes = List.toArray fieldTypes
+                                    let n = min caseInfo.Fields.Length fieldTypes.Length
 
                                     for i = 0 to n - 1 do
-                                        let t =
-                                            match fields.[i] with
-                                            | UnionTypeField.Unnamed(typ = t) -> t
-                                            | UnionTypeField.Named(typ = t) -> t
-
-                                        let translated = translateType ctx t
+                                        let translated = translateType ctx fieldTypes.[i]
 
                                         match caseInfo.Fields.[i] with
                                         | TyVar tv ->
@@ -3734,6 +3887,108 @@ module Unification =
                 | ValueNone -> ()
         | _ -> ()
 
+    /// Walk every union augmentation member body (P3d.3). Mirrors
+    /// `fillClassMembers` but reads the union's `extensions.elements` and binds
+    /// `this` to a `TyUnion` over the union's prototype typars (a v1 union has no
+    /// primary-constructor params). Each member's placeholder TyVar (stored by
+    /// NameResolution) is pre-seeded into `ctx.TypeVar` so `inferBinding`'s final
+    /// unify links it to the inferred member type (a `TyFun` for a method, the
+    /// body type for a property).
+    let private fillUnionMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
+        match m with
+        | ModuleElem.Type defs ->
+            for td in defs do
+                match td with
+                | TypeDefn.Union(
+                    typeName = TypeName(ident = nameLi); extensions = ValueSome(TypeExtensionElements(elements = elems))) when
+                    nameLi.Idents.Length = 1
+                    ->
+                    let name = ctx.NameOf nameLi.Idents.[0]
+
+                    match ctx.UnionTypes.TryGetValue name with
+                    | true, info when not (Array.isEmpty info.Members) ->
+                        let savedScope = ctx.TyparScope
+                        let savedStrict = ctx.TyparScopeStrict
+                        ctx.TyparScope <- scopeOfTypeParams info.TypeParams
+                        ctx.TyparScopeStrict <- true
+
+                        try
+                            // `this` TyVar pre-linked to `TyUnion` over the union's
+                            // prototype typars, so a generic member body that
+                            // mentions `'a` shares identity with the registry typars.
+                            let thisTv = TypeVar()
+                            thisTv.Level <- ctx.CurrentLevel
+                            let selfArgs = [ for (_, ptv) in info.TypeParams -> TyVar ptv ]
+                            thisTv.Link <- ValueSome(TyUnion(info.Name, selfArgs))
+                            ctx.TypeVar.Set(info.ThisKey, thisTv)
+
+                            for el in elems do
+                                match el with
+                                | TypeDefnElement.Member(MemberDefn.Member(defn = d)) ->
+                                    match d with
+                                    | MethodOrPropDefn.Method(defn = b)
+                                    | MethodOrPropDefn.Property(defn = b) ->
+                                        let mNameOpt =
+                                            let rec walkP (p: Pat<SyntaxToken>) =
+                                                match p with
+                                                | Pat.NamedSimple id -> ValueSome id
+                                                | Pat.EnclosedBlock(pat = inner)
+                                                | Pat.Typed(pat = inner) -> walkP inner
+                                                | _ -> ValueNone
+
+                                            walkP b.headPat
+
+                                        match mNameOpt with
+                                        | ValueSome mTok ->
+                                            let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
+
+                                            match info.Members |> Array.tryFind (fun mm -> mm.DeclKey = mKey) with
+                                            | Some mInfo ->
+                                                match mInfo.Type with
+                                                | TyVar tv -> ctx.TypeVar.Set(mKey, tv)
+                                                | _ -> ()
+                                            | None -> ()
+
+                                            enterLevel ctx
+
+                                            try
+                                                inferBinding ctx b
+                                            finally
+                                                exitLevel ctx
+                                        | ValueNone -> ()
+                                    | MethodOrPropDefn.AutoProperty(ident = id; expr = e; returnType = rt) ->
+                                        enterLevel ctx
+
+                                        try
+                                            let bodyTy = infer ctx e
+
+                                            let resultTy =
+                                                match rt with
+                                                | ValueSome(ReturnType(typ = t)) ->
+                                                    let t' = translateType ctx t
+                                                    unify ctx (CstKeys.ofExpr e) bodyTy t'
+                                                    t'
+                                                | ValueNone -> bodyTy
+
+                                            let mKey = NodeKey.ofToken id NodeKind.PatIdent
+
+                                            match info.Members |> Array.tryFind (fun mm -> mm.DeclKey = mKey) with
+                                            | Some mInfo ->
+                                                match mInfo.Type with
+                                                | TyVar tv -> (UnionFind.find tv).Link <- ValueSome resultTy
+                                                | _ -> ()
+                                            | None -> ()
+                                        finally
+                                            exitLevel ctx
+                                    | _ -> ()
+                                | _ -> ()
+                        finally
+                            ctx.TyparScope <- savedScope
+                            ctx.TyparScopeStrict <- savedStrict
+                    | _ -> ()
+                | _ -> ()
+        | _ -> ()
+
     /// Force every abbreviation body in source order. Each call into
     /// `forceFill` recurses through `translateType` for any abbreviation
     /// reference it encounters, so dependencies fill themselves DFS-style
@@ -3767,6 +4022,9 @@ module Unification =
 
         for m in elems do
             fillClassMembers ctx m
+
+        for m in elems do
+            fillUnionMembers ctx m
 
         for m in elems do
             walkModuleElem ctx m

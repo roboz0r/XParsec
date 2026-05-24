@@ -186,14 +186,17 @@ type MetadataContext() =
 
     /// A concrete (instance) `TypeDefinition` whose base is an arbitrary
     /// `EntityHandle` — a `TypeSpec` for a synthesised closure deriving from
-    /// the instantiated `FSharpFunc\`2<a,b>`. Generalises `AddProgramType`,
-    /// which hard-codes `abstract sealed` + `Object`. `firstField` /
+    /// the instantiated `FSharpFunc\`2<a,b>`, or `Object` for an emitted union.
+    /// Generalises `AddProgramType`, which hard-codes `abstract sealed` +
+    /// `Object`. `ns` is the namespace (empty ⇒ global — a synthesised closure
+    /// has none; a declared union carries its `namespace X`). `firstField` /
     /// `firstMethod` start this type's contiguous field / method ranges, so
     /// callers must add this type's fields and methods (in type order) before
     /// the `TypeDefinition` rows.
     member _.AddClass
         (
             attrs: TypeAttributes,
+            ns: string,
             name: string,
             baseType: EntityHandle,
             firstField: FieldDefinitionHandle,
@@ -201,7 +204,10 @@ type MetadataContext() =
         ) : TypeDefinitionHandle =
         mb.AddTypeDefinition(
             attrs,
-            Unchecked.defaultof<StringHandle>,
+            (if String.IsNullOrEmpty ns then
+                 Unchecked.defaultof<StringHandle>
+             else
+                 mb.GetOrAddString(ns)),
             mb.GetOrAddString(name),
             baseType,
             firstField,

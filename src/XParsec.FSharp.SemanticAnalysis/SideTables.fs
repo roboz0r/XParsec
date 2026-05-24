@@ -48,6 +48,40 @@ type RecordTypeInfo
     /// constraint to the matching prototype TyVar in `TypeParams`.
     member val TyparConstraints = typarConstraints
 
+/// Distinguishes a class / union member as a method or property. Properties
+/// in v1 are read-only (get-only); methods carry a function-typed
+/// signature and are dispatched by an enclosing `Expr.App`. v1
+/// `AutoProperty` also lands here as `Property`.
+[<RequireQualifiedAccess>]
+type ClassMemberKind =
+    | Method
+    | Property
+
+/// Per-member metadata for a `TypeDefn.Class` (and union augmentations,
+/// P3d.3). Member types start as placeholder TyVars (Method: a fresh TyVar
+/// that will be linked to a `TyFun`; Property: a fresh TyVar that will be
+/// linked to the property's body type) and get linked by Unification's
+/// `fillClassMembers` / `fillUnionMembers` after the registry is populated.
+/// Forward references between members in the same type therefore resolve
+/// against the placeholder.
+[<Sealed>]
+type ClassMemberInfo(name: string, kind: ClassMemberKind, isStatic: bool, ty: SemType, declKey: NodeKey) =
+    new(name, kind, ty, declKey) = ClassMemberInfo(name, kind, false, ty, declKey)
+    member val Name = name
+    member val Kind = kind
+    /// `true` for `static member`s. Instance members are looked up via
+    /// the receiver's TyClass / TyUnion; static members are looked up by type
+    /// name + member name (no `this` binding inside the body).
+    member val IsStatic = isStatic
+    member val Type = ty
+    member val DeclKey = declKey
+    /// The member's *own* generic parameters (e.g. `abstract Map<'C> : ...`),
+    /// as prototype TyVars keyed by source name. NameResolution mints these so
+    /// Unification can scope the signature against them and Freeze can surface
+    /// them. Empty for an ordinary (non-generic) member. Mirrors
+    /// `ClassTypeInfo.TypeParams` at the member level.
+    member val MethodTypeParams: (string * TypeVar) list = [] with get, set
+
 /// Per-case metadata for a `TypeDefn.Union`. Field types start as fresh
 /// TyVar placeholders stamped by NameResolution and are linked to the
 /// translated CST types by Unification's field-fill-in pass before any
@@ -88,6 +122,17 @@ type UnionTypeInfo
     /// `Unification.fillUnionFieldTypes` walks this and attaches each
     /// constraint to the matching prototype TyVar in `TypeParams`.
     member val TyparConstraints = typarConstraints
+    /// Augmentation members (`with member …` / `static member …`), registered
+    /// from the union's `extensions`. Member types start as placeholder TyVars
+    /// and are linked by Unification's `fillUnionMembers` — the same machinery
+    /// `ClassTypeInfo.Members` uses (P3d.3). Empty for a plain union.
+    member val Members: ClassMemberInfo[] = [||] with get, set
+    /// `this`-binding source name (default `"this"`; honours `as self`) for
+    /// instance member bodies. Mirrors `ClassTypeInfo.ThisName`.
+    member val ThisName = "this" with get, set
+    /// Synthetic NodeKey for the `this` binder shared across every instance
+    /// member body in this union. Set during registration when there are members.
+    member val ThisKey = Unchecked.defaultof<NodeKey> with get, set
 
 /// Fill-state of an `AbbreviationInfo.Body`. NameResolution stamps
 /// entries with `NotFilled`; Unification's `fillAbbreviationBodies`
@@ -128,40 +173,6 @@ type AbbreviationInfo
     member val TyparConstraints = typarConstraints
     member val Body: SemType voption = ValueNone with get, set
     member val Status: AbbreviationStatus = AbbreviationStatus.NotFilled with get, set
-
-/// Distinguishes a class member as a method or property. Properties
-/// in v1 are read-only (get-only); methods carry a function-typed
-/// signature and are dispatched by an enclosing `Expr.App`. v1
-/// `AutoProperty` also lands here as `Property`.
-[<RequireQualifiedAccess>]
-type ClassMemberKind =
-    | Method
-    | Property
-
-/// Per-member metadata for a `TypeDefn.Class`. Member types start as
-/// placeholder TyVars (Method: a fresh TyVar that will be linked to a
-/// `TyFun`; Property: a fresh TyVar that will be linked to the
-/// property's body type) and get linked by Unification's
-/// `fillClassMembers` after the registry is populated. Forward
-/// references between members in the same class therefore resolve
-/// against the placeholder.
-[<Sealed>]
-type ClassMemberInfo(name: string, kind: ClassMemberKind, isStatic: bool, ty: SemType, declKey: NodeKey) =
-    new(name, kind, ty, declKey) = ClassMemberInfo(name, kind, false, ty, declKey)
-    member val Name = name
-    member val Kind = kind
-    /// `true` for `static member`s. Instance members are looked up via
-    /// the receiver's TyClass; static members are looked up by class
-    /// name + member name (no `this` binding inside the body).
-    member val IsStatic = isStatic
-    member val Type = ty
-    member val DeclKey = declKey
-    /// The member's *own* generic parameters (e.g. `abstract Map<'C> : ...`),
-    /// as prototype TyVars keyed by source name. NameResolution mints these so
-    /// Unification can scope the signature against them and Freeze can surface
-    /// them. Empty for an ordinary (non-generic) member. Mirrors
-    /// `ClassTypeInfo.TypeParams` at the member level.
-    member val MethodTypeParams: (string * TypeVar) list = [] with get, set
 
 /// Per-primary-constructor-arg metadata for a `TypeDefn.Class`. The
 /// declared `Type` is `ValueNone` for un-annotated arguments (a fresh

@@ -82,6 +82,36 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
 
     let eDecimal = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "Decimal")))
 
+    let eException = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "Exception")))
+
+    /// `instance void System.Object::.ctor()` — the base ctor a union's own
+    /// parameterless `.ctor` chains to.
+    let eObjectCtor =
+        lazy
+            (let s = BlobBuilder()
+
+             BlobEncoder(s)
+                 .MethodSignature(isInstanceMethod = true)
+                 .Parameters(0, (fun (ret: ReturnTypeEncoder) -> ret.Void()), (fun (_: ParametersEncoder) -> ()))
+
+             toEntity (ctx.MemberRef(eObject.Value, ".ctor", s)))
+
+    /// `instance void System.Exception::.ctor(string)` — the constructor a
+    /// non-exhaustive `match` fallthrough throws.
+    let eExceptionCtor =
+        lazy
+            (let s = BlobBuilder()
+
+             BlobEncoder(s)
+                 .MethodSignature(isInstanceMethod = true)
+                 .Parameters(
+                     1,
+                     (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                     (fun (pars: ParametersEncoder) -> pars.AddParameter().Type().String())
+                 )
+
+             toEntity (ctx.MemberRef(eException.Value, ".ctor", s)))
+
     /// `instance void System.Decimal::.ctor(int32, int32, int32, bool, uint8)` —
     /// the lo/mid/hi/sign/scale constructor used to materialise a `decimal`
     /// constant from its `Decimal.GetBits` representation.
@@ -122,6 +152,25 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
     /// list. Populated during emission; read after via `FSharpCoreDependencies`.
     let fsharpCoreDeps = HashSet<string>()
     let markFSharpCoreDep (construct: string) : unit = fsharpCoreDeps.Add construct |> ignore
+
+    /// User types emitted into *this* assembly (rung 2: unions), by simple name →
+    /// their `TypeDefinition` handle. `encodeType` resolves a `TyUnion name` slot
+    /// to this handle so a field / factory / local signature can reference the
+    /// type before its `TypeDefinition` row is even added (the handle is predicted
+    /// from the row order — see `Codegen.assembleProgram`). Populated up front via
+    /// `RegisterUserType`.
+    let userTypes = Dictionary<string, EntityHandle>()
+
+    /// Generic user unions emitted into this assembly (rung 2 P3d.4), by simple
+    /// name → (typar names, cases). A case is `(caseName, [(fieldMetaName, declTy)])`
+    /// where `declTy` carries the declaring-typar markers (`TyConst "'T"`). The
+    /// `TypeDefinition` handle itself lives in `userTypes`; this holds the extra
+    /// shape needed to mint `MemberRef`s on the type's `TypeSpec` (the member-ref
+    /// signatures are written in terms of the type's own generic parameters, so
+    /// the declared types — with their typar markers — are the source of truth).
+    /// Monomorphic unions are *not* registered here (their `Def` tokens suffice).
+    let genericUnions =
+        Dictionary<string, string list * (string * (string * SemType) list) list>()
 
     /// Resolve a `SemType` to its concrete representative, chasing union-find
     /// links. After `ResolvedTypes` no *free* TyVar survives, so the only job
@@ -222,11 +271,111 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
                 // ctor / `PrintFormatLine` / `Invoke` instantiations, and any
                 // list-typed local signature.
                 encodeListOf te (fun arg -> encodeTypeCore tryLeaf arg elem)
+            | TyUnion(name, args) when userTypes.ContainsKey name ->
+                // A user union emitted into this assembly (rung 2). Monomorphic
+                // (`TyUnion(name, [])`): reference its `TypeDefinition` directly.
+                // Generic (`TyUnion("List", [int])`): a `TypeSpec` instantiation
+                // `List\`1<int>` over the predicted `TypeDefinition` handle, each
+                // argument encoded recursively (a typar argument is intercepted by
+                // `tryLeaf` — `'T` ⇒ `!0` — so this serves both a concrete `[int]`
+                // use site and the type's own `[!0]` self-reference) (P3d.4).
+                match args with
+                | [] -> te.Type(userTypes.[name], false)
+                | _ ->
+                    let g = te.GenericInstantiation(userTypes.[name], List.length args, false)
+
+                    for a in args do
+                        encodeTypeCore tryLeaf (g.AddArgument()) a
             | other -> failwithf "ClrProvider: cannot encode SemType: %A" other
 
     /// Encode a (zonked) `SemType` for the executable path — no typar markers, so
     /// the leaf hook is a no-op.
     and encodeType (te: SignatureTypeEncoder) (t: SemType) : unit = encodeTypeCore (fun _ _ -> false) te t
+
+    // ---- Generic union emission (rung 2 P3d.4) ----
+
+    /// `typar name → positional index` for a generic union's own type parameters.
+    let typarIx (typars: string list) : Map<string, int> =
+        typars |> List.mapi (fun i n -> n, i) |> Map.ofList
+
+    /// Encode a `SemType` declared *within* a generic union (a field type, a
+    /// factory parameter/return) — its own typar markers (`TyConst "'T"`) resolve
+    /// to `GenericTypeParameter` indices, everything else delegates to `encodeType`.
+    /// The member-ref / type-def signatures are all written in these terms (`!0`),
+    /// with the instantiation supplied by the parent `TypeSpec`.
+    let encodeUnionType (typeIx: Map<string, int>) (te: SignatureTypeEncoder) (t: SemType) : unit =
+        let tryLeaf (te: SignatureTypeEncoder) (zt: SemType) : bool =
+            match zt with
+            | TyConst name when typeIx.ContainsKey name ->
+                te.GenericTypeParameter(typeIx.[name])
+                true
+            | _ -> false
+
+        encodeTypeCore tryLeaf te t
+
+    /// `name\`n<args>` as a member-ref parent `TypeSpec`. `args` is the use-site
+    /// instantiation — concrete (`[int]`) at an external site, the type's own
+    /// typar markers (`[TyConst "'T"]` ⇒ `!0`) inside a factory body. Either way
+    /// each argument is encoded through `encodeUnionType`, so a typar marker maps
+    /// to `!i` and a concrete leaf to its IL type.
+    let genericUnionTypeSpec (name: string) (args: SemType list) : EntityHandle =
+        let typars, _ = genericUnions.[name]
+        let typeIx = typarIx typars
+        let tsB = BlobBuilder()
+        let te = BlobEncoder(tsB).TypeSpecificationSignature()
+        let g = te.GenericInstantiation(userTypes.[name], List.length typars, false)
+
+        for a in args do
+            encodeUnionType typeIx (g.AddArgument()) a
+
+        toEntity (ctx.TypeSpec tsB)
+
+    /// A `MemberRef` to one member of generic union `name` instantiated at `args`.
+    /// The parent is the `TypeSpec` above; the signature is in terms of the type's
+    /// own generic parameters (the runtime substitutes the parent's args).
+    let genericUnionMemberRef (name: string) (args: SemType list) (which: UnionMember) : EntityHandle =
+        let typars, cases = genericUnions.[name]
+        let typeIx = typarIx typars
+        let parent = genericUnionTypeSpec name args
+
+        let caseFields cn =
+            cases |> List.find (fun (n, _) -> n = cn) |> snd
+
+        match which with
+        | UnionMember.Ctor ->
+            let s = BlobBuilder()
+
+            BlobEncoder(s)
+                .MethodSignature(isInstanceMethod = true)
+                .Parameters(0, (fun (ret: ReturnTypeEncoder) -> ret.Void()), (fun (_: ParametersEncoder) -> ()))
+
+            toEntity (ctx.MemberRef(parent, ".ctor", s))
+        | UnionMember.Tag ->
+            let s = BlobBuilder()
+            BlobEncoder(s).FieldSignature().Int32()
+            toEntity (ctx.MemberRef(parent, "_tag", s))
+        | UnionMember.Field(caseName, idx) ->
+            let metaName, declTy = (caseFields caseName).[idx]
+            let s = BlobBuilder()
+            encodeUnionType typeIx (BlobEncoder(s).FieldSignature()) declTy
+            toEntity (ctx.MemberRef(parent, metaName, s))
+        | UnionMember.Factory caseName ->
+            let paramTys = caseFields caseName |> List.map snd
+            let retTy = TyUnion(name, [ for t in typars -> TyConst t ])
+            let s = BlobBuilder()
+
+            BlobEncoder(s)
+                .MethodSignature(isInstanceMethod = false)
+                .Parameters(
+                    List.length paramTys,
+                    (fun (ret: ReturnTypeEncoder) -> encodeUnionType typeIx (ret.Type()) retTy),
+                    (fun (pars: ParametersEncoder) ->
+                        for p in paramTys do
+                            encodeUnionType typeIx (pars.AddParameter().Type()) p
+                    )
+                )
+
+            toEntity (ctx.MemberRef(parent, caseName, s))
 
     let lastSegment (name: string) : string =
         let i = name.LastIndexOf '.'
@@ -729,6 +878,99 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
 
     member _.ObjectType: EntityHandle = eObject.Value
 
+    /// Member ref to `System.Object::.ctor()` for a union's base-ctor chain.
+    member _.ObjectCtorRef: EntityHandle = eObjectCtor.Value
+
+    /// Register a user type emitted into this assembly so `encodeType` can
+    /// reference it (by its predicted `TypeDefinition` handle) before its row is
+    /// added. See `userTypes`.
+    member _.RegisterUserType(name: string, handle: EntityHandle) : unit = userTypes.[name] <- handle
+
+    /// Register a *generic* union's shape (typar names + cases) so
+    /// `GenericUnionMemberRef` can mint `MemberRef`s on its `TypeSpec` (P3d.4).
+    /// `cases` is `(caseName, [(fieldMetaName, declTy)])`; call after
+    /// `RegisterUserType` has recorded the type's predicted handle. A no-op for a
+    /// monomorphic union (none is registered here — its `Def` tokens are used).
+    member _.RegisterGenericUnion
+        (name: string, typars: string list, cases: (string * (string * SemType) list) list)
+        : unit =
+        genericUnions.[name] <- (typars, cases)
+
+    /// `<field-type>` field signature for a generic union's case field, encoded
+    /// in terms of the type's own generic parameters (`Head : 'T` ⇒ `!0`).
+    member _.GenericFieldSignature(typars: string list, declTy: SemType) : BlobBuilder =
+        let blob = BlobBuilder()
+        encodeUnionType (typarIx typars) (BlobEncoder(blob).FieldSignature()) declTy
+        blob
+
+    /// `static <ret> <name>(<params…>)` — a generic union case's factory
+    /// signature, encoded in terms of the type's own generic parameters
+    /// (`static List<!0> Cons(!0, List<!0>)`).
+    member _.GenericStaticMethodSignature(typars: string list, paramTys: SemType list, retTy: SemType) : BlobBuilder =
+        let typeIx = typarIx typars
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(isInstanceMethod = false)
+            .Parameters(
+                List.length paramTys,
+                (fun (ret: ReturnTypeEncoder) -> encodeUnionType typeIx (ret.Type()) retTy),
+                (fun (pars: ParametersEncoder) ->
+                    for p in paramTys do
+                        encodeUnionType typeIx (pars.AddParameter().Type()) p
+                )
+            )
+
+        s
+
+    /// `instance void .ctor()` — a union's parameterless constructor signature.
+    member _.NullaryCtorSignature() : BlobBuilder =
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(isInstanceMethod = true)
+            .Parameters(0, (fun (ret: ReturnTypeEncoder) -> ret.Void()), (fun (_: ParametersEncoder) -> ()))
+
+        s
+
+    /// `static <ret> <name>(<params…>)` — a union case's factory signature
+    /// (`static Lst Cons(int, Lst)`); each slot encoded via `encodeType`.
+    member _.StaticMethodSignature(paramTys: SemType list, retTy: SemType) : BlobBuilder =
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(isInstanceMethod = false)
+            .Parameters(
+                List.length paramTys,
+                (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) retTy),
+                (fun (pars: ParametersEncoder) ->
+                    for p in paramTys do
+                        encodeType (pars.AddParameter().Type()) p
+                )
+            )
+
+        s
+
+    /// `instance <ret> <name>(<params…>)` — a union augmentation member's
+    /// signature (P3d.3); the implicit `this` is encoded by
+    /// `isInstanceMethod = true`. A property getter is a parameterless instance
+    /// method (`instance bool get_IsEmpty()`).
+    member _.InstanceMethodSignature(paramTys: SemType list, retTy: SemType) : BlobBuilder =
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(isInstanceMethod = true)
+            .Parameters(
+                List.length paramTys,
+                (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) retTy),
+                (fun (pars: ParametersEncoder) ->
+                    for p in paramTys do
+                        encodeType (pars.AddParameter().Type()) p
+                )
+            )
+
+        s
+
     /// `FSharpFunc\`2<a,b>` `TypeSpec` for a closure's base type.
     member _.ClosureBaseSpec(a: SemType, b: SemType) : EntityHandle = fsharpFunc2Spec a b
 
@@ -772,6 +1014,7 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
     interface ICodegenProvider with
         member _.ObjectType = eObject.Value
         member _.DecimalCtor = eDecimalCtor.Value
+        member _.ExceptionCtor = eExceptionCtor.Value
 
         // Sorted for a deterministic, diff-friendly dependency list.
         member _.FSharpCoreDependencies() =
@@ -809,6 +1052,9 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>) =
                 // User-defined DU constructors flow through here too; minting
                 // their types + ctors from the provider is a later slice.
                 ValueNone
+
+        member _.GenericUnionMemberRef(name, args, which) =
+            genericUnionMemberRef name (List.map zonk args) which
 
         member _.TryEmitInvoke(funcTy) =
             match zonk funcTy with

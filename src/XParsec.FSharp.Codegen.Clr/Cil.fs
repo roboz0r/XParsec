@@ -192,7 +192,55 @@ module Cil =
         il.Encoder.OpCode(ILOpCode.Pop)
         il.Adjust -1
 
+    /// `dup` — duplicate the top value (net +1). A union factory dups the freshly
+    /// constructed object once per field-store, keeping the object on the stack
+    /// to return.
+    let emitDup (il: Il) : unit =
+        il.Encoder.OpCode(ILOpCode.Dup)
+        il.Adjust 1
+
     let emitRet (il: Il) : unit = il.Encoder.OpCode(ILOpCode.Ret)
+
+    // ---- Branching (the SRM `ControlFlowBuilder` fixes up label offsets) ----
+
+    /// Reserve a branch target. Place it later in the stream with `markLabel`;
+    /// `buildBody`'s `ControlFlowBuilder` resolves the forward/backward offset.
+    let defineLabel (il: Il) : LabelHandle = il.Encoder.DefineLabel()
+
+    /// Place a previously-defined label at the current instruction position.
+    let markLabel (il: Il) (label: LabelHandle) : unit = il.Encoder.MarkLabel(label)
+
+    /// `br` — unconditional branch (no stack change).
+    let emitBr (il: Il) (label: LabelHandle) : unit = il.Encoder.Branch(ILOpCode.Br, label)
+
+    /// `brfalse` — pop the top value, branch if it is zero / null.
+    let emitBrFalse (il: Il) (label: LabelHandle) : unit =
+        il.Encoder.Branch(ILOpCode.Brfalse, label)
+        il.Adjust -1
+
+    /// `brtrue` — pop the top value, branch if it is non-zero / non-null.
+    let emitBrTrue (il: Il) (label: LabelHandle) : unit =
+        il.Encoder.Branch(ILOpCode.Brtrue, label)
+        il.Adjust -1
+
+    /// `bne.un` — pop the top two values, branch if they are not equal
+    /// (unordered: NaN counts as unequal). The "skip this arm" test for a
+    /// literal-pattern match.
+    let emitBneUn (il: Il) (label: LabelHandle) : unit =
+        il.Encoder.Branch(ILOpCode.Bne_un, label)
+        il.Adjust -2
+
+    /// `beq` — pop the top two values, branch if they are equal.
+    let emitBeq (il: Il) (label: LabelHandle) : unit =
+        il.Encoder.Branch(ILOpCode.Beq, label)
+        il.Adjust -2
+
+    /// `throw` — pop the exception object and raise it. Terminates the flow, so
+    /// nothing executes after it on this path (the depth tracker still settles
+    /// to the post-pop value for any merge that follows).
+    let emitThrow (il: Il) : unit =
+        il.Encoder.OpCode(ILOpCode.Throw)
+        il.Adjust -1
 
     // ---- Finalisation ----
 

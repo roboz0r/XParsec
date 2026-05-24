@@ -213,13 +213,20 @@ module NameResolution =
                     // `Math.Pi` / `Box.Empty` — two-segment qualified
                     // static member reference. Same suppression
                     // posture as ctors: Unification handles the type
-                    // side.
+                    // side. A union augmentation static member (`Lst.Empty`,
+                    // `Lst.Single`, P3d.3) suppresses the same way.
                     let isQualifiedStatic =
                         li.Idents.Length = 2
-                        && ctx.ClassTypes.ContainsKey(ctx.NameOf li.Idents.[0])
-                        && (let info = ctx.ClassTypes.[ctx.NameOf li.Idents.[0]]
+                        && (let typeName = ctx.NameOf li.Idents.[0]
                             let memberName = ctx.NameOf li.Idents.[1]
-                            info.Members |> Array.exists (fun m -> m.IsStatic && m.Name = memberName))
+
+                            let staticIn (members: ClassMemberInfo[]) =
+                                members |> Array.exists (fun m -> m.IsStatic && m.Name = memberName)
+
+                            (ctx.ClassTypes.ContainsKey typeName
+                             && staticIn ctx.ClassTypes.[typeName].Members)
+                            || (ctx.UnionTypes.ContainsKey typeName
+                                && staticIn ctx.UnionTypes.[typeName].Members))
 
                     if isQualifiedCtor || isQualifiedStatic then
                         ()
@@ -428,49 +435,68 @@ module NameResolution =
                 registerRecordTypeDefn ctx td
         | _ -> ()
 
+    /// Map a union-case head to its case name. A plain identifier keeps its
+    /// text; the two operator-named cases that matter are FSharp.Core's list
+    /// constructors — `([])` (the empty case, compiled `Empty`) and `(::)`
+    /// (cons, compiled `Cons`). Any other symbolic operator keeps its source
+    /// text. Heads we can't name (`(*)`, range/active-pattern ops) yield `""`,
+    /// which `inspectCaseData` reads as "drop this case".
+    let private unionCaseName (ctx: PassContext) (head: IdentOrOp<SyntaxToken>) : string =
+        match head with
+        | IdentOrOp.Ident t -> ctx.NameOf t
+        | IdentOrOp.ParenOp(opName = OpName.NilOp _) -> "Empty"
+        | IdentOrOp.ParenOp(opName = OpName.SymbolicOp op) ->
+            match ctx.NameOf op with
+            | "::" -> "Cons"
+            | s -> s
+        | _ -> ""
+
     /// Pull a ctor case's name + arity + per-field names from
-    /// `UnionTypeCaseData`. GADT cases are out of scope for v1 — they
-    /// emit a diagnostic so subsequent uses don't cascade.
+    /// `UnionTypeCaseData`. Handles the plain forms plus operator-named cases
+    /// (`([])`/`(::)`) and the explicit-return (GADT-syntax) forms FSharp.Core's
+    /// list uses (`| ([]) : 'T list`, `| (::) : Head: 'T * Tail: 'T list -> 'T list`).
+    /// The return type is treated as the declaring union; true GADTs (a return
+    /// type refining the declaring typars) remain out of scope.
     let private inspectCaseData
         (ctx: PassContext)
-        (diagKey: NodeKey)
         (data: UnionTypeCaseData<SyntaxToken>)
         : (string * int * string voption[]) voption =
-        let nameOfHead (head: IdentOrOp<SyntaxToken>) : string =
-            match head with
-            | IdentOrOp.Ident t -> ctx.NameOf t
-            | _ -> ""
+        let naryNames (fields: ImmutableArray<UnionTypeField<SyntaxToken>>) : string voption[] =
+            [|
+                for f in fields ->
+                    match f with
+                    | UnionTypeField.Named(ident = id) -> ValueSome(ctx.NameOf id)
+                    | UnionTypeField.Unnamed _ -> ValueNone
+            |]
+
+        let gadtNames (specs: ImmutableArray<ArgSpec<SyntaxToken>>) : string voption[] =
+            [|
+                for ArgSpec(name = nm) in specs ->
+                    match nm with
+                    | ValueSome(ArgNameSpec(ident = id)) -> ValueSome(ctx.NameOf id)
+                    | ValueNone -> ValueNone
+            |]
 
         match data with
-        | UnionTypeCaseData.Nullary(name = head) ->
-            let n = nameOfHead head
+        | UnionTypeCaseData.Nullary(name = head)
+        | UnionTypeCaseData.GadtNullary(name = head) ->
+            let n = unionCaseName ctx head
 
             if n.Length = 0 then ValueNone else ValueSome(n, 0, [||])
         | UnionTypeCaseData.Nary(name = head; fields = fields) ->
-            let n = nameOfHead head
+            let n = unionCaseName ctx head
 
             if n.Length = 0 then
                 ValueNone
             else
-                let names =
-                    [|
-                        for f in fields ->
-                            match f with
-                            | UnionTypeField.Named(ident = id) -> ValueSome(ctx.NameOf id)
-                            | UnionTypeField.Unnamed _ -> ValueNone
-                    |]
+                ValueSome(n, fields.Length, naryNames fields)
+        | UnionTypeCaseData.GadtNary(name = head; sign = UncurriedSig(args = ArgsSpec(args = specs))) ->
+            let n = unionCaseName ctx head
 
-                ValueSome(n, fields.Length, names)
-        | UnionTypeCaseData.GadtNary _
-        | UnionTypeCaseData.GadtNullary _ ->
-            ctx.Diagnostics.Add
-                {
-                    Key = diagKey
-                    Message = "GADT-style union cases are not yet supported"
-                    Severity = Error
-                }
-
-            ValueNone
+            if n.Length = 0 then
+                ValueNone
+            else
+                ValueSome(n, specs.Length, gadtNames specs)
 
     /// Stamp `UnionTypeInfo` entries for every `TypeDefn.Union` in this
     /// group. Mirrors `registerRecordTypeDefn`: field types start as
@@ -502,7 +528,7 @@ module NameResolution =
                     let caseInfos =
                         [|
                             for UnionTypeCase(data = data) in cases do
-                                match inspectCaseData ctx declKey data with
+                                match inspectCaseData ctx data with
                                 | ValueSome(caseName, arity, fieldNames) ->
                                     let fieldTys =
                                         Array.init
@@ -710,6 +736,97 @@ module NameResolution =
                     | ValueNone -> ()
             ]
 
+    /// Extract `ClassMemberInfo` placeholders from a type body's / augmentation's
+    /// member elements. Shared by class registration (`body.elements`) and union
+    /// augmentation registration (`extensions.elements`) — both carry the same
+    /// `TypeDefnElement` shape (P3d.3). Member types are placeholder TyVars here;
+    /// Unification's `fillClassMembers` / `fillUnionMembers` links them.
+    let private extractMembers
+        (ctx: PassContext)
+        (declKey: NodeKey)
+        (elements: TypeDefnElement<SyntaxToken> seq)
+        : ClassMemberInfo[] =
+        let memberInfos = ResizeArray<ClassMemberInfo>()
+
+        for el in elements do
+            match el with
+            | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; defn = d)) ->
+                let isStatic = s.IsSome
+
+                match d with
+                | MethodOrPropDefn.Method(defn = b) ->
+                    match memberNameOf ctx b with
+                    | ValueSome(mName, mTok) ->
+                        let tv = TypeVar()
+                        tv.Level <- 0
+                        let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
+
+                        memberInfos.Add(ClassMemberInfo(mName, ClassMemberKind.Method, isStatic, TyVar tv, mKey))
+                    | ValueNone -> ()
+                | MethodOrPropDefn.Property(defn = b) ->
+                    match memberNameOf ctx b with
+                    | ValueSome(mName, mTok) ->
+                        let tv = TypeVar()
+                        tv.Level <- 0
+                        let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
+
+                        memberInfos.Add(ClassMemberInfo(mName, ClassMemberKind.Property, isStatic, TyVar tv, mKey))
+                    | ValueNone -> ()
+                | MethodOrPropDefn.AutoProperty(ident = id) ->
+                    let mName = ctx.NameOf id
+                    let tv = TypeVar()
+                    tv.Level <- 0
+                    let mKey = NodeKey.ofToken id NodeKind.PatIdent
+
+                    memberInfos.Add(ClassMemberInfo(mName, ClassMemberKind.Property, isStatic, TyVar tv, mKey))
+                | MethodOrPropDefn.AbstractSignature(MemberSig.MethodOrPropSig(ident = idOrOp; typarDefns = tds)) ->
+                    // An abstract method signature registers as a `Method` member
+                    // with a placeholder TyVar; Unification links it to the
+                    // resolved signature, and Freeze reads these to surface the
+                    // interface. (A `PropSig` abstract member is a property — out
+                    // of scope for rung 1.)
+                    match identOrOpNameTok ctx idOrOp with
+                    | ValueSome(mName, mTok) ->
+                        let tv = TypeVar()
+                        tv.Level <- 0
+                        let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
+
+                        let cmi = ClassMemberInfo(mName, ClassMemberKind.Method, isStatic, TyVar tv, mKey)
+
+                        // The method's own `<'C, …>` typars get prototype TyVars
+                        // here so Unification scopes the signature against them and
+                        // Freeze can surface them as `GenericMethodParameter`s.
+                        cmi.MethodTypeParams <- mkTypeParams (memberTyparNames ctx tds)
+                        memberInfos.Add cmi
+                    | ValueNone -> ()
+                | MethodOrPropDefn.PropertyWithGetSet _
+                | MethodOrPropDefn.AbstractSignature _ ->
+                    ctx.Diagnostics.Add
+                        {
+                            Key = declKey
+                            Message = "This member kind is not yet supported"
+                            Severity = Error
+                        }
+            | TypeDefnElement.Member(MemberDefn.Value _)
+            | TypeDefnElement.Member(MemberDefn.AdditionalConstructor _) ->
+                ctx.Diagnostics.Add
+                    {
+                        Key = declKey
+                        Message = "This member kind is not yet supported"
+                        Severity = Error
+                    }
+            | TypeDefnElement.InterfaceImpl _
+            | TypeDefnElement.InterfaceSpec _
+            | TypeDefnElement.Inherit _ ->
+                ctx.Diagnostics.Add
+                    {
+                        Key = declKey
+                        Message = "Inheritance / interfaces are not yet supported"
+                        Severity = Error
+                    }
+
+        memberInfos.ToArray()
+
     /// Stamp `ClassTypeInfo` entries for every `TypeDefn.Class` (or
     /// `TypeDefn.Anon` — the parser emits `Anon` for the bare
     /// `type C(...) = member ...` form without an explicit `class`/`end`
@@ -754,93 +871,8 @@ module NameResolution =
                     let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
                     let ctorParams = extractCtorParams ctx declKey pc
 
-                    let memberInfos = ResizeArray<ClassMemberInfo>()
-
-                    for el in body.elements do
-                        match el with
-                        | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; defn = d)) ->
-                            let isStatic = s.IsSome
-
-                            match d with
-                            | MethodOrPropDefn.Method(defn = b) ->
-                                match memberNameOf ctx b with
-                                | ValueSome(mName, mTok) ->
-                                    let tv = TypeVar()
-                                    tv.Level <- 0
-                                    let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
-
-                                    memberInfos.Add(
-                                        ClassMemberInfo(mName, ClassMemberKind.Method, isStatic, TyVar tv, mKey)
-                                    )
-                                | ValueNone -> ()
-                            | MethodOrPropDefn.Property(defn = b) ->
-                                match memberNameOf ctx b with
-                                | ValueSome(mName, mTok) ->
-                                    let tv = TypeVar()
-                                    tv.Level <- 0
-                                    let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
-
-                                    memberInfos.Add(
-                                        ClassMemberInfo(mName, ClassMemberKind.Property, isStatic, TyVar tv, mKey)
-                                    )
-                                | ValueNone -> ()
-                            | MethodOrPropDefn.AutoProperty(ident = id) ->
-                                let mName = ctx.NameOf id
-                                let tv = TypeVar()
-                                tv.Level <- 0
-                                let mKey = NodeKey.ofToken id NodeKind.PatIdent
-
-                                memberInfos.Add(
-                                    ClassMemberInfo(mName, ClassMemberKind.Property, isStatic, TyVar tv, mKey)
-                                )
-                            | MethodOrPropDefn.AbstractSignature(MemberSig.MethodOrPropSig(
-                                ident = idOrOp; typarDefns = tds)) ->
-                                // An abstract method signature registers as a
-                                // `Method` member with a placeholder TyVar;
-                                // Unification's `fillClassMembers` links it to the
-                                // resolved signature, and Freeze reads these to
-                                // surface the interface. (A `PropSig` abstract
-                                // member is a property — out of scope for rung 1.)
-                                match identOrOpNameTok ctx idOrOp with
-                                | ValueSome(mName, mTok) ->
-                                    let tv = TypeVar()
-                                    tv.Level <- 0
-                                    let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
-
-                                    let cmi = ClassMemberInfo(mName, ClassMemberKind.Method, isStatic, TyVar tv, mKey)
-
-                                    // The method's own `<'C, …>` typars get prototype
-                                    // TyVars here so Unification scopes the signature
-                                    // against them and Freeze can surface them as the
-                                    // method's `GenericMethodParameter`s.
-                                    cmi.MethodTypeParams <- mkTypeParams (memberTyparNames ctx tds)
-                                    memberInfos.Add cmi
-                                | ValueNone -> ()
-                            | MethodOrPropDefn.PropertyWithGetSet _
-                            | MethodOrPropDefn.AbstractSignature _ ->
-                                ctx.Diagnostics.Add
-                                    {
-                                        Key = declKey
-                                        Message = "This member kind is not yet supported"
-                                        Severity = Error
-                                    }
-                        | TypeDefnElement.Member(MemberDefn.Value _)
-                        | TypeDefnElement.Member(MemberDefn.AdditionalConstructor _) ->
-                            ctx.Diagnostics.Add
-                                {
-                                    Key = declKey
-                                    Message = "This member kind is not yet supported"
-                                    Severity = Error
-                                }
-                        | TypeDefnElement.InterfaceImpl _
-                        | TypeDefnElement.InterfaceSpec _
-                        | TypeDefnElement.Inherit _ ->
-                            ctx.Diagnostics.Add
-                                {
-                                    Key = declKey
-                                    Message = "Inheritance / interfaces are not yet supported"
-                                    Severity = Error
-                                }
+                    let memberInfos =
+                        ResizeArray<ClassMemberInfo>(extractMembers ctx declKey body.elements)
 
                     let thisName =
                         match asD with
@@ -866,6 +898,30 @@ module NameResolution =
         | ModuleElem.Type defs ->
             for td in defs do
                 registerClassTypeDefn ctx td
+        | _ -> ()
+
+    /// Stamp augmentation members onto an already-registered `UnionTypeInfo`
+    /// (P3d.3). Runs after `registerUnionTypes`; mirrors the class member
+    /// registration but reads the union's `extensions.elements` and supplies a
+    /// shared synthetic `this` binder (a v1 union has no primary ctor / `as`
+    /// alias, so `this` is always named `"this"`).
+    let private registerUnionMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
+        match m with
+        | ModuleElem.Type defs ->
+            for td in defs do
+                match td with
+                | TypeDefn.Union(
+                    typeName = TypeName(ident = nameLi); extensions = ValueSome(TypeExtensionElements(elements = elems))) when
+                    nameLi.Idents.Length = 1
+                    ->
+                    let name = ctx.NameOf nameLi.Idents.[0]
+
+                    match ctx.UnionTypes.TryGetValue name with
+                    | true, info ->
+                        info.Members <- extractMembers ctx info.DeclKey elems
+                        info.ThisKey <- NodeKey.ofSynthetic info.DeclKey.Offset NodeKind.SynthThisBinding
+                    | false, _ -> ()
+                | _ -> ()
         | _ -> ()
 
     /// Walk every class member body with a scope that binds `this`
@@ -957,6 +1013,63 @@ module NameResolution =
                 | ValueNone -> ()
         | _ -> ()
 
+    /// Walk every union augmentation member body (P3d.3). Mirrors
+    /// `walkClassBodies` but reads `extensions.elements` and binds only `this`
+    /// (a v1 union has no primary-constructor arguments). Instance members see
+    /// `this` + their argument binders; static members see only their arguments.
+    let private walkUnionBodies
+        (ctx: PassContext)
+        (walker: CstWalk.ExprWalker<Scope list>)
+        (m: ModuleElem<SyntaxToken>)
+        : unit =
+        match m with
+        | ModuleElem.Type defs ->
+            for td in defs do
+                match td with
+                | TypeDefn.Union(
+                    typeName = TypeName(ident = nameLi); extensions = ValueSome(TypeExtensionElements(elements = elems))) when
+                    nameLi.Idents.Length = 1
+                    ->
+                    let name = ctx.NameOf nameLi.Idents.[0]
+
+                    match ctx.UnionTypes.TryGetValue name with
+                    | true, info when not (Array.isEmpty info.Members) ->
+                        let mutable scopeMap: Scope = Map.empty
+                        scopeMap <- Map.add info.ThisName (info.ThisKey, false) scopeMap
+
+                        ctx.Binding.Set(
+                            info.ThisKey,
+                            {
+                                BindingSite = info.ThisKey
+                                IsInline = false
+                                IsMutable = false
+                            }
+                        )
+
+                        let instanceScope = [ scopeMap ]
+                        let staticScope: Scope list = [ Map.empty ]
+
+                        for el in elems do
+                            match el with
+                            | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; defn = d)) ->
+                                let scope = if s.IsSome then staticScope else instanceScope
+
+                                match d with
+                                | MethodOrPropDefn.Method(defn = b)
+                                | MethodOrPropDefn.Property(defn = b) ->
+                                    let mutable inner = scope
+
+                                    if not b.argumentPats.IsEmpty then
+                                        inner <- extendScope ctx b.argumentPats Map.empty :: inner
+
+                                    CstWalk.iterExpr walker inner b.expr
+                                | MethodOrPropDefn.AutoProperty(expr = e) -> CstWalk.iterExpr walker scope e
+                                | _ -> ()
+                            | _ -> ()
+                    | _ -> ()
+                | _ -> ()
+        | _ -> ()
+
     let private walkModuleElem
         (ctx: PassContext)
         (walker: CstWalk.ExprWalker<Scope list>)
@@ -1011,12 +1124,20 @@ module NameResolution =
         for m in elems do
             registerClassTypes ctx m
 
+        // Union augmentation members (P3d.3) register after the union itself.
+        for m in elems do
+            registerUnionMembers ctx m
+
         // Class member bodies are not walked by `walkModuleElem` (it
         // skips `ModuleElem.Type`). Walk them here with each class's
         // own scope (`this` + ctor params) so member-body idents have
         // Binding entries before Unification types them.
         for m in elems do
             walkClassBodies ctx walker m
+
+        // Union augmentation member bodies, same treatment (P3d.3).
+        for m in elems do
+            walkUnionBodies ctx walker m
 
         let mutable scope = [ Map.empty ]
 

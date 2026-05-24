@@ -2,6 +2,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 open System
 open System.Reflection
+open System.Runtime.Loader
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Lexer.Lexing
 open XParsec.FSharp.Parser
@@ -84,16 +85,32 @@ let runOnDisk (dllPath: string) : int * string =
     p.WaitForExit()
     (p.ExitCode, (if p.ExitCode = 0 then out else out + err))
 
+/// Load emitted PE bytes into a *fresh* `AssemblyLoadContext`, returning the
+/// loaded assembly. Each load gets its own context, so an emitted assembly's
+/// type identities are isolated per test: loading the *same* bytes a second time
+/// (e.g. into the default context) produces a *distinct* assembly, and
+/// cross-`Invoke`ing a value built by one into a method reflected from the other
+/// throws "Object of type X cannot be converted to type X". A reflection
+/// round-trip must therefore reflect every member + construct every value
+/// through the single `Assembly` this returns. Framework / already-loaded
+/// dependencies (FSharp.Core, Vesper.Printf) resolve via the default context's
+/// fallback, so a custom context still runs printf-bearing programs.
+let loadAssembly (bytes: byte[]) : Assembly =
+    let alc = AssemblyLoadContext("xparsec-codegen-test", isCollectible = true)
+    use ms = new IO.MemoryStream(bytes)
+    alc.LoadFromStream ms
+
 /// Serialises the `Console.Out` capture below. Expecto runs tests in
 /// parallel, but `Console.Out` is process-global — without this lock,
 /// concurrent `runEntryPoint`s redirect each other's output (and can write to
 /// an already-disposed `StringWriter`).
 let private consoleLock = obj ()
 
-/// Load emitted PE bytes in-process, invoke the entry point with empty args,
-/// and capture both the exit code and anything written to `Console.Out`.
+/// Load emitted PE bytes into an isolated context, invoke the entry point with
+/// empty args, and capture both the exit code and anything written to
+/// `Console.Out`.
 let runEntryPoint (bytes: byte[]) : int * string =
-    let asm = Assembly.Load bytes
+    let asm = loadAssembly bytes
     let entry = asm.EntryPoint
 
     if isNull entry then

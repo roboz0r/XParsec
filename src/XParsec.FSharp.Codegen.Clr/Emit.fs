@@ -2,6 +2,7 @@ namespace XParsec.FSharp.Codegen.Clr
 
 open System.Collections.Generic
 open System.Reflection.Metadata
+open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 
 // The TAST walker: `TExpr` → IL, via the depth-tracked untyped `Cil` helpers
@@ -41,6 +42,85 @@ module Emit =
             ResultTy: SemType
             Body: TExpr
             Captures: (NodeKey * SemType) list
+            /// The binding key of the `let [rec] f = <this lambda>` the closure is
+            /// the value of, when it has one. A recursive self-reference (`f` in
+            /// its own body) resolves to `this` (`ldarg.0`) in the `Invoke` body
+            /// rather than being captured — so `f` calls itself with no
+            /// self-capture chicken-and-egg at construction. `ValueNone` for an
+            /// anonymous lambda. See docs/self-host-rung2-plan.md (P3a.6).
+            SelfKey: NodeKey voption
+        }
+
+    /// One case of an emitted union: its runtime `Tag`, the static factory that
+    /// constructs it (`call`ed by `TExpr.UnionCons`), and the field handles its
+    /// payload lives in (declaration order, read by a `TPat.Union` match).
+    type EmittedCase =
+        {
+            Tag: int
+            Factory: EntityHandle
+            Fields: EntityHandle list
+        }
+
+    /// An augmentation member emitted onto a union's `TypeDefinition` (P3d.3):
+    /// the method handle plus what a call site needs. A property's `Handle` is
+    /// its `get_<name>` method. `Arity` excludes the implicit `this`.
+    type EmittedMember =
+        {
+            Handle: EntityHandle
+            IsStatic: bool
+            Arity: int
+        }
+
+    /// A union type emitted into this assembly (rung 2): the shared `int`
+    /// discriminant field plus each case's emission handles, and (P3d.3) its
+    /// augmentation members by name (driving `MethodCall` / `PropertyGet` /
+    /// `StaticMethodCall` / `StaticPropertyGet`).
+    ///
+    /// `Typars` is the declaring type's generic parameters; **empty ⇒ a
+    /// monomorphic union** (the single sealed class with `Def`-token member
+    /// access). A *generic* union (`Typars` non-empty, P3d.4) is a real generic
+    /// `TypeDefinition`, so a construction / match site reaches its members
+    /// through `ICodegenProvider.GenericUnionMemberRef name args …` (a `MemberRef`
+    /// on the instantiated `TypeSpec`) rather than the `Def`-token `TagField` /
+    /// `EmittedCase.Factory` / `EmittedCase.Fields` (which stay valid only for the
+    /// monomorphic case). `Name` is the union's simple name, the registry key the
+    /// provider mints refs against.
+    type EmittedUnion =
+        {
+            Name: string
+            Typars: string list
+            TagField: EntityHandle
+            Cases: Dictionary<string, EmittedCase>
+            Members: Dictionary<string, EmittedMember>
+        }
+
+    /// A top-level function binding lowered to a **static method** (rung 2 P3b):
+    /// `let [rec] f p0 p1 … = body` becomes `static <ResultTy> f(p0, p1, …)`.
+    /// The curried lambda's parameters are flattened to method parameters
+    /// (`ldarg.i`); the body is compiled in place. Eligible only when the
+    /// function never escapes as a value (every use is a saturated call) and
+    /// captures no module-level local — see `collectStaticFns`. A recursive
+    /// self-call lowers to a direct `call` of the method's own handle, so no
+    /// closure / `this.Invoke` self-reference is needed.
+    type StaticFn =
+        {
+            Key: NodeKey
+            Name: string
+            Params: (NodeKey * SemType) list
+            Body: TExpr
+            ResultTy: SemType
+        }
+
+    /// The emission handle + shape of a static-method function, resolved before
+    /// any body is built (the `MethodDefinition` handle is *predicted* from the
+    /// row order — see `Codegen.assembleProgram`). A saturated call site `f a b`
+    /// `call`s `Handle` with the first `Arity` args, then `Invoke`s the result
+    /// with any remainder (`ResultTy` threads that fold).
+    type StaticMethodRef =
+        {
+            Handle: EntityHandle
+            Arity: int
+            ResultTy: SemType
         }
 
     /// The inferred type carried inline on any `TExpr` node.
@@ -75,6 +155,16 @@ module Emit =
         | TExpr.StaticMethodCall(_, _, _, ty) -> ty
         | TExpr.StaticPropertyGet(_, _, ty) -> ty
         | TExpr.Format(_, _, ty) -> ty
+
+    /// The type carried inline on any `TPat` node (every case stores its type).
+    let private typeOfPat (p: TPat) : SemType =
+        match p with
+        | TPat.NamedSimple(_, ty)
+        | TPat.Wildcard ty
+        | TPat.Tuple(_, ty)
+        | TPat.Const(_, ty)
+        | TPat.Record(_, ty)
+        | TPat.Union(_, _, ty) -> ty
 
     /// Rebuild every immediate sub-expression of `e` through `f`. The single
     /// structural recursion the lowering map, the closure collector, and the
@@ -171,6 +261,18 @@ module Emit =
     /// pairs (the inverse of `collectSpine`).
     let private rebuildApp (head: TExpr) (args: (TExpr * SemType) list) : TExpr =
         List.fold (fun acc (arg, resTy) -> TExpr.App(acc, arg, resTy)) head args
+
+    /// Peel a curried `Lambda` chain of simple (`NamedSimple`) parameters into
+    /// the parameter list and the innermost body. A non-`NamedSimple` parameter
+    /// (or a non-lambda) stops the peel, so the "arity" is the count of leading
+    /// simple-param lambdas. Drives static-method parameter flattening and the
+    /// matching escape analysis.
+    let rec private peelLambda (e: TExpr) : (NodeKey * SemType) list * TExpr =
+        match e with
+        | TExpr.Lambda(TPat.NamedSimple(k, pty), body, _) ->
+            let ps, b = peelLambda body
+            (k, pty) :: ps, b
+        | _ -> [], e
 
     /// Beta-reduce a curried lambda (an inline expansion's output) against its
     /// spine arguments, lowering each application to a `TExpr.Let`. The lambda
@@ -296,10 +398,23 @@ module Emit =
 
     /// The free variables of a closure body (referenced `Var` keys minus the
     /// parameter and any binder introduced within the body), in first-
-    /// occurrence order. Drives capture field order.
-    let private freeVars (paramKey: NodeKey) (body: TExpr) : (NodeKey * SemType) list =
+    /// occurrence order. Drives capture field order. `staticFnKeys` are
+    /// top-level functions lowered to static methods (P3b): a reference to one
+    /// is a direct `call`, not a captured value, so it is excluded here.
+    let private freeVars
+        (staticFnKeys: HashSet<NodeKey>)
+        (paramKey: NodeKey)
+        (selfKey: NodeKey voption)
+        (body: TExpr)
+        : (NodeKey * SemType) list =
         let bound = HashSet<NodeKey>()
         bound.Add paramKey |> ignore
+        bound.UnionWith staticFnKeys // static-method references are calls, not captures
+
+        match selfKey with
+        | ValueSome k -> bound.Add k |> ignore // the recursive self isn't captured — it's `this`
+        | ValueNone -> ()
+
         let acc = ResizeArray<NodeKey * SemType>()
         let seen = HashSet<NodeKey>()
 
@@ -351,17 +466,199 @@ module Emit =
         go body
         List.ofSeq acc
 
+    // ---- Static-method classification (P3b) ----
+
+    /// The free `Var` keys of `body`, excluding `boundKeys` (the function's own
+    /// parameters) and any binder introduced within the body. Unlike `freeVars`
+    /// this keeps only the keys (no types, no static-method exclusion) — it
+    /// drives the capture test in `collectStaticFns`, which must *see* every
+    /// referenced binding to decide eligibility.
+    let private freeVarKeys (boundKeys: NodeKey seq) (body: TExpr) : HashSet<NodeKey> =
+        let bound = HashSet<NodeKey>(boundKeys)
+        let acc = HashSet<NodeKey>()
+
+        let scoped (keys: NodeKey list) (k: unit -> unit) =
+            let added = keys |> List.filter bound.Add
+            k ()
+
+            for key in added do
+                bound.Remove key |> ignore
+
+        let rec go (e: TExpr) =
+            match e with
+            | TExpr.Var(key, _) ->
+                if not (bound.Contains key) then
+                    acc.Add key |> ignore
+            | TExpr.Lambda(p, b, _) -> scoped (patKeys p) (fun () -> go b)
+            | TExpr.Let(p, v, b, _) ->
+                go v
+                scoped (patKeys p) (fun () -> go b)
+            | TExpr.ForTo(var, s, e2, b, _) ->
+                go s
+                go e2
+                scoped [ var ] (fun () -> go b)
+            | TExpr.ForIn(p, src, b, _) ->
+                go src
+                scoped (patKeys p) (fun () -> go b)
+            | TExpr.Match(sc, arms, _) ->
+                go sc
+
+                for arm in arms do
+                    scoped
+                        (patKeys arm.Pat)
+                        (fun () ->
+                            arm.Guard |> Option.iter go
+                            go arm.Body
+                        )
+            | TExpr.TryWith(b, arms, _) ->
+                go b
+
+                for arm in arms do
+                    scoped
+                        (patKeys arm.Pat)
+                        (fun () ->
+                            arm.Guard |> Option.iter go
+                            go arm.Body
+                        )
+            | _ -> iterChildren go e
+
+        go body
+        acc
+
+    /// Classify which top-level function bindings can be emitted as **static
+    /// methods** rather than closures (P3b). A candidate is `let [rec] f p0 … =
+    /// body` whose value (after `lower`) peels to at least one simple parameter.
+    /// It is eligible only when:
+    ///   1. it never *escapes* — every use in the whole program is a saturated
+    ///      call (≥ arity arguments), so it is never needed as a function value;
+    ///      a bare or under-applied reference forces the closure representation.
+    ///   2. it captures no module-level local — its body's free variables (minus
+    ///      its parameters and self) are all themselves eligible static functions
+    ///      (resolved as direct `call`s). A reference to a value local would need
+    ///      a capture field, which a static method has no `this` to hold.
+    /// Rule 2 is a fixpoint (eligibility depends on the eligibility of the
+    /// functions a body calls), resolved by removing offenders until stable.
+    /// Returns the eligible functions in source order plus their key set.
+    let collectStaticFns (decls: TDecl list) : StaticFn list * HashSet<NodeKey> =
+        // Candidate (key → arity, params, body) for every top-level curried-lambda
+        // binding with at least one simple parameter.
+        let candidates = Dictionary<NodeKey, (NodeKey * SemType) list * TExpr>()
+        let order = ResizeArray<NodeKey>()
+
+        for d in decls do
+            match d with
+            | TDecl.Let(TPat.NamedSimple(k, _), value, _, _) ->
+                match peelLambda value with
+                | (_ :: _ as ps), body ->
+                    candidates.[k] <- (ps, body)
+                    order.Add k
+                | [], _ -> ()
+            | _ -> ()
+
+        let arity k =
+            let ps, _ = candidates.[k]
+            List.length ps
+
+        // Escape analysis: a candidate used as a value or under-applied escapes.
+        let escapes = HashSet<NodeKey>()
+
+        let rec walkUses (e: TExpr) =
+            match e with
+            | TExpr.Var(k, _) when candidates.ContainsKey k -> escapes.Add k |> ignore
+            | TExpr.App _ ->
+                let head, args = collectSpine [] e
+
+                match head with
+                | TExpr.Var(k, _) when candidates.ContainsKey k ->
+                    if List.length args < arity k then
+                        escapes.Add k |> ignore
+
+                    for (a, _) in args do
+                        walkUses a
+                | _ ->
+                    walkUses head
+
+                    for (a, _) in args do
+                        walkUses a
+            | _ -> iterChildren walkUses e
+
+        for d in decls do
+            match d with
+            | TDecl.Let(_, value, _, _) -> walkUses value
+            | TDecl.Expression(e, _) -> walkUses e
+            | TDecl.Type _ -> ()
+
+        // Each candidate's free vars (excluding its own params) — the capture set
+        // that rule 2 tests against the eligible set.
+        let bodyFree =
+            Dictionary<NodeKey, HashSet<NodeKey>>(
+                seq {
+                    for k in order do
+                        let ps, body = candidates.[k]
+                        KeyValuePair(k, freeVarKeys (ps |> List.map fst) body)
+                }
+            )
+
+        // Fixpoint: start from the non-escaping candidates and drop any whose
+        // free vars reach outside the eligible set (a module local or a
+        // non-eligible function). A candidate's own self-reference is allowed.
+        let eligible = HashSet<NodeKey>(order |> Seq.filter (escapes.Contains >> not))
+        let mutable changed = true
+
+        while changed do
+            changed <- false
+
+            for k in List.ofSeq eligible do
+                let free = bodyFree.[k]
+
+                let captures = free |> Seq.exists (fun v -> v <> k && not (eligible.Contains v))
+
+                if captures && eligible.Remove k then
+                    changed <- true
+
+        let staticFns =
+            [
+                for k in order do
+                    if eligible.Contains k then
+                        let ps, body = candidates.[k]
+
+                        yield
+                            {
+                                Key = k
+                                Name = sprintf "fn$%d" k.Offset
+                                Params = ps
+                                Body = body
+                                ResultTy = typeOfExpr body
+                            }
+            ]
+
+        staticFns, eligible
+
     /// Enumerate every `Lambda` in the lowered tree leaves-first (a closure
     /// before any closure that constructs it), with its capture set. The
     /// returned dictionary maps each lambda node (by reference) to its
     /// `Closure`, so the walker resolves a `Lambda`-as-value to its metadata.
-    let discoverClosures (decls: TDecl list) : Closure list * Dictionary<TExpr, Closure> =
+    /// `staticFnKeys` are the top-level functions emitted as static methods
+    /// (P3b): their outer lambda is *not* a closure (only the bodies are walked
+    /// for inner closures), and a reference to one is a direct call.
+    let discoverClosures
+        (staticFnKeys: HashSet<NodeKey>)
+        (decls: TDecl list)
+        : Closure list * Dictionary<TExpr, Closure> =
         let order = ResizeArray<TExpr>()
         let lookup = Dictionary<TExpr, Closure>(HashIdentity.Reference)
         let mutable counter = 0
 
-        let rec go (e: TExpr) =
-            iterChildren go e // children (and so inner lambdas) first → leaves-first
+        // `selfKey` is the binding key when this node is the immediate value of a
+        // `let f = …`; it applies only if the node is a lambda (a recursive
+        // self-reference resolves to `this`). Children are walked with no self-key
+        // except a `let`-bound lambda inside a body (`let rec` nested in a body).
+        let rec go (selfKey: NodeKey voption) (e: TExpr) =
+            (match e with
+             | TExpr.Let(TPat.NamedSimple(k, _), (TExpr.Lambda _ as v), body, _) ->
+                 go (ValueSome k) v
+                 go ValueNone body
+             | _ -> iterChildren (go ValueNone) e) // children (and inner lambdas) first → leaves-first
 
             match e with
             | TExpr.Lambda(TPat.NamedSimple(p, pty), body, lamTy) ->
@@ -378,7 +675,8 @@ module Emit =
                         ParamTy = pty
                         ResultTy = resultTy
                         Body = body
-                        Captures = freeVars p body
+                        Captures = freeVars staticFnKeys p selfKey body
+                        SelfKey = selfKey
                     }
 
                 counter <- counter + 1
@@ -389,8 +687,14 @@ module Emit =
 
         for d in decls do
             match d with
-            | TDecl.Let(_, value, _, _) -> go value
-            | TDecl.Expression(e, _) -> go e
+            // A static-method function: its curried lambda is not a closure, but
+            // its body may still construct inner closures — walk only the body.
+            | TDecl.Let(TPat.NamedSimple(k, _), value, _, _) when staticFnKeys.Contains k ->
+                let _, body = peelLambda value
+                go ValueNone body
+            | TDecl.Let(TPat.NamedSimple(k, _), value, _, _) -> go (ValueSome k) value
+            | TDecl.Let(_, value, _, _) -> go ValueNone value
+            | TDecl.Expression(e, _) -> go ValueNone e
             | TDecl.Type _ -> ()
 
         [ for n in order -> lookup.[n] ], lookup
@@ -398,12 +702,14 @@ module Emit =
     // ---- The walker ----
 
     /// Per-method codegen context. `Slots` maps locals of the *current* method
-    /// to slot indices; `ParamKey` / `CaptureFields` give a closure `Invoke`
-    /// body its argument and capture resolution (both empty / `ValueNone` in
-    /// `Main`). The closure dictionaries are shared across every method build:
-    /// `ClosureByNode` resolves a `Lambda` value to its `Closure`, and
-    /// `CtorHandleByNode` (filled leaves-first as `Codegen` emits each closure)
-    /// to its ctor handle.
+    /// to slot indices; `Args` maps a method parameter to its `ldarg` index (a
+    /// closure `Invoke` has one entry at index 1 — `this` is index 0; a static
+    /// method has its flattened parameters at indices 0…N-1; `Main` has none).
+    /// `CaptureFields` give a closure `Invoke` its capture resolution (empty in
+    /// `Main` / a static method). The shared dictionaries: `ClosureByNode`
+    /// resolves a `Lambda` value to its `Closure`, `CtorHandleByNode` (filled
+    /// leaves-first) to its ctor handle, and `StaticMethods` resolves a
+    /// top-level function reference to a direct `call` (P3b).
     type private EmitEnv =
         {
             Provider: ICodegenProvider
@@ -411,8 +717,19 @@ module Emit =
             Slots: Dictionary<NodeKey, int>
             ClosureByNode: Dictionary<TExpr, Closure>
             CtorHandleByNode: Dictionary<TExpr, EntityHandle>
-            ParamKey: NodeKey voption
+            /// Method parameters of the *current* method → `ldarg` index.
+            Args: Dictionary<NodeKey, int>
+            /// The recursive self-binding of the current closure `Invoke` body, if
+            /// any — resolved to `this` (`ldarg.0`). `ValueNone` in `Main` and in
+            /// a static method (whose self-call is a direct `call`, not `this`).
+            SelfKey: NodeKey voption
             CaptureFields: Dictionary<NodeKey, EntityHandle>
+            /// Unions emitted into this assembly, by type name — drives
+            /// `TExpr.UnionCons` (construct) and `TPat.Union` (deconstruct).
+            Unions: Dictionary<string, EmittedUnion>
+            /// Top-level functions emitted as static methods (P3b), by binding
+            /// key — drives the direct-`call` arm of `TExpr.App`.
+            StaticMethods: Dictionary<NodeKey, StaticMethodRef>
         }
 
     /// Run a recipe whose operands are already on the stack, settling depth.
@@ -420,20 +737,134 @@ module Emit =
         recipe.Emit il
         il.Adjust(recipe.Pushes - recipe.ArgCount)
 
-    /// Load a variable for the current method: the closure parameter
-    /// (`ldarg.1`), a capture (`ldarg.0; ldfld`), or a local slot (`ldloc`).
+    /// Load a variable for the current method: a method parameter (`ldarg.i`),
+    /// the recursive self of a closure (`this`, `ldarg.0`), a capture
+    /// (`ldarg.0; ldfld`), or a local slot (`ldloc`).
     let private emitVarLoad (env: EmitEnv) (il: Il) (key: NodeKey) : unit =
-        match env.ParamKey with
-        | ValueSome p when p = key -> Cil.emitLdarg il 1
-        | _ ->
-            match env.CaptureFields.TryGetValue key with
-            | true, field ->
-                Cil.emitLdarg il 0
-                Cil.emitLdfld il field
-            | false, _ ->
-                match env.Slots.TryGetValue key with
-                | true, slot -> Cil.emitLdloc il slot
-                | false, _ -> failwithf "Emit: no binding for variable %O" key
+        match env.Args.TryGetValue key with
+        | true, i -> Cil.emitLdarg il i
+        | false, _ ->
+
+            match env.SelfKey with
+            | ValueSome s when s = key -> Cil.emitLdarg il 0 // `this` — the recursive self
+            | _ ->
+                match env.CaptureFields.TryGetValue key with
+                | true, field ->
+                    Cil.emitLdarg il 0
+                    Cil.emitLdfld il field
+                | false, _ ->
+                    match env.Slots.TryGetValue key with
+                    | true, slot -> Cil.emitLdloc il slot
+                    | false, _ -> failwithf "Emit: no binding for variable %O" key
+
+    /// Test a pattern against the value already stored in local `scrutSlot`:
+    /// branch to `nextLabel` on mismatch, and bind any pattern variables. A
+    /// `Const` compares (`bne.un` skips the arm); `Wildcard` / `NamedSimple`
+    /// always match (the latter aliases its binding to `scrutSlot`, so
+    /// `emitVarLoad` resolves it to the same local — no copy). Union / tuple /
+    /// record patterns land in later rung-2 slices.
+    let rec private emitMatchTest (env: EmitEnv) (il: Il) (scrutSlot: int) (nextLabel: LabelHandle) (pat: TPat) : unit =
+        match pat with
+        | TPat.Wildcard _ -> ()
+        | TPat.NamedSimple(binding, _) -> env.Slots.[binding] <- scrutSlot
+        | TPat.Const(value, _) ->
+            Cil.emitLdloc il scrutSlot
+
+            match value with
+            | TConstValue.Int n -> Cil.emitLdcI4 il n
+            | TConstValue.Bool b -> Cil.emitLdcI4 il (if b then 1 else 0)
+            | TConstValue.Byte n -> Cil.emitLdcI4 il (int n)
+            | TConstValue.Char c -> Cil.emitLdcI4 il (int c)
+            | other -> failwithf "Emit: match on constant %A is out of scope" other
+
+            Cil.emitBneUn il nextLabel
+        | TPat.Union(caseName, subPats, ty) ->
+            let typeName, tyArgs =
+                match ty with
+                | TyUnion(n, xs)
+                | TyRecord(n, xs) -> n, xs
+                | other -> failwithf "Emit: union pattern with non-union type %A" other
+
+            match env.Unions.TryGetValue typeName with
+            | true, u ->
+                let c = u.Cases.[caseName]
+
+                // Tag / field access is a `Def` token for a monomorphic union, but
+                // a `MemberRef` on the instantiated `TypeSpec` for a generic one
+                // (`List<int>::_tag` etc.) — see `EmittedUnion.Typars` (P3d.4).
+                let tagRef =
+                    if List.isEmpty u.Typars then
+                        u.TagField
+                    else
+                        env.Provider.GenericUnionMemberRef(typeName, tyArgs, UnionMember.Tag)
+
+                // Skip the arm unless `scrut._tag = case.Tag`.
+                Cil.emitLdloc il scrutSlot
+                Cil.emitLdfld il tagRef
+                Cil.emitLdcI4 il c.Tag
+                Cil.emitBneUn il nextLabel
+
+                // Extract each non-wildcard field into a fresh local, then test
+                // its sub-pattern (a named sub-pattern just aliases that local).
+                subPats
+                |> List.iteri (fun i subPat ->
+                    match subPat with
+                    | TPat.Wildcard _ -> ()
+                    | _ ->
+                        let fieldRef =
+                            if List.isEmpty u.Typars then
+                                c.Fields.[i]
+                            else
+                                env.Provider.GenericUnionMemberRef(typeName, tyArgs, UnionMember.Field(caseName, i))
+
+                        let fldSlot = il.DeclareLocal(typeOfPat subPat)
+                        Cil.emitLdloc il scrutSlot
+                        Cil.emitLdfld il fieldRef
+                        Cil.emitStloc il fldSlot
+                        emitMatchTest env il fldSlot nextLabel subPat
+                )
+            | false, _ -> failwithf "Emit: no emitted union for match on '%s'" typeName
+        | other -> failwithf "Emit: match pattern is out of scope: %A" other
+
+    /// The fallthrough a `match` reaches when no arm matched — `throw new
+    /// System.Exception("…")`. An exhaustive match never reaches it at runtime,
+    /// but it keeps the emitted IL well-formed (and gives a non-exhaustive one
+    /// defined behaviour).
+    let private emitMatchFailure (env: EmitEnv) (il: Il) : unit =
+        Cil.emitLdstr il (env.Ctx.UserString "The match cases were incomplete")
+        Cil.emitNewobj il env.Provider.ExceptionCtor 1
+        Cil.emitThrow il
+
+    /// Resolve an augmentation member for an instance access on `receiverTy`
+    /// (P3d.3). Only emitted unions carry members today (records / concrete
+    /// classes are P3e), so a non-union receiver is a gap.
+    let private lookupInstanceMember (env: EmitEnv) (receiverTy: SemType) (name: string) : EmittedMember =
+        let typeName =
+            match receiverTy with
+            | TyUnion(n, _)
+            | TyRecord(n, _) -> n
+            | other -> failwithf "Emit: member '%s' access on non-union receiver %A" name other
+
+        match env.Unions.TryGetValue typeName with
+        | true, u ->
+            match u.Members.TryGetValue name with
+            | true, m -> m
+            | false, _ -> failwithf "Emit: union '%s' has no emitted member '%s'" typeName name
+        | false, _ -> failwithf "Emit: no emitted union for member access on '%s'" typeName
+
+    let private lookupStaticMember (env: EmitEnv) (typeName: string) (name: string) : EmittedMember =
+        match env.Unions.TryGetValue typeName with
+        | true, u ->
+            match u.Members.TryGetValue name with
+            | true, m -> m
+            | false, _ -> failwithf "Emit: union '%s' has no emitted static member '%s'" typeName name
+        | false, _ -> failwithf "Emit: no emitted union for static member access on '%s'" typeName
+
+    /// `failwith "msg"` resolves through the symbol provider to this name; the
+    /// backend lowers it to a BCL-only `throw new System.Exception(msg)` (P3d.3),
+    /// rather than the FSharp.Core `Operators.FailWith` recipe.
+    let private isFailwith (name: string) : bool =
+        name = "failwith" || name.EndsWith ".failwith" || name.EndsWith "FailWith"
 
     let rec private emitExpr (env: EmitEnv) (il: Il) (e: TExpr) : unit =
         match e with
@@ -464,6 +895,73 @@ module Emit =
             Cil.emitStloc il slot
             emitExpr env il body
         | TExpr.Let(pat, _, _, _) -> failwithf "Emit: destructuring let-binding is out of scope: %A" pat
+
+        | TExpr.Sequential(items, _) ->
+            // Every item but the last is a unit-typed statement: emit it and
+            // discard whatever value it leaves (popping back to the pre-item
+            // depth); the last item leaves the sequence's result.
+            let n = List.length items
+
+            items
+            |> List.iteri (fun i it ->
+                if i = n - 1 then
+                    emitExpr env il it
+                else
+                    let baseDepth = il.Depth
+                    emitExpr env il it
+
+                    while il.Depth > baseDepth do
+                        Cil.emitPop il
+            )
+
+        | TExpr.IfThenElse(cond, thenExpr, elseExpr, _) ->
+            // `<cond>; brfalse else; <then>; br end; else: <else>; end:`. Both
+            // arms leave one value, so the linear depth tracker (which follows
+            // only the then-arm) is reset to the post-`brfalse` base before the
+            // else-arm — see `Il.SetDepth`.
+            let elseLabel = Cil.defineLabel il
+            let endLabel = Cil.defineLabel il
+            emitExpr env il cond
+            Cil.emitBrFalse il elseLabel
+            let baseDepth = il.Depth
+            emitExpr env il thenExpr
+            Cil.emitBr il endLabel
+            il.SetDepth baseDepth
+            Cil.markLabel il elseLabel
+            emitExpr env il elseExpr
+            Cil.markLabel il endLabel
+
+        | TExpr.Match(scrutinee, arms, _) ->
+            // Evaluate the scrutinee once into a local, then test each arm in
+            // order: on a mismatch branch to the next arm; on a match (and a
+            // passing guard) emit the body and branch to the shared end. The
+            // depth tracker is reset to the post-scrutinee base before each arm
+            // and before the end label (every body leaves one result) — see
+            // `Il.SetDepth`.
+            let scrutSlot = il.DeclareLocal(typeOfExpr scrutinee)
+            emitExpr env il scrutinee
+            Cil.emitStloc il scrutSlot
+            let baseDepth = il.Depth
+            let endLabel = Cil.defineLabel il
+
+            for arm in arms do
+                let nextLabel = Cil.defineLabel il
+                emitMatchTest env il scrutSlot nextLabel arm.Pat
+
+                match arm.Guard with
+                | Some g ->
+                    emitExpr env il g
+                    Cil.emitBrFalse il nextLabel
+                | None -> ()
+
+                emitExpr env il arm.Body
+                Cil.emitBr il endLabel
+                il.SetDepth baseDepth
+                Cil.markLabel il nextLabel
+
+            emitMatchFailure env il
+            il.SetDepth(baseDepth + 1)
+            Cil.markLabel il endLabel
 
         | TExpr.Lambda _ ->
             // A function value: construct its closure. Captures are pushed via
@@ -496,6 +994,17 @@ module Emit =
             let head, spineArgs = collectSpine [] e
 
             match head with
+            | TExpr.External(name, _) when isFailwith name ->
+                // `failwith "msg"` → `ldstr msg; newobj System.Exception(string);
+                // throw`. BCL-only (the provider's `ExceptionCtor`), and terminal
+                // — `throw` ends the path, so it tolerates a value position the
+                // way a non-exhaustive `match` fallthrough does (P3d.3).
+                match spineArgs with
+                | (arg, _) :: _ ->
+                    emitExpr env il arg
+                    Cil.emitNewobj il env.Provider.ExceptionCtor 1
+                    Cil.emitThrow il
+                | [] -> failwith "Emit: failwith with no argument"
             | TExpr.External(name, _) ->
                 // The recipe reads its generic instantiation from the head's
                 // full curried type (`fnTy`).
@@ -518,6 +1027,20 @@ module Emit =
                     foldInvoke env il funcTy rest
                 | ValueNone -> failwithf "Emit: no call recipe for external '%s'" name
 
+            | TExpr.Var(k, _) when env.StaticMethods.ContainsKey k ->
+                // A top-level function emitted as a static method (P3b): `call`
+                // it with the first `Arity` args (always present — a non-saturated
+                // use would have escaped to a closure, see `collectStaticFns`),
+                // then `Invoke` the result with any remainder.
+                let sm = env.StaticMethods.[k]
+                let leading, rest = List.splitAt sm.Arity spineArgs
+
+                for (a, _) in leading do
+                    emitExpr env il a
+
+                Cil.emitCall il sm.Handle sm.Arity 1
+                foldInvoke env il sm.ResultTy rest
+
             | _ ->
                 // The head is itself a function value (a closure local or a
                 // partially applied result): emit it, then `Invoke` each arg.
@@ -534,9 +1057,54 @@ module Emit =
             for a in args do
                 emitExpr env il a
 
-            match env.Provider.TryEmitUnionCons(typeName, caseName, tyArgs) with
-            | ValueSome recipe -> applyRecipe il recipe
-            | ValueNone -> failwithf "Emit: no union-cons recipe for %s.%s" typeName caseName
+            match env.Unions.TryGetValue typeName with
+            | true, u ->
+                // Our own emitted union: `call` the case's static factory (the
+                // fields are already on the stack in declaration order). A
+                // monomorphic factory is a `Def` token; a generic one is a
+                // `MemberRef` on the instantiated `TypeSpec` (`List<int>::Cons`).
+                let factoryRef =
+                    if List.isEmpty u.Typars then
+                        u.Cases.[caseName].Factory
+                    else
+                        env.Provider.GenericUnionMemberRef(typeName, tyArgs, UnionMember.Factory caseName)
+
+                Cil.emitCall il factoryRef (List.length args) 1
+            | false, _ ->
+                // The provider's special-case (FSharp.Core list) for `[]` / `::`.
+                match env.Provider.TryEmitUnionCons(typeName, caseName, tyArgs) with
+                | ValueSome recipe -> applyRecipe il recipe
+                | ValueNone -> failwithf "Emit: no union-cons recipe for %s.%s" typeName caseName
+
+        | TExpr.PropertyGet(receiver, name, _) ->
+            // Instance property read (P3d.3): load the receiver, `call` the
+            // union's `get_<name>` (the receiver is its sole argument).
+            let m = lookupInstanceMember env (typeOfExpr receiver) name
+            emitExpr env il receiver
+            Cil.emitCall il m.Handle 1 1
+
+        | TExpr.MethodCall(receiver, name, args, _) ->
+            // Instance method call (P3d.3): receiver then args, `call` the
+            // member (non-virtual — the union is sealed).
+            let m = lookupInstanceMember env (typeOfExpr receiver) name
+            emitExpr env il receiver
+
+            for a in args do
+                emitExpr env il a
+
+            Cil.emitCall il m.Handle (1 + List.length args) 1
+
+        | TExpr.StaticPropertyGet(className, name, _) ->
+            let m = lookupStaticMember env className name
+            Cil.emitCall il m.Handle 0 1
+
+        | TExpr.StaticMethodCall(className, name, args, _) ->
+            let m = lookupStaticMember env className name
+
+            for a in args do
+                emitExpr env il a
+
+            Cil.emitCall il m.Handle (List.length args) 1
 
         | TExpr.Format(sink, segments, _) -> emitFormat env il sink segments
 
@@ -692,13 +1260,16 @@ module Emit =
             Cil.emitPop il
 
     /// Build the `Main` body from the *lowered* decls. Each top-level `let`
-    /// binds a `Main` local; each effectful expression is emitted in source
+    /// binds a `Main` local — except a function lowered to a static method (P3b),
+    /// which has no value here; each effectful expression is emitted in source
     /// order; then `ldc.i4.0; ret`. (Inline bindings were removed by `lower`.)
     let emitMain
         (provider: ICodegenProvider)
         (ctx: MetadataContext)
         (closureByNode: Dictionary<TExpr, Closure>)
         (ctorHandleByNode: Dictionary<TExpr, EntityHandle>)
+        (unions: Dictionary<string, EmittedUnion>)
+        (staticMethods: Dictionary<NodeKey, StaticMethodRef>)
         (decls: TDecl list)
         (il: Il)
         : unit =
@@ -709,13 +1280,18 @@ module Emit =
                 Slots = Dictionary<NodeKey, int>()
                 ClosureByNode = closureByNode
                 CtorHandleByNode = ctorHandleByNode
-                ParamKey = ValueNone
+                Args = Dictionary<NodeKey, int>()
+                SelfKey = ValueNone
                 CaptureFields = Dictionary<NodeKey, EntityHandle>()
+                Unions = unions
+                StaticMethods = staticMethods
             }
 
         for d in decls do
             match d with
             | TDecl.Expression(e, _) -> emitStatement env il e
+            // A function emitted as a static method has no Main local.
+            | TDecl.Let(TPat.NamedSimple(binding, _), _, _, _) when staticMethods.ContainsKey binding -> ()
             | TDecl.Let(TPat.NamedSimple(binding, _), value, _, ty) ->
                 let slot = il.DeclareLocal ty
                 env.Slots.[binding] <- slot
@@ -735,10 +1311,15 @@ module Emit =
         (ctx: MetadataContext)
         (closureByNode: Dictionary<TExpr, Closure>)
         (ctorHandleByNode: Dictionary<TExpr, EntityHandle>)
+        (unions: Dictionary<string, EmittedUnion>)
+        (staticMethods: Dictionary<NodeKey, StaticMethodRef>)
         (closure: Closure)
         (captureFields: Dictionary<NodeKey, EntityHandle>)
         (il: Il)
         : unit =
+        let args = Dictionary<NodeKey, int>()
+        args.[closure.ParamKey] <- 1 // `this` is 0; the single applied parameter is 1
+
         let env =
             {
                 Provider = provider
@@ -746,11 +1327,95 @@ module Emit =
                 Slots = Dictionary<NodeKey, int>()
                 ClosureByNode = closureByNode
                 CtorHandleByNode = ctorHandleByNode
-                ParamKey = ValueSome closure.ParamKey
+                Args = args
+                SelfKey = closure.SelfKey
                 CaptureFields = captureFields
+                Unions = unions
+                StaticMethods = staticMethods
             }
 
         emitExpr env il closure.Body
+        Cil.emitRet il
+
+    /// Build a static-method function's body (P3b): bind each flattened
+    /// parameter to its `ldarg` index (a static method has no `this`, so the
+    /// first parameter is `ldarg.0`), evaluate the body leaving its result on the
+    /// stack, then `ret`. A recursive self-call resolves to a direct `call`
+    /// through `staticMethods` (the `App` arm), so no self-binding is needed.
+    let emitStaticMethod
+        (provider: ICodegenProvider)
+        (ctx: MetadataContext)
+        (closureByNode: Dictionary<TExpr, Closure>)
+        (ctorHandleByNode: Dictionary<TExpr, EntityHandle>)
+        (unions: Dictionary<string, EmittedUnion>)
+        (staticMethods: Dictionary<NodeKey, StaticMethodRef>)
+        (fn: StaticFn)
+        (il: Il)
+        : unit =
+        let args = Dictionary<NodeKey, int>()
+        fn.Params |> List.iteri (fun i (k, _) -> args.[k] <- i)
+
+        let env =
+            {
+                Provider = provider
+                Ctx = ctx
+                Slots = Dictionary<NodeKey, int>()
+                ClosureByNode = closureByNode
+                CtorHandleByNode = ctorHandleByNode
+                Args = args
+                SelfKey = ValueNone
+                CaptureFields = Dictionary<NodeKey, EntityHandle>()
+                Unions = unions
+                StaticMethods = staticMethods
+            }
+
+        emitExpr env il fn.Body
+        Cil.emitRet il
+
+    /// Build a union augmentation member's body (P3d.3). An instance member's
+    /// `this` is `ldarg.0` (`thisKey`), its parameters `ldarg.1…`; a static
+    /// member's parameters start at `ldarg.0`. The body leaves its result on the
+    /// stack, then `ret`. Member bodies don't synthesise closures (the closure
+    /// discovery pass walks only value/expression decls), so an empty
+    /// closure/ctor map is passed.
+    let emitMember
+        (provider: ICodegenProvider)
+        (ctx: MetadataContext)
+        (closureByNode: Dictionary<TExpr, Closure>)
+        (ctorHandleByNode: Dictionary<TExpr, EntityHandle>)
+        (unions: Dictionary<string, EmittedUnion>)
+        (staticMethods: Dictionary<NodeKey, StaticMethodRef>)
+        (thisKey: NodeKey voption)
+        (prms: (NodeKey * SemType) list)
+        (body: TExpr)
+        (il: Il)
+        : unit =
+        let args = Dictionary<NodeKey, int>()
+
+        let baseIdx =
+            match thisKey with
+            | ValueSome k ->
+                args.[k] <- 0 // `this`
+                1
+            | ValueNone -> 0
+
+        prms |> List.iteri (fun i (k, _) -> args.[k] <- baseIdx + i)
+
+        let env =
+            {
+                Provider = provider
+                Ctx = ctx
+                Slots = Dictionary<NodeKey, int>()
+                ClosureByNode = closureByNode
+                CtorHandleByNode = ctorHandleByNode
+                Args = args
+                SelfKey = ValueNone
+                CaptureFields = Dictionary<NodeKey, EntityHandle>()
+                Unions = unions
+                StaticMethods = staticMethods
+            }
+
+        emitExpr env il body
         Cil.emitRet il
 
     /// Build a closure's `.ctor` body: chain to the `FSharpFunc\`2` base ctor,
@@ -763,6 +1428,31 @@ module Emit =
         |> List.iteri (fun i field ->
             Cil.emitLdarg il 0
             Cil.emitLdarg il (i + 1)
+            Cil.emitStfld il field
+        )
+
+        Cil.emitRet il
+
+    /// Build a union case's static factory body: allocate via the union's
+    /// parameterless ctor, stamp the discriminant `tag`, store each factory
+    /// parameter into its field, and return the object. `fieldHandles` are in
+    /// declaration order = the factory's parameter order (static `ldarg.i`).
+    let emitUnionFactory
+        (unionCtor: EntityHandle)
+        (tag: int)
+        (tagField: EntityHandle)
+        (fieldHandles: EntityHandle list)
+        (il: Il)
+        : unit =
+        Cil.emitNewobj il unionCtor 0
+        Cil.emitDup il
+        Cil.emitLdcI4 il tag
+        Cil.emitStfld il tagField
+
+        fieldHandles
+        |> List.iteri (fun i field ->
+            Cil.emitDup il
+            Cil.emitLdarg il i
             Cil.emitStfld il field
         )
 

@@ -9,7 +9,16 @@ let private analyse (input: string) =
     Pipeline.analyse MockBuiltins.provider input lexed file
 
 let private declType (tast: TastFile) : SemType =
-    match tast.Decls with
+    // A surfaced `TDecl.Type` (rung 2: unions) is ignored here — these tests
+    // assert the *value* binding's inferred type.
+    match
+        tast.Decls
+        |> List.filter (fun d ->
+            match d with
+            | TDecl.Type _ -> false
+            | _ -> true
+        )
+    with
     | [ TDecl.Let(_, _, _, ty) ] -> ty
     | other -> failwithf "expected single TDecl.Let, got %A" other
 
@@ -496,10 +505,11 @@ let tests =
             test "nullary ctor TAST shape" {
                 let tast = analyse "type S = | Point\nlet p = Point"
 
+                // The union surfaces as a `TDecl.Type` (rung 2); the value binding follows.
                 let resultDecl =
                     match tast.Decls with
-                    | [ d ] -> d
-                    | other -> failwithf "expected one decl, got %A" other
+                    | [ _; d ] -> d
+                    | other -> failwithf "expected [type; let], got %A" other
 
                 Expect.equal (TastShape.prettyDecl resultDecl) "let v0 = Point" "nullary ctor shape"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -510,8 +520,8 @@ let tests =
 
                 let resultDecl =
                     match tast.Decls with
-                    | [ d ] -> d
-                    | other -> failwithf "expected one decl, got %A" other
+                    | [ _; d ] -> d
+                    | other -> failwithf "expected [type; let], got %A" other
 
                 Expect.equal (TastShape.prettyDecl resultDecl) "let v0 = Circle 1" "single-arg ctor shape"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -522,8 +532,8 @@ let tests =
 
                 let resultDecl =
                     match tast.Decls with
-                    | [ d ] -> d
-                    | other -> failwithf "expected one decl, got %A" other
+                    | [ _; d ] -> d
+                    | other -> failwithf "expected [type; let], got %A" other
 
                 Expect.equal (TastShape.prettyDecl resultDecl) "let v0 = Rect(2, 3)" "multi-arg ctor shape"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -536,8 +546,8 @@ let tests =
 
                 let resultDecl =
                     match tast.Decls with
-                    | [ d ] -> d
-                    | other -> failwithf "expected one decl, got %A" other
+                    | [ _; d ] -> d
+                    | other -> failwithf "expected [type; let], got %A" other
 
                 let rendered = TastShape.prettyDecl resultDecl
                 Expect.stringContains rendered "Circle v" "Circle r arm rendered"

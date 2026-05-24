@@ -255,16 +255,21 @@ module Freeze =
         | Expr.EmptyBlock _ -> []
         | a -> [ translate a ]
 
-    /// Look up `memberName` on the resolved class type `clsName`.
-    /// Returns the member-info entry, or `ValueNone` if the class /
-    /// member is unknown.
-    let private tryClassMember (ctx: PassContext) (clsName: string) (memberName: string) : ClassMemberInfo voption =
-        match ctx.ClassTypes.TryGetValue clsName with
-        | true, info ->
-            match info.Members |> Array.tryFind (fun m -> m.Name = memberName) with
+    /// Look up `memberName` on the resolved nominal type `typeName` — a class or
+    /// (P3d.3) a union augmentation. Returns the member-info entry, or
+    /// `ValueNone` if the type / member is unknown.
+    let private tryClassMember (ctx: PassContext) (typeName: string) (memberName: string) : ClassMemberInfo voption =
+        let pick (members: ClassMemberInfo[]) =
+            match members |> Array.tryFind (fun m -> m.Name = memberName) with
             | Some m -> ValueSome m
             | None -> ValueNone
-        | false, _ -> ValueNone
+
+        match ctx.ClassTypes.TryGetValue typeName with
+        | true, info -> pick info.Members
+        | false, _ ->
+            match ctx.UnionTypes.TryGetValue typeName with
+            | true, info -> pick info.Members
+            | false, _ -> ValueNone
 
     /// Resolve a multi-segment `head.M` long-ident to a (receiver-type,
     /// member-info) pair when the head segment is a local binding and
@@ -288,10 +293,11 @@ module Freeze =
                 | ValueNone -> ValueNone
                 | ValueSome tv ->
                     match Unification.zonk (TyVar tv) with
-                    | TyClass(clsName, _) ->
+                    | TyClass(typeName, _)
+                    | TyUnion(typeName, _) ->
                         let memberName = ctx.NameOf li.Idents.[1]
 
-                        match tryClassMember ctx clsName memberName with
+                        match tryClassMember ctx typeName memberName with
                         | ValueSome m -> ValueSome(rb.BindingSite, Unification.zonk (TyVar tv), m)
                         | ValueNone -> ValueNone
                     | _ -> ValueNone
@@ -309,15 +315,19 @@ module Freeze =
             ValueNone
         else
             let className = ctx.NameOf li.Idents.[0]
+            let memberName = ctx.NameOf li.Idents.[1]
 
-            match ctx.ClassTypes.TryGetValue className with
-            | false, _ -> ValueNone
-            | true, info ->
-                let memberName = ctx.NameOf li.Idents.[1]
-
-                match info.Members |> Array.tryFind (fun m -> m.IsStatic && m.Name = memberName) with
+            let pick (members: ClassMemberInfo[]) =
+                match members |> Array.tryFind (fun m -> m.IsStatic && m.Name = memberName) with
                 | Some m -> ValueSome(className, m)
                 | None -> ValueNone
+
+            match ctx.ClassTypes.TryGetValue className with
+            | true, info -> pick info.Members
+            | false, _ ->
+                match ctx.UnionTypes.TryGetValue className with
+                | true, info -> pick info.Members
+                | false, _ -> ValueNone
 
     /// Try to interpret `e` as a DU ctor reference and return the case
     /// name. Handles single-segment `Circle`, two-segment `Result2.Ok`,
@@ -418,8 +428,9 @@ module Freeze =
             li.Idents.Length = 1
             && (
                 match Unification.zonk (typeOfKey ctx (CstKeys.ofExpr r)) with
-                | TyClass(clsName, _) ->
-                    match tryClassMember ctx clsName (ctx.NameOf li.Idents.[0]) with
+                | TyClass(typeName, _)
+                | TyUnion(typeName, _) ->
+                    match tryClassMember ctx typeName (ctx.NameOf li.Idents.[0]) with
                     | ValueSome m -> m.Kind = ClassMemberKind.Method
                     | ValueNone -> false
                 | _ -> false
@@ -433,8 +444,9 @@ module Freeze =
             li.Idents.Length = 1
             && (
                 match Unification.zonk (typeOfKey ctx (CstKeys.ofExpr r)) with
-                | TyClass(clsName, _) ->
-                    match tryClassMember ctx clsName (ctx.NameOf li.Idents.[0]) with
+                | TyClass(typeName, _)
+                | TyUnion(typeName, _) ->
+                    match tryClassMember ctx typeName (ctx.NameOf li.Idents.[0]) with
                     | ValueSome m -> m.Kind = ClassMemberKind.Method
                     | ValueNone -> false
                 | _ -> false
@@ -722,8 +734,9 @@ module Freeze =
             let rTy = Unification.zonk (typeOfKey ctx (CstKeys.ofExpr r))
 
             match rTy with
-            | TyClass(clsName, _) ->
-                match tryClassMember ctx clsName memberName with
+            | TyClass(typeName, _)
+            | TyUnion(typeName, _) ->
+                match tryClassMember ctx typeName memberName with
                 | ValueSome m when m.Kind = ClassMemberKind.Property ->
                     TExpr.PropertyGet(translateExpr ctx r, memberName, ty)
                 | _ ->
@@ -993,6 +1006,14 @@ module Freeze =
                     | true, info when info.Members |> Array.exists (fun m -> m.Name = segName) ->
                         TExpr.PropertyGet(curr, segName, stepTy)
                     | _ -> TExpr.FieldGet(curr, segName, stepTy)
+                // A union receiver's segment is an augmentation member (P3d.3):
+                // `xs.IsEmpty`, `t.Length`. Surfaced as a `PropertyGet` (codegen
+                // calls its `get_<name>`); anything unknown stays a `FieldGet`.
+                | TyUnion(unionName, _) ->
+                    match ctx.UnionTypes.TryGetValue unionName with
+                    | true, info when info.Members |> Array.exists (fun m -> m.Name = segName) ->
+                        TExpr.PropertyGet(curr, segName, stepTy)
+                    | _ -> TExpr.FieldGet(curr, segName, stepTy)
                 | _ -> TExpr.FieldGet(curr, segName, stepTy)
 
             curr <- node
@@ -1180,18 +1201,38 @@ module Freeze =
         (isArray: bool)
         (items: Expr<SyntaxToken> list)
         : TExpr =
+        let zonked = Unification.zonk literalTy
+
         let elemTy =
-            match Unification.zonk literalTy with
-            | TyRecord(_, [ elem ]) -> elem
+            match zonked with
+            | TyRecord(_, [ elem ])
+            | TyUnion(_, [ elem ]) -> elem
             | _ -> TyVar(TypeVar())
 
-        let listTy = TyRecord("Microsoft.FSharp.Collections.list", [ elemTy ])
+        // A program-declared list union (resolved via the `'T list = List<'T>`
+        // abbrev — see `Unification.listLiteralTy`) drives `[…]` construction
+        // through that union's own case factories: the nullary case is the
+        // empty terminator, the single binary case is cons. Absent it (a normal
+        // program, or an array literal), the FSharp.Core `Cons`/`Nil` nominal is
+        // the default. Arrays never retarget — they always route through the
+        // FSharp.Core list chain + the `Array.ofList` boundary below.
+        let listTy, consName, nilName =
+            match zonked with
+            | TyUnion(unionName, _) when not isArray && ctx.UnionTypes.ContainsKey unionName ->
+                let info = ctx.UnionTypes.[unionName]
+                let nilCase = info.Cases |> Array.tryFind (fun c -> c.Fields.Length = 0)
+                let consCase = info.Cases |> Array.tryFind (fun c -> c.Fields.Length = 2)
+
+                match nilCase, consCase with
+                | Some n, Some c -> zonked, c.Name, n.Name
+                | _ -> TyRecord("Microsoft.FSharp.Collections.list", [ elemTy ]), "Cons", "Nil"
+            | _ -> TyRecord("Microsoft.FSharp.Collections.list", [ elemTy ]), "Cons", "Nil"
 
         let listExpr =
-            let nil = TExpr.UnionCons("Nil", [], listTy)
+            let nil = TExpr.UnionCons(nilName, [], listTy)
 
             items
-            |> List.foldBack (fun item acc -> TExpr.UnionCons("Cons", [ translateExpr ctx item; acc ], listTy))
+            |> List.foldBack (fun item acc -> TExpr.UnionCons(consName, [ translateExpr ctx item; acc ], listTy))
             <| nil
 
         if isArray then
@@ -1389,8 +1430,141 @@ module Freeze =
 
                 Some([ for (n, _) in info.TypeParams -> n ], methods)
 
-    /// Surface an interface-shaped `TypeDefn` as a `TDecl.Type`. Anything else
-    /// (abbrevs, records, unions, concrete classes) surfaces nothing.
+    /// Member name from a member binding's `headPat` (`member this.M …` parses
+    /// the member name as the head pattern's ident).
+    let private memberNameOfBinding (ctx: PassContext) (b: Binding<SyntaxToken>) : string voption =
+        let rec walk (p: Pat<SyntaxToken>) =
+            match p with
+            | Pat.NamedSimple id -> ValueSome(ctx.NameOf id)
+            | Pat.EnclosedBlock(pat = inner)
+            | Pat.Typed(pat = inner) -> walk inner
+            | _ -> ValueNone
+
+        walk b.headPat
+
+    /// Flatten a member binding's argument patterns into `(bindingKey, ty)`
+    /// pairs, in declaration order — the parameter list a member's emitted
+    /// method binds (`this` is separate). The binding key is the same one
+    /// `translatePat` mints, so a `Var` reference in the body resolves to it.
+    /// Only simple parameters (a single ident per arg group) are surfaced (v1).
+    let private memberParams (ctx: PassContext) (b: Binding<SyntaxToken>) : (NodeKey * SemType) list =
+        [
+            for p in b.argumentPats do
+                match translatePat ctx p with
+                | TPat.NamedSimple(k, ty) -> yield (k, ty)
+                | _ -> ()
+        ]
+
+    /// Translate one union augmentation member element into a `TTypeMember`
+    /// (P3d.3). Methods / properties carry their lowered body; a property has no
+    /// parameters. Instance members reference `this` via `info.ThisKey`.
+    let private translateUnionMember
+        (ctx: PassContext)
+        (info: UnionTypeInfo)
+        (el: TypeDefnElement<SyntaxToken>)
+        : TTypeMember voption =
+        match el with
+        | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; defn = d)) ->
+            let isStatic = s.IsSome
+
+            let build (kind: TMemberKind) (b: Binding<SyntaxToken>) : TTypeMember voption =
+                match memberNameOfBinding ctx b with
+                | ValueSome n ->
+                    ValueSome
+                        {
+                            Name = n
+                            IsStatic = isStatic
+                            Kind = kind
+                            ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
+                            ThisTy = TyUnion(info.Name, [])
+                            Params = memberParams ctx b
+                            Body = translateExpr ctx b.expr
+                            ReturnTy = typeOfKey ctx (CstKeys.ofExpr b.expr)
+                        }
+                | ValueNone -> ValueNone
+
+            match d with
+            | MethodOrPropDefn.Method(defn = b) -> build TMemberKind.Method b
+            | MethodOrPropDefn.Property(defn = b) -> build TMemberKind.Property b
+            | MethodOrPropDefn.AutoProperty(ident = id; expr = e) ->
+                ValueSome
+                    {
+                        Name = ctx.NameOf id
+                        IsStatic = isStatic
+                        Kind = TMemberKind.Property
+                        ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
+                        ThisTy = TyUnion(info.Name, [])
+                        Params = []
+                        Body = translateExpr ctx e
+                        ReturnTy = typeOfKey ctx (CstKeys.ofExpr e)
+                    }
+            | _ -> ValueNone
+        | _ -> ValueNone
+
+    /// Surface a `TypeDefn.Union` as a `TDecl.Type` from the resolved
+    /// `UnionTypeInfo` (registered by NameResolution, field-typed by
+    /// Unification). Field types are zonked, and any declaring-type typar is
+    /// remapped to a `TyConst "'A"` marker (a no-op for a monomorphic union —
+    /// `TypeParams` empty — but the right shape for the generic union rung).
+    /// Augmentation members (`ext`) are surfaced as `TTypeMember`s (P3d.3).
+    let private tryUnionType
+        (ctx: PassContext)
+        (ns: string option)
+        (name: string)
+        (ext: TypeExtensionElements<SyntaxToken> voption)
+        : TDecl option =
+        match ctx.UnionTypes.TryGetValue name with
+        | false, _ -> None
+        | true, info ->
+            let markers =
+                [
+                    for (n, ptv) in info.TypeParams do
+                        match Unification.zonk (TyVar ptv) with
+                        | TyVar root -> yield (root, n)
+                        | _ -> ()
+                ]
+
+            let cases =
+                [
+                    for c in info.Cases ->
+                        let fields =
+                            [
+                                for i in 0 .. c.Fields.Length - 1 ->
+                                    let nm =
+                                        if i < c.FieldNames.Length then
+                                            c.FieldNames.[i]
+                                        else
+                                            ValueNone
+
+                                    nm, remapDeclTypars markers c.Fields.[i]
+                            ]
+
+                        { Name = c.Name; Fields = fields }
+                ]
+
+            let members =
+                match ext with
+                | ValueNone -> []
+                | ValueSome(TypeExtensionElements(elements = elems)) ->
+                    [
+                        for el in elems do
+                            match translateUnionMember ctx info el with
+                            | ValueSome m -> yield m
+                            | ValueNone -> ()
+                    ]
+
+            Some(
+                TDecl.Type
+                    {
+                        Name = name
+                        Namespace = ns
+                        TypeParams = [ for (n, _) in info.TypeParams -> n ]
+                        Kind = TTypeKind.Union(cases, members)
+                    }
+            )
+
+    /// Surface an interface-shaped or union `TypeDefn` as a `TDecl.Type`.
+    /// Anything else (abbrevs, records, concrete classes) surfaces nothing.
     let private tryTypeDecl (ctx: PassContext) (ns: string option) (td: TypeDefn<SyntaxToken>) : TDecl option =
         let classify tn body =
             let name = typeNameSimple ctx tn
@@ -1411,13 +1585,18 @@ module Freeze =
         match td with
         | TypeDefn.Anon(typeName = tn; body = body) -> classify tn body
         | TypeDefn.Interface(typeName = tn; body = body) -> classify tn body
+        | TypeDefn.Union(typeName = tn; extensions = ext) -> tryUnionType ctx ns (typeNameSimple ctx tn) ext
         | _ -> None
 
     /// Joined dotted text of a namespace's long identifier.
     let private longIdentText (ctx: PassContext) (li: LongIdent<SyntaxToken>) : string =
         li.Idents |> Seq.map ctx.NameOf |> String.concat "."
 
-    let private translateModuleElem (ctx: PassContext) (ns: string option) (m: ModuleElem<SyntaxToken>) : TDecl list =
+    let rec private translateModuleElem
+        (ctx: PassContext)
+        (ns: string option)
+        (m: ModuleElem<SyntaxToken>)
+        : TDecl list =
         match m with
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
             [
@@ -1430,6 +1609,14 @@ module Freeze =
             let eT = translateExpr ctx e
             [ TDecl.Expression(eT, typeOfKey ctx (CstKeys.ofExpr e)) ]
         | ModuleElem.Type defs -> defs |> Seq.choose (tryTypeDecl ctx ns) |> List.ofSeq
+        // A nested `module Foo = …` surfaces its body declarations flat at the
+        // enclosing namespace (v1 has no module-scoped types), mirroring the
+        // analysis passes' `CstWalk.implFileElems` flattening. Proper module
+        // nesting is a later rung (docs/selfhost-handoff.md G10).
+        | ModuleElem.Module(ModuleDefn.ModuleDefn(body = ModuleDefnBody(elements = inner))) ->
+            match inner with
+            | ValueSome innerElems -> innerElems |> Seq.collect (translateModuleElem ctx ns) |> List.ofSeq
+            | ValueNone -> []
         | _ -> []
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : TastFile =

@@ -42,7 +42,7 @@ let tests =
                 let _, artifact = compileSource "DepsCleanExe" "printfn \"%d\" 42"
                 Expect.isEmpty artifact.FSharpCoreDependencies "the use-set is empty"
 
-                let asm = Reflection.Assembly.Load(Codegen.toBytes artifact)
+                let asm = loadAssembly (Codegen.toBytes artifact)
                 let refs = asm.GetReferencedAssemblies() |> Array.map (fun a -> a.Name)
 
                 Expect.isFalse

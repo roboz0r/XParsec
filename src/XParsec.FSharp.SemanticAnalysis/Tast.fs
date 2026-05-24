@@ -215,6 +215,57 @@ and [<RequireQualifiedAccess>] TTypeKind =
     /// An interface: a nominal type whose members are all abstract and which has
     /// no base type / field. Rung 1's only kind.
     | Interface of methods: TAbstractMethod list
+    /// A discriminated union: its cases in declaration order (the index is the
+    /// runtime tag), plus any augmentation members (`with member …` /
+    /// `static member …`). Rung 2 emits a monomorphic union as a single
+    /// reference class with an `int` tag field plus one field per (case,
+    /// position); `TExpr.UnionCons` constructs it (a per-case static factory
+    /// sets the tag + fields) and `match` over `TPat.Union` deconstructs it (tag
+    /// test + field reads). P3d.3 adds the augmentation members — instance /
+    /// static methods + properties, emitted as real `MethodDefinition` rows on
+    /// the union's `TypeDefinition`. See docs/self-host-rung2-plan.md.
+    | Union of cases: TUnionCase list * members: TTypeMember list
+
+/// One case of a `TTypeKind.Union`. `Fields` are the case's payload in
+/// declaration order; a field's name is `ValueNone` when the source is
+/// positional (`Cons of 'T * list`). Empty `Fields` ⇒ a nullary case (`Nil`).
+and TUnionCase =
+    {
+        Name: string
+        Fields: (string voption * SemType) list
+    }
+
+and [<RequireQualifiedAccess>] TMemberKind =
+    /// `member this.M args = …` / `static member M args = …` — invoked through
+    /// `TExpr.MethodCall` / `TExpr.StaticMethodCall`.
+    | Method
+    /// `member this.P = …` / `static member P = …` — a parameterless getter,
+    /// read through `TExpr.PropertyGet` / `TExpr.StaticPropertyGet`. Emitted as
+    /// a `get_<Name>` method (no `PropertyDefinition` row yet — see P3d.3).
+    | Property
+
+/// One augmentation member of a `TTypeKind.Union` (P3d.3): its body lowered for
+/// emission. An instance member's body sees `this` (its `ThisKey`, resolved to
+/// `ldarg.0`) and its parameters; a static member's body sees only its
+/// parameters. The backend emits each as an instance / static method on the
+/// union's `TypeDefinition`.
+and TTypeMember =
+    {
+        Name: string
+        IsStatic: bool
+        Kind: TMemberKind
+        /// The `this` binder's NodeKey (instance members only); `ValueNone` for
+        /// a static member.
+        ThisKey: NodeKey voption
+        /// The declaring type (a `TyUnion`) — the receiver type for an instance
+        /// member's `this`.
+        ThisTy: SemType
+        /// Parameter binders in declaration order (each `ldarg` after `this` for
+        /// an instance method); empty for a property or a nullary method.
+        Params: (NodeKey * SemType) list
+        Body: TExpr
+        ReturnTy: SemType
+    }
 
 /// One abstract method. `Signature` is the curried function type; a type
 /// parameter of the *declaring type* is carried as `TyConst "'A"` (a name marker

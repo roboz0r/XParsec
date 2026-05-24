@@ -529,17 +529,35 @@ type private Renderer() =
                 push (String.concat ", " td.TypeParams)
                 push ">"
 
-            push " = interface"
-
             match td.Kind with
             | TTypeKind.Interface methods ->
+                push " = interface"
+
                 for m in methods do
                     push " member "
                     push m.Name
                     push " : "
                     push (tyStr m.Signature)
 
-            push " end"
+                push " end"
+            | TTypeKind.Union(cases, members) ->
+                push " ="
+
+                for c in cases do
+                    push " | "
+                    push c.Name
+
+                    match c.Fields with
+                    | [] -> ()
+                    | fs ->
+                        push " of "
+                        push (fs |> List.map (fun (_, t) -> tyStr t) |> String.concat " * ")
+
+                for m in members do
+                    push (if m.IsStatic then " static member " else " member ")
+                    push m.Name
+                    push " : "
+                    push (tyStr m.ReturnTy)
 
 let prettyExpr (e: TExpr) : string =
     let r = Renderer()

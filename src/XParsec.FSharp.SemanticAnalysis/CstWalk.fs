@@ -239,16 +239,33 @@ module CstWalk =
     /// order: the passes don't yet track namespace qualification (v1 has no
     /// namespace-scoped types), so the groups are concatenated and walked as a
     /// single element list — the same shape a module file already presents.
+    ///
+    /// A nested `module Foo = …` is flattened the same way: its body elements
+    /// are spliced into the enclosing list (in source order, recursing through
+    /// arbitrary nesting) rather than surfaced as a `ModuleElem.Module`. v1 has
+    /// no module-scoped types, so every pass that walks `implFileElems` analyses
+    /// a nested module's contents without needing its own `ModuleElem.Module`
+    /// arm. (Proper module nesting / qualification is a later rung — see
+    /// docs/selfhost-handoff.md G10.)
     let implFileElems (file: ImplementationFile<SyntaxToken>) : ModuleElems<SyntaxToken> =
-        match file with
-        | ImplementationFile.AnonymousModule elems -> elems
-        | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) -> elems
-        | ImplementationFile.Namespaces groups ->
-            let b = ImmutableArray.CreateBuilder<ModuleElem<SyntaxToken>>()
+        let b = ImmutableArray.CreateBuilder<ModuleElem<SyntaxToken>>()
 
+        let rec add (elems: ModuleElems<SyntaxToken>) =
+            for e in elems do
+                match e with
+                | ModuleElem.Module(ModuleDefn.ModuleDefn(body = ModuleDefnBody(elements = inner))) ->
+                    match inner with
+                    | ValueSome innerElems -> add innerElems
+                    | ValueNone -> ()
+                | _ -> b.Add e
+
+        match file with
+        | ImplementationFile.AnonymousModule elems -> add elems
+        | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) -> add elems
+        | ImplementationFile.Namespaces groups ->
             for g in groups do
                 match g with
                 | NamespaceDeclGroup.Named(elements = elems)
-                | NamespaceDeclGroup.Global(elements = elems) -> b.AddRange elems
+                | NamespaceDeclGroup.Global(elements = elems) -> add elems
 
-            b.ToImmutable()
+        b.ToImmutable()

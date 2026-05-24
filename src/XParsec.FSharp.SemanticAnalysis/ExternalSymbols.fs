@@ -311,7 +311,24 @@ module MockBuiltins =
                 name, ExternalSymbols.poly name (fun level -> PrintfSpec.genericSignature (fun () -> freshAt level) fam)
         ]
 
-    let private builtins = (monoOps @ polyOps @ listFns @ printfOps) |> Map.ofList
+    /// Core `Operators` functions the codegen slices use. `failwith` is
+    /// polymorphic in its result (`string -> 'T`); the CLR backend lowers it to
+    /// a BCL-only `throw new System.Exception(msg)` (P3d.3), so it pins no
+    /// FSharp.Core dependency.
+    let private coreFns =
+        let freshAt (level: int) : SemType =
+            let tv = TypeVar()
+            tv.Level <- level
+            TyVar tv
+
+        [
+            // val failwith : string -> 'T
+            "failwith", fun level -> TyFun(tyString, freshAt level)
+        ]
+        |> List.map (fun (n, build) -> n, ExternalSymbols.poly n build)
+
+    let private builtins =
+        (monoOps @ polyOps @ listFns @ printfOps @ coreFns) |> Map.ofList
 
     let provider: IExternalSymbolProvider =
         { new IExternalSymbolProvider with

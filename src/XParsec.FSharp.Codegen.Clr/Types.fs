@@ -55,6 +55,14 @@ type Il(encoder: InstructionEncoder) =
         if depth > maxDepth then
             maxDepth <- depth
 
+    /// Restore the logical stack depth to a previously saved value. The depth
+    /// tracker follows IL linearly, but at a branch merge the two arms each
+    /// leave the same depth while the tracker has only counted one — so after
+    /// emitting one arm a caller resets the depth to the arms' shared base
+    /// before emitting the next. Never lowers `maxDepth` (it has already seen
+    /// the peak).
+    member _.SetDepth(d: int) = depth <- d
+
 /// `Op<'stackin,'stackout>` — an instruction (or sequence) that transforms the
 /// phantom stack state `'stackin` into `'stackout` while emitting into `Il`.
 type Op<'stackin, 'stackout> = S<'stackin> -> S<'stackout> -> Il -> unit

@@ -26,6 +26,25 @@ type CallRecipe =
 /// How to emit a constructor (`newobj`) once its arguments are on the stack.
 type CtorRecipe = { Handle: EntityHandle; ArgCount: int }
 
+/// Which member of an emitted *generic* union a `GenericUnionMemberRef` resolves
+/// to (P3d.4). A generic union (`List<'T>`) is a real generic `TypeDefinition`,
+/// so every reference to one of its members — even from inside the type's own
+/// factory bodies — must go through a `MemberRef` on a `TypeSpec` of the type
+/// instantiated with the use-site's arguments (`List<int>` externally, `List<!0>`
+/// internally). The member-ref *signature* is written in terms of the type's own
+/// generic parameters (`!0`), with the instantiation riding the parent
+/// `TypeSpec`. Monomorphic unions keep using their `Def` tokens directly.
+[<RequireQualifiedAccess>]
+type UnionMember =
+    /// The parameterless `.ctor()` a factory chains to.
+    | Ctor
+    /// The `int _tag` discriminant field.
+    | Tag
+    /// A case's payload field at `fieldIndex` (named `<Case>_<index>`).
+    | Field of caseName: string * fieldIndex: int
+    /// A case's static factory (`static List<!0> Cons(!0, List<!0>)`).
+    | Factory of caseName: string
+
 /// Resolved metadata handles for lowering a `TExpr.Format` to the write-through
 /// handler (`Vesper.Formatter`). The walker owns the call *sequence* and the
 /// per-hole argument recursion — a `Format` can't be a `CallRecipe` (it
@@ -97,6 +116,15 @@ type ICodegenProvider =
     /// `call`s (`Cons` / `get_Empty`), so a `CallRecipe` fits — no new shape.
     abstract TryEmitUnionCons: typeName: string * caseName: string * tyArgs: SemType list -> CallRecipe voption
 
+    /// A `MemberRef` to one member of an emitted *generic* union `name`,
+    /// instantiated at `args` (P3d.4). The union must have been registered with
+    /// `ClrProvider.RegisterGenericUnion`. Used for every generic-union member
+    /// access: the construction site (`UnionMember.Factory`), the `match`
+    /// deconstruction (`Tag` / `Field`), and the factory bodies themselves
+    /// (`Ctor` / `Tag` / `Field`, with `args` the type's own typar markers). A
+    /// monomorphic union never reaches here — its `Def` tokens are used directly.
+    abstract GenericUnionMemberRef: name: string * args: SemType list * which: UnionMember -> EntityHandle
+
     /// Resolve the application of a function *value* of type `funcTy`
     /// (a `TyFun(a, b)`) to one argument — `FSharpFunc\`2::Invoke`. The
     /// receiver function and the argument are both already on the stack
@@ -120,6 +148,11 @@ type ICodegenProvider =
     /// (lo / mid / hi / isNegative / scale), for emitting a `decimal` constant
     /// the way F# / Roslyn do — `Decimal.GetBits` supplies the five operands.
     abstract DecimalCtor: EntityHandle
+
+    /// Member ref to `System.Exception::.ctor(string)` — the fallthrough a
+    /// non-exhaustive `match` throws when no arm matches. BCL, not
+    /// `FSharp.Core`'s `MatchFailureException`, so it pins no dependency.
+    abstract ExceptionCtor: EntityHandle
 
     /// The distinct FSharp.Core constructs the emission referenced so far
     /// (construct-qualified names, e.g. `Microsoft.FSharp.Core.FSharpFunc\`2`).

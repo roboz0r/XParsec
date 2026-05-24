@@ -18,6 +18,7 @@
     <Compile Include="FSharpCoreDepsTests.fs" />
     <Compile Include="RunnableAppTests.fs" />
     <Compile Include="SelfHostRung1Tests.fs" />
+    <Compile Include="Rung2Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

@@ -236,6 +236,69 @@ let namespaceTests =
             }
         ]
 
+// P3d.2 (docs/selfhost-handoff.md): every pass + Freeze descend into a nested
+// `module Foo = …`. Its body is flattened to the enclosing scope (v1 has no
+// module-scoped types), the same simplification `CstWalk.implFileElems` applies
+// to namespace groups. Before this slice the analysis passes never descended
+// into `ModuleElem.Module` (Validation `failwith`'d on it) and Freeze dropped
+// the body, so a `let` inside a nested module silently vanished.
+[<Tests>]
+let nestedModuleTests =
+    testList
+        "NestedModulePipeline"
+        [
+            test "a nested module's `let` surfaces flat alongside top-level decls" {
+                let tast = analyse "let top = 0\nmodule Inner =\n    let x = 1"
+
+                Expect.equal tast.Decls.Length 2 "top-level binding + the nested binding"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                match tast.Decls.[1] with
+                | TDecl.Let(_, TExpr.Const(TConstValue.Int 1, ty), _, letTy) ->
+                    Expect.equal ty MockBuiltins.tyInt "value type int"
+                    Expect.equal letTy MockBuiltins.tyInt "binding type int"
+                | other -> failtestf "unexpected: %A" other
+            }
+
+            test "name resolution + inference run inside the nested module body" {
+                // `y`'s body references the outer `top`; it only resolves and
+                // types if NameResolution and Unification actually descended into
+                // the nested module (both dropped it before this slice). Inferring
+                // `y : int` (not a free TyVar) proves Unification walked the body.
+                let tast = analyse "let top = 1\nmodule Inner =\n    let y = top + 1"
+
+                Expect.equal tast.Decls.Length 2 "top + the nested binding"
+                Expect.isEmpty tast.Diagnostics "top resolves inside the nested module"
+
+                match tast.Decls.[1] with
+                | TDecl.Let(_, _, _, declTy) -> Expect.equal declTy MockBuiltins.tyInt "y : int"
+                | other -> failtestf "unexpected: %A" other
+            }
+
+            test "arbitrarily deep module nesting flattens" {
+                let tast = analyse "let top = 0\nmodule A =\n    module B =\n        let x = 1"
+
+                Expect.equal tast.Decls.Length 2 "the doubly-nested binding flattens to top level"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                match tast.Decls.[1] with
+                | TDecl.Let(_, _, _, declTy) -> Expect.equal declTy MockBuiltins.tyInt "x : int"
+                | other -> failtestf "unexpected: %A" other
+            }
+
+            test "a nested module binding freezes identically to the module-level form" {
+                let nested = analyse "let top = 0\nmodule Inner =\n    let f x = x + 1"
+                let flat = analyse "let f x = x + 1"
+
+                Expect.isEmpty nested.Diagnostics "no diagnostics (nested form)"
+
+                Expect.equal
+                    (TastShape.prettyDecl nested.Decls.[1])
+                    (TastShape.prettyDecl flat.Decls.[0])
+                    "the nested `f` freezes to the same TAST as the top-level `f`"
+            }
+        ]
+
 // G3 (docs/selfhost-handoff.md): an interface-shaped `TypeDefn.Anon` surfaces as
 // `TDecl.Type` whose method signatures are read from the *resolved* member types
 // in `ctx.ClassTypes` (NameResolution registers the abstract member; Unification
@@ -295,5 +358,290 @@ let interfaceTests =
                         Expect.equal m.Signature (TyFun(TyConst "'A", TyConst "'B")) "Map signature 'A -> 'B"
                     | other -> failtestf "expected one interface method, got %A" other
                 | other -> failtestf "expected single TDecl.Type, got %A" other
+            }
+        ]
+
+// P3d.1 (docs/selfhost-handoff.md): the front-end union *shape* needed to compile
+// `Vesper.Collections.List` verbatim — operator-named cases (`([])` → Empty,
+// `(::)` → Cons) and the explicit-return (GADT-syntax) case forms FSharp.Core's
+// list uses (`| ([]) : 'T list`, `| (::) : Head: 'T * Tail: 'T list -> 'T list`).
+// Before this slice `inspectCaseData` returned `""` for any operator head (the
+// case was dropped) and `GadtNary`/`GadtNullary` were diagnosed "not supported".
+module private UnionCaseSyntaxHelpers =
+    let union (tast: TastFile) =
+        tast.Decls
+        |> List.choose (fun d ->
+            match d with
+            | TDecl.Type td ->
+                match td.Kind with
+                | TTypeKind.Union(cs, _) -> Some(td, cs)
+                | _ -> None
+            | _ -> None
+        )
+
+[<Tests>]
+let unionCaseSyntaxTests =
+    let union = UnionCaseSyntaxHelpers.union
+
+    testList
+        "UnionCaseSyntax"
+        [
+            // Operator-named cases in the plain (non-GADT) forms: `([])` is the
+            // empty case (named `Empty`), `(::)` the cons case (named `Cons`).
+            test "operator-named cases `([])` / `(::)` surface as Empty / Cons" {
+                let tast = analyse "type Ops =\n    | ([])\n    | (::) of int * Ops"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                match union tast with
+                | [ (td, [ c0; c1 ]) ] ->
+                    Expect.equal td.Name "Ops" "type name"
+                    Expect.equal c0.Name "Empty" "`([])` is named Empty"
+                    Expect.isEmpty c0.Fields "Empty is nullary"
+                    Expect.equal c1.Name "Cons" "`(::)` is named Cons"
+                    Expect.equal c1.Fields.Length 2 "Cons has two fields"
+                | other -> failtestf "unexpected unions: %A" other
+            }
+
+            // The verbatim FSharp.Core list shape: operator cases written with the
+            // explicit-return (GADT) syntax, generic over the element type, the
+            // tail referencing the declaring union recursively.
+            test "explicit-return list cases surface with names, arity, and field names" {
+                let tast =
+                    analyse "type List<'T> =\n    | ([]): List<'T>\n    | (::): Head: 'T * Tail: List<'T> -> List<'T>"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics for the GADT-syntax cases"
+
+                match union tast with
+                | [ (td, [ empty; cons ]) ] ->
+                    Expect.equal td.Name "List" "type name"
+                    Expect.equal td.TypeParams [ "'T" ] "one declared typar"
+
+                    Expect.equal empty.Name "Empty" "`([])` is named Empty"
+                    Expect.isEmpty empty.Fields "Empty is nullary"
+
+                    Expect.equal cons.Name "Cons" "`(::)` is named Cons"
+
+                    match cons.Fields with
+                    | [ (hn, ht); (tn, tt) ] ->
+                        Expect.equal hn (ValueSome "Head") "first field named Head"
+                        // The element typar surfaces as the backend marker.
+                        Expect.equal ht (TyConst "'T") "Head : 'T"
+                        Expect.equal tn (ValueSome "Tail") "second field named Tail"
+                        // Tail refers back to the declaring union, applied to 'T.
+                        Expect.equal tt (TyUnion("List", [ TyConst "'T" ])) "Tail : List<'T>"
+                    | other -> failtestf "expected two named Cons fields, got %A" other
+                | other -> failtestf "unexpected unions: %A" other
+            }
+        ]
+
+// P3d.4 (docs/selfhost-handoff.md): the `and 'T list = List<'T>` recursive
+// abbreviation retargets `[…]` list literals onto a program-declared list
+// union (the self-host shape) instead of FSharp.Core's `FSharpList`. Additive:
+// a normal program declares no `list` abbreviation, so its list literals keep
+// the `Microsoft.FSharp.Collections.list` nominal + `Cons`/`Nil` case names.
+// The generic-union *backend emission* that makes `[1;2;3]` runnable against
+// our own list is the next slice; this slice is the front-end resolution.
+[<Tests>]
+let listAbbrevTests =
+    let listSrc =
+        String.concat
+            "\n"
+            [
+                "type List<'T> ="
+                "    | ([]): List<'T>"
+                "    | (::): Head: 'T * Tail: List<'T> -> List<'T>"
+                "and 'T list = List<'T>"
+            ]
+
+    testList
+        "ListAbbrev"
+        [
+            // The verbatim `List.fs` shape: the abbreviation's RHS references
+            // the union it shares an `and` group with, and the union's `Tail`
+            // field references back through the `'T list` abbreviation.
+            test "`and 'T list = List<'T>` type-checks with the verbatim List.fs case shape" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type List<'T> ="
+                            "    | ([]): 'T list"
+                            "    | (::): Head: 'T * Tail: 'T list -> 'T list"
+                            "and 'T list = List<'T>"
+                        ]
+
+                let tast = analyse src
+                Expect.isEmpty tast.Diagnostics "no diagnostics for the recursive abbrev + GADT cases"
+
+                match UnionCaseSyntaxHelpers.union tast with
+                | [ (td, [ empty; cons ]) ] ->
+                    Expect.equal td.Name "List" "type name"
+                    Expect.equal empty.Name "Empty" "`([])` is Empty"
+
+                    match cons.Fields with
+                    | [ (_, ht); (_, tt) ] ->
+                        Expect.equal ht (TyConst "'T") "Head : 'T"
+                        // `'T list` resolved through the abbrev back to the union.
+                        Expect.equal tt (TyUnion("List", [ TyConst "'T" ])) "Tail : List<'T> via the abbrev"
+                    | other -> failtestf "expected two Cons fields, got %A" other
+                | other -> failtestf "unexpected unions: %A" other
+            }
+
+            // The headline: a `[1; 2; 3]` literal in a program that declares the
+            // list union + abbrev types as that union and freezes to a Cons chain
+            // terminated by the union's own empty case (`Empty`, not `Nil`).
+            test "`[1; 2; 3]` resolves to the declared list union and freezes a Cons/Empty chain" {
+                let src = listSrc + "\nlet xs = [1; 2; 3]"
+                let tast = analyse src
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                let xs =
+                    tast.Decls
+                    |> List.tryPick (fun d ->
+                        match d with
+                        | TDecl.Let(TPat.NamedSimple _, v, _, ty) -> Some(v, ty)
+                        | _ -> None
+                    )
+
+                match xs with
+                | Some(value, ty) ->
+                    Expect.equal ty (TyUnion("List", [ TyConst "int" ])) "xs : List<int> (the declared union)"
+
+                    Expect.equal
+                        (TastShape.prettyExpr value)
+                        "Cons(1, Cons(2, Cons(3, Empty)))"
+                        "Cons chain terminated by the union's Empty case"
+                | None -> failtest "no `let xs` binding surfaced"
+            }
+
+            // The empty literal `[]` resolves to the union's nullary case too.
+            test "`[]` resolves to the declared union's empty case" {
+                let src = listSrc + "\nlet e : int list = []"
+                let tast = analyse src
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                let e =
+                    tast.Decls
+                    |> List.tryPick (fun d ->
+                        match d with
+                        | TDecl.Let(TPat.NamedSimple _, v, _, ty) -> Some(v, ty)
+                        | _ -> None
+                    )
+
+                match e with
+                | Some(value, ty) ->
+                    Expect.equal ty (TyUnion("List", [ TyConst "int" ])) "e : List<int>"
+                    Expect.equal (TastShape.prettyExpr value) "Empty" "the bare `[]` is the union's Empty case"
+                | None -> failtest "no `let e` binding surfaced"
+            }
+
+            // Regression: with no `list` abbreviation in scope, a list literal
+            // stays the FSharp.Core nominal with `Cons`/`Nil` (additive — Slice4
+            // and every existing list-bearing program are untouched).
+            test "a list literal with no `list` abbrev keeps the FSharp.Core nominal" {
+                let tast = analyse "let xs = [1; 2; 3]"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                let xs =
+                    tast.Decls
+                    |> List.tryPick (fun d ->
+                        match d with
+                        | TDecl.Let(TPat.NamedSimple _, v, _, ty) -> Some(v, ty)
+                        | _ -> None
+                    )
+
+                match xs with
+                | Some(value, ty) ->
+                    Expect.equal
+                        ty
+                        (TyRecord("Microsoft.FSharp.Collections.list", [ TyConst "int" ]))
+                        "xs : Microsoft.FSharp.Collections.list<int> (the FSharp.Core default)"
+
+                    Expect.equal
+                        (TastShape.prettyExpr value)
+                        "Cons(1, Cons(2, Cons(3, Nil)))"
+                        "the default FSharp.Core Cons/Nil chain"
+                | None -> failtest "no `let xs` binding surfaced"
+            }
+        ]
+
+[<Tests>]
+let unionMemberTests =
+    // P3d.3: union augmentation members (`with member …` / `static member …`)
+    // type-check through the whole pipeline and surface on `TTypeKind.Union`
+    // with their lowered bodies.
+    let memberSrc =
+        String.concat
+            "\n"
+            [
+                "type Lst ="
+                "    | Nil"
+                "    | Cons of int * Lst"
+                ""
+                "    member this.IsEmpty ="
+                "        match this with"
+                "        | Nil -> true"
+                "        | Cons(_, _) -> false"
+                ""
+                "    member this.Head ="
+                "        match this with"
+                "        | Cons(h, _) -> h"
+                "        | Nil -> failwith \"empty\""
+                ""
+                "    static member Empty = Nil"
+                "    static member Single x = Cons(x, Nil)"
+            ]
+
+    testList
+        "UnionMembers"
+        [
+            test "augmentation members surface with kind, static-ness, types, and a this binder" {
+                let tast = analyse memberSrc
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                let members =
+                    tast.Decls
+                    |> List.tryPick (fun d ->
+                        match d with
+                        | TDecl.Type td ->
+                            match td.Kind with
+                            | TTypeKind.Union(_, ms) -> Some ms
+                            | _ -> None
+                        | _ -> None
+                    )
+
+                match members with
+                | Some ms ->
+                    let find n = ms |> List.find (fun m -> m.Name = n)
+
+                    let isEmpty = find "IsEmpty"
+                    Expect.isFalse isEmpty.IsStatic "IsEmpty is an instance member"
+                    Expect.equal isEmpty.Kind TMemberKind.Property "IsEmpty is a property"
+                    Expect.equal isEmpty.ReturnTy (TyConst "bool") "IsEmpty : bool"
+                    Expect.isTrue (ValueOption.isSome isEmpty.ThisKey) "an instance member carries a `this` binder"
+
+                    Expect.equal (find "Head").ReturnTy (TyConst "int") "Head : int"
+
+                    let empty = find "Empty"
+                    Expect.isTrue empty.IsStatic "Empty is static"
+                    Expect.equal empty.ReturnTy (TyUnion("Lst", [])) "Empty : Lst"
+                    Expect.isTrue (ValueOption.isNone empty.ThisKey) "a static member has no `this` binder"
+
+                    let single = find "Single"
+                    Expect.isTrue single.IsStatic "Single is static"
+                    Expect.equal single.Kind TMemberKind.Method "Single is a method"
+                    Expect.equal single.Params.Length 1 "Single takes one parameter"
+                    Expect.equal single.ReturnTy (TyUnion("Lst", [])) "Single : int -> Lst"
+                | None -> failtest "no union surfaced"
+            }
+
+            test "instance + static member access type-checks against the union's members" {
+                let tast =
+                    analyse (
+                        memberSrc
+                        + "\nlet xs = Cons(1, Nil)\nlet h = xs.Head\nlet e = Lst.Empty\nlet s = Lst.Single 2"
+                    )
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics for xs.Head / Lst.Empty / Lst.Single"
             }
         ]
