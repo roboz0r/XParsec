@@ -1,0 +1,33 @@
+# Vesper.Comparison — the ordering family as a standalone package
+# (package-split-plan PS1/PS4; operators-plan.md O2).
+#
+# Same shape as src/Vesper.Core / src/Vesper.Option / src/Vesper.List: the `.fsi`
+# is the front-end symbol contract (parsed by XParsec.FSharp, walked into an
+# IExternalSymbolProvider). There is no `.fs` impl — the ordering operators carry
+# no runtime member; codegen special-cases them to CIL `clt`/`cgt` on primitives
+# and to a structural `CompareTo` on opted-in types (operators-plan.md O6).
+#
+# Depends on Vesper.Core (`Fun`, `unit`, `bool`, the `when 'T: comparison`
+# constraint vocabulary, and the recognised comparison attributes which live in
+# Core per O5). `name` and `depends-on` are recorded here per the
+# package-split-plan package schema; the root-manifest / a la carte loader wiring
+# (PS-Loader) — and the default-contract-closure membership that keeps `1 < 5`
+# available without an explicit reference (operators-plan.md O3) — is a separate
+# follow-up (slice C-Cmp1).
+#
+# This pass stands up the contract surface only: the four bare ordering operators
+# relocated out of Vesper.Core. `compare` / `min` / `max` join them in C-Cmp1.
+#
+# See ../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md and
+# ../XParsec.FSharp.SemanticAnalysis/docs/operators-plan.md.
+
+[core]
+name = "Vesper.Comparison"
+namespace = "Vesper"
+description = "The ordering operators (< > <= >=); compare/min/max land in C-Cmp1."
+depends-on = ["Vesper.Core"]
+
+# Contract `.fsi` files in compile order (one, today).
+files = [
+    "comparison.fsi",
+]

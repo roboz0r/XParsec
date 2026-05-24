@@ -648,16 +648,23 @@ module Unification =
     and private arithmeticBinaryOps =
         Set.ofList [ "op_Addition"; "op_Subtraction"; "op_Multiply"; "op_Division"; "op_Modulus" ]
 
-    and private comparisonBinaryOps =
+    and private equalityBinaryOps = Set.ofList [ "op_Equality"; "op_Inequality" ]
+
+    and private orderingBinaryOps =
         Set.ofList
             [
                 "op_LessThan"
                 "op_GreaterThan"
                 "op_LessThanOrEqual"
                 "op_GreaterThanOrEqual"
-                "op_Equality"
-                "op_Inequality"
             ]
+
+    // Split per operators-plan.md O4: equality stays in Vesper.Core, ordering in
+    // Vesper.Comparison. Both families synthesise the same primitive trait shape
+    // (`prim*prim → bool`), so `tryPrimitiveTraitCandidate` checks the union; the
+    // split is what lets the decline-fallthrough diverge by family once the .fsi
+    // contracts become the live provider (today they resolve identically).
+    and private comparisonBinaryOps = Set.union equalityBinaryOps orderingBinaryOps
 
     and private tryPrimitiveTraitCandidate (memberName: string) (primName: string) (argCount: int) : SemType voption =
         if not (Set.contains primName numericPrimitives) then

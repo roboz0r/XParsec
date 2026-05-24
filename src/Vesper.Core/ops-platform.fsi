@@ -199,76 +199,11 @@ module BitwiseOperators =
         /// 
         val inline (~~~): value: ^T -> ^T when ^T: (static member (~~~): ^T -> ^T) and default ^T: int
 
+// Equality (`=` / `<>`) and `hash` stay in Vesper.Core. The four ordering
+// operators (`<` / `>` / `<=` / `>=`) moved to `Vesper.Comparison`
+// (operators-plan.md O2); `compare` / `min` / `max` join them there in C-Cmp1.
 [<AutoOpen>]
-module ComparisonOperators =
-        
-        /// <summary>Structural less-than comparison</summary>
-        ///
-        /// <param name="x">The first parameter.</param>
-        /// <param name="y">The second parameter.</param>
-        ///
-        /// <returns>The result of the comparison.</returns>
-        /// 
-        /// <example id="compare-less-than-example">
-        /// <code lang="fsharp">
-        /// 1 &lt; 5               // Evaluates to true
-        /// 5 &lt; 5               // Evaluates to false
-        /// (1, "a") &lt; (1, "z") // Evaluates to true
-        /// </code>
-        /// </example>
-        /// 
-        val inline (<): x: 'T -> y: 'T -> bool when 'T : comparison
-        
-        /// <summary>Structural greater-than</summary>
-        ///
-        /// <param name="x">The first parameter.</param>
-        /// <param name="y">The second parameter.</param>
-        ///
-        /// <returns>The result of the comparison.</returns>
-        /// 
-        /// <example id="compare-greater-than-example">
-        /// <code lang="fsharp">
-        ///  5 &gt; 1               // Evaluates to true
-        ///  5 &gt; 5               // Evaluates to false
-        ///  (1, "a") &gt; (1, "z") // Evaluates to false
-        /// </code>
-        /// </example>
-        /// 
-        val inline (>): x: 'T -> y: 'T -> bool when 'T: comparison
-        
-        /// <summary>Structural greater-than-or-equal</summary>
-        ///
-        /// <param name="x">The first parameter.</param>
-        /// <param name="y">The second parameter.</param>
-        ///
-        /// <returns>The result of the comparison.</returns>
-        /// 
-        /// <example id="compare-greater-than-or-equal-example">
-        /// <code lang="fsharp">
-        ///  5 >= 1              // Evaluates to true
-        ///  5 >= 5              // Evaluates to true
-        ///  [1; 5] >= [1; 6]    // Evaluates to false
-        /// </code>
-        /// </example>
-        /// 
-        val inline (>=): x: 'T -> y: 'T -> bool when 'T : comparison
-        
-        /// <summary>Structural less-than-or-equal comparison</summary>
-        ///
-        /// <param name="x">The first parameter.</param>
-        /// <param name="y">The second parameter.</param>
-        ///
-        /// <returns>The result of the comparison.</returns>
-        /// 
-        /// <example id="compare-less-than-or-equal-example">
-        /// <code lang="fsharp">
-        ///  5 &lt;= 1              // Evaluates to false
-        ///  5 &lt;= 5              // Evaluates to true
-        ///  [1; 5] &lt;= [1; 6]    // Evaluates to true
-        /// </code>
-        /// </example>
-        /// 
-        val inline (<=): x: 'T -> y: 'T -> bool when 'T: comparison
+module EqualityOperators =
         
         /// <summary>Structural equality</summary>
         ///
@@ -304,3 +239,22 @@ module ComparisonOperators =
         /// </example>
         /// 
         val inline (<>): x:'T -> y:'T -> bool when 'T : equality
+
+[<AutoOpen>]
+module Operators =
+
+        /// <summary>Generate a hash value for the given value. Part of the equality
+        /// family (operators-plan.md O6): no runtime member — codegen dispatches it
+        /// to a primitive hash or the structural hash of a generated type.</summary>
+        ///
+        /// <param name="obj">The input value.</param>
+        ///
+        /// <returns>The computed hash value.</returns>
+        ///
+        /// <example id="hash-example">
+        /// <code lang="fsharp">
+        /// hash 1   // Evaluates to a hash code
+        /// </code>
+        /// </example>
+        ///
+        val inline hash: obj: 'T -> int when 'T: equality
