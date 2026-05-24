@@ -27,6 +27,14 @@ module Cil =
             a sin null il
             (b ()) null sout il
 
+    /// Sequences a value-producing op into a continuation that consumes the
+    /// value — `let!` in the `cil` CE. The `Il`-derived value (a slot index, a
+    /// label) isn't known until emit time, so it can't be a plain `let`.
+    let inline bind (m: OpV<'i, 'm, 'a>) (f: 'a -> Op<'m, 'o>) : Op<'i, 'o> =
+        fun sin sout il ->
+            let a = m sin null il
+            (f a) null sout il
+
     // ---- Typed opcode surface (statically stack-checked) ----
 
     let ldarg (n: int) : Op<'x, 'x S> =
@@ -58,6 +66,10 @@ module Cil =
         fun _ _ il ->
             il.Encoder.OpCode(ILOpCode.Mul)
             il.Adjust -1
+
+    /// Declares a fresh local of `ty` and yields its slot index for `let!` to
+    /// thread into the `stloc`/`ldloc` that use it. Emits nothing — stack-neutral.
+    let declareLocal (ty: SemType) : OpV<'x, 'x, int> = fun _ _ il -> il.DeclareLocal ty
 
     let stloc (n: int) : Op<'x S, 'x> =
         fun _ _ il ->
@@ -95,6 +107,65 @@ module Cil =
             il.Adjust -1
 
     let retVoid<'y> : Op<E, 'y> = fun _ _ il -> il.Encoder.OpCode(ILOpCode.Ret)
+
+    // ---- Structured branching (typed) ----
+    //
+    // Labels stay private to these combinators rather than being exposed as
+    // ops: a branch is only stack-safe when its arms merge to the same shape,
+    // and a structured form makes that an invariant of the type instead of a
+    // rule the caller has to uphold. Both arms run from the same in-stack and
+    // are typed `Op<'i,'o>`, so an unbalanced branch simply won't compile.
+
+    /// `cond` leaves a bool; when true run `whenTrue`, else fall through. With no
+    /// else arm the skip path and the through path merge, so `whenTrue` must be
+    /// stack-neutral (`Op<'i,'i>`) — the type enforces it. Emits
+    /// `<cond>; brfalse end; <whenTrue>; end:`; no depth reset is needed because
+    /// the body leaves the post-`brfalse` depth unchanged.
+    let ifThen (cond: Op<'i, 'i S>) (whenTrue: Op<'i, 'i>) : Op<'i, 'i> =
+        fun _ _ il ->
+            cond null null il
+            let endLabel = il.Encoder.DefineLabel()
+            il.Encoder.Branch(ILOpCode.Brfalse, endLabel)
+            il.Adjust -1
+            whenTrue null null il
+            il.Encoder.MarkLabel endLabel
+
+    /// `cond` leaves a bool; when true run `whenTrue`, else `whenFalse`. Both
+    /// arms must leave the same stack shape `'o`. Emits
+    /// `<cond>; brfalse else; <whenTrue>; br end; else: <whenFalse>; end:`,
+    /// resetting the linear depth tracker to the post-`brfalse` base before the
+    /// else arm (both arms leave one extra slot but the tracker follows only one)
+    /// — see `Il.SetDepth`.
+    let ifThenElse (cond: Op<'i, 'i S>) (whenTrue: Op<'i, 'o>) (whenFalse: Op<'i, 'o>) : Op<'i, 'o> =
+        fun _ _ il ->
+            cond null null il
+            let elseLabel = il.Encoder.DefineLabel()
+            let endLabel = il.Encoder.DefineLabel()
+            il.Encoder.Branch(ILOpCode.Brfalse, elseLabel)
+            il.Adjust -1
+            let baseDepth = il.Depth
+            whenTrue null null il
+            il.Encoder.Branch(ILOpCode.Br, endLabel)
+            il.SetDepth baseDepth
+            il.Encoder.MarkLabel elseLabel
+            whenFalse null null il
+            il.Encoder.MarkLabel endLabel
+
+    /// `while <cond> do <body>`: emits `br test; body: <body>; test: <cond>;
+    /// brtrue body`. `cond` leaves a bool and `body` is stack-neutral, so the
+    /// loop leaves the stack unchanged. The `br`/`brtrue` chain is naturally
+    /// depth-balanced, so no `SetDepth` reset is needed.
+    let whileLoop (cond: Op<'i, 'i S>) (body: Op<'i, 'i>) : Op<'i, 'i> =
+        fun _ _ il ->
+            let testLabel = il.Encoder.DefineLabel()
+            let bodyLabel = il.Encoder.DefineLabel()
+            il.Encoder.Branch(ILOpCode.Br, testLabel)
+            il.Encoder.MarkLabel bodyLabel
+            body null null il
+            il.Encoder.MarkLabel testLabel
+            cond null null il
+            il.Encoder.Branch(ILOpCode.Brtrue, bodyLabel)
+            il.Adjust -1
 
     // ---- Untyped depth-tracked helpers (for the dynamic TAST walker) ----
 

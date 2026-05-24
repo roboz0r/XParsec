@@ -802,8 +802,8 @@ module Codegen =
         assembleWith project (fun _ _ -> fun il -> op null null il)
 
     /// Assemble a hand-written `Main` body that drives the untyped `Il`
-    /// surface directly — the testable seam for bodies that declare locals
-    /// (the typed `Op` CE can't thread a slot index without `Bind`).
+    /// surface directly — the testable seam for bodies the typed `Op` CE
+    /// doesn't yet cover (e.g. branching, which lives only on the `emit*` path).
     let assembleMainEmit (project: ProjectInfo) (build: Il -> unit) : ClrArtifact =
         assembleWith project (fun _ _ -> build)
 

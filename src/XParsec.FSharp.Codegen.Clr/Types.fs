@@ -53,6 +53,11 @@ type Il(encoder: InstructionEncoder) =
 
 type Op<'stackin, 'stackout> = S<'stackin> -> S<'stackout> -> Il -> unit
 
+/// An `Op` that also yields a value the emission produced — a declared local's
+/// slot index — for a dependent continuation to consume via the `cil` CE's
+/// `let!`. Such producers are stack-neutral (`'stackin = 'stackout`).
+type OpV<'stackin, 'stackout, 'a> = S<'stackin> -> S<'stackout> -> Il -> 'a
+
 /// The intrinsic-representation rekey: a Vesper primitive resolves to
 /// `TyConst name`, and the backend keys the emitted IL type off the
 /// *representation string* `name` maps to (`"int"` → `"System.Int32"` → `i4`)
