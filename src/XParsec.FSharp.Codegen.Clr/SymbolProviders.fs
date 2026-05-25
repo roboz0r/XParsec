@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.Codegen.Clr
 
+open System.IO
+open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
 /// Builds the symbol-resolution provider stack (symbol-resolution-plan §5, P1).
@@ -44,3 +46,80 @@ module SymbolProviders =
             )
 
         ExternalSymbols.composite (layer1 @ [ MetadataSymbols.provider; MockBuiltins.provider ])
+
+    /// The inline `val` bindings a referenced project contributes whose `.fs`
+    /// bodies must be *spliced* at the consumer's use site — a cross-package
+    /// inline (milestone M, symbol-resolution-handoff.md). Keyed by the binding's
+    /// source name (the same name the use-site `TExpr.External` carries); the
+    /// value is the frozen `TDecl.Let(isInline=true)` the codegen `Emit.lower`
+    /// expands in place of an `External(name)` call head.
+    ///
+    /// `hash` is the first such body: `let inline hash (obj: 'T) =
+    /// EqualityComparer<'T>.Default.GetHashCode obj` (`ops-platform.fs`). It is a
+    /// normal identifier, so it clears the operator-named-binding freeze gap that
+    /// still blocks `=`/`+`/… (core-operators-handoff.md). The arithmetic/equality
+    /// operators have no `.fs` body yet and stay on the `Emit.BuiltinOps` stopgap.
+    let private collectInlineBodies (tast: TastFile) : (string * TDecl) list =
+        tast.Decls
+        |> List.choose (fun d ->
+            match d with
+            // A module-level `let inline` resolves its source name through
+            // `ModuleMembers` (the same map `Emit.collectStaticFns` names static
+            // methods from); a top-level inline with no named-module placement is
+            // unaddressable from a use site, so it is skipped.
+            | TDecl.Let(TPat.NamedSimple(k, _), _, true, _) ->
+                match Map.tryFind k.Raw tast.ModuleMembers with
+                | Some info -> Some(info.Name, d)
+                | None -> None
+            | _ -> None
+        )
+
+    /// Load the cross-package inline bodies declared by the manifests' `impl`
+    /// `.fs` files. Each body is type-checked + frozen ONCE here, against the same
+    /// `provider` stack the consumer uses, so its `EqualityComparer<'T>` access
+    /// already freezes to keyed `TExpr.ExternalMember` nodes (P3) the consumer
+    /// emits verbatim (P4) — the consumer never re-resolves them. `provider` MUST
+    /// be `build manifestPaths` (it resolves both the contract's own types — `int`
+    /// from `prim-types-min.fsi` — and the BCL members the bodies reach).
+    ///
+    /// A later body wins on a name clash (the manifests are processed in order),
+    /// matching `composite`'s first-listed-source priority for symbol lookup. A
+    /// parse / impl-file-shape failure contributes no body (it surfaces as the
+    /// emit-time "no inline body / no recipe" failure at the use site, not here).
+    let inlineBodies (provider: IExternalSymbolProvider) (manifestPaths: string list) : Map<string, TDecl> =
+        let mutable acc = Map.empty
+
+        for manifestPath in manifestPaths do
+            match ReferencedProject.loadManifest manifestPath with
+            // A malformed manifest already failed `build`; nothing to add here.
+            | Result.Error _ -> ()
+            | Result.Ok manifest ->
+                let dir = Path.GetDirectoryName manifestPath
+
+                for rel in manifest.Impl do
+                    let file: FSharpLib.LibFile =
+                        {
+                            BucketName = manifest.Name
+                            Relative = rel
+                            Absolute = Path.Combine(dir, rel)
+                        }
+
+                    match FSharpLib.parseFileFull file with
+                    | Result.Error _ -> ()
+                    | Result.Ok parsed ->
+                        let implFile =
+                            match parsed.Ast with
+                            | FSharpAst.ImplementationFile f -> Some f
+                            | FSharpAst.ScriptFragment(ScriptFragment.ScriptFragment elems) ->
+                                Some(ImplementationFile.AnonymousModule elems)
+                            | _ -> None
+
+                        match implFile with
+                        | None -> ()
+                        | Some f ->
+                            let tast = Pipeline.analyse provider parsed.Input parsed.Lexed f
+
+                            for (name, decl) in collectInlineBodies tast do
+                                acc <- Map.add name decl acc
+
+        acc

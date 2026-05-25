@@ -531,7 +531,14 @@ module Emit =
     /// tree. After this, every `TExpr.Lambda` is a function value and every
     /// `External` is either a call head or has non-function type. Inline bindings
     /// are dropped (fully expanded at their use sites).
-    let lower (decls: TDecl list) : TDecl list =
+    ///
+    /// `externalInlines` maps a referenced package's inline `val` name to its
+    /// frozen body (a cross-package inline — milestone M, loaded by
+    /// `SymbolProviders.inlineBodies`). A saturated `External(name)` call head
+    /// found in that map is expanded in place exactly like a local `let inline`,
+    /// so `hash 5` becomes the `EqualityComparer<int>.Default.GetHashCode 5`
+    /// `ExternalMember` nodes the frozen body already carries (emitted by P4).
+    let lowerWith (externalInlines: Map<string, TDecl>) (decls: TDecl list) : TDecl list =
         let inlines = Dictionary<NodeKey, TDecl>()
 
         for d in decls do
@@ -591,6 +598,18 @@ module Emit =
                 |> Inline.freshen mint
             | _ -> expandInline k
 
+        // A cross-package inline (milestone M): expand the frozen referenced body
+        // with the call site's type arguments — always derived (unlike a local
+        // inline, whose non-static-opt path leaves typars abstract), because the
+        // body's `EqualityComparer<'T>` `ExternalMember` nodes need `'T` pinned to
+        // a concrete type before P4 can encode them.
+        let expandExternalInlineAt (decl: TDecl) (spineArgs: (TExpr * SemType) list) : TExpr =
+            match decl with
+            | TDecl.Let(_, _, _, declTy) ->
+                Inline.inlineExpand decl (deriveInlineTypeArgs declTy spineArgs)
+                |> Inline.freshen mint
+            | _ -> failwith "Emit: external inline body must be a TDecl.Let"
+
         let rec lowerExpr (e: TExpr) : TExpr =
             match e with
             | TExpr.App _ ->
@@ -599,6 +618,8 @@ module Emit =
                 match head with
                 | TExpr.Var(k, _) when inlines.ContainsKey k ->
                     lowerExpr (betaReduce (expandInlineAt k spineArgs) spineArgs)
+                | TExpr.External(name, _, _) when externalInlines.ContainsKey name ->
+                    lowerExpr (betaReduce (expandExternalInlineAt externalInlines.[name] spineArgs) spineArgs)
                 | _ ->
                     // An `External` head is a recipe call, so it stays in call
                     // position and is not eta-reified; the args are values.
@@ -624,6 +645,10 @@ module Emit =
             // Type declarations are emitted as metadata, not through the expr stream.
             | TDecl.Type _ -> None
         )
+
+    /// `lowerWith` with no cross-package inline bodies — the pure-local-inline
+    /// path (every caller that does not reference a manifest with `impl` bodies).
+    let lower (decls: TDecl list) : TDecl list = lowerWith Map.empty decls
 
     // ---- Closure discovery + capture analysis ----
 
@@ -1116,13 +1141,6 @@ module Emit =
     let private isFailwith (name: string) : bool =
         name = "failwith" || name.EndsWith ".failwith" || name.EndsWith "FailWith"
 
-    /// `hash x` resolves through the symbol provider to this name; the backend
-    /// emits `EqualityComparer<'T>.Default.GetHashCode(x)` (the External carries
-    /// the source name; a contract provider that supplies the compiled `Hash`
-    /// resolves the same way). See docs/core-operators-handoff.md (C-Eq1).
-    let private isHash (name: string) : bool =
-        name = "hash" || name.EndsWith ".hash" || name = "Hash" || name.EndsWith ".Hash"
-
     /// The cold printf path (`printfn "%A"` …). Its `PrintFormatLine` recipe leaves
     /// an FSharp.Core `FSharpFunc` printer on the stack, so the printer is applied
     /// via `FSharpFunc::Invoke`, not `Vesper.Fun::Invoke` (R1 leaves this FSharp.Core
@@ -1270,27 +1288,6 @@ module Emit =
                     b.Add(ILInstr.Newobj(env.Provider.ExceptionCtor, 1))
                     b.Add ILInstr.Throw
                 | [] -> failwith "Emit: failwith with no argument"
-            | TExpr.External(name, _, _) when isHash name ->
-                // `hash x` → `EqualityComparer<'T>.Default.GetHashCode(x)`. There is
-                // no IL opcode for a structural hash, so — unlike `=`/`+`/`<`, which
-                // `expandBuiltinOps` collapses to a `TExpr.ILIntrinsic` — `hash`
-                // can't be a `BuiltinOps` body: it rides the BCL comparer, the same
-                // `EqualityComparer<T>` family the DU triple hashes its fields
-                // through, so `hash` and `=` agree by construction (equal values
-                // hash equal). Emitted here, not as a `CallRecipe`, because the
-                // comparer receiver must sit *beneath* the argument and a recipe
-                // pushes its args first. BCL-only (docs/core-operators-handoff.md).
-                match spineArgs with
-                | (arg, _) :: _ ->
-                    let elemTy =
-                        match zonk (typeOfExpr head) with
-                        | TyFun(d, _) -> d
-                        | other -> failwithf "Emit: hash head is not a function type: %A" other
-
-                    b.Add(ILInstr.Call(env.Provider.EqualityComparerDefault elemTy, 0, 1)) // EqualityComparer<'T>.Default
-                    buildExpr env b arg
-                    b.Add(ILInstr.Callvirt(env.Provider.EqualityComparerGetHashCode elemTy, 2, 1)) // .GetHashCode(x)
-                | [] -> failwith "Emit: hash with no argument"
             | TExpr.External(name, _, _) ->
                 // The recipe reads its generic instantiation from the head's
                 // full curried type (`fnTy`).

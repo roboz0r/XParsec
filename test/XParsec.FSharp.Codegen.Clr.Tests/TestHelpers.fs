@@ -166,6 +166,30 @@ let compileSourceTo (project: ProjectInfo) (input: string) : ClrArtifact = compi
 let compileSourceWith (manifestPaths: string list) (assemblyName: string) (input: string) : TastFile * ClrArtifact =
     compileWith manifestPaths (ProjectInfo.defaults assemblyName) input
 
+/// Milestone M wiring: like `compileWith`, but it *also* loads each manifest's
+/// cross-package inline bodies (`SymbolProviders.inlineBodies`) and threads them
+/// to codegen, so a use-site `External(name)` whose body lives in a referenced
+/// `.fs` (today: `hash` from `ops-platform.fs`) is spliced in by `Emit.lowerWith`
+/// rather than served by a codegen stopgap. With the `Vesper.Core` manifest at
+/// the head of the stack, `hash` resolves from the contract's `[<AutoOpen>]
+/// Operators`, its `EqualityComparer<'T>` access resolves from layer-2 metadata,
+/// and the frozen body emits through P4 — the `Emit.isHash` stopgap is gone.
+let private compileContract
+    (manifestPaths: string list)
+    (project: ProjectInfo)
+    (input: string)
+    : TastFile * ClrArtifact =
+    let provider = SymbolProviders.build manifestPaths
+    let inlines = SymbolProviders.inlineBodies provider manifestPaths
+    let lexed, file = parseFile input
+    let tast = Pipeline.analyse provider input lexed file
+    let artifact = Codegen.compileWithInlines inlines provider (withCore project) tast
+    tast, artifact
+
+/// Contract-backed compile against the real `Vesper.Core` manifest (milestone M).
+let compileSourceContract (assemblyName: string) (input: string) : TastFile * ClrArtifact =
+    compileContract [ vesperCoreManifest ] (ProjectInfo.defaults assemblyName) input
+
 /// Run a materialised app out-of-process via the `dotnet` host, the counterpart
 /// to the in-process `runEntryPoint`. On a non-zero exit, stderr is appended so
 /// host failures (missing runtimeconfig, unresolved reference) surface in the

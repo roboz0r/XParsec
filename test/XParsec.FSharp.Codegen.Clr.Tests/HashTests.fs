@@ -6,24 +6,58 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // `hash` — the third equality-family member (docs/core-operators-handoff.md,
-// C-Eq1). It has no single IL opcode, so unlike `=`/`<`/`+` (which lower to a
-// `TExpr.ILIntrinsic`) a `hash x` use site stays an `External("hash")` call and
-// the backend emits `EqualityComparer<'T>.Default.GetHashCode(x)` — the same
-// `EqualityComparer<T>` family the DU triple hashes its fields through, so `hash`
-// and `=` agree by construction (equal values hash equal). BCL-only.
+// C-Eq1) — now sourced from `src/Vesper.Core/ops-platform.fs`, not the
+// `Emit.isHash` codegen stopgap (milestone M, docs/symbol-resolution-handoff.md).
+//
+// `let inline hash (obj: 'T) = EqualityComparer<'T>.Default.GetHashCode obj` is
+// loaded as a cross-package inline body (`SymbolProviders.inlineBodies`) and
+// spliced at each `hash` use site by `Emit.lowerWith`. So `hash 5` lowers to the
+// two `ExternalMember` nodes (`EqualityComparer<int>.Default` static property +
+// `GetHashCode` instance method) that P4 emits — the same `EqualityComparer<T>`
+// family the DU triple hashes its fields through, so `hash` and `=` agree by
+// construction (equal values hash equal). BCL-only (no FSharp.Core). These tests
+// run on `compileSourceContract` (the `Vesper.Core` manifest at the head of the
+// resolution stack); `hash` resolves from the contract's `[<AutoOpen>] Operators`.
 
 [<Tests>]
 let tests =
     testList
         "Hash"
         [
-            test "`hash 5` resolves and survives lowering as an `External(\"hash\")` call (no opcode rewrite)" {
-                let tast = analyse "let v = hash 5"
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            test
+                "`hash 5` lowers to the EqualityComparer<int>.Default.GetHashCode ExternalMember nodes (no surviving External)" {
+                // The contract path resolves `hash` to its `ops-platform.fs` inline
+                // body, which `Emit.lowerWith` splices in: `hash 5` becomes
+                // `let _ = 5 in EqualityComparer<int>.Default.GetHashCode _` —
+                // `'T` pinned to `int`, the `External("hash")` head gone.
+                let provider = SymbolProviders.build [ vesperCoreManifest ]
+                let inlines = SymbolProviders.inlineBodies provider [ vesperCoreManifest ]
+                Expect.isTrue (Map.containsKey "hash" inlines) "hash inline body loaded from ops-platform.fs"
 
-                match Emit.lower tast.Decls with
-                | [ TDecl.Let(TPat.NamedSimple _, TExpr.App(TExpr.External("hash", _, _), _, _), false, _) ] -> ()
-                | other -> failtestf "expected `hash 5` to stay an External(\"hash\") application, got %A" other
+                let lexed, file = parseFile "let v = hash 5"
+                let tast = Pipeline.analyse provider "let v = hash 5" lexed file
+                Expect.isEmpty (tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)) "no errors"
+
+                match Emit.lowerWith inlines tast.Decls with
+                | [ TDecl.Let(TPat.NamedSimple _,
+                              TExpr.Let(_,
+                                        TExpr.Const(TConstValue.Int 5, _),
+                                        TExpr.App(TExpr.ExternalMember(ValueSome(TExpr.ExternalMember(ValueNone,
+                                                                                                      _,
+                                                                                                      "Default",
+                                                                                                      true,
+                                                                                                      _)),
+                                                                       _,
+                                                                       "GetHashCode",
+                                                                       false,
+                                                                       _),
+                                                  TExpr.Var _,
+                                                  _),
+                                        _),
+                              false,
+                              _) ] -> ()
+                | other ->
+                    failtestf "expected `hash 5` to lower to EqualityComparer<int>.Default.GetHashCode, got %A" other
             }
 
             test "`hash n` for an int is the identity (Int32.GetHashCode returns the value)" {
@@ -39,7 +73,7 @@ let tests =
                             "printfn \"%d\" (hash 42)" // 42
                         ]
 
-                let _, artifact = compileSource "HashInt" src
+                let _, artifact = compileSourceContract "HashInt" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -55,7 +89,7 @@ let tests =
                             "printfn \"%d\" (hash false)" // 0
                         ]
 
-                let _, artifact = compileSource "HashBool" src
+                let _, artifact = compileSourceContract "HashBool" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -74,7 +108,7 @@ let tests =
                             "printfn \"%d\" (if (hash 'A') = (hash 'B') then 1 else 0)" // 0
                         ]
 
-                let _, artifact = compileSource "HashCharConsistency" src
+                let _, artifact = compileSourceContract "HashCharConsistency" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -82,7 +116,7 @@ let tests =
             }
 
             test "`hash` pins no FSharp.Core dependency (eq §4: it rides the BCL comparer, not a runtime library)" {
-                let _, artifact = compileSource "HashNoDep" "printfn \"%d\" (hash 5)"
+                let _, artifact = compileSourceContract "HashNoDep" "printfn \"%d\" (hash 5)"
 
                 Expect.isEmpty
                     artifact.FSharpCoreDependencies

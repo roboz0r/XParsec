@@ -212,6 +212,7 @@ module Codegen =
     /// emitted last, sorted by `CodedIndex.TypeOrMethodDef(owner)` then index, as
     /// SRM requires (a method owner can sort before its declaring type).
     let private assemble
+        (externalInlines: Map<string, TDecl>)
         (symbols: IExternalSymbolProvider)
         (project: ProjectInfo)
         (tast: TastFile)
@@ -251,7 +252,7 @@ module Codegen =
         // realigns per body internally, so reuse is correct.
         let bodyStream = ctx.BodyStream
 
-        let lowered = Emit.lower tast.Decls
+        let lowered = Emit.lowerWith externalInlines tast.Decls
 
         // Top-level functions emitted as static methods (P3b) — excluded from
         // closure discovery and resolved as direct `call`s at their use sites.
@@ -1106,10 +1107,24 @@ module Codegen =
     /// (`ClrProvider.ExternalMemberRef`). `ProjectInfo.OutputKind` routes to the
     /// executable (`Main` + `Program`) or library (declared types, no entry point)
     /// tail of the one converged assembler.
-    let compile (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tast: TastFile) : ClrArtifact =
+    /// `compile` plus the cross-package inline bodies (milestone M): a referenced
+    /// package's `val inline` whose `.fs` body is *spliced* at each use site rather
+    /// than called as a compiled member (`SymbolProviders.inlineBodies`). The map
+    /// is threaded to `Emit.lowerWith`, which expands a saturated `External(name)`
+    /// call head found in it. `compile` passes an empty map (the pure-local-inline
+    /// path); a driver that references a manifest with `impl` bodies uses this.
+    let compileWithInlines
+        (externalInlines: Map<string, TDecl>)
+        (symbols: IExternalSymbolProvider)
+        (project: ProjectInfo)
+        (tast: TastFile)
+        : ClrArtifact =
         match project.OutputKind with
-        | Library -> assemble symbols project tast false
-        | Exe -> assemble symbols project tast true
+        | Library -> assemble externalInlines symbols project tast false
+        | Exe -> assemble externalInlines symbols project tast true
+
+    let compile (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tast: TastFile) : ClrArtifact =
+        compileWithInlines Map.empty symbols project tast
 
     /// Assemble a hand-written `Main` body that drives the untyped `Il` surface
     /// directly — the testable seam for hand-written bodies (e.g. an `IlIr`

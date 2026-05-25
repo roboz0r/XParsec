@@ -1,0 +1,52 @@
+namespace                          'namespace'       KWNamespace         tok=   0  pos=   0
+                                   'Vesper'          Identifier          tok=   2  pos=  10
+  Import:
+    open                           'open'            KWOpen              tok=   5  pos=  18
+                                   'System'          Identifier          tok=   7  pos=  23
+                                   'Collection...'   Identifier          tok=   9  pos=  30
+                                   'Generic'         Identifier          tok=  11  pos=  42
+  Module:
+    [<                             '[<'              KWLAttrBracket      tok=  47  pos=1164
+    NamedType:
+      Ident                        'AutoOpen'        Identifier          tok=  48  pos=1166
+    >]                             '>]'              KWRAttrBracket      tok=  49  pos=1174
+    module                         'module'          KWModule            tok=  51  pos=1177
+    ident                          'Operators'       Identifier          tok=  53  pos=1184
+    =                              '='               OpEquality          tok=  55  pos=1194
+    begin                          <virt>            KWBegin             tok=virt  pos=1553
+      FunctionOrValue:
+        let                        'let'             KWLet               tok=  74  pos=1553
+          inline                   'inline'          KWInline            tok=  76  pos=1557
+          Pat.NamedSimple          'hash'            Identifier          tok=  78  pos=1564
+          Pats:
+            ParenBlock             '('               KWLParen            tok=  80  pos=1569
+              Pat.Typed:
+                Pat.NamedSimple    'obj'             Identifier          tok=  81  pos=1570
+                Colon              ':'               OpColon             tok=  82  pos=1573
+                VarType:
+                  Typar.Named:
+                                   ''T'              TypeParameter       tok=  84  pos=1575
+                                   ')'               KWRParen            tok=  85  pos=1577
+          =                        '='               OpEquality          tok=  87  pos=1579
+            App:
+              Func:
+                DotLookup:
+                  Expr:
+                    DotLookup:
+                      Expr:
+                        TypeApp:
+                          Expr:
+                            Ident  'EqualityCo...'   Identifier          tok=  89  pos=1581
+                          Types:
+                            VarType:
+                              Typar.Named:
+                                   ''T'              TypeParameter       tok=  91  pos=1598
+                      Dot          '.'               OpDot               tok=  92  pos=1601
+                      LongIdentOrOp:
+                        Ident      'Default'         Identifier          tok=  93  pos=1602
+                  Dot              '.'               OpDot               tok=  94  pos=1609
+                  LongIdentOrOp:
+                    Ident          'GetHashCod...'   Identifier          tok=  95  pos=1610
+              Args:
+                Ident              'obj'             Identifier          tok=  97  pos=1622
+    end                            <virt>            KWEnd               tok=virt  pos=1626

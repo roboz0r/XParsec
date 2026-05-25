@@ -55,6 +55,7 @@ To run a test suite, you must use the `Test` action and specify the exact test p
 - `XParsec.MessagePack.Tests`
 - `XParsec.Tests`
 - `XParsec.Toml.Tests`
+- `Vesper.Tests`
 
 **Focusing a specific test — two options:**
 

@@ -11,14 +11,13 @@
 # operators alone force the contract to be signature-only (a `let inline (+)`
 # body needs inline IL / `--compiling-fslib`).
 #
-# NOTE (2026-05-24): the operator/`hash` IMPLEMENTATIONS do not exist as `.fs`
-# yet — there is no `ops-platform.fs`. The only `.fs` here are `prim-types-min.fs`
-# + `prim-types-string.fs` (built into Vesper.Core.dll). The live `=`/`<>`/
-# arithmetic and `hash` semantics are emitted by codegen-side stopgaps
-# (`Emit.BuiltinOps` op→opcode table + `Emit.isHash`), NOT read from source.
-# Writing the real `ops-platform.fs` is blocked on two front-end gaps: operator-
-# named bindings don't freeze, and there is no BCL generic-member resolution for
-# the `EqualityComparer<'T>` fall-clauses. See
+# NOTE (2026-05-25): `hash` now HAS a real `.fs` body (`ops-platform.fs`, listed
+# in `impl` below). Codegen reads it across the package boundary via the inline-
+# body loader (`SymbolProviders.inlineBodies`) and splices it at each use site —
+# the `Emit.isHash` stopgap is gone (milestone M, symbol-resolution-handoff.md).
+# The `=`/`<>`/arithmetic OPERATOR bodies are still codegen-side stopgaps
+# (`Emit.BuiltinOps` op→opcode table) — they are blocked on the operator-named-
+# binding freeze gap and remain `.fsi`-only (no `.fs` body) for now. See
 # ../XParsec.FSharp.SemanticAnalysis/docs/core-operators-handoff.md.
 #
 # See ./README.md and ../XParsec.FSharp.SemanticAnalysis/docs/minimal-core-lib-plan.md.
@@ -46,4 +45,14 @@ files = [
     "core-types.fsi",
     "ops-platform.fsi",
     "ops-std.fsi",
+]
+
+# Per-target `.fs` bodies the codegen inline-body loader reads across the package
+# boundary (symbol-resolution-plan §5.2/§5.3). Only `ops-platform.fs` (the `hash`
+# inline body, milestone M) so far; `prim-types-min.fs` / `prim-types-string.fs`
+# are compiled into Vesper.Core.dll separately (they bind extern *types*, not
+# inline values, so they are not inline-body sources). The operator `.fs` bodies
+# join this list once operator-named bindings freeze.
+impl = [
+    "ops-platform.fs",
 ]
