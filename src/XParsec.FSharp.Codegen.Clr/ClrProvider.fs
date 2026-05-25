@@ -168,6 +168,21 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>, references: M
 
     let eException = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "Exception")))
 
+    // BCL refs for synthesised structural equality / hashing (C-Eq1). Both live
+    // in `System.Private.CoreLib` (`coreRef`), so a union's generated
+    // `Equals`/`GetHashCode` pins only the BCL — no FSharp.Core, no Vesper.Core.
+    let eEqualityComparer1 =
+        lazy (toEntity (ctx.TypeRef(coreRef.Value, "System.Collections.Generic", "EqualityComparer`1")))
+
+    let eHashCode = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "HashCode")))
+
+    // `System.IEquatable\`1` — the interface a monomorphic union implements so its
+    // typed `Equals(Self)` is the boxing-free path `EqualityComparer<Self>.Default`
+    // (a `GenericEqualityComparer`) reaches (C-Eq1). BCL (`coreRef`), so it pins no
+    // FSharp.Core / Vesper dependency.
+    let eEquatable1 =
+        lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "IEquatable`1")))
+
     /// `instance void System.Object::.ctor()` — the base ctor a union's own
     /// parameterless `.ctor` chains to.
     let eObjectCtor =
@@ -352,6 +367,10 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>, references: M
                 te.Type(eUnit.Value, false)
             | TyConst "System.IO.TextWriter" -> te.Type(eTextWriter.Value, false)
             | TyConst "Vesper.Formatter" -> te.Type(eFormatter.Value, true)
+            // The `System.HashCode` accumulator local of a union's generated
+            // `GetHashCode` (a value type, like `Formatter`); name-keyed because
+            // it has no Vesper-primitive representation.
+            | TyConst "System.HashCode" -> te.Type(eHashCode.Value, true)
             | TyConst name when reprs.ContainsKey name ->
                 // Primitive binding: key the IL type off the representation string the
                 // name maps to (`"int"` → `"System.Int32"` → `i4`), not the Vesper
@@ -1157,6 +1176,96 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>, references: M
             AppendZeroPaddedFloat = appendZeroPaddedFloat
         }
 
+    // ---- Structural equality / hashing helpers (C-Eq1) ----
+
+    /// `EqualityComparer\`1<elem>` as a member-ref parent `TypeSpec`.
+    let equalityComparerTypeSpec (elem: SemType) : EntityHandle =
+        let tsB = BlobBuilder()
+        let te = BlobEncoder(tsB).TypeSpecificationSignature()
+        let g = te.GenericInstantiation(eEqualityComparer1.Value, 1, false)
+        encodeType (g.AddArgument()) (zonk elem)
+        toEntity (ctx.TypeSpec tsB)
+
+    /// `static EqualityComparer\`1<!0> get_Default()` on `EqualityComparer\`1<elem>`.
+    let equalityComparerDefault (elem: SemType) : EntityHandle =
+        let parent = equalityComparerTypeSpec elem
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(isInstanceMethod = false)
+            .Parameters(
+                0,
+                (fun (ret: ReturnTypeEncoder) ->
+                    let g = ret.Type().GenericInstantiation(eEqualityComparer1.Value, 1, false)
+                    g.AddArgument().GenericTypeParameter(0)
+                ),
+                (fun (_: ParametersEncoder) -> ())
+            )
+
+        toEntity (ctx.MemberRef(parent, "get_Default", s))
+
+    /// `instance bool Equals(!0, !0)` on `EqualityComparer\`1<elem>` — the
+    /// abstract method `EqualityComparer<T>` declares (reached via `callvirt`).
+    let equalityComparerEquals (elem: SemType) : EntityHandle =
+        let parent = equalityComparerTypeSpec elem
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(isInstanceMethod = true)
+            .Parameters(
+                2,
+                (fun (ret: ReturnTypeEncoder) -> ret.Type().Boolean()),
+                (fun (pars: ParametersEncoder) ->
+                    pars.AddParameter().Type().GenericTypeParameter(0)
+                    pars.AddParameter().Type().GenericTypeParameter(0)
+                )
+            )
+
+        toEntity (ctx.MemberRef(parent, "Equals", s))
+
+    /// `instance void System.HashCode::Add<T>(!!0)` as a `MethodSpec` over `<elem>`.
+    let hashCodeAdd (elem: SemType) : EntityHandle =
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(genericParameterCount = 1, isInstanceMethod = true)
+            .Parameters(
+                1,
+                (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                (fun (pars: ParametersEncoder) -> pars.AddParameter().Type().GenericMethodTypeParameter(0))
+            )
+
+        let memberRef = ctx.MemberRef(eHashCode.Value, "Add", s)
+        let inst = BlobBuilder()
+        let specEnc = BlobEncoder(inst).MethodSpecificationSignature(1)
+        encodeType (specEnc.AddArgument()) (zonk elem)
+        toEntity (ctx.MethodSpec(toEntity memberRef, inst))
+
+    /// `instance int32 System.HashCode::ToHashCode()`.
+    let eHashCodeToHashCode =
+        lazy
+            (let s = BlobBuilder()
+
+             BlobEncoder(s)
+                 .MethodSignature(isInstanceMethod = true)
+                 .Parameters(
+                     0,
+                     (fun (ret: ReturnTypeEncoder) -> ret.Type().Int32()),
+                     (fun (_: ParametersEncoder) -> ())
+                 )
+
+             toEntity (ctx.MemberRef(eHashCode.Value, "ToHashCode", s)))
+
+    /// `System.IEquatable\`1<self>` as a `TypeSpec` `EntityHandle` — the union's
+    /// `InterfaceImpl` row (C-Eq1). Same shape as `funInterfaceSpec`, one argument:
+    /// the implementing union's own (monomorphic) `SemType`.
+    let equatableInterfaceSpec (selfTy: SemType) : EntityHandle =
+        let tsB = BlobBuilder()
+        let te = BlobEncoder(tsB).TypeSpecificationSignature()
+        let g = te.GenericInstantiation(eEquatable1.Value, 1, false)
+        encodeType (g.AddArgument()) (zonk selfTy)
+        toEntity (ctx.TypeSpec tsB)
+
     member _.ObjectType: EntityHandle = eObject.Value
 
     /// Member ref to `System.Object::.ctor()` for a union's base-ctor chain.
@@ -1354,6 +1463,75 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>, references: M
             | _ -> false
 
         encodeTypeCore tryLeaf te t
+
+    // ---- Structural equality / hashing surface (C-Eq1) ----
+
+    /// The `System.HashCode` accumulator local type for a union's `GetHashCode`.
+    member _.HashCodeType: SemType = TyConst "System.HashCode"
+
+    /// `EqualityComparer<T>.Default` getter for a field type `T`.
+    member _.EqualityComparerDefault(elem: SemType) : EntityHandle = equalityComparerDefault elem
+
+    /// `EqualityComparer<T>::Equals(T, T) : bool` for a field type `T`.
+    member _.EqualityComparerEquals(elem: SemType) : EntityHandle = equalityComparerEquals elem
+
+    /// `System.HashCode::Add<T>(T)` for a field/tag type `T`.
+    member _.HashCodeAdd(elem: SemType) : EntityHandle = hashCodeAdd elem
+
+    /// `System.HashCode::ToHashCode() : int`.
+    member _.HashCodeToHashCode: EntityHandle = eHashCodeToHashCode.Value
+
+    /// A registered user type's (predicted) `TypeDefinition` handle — the
+    /// `isinst` / cast target for a monomorphic union's generated `Equals`.
+    member _.UserTypeHandle(name: string) : EntityHandle = userTypes.[name]
+
+    /// `override bool Equals(object)` signature. The parameter is the compact
+    /// `ELEMENT_TYPE_OBJECT` encoding (`.Object()`), not `class System.Object` —
+    /// `System.Object::Equals(object)` uses the compact form, and implicit
+    /// override binding is by signature *blob* match, so the encodings must agree
+    /// (else the method lands in a new vtable slot instead of overriding).
+    member _.EqualsOverrideSignature() : BlobBuilder =
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(isInstanceMethod = true)
+            .Parameters(
+                1,
+                (fun (ret: ReturnTypeEncoder) -> ret.Type().Boolean()),
+                (fun (pars: ParametersEncoder) -> pars.AddParameter().Type().Object())
+            )
+
+        s
+
+    /// `override int GetHashCode()` signature.
+    member _.GetHashCodeOverrideSignature() : BlobBuilder =
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(isInstanceMethod = true)
+            .Parameters(0, (fun (ret: ReturnTypeEncoder) -> ret.Type().Int32()), (fun (_: ParametersEncoder) -> ()))
+
+        s
+
+    /// `System.IEquatable\`1<self>` `TypeSpec` for the union's `InterfaceImpl` row.
+    member _.EquatableInterfaceSpec(selfTy: SemType) : EntityHandle = equatableInterfaceSpec selfTy
+
+    /// `instance bool Equals(Self)` — the typed `IEquatable<Self>::Equals`
+    /// signature. The parameter is the union's own `TypeDefinition` (via
+    /// `encodeType`); implicit interface binding matches it to the instantiated
+    /// `IEquatable<Self>::Equals(!0)`.
+    member _.EqualsTypedSignature(selfTy: SemType) : BlobBuilder =
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(isInstanceMethod = true)
+            .Parameters(
+                1,
+                (fun (ret: ReturnTypeEncoder) -> ret.Type().Boolean()),
+                (fun (pars: ParametersEncoder) -> encodeType (pars.AddParameter().Type()) (zonk selfTy))
+            )
+
+        s
 
     interface ICodegenProvider with
         member _.ObjectType = eObject.Value

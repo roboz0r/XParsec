@@ -24,6 +24,7 @@
     <Compile Include="SelfHostR4Tests.fs" />
     <Compile Include="ILIntrinsicTests.fs" />
     <Compile Include="OperatorRoutingTests.fs" />
+    <Compile Include="StructuralEqualityTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

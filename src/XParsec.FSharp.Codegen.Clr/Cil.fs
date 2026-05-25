@@ -231,6 +231,21 @@ module Cil =
         il.Encoder.OpCode(ILOpCode.Dup)
         il.Adjust 1
 
+    /// `isinst <type>` — replaces the object reference on the stack with the same
+    /// reference typed as `t` (or `null` when it isn't a `t`). Net stack-neutral.
+    let emitIsinst (il: Il) (t: EntityHandle) : unit =
+        il.Encoder.OpCode(ILOpCode.Isinst)
+        il.Encoder.Token(t)
+        il.Adjust 0
+
+    /// `callvirt` against a metadata handle with the receiver + args already on
+    /// the stack. SRM has no `Callvirt` helper, so the opcode + token are emitted
+    /// by hand; depth adjusts by `pushes - argc` (`argc` includes the receiver).
+    let emitCallvirt (il: Il) (m: EntityHandle) (argc: int) (pushes: int) : unit =
+        il.Encoder.OpCode(ILOpCode.Callvirt)
+        il.Encoder.Token(m)
+        il.Adjust(pushes - argc)
+
     let emitRet (il: Il) : unit = il.Encoder.OpCode(ILOpCode.Ret)
 
     // ---- Inline-IL value ops (the value-level `(# "op" args : ty #)`) ----

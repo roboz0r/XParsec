@@ -1669,3 +1669,140 @@ module Emit =
         )
 
         Cil.emitRet il
+
+    // ---- Structural equality / hashing for a monomorphic union (C-Eq1) ----
+
+    /// The resolved handles a monomorphic union's synthesised `Equals(object)` /
+    /// `GetHashCode()` bodies need. Codegen builds this from the concrete
+    /// `ClrProvider`; the bodies below stay decoupled from how the BCL refs are
+    /// minted (the per-field-type recipes are passed as functions).
+    ///
+    /// **Why a flat field walk works.** Every value is built through a case
+    /// factory (`emitUnionFactory`), which sets only its *own* case's payload
+    /// fields; a DU is immutable, so a field belonging to any other case is
+    /// always its default. So once the tags match, comparing / hashing *every*
+    /// field (not just the active case's) is equivalent to the §5.2 per-case
+    /// walk, and needs no `_tag` switch — fewer branches, same result.
+    type UnionEqualitySupport =
+        {
+            /// The union's own `TypeDefinition` — the `isinst` target.
+            SelfType: EntityHandle
+            /// `TyUnion(name, [])` — the type of the cast `other` local.
+            SelfSemType: SemType
+            TagField: EntityHandle
+            /// `(field handle, field type)` across every case, declaration order.
+            Fields: (EntityHandle * SemType) list
+            /// `int` — the tag's type, for `HashCode.Add<int>`.
+            IntType: SemType
+            /// `EqualityComparer<T>.Default` getter for a field type.
+            ComparerDefault: SemType -> EntityHandle
+            /// `EqualityComparer<T>::Equals(T, T) : bool` for a field type.
+            ComparerEquals: SemType -> EntityHandle
+            /// The `System.HashCode` value-type local.
+            HashCodeLocal: SemType
+            /// `HashCode::Add<T>(T)` for a field/tag type.
+            HashCodeAdd: SemType -> EntityHandle
+            /// `HashCode::ToHashCode() : int`.
+            HashCodeToHashCode: EntityHandle
+        }
+
+    /// The §5.2 tag-then-field comparison shared by both equality entry points
+    /// (the `Equals(object)` override and the typed `IEquatable<Self>::Equals`):
+    /// `this` is `ldarg.0`, `other` is pushed by `loadOther` (already a non-null
+    /// `Self`). Tags must match, then each field via `EqualityComparer<F>.Default`
+    /// (the §3.2 rule — total, so a `float` field gets `NaN = NaN` in this
+    /// structural context, O7). Any mismatch branches to `falseLabel`; on
+    /// fall-through the operands are equal.
+    let private emitTagAndFieldEquality
+        (s: UnionEqualitySupport)
+        (il: Il)
+        (loadOther: Il -> unit)
+        (falseLabel: LabelHandle)
+        : unit =
+        // if (this._tag != other._tag) return false;
+        Cil.emitLdarg il 0
+        Cil.emitLdfld il s.TagField
+        loadOther il
+        Cil.emitLdfld il s.TagField
+        Cil.emitBneUn il falseLabel
+
+        // per field: if (!comparer.Equals(this.F, other.F)) return false;
+        for (fieldHandle, fieldTy) in s.Fields do
+            Cil.emitCall il (s.ComparerDefault fieldTy) 0 1 // EqualityComparer<F>.Default
+            Cil.emitLdarg il 0
+            Cil.emitLdfld il fieldHandle
+            loadOther il
+            Cil.emitLdfld il fieldHandle
+            Cil.emitCallvirt il (s.ComparerEquals fieldTy) 3 1 // .Equals(this.F, other.F)
+            Cil.emitBrFalse il falseLabel
+
+    /// `override bool Equals(object obj)` for a monomorphic union: `obj is Self`
+    /// (also rejects `null`), then the shared tag/field walk. Any failure jumps to
+    /// the shared `false` tail.
+    let emitUnionEquals (s: UnionEqualitySupport) (il: Il) : unit =
+        let other = il.DeclareLocal s.SelfSemType
+        let falseLabel = Cil.defineLabel il
+
+        // other = obj as Self;  if (other == null) return false;
+        Cil.emitLdarg il 1
+        Cil.emitIsinst il s.SelfType
+        Cil.emitStloc il other
+        Cil.emitLdloc il other
+        Cil.emitBrFalse il falseLabel
+
+        emitTagAndFieldEquality s il (fun il -> Cil.emitLdloc il other) falseLabel
+
+        Cil.emitLdcI4 il 1
+        Cil.emitRet il
+        // The `false` tail: every branch above merges here at depth 0.
+        il.SetDepth 0
+        Cil.markLabel il falseLabel
+        Cil.emitLdcI4 il 0
+        Cil.emitRet il
+
+    /// `bool Equals(Self other)` — the typed `IEquatable<Self>::Equals` a
+    /// monomorphic union implements (C-Eq1). `other` (`ldarg.1`) is already `Self`,
+    /// so no `isinst` — just a `null` guard, then the same tag/field walk. This is
+    /// the boxing-free path `EqualityComparer<Self>.Default` (now a
+    /// `GenericEqualityComparer`, since the union declares `IEquatable<Self>`)
+    /// reaches, so it — not `Equals(object)` — is the one a nested DU field
+    /// recurses through.
+    let emitUnionEqualsTyped (s: UnionEqualitySupport) (il: Il) : unit =
+        let falseLabel = Cil.defineLabel il
+
+        // if (other == null) return false;
+        Cil.emitLdarg il 1
+        Cil.emitBrFalse il falseLabel
+
+        emitTagAndFieldEquality s il (fun il -> Cil.emitLdarg il 1) falseLabel
+
+        Cil.emitLdcI4 il 1
+        Cil.emitRet il
+        // The `false` tail: every branch above merges here at depth 0.
+        il.SetDepth 0
+        Cil.markLabel il falseLabel
+        Cil.emitLdcI4 il 0
+        Cil.emitRet il
+
+    /// `override int GetHashCode()` for a monomorphic union: a `System.HashCode`
+    /// accumulator seeded with the `_tag`, then every field added through it
+    /// (`HashCode.Add<T>` itself routes through `EqualityComparer<T>.Default`, so
+    /// it is the same §3.2 rule), then `ToHashCode()`. Equal values hash equal:
+    /// the tag distinguishes cases and inactive-case fields are uniformly default.
+    let emitUnionGetHashCode (s: UnionEqualitySupport) (il: Il) : unit =
+        let hc = il.DeclareLocal s.HashCodeLocal
+
+        Cil.emitLdloca il hc
+        Cil.emitLdarg il 0
+        Cil.emitLdfld il s.TagField
+        Cil.emitCall il (s.HashCodeAdd s.IntType) 2 0
+
+        for (fieldHandle, fieldTy) in s.Fields do
+            Cil.emitLdloca il hc
+            Cil.emitLdarg il 0
+            Cil.emitLdfld il fieldHandle
+            Cil.emitCall il (s.HashCodeAdd fieldTy) 2 0
+
+        Cil.emitLdloca il hc
+        Cil.emitCall il s.HashCodeToHashCode 1 1
+        Cil.emitRet il
