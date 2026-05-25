@@ -1273,10 +1273,14 @@ module Freeze =
                 | Some n, Some c -> zonked, c.Name, n.Name
                 | _ -> TyRecord("Microsoft.FSharp.Collections.list", [ elemTy ]), "Cons", "Nil"
             // The external Vesper list (R3): a bare-program literal a consumer drove
-            // onto `Vesper.Collections.List` (`Unification.listLiteralTy` /
+            // onto the Vesper cons-list (`Unification.listLiteralTy` /
             // `resolveListLiterals`). Its `Cons` / `Nil` factories are minted by the
             // backend's `TryEmitUnionCons` Vesper case — BCL-only, no FSharp.Core.
-            | TyRecord("Vesper.Collections.List", _) when not isArray -> zonked, "Cons", "Nil"
+            // Either the union name (self-host `'T list = List<'T>` expansion) or the
+            // abbreviation name (`Vesper.List`'s contract `'T list` parameter — the
+            // same convention FSharp.Core's `…Collections.list` uses) denotes it.
+            | TyRecord(("Vesper.Collections.List" | "Vesper.Collections.list"), _) when not isArray ->
+                zonked, "Cons", "Nil"
             | _ -> TyRecord("Microsoft.FSharp.Collections.list", [ elemTy ]), "Cons", "Nil"
 
         let listExpr =

@@ -133,58 +133,76 @@ let withCore (project: ProjectInfo) : ProjectInfo =
             |> ensure "Vesper.List" vesperListDll
     }
 
-/// `src/Vesper.Core/manifest.toml` — the layer-1 referenced-project manifest
-/// (symbol-resolution-plan §5.1), for the opt-in manifest-backed compile below.
+/// `src/Vesper.Core/manifest.toml` — the Vesper.Core layer-1 referenced-project
+/// manifest (symbol-resolution-plan §5.1).
 let vesperCoreManifest: string = vesperCoreSource "manifest.toml"
 
-/// Build the symbol-resolution stack once and run *both* phases against it
-/// (symbol-resolution-plan P1 / handoff option A). `compileSource` passes no
-/// layer-1 manifests, so the stack is `composite [MockBuiltins]` ≡
-/// `MockBuiltins.provider` — identical to the pre-P1 wiring, but now the single
-/// declaration flows through `SymbolProviders.build` to both phases.
-let private compileWith (manifestPaths: string list) (project: ProjectInfo) (input: string) : TastFile * ClrArtifact =
-    let provider = SymbolProviders.build manifestPaths
-    let lexed, file = parseFile input
-    let tast = Pipeline.analyse provider input lexed file
-    let artifact = Codegen.compile provider (withCore project) tast
-    tast, artifact
+/// The other contract packages that round out the default resolution stack.
+let vesperListManifest: string = vesperListSource "manifest.toml"
 
-let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifact =
-    compileWith [] (ProjectInfo.defaults assemblyName) input
+let private srcManifest (pkg: string) : string =
+    IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", pkg, "manifest.toml")
 
-/// Like `compileSource` but against a caller-supplied `ProjectInfo` (e.g. an
-/// on-disk app build via `ProjectInfo.app`). `withCore` injects the compiled
-/// `Vesper.Core.dll` unless the project is `Vesper.Core` itself.
-let compileSourceTo (project: ProjectInfo) (input: string) : ClrArtifact = compileWith [] project input |> snd
+let vesperComparisonManifest: string = srcManifest "Vesper.Comparison"
 
-/// Opt-in P1 wiring variant: stand the layer-1 manifests up at the head of the
-/// stack (`composite [ manifests… ; MockBuiltins ]`) and share that one provider
-/// across both phases. The existing suite stays on `MockBuiltins` (the manifest
-/// provider only *adds* type resolution on top; the operators live in the
-/// contract's `[<AutoOpen>]` modules and still fall through to the backstop), so
-/// this is additive — see handoff §6.
-let compileSourceWith (manifestPaths: string list) (assemblyName: string) (input: string) : TastFile * ClrArtifact =
-    compileWith manifestPaths (ProjectInfo.defaults assemblyName) input
+/// `src/Vesper.Printf/manifest.toml` — the printf family (`printf`/`printfn`/
+/// `sprintf`) as its own `[<AutoOpen>] module Printf` contract, so a `printfn`
+/// call resolves from source rather than the `MockBuiltins` `printfOps` crutch.
+let vesperPrintfManifest: string = srcManifest "Vesper.Printf"
 
-/// Milestone M wiring: like `compileWith`, but it *also* loads each manifest's
-/// cross-package inline bodies (`SymbolProviders.inlineBodies`) and threads them
-/// to codegen, so a use-site `External(name)` whose body lives in a referenced
-/// `.fs` (today: `hash` from `ops-platform.fs`) is spliced in by `Emit.lowerWith`
-/// rather than served by a codegen stopgap. With the `Vesper.Core` manifest at
-/// the head of the stack, `hash` resolves from the contract's `[<AutoOpen>]
-/// Operators`, its `EqualityComparer<'T>` access resolves from layer-2 metadata,
-/// and the frozen body emits through P4 — the `Emit.isHash` stopgap is gone.
+/// The default contract stack the demoted compile path resolves through
+/// (symbol-resolution-handoff.md "contract-as-provider demotion", Phase 1).
+/// `MockBuiltins` stays the lowest-priority backstop inside `SymbolProviders.build`
+/// for anything the contract does not yet own (operators still *emit* via
+/// `Emit.BuiltinOps` regardless — emission is resolution-source-agnostic).
+///
+/// Vesper.Core (primitives + arithmetic/equality operators + `hash` + `failwith`),
+/// Vesper.List (`List.fold` over the cons-list), Vesper.Comparison (the ordering
+/// operators) and Vesper.Printf (the printf family) make up the default stack.
+let defaultManifests: string list =
+    [
+        vesperCoreManifest
+        vesperListManifest
+        vesperComparisonManifest
+        vesperPrintfManifest
+    ]
+
+/// Build the symbol-resolution stack + its cross-package inline bodies once
+/// (cached per manifest set by `SymbolProviders.buildContract`) and run *both*
+/// phases against it (symbol-resolution-plan P1 / handoff option A): a use-site
+/// `External(name)` whose body lives in a referenced `.fs` (today: `hash` from
+/// `ops-platform.fs`) is spliced in by `Emit.lowerWith` rather than served by a
+/// codegen stopgap. `[]` manifests ⇒ `composite [MetadataSymbols; MockBuiltins]`
+/// (the pre-demotion wiring), for callers that must stay off the contract.
 let private compileContract
     (manifestPaths: string list)
     (project: ProjectInfo)
     (input: string)
     : TastFile * ClrArtifact =
-    let provider = SymbolProviders.build manifestPaths
-    let inlines = SymbolProviders.inlineBodies provider manifestPaths
+    let provider, inlines = SymbolProviders.buildContract manifestPaths
     let lexed, file = parseFile input
     let tast = Pipeline.analyse provider input lexed file
     let artifact = Codegen.compileWithInlines inlines provider (withCore project) tast
     tast, artifact
+
+/// The default compile path — now resolved through the contract stack
+/// (`defaultManifests`) with `MockBuiltins` only as the backstop. This is the
+/// contract-as-provider demotion (symbol-resolution-handoff.md): the same source
+/// types the same way, but `int`/`hash`/the operators now resolve from the
+/// `Vesper.Core` `.fsi` contract rather than the hand-curated mock.
+let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifact =
+    compileContract defaultManifests (ProjectInfo.defaults assemblyName) input
+
+/// Like `compileSource` but against a caller-supplied `ProjectInfo` (e.g. an
+/// on-disk app build via `ProjectInfo.app`). `withCore` injects the compiled
+/// `Vesper.Core.dll` unless the project is `Vesper.Core` itself.
+let compileSourceTo (project: ProjectInfo) (input: string) : ClrArtifact =
+    compileContract defaultManifests project input |> snd
+
+/// Explicit-manifest variant: stand the given layer-1 manifests up at the head of
+/// the stack and share that one provider + inline bodies across both phases.
+let compileSourceWith (manifestPaths: string list) (assemblyName: string) (input: string) : TastFile * ClrArtifact =
+    compileContract manifestPaths (ProjectInfo.defaults assemblyName) input
 
 /// Contract-backed compile against the real `Vesper.Core` manifest (milestone M).
 let compileSourceContract (assemblyName: string) (input: string) : TastFile * ClrArtifact =

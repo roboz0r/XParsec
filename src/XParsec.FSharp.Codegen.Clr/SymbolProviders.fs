@@ -14,18 +14,27 @@ open XParsec.FSharp.SemanticAnalysis
 module SymbolProviders =
 
     /// Compose the layer-1 referenced-project providers (each stood up from its
-    /// `manifest.toml`) ahead of the layer-2 referenced-assembly provider and the
-    /// test-only `MockBuiltins` backstop:
+    /// `manifest.toml`) ahead of the layer-2 referenced-assembly provider:
     ///
-    ///   `composite [ layer-1 manifests… ; layer-2 metadata ; MockBuiltins ]`
+    ///   `composite [ layer-1 manifests… ; layer-2 metadata ]`
     ///
     /// Layer 2 (referenced assemblies via `MetadataLoadContext`) is P2: the shared
     /// `MetadataSymbols.provider` reads the host runtime's BCL reflection-only, so a
     /// type like `EqualityComparer`1` and its members resolve here when no manifest
-    /// owns them. It answers only namespace-qualified metadata names (and no values),
-    /// so the front end's short-name / operator probes still fall through to
-    /// `MockBuiltins`, which stays lowest-priority until the contract owns those
-    /// (symbol-resolution-plan §10).
+    /// owns them. It answers only namespace-qualified metadata names (and no values).
+    ///
+    /// **Contract-as-provider demotion is now total (symbol-resolution-handoff.md).**
+    /// `MockBuiltins` is GONE from this stack entirely — its bare-name registrations
+    /// (operators, `hash`, `failwith`, the printf family) used to shadow the contract
+    /// from behind, and the final `List.fold` backstop is retired too. Every symbol
+    /// resolves from the `Vesper.*` `.fsi` contracts via the ambient open scope:
+    /// operators + `hash` + `failwith` from `Vesper.Core`, the ordering operators
+    /// from `Vesper.Comparison`, the printf family from `Vesper.Printf`, and
+    /// `List.fold` from `Vesper.List` — the last needed the `ModuleSuffix` module's
+    /// members to be addressable by their *source* name (`List.fold`, not the
+    /// compiled `ListModule.fold`; `FSharpLib.extractValSig`) and codegen to accept
+    /// the contract's `'T list` abbreviation name alongside the union name
+    /// (`ClrProvider.isVesperListName`).
     ///
     /// `ProjectInfo.References` is not yet classified (a flat DLL-path list with no
     /// link to its source manifest), so the layer-1 manifests are supplied
@@ -45,7 +54,7 @@ module SymbolProviders =
                 | Result.Error e -> failwithf "Failed to load referenced project manifest '%s': %s" path e
             )
 
-        ExternalSymbols.composite (layer1 @ [ MetadataSymbols.provider; MockBuiltins.provider ])
+        ExternalSymbols.composite (layer1 @ [ MetadataSymbols.provider ])
 
     /// The inline `val` bindings a referenced project contributes whose `.fs`
     /// bodies must be *spliced* at the consumer's use site — a cross-package
@@ -123,3 +132,36 @@ module SymbolProviders =
                                 acc <- Map.add name decl acc
 
         acc
+
+    /// Lazy cache keyed by the normalised manifest set so a *suite* of compiles
+    /// parses + analyses each contract `.fsi`/`.fs` once, not once per compile
+    /// (symbol-resolution-handoff.md "cache the contract analysis before
+    /// flipping"). `ReferencedProject.provider` already caches each manifest's
+    /// `.fsi` parse and `MetadataSymbols.provider` is process-wide, so the only
+    /// previously-uncached cost was `inlineBodies` re-analysing each `impl` `.fs`
+    /// against the stack on every call — this caches that, plus the per-set
+    /// `composite`.
+    let private contractCache =
+        System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<IExternalSymbolProvider * Map<string, TDecl>>>(
+            System.StringComparer.Ordinal
+        )
+
+    /// Build the provider stack AND load its cross-package inline bodies for a
+    /// manifest set, caching both. The returned `provider` and inline `Map` are a
+    /// matched pair (the bodies were frozen against that exact stack — they MUST
+    /// be threaded together to codegen). This is the single entry point the
+    /// default compile path uses once `MockBuiltins` is demoted to the backstop.
+    let buildContract (manifestPaths: string list) : IExternalSymbolProvider * Map<string, TDecl> =
+        let normalised = manifestPaths |> List.map Path.GetFullPath
+        let key = String.concat ";" normalised
+
+        contractCache
+            .GetOrAdd(
+                key,
+                fun _ ->
+                    lazy
+                        (let provider = build normalised
+                         let inlines = inlineBodies provider normalised
+                         provider, inlines)
+            )
+            .Value

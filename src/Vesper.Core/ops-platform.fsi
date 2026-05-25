@@ -258,3 +258,23 @@ module Operators =
         /// </example>
         ///
         val inline hash: obj: 'T -> int when 'T: equality
+
+        /// <summary>Throw a <see cref="T:System.Exception"/> with the given message.</summary>
+        ///
+        /// <param name="message">The exception message.</param>
+        ///
+        /// <returns>Never returns normally; the result type unifies with any context.</returns>
+        ///
+        /// <remarks>No runtime member of its own — codegen lowers it BCL-only to
+        /// <c>throw new System.Exception(message)</c> (`Emit.isFailwith`), so it pins
+        /// no FSharp.Core / Vesper runtime dependency. Declared here (not inline) so
+        /// it resolves from the contract rather than the demoted `MockBuiltins`
+        /// backstop (symbol-resolution-handoff.md, contract-as-provider demotion).</remarks>
+        ///
+        /// <example id="failwith-example">
+        /// <code lang="fsharp">
+        /// failwith "boom"   // raises System.Exception "boom"
+        /// </code>
+        /// </example>
+        ///
+        val failwith: message: string -> 'T

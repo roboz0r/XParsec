@@ -1120,6 +1120,14 @@ module FSharpLib =
         (input: string)
         (opens: string list)
         (path: string list)
+        // The *source* module path (no `ModuleSuffix` rewrite). Differs from
+        // `path` only inside a `[<CompilationRepresentation(ModuleSuffix)>]`
+        // module (`List` ⇒ compiled `ListModule`). The provider is probed with the
+        // *source*-qualified name the front end writes (`List.fold`, not
+        // `ListModule.fold`), so the val is additionally registered under that
+        // name; the compiled-name entry stays for the desugar/Freeze paths that key
+        // on it (and the FSharpLib `…Module.Map` tests).
+        (sourcePath: string list)
         (valSig: ValSig<SyntaxToken>)
         : unit =
         let (ValSig(attrs, _, _, access, _, ident, typars, _, signature, _)) = valSig
@@ -1251,6 +1259,16 @@ module FSharpLib =
                         }
 
                     ctx.Symbols.[compiled] <- sym
+
+                    // Source-name alias for a `ModuleSuffix` module's members
+                    // (`List.fold` alongside the compiled `ListModule.fold`), so a
+                    // front-end probe of the source-qualified name resolves. Only
+                    // when it differs from the compiled name and nothing already
+                    // claims it (first registration wins, like the type index).
+                    match compiledNameForVal lexed input sourcePath attrs ident with
+                    | ValueSome source when source <> compiled && not (ctx.Symbols.ContainsKey source) ->
+                        ctx.Symbols.[source] <- { sym with Name = source }
+                    | _ -> ()
 
     let private registerPrefixTypars
         (lexed: Lexed)
@@ -1576,10 +1594,14 @@ module FSharpLib =
         (input: string)
         (opens: string list)
         (path: string list)
+        // The source-name twin of `path` (see `extractValSig`). Equal to `path`
+        // except inside a `ModuleSuffix` module, where `path` carries the compiled
+        // `…Module` segment and this carries the source segment.
+        (sourcePath: string list)
         (elem: ModuleSignatureElement<SyntaxToken>)
         : unit =
         match elem with
-        | ModuleSignatureElement.Val valSig -> extractValSig ctx file lexed input opens path valSig
+        | ModuleSignatureElement.Val valSig -> extractValSig ctx file lexed input opens path sourcePath valSig
 
         | ModuleSignatureElement.Type(_, typeSigs) ->
             let (TypeSignatures(first, rest)) = typeSigs
@@ -1602,6 +1624,7 @@ module FSharpLib =
                         name
 
                 let childPath = suffixed :: path
+                let childSourcePath = name :: sourcePath
                 let (ModuleSignatureBody(_, elems, _)) = body
                 // The module's own qualified path is itself an implicit open
                 // prefix, ahead of the inherited opens but behind the body's.
@@ -1615,7 +1638,7 @@ module FSharpLib =
                 let childOpens = collectOpens lexed input elems @ (modulePath :: opens)
 
                 for i in 0 .. elems.Length - 1 do
-                    extractModuleSigElement ctx file lexed input childOpens childPath elems.[i]
+                    extractModuleSigElement ctx file lexed input childOpens childPath childSourcePath elems.[i]
 
         | _ -> ()
 
@@ -1647,7 +1670,8 @@ module FSharpLib =
                 ownOpens @ (nsName :: fileOpens)
 
         for i in 0 .. elems.Length - 1 do
-            extractModuleSigElement ctx file lexed input opens nsPath elems.[i]
+            // A namespace path carries no `ModuleSuffix` rewrite, so source == compiled.
+            extractModuleSigElement ctx file lexed input opens nsPath nsPath elems.[i]
 
     let private extractNamedModuleSig
         (ctx: ExtractCtx)
@@ -1662,15 +1686,15 @@ module FSharpLib =
         if isAccessible access then
             let suffix = hasModuleSuffix lexed input attrs
 
-            let pathRev =
+            let sourcePathRev =
                 [ for i in 0 .. li.Idents.Length - 1 -> nameOfTok lexed input li.Idents.[i] ]
                 |> List.rev
 
             // ModuleSuffix applies to the innermost segment only.
             let pathRev =
-                match pathRev, suffix with
+                match sourcePathRev, suffix with
                 | head :: rest, true -> (head + "Module") :: rest
-                | _ -> pathRev
+                | _ -> sourcePathRev
 
             let qualifiedSelf = String.concat "." (List.rev pathRev)
 
@@ -1681,7 +1705,7 @@ module FSharpLib =
             let opens = ownOpens @ (qualifiedSelf :: fileOpens)
 
             for i in 0 .. elems.Length - 1 do
-                extractModuleSigElement ctx file lexed input opens pathRev elems.[i]
+                extractModuleSigElement ctx file lexed input opens pathRev sourcePathRev elems.[i]
 
     let extractSymbols (ctx: ExtractCtx) (parsed: ParsedFile) : unit =
         match parsed.Ast with
@@ -1696,7 +1720,7 @@ module FSharpLib =
                 let opens = collectOpens parsed.Lexed parsed.Input elems
 
                 for i in 0 .. elems.Length - 1 do
-                    extractModuleSigElement ctx parsed.File parsed.Lexed parsed.Input opens [] elems.[i]
+                    extractModuleSigElement ctx parsed.File parsed.Lexed parsed.Input opens [] [] elems.[i]
         | _ -> ctx.Diagnostics.Add(parsed.File, "Skipped: not a signature file")
 
     /// Builds an `IExternalSymbolProvider` backed by XParsec.FSharp.Lib.

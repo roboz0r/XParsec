@@ -1198,4 +1198,16 @@ namespace                 'namespace'       KWNamespace         tok=   0  pos=  
                           ''T'              TypeParameter       tok=1972  pos=10983
             :             ':'               OpColon             tok=1973  pos=10985
             equality      'equality'        Identifier          tok=1975  pos=10987
-    end                   <virt>            KWEnd               tok=virt  pos=10996
+      Val:
+        val               'val'             KWVal               tok=2033  pos=11937
+        Ident             'failwith'        Identifier          tok=2035  pos=11941
+        :                 ':'               OpColon             tok=2036  pos=11949
+        arg               'message'         Identifier          tok=2038  pos=11951
+        :                 ':'               OpColon             tok=2039  pos=11958
+        NamedType:
+          Ident           'string'          Identifier          tok=2041  pos=11960
+        ->                '->'              OpArrowRight        tok=2043  pos=11967
+        VarType:
+          Typar.Named:
+                          ''T'              TypeParameter       tok=2045  pos=11970
+    end                   <virt>            KWEnd               tok=virt  pos=11973

@@ -166,6 +166,18 @@ type ClrProvider
     /// references into the compiled `Vesper.Collections.List\`1`.
     let vesperListName = "Vesper.Collections.List"
 
+    /// The cons-list's *abbreviation* name (`Vesper.Collections.list`, lowercase).
+    /// The `Vesper.List` contract types `List.fold`'s `'T list` parameter — and so
+    /// every literal driven by it — with this abbreviation (the same convention
+    /// FSharp.Core uses, where the literal is typed `Microsoft.FSharp.Collections.list`),
+    /// whereas the self-host `'T list = List<'T>` path expands eagerly to the union
+    /// name. Both denote the one cons-list, so every list recognition point accepts
+    /// either (`isVesperListName`).
+    let vesperListAbbrevName = "Vesper.Collections.list"
+
+    let isVesperListName (name: string) =
+        name = vesperListName || name = vesperListAbbrevName
+
     // BCL type references.
     let eObject = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "Object")))
 
@@ -466,10 +478,12 @@ type ClrProvider
                 // ctor / `PrintFormatLine` / `Invoke` instantiations, and any
                 // list-typed local signature.
                 encodeListOf te (fun arg -> encodeTypeCore tryLeaf arg elem)
-            | TyRecord(name, [ elem ]) when name = vesperListName ->
+            | TyRecord(name, [ elem ]) when isVesperListName name ->
                 // The Vesper cons-list (R3) ≡ `Vesper.Collections.List\`1<elem>` in
                 // the compiled `Vesper.Core.dll`. No FSharp.Core dep — it lives next
-                // to `Fun`.
+                // to `Fun`. The abbreviation name (`…list`) reaches here from the
+                // contract-typed literal, the union name (`…List`) from the self-host
+                // path; both map to the same `List\`1`.
                 let g = te.GenericInstantiation(eVesperList1.Value, 1, false)
                 encodeTypeCore tryLeaf (g.AddArgument()) elem
             | TyUnion(name, args) when userTypes.ContainsKey name ->
@@ -1859,7 +1873,7 @@ type ClrProvider
                 | "Cons" -> ValueSome(emitListCons (elem ()))
                 | "Nil" -> ValueSome(emitListNil (elem ()))
                 | _ -> ValueNone
-            elif typeName = vesperListName then
+            elif isVesperListName typeName then
                 // The Vesper cons-list (R3) — its `Cons` / `Nil` static factories in
                 // the compiled `Vesper.Core.dll`; no FSharp.Core.
                 match caseName with
