@@ -134,6 +134,7 @@
         "type": "Project",
         "dependencies": {
           "FSharp.Core": "[8.0.300, )",
+          "System.Reflection.MetadataLoadContext": "[8.0.0, )",
           "Vesper.Printf": "[1.0.0, )",
           "XParsec.FSharp.SemanticAnalysis": "[1.0.0, )"
         }
@@ -152,6 +153,12 @@
           "FSharp.Core": "[8.0.300, )",
           "XParsec": "[1.0.0, )"
         }
+      },
+      "System.Reflection.MetadataLoadContext": {
+        "type": "CentralTransitive",
+        "requested": "[8.0.0, )",
+        "resolved": "8.0.0",
+        "contentHash": "SZxrQ4sQYnIcdwiO3G/lHZopbPYQ2lW0ioT4JezgccWUrKaKbHLJbAGZaDfkYjWcta1pWssAo3MOXLsR0ie4tQ=="
       }
     }
   }

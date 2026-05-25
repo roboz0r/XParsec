@@ -133,22 +133,38 @@ let withCore (project: ProjectInfo) : ProjectInfo =
             |> ensure "Vesper.List" vesperListDll
     }
 
-let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifact =
+/// `src/Vesper.Core/manifest.toml` — the layer-1 referenced-project manifest
+/// (symbol-resolution-plan §5.1), for the opt-in manifest-backed compile below.
+let vesperCoreManifest: string = vesperCoreSource "manifest.toml"
+
+/// Build the symbol-resolution stack once and run *both* phases against it
+/// (symbol-resolution-plan P1 / handoff option A). `compileSource` passes no
+/// layer-1 manifests, so the stack is `composite [MockBuiltins]` ≡
+/// `MockBuiltins.provider` — identical to the pre-P1 wiring, but now the single
+/// declaration flows through `SymbolProviders.build` to both phases.
+let private compileWith (manifestPaths: string list) (project: ProjectInfo) (input: string) : TastFile * ClrArtifact =
+    let provider = SymbolProviders.build manifestPaths
     let lexed, file = parseFile input
-    let tast = Pipeline.analyse MockBuiltins.provider input lexed file
-
-    let artifact =
-        Codegen.compile MockBuiltins.provider (withCore (ProjectInfo.defaults assemblyName)) tast
-
+    let tast = Pipeline.analyse provider input lexed file
+    let artifact = Codegen.compile provider (withCore project) tast
     tast, artifact
+
+let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifact =
+    compileWith [] (ProjectInfo.defaults assemblyName) input
 
 /// Like `compileSource` but against a caller-supplied `ProjectInfo` (e.g. an
 /// on-disk app build via `ProjectInfo.app`). `withCore` injects the compiled
 /// `Vesper.Core.dll` unless the project is `Vesper.Core` itself.
-let compileSourceTo (project: ProjectInfo) (input: string) : ClrArtifact =
-    let lexed, file = parseFile input
-    let tast = Pipeline.analyse MockBuiltins.provider input lexed file
-    Codegen.compile MockBuiltins.provider (withCore project) tast
+let compileSourceTo (project: ProjectInfo) (input: string) : ClrArtifact = compileWith [] project input |> snd
+
+/// Opt-in P1 wiring variant: stand the layer-1 manifests up at the head of the
+/// stack (`composite [ manifests… ; MockBuiltins ]`) and share that one provider
+/// across both phases. The existing suite stays on `MockBuiltins` (the manifest
+/// provider only *adds* type resolution on top; the operators live in the
+/// contract's `[<AutoOpen>]` modules and still fall through to the backstop), so
+/// this is additive — see handoff §6.
+let compileSourceWith (manifestPaths: string list) (assemblyName: string) (input: string) : TastFile * ClrArtifact =
+    compileWith manifestPaths (ProjectInfo.defaults assemblyName) input
 
 /// Run a materialised app out-of-process via the `dotnet` host, the counterpart
 /// to the in-process `runEntryPoint`. On a non-zero exit, stderr is appended so

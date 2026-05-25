@@ -27,6 +27,8 @@
     <Compile Include="StaticOptimizationTests.fs" />
     <Compile Include="HashTests.fs" />
     <Compile Include="IlIrTests.fs" />
+    <Compile Include="MetadataSymbolsTests.fs" />
+    <Compile Include="SymbolProviderWiringTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

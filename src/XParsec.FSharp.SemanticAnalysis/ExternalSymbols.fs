@@ -208,6 +208,53 @@ module ExternalSymbols =
             member _.TryLookupMember(_, _) = ValueNone
         }
 
+    /// First-hit-wins down the list; `[]` ⇒ `nullProvider`, a singleton ⇒ that
+    /// provider unwrapped. Priority encodes shadowing among *external* sources
+    /// (a referenced project beats a referenced assembly — symbol-resolution-plan
+    /// §5). Project-local symbols are not here: `PassContext` resolves them before
+    /// the provider is ever consulted. `FSharpLib.chain` is the 2-deep special
+    /// case (`composite [primary; secondary]`).
+    let composite (sources: IExternalSymbolProvider list) : IExternalSymbolProvider =
+        match sources with
+        | [] -> nullProvider
+        | [ single ] -> single
+        | _ ->
+            // Snapshot to an array so the hot lookup is an index loop, not list
+            // traversal, on a provider hit from many parallel PassContexts.
+            let sources = List.toArray sources
+
+            { new IExternalSymbolProvider with
+                member _.TryLookup name =
+                    let mutable result = ValueNone
+                    let mutable i = 0
+
+                    while result.IsNone && i < sources.Length do
+                        result <- sources.[i].TryLookup name
+                        i <- i + 1
+
+                    result
+
+                member _.TryLookupType name =
+                    let mutable result = ValueNone
+                    let mutable i = 0
+
+                    while result.IsNone && i < sources.Length do
+                        result <- sources.[i].TryLookupType name
+                        i <- i + 1
+
+                    result
+
+                member _.TryLookupMember(typeName, memberName) =
+                    let mutable result = ValueNone
+                    let mutable i = 0
+
+                    while result.IsNone && i < sources.Length do
+                        result <- sources.[i].TryLookupMember(typeName, memberName)
+                        i <- i + 1
+
+                    result
+            }
+
 /// **Production-path code wires `FSharpLib.buildProvider` instead** — this
 /// module exists as a test fixture and as the simplest possible example of the
 /// provider interface. It stays for test isolation (most tests want a known

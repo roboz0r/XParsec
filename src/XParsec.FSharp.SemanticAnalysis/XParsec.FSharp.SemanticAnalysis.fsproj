@@ -13,6 +13,7 @@
     <Compile Include="PrintfSpec.fs" />
     <Compile Include="ExternalSymbols.fs" />
     <Compile Include="FSharpLib.fs" />
+    <Compile Include="ReferencedProject.fs" />
     <Compile Include="SideTables.fs" />
     <Compile Include="UnionFind.fs" />
     <Compile Include="Tast.fs" />

@@ -1524,17 +1524,36 @@ module FSharpLib =
             | ValueSome(struct (compiled, arity)) ->
                 extractUnionBody ctx file lexed input opens compiled arity typeName cases
 
+        | TypeSignature.Interface(typeName = typeName) ->
+            match registerTypeDecl ctx lexed input path typeName with
+            | ValueNone -> ()
+            | ValueSome(struct (compiled, arity)) ->
+                // A class/interface shape carries no body (its members are
+                // resolved separately via `TryLookupMember`), but registering it
+                // here is what makes a nominal external type — `Vesper.Fun`,
+                // `EqualityComparer<_>` — resolve through `TryLookupType` instead
+                // of `ValueNone` (symbol-resolution-plan §4). `Origin` is stamped
+                // by the resolving source (e.g. `ReferencedProject`), not here.
+                ctx.TypeShapes.[compiled] <- ExternalTypeShape.Class(arity, true, SymbolOrigin.Empty)
+
         | TypeSignature.Anon(typeName = typeName)
         | TypeSignature.Class(typeName = typeName)
         | TypeSignature.Struct(typeName = typeName)
-        | TypeSignature.Interface(typeName = typeName)
-        | TypeSignature.Enum(typeName = typeName)
-        | TypeSignature.Delegate(typeName = typeName)
-        | TypeSignature.TypeExtension(typeName = typeName)
         | TypeSignature.Extern(typeName = typeName)
         | TypeSignature.AbstractType typeName ->
-            // v1 only registers the name; body shapes for classes /
-            // enums / delegates land later.
+            // Nominal types with no front-end-modelled body shape (an `extern`
+            // primitive like `int`, a class, an opaque abstract type). Resolve as
+            // a non-interface `Class` so codegen can mint a ref off the origin.
+            match registerTypeDecl ctx lexed input path typeName with
+            | ValueNone -> ()
+            | ValueSome(struct (compiled, arity)) ->
+                ctx.TypeShapes.[compiled] <- ExternalTypeShape.Class(arity, false, SymbolOrigin.Empty)
+
+        | TypeSignature.Enum(typeName = typeName)
+        | TypeSignature.Delegate(typeName = typeName)
+        | TypeSignature.TypeExtension(typeName = typeName) ->
+            // Enum / delegate / type-extension body shapes land later; v1 only
+            // registers the name+arity so other types can reference them nominally.
             registerTypeDecl ctx lexed input path typeName |> ignore
 
     /// Harvest the `open Foo.Bar` clauses from a flat element list. The
@@ -1698,24 +1717,10 @@ module FSharpLib =
 
     /// Composes two providers: tries `primary` first, falls back to
     /// `secondary` (e.g. `MockBuiltins.provider` as a backstop for whatever
-    /// `extractSymbols` doesn't cover yet).
+    /// `extractSymbols` doesn't cover yet). The 2-deep special case of
+    /// `ExternalSymbols.composite`, kept for its callers' readability.
     let chain (primary: IExternalSymbolProvider) (secondary: IExternalSymbolProvider) : IExternalSymbolProvider =
-        { new IExternalSymbolProvider with
-            member _.TryLookup(name) =
-                match primary.TryLookup name with
-                | ValueSome _ as r -> r
-                | ValueNone -> secondary.TryLookup name
-
-            member _.TryLookupType(name) =
-                match primary.TryLookupType name with
-                | ValueSome _ as r -> r
-                | ValueNone -> secondary.TryLookupType name
-
-            member _.TryLookupMember(typeName, memberName) =
-                match primary.TryLookupMember(typeName, memberName) with
-                | ValueSome _ as r -> r
-                | ValueNone -> secondary.TryLookupMember(typeName, memberName)
-        }
+        ExternalSymbols.composite [ primary; secondary ]
 
     /// Lazy cache keyed by `libRoot` so repeated callers parse the lib at
     /// most once per root. Thread-safe via `Lazy<_>` publication.
