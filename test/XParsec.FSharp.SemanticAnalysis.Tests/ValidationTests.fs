@@ -147,4 +147,35 @@ let tests =
 
                 Expect.isFalse (hasMessage ctx "Cannot resolve member") "no deferred-dot diagnostic"
             }
+
+            // O4 (symbol-resolution-handoff.md, open-resolution): FS3200 — in a recursive declaration
+            // group, `open`s must come first in each module/namespace scope.
+            test "module rec: an open after a binding is rejected (FS3200)" {
+                let ctx = analyse "module rec R\n\nlet a = 1\nopen Q\nlet b = 2"
+                Expect.isTrue (hasMessage ctx "must come first") "interspersed open in a module rec diagnoses"
+            }
+
+            test "module rec: opens-first is clean" {
+                let ctx = analyse "module rec R\n\nopen P\nopen Q\nlet a = 1\nlet b = 2"
+                Expect.isFalse (hasMessage ctx "must come first") "leading opens in a module rec are fine"
+            }
+
+            test "non-recursive module: an open after a binding is fine (running accumulator)" {
+                // FS3200 is rec-only; a non-rec scope is a running accumulator, so
+                // an interspersed open is legal (it just isn't visible above it).
+                let ctx = analyse "module M\n\nlet a = 1\nopen Q\nlet b = 2"
+                Expect.isFalse (hasMessage ctx "must come first") "interspersed open in a non-rec module is legal"
+            }
+
+            test "namespace rec: a nested module's interspersed open is rejected (FS3200)" {
+                // §3.2/§9: each module under a rec group is independently an
+                // opens-first scope — the open inside module B (under `namespace
+                // rec N`) is misplaced even though N's own opens lead.
+                let ctx =
+                    analyse "namespace rec N\n\nopen A\n\nmodule B =\n    let a = 1\n    open C\n    let b = 2"
+
+                Expect.isTrue
+                    (hasMessage ctx "must come first")
+                    "interspersed open in a rec-namespace submodule diagnoses"
+            }
         ]

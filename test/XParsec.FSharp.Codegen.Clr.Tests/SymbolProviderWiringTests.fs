@@ -34,11 +34,13 @@ let tests =
             test "the Vesper.Core manifest layer adds type resolution over the backstop" {
                 let provider = SymbolProviders.build [ vesperCoreManifest ]
 
-                // Layer 1 (manifest) contributes the `int` type with its origin…
-                match provider.TryLookupType "int" with
+                // Layer 1 (manifest) contributes the `int` type with its origin.
+                // Short-name resolution moved out of the provider into the ambient
+                // open scope (O3), so the provider answers the qualified name.
+                match provider.TryLookupType "Vesper.int" with
                 | ValueSome(ExternalTypeShape.Class(_, _, origin)) ->
                     Expect.equal origin.Assembly (Some "Vesper.Core") "int resolves through the manifest layer"
-                | other -> failtestf "expected int as a Class shape from the manifest layer, got %A" other
+                | other -> failtestf "expected Vesper.int as a Class shape from the manifest layer, got %A" other
 
                 // …while operators still resolve through the lower-priority backstop
                 // (they live in the contract's `[<AutoOpen>]` modules, so the

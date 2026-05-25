@@ -371,19 +371,28 @@ let tests =
                 | ValueNone -> failtest "OptionModule.Map should be answered by the lib provider"
                 | ValueSome _ -> ()
 
-                // Short-name `op_Addition` now resolves through the lib's
-                // auto-open prefix list (`Microsoft.FSharp.Core.Operators.op_Addition`).
-                // Shape is the universal SRTP signature `^T1 -> ^T2 -> ^T3`;
-                // typars stay free at instantiation time, and generalisation-
-                // time defaulting (Phase 5b) closes the gap to `int` for
-                // `1 + 2`. MockBuiltins's mono `int -> int -> int` no longer
-                // intercepts here — the lib is authoritative.
-                match chained.TryLookup "op_Addition" with
-                | ValueNone -> failtest "op_Addition should resolve through the lib's auto-open prefix"
+                // `op_Addition` is no longer auto-opened *inside* the provider
+                // (O3): the provider answers only the qualified name directly,
+                // with the universal SRTP signature `^T1 -> ^T2 -> ^T3` (typars
+                // free at instantiation; generalisation-time defaulting closes the
+                // gap to `int` for `1 + 2`). The short form is surfaced as the
+                // lib's ambient prefix set, probed by the pipeline behind explicit
+                // opens — not a provider-internal retry that would shadow them.
+                match libProvider.TryLookup "Microsoft.FSharp.Core.Operators.op_Addition" with
+                | ValueNone -> failtest "op_Addition should resolve by its qualified name through the lib provider"
                 | ValueSome sym ->
                     match sym.Instantiate 0 with
                     | TyFun(TyVar _, TyFun(TyVar _, TyVar _)) -> ()
                     | other -> failtestf "op_Addition shape unexpected: %A" other
+
+                // The auto-open prefix is exposed via `IAmbientOpenScope`, not a
+                // provider-internal retry.
+                match box libProvider with
+                | :? IAmbientOpenScope as a ->
+                    Expect.isTrue
+                        (a.AmbientOpenPrefixes |> List.contains "Microsoft.FSharp.Core.Operators")
+                        "lib surfaces the Operators auto-open prefix"
+                | _ -> failtest "lib provider should implement IAmbientOpenScope"
 
                 // Unknown name: both providers miss.
                 match chained.TryLookup "nope.no.such.symbol" with

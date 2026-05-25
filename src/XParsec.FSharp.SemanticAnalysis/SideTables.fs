@@ -229,6 +229,22 @@ type SideTable<'V>() =
 /// requires thread-safe `TryLookup`). See [`docs/architecture.md`](docs/architecture.md#parallelism).
 [<Sealed>]
 type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed) =
+    // Seed the ambient (implicit-open) prelude from the provider if it surfaces
+    // one (`IAmbientOpenScope` — the referenced-contract `[<AutoOpen>]` modules /
+    // FSharp.Core prelude). This is the single seam: every path that builds a
+    // `PassContext` (the pipeline and the direct-construction tests alike) picks
+    // it up here. Providers without an implicit prelude contribute the empty
+    // ambient, so resolution is unchanged for them. The ambient sits at the tail
+    // of the prefix list, so explicit `open`s the pass walk prepends are tried
+    // first (symbol-resolution-handoff.md, open-resolution).
+    let ambientOpenScope =
+        match box provider with
+        | :? IAmbientOpenScope as a ->
+            { OpenScope.empty with
+                Prefixes = a.AmbientOpenPrefixes
+            }
+        | _ -> OpenScope.empty
+
     member val Provider = provider
     member val Input = input
     member val Lexed = lexed
@@ -319,6 +335,23 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// legal F# (only `<'a>`-declared typars are). Binding-level scopes keep
     /// this `false`.
     member val TyparScopeStrict = false with get, set
+    /// The `open` / auto-open namespace prefixes active at the module element
+    /// currently being analysed. Set per top-level element by the pass walk
+    /// (from `CstWalk.walkModuleTree`), then read by the provider-probe sites
+    /// (`tryQualify`) so a short name resolves against the opens in scope.
+    /// Constant inside any one expression (`open` is a declaration-level node).
+    /// See docs/symbol-resolution-handoff.md (open-resolution). Seeded to the provider's ambient
+    /// prelude (below) so a pass that reads it before the walk sets a per-element
+    /// scope still sees the auto-opens.
+    member val OpenScope = ambientOpenScope with get, set
+    /// The *stable* ambient prelude each pass seeds its `walkModuleTree` from —
+    /// distinct from the mutable `OpenScope` (which a pass overwrites per element).
+    /// Empty today; the referenced-contract `[<AutoOpen>]` prefix set later
+    /// (symbol-resolution-handoff.md, open-resolution). Both NameResolution and Unification must read
+    /// the *same* seed, so it can't be the per-element `OpenScope` they mutate.
+    /// Seeded from the provider's `IAmbientOpenScope` (the referenced-contract
+    /// `[<AutoOpen>]` modules / prelude), empty when the provider surfaces none.
+    member val AmbientOpenScope = ambientOpenScope with get, set
 
     /// Source text of `token`. Empty for virtual (synthesised) tokens.
     member this.NameOf(token: SyntaxToken) : string =

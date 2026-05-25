@@ -2184,7 +2184,10 @@ module Unification =
         | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) ->
             match Desugar.symbolicOpCompiledName op.Token with
             | ValueSome name ->
-                match ctx.Provider.TryLookup name with
+                // Operator compiled names (`op_Addition`) resolve through the
+                // open scope: bare name first, then explicit opens, then the
+                // ambient prelude (a contract's `[<AutoOpen>]` operator module).
+                match OpenScope.tryResolve ctx.OpenScope ctx.Provider.TryLookup name with
                 | ValueSome sym -> sym.Instantiate ctx.CurrentLevel
                 | ValueNone ->
                     ctx.Diagnostics.Add
@@ -2284,7 +2287,7 @@ module Unification =
                 // from the provider fall to the ctor registry.
                 let name = qualifiedNameOf ctx e
 
-                match ctx.Provider.TryLookup name with
+                match OpenScope.tryResolve ctx.OpenScope ctx.Provider.TryLookup name with
                 | ValueSome sym -> sym.Instantiate ctx.CurrentLevel
                 | ValueNone ->
                     let singleSegName =
@@ -2478,7 +2481,7 @@ module Unification =
             match tryMeasuredArith ctx key name leftTy rightTy with
             | Some resultTy -> resultTy
             | None ->
-                match ctx.Provider.TryLookup name with
+                match OpenScope.tryResolve ctx.OpenScope ctx.Provider.TryLookup name with
                 | ValueSome sym ->
                     let resultTy = TyVar(freshTyVar ctx)
                     unify ctx key (sym.Instantiate ctx.CurrentLevel) (TyFun(leftTy, TyFun(rightTy, resultTy)))
@@ -2503,7 +2506,7 @@ module Unification =
 
         match ctx.Desugared.TryGetValue key with
         | ValueSome(DesugaredForm.OpName name) ->
-            match ctx.Provider.TryLookup name with
+            match OpenScope.tryResolve ctx.OpenScope ctx.Provider.TryLookup name with
             | ValueSome sym ->
                 let resultTy = TyVar(freshTyVar ctx)
                 unify ctx key (sym.Instantiate ctx.CurrentLevel) (TyFun(operandTy, resultTy))
@@ -3119,20 +3122,35 @@ module Unification =
         (ctx: PassContext)
         (recv: Expr<SyntaxToken>)
         : (string * Type<SyntaxToken> list) voption =
-        match recv with
-        | Expr.TypeApp(expr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li); types = typeArgs) ->
-            let qualName = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
-
-            let metaName =
-                if typeArgs.Length = 0 then
-                    qualName
-                else
-                    sprintf "%s`%d" qualName typeArgs.Length
-
-            match ctx.Provider.TryLookupType metaName with
-            | ValueSome(ExternalTypeShape.Class _) -> ValueSome(metaName, List.ofSeq typeArgs)
+        // The receiver type name as written: a single-segment name parses as
+        // `Expr.Ident` (`EqualityComparer<int>`), a dotted one as a `LongIdent`
+        // (`System.Collections.Generic.EqualityComparer<int>`).
+        let nameAndArgs =
+            match recv with
+            | Expr.TypeApp(expr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li); types = typeArgs) ->
+                ValueSome(li.Idents |> Seq.map ctx.NameOf |> String.concat ".", typeArgs)
+            | Expr.TypeApp(expr = Expr.Ident tok; types = typeArgs) -> ValueSome(ctx.NameOf tok, typeArgs)
             | _ -> ValueNone
-        | _ -> ValueNone
+
+        match nameAndArgs with
+        | ValueNone -> ValueNone
+        | ValueSome(qualName, typeArgs) ->
+            let arity = typeArgs.Length
+            // The arity-suffixed metadata name for a candidate (`EqualityComparer`1`).
+            let metaNameOf (n: string) =
+                if arity = 0 then n else sprintf "%s`%d" n arity
+
+            let probe (n: string) =
+                match ctx.Provider.TryLookupType(metaNameOf n) with
+                | ValueSome(ExternalTypeShape.Class _) -> true
+                | _ -> false
+
+            // `tryQualify` applies the `open` prefixes, so a short
+            // `EqualityComparer<int>` receiver resolves to its qualified metadata
+            // name (symbol-resolution-handoff.md, open-resolution).
+            match OpenScope.tryQualify ctx.OpenScope probe qualName with
+            | ValueSome resolved -> ValueSome(metaNameOf resolved, List.ofSeq typeArgs)
+            | ValueNone -> ValueNone
 
     /// Type a static member access on an external type via `TryLookupMember`,
     /// recording the resolved member (its interned `SymbolKey`) so Freeze stamps a
@@ -3940,22 +3958,31 @@ module Unification =
                     | _ -> ()
             | _ -> ()
 
-    let private walkElems (ctx: PassContext) (elems: ModuleElems<SyntaxToken>) =
+    let private walkElems (ctx: PassContext) (pairs: (ModuleElem<SyntaxToken> * OpenScope) list) =
+        let elems = ImmutableArray.CreateRange(pairs |> List.map fst)
         fillAbbreviationBodies ctx elems
 
-        for m in elems do
+        // Set `ctx.OpenScope` per element so the provider-probe sites
+        // (`inferIdent`, `tryExternalTypeReceiver`) resolve short external names
+        // against the `open`s in scope at that element (symbol-resolution-handoff.md, open-resolution).
+        for (m, openScope) in pairs do
+            ctx.OpenScope <- openScope
             fillRecordFieldTypes ctx m
 
-        for m in elems do
+        for (m, openScope) in pairs do
+            ctx.OpenScope <- openScope
             fillUnionFieldTypes ctx m
 
-        for m in elems do
+        for (m, openScope) in pairs do
+            ctx.OpenScope <- openScope
             fillClassMembers ctx m
 
-        for m in elems do
+        for (m, openScope) in pairs do
+            ctx.OpenScope <- openScope
             fillUnionMembers ctx m
 
-        for m in elems do
+        for (m, openScope) in pairs do
+            ctx.OpenScope <- openScope
             walkModuleElem ctx m
 
     /// Resolve the bare-program list literals left flexible by `listLiteralTy`
@@ -3979,5 +4006,8 @@ module Unification =
                 | _ -> ()
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
-        walkElems ctx (CstWalk.implFileElems file)
+        // Recompute the same per-element `OpenScope` NameResolution did, from the
+        // same stable ambient seed (`AmbientOpenScope`, not the per-element
+        // `OpenScope` the walk mutates — symbol-resolution-handoff.md, open-resolution).
+        walkElems ctx (CstWalk.walkModuleTree ctx.NameOf ctx.AmbientOpenScope file)
         resolveListLiterals ctx

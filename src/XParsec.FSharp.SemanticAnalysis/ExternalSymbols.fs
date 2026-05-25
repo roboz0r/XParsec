@@ -174,6 +174,23 @@ type IExternalSymbolProvider =
     /// members (symbol-resolution-plan §4).
     abstract TryLookupMember: typeName: string * memberName: string -> ExternalMember voption
 
+/// Optional capability a provider may implement to contribute an *ambient*
+/// (implicit) open-prefix set — the prelude / referenced-contract `[<AutoOpen>]`
+/// modules. The pipeline seeds `PassContext.AmbientOpenScope` from it, where it
+/// is probed strictly BEHIND explicit `open`s: a short name tries its bare form
+/// and every explicit open first, and only then these ambient prefixes
+/// (symbol-resolution-handoff.md, open-resolution — auto-opens resolve as if behind explicit opens).
+/// Providers with no implicit prelude (`MockBuiltins`, inline test fakes) simply
+/// don't implement it, so they contribute an empty ambient and behave exactly as
+/// before. Kept separate from `IExternalSymbolProvider` for that reason: every
+/// inline provider would otherwise have to implement it.
+type IAmbientOpenScope =
+    /// Dotted namespace/module prefixes in priority order (earliest wins on a
+    /// collision), e.g. `["Vesper.ArithmeticOperators"; "Vesper"]`. Tried as
+    /// candidate qualifiers for a short name after the bare name and all
+    /// explicit opens have missed.
+    abstract AmbientOpenPrefixes: string list
+
 module ExternalSymbols =
 
     let mono (name: string) (ty: SemType) : ExternalSymbol =
@@ -228,6 +245,19 @@ module ExternalSymbols =
             // traversal, on a provider hit from many parallel PassContexts.
             let sources = List.toArray sources
 
+            // The composed ambient prelude: each source's `[<AutoOpen>]` /
+            // prelude prefixes, concatenated in source priority order (so a
+            // higher-priority provider's auto-opens shadow a lower one's on a
+            // name collision, same first-hit-wins ordering as lookups). Computed
+            // once; the pipeline seeds `PassContext.AmbientOpenScope` from it.
+            let ambientPrefixes =
+                [
+                    for s in sources do
+                        match box s with
+                        | :? IAmbientOpenScope as a -> yield! a.AmbientOpenPrefixes
+                        | _ -> ()
+                ]
+
             { new IExternalSymbolProvider with
                 member _.TryLookup name =
                     let mutable result = ValueNone
@@ -258,6 +288,9 @@ module ExternalSymbols =
                         i <- i + 1
 
                     result
+
+              interface IAmbientOpenScope with
+                  member _.AmbientOpenPrefixes = ambientPrefixes
             }
 
 /// **Production-path code wires `FSharpLib.buildProvider` instead** — this

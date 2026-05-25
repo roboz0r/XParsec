@@ -3,6 +3,73 @@ namespace XParsec.FSharp.SemanticAnalysis
 open System.Collections.Immutable
 open XParsec.FSharp.Parser
 
+/// The active namespace prefixes in a lexical scope, most-recent-first (so a
+/// later `open` shadows an earlier one on a name collision — F# semantics).
+/// Drives short-name resolution: a bare `EqualityComparer` (under
+/// `open System.Collections.Generic`) becomes the qualified
+/// `System.Collections.Generic.EqualityComparer` before a provider probe. See
+/// docs/symbol-resolution-handoff.md (open-resolution).
+type OpenScope =
+    {
+        /// Each entry is a dotted namespace/module prefix (`"System.Collections.Generic"`),
+        /// in shadowing order — head wins. Empty prefixes are never stored.
+        Prefixes: string list
+        /// Module-abbrev aliases (`module R = A.B.C` ⇒ `"R" → "A.B.C"`), expanded
+        /// on the head segment of a dotted name before probing.
+        Abbrevs: Map<string, string>
+    }
+
+module OpenScope =
+
+    /// No opens, no abbrevs — the seed for a file with an empty ambient prelude.
+    let empty: OpenScope = { Prefixes = []; Abbrevs = Map.empty }
+
+    /// Candidate fully-qualified names for `name`, in priority order: the
+    /// abbrev-expanded name as written (covers already-qualified and root-scope
+    /// names), then each active prefix applied. The head segment of a dotted name
+    /// is abbrev-expanded first (`R.X` ⇒ `A.B.C.X` under `module R = A.B.C`).
+    let private candidates (scope: OpenScope) (name: string) : string list =
+        let expanded =
+            let dot = name.IndexOf '.'
+            let head = if dot < 0 then name else name.Substring(0, dot)
+
+            match Map.tryFind head scope.Abbrevs with
+            | Some target -> target + (if dot < 0 then "" else name.Substring dot)
+            | None -> name
+
+        expanded
+        :: [
+            for p in scope.Prefixes do
+                if p.Length > 0 then
+                    yield p + "." + expanded
+        ]
+
+    /// Resolve `name` to a value via `lookup`, trying each candidate (§ `candidates`)
+    /// in priority order; first hit wins. The value-returning sibling of
+    /// `tryQualify`, for the typing sites that need the resolved descriptor, not
+    /// just its name.
+    let tryResolve (scope: OpenScope) (lookup: string -> 'a voption) (name: string) : 'a voption =
+        let rec go cs =
+            match cs with
+            | [] -> ValueNone
+            | c :: rest ->
+                match lookup c with
+                | ValueSome _ as r -> r
+                | ValueNone -> go rest
+
+        go (candidates scope name)
+
+    /// The single qualification primitive: returns the fully-qualified name
+    /// `name` resolves under (for interning / diagnostic suppression), trying the
+    /// bare/abbrev-expanded name then each active prefix; first `probe` hit wins.
+    let tryQualify (scope: OpenScope) (probe: string -> bool) (name: string) : string voption =
+        let rec go cs =
+            match cs with
+            | [] -> ValueNone
+            | c :: rest -> if probe c then ValueSome c else go rest
+
+        go (candidates scope name)
+
 // Single point where Expr's recursion shape is enumerated. Passes layer
 // their pass-specific work on top via the ExprWalker record's hooks.
 //
@@ -264,6 +331,98 @@ module CstWalk =
                 | NamespaceDeclGroup.Global(elements = elems) -> add elems
 
         b.ToImmutable()
+
+    /// Scope-preserving sibling of `implFileElems`: yields the same flattened leaf
+    /// elements, but pairs each with the `OpenScope` active at its position. Where
+    /// `implFileElems` erases the module boundaries open-scoping needs, this
+    /// recomputes the running open-accumulator per element so a consumer can resolve
+    /// a short name against the `open`s actually in scope there
+    /// (docs/symbol-resolution-handoff.md, open-resolution).
+    ///
+    /// `nameOf` reads a token's source text (the pass's `ctx.NameOf`); `ambient` is
+    /// the seed prefix set (empty today, the referenced-contract prelude later, §6).
+    ///
+    /// Scope semantics (§3): a non-recursive module/namespace is a *running
+    /// accumulator* — an `open` is visible only to elements after it; a
+    /// `module rec` / `namespace rec` is a *constant prelude* — every `open` in the
+    /// scope applies to the whole body. A nested module inherits its enclosing
+    /// accumulator. Module abbrevs (`module R = A.B.C`) fold into `Abbrevs`.
+    let walkModuleTree
+        (nameOf: SyntaxToken -> string)
+        (ambient: OpenScope)
+        (file: ImplementationFile<SyntaxToken>)
+        : (ModuleElem<SyntaxToken> * OpenScope) list =
+        let out = ResizeArray<ModuleElem<SyntaxToken> * OpenScope>()
+
+        let longIdentText (li: LongIdent<SyntaxToken>) : string =
+            li.Idents |> Seq.map nameOf |> String.concat "."
+
+        let addOpen (scope: OpenScope) (li: LongIdent<SyntaxToken>) : OpenScope =
+            let prefix = longIdentText li
+
+            if prefix.Length = 0 then
+                scope
+            else
+                { scope with
+                    Prefixes = prefix :: scope.Prefixes
+                }
+
+        let addAbbrev (scope: OpenScope) (alias: string) (target: string) : OpenScope =
+            if alias.Length = 0 || target.Length = 0 then
+                scope
+            else
+                { scope with
+                    Abbrevs = Map.add alias target scope.Abbrevs
+                }
+
+        // Apply one element's own contribution (an `open` / module-abbrev) to the
+        // running accumulator. `open type` is deferred (a member channel, not a
+        // namespace prefix — §6), so only `ImportDecl.ImportDecl` contributes.
+        let accumulate (scope: OpenScope) (e: ModuleElem<SyntaxToken>) : OpenScope =
+            match e with
+            | ModuleElem.Import(ImportDecl.ImportDecl(longIdent = li)) -> addOpen scope li
+            | ModuleElem.ModuleAbbrev(ModuleAbbrev.ModuleAbbrev(ident = id; longIdent = li)) ->
+                addAbbrev scope (nameOf id) (longIdentText li)
+            | _ -> scope
+
+        let rec processElems (elems: ModuleElems<SyntaxToken>) (start: OpenScope) (isRec: bool) : unit =
+            if isRec then
+                // Constant prelude: all opens/abbrevs in this scope apply to the
+                // whole body, regardless of position (§3.2, FS3200).
+                let constScope = (start, elems) ||> Seq.fold accumulate
+
+                for e in elems do
+                    emit e constScope
+            else
+                let mutable s = start
+
+                for e in elems do
+                    emit e s
+                    s <- accumulate s e
+
+        and emit (e: ModuleElem<SyntaxToken>) (scope: OpenScope) : unit =
+            match e with
+            | ModuleElem.Module(ModuleDefn.ModuleDefn(isRec = innerRec; body = ModuleDefnBody(elements = inner))) ->
+                // The wrapper is dropped (as in `implFileElems`); the body is walked
+                // with the enclosing scope inherited as its seed.
+                match inner with
+                | ValueSome innerElems -> processElems innerElems scope innerRec.IsSome
+                | ValueNone -> ()
+            | _ -> out.Add(e, scope)
+
+        match file with
+        | ImplementationFile.AnonymousModule elems -> processElems elems ambient false
+        | ImplementationFile.NamedModule(NamedModule.NamedModule(isRec = isRec; elements = elems)) ->
+            processElems elems ambient isRec.IsSome
+        | ImplementationFile.Namespaces groups ->
+            for g in groups do
+                match g with
+                | NamespaceDeclGroup.Named(isRec = isRec; longIdent = nsLi; elements = elems) ->
+                    // The namespace's own name is an implicit prefix for its body.
+                    processElems elems (addOpen ambient nsLi) isRec.IsSome
+                | NamespaceDeclGroup.Global(elements = elems) -> processElems elems ambient false
+
+        List.ofSeq out
 
     /// The signature elements a pass walks for a signature (`.fsi`) file — the
     /// `.fsi` analogue of `implFileElems`. A `namespace`-headed file contributes

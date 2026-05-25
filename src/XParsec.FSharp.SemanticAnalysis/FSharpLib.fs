@@ -279,69 +279,54 @@ module FSharpLib =
         /// records, unions, and abbreviations are populated in v1; classes
         /// and other shapes land later.
         member val TypeShapes = Dictionary<string, ExternalTypeShape>(StringComparer.Ordinal) with get
+        /// Qualified names of `[<AutoOpen>]` modules encountered during
+        /// extraction, in source order (`"Vesper.ArithmeticOperators"`). A
+        /// referenced contract surfaces these as its ambient open-prefix set so a
+        /// consumer resolves `op_Addition` / `hash` with no explicit `open`
+        /// (symbol-resolution-handoff.md, open-resolution). The hardcoded FSharp.Core prelude list
+        /// stays separate (compiler-magic opens not expressible as `[<AutoOpen>]`).
+        member val AutoOpenPrefixes = ResizeArray<string>() with get
 
-    /// Auto-open prefixes that F# applies implicitly to FSharp.Core symbols,
-    /// tried as candidate qualifiers for short-name lookups. Order matches
-    /// F#'s prelude open order; earlier entries win on collision.
+    /// Auto-open prefixes that F# applies implicitly to FSharp.Core symbols.
+    /// Surfaced as the provider's `IAmbientOpenScope` (no longer a
+    /// provider-internal retry): the pipeline seeds them into the open scope and
+    /// probes them BEHIND explicit `open`s — `1 + 2`'s desugared `op_Addition`
+    /// lives in `Microsoft.FSharp.Core.Operators`, not at the root, and resolves
+    /// through the ambient (symbol-resolution-handoff.md, open-resolution). Order matches F#'s prelude
+    /// open order; earlier entries win on collision.
     let private autoOpenPrefixes =
-        [|
+        [
             "Microsoft.FSharp.Core.Operators"
             "Microsoft.FSharp.Core.LanguagePrimitives.IntrinsicOperators"
             "Microsoft.FSharp.Core.ExtraTopLevelOperators"
             "Microsoft.FSharp.Core"
             "Microsoft.FSharp.Collections"
             "Microsoft.FSharp.Control"
-        |]
+        ]
 
     module ExtractCtx =
         let empty () = ExtractCtx()
 
         let toProvider (ctx: ExtractCtx) : IExternalSymbolProvider =
+            // Direct hits only: the implicit prelude is the `IAmbientOpenScope`
+            // below, applied by the pipeline behind explicit opens — not a
+            // provider-internal retry that would shadow an explicit open by
+            // resolving the bare name to a prelude symbol first (O3).
             { new IExternalSymbolProvider with
                 member _.TryLookup(name) =
                     match ctx.Symbols.TryGetValue name with
                     | true, sym -> ValueSome sym
-                    | _ ->
-                        // Short-name miss — try auto-open prefixes. `1 + 2`'s
-                        // desugared `op_Addition` lives in
-                        // `Microsoft.FSharp.Core.Operators`, not at the root.
-                        // Only fires for dot-free names (already-qualified
-                        // lookups missed above).
-                        if name.IndexOf '.' >= 0 then
-                            ValueNone
-                        else
-                            let mutable hit = ValueNone
-                            let mutable i = 0
-
-                            while hit.IsNone && i < autoOpenPrefixes.Length do
-                                let qualified = autoOpenPrefixes.[i] + "." + name
-
-                                match ctx.Symbols.TryGetValue qualified with
-                                | true, sym -> hit <- ValueSome sym
-                                | _ -> i <- i + 1
-
-                            hit
+                    | _ -> ValueNone
 
                 member _.TryLookupType(name) =
                     match ctx.TypeShapes.TryGetValue name with
                     | true, shape -> ValueSome shape
-                    | _ ->
-                        if name.IndexOf '.' >= 0 then
-                            ValueNone
-                        else
-                            let mutable hit = ValueNone
-                            let mutable i = 0
-
-                            while hit.IsNone && i < autoOpenPrefixes.Length do
-                                let qualified = autoOpenPrefixes.[i] + "." + name
-
-                                match ctx.TypeShapes.TryGetValue qualified with
-                                | true, shape -> hit <- ValueSome shape
-                                | _ -> i <- i + 1
-
-                            hit
+                    | _ -> ValueNone
 
                 member _.TryLookupMember(_, _) = ValueNone
+
+              interface IAmbientOpenScope with
+                  member _.AmbientOpenPrefixes = autoOpenPrefixes
             }
 
     let private nameOfTok (lexed: Lexed) (input: string) (tok: SyntaxToken) : string =
@@ -541,6 +526,12 @@ module FSharpLib =
                     | _ -> false
 
                 containsModuleSuffix argExpr
+
+    /// True iff the module-level attributes carry `[<AutoOpen>]` — the module's
+    /// members are in scope unqualified for a consumer of the package. Recorded
+    /// as an ambient open prefix (symbol-resolution-handoff.md, open-resolution).
+    let private isAutoOpen (lexed: Lexed) (input: string) (attrs: Attributes<SyntaxToken> voption) : bool =
+        findAttribute lexed input attrs [ "AutoOpen" ] |> ValueOption.isSome
 
     /// SemType template parameterised over a fresh-TyVar array (one per
     /// declared typar in the val's merged typar list). Independent
@@ -1615,6 +1606,12 @@ module FSharpLib =
                 // The module's own qualified path is itself an implicit open
                 // prefix, ahead of the inherited opens but behind the body's.
                 let modulePath = String.concat "." (List.rev childPath)
+
+                // An `[<AutoOpen>]` module contributes its qualified path to the
+                // contract's ambient prefix set (symbol-resolution-handoff.md, open-resolution).
+                if isAutoOpen lexed input attrs then
+                    ctx.AutoOpenPrefixes.Add modulePath
+
                 let childOpens = collectOpens lexed input elems @ (modulePath :: opens)
 
                 for i in 0 .. elems.Length - 1 do
@@ -1676,6 +1673,10 @@ module FSharpLib =
                 | _ -> pathRev
 
             let qualifiedSelf = String.concat "." (List.rev pathRev)
+
+            if isAutoOpen lexed input attrs then
+                ctx.AutoOpenPrefixes.Add qualifiedSelf
+
             let ownOpens = collectOpens lexed input elems
             let opens = ownOpens @ (qualifiedSelf :: fileOpens)
 

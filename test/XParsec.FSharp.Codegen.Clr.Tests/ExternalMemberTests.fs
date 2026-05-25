@@ -111,4 +111,76 @@ let tests =
 
                 Expect.equal frozen expected "frozen key = provider's resolved key"
             }
+
+            // O2 gate (symbol-resolution-handoff.md, open-resolution): the *short* name under its `open`
+            // type-checks and freezes the same keyed node as the fully-qualified
+            // form — short-name resolution flows through `OpenScope.tryQualify` in
+            // both NameResolution and Unification.
+            test "short name under `open` type-checks + freezes carrying its key" {
+                let provider = SymbolProviders.build []
+
+                let tast =
+                    analyseWith
+                        provider
+                        "open System.Collections.Generic\nlet h = EqualityComparer<int>.Default.GetHashCode 5"
+
+                Expect.isEmpty (errors tast) "no type errors for the short-name form under its open"
+
+                let value =
+                    tast.Decls
+                    |> List.tryPick (
+                        function
+                        | TDecl.Let(value = v) -> Some v
+                        | _ -> None
+                    )
+
+                match value with
+                | Some(TExpr.App(TExpr.ExternalMember(ValueSome inner, ghKey, "GetHashCode", false, ghTy),
+                                 TExpr.Const(TConstValue.Int 5, _),
+                                 resultTy)) ->
+                    match Unification.zonk ghTy with
+                    | TyFun(TyConst "int", TyConst "int") -> ()
+                    | other -> failtestf "GetHashCode should be typed int -> int, got %A" other
+
+                    match Unification.zonk resultTy with
+                    | TyConst "int" -> ()
+                    | other -> failtestf "the application should be typed int, got %A" other
+
+                    match ghKey with
+                    | SymbolKey.MemberKey(SymbolKey.TypeKey(asm, ns, name), "GetHashCode", argSig) ->
+                        Expect.isTrue asm.IsSome "GetHashCode decl carries the defining assembly"
+                        Expect.equal ns "System.Collections.Generic" "GetHashCode decl namespace"
+                        Expect.equal name "EqualityComparer`1" "GetHashCode decl type name (arity-suffixed)"
+                        Expect.equal argSig [ "!0" ] "GetHashCode(T) argSig is the declaring typar"
+                    | other -> failtestf "unexpected GetHashCode key %A" other
+
+                    match inner with
+                    | TExpr.ExternalMember(ValueNone, _, "Default", true, _) -> ()
+                    | other -> failtestf "expected a static `Default` ExternalMember receiver, got %A" other
+                | other -> failtestf "expected App(ExternalMember GetHashCode, 5), got %A" other
+            }
+
+            test "short-name key equals the fully-qualified form's resolved key" {
+                let provider = SymbolProviders.build []
+
+                let expected =
+                    match provider.TryLookupMember(eqComparer, "GetHashCode") with
+                    | ValueSome m -> m.Key
+                    | ValueNone -> failtest "provider did not resolve GetHashCode"
+
+                let tast =
+                    analyseWith
+                        provider
+                        "open System.Collections.Generic\nlet h = EqualityComparer<int>.Default.GetHashCode 5"
+
+                let frozen =
+                    tast.Decls
+                    |> List.tryPick (
+                        function
+                        | TDecl.Let(value = TExpr.App(TExpr.ExternalMember(key = k), _, _)) -> Some k
+                        | _ -> None
+                    )
+
+                Expect.equal frozen (Some expected) "frozen key (short name) = provider's resolved key"
+            }
         ]

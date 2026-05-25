@@ -182,6 +182,61 @@ module Validation =
                         }
                 | _ -> ()
 
+    /// FS3200: in a recursive declaration group, `open` declarations must come
+    /// first in each module / namespace scope. Once inside a `module rec` /
+    /// `namespace rec`, the first non-`open` element in a scope closes the
+    /// opens-first region; any later `open` there is rejected. This makes the
+    /// constant-prelude shape the rec branch of `CstWalk.walkModuleTree` assumes
+    /// actually hold — without it, an interspersed open in a rec group would
+    /// silently get whole-scope (position-insensitive) semantics that fsc
+    /// rejects (symbol-resolution-handoff.md, open-resolution).
+    ///
+    /// `walkModuleTree` flattens module wrappers and erases boundaries, so this
+    /// re-walks the structural CST. The rec context propagates into nested
+    /// modules: each module under a rec group is independently an opens-first
+    /// scope (§3.2 — confirmed for `namespace rec` nested modules; §9 flags the
+    /// `module rec`-nested case as not separately repro'd, so propagating is the
+    /// documented-design choice rather than an independently-verified one).
+    let private checkRecOpenPlacement (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
+        let checkScope (elems: ModuleElems<SyntaxToken>) =
+            let mutable seenNonImport = false
+
+            for e in elems do
+                match e with
+                | ModuleElem.Import(ImportDecl.ImportDecl(openToken = openTok))
+                | ModuleElem.Import(ImportDecl.ImportDeclType(openToken = openTok)) ->
+                    if seenNonImport then
+                        ctx.Diagnostics.Add
+                            {
+                                Key = NodeKey.ofToken openTok NodeKind.DeclOpen
+                                Message =
+                                    "In a recursive declaration group, 'open' declarations must come first in each module."
+                                Severity = Error
+                            }
+                | _ -> seenNonImport <- true
+
+        let rec processElems (elems: ModuleElems<SyntaxToken>) (inRec: bool) : unit =
+            if inRec then
+                checkScope elems
+
+            for e in elems do
+                match e with
+                | ModuleElem.Module(ModuleDefn.ModuleDefn(isRec = innerRec; body = ModuleDefnBody(elements = inner))) ->
+                    match inner with
+                    | ValueSome innerElems -> processElems innerElems (inRec || innerRec.IsSome)
+                    | ValueNone -> ()
+                | _ -> ()
+
+        match file with
+        | ImplementationFile.AnonymousModule elems -> processElems elems false
+        | ImplementationFile.NamedModule(NamedModule.NamedModule(isRec = isRec; elements = elems)) ->
+            processElems elems isRec.IsSome
+        | ImplementationFile.Namespaces groups ->
+            for g in groups do
+                match g with
+                | NamespaceDeclGroup.Named(isRec = isRec; elements = elems) -> processElems elems isRec.IsSome
+                | NamespaceDeclGroup.Global(elements = elems) -> processElems elems false
+
     let private mkWalker (ctx: PassContext) : CstWalk.ExprWalker<unit> =
         {
             Visit =
@@ -235,8 +290,11 @@ module Validation =
         // element list before `walkElems` runs, so a `ModuleElem.Module` never
         // reaches here — its contents are walked as ordinary top-level elements.
         | ModuleElem.Module _ -> ()
-        | ModuleElem.ModuleAbbrev _ -> failwith "Validation: ModuleElem.ModuleAbbrev not implemented"
-        | ModuleElem.Import _ -> failwith "Validation: ModuleElem.Import not implemented"
+        // `open` / `module R = …` are declaration-level nodes consumed by
+        // open-resolution (NameResolution/Unification build the `OpenScope` from
+        // them, symbol-resolution-handoff.md, open-resolution); they carry no expression to validate.
+        | ModuleElem.ModuleAbbrev _ -> ()
+        | ModuleElem.Import _ -> ()
         | ModuleElem.CompilerDirective _ -> failwith "Validation: ModuleElem.CompilerDirective not implemented"
         | ModuleElem.Missing -> failwith "Validation: ModuleElem.Missing not implemented"
         | ModuleElem.SkipsTokens _ -> failwith "Validation: ModuleElem.SkipsTokens not implemented"
@@ -251,3 +309,4 @@ module Validation =
 
         checkUnresolvedDotAccesses ctx
         checkValueRestriction ctx
+        checkRecOpenPlacement ctx file

@@ -86,41 +86,39 @@ module ReferencedProject =
             | Error e -> Error(sprintf "Manifest parse error (%s): %s" manifestPath e)
             | Ok doc -> parseManifest dirName doc
 
-    /// Wrap the extractor's provider so (a) short, dot-free names also resolve
-    /// against the package namespace — the implicit auto-open of Vesper's prelude,
-    /// so `int` finds `Vesper.int` — and (b) every resolved descriptor carries the
-    /// package `Origin`. The extractor records `SymbolOrigin.Empty`; the manifest
-    /// is what knows the assembly + namespace (symbol-resolution-plan §5.1).
-    let private wrap (origin: SymbolOrigin) (ns: string) (inner: IExternalSymbolProvider) : IExternalSymbolProvider =
-        // For a dot-free name not answered directly, retry under the namespace.
-        let stamped (name: string) (direct: 'r voption) (qualified: string -> 'r voption) : 'r voption =
-            match direct with
-            | ValueSome _ -> direct
-            | ValueNone when ns.Length > 0 && name.IndexOf '.' < 0 -> qualified (ns + "." + name)
-            | ValueNone -> ValueNone
-
+    /// Wrap the extractor's provider so (a) every resolved descriptor carries the
+    /// package `Origin` (the extractor records `SymbolOrigin.Empty`; the manifest
+    /// knows the assembly + namespace — symbol-resolution-plan §5.1), and (b) the
+    /// package's implicit prelude — its `[<AutoOpen>]` modules plus the namespace
+    /// itself — is surfaced as `IAmbientOpenScope`. Short-name resolution is *not*
+    /// a provider-internal retry any more: the pipeline seeds these `ambient`
+    /// prefixes into the open scope and probes them BEHIND explicit `open`s, so an
+    /// explicit `open` can shadow a prelude name (symbol-resolution-handoff.md, open-resolution).
+    let private wrap
+        (origin: SymbolOrigin)
+        (ambient: string list)
+        (inner: IExternalSymbolProvider)
+        : IExternalSymbolProvider =
         { new IExternalSymbolProvider with
             member _.TryLookup name =
-                match stamped name (inner.TryLookup name) inner.TryLookup with
+                match inner.TryLookup name with
                 | ValueSome s -> ValueSome { s with Origin = origin }
                 | ValueNone -> ValueNone
 
             member _.TryLookupType name =
-                match stamped name (inner.TryLookupType name) inner.TryLookupType with
+                match inner.TryLookupType name with
                 // Only `Class` carries an origin slot; Abbrev/Record/Union don't.
                 | ValueSome(ExternalTypeShape.Class(arity, isInterface, _)) ->
                     ValueSome(ExternalTypeShape.Class(arity, isInterface, origin))
                 | other -> other
 
             member _.TryLookupMember(typeName, memberName) =
-                match
-                    stamped
-                        typeName
-                        (inner.TryLookupMember(typeName, memberName))
-                        (fun t -> inner.TryLookupMember(t, memberName))
-                with
+                match inner.TryLookupMember(typeName, memberName) with
                 | ValueSome mem -> ValueSome { mem with Origin = origin }
                 | ValueNone -> ValueNone
+
+          interface IAmbientOpenScope with
+              member _.AmbientOpenPrefixes = ambient
         }
 
     /// Stand up a referenced project (layer 1) from its `manifest.toml`: parse
@@ -156,7 +154,18 @@ module ReferencedProject =
                     DeclaringType = None
                 }
 
-            Ok(wrap origin manifest.Namespace (FSharpLib.ExtractCtx.toProvider ctx), List.ofSeq ctx.Diagnostics)
+            // The contract's implicit prelude: its `[<AutoOpen>]` modules (most
+            // specific, e.g. `Vesper.ArithmeticOperators`) ahead of the package
+            // namespace itself (`Vesper`, so `int` finds `Vesper.int`). Both are
+            // probed behind explicit `open`s (symbol-resolution-handoff.md, open-resolution).
+            let ambient =
+                List.ofSeq ctx.AutoOpenPrefixes
+                @ (if manifest.Namespace.Length > 0 then
+                       [ manifest.Namespace ]
+                   else
+                       [])
+
+            Ok(wrap origin ambient (FSharpLib.ExtractCtx.toProvider ctx), List.ofSeq ctx.Diagnostics)
 
     /// Lazy cache keyed by the (normalised) manifest path so repeated callers
     /// parse a package's `.fsi` set at most once. Mirrors `FSharpLib.defaultProvider`.

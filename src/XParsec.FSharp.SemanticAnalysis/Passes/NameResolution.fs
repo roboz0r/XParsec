@@ -41,11 +41,16 @@ module NameResolution =
     /// own `visit` doesn't see, so probe a bounded arity range (results are cached
     /// by the provider). symbol-resolution-plan §7.2, P3.
     let private resolvesAsExternalType (ctx: PassContext) (name: string) : bool =
+        // The probe accepts the name as-is or at any small arity; `tryQualify`
+        // applies the `open` prefixes in scope, so a short `EqualityComparer`
+        // (under `open System.Collections.Generic`) resolves to the arity-suffixed
+        // qualified name. (symbol-resolution-handoff.md, open-resolution.)
         let probe n =
-            ctx.Provider.TryLookupType n |> ValueOption.isSome
+            (ctx.Provider.TryLookupType n |> ValueOption.isSome)
+            || [ 1; 2; 3; 4 ]
+               |> List.exists (fun a -> ctx.Provider.TryLookupType(sprintf "%s`%d" n a) |> ValueOption.isSome)
 
-        probe name
-        || [ 1; 2; 3; 4 ] |> List.exists (fun a -> probe (sprintf "%s`%d" name a))
+        OpenScope.tryQualify ctx.OpenScope probe name |> ValueOption.isSome
 
     let private resolveIdent (ctx: PassContext) (scope: Scope list) (tok: SyntaxToken) (useKey: NodeKey) =
         let name = ctx.NameOf tok
@@ -69,7 +74,7 @@ module NameResolution =
                 }
             )
         | ValueNone ->
-            match ctx.Provider.TryLookup name with
+            match OpenScope.tryQualify ctx.OpenScope (fun n -> ctx.Provider.TryLookup n |> ValueOption.isSome) name with
             | ValueSome _ -> ()
             | ValueNone ->
                 // DU ctor references resolve through `ctx.CtorIndex` in
@@ -206,7 +211,12 @@ module NameResolution =
             | ValueNone ->
                 let qualName = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
 
-                match ctx.Provider.TryLookup qualName with
+                match
+                    OpenScope.tryQualify
+                        ctx.OpenScope
+                        (fun n -> ctx.Provider.TryLookup n |> ValueOption.isSome)
+                        qualName
+                with
                 | ValueSome _ -> ()
                 | ValueNone ->
                     // `Result2.Ok` — two-segment qualified ctor reference,
@@ -1076,42 +1086,52 @@ module NameResolution =
     let private walkElems
         (ctx: PassContext)
         (walker: CstWalk.ExprWalker<Scope list>)
-        (elems: ModuleElems<SyntaxToken>)
+        (pairs: (ModuleElem<SyntaxToken> * OpenScope) list)
         =
         // Pre-pass: register every record / union type so subsequent
         // expression walks (and Unification) resolve against the registry.
         // Both must finish before `bindingsOfPat` runs on any pattern, since
-        // the ctor-vs-binder disambiguation reads `ctx.CtorIndex`.
-        for m in elems do
+        // the ctor-vs-binder disambiguation reads `ctx.CtorIndex`. Registration
+        // resolves no external short names, so it ignores the per-element scope.
+        for (m, _) in pairs do
             registerRecordTypes ctx m
 
-        for m in elems do
+        for (m, _) in pairs do
             registerUnionTypes ctx m
 
-        for m in elems do
+        for (m, _) in pairs do
             registerAbbreviationTypes ctx m
 
-        for m in elems do
+        for (m, _) in pairs do
             registerClassTypes ctx m
 
         // Union augmentation members (P3d.3) register after the union itself.
-        for m in elems do
+        for (m, _) in pairs do
             registerUnionMembers ctx m
 
         // `walkModuleElem` skips `ModuleElem.Type`, so class member bodies are
         // walked here with each class's own scope (`this` + ctor params), so
         // member-body idents have Binding entries before Unification types them.
-        for m in elems do
+        // `ctx.OpenScope` is set per element so a member body resolves short
+        // external names against the `open`s in scope at that element.
+        for (m, openScope) in pairs do
+            ctx.OpenScope <- openScope
             walkClassBodies ctx walker m
 
-        for m in elems do
+        for (m, openScope) in pairs do
+            ctx.OpenScope <- openScope
             walkUnionBodies ctx walker m
 
         let mutable scope = [ Map.empty ]
 
-        for m in elems do
+        for (m, openScope) in pairs do
+            ctx.OpenScope <- openScope
             scope <- walkModuleElem ctx walker scope m
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
         let walker = mkWalker ctx
-        walkElems ctx walker (CstWalk.implFileElems file)
+        // Seed the walk with the stable ambient prelude (empty today; the
+        // referenced-contract auto-open set later — symbol-resolution-handoff.md, open-resolution).
+        // `walkElems` overwrites `ctx.OpenScope` per element, so the seed is read
+        // from `AmbientOpenScope`, not the scope it mutates.
+        walkElems ctx walker (CstWalk.walkModuleTree ctx.NameOf ctx.AmbientOpenScope file)
