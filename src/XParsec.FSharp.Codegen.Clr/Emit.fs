@@ -867,28 +867,24 @@ module Emit =
             StaticMethods: Dictionary<NodeKey, StaticMethodRef>
         }
 
-    let private applyRecipe (il: Il) (recipe: CallRecipe) : unit =
-        recipe.Emit il
-        il.Adjust(recipe.Pushes - recipe.ArgCount)
-
     /// Load a variable for the current method: a method parameter (`ldarg.i`),
     /// the recursive self of a closure (`this`, `ldarg.0`), a capture
     /// (`ldarg.0; ldfld`), or a local slot (`ldloc`).
-    let private emitVarLoad (env: EmitEnv) (il: Il) (key: NodeKey) : unit =
+    let private buildVarLoad (env: EmitEnv) (b: IlBuilder) (key: NodeKey) : unit =
         match env.Args.TryGetValue key with
-        | true, i -> Cil.emitLdarg il i
+        | true, i -> b.Add(ILInstr.Ldarg i)
         | false, _ ->
 
             match env.SelfKey with
-            | ValueSome s when s = key -> Cil.emitLdarg il 0 // `this` — the recursive self
+            | ValueSome s when s = key -> b.Add(ILInstr.Ldarg 0) // `this` — the recursive self
             | _ ->
                 match env.CaptureFields.TryGetValue key with
                 | true, field ->
-                    Cil.emitLdarg il 0
-                    Cil.emitLdfld il field
+                    b.Add(ILInstr.Ldarg 0)
+                    b.Add(ILInstr.Ldfld field)
                 | false, _ ->
                     match env.Slots.TryGetValue key with
-                    | true, slot -> Cil.emitLdloc il slot
+                    | true, slot -> b.Add(ILInstr.Ldloc slot)
                     | false, _ -> failwithf "Emit: no binding for variable %O" key
 
     /// Test a pattern against the value already stored in local `scrutSlot`:
@@ -897,21 +893,21 @@ module Emit =
     /// always match (the latter aliases its binding to `scrutSlot`, so
     /// `emitVarLoad` resolves it to the same local — no copy). Union / tuple /
     /// record patterns land in later rung-2 slices.
-    let rec private emitMatchTest (env: EmitEnv) (il: Il) (scrutSlot: int) (nextLabel: LabelHandle) (pat: TPat) : unit =
+    let rec private buildMatchTest (env: EmitEnv) (b: IlBuilder) (scrutSlot: int) (nextLabel: int) (pat: TPat) : unit =
         match pat with
         | TPat.Wildcard _ -> ()
         | TPat.NamedSimple(binding, _) -> env.Slots.[binding] <- scrutSlot
         | TPat.Const(value, _) ->
-            Cil.emitLdloc il scrutSlot
+            b.Add(ILInstr.Ldloc scrutSlot)
 
             match value with
-            | TConstValue.Int n -> Cil.emitLdcI4 il n
-            | TConstValue.Bool b -> Cil.emitLdcI4 il (if b then 1 else 0)
-            | TConstValue.Byte n -> Cil.emitLdcI4 il (int n)
-            | TConstValue.Char c -> Cil.emitLdcI4 il (int c)
+            | TConstValue.Int n -> b.Add(ILInstr.LdcI4 n)
+            | TConstValue.Bool v -> b.Add(ILInstr.LdcI4(if v then 1 else 0))
+            | TConstValue.Byte n -> b.Add(ILInstr.LdcI4(int n))
+            | TConstValue.Char c -> b.Add(ILInstr.LdcI4(int c))
             | other -> failwithf "Emit: match on constant %A is out of scope" other
 
-            Cil.emitBneUn il nextLabel
+            b.Add(ILInstr.BneUn nextLabel)
         | TPat.Union(caseName, subPats, ty) ->
             let typeName, tyArgs =
                 match ty with
@@ -933,10 +929,10 @@ module Emit =
                         env.Provider.GenericUnionMemberRef(typeName, tyArgs, UnionMember.Tag)
 
                 // Skip the arm unless `scrut._tag = case.Tag`.
-                Cil.emitLdloc il scrutSlot
-                Cil.emitLdfld il tagRef
-                Cil.emitLdcI4 il c.Tag
-                Cil.emitBneUn il nextLabel
+                b.Add(ILInstr.Ldloc scrutSlot)
+                b.Add(ILInstr.Ldfld tagRef)
+                b.Add(ILInstr.LdcI4 c.Tag)
+                b.Add(ILInstr.BneUn nextLabel)
 
                 // Extract each non-wildcard field into a fresh local, then test
                 // its sub-pattern (a named sub-pattern just aliases that local).
@@ -951,11 +947,11 @@ module Emit =
                             else
                                 env.Provider.GenericUnionMemberRef(typeName, tyArgs, UnionMember.Field(caseName, i))
 
-                        let fldSlot = il.DeclareLocal(typeOfPat subPat)
-                        Cil.emitLdloc il scrutSlot
-                        Cil.emitLdfld il fieldRef
-                        Cil.emitStloc il fldSlot
-                        emitMatchTest env il fldSlot nextLabel subPat
+                        let fldSlot = b.Local(typeOfPat subPat)
+                        b.Add(ILInstr.Ldloc scrutSlot)
+                        b.Add(ILInstr.Ldfld fieldRef)
+                        b.Add(ILInstr.Stloc fldSlot)
+                        buildMatchTest env b fldSlot nextLabel subPat
                 )
             | false, _ -> failwithf "Emit: no emitted union for match on '%s'" typeName
         | other -> failwithf "Emit: match pattern is out of scope: %A" other
@@ -964,10 +960,10 @@ module Emit =
     /// System.Exception("…")`. An exhaustive match never reaches it at runtime,
     /// but it keeps the emitted IL well-formed (and gives a non-exhaustive one
     /// defined behaviour).
-    let private emitMatchFailure (env: EmitEnv) (il: Il) : unit =
-        Cil.emitLdstr il (env.Ctx.UserString "The match cases were incomplete")
-        Cil.emitNewobj il env.Provider.ExceptionCtor 1
-        Cil.emitThrow il
+    let private buildMatchFailure (env: EmitEnv) (b: IlBuilder) : unit =
+        b.Add(ILInstr.Ldstr(env.Ctx.UserString "The match cases were incomplete"))
+        b.Add(ILInstr.Newobj(env.Provider.ExceptionCtor, 1))
+        b.Add ILInstr.Throw
 
     /// Resolve the member-call handle for an instance access on `receiverTy`
     /// (P3d.3, generalised to generic unions in R2). A monomorphic union uses the
@@ -1030,34 +1026,34 @@ module Emit =
     let private isColdPrintf (name: string) : bool =
         name = "printfn" || name.EndsWith ".printfn"
 
-    let rec private emitExpr (env: EmitEnv) (il: Il) (e: TExpr) : unit =
+    let rec private buildExpr (env: EmitEnv) (b: IlBuilder) (e: TExpr) : unit =
         match e with
-        | TExpr.Const(TConstValue.String s, _) -> Cil.emitLdstr il (env.Ctx.UserString s)
-        | TExpr.Const(TConstValue.Int n, _) -> Cil.emitLdcI4 il n
-        | TExpr.Const(TConstValue.Bool b, _) -> Cil.emitLdcI4 il (if b then 1 else 0)
-        | TExpr.Const(TConstValue.Byte n, _) -> Cil.emitLdcI4 il (int n)
-        | TExpr.Const(TConstValue.Float x, _) -> Cil.emitLdcR8 il x
-        | TExpr.Const(TConstValue.Char c, _) -> Cil.emitLdcI4 il (int c)
+        | TExpr.Const(TConstValue.String s, _) -> b.Add(ILInstr.Ldstr(env.Ctx.UserString s))
+        | TExpr.Const(TConstValue.Int n, _) -> b.Add(ILInstr.LdcI4 n)
+        | TExpr.Const(TConstValue.Bool v, _) -> b.Add(ILInstr.LdcI4(if v then 1 else 0))
+        | TExpr.Const(TConstValue.Byte n, _) -> b.Add(ILInstr.LdcI4(int n))
+        | TExpr.Const(TConstValue.Float x, _) -> b.Add(ILInstr.LdcR8 x)
+        | TExpr.Const(TConstValue.Char c, _) -> b.Add(ILInstr.LdcI4(int c))
         | TExpr.Const(TConstValue.Decimal d, _) ->
             // Materialise via `Decimal..ctor(lo, mid, hi, isNegative, scale)` from
             // the value's bit representation — the same shape F#/Roslyn emit.
             let bits = System.Decimal.GetBits d
             let flags = bits.[3]
-            Cil.emitLdcI4 il bits.[0] // lo
-            Cil.emitLdcI4 il bits.[1] // mid
-            Cil.emitLdcI4 il bits.[2] // hi
-            Cil.emitLdcI4 il (if flags < 0 then 1 else 0) // sign (high bit of flags)
-            Cil.emitLdcI4 il ((flags >>> 16) &&& 0xFF) // scale
-            Cil.emitNewobj il env.Provider.DecimalCtor 5
+            b.Add(ILInstr.LdcI4 bits.[0]) // lo
+            b.Add(ILInstr.LdcI4 bits.[1]) // mid
+            b.Add(ILInstr.LdcI4 bits.[2]) // hi
+            b.Add(ILInstr.LdcI4(if flags < 0 then 1 else 0)) // sign (high bit of flags)
+            b.Add(ILInstr.LdcI4((flags >>> 16) &&& 0xFF)) // scale
+            b.Add(ILInstr.Newobj(env.Provider.DecimalCtor, 5))
 
-        | TExpr.Var(binding, _) -> emitVarLoad env il binding
+        | TExpr.Var(binding, _) -> buildVarLoad env b binding
 
         | TExpr.Let(TPat.NamedSimple(binding, ty), value, body, _) ->
-            let slot = il.DeclareLocal ty
+            let slot = b.Local ty
             env.Slots.[binding] <- slot
-            emitExpr env il value
-            Cil.emitStloc il slot
-            emitExpr env il body
+            buildExpr env b value
+            b.Add(ILInstr.Stloc slot)
+            buildExpr env b body
         | TExpr.Let(pat, _, _, _) -> failwithf "Emit: destructuring let-binding is out of scope: %A" pat
 
         | TExpr.Sequential(items, _) ->
@@ -1069,63 +1065,64 @@ module Emit =
             items
             |> List.iteri (fun i it ->
                 if i = n - 1 then
-                    emitExpr env il it
+                    buildExpr env b it
                 else
-                    let baseDepth = il.Depth
-                    emitExpr env il it
+                    let baseDepth = b.Depth
+                    buildExpr env b it
 
-                    while il.Depth > baseDepth do
-                        Cil.emitPop il
+                    while b.Depth > baseDepth do
+                        b.Add ILInstr.Pop
             )
 
         | TExpr.IfThenElse(cond, thenExpr, elseExpr, _) ->
             // `<cond>; brfalse else; <then>; br end; else: <else>; end:`. Both
-            // arms leave one value, so the linear depth tracker (which follows
-            // only the then-arm) is reset to the post-`brfalse` base before the
-            // else-arm — see `Il.SetDepth`.
-            let elseLabel = Cil.defineLabel il
-            let endLabel = Cil.defineLabel il
-            emitExpr env il cond
-            Cil.emitBrFalse il elseLabel
-            let baseDepth = il.Depth
-            emitExpr env il thenExpr
-            Cil.emitBr il endLabel
-            il.SetDepth baseDepth
-            Cil.markLabel il elseLabel
-            emitExpr env il elseExpr
-            Cil.markLabel il endLabel
+            // arms leave one value; the builder's linear depth tracker (which
+            // follows only the then-arm) is reset to the post-`brfalse` base
+            // before the else-arm so subsequent statement-discards stay correct —
+            // the *buffer's* merge depths are re-derived by `IlIr.analyze`.
+            let elseLabel = b.Label()
+            let endLabel = b.Label()
+            buildExpr env b cond
+            b.Add(ILInstr.Brfalse elseLabel)
+            let baseDepth = b.Depth
+            buildExpr env b thenExpr
+            b.Add(ILInstr.Br endLabel)
+            b.SetDepth baseDepth
+            b.Add(ILInstr.Mark elseLabel)
+            buildExpr env b elseExpr
+            b.Add(ILInstr.Mark endLabel)
 
         | TExpr.Match(scrutinee, arms, _) ->
             // Evaluate the scrutinee once into a local, then test each arm in
             // order: on a mismatch branch to the next arm; on a match (and a
             // passing guard) emit the body and branch to the shared end. The
-            // depth tracker is reset to the post-scrutinee base before each arm
-            // and before the end label (every body leaves one result) — see
-            // `Il.SetDepth`.
-            let scrutSlot = il.DeclareLocal(typeOfExpr scrutinee)
-            emitExpr env il scrutinee
-            Cil.emitStloc il scrutSlot
-            let baseDepth = il.Depth
-            let endLabel = Cil.defineLabel il
+            // builder's depth tracker is reset to the post-scrutinee base before
+            // each arm and before the end label (every body leaves one result);
+            // `IlIr.analyze` re-derives the buffer's merge depths.
+            let scrutSlot = b.Local(typeOfExpr scrutinee)
+            buildExpr env b scrutinee
+            b.Add(ILInstr.Stloc scrutSlot)
+            let baseDepth = b.Depth
+            let endLabel = b.Label()
 
             for arm in arms do
-                let nextLabel = Cil.defineLabel il
-                emitMatchTest env il scrutSlot nextLabel arm.Pat
+                let nextLabel = b.Label()
+                buildMatchTest env b scrutSlot nextLabel arm.Pat
 
                 match arm.Guard with
                 | Some g ->
-                    emitExpr env il g
-                    Cil.emitBrFalse il nextLabel
+                    buildExpr env b g
+                    b.Add(ILInstr.Brfalse nextLabel)
                 | None -> ()
 
-                emitExpr env il arm.Body
-                Cil.emitBr il endLabel
-                il.SetDepth baseDepth
-                Cil.markLabel il nextLabel
+                buildExpr env b arm.Body
+                b.Add(ILInstr.Br endLabel)
+                b.SetDepth baseDepth
+                b.Add(ILInstr.Mark nextLabel)
 
-            emitMatchFailure env il
-            il.SetDepth(baseDepth + 1)
-            Cil.markLabel il endLabel
+            buildMatchFailure env b
+            b.SetDepth(baseDepth + 1)
+            b.Add(ILInstr.Mark endLabel)
 
         | TExpr.Lambda _ ->
             // A function value: construct its closure. Captures are pushed via
@@ -1134,16 +1131,16 @@ module Emit =
             match env.ClosureByNode.TryGetValue e with
             | true, closure ->
                 for (k, _) in closure.Captures do
-                    emitVarLoad env il k
+                    buildVarLoad env b k
 
                 match env.CtorHandleByNode.TryGetValue e with
-                | true, ctor -> Cil.emitNewobj il ctor (List.length closure.Captures)
+                | true, ctor -> b.Add(ILInstr.Newobj(ctor, List.length closure.Captures))
                 | false, _ -> failwith "Emit: closure constructor not yet emitted (leaves-first ordering broken)"
             | false, _ -> failwith "Emit: a Lambda value was not discovered as a closure"
 
         | TExpr.New(className, args, ty) ->
             for a in args do
-                emitExpr env il a
+                buildExpr env b a
 
             let tyArgs =
                 match ty with
@@ -1151,7 +1148,7 @@ module Emit =
                 | _ -> []
 
             match env.Provider.TryEmitCtor(className, tyArgs) with
-            | ValueSome recipe -> Cil.emitNewobj il recipe.Handle recipe.ArgCount
+            | ValueSome recipe -> b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))
             | ValueNone -> failwithf "Emit: no constructor recipe for '%s'" className
 
         | TExpr.App _ ->
@@ -1165,9 +1162,9 @@ module Emit =
                 // way a non-exhaustive `match` fallthrough does (P3d.3).
                 match spineArgs with
                 | (arg, _) :: _ ->
-                    emitExpr env il arg
-                    Cil.emitNewobj il env.Provider.ExceptionCtor 1
-                    Cil.emitThrow il
+                    buildExpr env b arg
+                    b.Add(ILInstr.Newobj(env.Provider.ExceptionCtor, 1))
+                    b.Add ILInstr.Throw
                 | [] -> failwith "Emit: failwith with no argument"
             | TExpr.External(name, _) ->
                 // The recipe reads its generic instantiation from the head's
@@ -1177,9 +1174,9 @@ module Emit =
                     let leading, rest = List.splitAt recipe.ArgCount spineArgs
 
                     for (a, _) in leading do
-                        emitExpr env il a
+                        buildExpr env b a
 
-                    applyRecipe il recipe
+                    b.Add(ILInstr.Recipe recipe)
 
                     // Whatever the recipe left on the stack — a function value
                     // the rest of the spine is applied to.
@@ -1192,9 +1189,9 @@ module Emit =
                     // is applied via `FSharpFunc::Invoke`; every other recipe result
                     // is a native `Vesper.Fun` (R1).
                     if isColdPrintf name then
-                        foldInvokeFSharpFunc env il funcTy rest
+                        foldInvokeFSharpFunc env b funcTy rest
                     else
-                        foldInvoke env il funcTy rest
+                        foldInvoke env b funcTy rest
                 | ValueNone -> failwithf "Emit: no call recipe for external '%s'" name
 
             | TExpr.Var(k, _) when env.StaticMethods.ContainsKey k ->
@@ -1209,7 +1206,7 @@ module Emit =
                 let leading, rest = List.splitAt sm.Arity spineArgs
 
                 for (a, _) in leading do
-                    emitExpr env il a
+                    buildExpr env b a
 
                 let callHandle =
                     if List.isEmpty sm.Typars then
@@ -1222,14 +1219,14 @@ module Emit =
                         let inst = matchInstantiation sm.Typars sm.ParamTys actualTys
                         env.Provider.StaticFnMethodSpec(sm.Handle, inst)
 
-                Cil.emitCall il callHandle sm.Arity 1
-                foldInvoke env il sm.ResultTy rest
+                b.Add(ILInstr.Call(callHandle, sm.Arity, 1))
+                foldInvoke env b sm.ResultTy rest
 
             | _ ->
                 // The head is itself a function value (a closure local or a
                 // partially applied result): emit it, then `Invoke` each arg.
-                emitExpr env il head
-                foldInvoke env il (typeOfExpr head) spineArgs
+                buildExpr env b head
+                foldInvoke env b (typeOfExpr head) spineArgs
 
         | TExpr.UnionCons(caseName, args, ty) ->
             let typeName, tyArgs =
@@ -1239,7 +1236,7 @@ module Emit =
                 | other -> failwithf "Emit: UnionCons with non-union type %A" other
 
             for a in args do
-                emitExpr env il a
+                buildExpr env b a
 
             match env.Unions.TryGetValue typeName with
             | true, u ->
@@ -1253,11 +1250,11 @@ module Emit =
                     else
                         env.Provider.GenericUnionMemberRef(typeName, tyArgs, UnionMember.Factory caseName)
 
-                Cil.emitCall il factoryRef (List.length args) 1
+                b.Add(ILInstr.Call(factoryRef, List.length args, 1))
             | false, _ ->
                 // The provider's special-case (FSharp.Core list) for `[]` / `::`.
                 match env.Provider.TryEmitUnionCons(typeName, caseName, tyArgs) with
-                | ValueSome recipe -> applyRecipe il recipe
+                | ValueSome recipe -> b.Add(ILInstr.Recipe recipe)
                 | ValueNone -> failwithf "Emit: no union-cons recipe for %s.%s" typeName caseName
 
         | TExpr.PropertyGet(receiver, name, _) ->
@@ -1266,33 +1263,33 @@ module Emit =
             // generic union the call goes through a `MemberRef` on the receiver's
             // `TypeSpec` (`List<int>::get_Head`) (R2).
             let handle = resolveInstanceMember env (typeOfExpr receiver) name
-            emitExpr env il receiver
-            Cil.emitCall il handle 1 1
+            buildExpr env b receiver
+            b.Add(ILInstr.Call(handle, 1, 1))
 
         | TExpr.MethodCall(receiver, name, args, _) ->
             // Instance method call (P3d.3): receiver then args, `call` the
             // member (non-virtual — the union is sealed).
             let handle = resolveInstanceMember env (typeOfExpr receiver) name
-            emitExpr env il receiver
+            buildExpr env b receiver
 
             for a in args do
-                emitExpr env il a
+                buildExpr env b a
 
-            Cil.emitCall il handle (1 + List.length args) 1
+            b.Add(ILInstr.Call(handle, 1 + List.length args, 1))
 
         | TExpr.StaticPropertyGet(className, name, _) ->
             let handle = resolveStaticMember env className name
-            Cil.emitCall il handle 0 1
+            b.Add(ILInstr.Call(handle, 0, 1))
 
         | TExpr.StaticMethodCall(className, name, args, _) ->
             let handle = resolveStaticMember env className name
 
             for a in args do
-                emitExpr env il a
+                buildExpr env b a
 
-            Cil.emitCall il handle (List.length args) 1
+            b.Add(ILInstr.Call(handle, List.length args, 1))
 
-        | TExpr.Format(sink, segments, _) -> emitFormat env il sink segments
+        | TExpr.Format(sink, segments, _) -> buildFormat env b sink segments
 
         | TExpr.ILIntrinsic(opCode, args, _) ->
             // Push each operand, then append the mapped opcode. The dispatch
@@ -1300,10 +1297,14 @@ module Emit =
             // `.fs` body this node was lowered from, not here — codegen only
             // interprets the IL. See docs/core-operators-handoff.md.
             for a in args do
-                emitExpr env il a
+                buildExpr env b a
 
             match Cil.tryOpCodeOfMnemonic opCode with
-            | ValueSome code -> Cil.emitIntrinsicValueOp il code (List.length args)
+            | ValueSome code ->
+                match List.length args with
+                | 2 -> b.Add(ILInstr.Bin code)
+                | 1 -> b.Add(ILInstr.Un code)
+                | n -> failwithf "Emit: %d-ary inline-IL instruction '%s' is out of scope" n opCode
             | ValueNone -> failwithf "Emit: unsupported inline-IL instruction '%s'" opCode
 
         | other -> failwithf "Emit: unsupported expression: %A" other
@@ -1316,9 +1317,9 @@ module Emit =
     /// string sink. The node yields a value: the `unit` (null) of the writing
     /// sinks, or the result string of `sprintf`. Not a `CallRecipe` — the recipe
     /// model can't interleave literals/args around a ref-struct local + sink.
-    and private emitFormat (env: EmitEnv) (il: Il) (sink: FormatSink) (segments: EqArray<FormatSeg>) : unit =
+    and private buildFormat (env: EmitEnv) (b: IlBuilder) (sink: FormatSink) (segments: EqArray<FormatSeg>) : unit =
         let fh = env.Provider.FormatHandles()
-        let slot = il.DeclareLocal fh.HandlerLocal
+        let slot = b.Local fh.HandlerLocal
 
         // Capacity hints for the ctor; the handler grows past them as needed, so
         // they need not be exact.
@@ -1331,42 +1332,42 @@ module Emit =
             | FormatSeg.Hole _ -> holeCount <- holeCount + 1
 
         // Construct in place: `ldloca h; ldc litLen; ldc holeCount; <sink?>; call .ctor`.
-        Cil.emitLdloca il slot
-        Cil.emitLdcI4 il litLen
-        Cil.emitLdcI4 il holeCount
+        b.Add(ILInstr.Ldloca slot)
+        b.Add(ILInstr.LdcI4 litLen)
+        b.Add(ILInstr.LdcI4 holeCount)
 
         match sink with
-        | FormatSink.ToString -> Cil.emitCall il fh.CtorString 3 0
+        | FormatSink.ToString -> b.Add(ILInstr.Call(fh.CtorString, 3, 0))
         | FormatSink.ToStdOut _ ->
-            Cil.emitCall il fh.ConsoleOut 0 1
-            Cil.emitCall il fh.CtorWriter 4 0
+            b.Add(ILInstr.Call(fh.ConsoleOut, 0, 1))
+            b.Add(ILInstr.Call(fh.CtorWriter, 4, 0))
         | FormatSink.ToStdErr _ ->
-            Cil.emitCall il fh.ConsoleError 0 1
-            Cil.emitCall il fh.CtorWriter 4 0
+            b.Add(ILInstr.Call(fh.ConsoleError, 0, 1))
+            b.Add(ILInstr.Call(fh.CtorWriter, 4, 0))
         | FormatSink.ToWriter w ->
-            emitExpr env il w
-            Cil.emitCall il fh.CtorWriter 4 0
+            buildExpr env b w
+            b.Add(ILInstr.Call(fh.CtorWriter, 4, 0))
         | FormatSink.ToBuilder _ -> failwith "Emit: bprintf (ToBuilder) is not yet supported"
 
         for seg in segments do
             match seg with
             | FormatSeg.Lit s ->
-                Cil.emitLdloca il slot
-                Cil.emitLdstr il (env.Ctx.UserString s)
-                Cil.emitCall il fh.AppendLiteral 2 0
+                b.Add(ILInstr.Ldloca slot)
+                b.Add(ILInstr.Ldstr(env.Ctx.UserString s))
+                b.Add(ILInstr.Call(fh.AppendLiteral, 2, 0))
             | FormatSeg.Hole(hole, arg) ->
                 match hole.Kind with
                 | PrintfSpec.HoleKind.Formatted ->
-                    Cil.emitLdloca il slot
-                    emitExpr env il arg
+                    b.Add(ILInstr.Ldloca slot)
+                    buildExpr env b arg
 
                     // Push optional args in the C# parameter order: alignment, then format.
                     match hole.Alignment with
-                    | Some a -> Cil.emitLdcI4 il a
+                    | Some a -> b.Add(ILInstr.LdcI4 a)
                     | None -> ()
 
                     match hole.Format with
-                    | Some f -> Cil.emitLdstr il (env.Ctx.UserString f)
+                    | Some f -> b.Add(ILInstr.Ldstr(env.Ctx.UserString f))
                     | None -> ()
 
                     let handle = fh.AppendFormatted(hole.Ty, hole.Alignment.IsSome, hole.Format.IsSome)
@@ -1376,7 +1377,7 @@ module Emit =
                         + (if hole.Alignment.IsSome then 1 else 0)
                         + (if hole.Format.IsSome then 1 else 0)
 
-                    Cil.emitCall il handle argc 0
+                    b.Add(ILInstr.Call(handle, argc, 0))
 
                 | PrintfSpec.HoleKind.BoolText
                 | PrintfSpec.HoleKind.Octal
@@ -1391,10 +1392,10 @@ module Emit =
                         | PrintfSpec.HoleKind.Octal -> fh.AppendOctal
                         | _ -> fh.AppendUnsigned
 
-                    Cil.emitLdloca il slot
-                    emitExpr env il arg
-                    Cil.emitLdcI4 il (defaultArg hole.Alignment 0)
-                    Cil.emitCall il handle 3 0
+                    b.Add(ILInstr.Ldloca slot)
+                    buildExpr env b arg
+                    b.Add(ILInstr.LdcI4(defaultArg hole.Alignment 0))
+                    b.Add(ILInstr.Call(handle, 3, 0))
 
                 | PrintfSpec.HoleKind.ZeroPaddedFloat ->
                     // `AppendZeroPaddedFloat(value, "F<prec>", width)` — the
@@ -1410,72 +1411,77 @@ module Emit =
                         | Some w -> w
                         | None -> failwith "Emit: ZeroPaddedFloat hole missing its width"
 
-                    Cil.emitLdloca il slot
-                    emitExpr env il arg
-                    Cil.emitLdstr il (env.Ctx.UserString fmt)
-                    Cil.emitLdcI4 il width
-                    Cil.emitCall il fh.AppendZeroPaddedFloat 4 0
+                    b.Add(ILInstr.Ldloca slot)
+                    buildExpr env b arg
+                    b.Add(ILInstr.Ldstr(env.Ctx.UserString fmt))
+                    b.Add(ILInstr.LdcI4 width)
+                    b.Add(ILInstr.Call(fh.AppendZeroPaddedFloat, 4, 0))
 
         match sink with
         | FormatSink.ToString ->
             // Leaves the built string on the stack (the `sprintf` result).
-            Cil.emitLdloca il slot
-            Cil.emitCall il fh.ToStringAndClear 1 1
+            b.Add(ILInstr.Ldloca slot)
+            b.Add(ILInstr.Call(fh.ToStringAndClear, 1, 1))
         | FormatSink.ToStdOut nl
         | FormatSink.ToStdErr nl ->
             if nl then
-                Cil.emitLdloca il slot
-                Cil.emitLdstr il (env.Ctx.UserString "\n")
-                Cil.emitCall il fh.AppendLiteral 2 0
+                b.Add(ILInstr.Ldloca slot)
+                b.Add(ILInstr.Ldstr(env.Ctx.UserString "\n"))
+                b.Add(ILInstr.Call(fh.AppendLiteral, 2, 0))
 
-            Cil.emitLdloca il slot
-            Cil.emitCall il fh.Flush 1 0
-            Cil.emitLdnull il // unit value
+            b.Add(ILInstr.Ldloca slot)
+            b.Add(ILInstr.Call(fh.Flush, 1, 0))
+            b.Add ILInstr.Ldnull // unit value
         | FormatSink.ToWriter _ ->
-            Cil.emitLdloca il slot
-            Cil.emitCall il fh.Flush 1 0
-            Cil.emitLdnull il // unit value
+            b.Add(ILInstr.Ldloca slot)
+            b.Add(ILInstr.Call(fh.Flush, 1, 0))
+            b.Add ILInstr.Ldnull // unit value
         | FormatSink.ToBuilder _ -> failwith "Emit: bprintf (ToBuilder) is not yet supported"
 
     /// Apply each remaining argument to the function value on the stack via
     /// `FSharpFunc.Invoke`, threading the running function type.
-    and private foldInvoke (env: EmitEnv) (il: Il) (funcTy0: SemType) (args: (TExpr * SemType) list) : unit =
+    and private foldInvoke (env: EmitEnv) (b: IlBuilder) (funcTy0: SemType) (args: (TExpr * SemType) list) : unit =
         let mutable funcTy = funcTy0
 
         for (arg, resTy) in args do
             match env.Provider.TryEmitInvoke funcTy with
             | ValueSome recipe ->
-                emitExpr env il arg
-                applyRecipe il recipe
+                buildExpr env b arg
+                b.Add(ILInstr.Recipe recipe)
                 funcTy <- resTy
             | ValueNone -> failwithf "Emit: cannot apply argument to value of type %A" funcTy
 
     /// Apply a curried FSharp.Core `FSharpFunc` value (the cold printf printer)
     /// argument by argument via `FSharpFunc::Invoke` — the FSharpFunc twin of
     /// `foldInvoke` (R1; retargeted with the printf engine, handoff §R9).
-    and private foldInvokeFSharpFunc (env: EmitEnv) (il: Il) (funcTy0: SemType) (args: (TExpr * SemType) list) : unit =
+    and private foldInvokeFSharpFunc
+        (env: EmitEnv)
+        (b: IlBuilder)
+        (funcTy0: SemType)
+        (args: (TExpr * SemType) list)
+        : unit =
         let mutable funcTy = funcTy0
 
         for (arg, resTy) in args do
             match env.Provider.TryEmitFSharpFuncInvoke funcTy with
             | ValueSome recipe ->
-                emitExpr env il arg
-                applyRecipe il recipe
+                buildExpr env b arg
+                b.Add(ILInstr.Recipe recipe)
                 funcTy <- resTy
             | ValueNone -> failwithf "Emit: cannot apply argument to FSharpFunc value of type %A" funcTy
 
     /// Emit an expression as a statement: evaluate it and discard any value.
-    let private emitStatement (env: EmitEnv) (il: Il) (e: TExpr) : unit =
-        emitExpr env il e
+    let private buildStatement (env: EmitEnv) (b: IlBuilder) (e: TExpr) : unit =
+        buildExpr env b e
 
-        while il.Depth > 0 do
-            Cil.emitPop il
+        while b.Depth > 0 do
+            b.Add ILInstr.Pop
 
     /// Build the `Main` body from the *lowered* decls. Each top-level `let`
     /// binds a `Main` local — except a function lowered to a static method (P3b),
     /// which has no value here; each effectful expression is emitted in source
     /// order; then `ldc.i4.0; ret`. (Inline bindings were removed by `lower`.)
-    let emitMain
+    let buildMain
         (provider: ICodegenProvider)
         (ctx: MetadataContext)
         (closureByNode: Dictionary<TExpr, Closure>)
@@ -1483,8 +1489,9 @@ module Emit =
         (unions: Dictionary<string, EmittedUnion>)
         (staticMethods: Dictionary<NodeKey, StaticMethodRef>)
         (decls: TDecl list)
-        (il: Il)
-        : unit =
+        : ILBody =
+        let b = IlBuilder()
+
         let env =
             {
                 Provider = provider
@@ -1501,24 +1508,25 @@ module Emit =
 
         for d in decls do
             match d with
-            | TDecl.Expression(e, _) -> emitStatement env il e
+            | TDecl.Expression(e, _) -> buildStatement env b e
             // A function emitted as a static method has no Main local.
             | TDecl.Let(TPat.NamedSimple(binding, _), _, _, _) when staticMethods.ContainsKey binding -> ()
             | TDecl.Let(TPat.NamedSimple(binding, _), value, _, ty) ->
-                let slot = il.DeclareLocal ty
+                let slot = b.Local ty
                 env.Slots.[binding] <- slot
-                emitExpr env il value
-                Cil.emitStloc il slot
+                buildExpr env b value
+                b.Add(ILInstr.Stloc slot)
             | TDecl.Let _ -> ()
             | TDecl.Type _ -> ()
 
-        Cil.emitLdcI4 il 0
-        Cil.emitRet il
+        b.Add(ILInstr.LdcI4 0)
+        b.Add ILInstr.Ret
+        b.Body
 
     /// Build a closure's `Invoke` body: evaluate its (lowered) body under a
     /// resolver mapping the parameter to `ldarg.1` and each capture to its
     /// field, leaving the result on the stack, then `ret`.
-    let emitClosureInvoke
+    let buildClosureInvoke
         (provider: ICodegenProvider)
         (ctx: MetadataContext)
         (closureByNode: Dictionary<TExpr, Closure>)
@@ -1527,8 +1535,8 @@ module Emit =
         (staticMethods: Dictionary<NodeKey, StaticMethodRef>)
         (closure: Closure)
         (captureFields: Dictionary<NodeKey, EntityHandle>)
-        (il: Il)
-        : unit =
+        : ILBody =
+        let b = IlBuilder()
         let args = Dictionary<NodeKey, int>()
         args.[closure.ParamKey] <- 1 // `this` is 0; the single applied parameter is 1
 
@@ -1546,15 +1554,16 @@ module Emit =
                 StaticMethods = staticMethods
             }
 
-        emitExpr env il closure.Body
-        Cil.emitRet il
+        buildExpr env b closure.Body
+        b.Add ILInstr.Ret
+        b.Body
 
     /// Build a static-method function's body (P3b): bind each flattened
     /// parameter to its `ldarg` index (a static method has no `this`, so the
     /// first parameter is `ldarg.0`), evaluate the body leaving its result on the
     /// stack, then `ret`. A recursive self-call resolves to a direct `call`
     /// through `staticMethods` (the `App` arm), so no self-binding is needed.
-    let emitStaticMethod
+    let buildStaticMethod
         (provider: ICodegenProvider)
         (ctx: MetadataContext)
         (closureByNode: Dictionary<TExpr, Closure>)
@@ -1562,8 +1571,8 @@ module Emit =
         (unions: Dictionary<string, EmittedUnion>)
         (staticMethods: Dictionary<NodeKey, StaticMethodRef>)
         (fn: StaticFn)
-        (il: Il)
-        : unit =
+        : ILBody =
+        let b = IlBuilder()
         let args = Dictionary<NodeKey, int>()
         fn.Params |> List.iteri (fun i (k, _) -> args.[k] <- i)
 
@@ -1581,8 +1590,9 @@ module Emit =
                 StaticMethods = staticMethods
             }
 
-        emitExpr env il fn.Body
-        Cil.emitRet il
+        buildExpr env b fn.Body
+        b.Add ILInstr.Ret
+        b.Body
 
     /// Build a union augmentation member's body (P3d.3). An instance member's
     /// `this` is `ldarg.0` (`thisKey`), its parameters `ldarg.1…`; a static
@@ -1590,7 +1600,7 @@ module Emit =
     /// stack, then `ret`. Member bodies don't synthesise closures (the closure
     /// discovery pass walks only value/expression decls), so an empty
     /// closure/ctor map is passed.
-    let emitMember
+    let buildMember
         (provider: ICodegenProvider)
         (ctx: MetadataContext)
         (closureByNode: Dictionary<TExpr, Closure>)
@@ -1600,8 +1610,8 @@ module Emit =
         (thisKey: NodeKey voption)
         (prms: (NodeKey * SemType) list)
         (body: TExpr)
-        (il: Il)
-        : unit =
+        : ILBody =
+        let b = IlBuilder()
         let args = Dictionary<NodeKey, int>()
 
         let baseIdx =
@@ -1627,48 +1637,52 @@ module Emit =
                 StaticMethods = staticMethods
             }
 
-        emitExpr env il body
-        Cil.emitRet il
+        buildExpr env b body
+        b.Add ILInstr.Ret
+        b.Body
 
     /// Build a closure's `.ctor` body: chain to the `FSharpFunc\`2` base ctor,
     /// then store each capture argument into its field.
-    let emitClosureCtor (baseCtor: EntityHandle) (fields: EntityHandle list) (il: Il) : unit =
-        Cil.emitLdarg il 0
-        Cil.emitCall il baseCtor 1 0 // call instance void base::.ctor()
+    let buildClosureCtor (baseCtor: EntityHandle) (fields: EntityHandle list) : ILBody =
+        let b = IlBuilder()
+        b.Add(ILInstr.Ldarg 0)
+        b.Add(ILInstr.Call(baseCtor, 1, 0)) // call instance void base::.ctor()
 
         fields
         |> List.iteri (fun i field ->
-            Cil.emitLdarg il 0
-            Cil.emitLdarg il (i + 1)
-            Cil.emitStfld il field
+            b.Add(ILInstr.Ldarg 0)
+            b.Add(ILInstr.Ldarg(i + 1))
+            b.Add(ILInstr.Stfld field)
         )
 
-        Cil.emitRet il
+        b.Add ILInstr.Ret
+        b.Body
 
     /// Build a union case's static factory body: allocate via the union's
     /// parameterless ctor, stamp the discriminant `tag`, store each factory
     /// parameter into its field, and return the object. `fieldHandles` are in
     /// declaration order = the factory's parameter order (static `ldarg.i`).
-    let emitUnionFactory
+    let buildUnionFactory
         (unionCtor: EntityHandle)
         (tag: int)
         (tagField: EntityHandle)
         (fieldHandles: EntityHandle list)
-        (il: Il)
-        : unit =
-        Cil.emitNewobj il unionCtor 0
-        Cil.emitDup il
-        Cil.emitLdcI4 il tag
-        Cil.emitStfld il tagField
+        : ILBody =
+        let b = IlBuilder()
+        b.Add(ILInstr.Newobj(unionCtor, 0))
+        b.Add ILInstr.Dup
+        b.Add(ILInstr.LdcI4 tag)
+        b.Add(ILInstr.Stfld tagField)
 
         fieldHandles
         |> List.iteri (fun i field ->
-            Cil.emitDup il
-            Cil.emitLdarg il i
-            Cil.emitStfld il field
+            b.Add ILInstr.Dup
+            b.Add(ILInstr.Ldarg i)
+            b.Add(ILInstr.Stfld field)
         )
 
-        Cil.emitRet il
+        b.Add ILInstr.Ret
+        b.Body
 
     // ---- Structural equality / hashing for a monomorphic union (C-Eq1) ----
 
@@ -1713,52 +1727,54 @@ module Emit =
     /// (the §3.2 rule — total, so a `float` field gets `NaN = NaN` in this
     /// structural context, O7). Any mismatch branches to `falseLabel`; on
     /// fall-through the operands are equal.
-    let private emitTagAndFieldEquality
+    let private buildTagAndFieldEquality
         (s: UnionEqualitySupport)
-        (il: Il)
-        (loadOther: Il -> unit)
-        (falseLabel: LabelHandle)
+        (b: IlBuilder)
+        (loadOther: IlBuilder -> unit)
+        (falseLabel: int)
         : unit =
         // if (this._tag != other._tag) return false;
-        Cil.emitLdarg il 0
-        Cil.emitLdfld il s.TagField
-        loadOther il
-        Cil.emitLdfld il s.TagField
-        Cil.emitBneUn il falseLabel
+        b.Add(ILInstr.Ldarg 0)
+        b.Add(ILInstr.Ldfld s.TagField)
+        loadOther b
+        b.Add(ILInstr.Ldfld s.TagField)
+        b.Add(ILInstr.BneUn falseLabel)
 
         // per field: if (!comparer.Equals(this.F, other.F)) return false;
         for (fieldHandle, fieldTy) in s.Fields do
-            Cil.emitCall il (s.ComparerDefault fieldTy) 0 1 // EqualityComparer<F>.Default
-            Cil.emitLdarg il 0
-            Cil.emitLdfld il fieldHandle
-            loadOther il
-            Cil.emitLdfld il fieldHandle
-            Cil.emitCallvirt il (s.ComparerEquals fieldTy) 3 1 // .Equals(this.F, other.F)
-            Cil.emitBrFalse il falseLabel
+            b.Add(ILInstr.Call(s.ComparerDefault fieldTy, 0, 1)) // EqualityComparer<F>.Default
+            b.Add(ILInstr.Ldarg 0)
+            b.Add(ILInstr.Ldfld fieldHandle)
+            loadOther b
+            b.Add(ILInstr.Ldfld fieldHandle)
+            b.Add(ILInstr.Callvirt(s.ComparerEquals fieldTy, 3, 1)) // .Equals(this.F, other.F)
+            b.Add(ILInstr.Brfalse falseLabel)
 
     /// `override bool Equals(object obj)` for a monomorphic union: `obj is Self`
     /// (also rejects `null`), then the shared tag/field walk. Any failure jumps to
-    /// the shared `false` tail.
-    let emitUnionEquals (s: UnionEqualitySupport) (il: Il) : unit =
-        let other = il.DeclareLocal s.SelfSemType
-        let falseLabel = Cil.defineLabel il
+    /// the shared `false` tail (whose merge depth `IlIr.analyze` derives — no
+    /// manual `SetDepth`).
+    let buildUnionEquals (s: UnionEqualitySupport) : ILBody =
+        let b = IlBuilder()
+        let other = b.Local s.SelfSemType
+        let falseLabel = b.Label()
 
         // other = obj as Self;  if (other == null) return false;
-        Cil.emitLdarg il 1
-        Cil.emitIsinst il s.SelfType
-        Cil.emitStloc il other
-        Cil.emitLdloc il other
-        Cil.emitBrFalse il falseLabel
+        b.Add(ILInstr.Ldarg 1)
+        b.Add(ILInstr.Isinst s.SelfType)
+        b.Add(ILInstr.Stloc other)
+        b.Add(ILInstr.Ldloc other)
+        b.Add(ILInstr.Brfalse falseLabel)
 
-        emitTagAndFieldEquality s il (fun il -> Cil.emitLdloc il other) falseLabel
+        buildTagAndFieldEquality s b (fun b -> b.Add(ILInstr.Ldloc other)) falseLabel
 
-        Cil.emitLdcI4 il 1
-        Cil.emitRet il
+        b.Add(ILInstr.LdcI4 1)
+        b.Add ILInstr.Ret
         // The `false` tail: every branch above merges here at depth 0.
-        il.SetDepth 0
-        Cil.markLabel il falseLabel
-        Cil.emitLdcI4 il 0
-        Cil.emitRet il
+        b.Add(ILInstr.Mark falseLabel)
+        b.Add(ILInstr.LdcI4 0)
+        b.Add ILInstr.Ret
+        b.Body
 
     /// `bool Equals(Self other)` — the typed `IEquatable<Self>::Equals` a
     /// monomorphic union implements (C-Eq1). `other` (`ldarg.1`) is already `Self`,
@@ -1767,42 +1783,45 @@ module Emit =
     /// `GenericEqualityComparer`, since the union declares `IEquatable<Self>`)
     /// reaches, so it — not `Equals(object)` — is the one a nested DU field
     /// recurses through.
-    let emitUnionEqualsTyped (s: UnionEqualitySupport) (il: Il) : unit =
-        let falseLabel = Cil.defineLabel il
+    let buildUnionEqualsTyped (s: UnionEqualitySupport) : ILBody =
+        let b = IlBuilder()
+        let falseLabel = b.Label()
 
         // if (other == null) return false;
-        Cil.emitLdarg il 1
-        Cil.emitBrFalse il falseLabel
+        b.Add(ILInstr.Ldarg 1)
+        b.Add(ILInstr.Brfalse falseLabel)
 
-        emitTagAndFieldEquality s il (fun il -> Cil.emitLdarg il 1) falseLabel
+        buildTagAndFieldEquality s b (fun b -> b.Add(ILInstr.Ldarg 1)) falseLabel
 
-        Cil.emitLdcI4 il 1
-        Cil.emitRet il
+        b.Add(ILInstr.LdcI4 1)
+        b.Add ILInstr.Ret
         // The `false` tail: every branch above merges here at depth 0.
-        il.SetDepth 0
-        Cil.markLabel il falseLabel
-        Cil.emitLdcI4 il 0
-        Cil.emitRet il
+        b.Add(ILInstr.Mark falseLabel)
+        b.Add(ILInstr.LdcI4 0)
+        b.Add ILInstr.Ret
+        b.Body
 
     /// `override int GetHashCode()` for a monomorphic union: a `System.HashCode`
     /// accumulator seeded with the `_tag`, then every field added through it
     /// (`HashCode.Add<T>` itself routes through `EqualityComparer<T>.Default`, so
     /// it is the same §3.2 rule), then `ToHashCode()`. Equal values hash equal:
     /// the tag distinguishes cases and inactive-case fields are uniformly default.
-    let emitUnionGetHashCode (s: UnionEqualitySupport) (il: Il) : unit =
-        let hc = il.DeclareLocal s.HashCodeLocal
+    let buildUnionGetHashCode (s: UnionEqualitySupport) : ILBody =
+        let b = IlBuilder()
+        let hc = b.Local s.HashCodeLocal
 
-        Cil.emitLdloca il hc
-        Cil.emitLdarg il 0
-        Cil.emitLdfld il s.TagField
-        Cil.emitCall il (s.HashCodeAdd s.IntType) 2 0
+        b.Add(ILInstr.Ldloca hc)
+        b.Add(ILInstr.Ldarg 0)
+        b.Add(ILInstr.Ldfld s.TagField)
+        b.Add(ILInstr.Call(s.HashCodeAdd s.IntType, 2, 0))
 
         for (fieldHandle, fieldTy) in s.Fields do
-            Cil.emitLdloca il hc
-            Cil.emitLdarg il 0
-            Cil.emitLdfld il fieldHandle
-            Cil.emitCall il (s.HashCodeAdd fieldTy) 2 0
+            b.Add(ILInstr.Ldloca hc)
+            b.Add(ILInstr.Ldarg 0)
+            b.Add(ILInstr.Ldfld fieldHandle)
+            b.Add(ILInstr.Call(s.HashCodeAdd fieldTy, 2, 0))
 
-        Cil.emitLdloca il hc
-        Cil.emitCall il s.HashCodeToHashCode 1 1
-        Cil.emitRet il
+        b.Add(ILInstr.Ldloca hc)
+        b.Add(ILInstr.Call(s.HashCodeToHashCode, 1, 1))
+        b.Add ILInstr.Ret
+        b.Body

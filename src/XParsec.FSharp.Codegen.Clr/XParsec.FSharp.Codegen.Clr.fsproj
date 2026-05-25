@@ -7,10 +7,10 @@
     <Compile Include="ProjectInfo.fs" />
     <Compile Include="Types.fs" />
     <Compile Include="Cil.fs" />
-    <Compile Include="CilBuilder.fs" />
     <Compile Include="Metadata.fs" />
     <Compile Include="ICodegenProvider.fs" />
     <Compile Include="ClrProvider.fs" />
+    <Compile Include="IlIr.fs" />
     <Compile Include="Emit.fs" />
     <Compile Include="Codegen.fs" />
     <None Include="docs\codegen-clr-plan.md" Condition="Exists('docs\codegen-clr-plan.md')" />

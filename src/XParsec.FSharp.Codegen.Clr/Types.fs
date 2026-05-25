@@ -5,17 +5,10 @@ open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 
-// The method-body DSL fundamentals: the phantom stack-depth markers, the
-// mutable emission state `Il`, and the `Op<'in,'out>` instruction alias.
-
-/// Phantom stack-depth markers. `E S` is the empty stack, `E S S` one element,
-/// and so on. Always `null` at runtime — only the nesting, checked by the type
-/// system, is load-bearing.
-[<AllowNullLiteral>]
-type E = class end
-
-[<AllowNullLiteral>]
-type S<'a> = class end
+// The mutable method-body emission state `Il`. Codegen emits through one surface:
+// the untyped depth-tracked `Cil.emit*` helpers, which the reified `IlIr` buffer
+// (`IlIr.lower`) replays. `Il` tracks peak stack depth so finalisation hands
+// `maxStack` to `AddMethodBody` with no separate pass.
 
 /// Wraps the SRM `InstructionEncoder` (which holds the code + control-flow
 /// builders by reference, so copying the struct is free and writes land in the
@@ -50,13 +43,6 @@ type Il(encoder: InstructionEncoder) =
     /// one, so a caller resets to the arms' shared base before the next arm.
     /// Never lowers `maxDepth` (it has already seen the peak).
     member _.SetDepth(d: int) = depth <- d
-
-type Op<'stackin, 'stackout> = S<'stackin> -> S<'stackout> -> Il -> unit
-
-/// An `Op` that also yields a value the emission produced — a declared local's
-/// slot index — for a dependent continuation to consume via the `cil` CE's
-/// `let!`. Such producers are stack-neutral (`'stackin = 'stackout`).
-type OpV<'stackin, 'stackout, 'a> = S<'stackin> -> S<'stackout> -> Il -> 'a
 
 /// The intrinsic-representation rekey: a Vesper primitive resolves to
 /// `TyConst name`, and the backend keys the emitted IL type off the

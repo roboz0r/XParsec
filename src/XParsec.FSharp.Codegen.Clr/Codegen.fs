@@ -81,8 +81,8 @@ module Codegen =
 
     /// Shared assembly scaffolding: module + assembly rows, a `Main` whose
     /// body comes from `build`, the `<Module>` pseudo-type, and the holder
-    /// class. `build` receives the wired context + provider so callers emit
-    /// either from a TAST or from a hand-written op.
+    /// class. `build` receives the wired context + provider so a hand-written
+    /// `Il` body (the `assembleMainEmit` test seam) can reference primitives.
     let private assembleWith
         (project: ProjectInfo)
         (build: MetadataContext -> ClrProvider -> (Il -> unit))
@@ -551,7 +551,7 @@ module Codegen =
                 ]
 
             let ctorBodyOffset =
-                Cil.buildBody encodeLocals bodyStream (Emit.emitClosureCtor provider.ObjectCtorRef [])
+                Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildClosureCtor provider.ObjectCtorRef []))
 
             let unionCtor =
                 ctx.AddMethodWithParamList(
@@ -587,7 +587,10 @@ module Codegen =
                         toEntity unionCtor, tagField, fieldHandles
 
                 let factoryBody =
-                    Cil.buildBody encodeLocals bodyStream (Emit.emitUnionFactory ctorRef tag tagRef fieldRefs)
+                    Cil.buildBody
+                        encodeLocals
+                        bodyStream
+                        (IlIr.lower (Emit.buildUnionFactory ctorRef tag tagRef fieldRefs))
 
                 let paramTys = c.Fields |> List.map snd
 
@@ -670,19 +673,21 @@ module Codegen =
                     Cil.buildBody
                         memberEncodeLocals
                         bodyStream
-                        (Emit.emitMember
-                            icodegen
-                            ctx
-                            closureByNode
-                            ctorHandleByNode
-                            unions
-                            staticMethods
-                            mem.ThisKey
-                            mem.Params
-                            // Member bodies emit straight from `tast.Decls`, never
-                            // through `Emit.lower`, so the operator → inline-IL rewrite
-                            // is applied here (core-operators-handoff.md, C-Eq1).
-                            (Emit.expandBuiltinOps mem.Body))
+                        (IlIr.lower (
+                            Emit.buildMember
+                                icodegen
+                                ctx
+                                closureByNode
+                                ctorHandleByNode
+                                unions
+                                staticMethods
+                                mem.ThisKey
+                                mem.Params
+                                // Member bodies emit straight from `tast.Decls`, never
+                                // through `Emit.lower`, so the operator → inline-IL rewrite
+                                // is applied here (core-operators-handoff.md, C-Eq1).
+                                (Emit.expandBuiltinOps mem.Body)
+                        ))
 
                 let methodName = memberMetaName mem
                 let paramTys = mem.Params |> List.map snd
@@ -748,7 +753,7 @@ module Codegen =
                     }
 
                 let getHashCodeBody =
-                    Cil.buildBody encodeLocals bodyStream (Emit.emitUnionGetHashCode support)
+                    Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildUnionGetHashCode support))
 
                 ctx.AddMethodWithParamList(
                     overrideMethodAttrs,
@@ -762,7 +767,7 @@ module Codegen =
                 methodCount <- methodCount + 1
 
                 let equalsBody =
-                    Cil.buildBody encodeLocals bodyStream (Emit.emitUnionEquals support)
+                    Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildUnionEquals support))
 
                 ctx.AddMethodWithParamList(
                     overrideMethodAttrs,
@@ -780,7 +785,7 @@ module Codegen =
                 // `IEquatable<Self>` (the `InterfaceImpl` row is added with the
                 // union's `TypeDefinition` below). Same field walk, `Self` operand.
                 let equalsTypedBody =
-                    Cil.buildBody encodeLocals bodyStream (Emit.emitUnionEqualsTyped support)
+                    Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildUnionEqualsTyped support))
 
                 ctx.AddMethodWithParamList(
                     ifaceEqualsAttrs,
@@ -823,21 +828,26 @@ module Codegen =
             // `Vesper.Fun\`2` (R1) — its ctor chains to `Object::.ctor()`, not the
             // old protected `FSharpFunc\`2::.ctor()`.
             let ctorBodyOffset =
-                Cil.buildBody encodeLocals bodyStream (Emit.emitClosureCtor provider.ObjectCtorRef fieldHandles)
+                Cil.buildBody
+                    encodeLocals
+                    bodyStream
+                    (IlIr.lower (Emit.buildClosureCtor provider.ObjectCtorRef fieldHandles))
 
             let invokeBodyOffset =
                 Cil.buildBody
                     encodeLocals
                     bodyStream
-                    (Emit.emitClosureInvoke
-                        icodegen
-                        ctx
-                        closureByNode
-                        ctorHandleByNode
-                        unions
-                        staticMethods
-                        c
-                        captureFields)
+                    (IlIr.lower (
+                        Emit.buildClosureInvoke
+                            icodegen
+                            ctx
+                            closureByNode
+                            ctorHandleByNode
+                            unions
+                            staticMethods
+                            c
+                            captureFields
+                    ))
 
             let ctorHandle =
                 ctx.AddMethodWithParamList(
@@ -890,7 +900,9 @@ module Codegen =
                 Cil.buildBody
                     encodeLocals
                     bodyStream
-                    (Emit.emitStaticMethod icodegen ctx closureByNode ctorHandleByNode unions staticMethods fn)
+                    (IlIr.lower (
+                        Emit.buildStaticMethod icodegen ctx closureByNode ctorHandleByNode unions staticMethods fn
+                    ))
 
             let signature =
                 if List.isEmpty typars then
@@ -930,7 +942,9 @@ module Codegen =
                     Cil.buildBody
                         encodeLocals
                         bodyStream
-                        (Emit.emitMain icodegen ctx closureByNode ctorHandleByNode unions staticMethods lowered)
+                        (IlIr.lower (
+                            Emit.buildMain icodegen ctx closureByNode ctorHandleByNode unions staticMethods lowered
+                        ))
 
                 let handle =
                     ctx.AddMethodWithParamList(
@@ -1088,15 +1102,9 @@ module Codegen =
         | Library -> assemble project tast false
         | Exe -> assemble project tast true
 
-    /// Assemble a single hand-written `Main` body (a typed `Op` from the empty
-    /// stack) into an artifact. The testable seam for the `Cil` body DSL,
-    /// independent of any TAST.
-    let assembleMainOp (project: ProjectInfo) (op: Op<E, 'out>) : ClrArtifact =
-        assembleWith project (fun _ _ -> fun il -> op null null il)
-
-    /// Assemble a hand-written `Main` body that drives the untyped `Il`
-    /// surface directly — the testable seam for bodies the typed `Op` CE
-    /// doesn't yet cover (e.g. branching, which lives only on the `emit*` path).
+    /// Assemble a hand-written `Main` body that drives the untyped `Il` surface
+    /// directly — the testable seam for hand-written bodies (e.g. an `IlIr`
+    /// buffer lowered via `IlIr.lower`), independent of any TAST.
     let assembleMainEmit (project: ProjectInfo) (build: Il -> unit) : ClrArtifact =
         assembleWith project (fun _ _ -> build)
 
