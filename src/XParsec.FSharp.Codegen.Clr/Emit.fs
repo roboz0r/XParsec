@@ -188,6 +188,17 @@ module Emit =
         | TyClass(n, xs) -> TyClass(n, List.map zonk xs)
         | TyConst _ -> t
 
+    /// Decurry a (zonked) curried function type into (parameter types, return).
+    /// `unit → ret` (the zero-arg method reading) keeps its `[unit]` here; the
+    /// member-call site collapses that to no arguments, matching the member-ref
+    /// signature the provider builds (`ClrProvider.externalMemberRef`).
+    let rec private decurryTy (t: SemType) : SemType list * SemType =
+        match zonk t with
+        | TyFun(a, b) ->
+            let ps, r = decurryTy b
+            a :: ps, r
+        | other -> [], other
+
     /// Recover a generic static method's per-typar instantiation at a call site
     /// (R3): structurally match each declared parameter type (`defTys`, carrying
     /// the method's typar `TypeVar`s) against the actual argument type, recording
@@ -1336,6 +1347,44 @@ module Emit =
                 b.Add(ILInstr.Call(callHandle, sm.Arity, 1))
                 foldInvoke env b sm.ResultTy rest
 
+            | TExpr.ExternalMember(receiver, key, _, false, memberTy) ->
+                // An external instance/static *method* call (P4): push the receiver
+                // (instance only) beneath the declared arguments, then `call`
+                // (static) / `callvirt` (instance) the keyed member ref. The arg
+                // count is the member type's parameter count (`unit → ret` ⇒ 0).
+                let isStatic = ValueOption.isNone receiver
+
+                let argCount =
+                    match decurryTy memberTy with
+                    | [ TyConst "unit" ], _ -> 0
+                    | ps, _ -> List.length ps
+
+                let leading, rest = List.splitAt argCount spineArgs
+
+                match receiver with
+                | ValueSome r -> buildExpr env b r
+                | ValueNone -> ()
+
+                for (a, _) in leading do
+                    buildExpr env b a
+
+                let handle = env.Provider.ExternalMemberRef(key, false, isStatic, zonk memberTy)
+                let total = (if isStatic then 0 else 1) + argCount
+
+                if isStatic then
+                    b.Add(ILInstr.Call(handle, total, 1))
+                else
+                    b.Add(ILInstr.Callvirt(handle, total, 1))
+
+                // A method returning a function value applied further (rare): the
+                // result type is the last consumed `App` node's type.
+                let resultTy =
+                    match List.tryLast leading with
+                    | Some(_, ty) -> ty
+                    | None -> typeOfExpr head
+
+                foldInvoke env b resultTy rest
+
             | _ ->
                 // The head is itself a function value (a closure local or a
                 // partially applied result): emit it, then `Invoke` each arg.
@@ -1402,6 +1451,26 @@ module Emit =
                 buildExpr env b a
 
             b.Add(ILInstr.Call(handle, List.length args, 1))
+
+        | TExpr.ExternalMember(receiver, key, _, true, ty) ->
+            // A standalone external *property* get (P4): a static one (`call
+            // get_<name>()`) or an instance one reached as the receiver of an outer
+            // access (`<receiver>; callvirt get_<name>()`). The keyed member ref is
+            // minted from the node's `SymbolKey` (`ExternalMemberRef`).
+            let isStatic = ValueOption.isNone receiver
+            let handle = env.Provider.ExternalMemberRef(key, true, isStatic, zonk ty)
+
+            match receiver with
+            | ValueNone -> b.Add(ILInstr.Call(handle, 0, 1))
+            | ValueSome r ->
+                buildExpr env b r
+                b.Add(ILInstr.Callvirt(handle, 1, 1))
+
+        | TExpr.ExternalMember(_, _, _, false, _) ->
+            // An external method used as a first-class value (a method group, not
+            // applied) needs closure synthesis — out of scope. Applied methods are
+            // handled as an `App` head above.
+            failwith "Emit: external method used as a first-class value is out of scope"
 
         | TExpr.Format(sink, segments, _) -> buildFormat env b sink segments
 

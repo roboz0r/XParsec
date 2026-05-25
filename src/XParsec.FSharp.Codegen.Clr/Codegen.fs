@@ -93,8 +93,11 @@ module Codegen =
         // No TAST on this hand-written-body seam — the built-in primitive
         // representations are all it can reference. No external references either:
         // these hand-written bodies form no function value (so `Vesper.Fun` is never
-        // needed) and no list literal (so `Vesper.List` is never needed).
-        let provider = ClrProvider(ctx, IntrinsicRepr.defaults, Map.empty)
+        // needed) and no list literal (so `Vesper.List` is never needed); no external
+        // member access either, so the symbol provider is the null one.
+        let provider =
+            ClrProvider(ctx, IntrinsicRepr.defaults, Map.empty, ExternalSymbols.nullProvider)
+
         let icodegen = provider :> ICodegenProvider
 
         let bodyOffset =
@@ -208,7 +211,12 @@ module Codegen =
     /// `GenericParam` rows (today only an interface's typars) are collected and
     /// emitted last, sorted by `CodedIndex.TypeOrMethodDef(owner)` then index, as
     /// SRM requires (a method owner can sort before its declaring type).
-    let private assemble (project: ProjectInfo) (tast: TastFile) (emitEntryPoint: bool) : ClrArtifact =
+    let private assemble
+        (symbols: IExternalSymbolProvider)
+        (project: ProjectInfo)
+        (tast: TastFile)
+        (emitEntryPoint: bool)
+        : ClrArtifact =
         let ctx = MetadataContext()
         ctx.AddModuleAndAssembly(project.AssemblyName)
 
@@ -232,7 +240,7 @@ module Codegen =
         // forces no `Vesper.Core` / `Vesper.List` ref); a richer signature reuses
         // `encodeType` (G5).
         let provider =
-            ClrProvider(ctx, IntrinsicRepr.merge tast.IntrinsicReprTypes, references)
+            ClrProvider(ctx, IntrinsicRepr.merge tast.IntrinsicReprTypes, references, symbols)
 
         let icodegen = provider :> ICodegenProvider
         let encodeLocals locals = icodegen.EncodeLocalSignature locals
@@ -1092,15 +1100,16 @@ module Codegen =
             FSharpCoreDependencies = icodegen.FSharpCoreDependencies()
         }
 
-    /// TAST + symbol context → in-memory PE artifact. The `symbols` provider
-    /// is accepted per the shared-inputs posture; slice 1 reads everything it
-    /// needs from the TAST and the target `ClrProvider`. `ProjectInfo.OutputKind`
-    /// routes to the executable (`Main` + `Program`) or library (declared types,
-    /// no entry point) tail of the one converged assembler.
-    let compile (_symbols: IExternalSymbolProvider) (project: ProjectInfo) (tast: TastFile) : ClrArtifact =
+    /// TAST + symbol context → in-memory PE artifact. The `symbols` provider is the
+    /// front end's resolution stack, now *read* by codegen (P4): a frozen
+    /// `TExpr.ExternalMember`'s `SymbolKey` is minted into a `MemberRef` through it
+    /// (`ClrProvider.ExternalMemberRef`). `ProjectInfo.OutputKind` routes to the
+    /// executable (`Main` + `Program`) or library (declared types, no entry point)
+    /// tail of the one converged assembler.
+    let compile (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tast: TastFile) : ClrArtifact =
         match project.OutputKind with
-        | Library -> assemble project tast false
-        | Exe -> assemble project tast true
+        | Library -> assemble symbols project tast false
+        | Exe -> assemble symbols project tast true
 
     /// Assemble a hand-written `Main` body that drives the untyped `Il` surface
     /// directly — the testable seam for hand-written bodies (e.g. an `IlIr`

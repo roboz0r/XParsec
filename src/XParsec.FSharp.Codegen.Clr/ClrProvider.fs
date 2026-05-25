@@ -26,7 +26,20 @@ open XParsec.FSharp.SemanticAnalysis
 /// correct when compiling that package itself, or a program that forms neither);
 /// `FSharp.Core` (the R9 cold-printf island) and `Vesper.Printf` (the happy-path
 /// formatter) fall back to the host-loaded copy when not referenced explicitly.
-type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>, references: Map<string, AssemblyName>) =
+///
+/// `symbols` is the front end's resolution provider (symbol-resolution-plan §3,
+/// P4): codegen reads it to mint refs for a `TExpr.ExternalMember` from the node's
+/// interned `SymbolKey` (`ExternalMemberRef`) — the member's open signature comes
+/// from `symbols.TryLookupMember`, which the key already pinned (no re-running of
+/// name resolution). Pass `ExternalSymbols.nullProvider` on paths that emit no
+/// external member access (the hand-written-body seam).
+type ClrProvider
+    (
+        ctx: MetadataContext,
+        reprs: Map<string, string>,
+        references: Map<string, AssemblyName>,
+        symbols: IExternalSymbolProvider
+    ) =
 
     // Resolve an assembly's identity by simple name: a `ProjectInfo.References`
     // entry (read off the file — R4) wins; otherwise a host-loaded fallback for the
@@ -289,6 +302,56 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>, references: M
         | TyClass(n, args) -> TyClass(n, List.map zonk args)
         | TyConst _ -> t
 
+    // ---- External (referenced-assembly) reference minting (P4) ----
+    //
+    // The identity bridge (symbol-resolution-plan §3/§7.2): a resolved external
+    // symbol's `Origin`/`SymbolKey` → an `AssemblyRef`/`TypeRef`/`TypeSpec`/
+    // `MemberRef`, with no per-member hand-coding. The host fallback for an
+    // un-referenced assembly reads the live copy's identity (version + PKT), the
+    // same posture `coreRef` takes — `Origin.Assembly` for the BCL is currently the
+    // *implementation* name (`System.Private.CoreLib`), not the target ref (the
+    // §6/§9 ref-pack TODO).
+
+    /// An `AssemblyRef` for an external symbol's home assembly by simple name: a
+    /// `ProjectInfo.References` entry (read off the file — R4) wins, else the
+    /// host-loaded copy's identity.
+    let externalAsmRef (asm: string option) : EntityHandle =
+        match asm with
+        | None ->
+            failwith
+                "ClrProvider: an external symbol carries no home assembly (project-local symbols are resolved before the provider)."
+        | Some simpleName ->
+            let an =
+                match references.TryFind simpleName with
+                | Some an -> an
+                | None ->
+                    match
+                        System.AppDomain.CurrentDomain.GetAssemblies()
+                        |> Array.tryFind (fun a -> a.GetName().Name = simpleName)
+                    with
+                    | Some a -> a.GetName()
+                    | None -> AssemblyName(simpleName)
+
+            toEntity (ctx.AssemblyRef an)
+
+    /// A `TypeRef` for a referenced-assembly type by its full metadata name
+    /// (`` System.Collections.Generic.EqualityComparer`1 ``), resolved through the
+    /// symbol provider's `Origin` (assembly + namespace). `ValueNone` if the
+    /// provider doesn't resolve it as a class/interface.
+    let externalClassRef (fullName: string) : EntityHandle voption =
+        match symbols.TryLookupType fullName with
+        | ValueSome(ExternalTypeShape.Class(_, _, origin)) ->
+            let ns = origin.Namespace
+
+            let simple =
+                if ns <> "" && fullName.StartsWith(ns + ".") then
+                    fullName.Substring(ns.Length + 1)
+                else
+                    fullName
+
+            ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, ns, simple)))
+        | _ -> ValueNone
+
     /// `FSharpList\`1<X>` where `X` is encoded by `inner`. The one place that
     /// knows the list type's metadata shape, shared by `encodeType`'s list case
     /// (elem encoded recursively) and the cons/nil recipe signatures (where the
@@ -424,6 +487,22 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>, references: M
 
                     for a in args do
                         encodeTypeCore tryLeaf (g.AddArgument()) a
+            | TyClass(name, args) when (externalClassRef name).IsSome ->
+                // A referenced-assembly type resolved through the symbol provider
+                // (P4): its `TypeRef`, instantiated over each argument when generic.
+                // Reached for a member-ref parent (via `externalTypeSpec`) and any
+                // standalone slot typed as an external class. A nested marker
+                // argument is intercepted by `tryLeaf` (`!i`), exactly like the user
+                // union arm above.
+                let tref = (externalClassRef name).Value
+
+                match args with
+                | [] -> te.Type(tref, false)
+                | _ ->
+                    let g = te.GenericInstantiation(tref, List.length args, false)
+
+                    for a in args do
+                        encodeTypeCore tryLeaf (g.AddArgument()) a
             | other -> failwithf "ClrProvider: cannot encode SemType: %A" other
 
     /// Encode a (zonked) `SemType` for the executable path. The only leaf hook is
@@ -446,6 +525,183 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>, references: M
             encodeFSharpFunc (g.AddArgument()) a
             encodeFSharpFunc (g.AddArgument()) b
         | other -> encodeType te other
+
+    // ---- External member-ref minting (P4) ----
+
+    /// The open-generic arity off a metadata type name's backtick suffix
+    /// (`` EqualityComparer`1 `` → 1; no suffix → 0) — the count of the declaring
+    /// type's own generic parameters, hence the marker / instantiation length.
+    let arityOfMetaName (name: string) : int =
+        match name.LastIndexOf '`' with
+        | i when i >= 0 ->
+            match System.Int32.TryParse(name.Substring(i + 1)) with
+            | true, n -> n
+            | _ -> 0
+        | _ -> 0
+
+    /// Decurry a (zonked) curried function type into (parameter types, return).
+    let rec decurryTy (t: SemType) : SemType list * SemType =
+        match zonk t with
+        | TyFun(a, b) ->
+            let ps, r = decurryTy b
+            a :: ps, r
+        | other -> [], other
+
+    /// Encode a `SemType` written in the declaring type's *open* typars: a marker
+    /// `TypeVar` (one of `markerRoots`) maps to its `GenericTypeParameter` index;
+    /// every other leaf delegates to the structural encoder (so a primitive, an
+    /// external class, a nested generic over the marker all encode). The member-ref
+    /// signature is written in these terms (`!0`), the instantiation riding the
+    /// parent `TypeSpec`.
+    let encodeOpen (markerRoots: TypeVar list) (te: SignatureTypeEncoder) (t: SemType) : unit =
+        let tryLeaf (te: SignatureTypeEncoder) (zt: SemType) : bool =
+            match zt with
+            | TyVar tv ->
+                let r = UnionFind.find tv
+
+                match markerRoots |> List.tryFindIndex (fun x -> System.Object.ReferenceEquals(x, r)) with
+                | Some i ->
+                    te.GenericTypeParameter i
+                    true
+                | None -> false
+            | _ -> false
+
+        encodeTypeCore tryLeaf te t
+
+    /// Recover the declaring type's instantiation by structurally matching the
+    /// member's *open* signature (carrying the marker `TypeVar`s) against its
+    /// *instantiated* type at the use site — the same shape `Emit.matchInstantiation`
+    /// uses for generic static methods. First occurrence wins; an unmatched marker
+    /// is a bug (the open form came from the same member the instantiated type did).
+    let recoverTypeArgs (markerRoots: TypeVar list) (openT: SemType) (instT: SemType) : SemType list =
+        let result = Array.create (List.length markerRoots) ValueNone
+
+        let rec go (d: SemType) (a: SemType) =
+            match zonk d, zonk a with
+            | TyVar tv, act ->
+                let r = UnionFind.find tv
+
+                match markerRoots |> List.tryFindIndex (fun x -> System.Object.ReferenceEquals(x, r)) with
+                | Some i ->
+                    if result.[i].IsNone then
+                        result.[i] <- ValueSome act
+                | None -> ()
+            | TyFun(a1, r1), TyFun(a2, r2) ->
+                go a1 a2
+                go r1 r2
+            | TyTuple xs, TyTuple ys when xs.Length = ys.Length -> List.iter2 go xs ys
+            | TyRecord(_, xs), TyRecord(_, ys) when xs.Length = ys.Length -> List.iter2 go xs ys
+            | TyUnion(_, xs), TyUnion(_, ys) when xs.Length = ys.Length -> List.iter2 go xs ys
+            | TyClass(_, xs), TyClass(_, ys) when xs.Length = ys.Length -> List.iter2 go xs ys
+            | _ -> ()
+
+        go openT instT
+
+        [
+            for i in 0 .. result.Length - 1 ->
+                match result.[i] with
+                | ValueSome t -> t
+                | ValueNone ->
+                    failwithf "ClrProvider: could not recover external type argument %d (open %A vs %A)" i openT instT
+        ]
+
+    /// The member-ref parent: the declaring `TypeRef`, wrapped in a `TypeSpec`
+    /// instantiation when generic (`` EqualityComparer`1<int> ``).
+    let externalTypeSpec (tref: EntityHandle) (instArgs: SemType list) : EntityHandle =
+        match instArgs with
+        | [] -> tref
+        | _ ->
+            let tsB = BlobBuilder()
+            let te = BlobEncoder(tsB).TypeSpecificationSignature()
+            let g = te.GenericInstantiation(tref, List.length instArgs, false)
+
+            for a in instArgs do
+                encodeType (g.AddArgument()) (zonk a)
+
+            toEntity (ctx.TypeSpec tsB)
+
+    /// `SymbolKey` (+ instantiation) → minted `MemberRef`, so a member is reified
+    /// once across a compilation (mechanism B's codegen memo, §7.2).
+    let externalMemberCache = Dictionary<string, EntityHandle>()
+
+    /// Mint the `MemberRef` for a `TExpr.ExternalMember` (P4). The key pins the
+    /// declaring type + member name; `memberTy` is the access's instantiated type.
+    /// The member's *open* signature is read from the (key-pinned, provider-cached)
+    /// `TryLookupMember` over fresh marker typars; the use-site instantiation is
+    /// recovered by matching that open form against `memberTy`. A property is a
+    /// parameterless `get_<name>` getter; a method decurries its open signature
+    /// (`unit → ret`, the zero-arg reading, collapses to no parameters).
+    let externalMemberRef (key: SymbolKey) (isProperty: bool) (isStatic: bool) (memberTy: SemType) : EntityHandle =
+        let declKey, memberName =
+            match key with
+            | SymbolKey.MemberKey(d, m, _) -> d, m
+            | other -> failwithf "ClrProvider: ExternalMember key is not a MemberKey: %A" other
+
+        let asm, ns, name =
+            match declKey with
+            | SymbolKey.TypeKey(asm, ns, name) -> asm, ns, name
+            | other -> failwithf "ClrProvider: ExternalMember declaring key is not a TypeKey: %A" other
+
+        let instTy = zonk memberTy
+        let memoKey = sprintf "%A|%b|%b|%A" key isProperty isStatic instTy
+
+        match externalMemberCache.TryGetValue memoKey with
+        | true, h -> h
+        | _ ->
+            let declFullName = if ns = "" then name else ns + "." + name
+
+            let markers = [ for _ in 1 .. arityOfMetaName name -> TypeVar() ]
+            let markerRoots = markers |> List.map UnionFind.find
+            let markerTys = markers |> List.map TyVar |> List.toArray
+
+            let openSig =
+                match symbols.TryLookupMember(declFullName, memberName) with
+                | ValueSome m -> m.BuildSignature markerTys
+                | ValueNone ->
+                    failwithf "ClrProvider: external member '%s.%s' did not resolve at emit" declFullName memberName
+
+            let instArgs = recoverTypeArgs markerRoots openSig instTy
+
+            let tref =
+                match externalClassRef declFullName with
+                | ValueSome t -> t
+                | ValueNone ->
+                    failwithf "ClrProvider: external declaring type '%s' did not resolve at emit" declFullName
+
+            let parent = externalTypeSpec tref (List.map zonk instArgs)
+            let metaName = if isProperty then "get_" + memberName else memberName
+            let s = BlobBuilder()
+
+            if isProperty then
+                BlobEncoder(s)
+                    .MethodSignature(isInstanceMethod = not isStatic)
+                    .Parameters(
+                        0,
+                        (fun (ret: ReturnTypeEncoder) -> encodeOpen markerRoots (ret.Type()) openSig),
+                        (fun (_: ParametersEncoder) -> ())
+                    )
+            else
+                let rawParams, retTy = decurryTy openSig
+
+                let paramTys =
+                    match rawParams with
+                    | [ TyConst "unit" ] -> []
+                    | ps -> ps
+
+                BlobEncoder(s)
+                    .MethodSignature(isInstanceMethod = not isStatic)
+                    .Parameters(
+                        List.length paramTys,
+                        (fun (ret: ReturnTypeEncoder) -> encodeOpen markerRoots (ret.Type()) retTy),
+                        (fun (pars: ParametersEncoder) ->
+                            for p in paramTys do
+                                encodeOpen markerRoots (pars.AddParameter().Type()) p
+                        )
+                    )
+
+            let handle = toEntity (ctx.MemberRef(parent, metaName, s))
+            externalMemberCache.[memoKey] <- handle
+            handle
 
     // ---- Generic union emission (rung 2 P3d.4) ----
 
@@ -1565,6 +1821,11 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>, references: M
         // Codegen reaches on the concrete provider.
         member _.EqualityComparerDefault(elem) = equalityComparerDefault elem
         member _.EqualityComparerGetHashCode(elem) = equalityComparerGetHashCode elem
+
+        // The identity bridge (P4): a frozen `TExpr.ExternalMember`'s `SymbolKey` →
+        // its `MemberRef`, minted from the provider-resolved signature.
+        member _.ExternalMemberRef(key, isProperty, isStatic, memberTy) =
+            externalMemberRef key isProperty isStatic memberTy
 
         // Sorted for a deterministic, diff-friendly dependency list.
         member _.FSharpCoreDependencies() =

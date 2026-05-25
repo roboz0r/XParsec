@@ -183,4 +183,44 @@ let tests =
 
                 Expect.equal frozen (Some expected) "frozen key (short name) = provider's resolved key"
             }
+
+            // P4 gate (symbol-resolution-plan §8 / handoff): the codegen identity
+            // bridge. The frozen `TExpr.ExternalMember` nodes (a static property
+            // `Default`, an instance method `GetHashCode`) are emitted from their
+            // interned `SymbolKey` through `ClrProvider.ExternalMemberRef` — the
+            // `Default` getter + `GetHashCode(!0)` member refs are minted on an
+            // `EqualityComparer`1<int>` `TypeSpec`, no per-member hand-coding. An
+            // emitted call runs: `Int32.GetHashCode` is the identity, so
+            // `EqualityComparer<int>.Default.GetHashCode 5 = 5`. (`compileSource`'s
+            // provider is `composite [ metadata ; MockBuiltins ]`, so the member
+            // access resolves to the keyed node — P3 — and now emits — P4.)
+            test "an emitted call to a metadata-resolved member runs (EqualityComparer<int>.Default.GetHashCode 5 = 5)" {
+                let src =
+                    "printfn \"%d\" (System.Collections.Generic.EqualityComparer<int>.Default.GetHashCode 5)"
+
+                let _, artifact = compileSource "P4ExternalMemberFq" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "5" "GetHashCode of int 5 is 5"
+
+                // The BCL comparer pins no FSharp.Core dependency (it rides
+                // `System.Private.CoreLib`, like the `hash` stopgap).
+                Expect.isEmpty
+                    artifact.FSharpCoreDependencies
+                    (sprintf "BCL member call pins no FSharp.Core (%A)" artifact.FSharpCoreDependencies)
+            }
+
+            // The short-name form (under its `open`) emits and runs identically —
+            // open-resolution (P3.5) feeds the same keyed node into P4.
+            test "the short-name form under `open` emits and runs" {
+                let src =
+                    "open System.Collections.Generic\nprintfn \"%d\" (EqualityComparer<int>.Default.GetHashCode 42)"
+
+                let _, artifact = compileSource "P4ExternalMemberShort" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "42" "GetHashCode of int 42 is 42"
+            }
         ]
