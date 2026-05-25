@@ -115,6 +115,14 @@ type ICodegenProvider =
     /// (handoff §R9).
     abstract TryEmitFSharpFuncInvoke: funcTy: SemType -> CallRecipe voption
 
+    /// `EqualityComparer<'T>.Default` getter and its `GetHashCode(!0)` — the
+    /// `hash x` use-site's BCL body (no IL opcode hashes, so it rides the comparer,
+    /// the same `EqualityComparer<T>` family the DU triple hashes fields through).
+    /// On the interface because the expression walker emits the `hash` call;
+    /// `Equals`/`Add` stay on the concrete provider, reached only from Codegen.
+    abstract EqualityComparerDefault: elem: SemType -> EntityHandle
+    abstract EqualityComparerGetHashCode: elem: SemType -> EntityHandle
+
     abstract FormatHandles: unit -> FormatHandles
 
     /// Lives on the provider because encoding a `SemType` needs the target's

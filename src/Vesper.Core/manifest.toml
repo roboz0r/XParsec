@@ -11,6 +11,16 @@
 # operators alone force the contract to be signature-only (a `let inline (+)`
 # body needs inline IL / `--compiling-fslib`).
 #
+# NOTE (2026-05-24): the operator/`hash` IMPLEMENTATIONS do not exist as `.fs`
+# yet — there is no `ops-platform.fs`. The only `.fs` here are `prim-types-min.fs`
+# + `prim-types-string.fs` (built into Vesper.Core.dll). The live `=`/`<>`/
+# arithmetic and `hash` semantics are emitted by codegen-side stopgaps
+# (`Emit.BuiltinOps` op→opcode table + `Emit.isHash`), NOT read from source.
+# Writing the real `ops-platform.fs` is blocked on two front-end gaps: operator-
+# named bindings don't freeze, and there is no BCL generic-member resolution for
+# the `EqualityComparer<'T>` fall-clauses. See
+# ../XParsec.FSharp.SemanticAnalysis/docs/core-operators-handoff.md.
+#
 # See ./README.md and ../XParsec.FSharp.SemanticAnalysis/docs/minimal-core-lib-plan.md.
 
 [core]

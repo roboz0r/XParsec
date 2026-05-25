@@ -70,6 +70,45 @@ module Inline =
         | TyUnion(n, args) -> TyUnion(n, List.map (substType subst) args)
         | TyClass(n, args) -> TyClass(n, List.map (substType subst) args)
 
+    /// Canonicalise the primitive type-name aliases a static-optimization clause
+    /// might use (`int32`/`int`, `double`/`float64`/`float`, `uint8`/`byte`) so a
+    /// clause written against the BCL name matches an operand carrying the F#
+    /// alias. Scoped to static-opt resolution — the rest of the pipeline keeps the
+    /// names distinct (a nominal `type int32 = (# … #)` is its own `TyConst`).
+    let private canonPrimName (name: string) : string =
+        match name with
+        | "int32" -> "int"
+        | "double"
+        | "float64" -> "float"
+        | "uint8" -> "byte"
+        | other -> other
+
+    /// Structural match of two (already typar-substituted) `SemType`s for a
+    /// static-optimization `when ^T : Type` clause. `TyVar`s compare by union-find
+    /// root identity — so the catch-all `when ^T : ^T`, whose two sides are the
+    /// same typar, matches once both substitute to one concrete type (or, if the
+    /// operand type was never pinned, still matches as the generic fall clause).
+    /// `TyConst`s compare by canonical primitive name.
+    let rec private staticOptTypesMatch (a: SemType) (b: SemType) : bool =
+        match a, b with
+        | TyVar x, TyVar y -> System.Object.ReferenceEquals(UnionFind.find x, UnionFind.find y)
+        | TyConst n1, TyConst n2 -> canonPrimName n1 = canonPrimName n2
+        | TyFun(a1, r1), TyFun(a2, r2) -> staticOptTypesMatch a1 a2 && staticOptTypesMatch r1 r2
+        | TyTuple xs, TyTuple ys -> xs.Length = ys.Length && List.forall2 staticOptTypesMatch xs ys
+        | TyRecord(n1, xs), TyRecord(n2, ys)
+        | TyUnion(n1, xs), TyUnion(n2, ys)
+        | TyClass(n1, xs), TyClass(n2, ys) -> n1 = n2 && xs.Length = ys.Length && List.forall2 staticOptTypesMatch xs ys
+        | _ -> false
+
+    /// Approximate `when ^T : struct` for the value-type primitives the operator
+    /// surface can reach; anything else is treated as non-struct. Full struct
+    /// detection on user types awaits the attribute walker (C-Attr).
+    let private isStructType (t: SemType) : bool =
+        match t with
+        | TyConst("int" | "int32" | "int64" | "byte" | "uint8" | "float" | "double" | "float64" | "bool" | "char" | "decimal") ->
+            true
+        | _ -> false
+
     let rec private substPat (subst: Dictionary<TypeVar, SemType>) (p: TPat) : TPat =
         match p with
         | TPat.NamedSimple(k, t) -> TPat.NamedSimple(k, substType subst t)
@@ -130,6 +169,28 @@ module Inline =
 
             TExpr.Format(sink, segs, sT t)
         | TExpr.ILIntrinsic(op, args, t) -> TExpr.ILIntrinsic(op, List.map sE args, sT t)
+        // Resolve the static optimization against the now-substituted typars: the
+        // call-site type args have pinned `^T`, so pick the first clause whose
+        // constraints hold and keep only its (substituted) body. This is prereq 3
+        // — static-opt clause resolution at `let inline` expansion. See
+        // docs/core-operators-handoff.md.
+        | TExpr.StaticOptimization(clauses, def, _) -> resolveStaticOpt subst clauses def
+
+    and private resolveStaticOpt
+        (subst: Dictionary<TypeVar, SemType>)
+        (clauses: TStaticOptClause list)
+        (defaultExpr: TExpr)
+        : TExpr =
+        let sub = substType subst
+
+        let holds (c: TStaticOptConstraint) =
+            match c with
+            | TStaticOptConstraint.TyconEquals(typar, required) -> staticOptTypesMatch (sub typar) (sub required)
+            | TStaticOptConstraint.IsStruct typar -> isStructType (sub typar)
+
+        match clauses |> List.tryFind (fun cl -> cl.Constraints |> List.forall holds) with
+        | Some cl -> substExpr subst cl.Body
+        | None -> substExpr subst defaultExpr
 
     and private substArm (subst: Dictionary<TypeVar, SemType>) (arm: TMatchArm) : TMatchArm =
         {
@@ -255,6 +316,11 @@ module Inline =
 
                 TExpr.Format(sink, segs, t)
             | TExpr.ILIntrinsic(op, args, t) -> TExpr.ILIntrinsic(op, List.map fE args, t)
+            | TExpr.StaticOptimization(clauses, def, t) ->
+                // Constraints carry no binders (only types); only the bodies and
+                // the default need binder-freshening. Reached only if a static-opt
+                // survived inline expansion unresolved (no typar to pin).
+                TExpr.StaticOptimization(clauses |> List.map (fun cl -> { cl with Body = fE cl.Body }), fE def, t)
 
         and fArm (arm: TMatchArm) : TMatchArm =
             {

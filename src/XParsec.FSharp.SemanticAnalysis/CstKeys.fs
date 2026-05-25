@@ -89,6 +89,10 @@ module CstKeys =
         | Expr.RecordClone(lBrace = pk) -> firstTokenOfParenKind pk
         | Expr.New(newToken = t) -> t
         | Expr.ILIntrinsic(lHashParen = t) -> t
+        // Use the clause's `when` token (not the base expr's first token, which
+        // every nested clause in a chain would share) so each clause node keys
+        // distinctly — same rationale as the `InfixApp` operator-token choice.
+        | Expr.LibraryOnlyStaticOptimization(whenToken = t) -> t
         | _ -> failwithf "CstKeys.firstTokenOfExpr: TODO %A" e
 
     let rec firstTokenOfPat (p: Pat<SyntaxToken>) : SyntaxToken =
@@ -141,6 +145,7 @@ module CstKeys =
             | Expr.RecordClone _ -> NodeKind.ExprRecordClone
             | Expr.New _ -> NodeKind.ExprNew
             | Expr.ILIntrinsic _ -> NodeKind.ExprILIntrinsic
+            | Expr.LibraryOnlyStaticOptimization _ -> NodeKind.ExprStaticOptimization
             | _ -> NodeKind.Unknown
 
         NodeKey.ofToken (firstTokenOfExpr e) kind

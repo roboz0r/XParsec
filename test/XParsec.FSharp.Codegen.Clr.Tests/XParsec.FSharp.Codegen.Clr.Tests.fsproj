@@ -24,6 +24,8 @@
     <Compile Include="ILIntrinsicTests.fs" />
     <Compile Include="OperatorRoutingTests.fs" />
     <Compile Include="StructuralEqualityTests.fs" />
+    <Compile Include="StaticOptimizationTests.fs" />
+    <Compile Include="HashTests.fs" />
     <Compile Include="IlIrTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

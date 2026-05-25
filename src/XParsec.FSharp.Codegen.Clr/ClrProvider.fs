@@ -1223,6 +1223,25 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>, references: M
 
         toEntity (ctx.MemberRef(parent, "Equals", s))
 
+    /// `instance int32 GetHashCode(!0)` on `EqualityComparer\`1<elem>` — the
+    /// `hash x` use-site's body (the same comparer family the DU triple hashes
+    /// fields through, so `hash` and `=` agree by construction), reached via
+    /// `callvirt`. There is no IL opcode for a structural hash, so unlike `=`/`+`
+    /// this is a BCL call, not an `ILIntrinsic` (docs/core-operators-handoff.md).
+    let equalityComparerGetHashCode (elem: SemType) : EntityHandle =
+        let parent = equalityComparerTypeSpec elem
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(isInstanceMethod = true)
+            .Parameters(
+                1,
+                (fun (ret: ReturnTypeEncoder) -> ret.Type().Int32()),
+                (fun (pars: ParametersEncoder) -> pars.AddParameter().Type().GenericTypeParameter(0))
+            )
+
+        toEntity (ctx.MemberRef(parent, "GetHashCode", s))
+
     /// `instance void System.HashCode::Add<T>(!!0)` as a `MethodSpec` over `<elem>`.
     let hashCodeAdd (elem: SemType) : EntityHandle =
         let s = BlobBuilder()
@@ -1475,6 +1494,9 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>, references: M
     /// `EqualityComparer<T>::Equals(T, T) : bool` for a field type `T`.
     member _.EqualityComparerEquals(elem: SemType) : EntityHandle = equalityComparerEquals elem
 
+    /// `EqualityComparer<T>::GetHashCode(T) : int` for the `hash` use-site.
+    member _.EqualityComparerGetHashCode(elem: SemType) : EntityHandle = equalityComparerGetHashCode elem
+
     /// `System.HashCode::Add<T>(T)` for a field/tag type `T`.
     member _.HashCodeAdd(elem: SemType) : EntityHandle = hashCodeAdd elem
 
@@ -1537,6 +1559,12 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>, references: M
         member _.ObjectType = eObject.Value
         member _.DecimalCtor = eDecimalCtor.Value
         member _.ExceptionCtor = eExceptionCtor.Value
+
+        // The `hash x` use-site emits these from the expression walker (`Emit`),
+        // which sees only the interface — unlike the DU-triple helpers, which
+        // Codegen reaches on the concrete provider.
+        member _.EqualityComparerDefault(elem) = equalityComparerDefault elem
+        member _.EqualityComparerGetHashCode(elem) = equalityComparerGetHashCode elem
 
         // Sorted for a deterministic, diff-friendly dependency list.
         member _.FSharpCoreDependencies() =

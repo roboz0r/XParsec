@@ -290,6 +290,12 @@ module MockBuiltins =
         [
             // val failwith : string -> 'T
             "failwith", fun level -> TyFun(tyString, freshAt level)
+            // val hash : 'T -> int  (Operators.hash, CompiledName "Hash"). The
+            // `when 'T: equality` constraint the real `.fsi` carries is the
+            // contract provider's concern; MockBuiltins is the codegen test
+            // provider, so it only needs the shape — `hash x` resolving and
+            // typing — to drive the backend (docs/core-operators-handoff.md).
+            "hash", fun level -> TyFun(freshAt level, tyInt)
         ]
         |> List.map (fun (n, build) -> n, ExternalSymbols.poly n build)
 

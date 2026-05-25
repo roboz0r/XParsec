@@ -429,6 +429,18 @@ type private Renderer() =
 
             push " #)"
 
+        | TExpr.StaticOptimization(clauses, def, _) ->
+            push "staticopt["
+            this.Expr def
+
+            for cl in clauses do
+                push "; when "
+                push (string (List.length cl.Constraints))
+                push " -> "
+                this.Expr cl.Body
+
+            push "]"
+
     member this.Pat(p: TPat) : unit =
         match p with
         | TPat.NamedSimple(k, _) -> push (nameOf k)

@@ -53,6 +53,7 @@ type NodeKind =
     | ExprRecordClone = 33us
     | ExprNew = 34us
     | ExprILIntrinsic = 35us
+    | ExprStaticOptimization = 36us
 
     | PatConst = 100us
     | PatIdent = 101us

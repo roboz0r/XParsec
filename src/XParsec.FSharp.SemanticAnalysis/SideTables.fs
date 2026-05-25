@@ -234,6 +234,14 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// `PrintfSpec.tryHoleFormat`). Absence keeps the existing FSharp.Core path.
     /// See docs/vesper-printf-plan.md.
     member val PrintfApp = SideTable<PrintfSpec.PrintfSink>() with get
+    /// Keyed by an `Expr.LibraryOnlyStaticOptimization` NodeKey: the resolved
+    /// `when ^T : …` constraints of that one clause (the `and`-joined list), with
+    /// the typar / required type translated to `SemType` while the binding's typar
+    /// scope is live. Freeze reads it to build each `TExpr.StaticOptimization`
+    /// clause; the typar carries the inline binding's quantified root so
+    /// `Inline.inlineExpand` can substitute it at the call site. See
+    /// docs/core-operators-handoff.md (prereq 3).
+    member val StaticOpt = SideTable<TStaticOptConstraint list>() with get
     member val Diagnostics = ResizeArray<Diagnostic>() with get
     /// Current let-depth (Rémy's levels). Push on entering a binding group's
     /// RHSes, pop after typing them; generalisation uses the pre-push value as

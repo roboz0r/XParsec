@@ -157,6 +157,7 @@ module Emit =
         | TExpr.StaticPropertyGet(_, _, ty) -> ty
         | TExpr.Format(_, _, ty) -> ty
         | TExpr.ILIntrinsic(_, _, ty) -> ty
+        | TExpr.StaticOptimization(_, _, ty) -> ty
 
     let private typeOfPat (p: TPat) : SemType =
         match p with
@@ -300,6 +301,8 @@ module Emit =
 
             TExpr.Format(sink, segs, t)
         | TExpr.ILIntrinsic(op, args, t) -> TExpr.ILIntrinsic(op, List.map f args, t)
+        | TExpr.StaticOptimization(clauses, def, t) ->
+            TExpr.StaticOptimization(clauses |> List.map (fun cl -> { cl with Body = f cl.Body }), f def, t)
 
     /// Reuses `mapChildren`, discarding the rebuilt tree — only the one-shot
     /// discovery / free-variable pre-passes call this.
@@ -442,6 +445,75 @@ module Emit =
         | TyFun _ -> true
         | _ -> false
 
+    /// Does `e` contain a `TExpr.StaticOptimization` anywhere? An inline body that
+    /// does must be expanded with the call site's type arguments (so the clause
+    /// resolves against the monomorphised operand type); a body that doesn't keeps
+    /// the existing zero-type-arg expansion path unchanged.
+    let rec private containsStaticOpt (e: TExpr) : bool =
+        match e with
+        | TExpr.StaticOptimization _ -> true
+        | _ ->
+            let mutable found = false
+            iterChildren (fun c -> found <- found || containsStaticOpt c) e
+            found
+
+    /// Recover an inline binding's type arguments at a call site by matching its
+    /// declared parameter types (carrying the quantified typars) against the
+    /// actual spine-arg types — the same structural match `matchInstantiation`
+    /// does for generic static methods, but **tolerant**: a typar the params don't
+    /// pin is left as its own `TyVar` so the catch-all `when ^T : ^T` clause still
+    /// selects rather than crashing. Returned in `Inline.quantifiedTypars` order.
+    let private deriveInlineTypeArgs (declTy: SemType) (spineArgs: (TExpr * SemType) list) : SemType[] =
+        match Inline.quantifiedTypars declTy with
+        | [] -> [||]
+        | typars ->
+            let roots = typars |> List.map UnionFind.find
+            let result = Array.create roots.Length ValueNone
+
+            let rec go (defT: SemType) (actT: SemType) =
+                match zonk defT, zonk actT with
+                | TyVar tv, act ->
+                    let r = UnionFind.find tv
+
+                    match roots |> List.tryFindIndex (fun x -> System.Object.ReferenceEquals(x, r)) with
+                    | Some i ->
+                        if result.[i].IsNone then
+                            result.[i] <- ValueSome act
+                    | None -> ()
+                | TyFun(a1, r1), TyFun(a2, r2) ->
+                    go a1 a2
+                    go r1 r2
+                | TyTuple xs, TyTuple ys when xs.Length = ys.Length -> List.iter2 go xs ys
+                | TyRecord(_, xs), TyRecord(_, ys) when xs.Length = ys.Length -> List.iter2 go xs ys
+                | TyUnion(_, xs), TyUnion(_, ys) when xs.Length = ys.Length -> List.iter2 go xs ys
+                | TyClass(_, xs), TyClass(_, ys) when xs.Length = ys.Length -> List.iter2 go xs ys
+                | _ -> ()
+
+            let rec peelParams n t =
+                if n <= 0 then
+                    []
+                else
+                    match zonk t with
+                    | TyFun(a, b) -> a :: peelParams (n - 1) b
+                    | _ -> []
+
+            let rec pairGo ps acts =
+                match ps, acts with
+                | p :: ps', a :: acts' ->
+                    go p a
+                    pairGo ps' acts'
+                | _ -> ()
+
+            pairGo (peelParams (List.length spineArgs) declTy) [ for (a, _) in spineArgs -> typeOfExpr a ]
+
+            Array.mapi
+                (fun i v ->
+                    match v with
+                    | ValueSome t -> t
+                    | ValueNone -> TyVar roots.[i]
+                )
+                result
+
     /// Lower a decl list into a closure-bearing, inline-free, External-value-free
     /// tree. After this, every `TExpr.Lambda` is a function value and every
     /// `External` is either a call head or has non-function type. Inline bindings
@@ -495,13 +567,25 @@ module Emit =
         let expandInline (k: NodeKey) : TExpr =
             Inline.inlineExpand inlines.[k] [||] |> Inline.freshen mint
 
+        // An inline whose body carries a static optimization is expanded with the
+        // call site's type arguments so the `when ^T : …` clause resolves against
+        // the monomorphised operand type (prereq 3); all other inlines keep the
+        // zero-type-arg path (`expandInline`) unchanged.
+        let expandInlineAt (k: NodeKey) (spineArgs: (TExpr * SemType) list) : TExpr =
+            match inlines.[k] with
+            | TDecl.Let(_, value, _, declTy) when containsStaticOpt value ->
+                Inline.inlineExpand inlines.[k] (deriveInlineTypeArgs declTy spineArgs)
+                |> Inline.freshen mint
+            | _ -> expandInline k
+
         let rec lowerExpr (e: TExpr) : TExpr =
             match e with
             | TExpr.App _ ->
                 let head, spineArgs = collectSpine [] e
 
                 match head with
-                | TExpr.Var(k, _) when inlines.ContainsKey k -> lowerExpr (betaReduce (expandInline k) spineArgs)
+                | TExpr.Var(k, _) when inlines.ContainsKey k ->
+                    lowerExpr (betaReduce (expandInlineAt k spineArgs) spineArgs)
                 | _ ->
                     // An `External` head is a recipe call, so it stays in call
                     // position and is not eta-reified; the args are values.
@@ -1019,6 +1103,13 @@ module Emit =
     let private isFailwith (name: string) : bool =
         name = "failwith" || name.EndsWith ".failwith" || name.EndsWith "FailWith"
 
+    /// `hash x` resolves through the symbol provider to this name; the backend
+    /// emits `EqualityComparer<'T>.Default.GetHashCode(x)` (the External carries
+    /// the source name; a contract provider that supplies the compiled `Hash`
+    /// resolves the same way). See docs/core-operators-handoff.md (C-Eq1).
+    let private isHash (name: string) : bool =
+        name = "hash" || name.EndsWith ".hash" || name = "Hash" || name.EndsWith ".Hash"
+
     /// The cold printf path (`printfn "%A"` …). Its `PrintFormatLine` recipe leaves
     /// an FSharp.Core `FSharpFunc` printer on the stack, so the printer is applied
     /// via `FSharpFunc::Invoke`, not `Vesper.Fun::Invoke` (R1 leaves this FSharp.Core
@@ -1166,6 +1257,27 @@ module Emit =
                     b.Add(ILInstr.Newobj(env.Provider.ExceptionCtor, 1))
                     b.Add ILInstr.Throw
                 | [] -> failwith "Emit: failwith with no argument"
+            | TExpr.External(name, _) when isHash name ->
+                // `hash x` → `EqualityComparer<'T>.Default.GetHashCode(x)`. There is
+                // no IL opcode for a structural hash, so — unlike `=`/`+`/`<`, which
+                // `expandBuiltinOps` collapses to a `TExpr.ILIntrinsic` — `hash`
+                // can't be a `BuiltinOps` body: it rides the BCL comparer, the same
+                // `EqualityComparer<T>` family the DU triple hashes its fields
+                // through, so `hash` and `=` agree by construction (equal values
+                // hash equal). Emitted here, not as a `CallRecipe`, because the
+                // comparer receiver must sit *beneath* the argument and a recipe
+                // pushes its args first. BCL-only (docs/core-operators-handoff.md).
+                match spineArgs with
+                | (arg, _) :: _ ->
+                    let elemTy =
+                        match zonk (typeOfExpr head) with
+                        | TyFun(d, _) -> d
+                        | other -> failwithf "Emit: hash head is not a function type: %A" other
+
+                    b.Add(ILInstr.Call(env.Provider.EqualityComparerDefault elemTy, 0, 1)) // EqualityComparer<'T>.Default
+                    buildExpr env b arg
+                    b.Add(ILInstr.Callvirt(env.Provider.EqualityComparerGetHashCode elemTy, 2, 1)) // .GetHashCode(x)
+                | [] -> failwith "Emit: hash with no argument"
             | TExpr.External(name, _) ->
                 // The recipe reads its generic instantiation from the head's
                 // full curried type (`fnTy`).
@@ -1306,6 +1418,13 @@ module Emit =
                 | 1 -> b.Add(ILInstr.Un code)
                 | n -> failwithf "Emit: %d-ary inline-IL instruction '%s' is out of scope" n opCode
             | ValueNone -> failwithf "Emit: unsupported inline-IL instruction '%s'" opCode
+
+        | TExpr.StaticOptimization(_, def, _) ->
+            // Reaching codegen unresolved means the function was never
+            // inline-expanded against a concrete operand type (used as a
+            // first-class value, or declared without `inline`). F#'s semantics
+            // fall back to the leading (dynamic) expression in that case.
+            buildExpr env b def
 
         | other -> failwithf "Emit: unsupported expression: %A" other
 

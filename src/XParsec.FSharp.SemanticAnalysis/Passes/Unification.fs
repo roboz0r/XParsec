@@ -2152,6 +2152,8 @@ module Unification =
                 inferFieldAccess ctx key r li.Idents.[0]
             | Expr.New(typ = t; expr = argExpr) -> inferNew ctx key t argExpr
             | Expr.ILIntrinsic(args = args; returnType = rt) -> inferILIntrinsic ctx args rt
+            | Expr.LibraryOnlyStaticOptimization(expr = baseE; constraints = cs; optimizedExpr = optE) ->
+                inferLibraryOnlyStaticOptimization ctx key baseE cs optE
             | _ ->
                 // TODO: other expression kinds.
                 TyVar(freshTyVar ctx)
@@ -3158,6 +3160,41 @@ module Unification =
         match returnType with
         | ValueSome(ReturnType(typ = t)) -> translateType ctx t
         | ValueNone -> MockBuiltins.tyUnit
+
+    /// `expr when ^T : Type [and ^U : Type]* = optimizedExpr` — one clause of an
+    /// F# library-only static optimization. Type the default `baseE` and this
+    /// clause's `optimizedExpr` and unify them (every branch of a static-opt has
+    /// the same type — for the equality family that is always `bool`). The
+    /// `when ^T : Type` constraints are a *compile-time dispatch*, NOT unification
+    /// constraints, so the typar is **not** unified with its required type; it is
+    /// translated only to record the verdict for `Inline.inlineExpand` to resolve
+    /// at the call site. The typar resolves through `ctx.TyparScope` — already
+    /// seeded by the enclosing binding's parameters (`(x: ^T)`) — so the recorded
+    /// `SemType` carries the binding's quantified root. See
+    /// docs/core-operators-handoff.md (prereq 3).
+    and private inferLibraryOnlyStaticOptimization
+        (ctx: PassContext)
+        (key: NodeKey)
+        (baseE: Expr<SyntaxToken>)
+        (constraints: ImmutableArray<StaticOptimizationConstraint<SyntaxToken>>)
+        (optimizedExpr: Expr<SyntaxToken>)
+        : SemType =
+        let baseTy = infer ctx baseE
+        let optTy = infer ctx optimizedExpr
+        unify ctx key baseTy optTy
+
+        let resolved =
+            [
+                for c in constraints do
+                    match c with
+                    | StaticOptimizationConstraint.WhenTyparTyconEqualsTycon(typar = tp; rhsType = rhs) ->
+                        TStaticOptConstraint.TyconEquals(translateType ctx (Type.VarType tp), translateType ctx rhs)
+                    | StaticOptimizationConstraint.WhenTyparIsStruct(typar = tp) ->
+                        TStaticOptConstraint.IsStruct(translateType ctx (Type.VarType tp))
+            ]
+
+        ctx.StaticOpt.Set(key, resolved)
+        baseTy
 
     /// `r.X.Y…` parsed as a single multi-segment `Expr.LongIdentOrOp`. The
     /// head segment was resolved by NameResolution as a local binding — type

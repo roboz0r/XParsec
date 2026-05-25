@@ -222,6 +222,14 @@ module ResolvedTypes =
 
             for a in args do
                 walkExpr ctx allowed acc a
+        | TExpr.StaticOptimization(clauses, def, ty) ->
+            // The constraint typars are the binding's own quantified typars
+            // (always in `allowed`), so only the branch bodies need checking.
+            addFreeRoots allowed acc ty
+            walkExpr ctx allowed acc def
+
+            for cl in clauses do
+                walkExpr ctx allowed acc cl.Body
 
     and private walkArm (ctx: PassContext) (allowed: HashSet<TypeVar>) (acc: HashSet<TypeVar>) (arm: TMatchArm) : unit =
         walkPat allowed acc arm.Pat

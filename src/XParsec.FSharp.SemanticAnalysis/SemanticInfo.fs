@@ -302,6 +302,24 @@ type TypeScheme(quantified: TypeVar list, body: SemType, constraints: (TypeVar *
     /// schemes — only `let f<'a when 'a : C> ...` populates this list.
     member _.Constraints = constraints
 
+/// One resolved `when ^T : …` constraint of an F# library-only static
+/// optimization clause. Lives here (not in `Tast.fs`) because the side table
+/// that carries it is declared before `Tast.fs` in the compile order, and the
+/// constraint references only `SemType` — the clause *body* (a `TExpr`) is
+/// rebuilt by Freeze, not stored. The typar is a `TyVar` over the inline
+/// binding's quantified root, so `Inline.inlineExpand`'s typar substitution
+/// turns it into the call site's concrete type before the clause is tested.
+/// See docs/core-operators-handoff.md (prereq 3).
+[<RequireQualifiedAccess>]
+type TStaticOptConstraint =
+    /// `when ^T : SomeType` — holds when the type substituted for `typar` equals
+    /// `required`. The catch-all `when ^T : ^T` is this case with `required`
+    /// equal to `typar`, so after substitution both sides are the same concrete
+    /// type and it matches unconditionally.
+    | TyconEquals of typar: SemType * required: SemType
+    /// `when ^T : struct` — holds when the substituted `typar` is a value type.
+    | IsStruct of typar: SemType
+
 /// BindingSite is the NodeKey of the LetBinding / lambda parameter /
 /// TypeMember that introduced the name — NOT the use site.
 type ResolvedBinding =

@@ -726,6 +726,31 @@ module Freeze =
         | Expr.ILIntrinsic(instrParts = parts; args = args) ->
             let opCode = stitchIlInstruction ctx parts
             TExpr.ILIntrinsic(opCode, [ for a in args -> translateExpr ctx a ], ty)
+        | Expr.LibraryOnlyStaticOptimization _ ->
+            // The clause chain nests left-fold (outermost = the last `when` in
+            // source order). Peel it into a flat source-ordered clause list plus
+            // the leading default expr, reading each clause's resolved constraints
+            // from the side table Unification keyed by that clause node's key.
+            // Visiting outermost→innermost and prepending yields source order.
+            let rec peel (node: Expr<SyntaxToken>) (acc: TStaticOptClause list) : TExpr * TStaticOptClause list =
+                match node with
+                | Expr.LibraryOnlyStaticOptimization(expr = inner; optimizedExpr = optE) ->
+                    let cs =
+                        match ctx.StaticOpt.TryGetValue(CstKeys.ofExpr node) with
+                        | ValueSome v -> v
+                        | ValueNone -> []
+
+                    peel
+                        inner
+                        ({
+                            Constraints = cs
+                            Body = translateExpr ctx optE
+                         }
+                         :: acc)
+                | other -> translateExpr ctx other, acc
+
+            let defaultExpr, clauses = peel e []
+            TExpr.StaticOptimization(clauses, defaultExpr, ty)
         | _ ->
             // TODO: extend as the subset grows; surface the unhandled case
             // loudly rather than emitting a broken TExpr.
@@ -1432,6 +1457,22 @@ module Freeze =
 
             TExpr.Format(sink, segs, f ty)
         | TExpr.ILIntrinsic(op, args, ty) -> TExpr.ILIntrinsic(op, List.map pe args, f ty)
+        | TExpr.StaticOptimization(clauses, def, ty) ->
+            let mapConstraint c =
+                match c with
+                | TStaticOptConstraint.TyconEquals(tp, req) -> TStaticOptConstraint.TyconEquals(f tp, f req)
+                | TStaticOptConstraint.IsStruct tp -> TStaticOptConstraint.IsStruct(f tp)
+
+            let clauses =
+                clauses
+                |> List.map (fun cl ->
+                    {
+                        Constraints = List.map mapConstraint cl.Constraints
+                        Body = pe cl.Body
+                    }
+                )
+
+            TExpr.StaticOptimization(clauses, pe def, f ty)
 
     /// Classify an object-model body as an interface — every element an abstract
     /// method signature, no base type, no `let`/`do` preamble — and build its
