@@ -9,9 +9,22 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // (`a = b`, `x + y`, `a < b`) freezes to an `External(op_*)` call head; `Emit`
 // rewrites the saturated application to the operator's inline-IL body so it emits
 // through the single `TExpr.ILIntrinsic` path — codegen owns no per-operator
-// recipe. These tests pin the rewrite at the TAST level (`Emit.lower`) and end to
-// end (compile + run real CIL). The op→opcode dispatch lives in the operator
-// bodies (`BuiltinOps`), the stopgap for the not-yet-frozen operator `.fs`.
+// recipe. These tests pin the rewrite at the TAST level (`Emit.lower`, which has
+// no contract bodies, so it exercises the `BuiltinOps` fallback) and end to end
+// (compile + run real CIL).
+//
+// The equality family (`=`/`<>`) is now *also* sourced from the frozen
+// `Vesper.Core/ops-platform.fs` contract body when compiled through the contract
+// stack (`compileSource`): the operator-named binding `let inline (=) …` freezes
+// (the gap core-operators-handoff.md "Phase 3" called out), is collected by
+// `SymbolProviders.inlineBodies`, and is spliced + static-opt-resolved at each use
+// site — the same cross-package-inline path `hash` uses. The collection test below
+// pins that the body is sourced from the contract; the run tests pin behaviour.
+// The static-opt *base* is now the structural `EqualityComparer<^T>.Default.Equals`
+// fall-clause (type-args-bug.md Layers 1+3): a distinct-but-equal aggregate
+// compares structurally, not by reference — see the "DU `=` is structural" test.
+// (An unpinned generic operand still falls back to `BuiltinOps`'s `ceq` via the
+// codegen `isGround` guard — `let f a b = a = b`, below.)
 
 [<Tests>]
 let tests =
@@ -120,5 +133,61 @@ let tests =
 
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Trim()) "1" "(1 + 2) * 3 = 9 is true"
+            }
+
+            test
+                "`=`/`<>` freeze from the Vesper.Core contract and are collected as cross-package inlines (the Phase-3 gap is closed)" {
+                // The headline deliverable: the operator-named bindings `let inline (=)`
+                // / `let inline (<>)` in `ops-platform.fs` now freeze and are sourced by
+                // the codegen inline-body loader — so `=`/`<>` emit from the contract
+                // `.fs`, not just the `BuiltinOps` stopgap. (Previously these bindings
+                // never made it through the front end; `core-operators-handoff.md`.)
+                let _, inlines = SymbolProviders.buildContract defaultManifests
+
+                Expect.isTrue (Map.containsKey "op_Equality" inlines) "op_Equality body sourced from ops-platform.fs"
+
+                Expect.isTrue
+                    (Map.containsKey "op_Inequality" inlines)
+                    "op_Inequality body sourced from ops-platform.fs"
+
+                // Each body is an `inline` curried lambda over a static optimization
+                // (the `(# \"ceq\" … #)` per-primitive clauses + the fall-clause base).
+                let isStaticOptInline =
+                    function
+                    | TDecl.Let(_, TExpr.Lambda(_, TExpr.Lambda(_, TExpr.StaticOptimization _, _), _), true, _) -> true
+                    | _ -> false
+
+                Expect.isTrue (isStaticOptInline inlines.["op_Equality"]) "op_Equality is a static-opt inline"
+                Expect.isTrue (isStaticOptInline inlines.["op_Inequality"]) "op_Inequality is a static-opt inline"
+            }
+
+            test
+                "DU `=` is structural: a distinct-but-equal pair returns true via the comparer (where `ceq` gives false)" {
+                // The headline of the restored structural fall-clause
+                // (type-args-bug.md). `x` and `y` are two *distinct* heap instances
+                // with equal payloads; the static-opt base routes `^T = Tag` to
+                // `EqualityComparer<Tag>.Default.Equals(x, y)` — structural — so
+                // `x = y` is true. A reference `ceq` (the old stopgap base) would give
+                // false, so this asserts the comparer path, not just "doesn't crash".
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Tag = Tag of int"
+                            "let x = Tag 1"
+                            "let y = Tag 1"
+                            "printfn \"%d\" (if x = y then 1 else 0)" // distinct instances, equal payload → comparer → 1
+                            "printfn \"%d\" (if x <> y then 1 else 0)" // → 0
+                        ]
+
+                let _, artifact = compileSource "OpEqDUStructural" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "1\n0"
+                    "distinct-but-equal DU pair compares structurally (true), not by reference"
             }
         ]

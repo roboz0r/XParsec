@@ -324,6 +324,7 @@ module FSharpLib =
                     | _ -> ValueNone
 
                 member _.TryLookupMember(_, _) = ValueNone
+                member _.TryLookupMembers(_, _) = [||]
 
               interface IAmbientOpenScope with
                   member _.AmbientOpenPrefixes = autoOpenPrefixes

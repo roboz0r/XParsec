@@ -211,6 +211,96 @@ let tests =
                     (sprintf "BCL member call pins no FSharp.Core (%A)" artifact.FSharpCoreDependencies)
             }
 
+            // `translateType` external-type resolution (symbol-resolution-handoff.md
+            // open item): a *type annotation* naming an external type used to land as
+            // an opaque `TyConst` (single-segment, args dropped) or a fresh `TyVar`
+            // (multi-segment) — only static-member *receivers* resolved
+            // (`tryExternalTypeReceiver`). Now `translateType` probes the provider too,
+            // so the annotated type is the same external `TyClass` the receiver carries
+            // and the two unify.
+            test "a type annotation resolves an external type — short form unifies with the receiver" {
+                let provider = SymbolProviders.build []
+
+                // The annotation `EqualityComparer<int>` must unify with the resolved
+                // `Default` receiver type. Before the fix the single-segment annotation
+                // dropped its args to `TyConst "EqualityComparer"`, which clashes with
+                // the receiver's `TyClass` → a spurious type error; an empty error list
+                // is the decisive observable.
+                let tast =
+                    analyseWith
+                        provider
+                        "open System.Collections.Generic\nlet d : EqualityComparer<int> = EqualityComparer<int>.Default"
+
+                Expect.isEmpty (errors tast) "the annotated external type unifies with the resolved Default receiver"
+            }
+
+            test "a fully-qualified type annotation resolves to the external TyClass (not a fresh TyVar)" {
+                let provider = SymbolProviders.build []
+
+                // Before the fix a multi-segment annotation fell to a fresh `TyVar`,
+                // which unifies silently with `5 : int` (no error). Now it resolves to
+                // the external `TyClass`, so the `int` RHS is a reported mismatch — and
+                // the message names the resolved type, proving `translateType` resolved
+                // it rather than handing back an anonymous variable.
+                let tast =
+                    analyseWith provider "let d : System.Collections.Generic.EqualityComparer<int> = 5"
+
+                let errs = errors tast
+                Expect.isNonEmpty errs "the resolved external annotation rejects the int RHS"
+
+                Expect.isTrue
+                    (errs |> List.exists (fun d -> d.Message.Contains "EqualityComparer"))
+                    (sprintf
+                        "the mismatch names the resolved external type, got %A"
+                        (errs |> List.map (fun d -> d.Message)))
+            }
+
+            // type-args-bug.md regression (Layers 1+3): a 2-arg external *instance*
+            // method. `EqualityComparer<int>.Default.Equals(x, y)` is the first
+            // arity-≥2 external method to flow through `buildExpr` + `externalMemberRef`
+            // (the DU triple hand-rolls its IL and bypasses this path). The member is
+            // modelled tupled (`(int*int)→bool`), so the front-end `unify`/`recoverTypeArgs`
+            // recover the declaring typar from the element (not the whole tuple), and
+            // emit pushes the literal `(x, y)` tuple element-wise — no `splitAt` crash,
+            // no `EqualityComparer<int*int>` mis-encoding.
+            test "a 2-arg external instance method (EqualityComparer<int>.Default.Equals) emits + runs" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "open System.Collections.Generic"
+                            "printfn \"%d\" (if EqualityComparer<int>.Default.Equals(1, 1) then 1 else 0)" // 1
+                            "printfn \"%d\" (if EqualityComparer<int>.Default.Equals(1, 2) then 1 else 0)" // 0
+                        ]
+
+                let _, artifact = compileSource "P4ExternalEquals2Arg" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "1\n0" "Equals(1,1)=true, Equals(1,2)=false"
+
+                Expect.isEmpty
+                    artifact.FSharpCoreDependencies
+                    (sprintf "2-arg BCL member call pins no FSharp.Core (%A)" artifact.FSharpCoreDependencies)
+            }
+
+            // type-args-bug.md regression (Layer 2): a 2-arg external *static*
+            // method with overloads. `System.String.Concat` has many overloads
+            // (`(string,string)`, `(object,object)`, `(ReadOnlySpan<char>,…)`, …);
+            // the call-site resolver filters by arity (2), then applicability
+            // (string args rule out the `ReadOnlySpan` pair), then betterness
+            // (`(string,string)` beats `(object,object)`). The old eager single-pick
+            // ("most params wins") chose a 4-param overload and mis-typed the call.
+            test "a 2-arg external static method with overloads (String.Concat) resolves + runs" {
+                let _, artifact =
+                    compileSource "P4ExternalConcat2Arg" "printfn \"%s\" (System.String.Concat(\"a\", \"b\"))"
+
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "ab" "String.Concat(\"a\", \"b\") = \"ab\""
+            }
+
             // The short-name form (under its `open`) emits and runs identically —
             // open-resolution (P3.5) feeds the same keyed node into P4.
             test "the short-name form under `open` emits and runs" {
@@ -222,5 +312,85 @@ let tests =
 
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "42" "GetHashCode of int 42 is 42"
+            }
+
+            // Non-generic external static access (symbol-resolution-handoff.md open
+            // item). `System.Console.Out` folds into a single LongIdent (no `<>` to
+            // keep a `TypeApp` receiver), so the generic DotLookup arm never sees it;
+            // `tryExternalStaticLongIdent` recovers the type-prefix / static-member
+            // split, types it, and freezes a keyed `TExpr.ExternalMember`.
+            test "non-generic external static property resolves + freezes carrying its key" {
+                let provider = SymbolProviders.build []
+                let tast = analyseWith provider "let w = System.Console.Out"
+
+                Expect.isEmpty (errors tast) "System.Console.Out resolves through the metadata provider"
+
+                let value =
+                    match tast.Decls with
+                    | [ TDecl.Let(value = v) ] -> v
+                    | other -> failtestf "expected a single let binding, got %A" other
+
+                match value with
+                | TExpr.ExternalMember(ValueNone, key, "Out", true, ty) ->
+                    match Unification.zonk ty with
+                    | TyClass("System.IO.TextWriter", []) -> ()
+                    | other -> failtestf "Out should be typed System.IO.TextWriter, got %A" other
+
+                    match key with
+                    | SymbolKey.MemberKey(SymbolKey.TypeKey(asm, ns, name), "Out", argSig) ->
+                        Expect.isTrue asm.IsSome "Out decl carries the defining assembly"
+                        Expect.equal ns "System" "Out decl namespace"
+                        Expect.equal name "Console" "Out decl type name (non-generic, no arity suffix)"
+                        Expect.equal argSig [] "Out is a property: empty argSig"
+                    | other -> failtestf "unexpected Out key %A" other
+                | other -> failtestf "expected a static `Out` ExternalMember, got %A" other
+            }
+
+            test "the short form under `open` resolves the same non-generic static member" {
+                let provider = SymbolProviders.build []
+                let tast = analyseWith provider "open System\nlet w = Console.Out"
+
+                Expect.isEmpty (errors tast) "Console.Out resolves under `open System`"
+
+                let value =
+                    tast.Decls
+                    |> List.tryPick (
+                        function
+                        | TDecl.Let(value = v) -> Some v
+                        | _ -> None
+                    )
+
+                match value with
+                | Some(TExpr.ExternalMember(ValueNone,
+                                            SymbolKey.MemberKey(SymbolKey.TypeKey(_, "System", "Console"), "Out", []),
+                                            "Out",
+                                            true,
+                                            _)) -> ()
+                | other -> failtestf "expected the same keyed Console.Out ExternalMember, got %A" other
+            }
+
+            // A resolved type prefix whose final segment is NOT an accessible static
+            // member (here `PI`, a const field, not modelled yet) falls through
+            // without a spurious "no accessible member" error — it's valid F#, just
+            // unsupported.
+            test "a non-member tail on a resolved external type does not error" {
+                let provider = SymbolProviders.build []
+                let tast = analyseWith provider "let p = System.Math.PI"
+                Expect.isEmpty (errors tast) "System.Math.PI (a field) falls through silently, no false error"
+            }
+
+            // End-to-end: a non-generic static *property* returning a primitive emits
+            // and runs through the P4 `ExternalMember` bridge (same path as `Default`).
+            test "a non-generic external static property emits and runs" {
+                let src = "printfn \"%d\" System.Environment.ProcessorCount"
+                let _, artifact = compileSource "NonGenericStaticProp" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+                let n = output.Replace("\r", "").Trim()
+
+                match System.Int32.TryParse n with
+                | true, v -> Expect.isTrue (v > 0) (sprintf "ProcessorCount is a positive int, got %d" v)
+                | false, _ -> failtestf "expected a numeric ProcessorCount, got %A" n
             }
         ]

@@ -188,17 +188,6 @@ module Emit =
         | TyClass(n, xs) -> TyClass(n, List.map zonk xs)
         | TyConst _ -> t
 
-    /// Decurry a (zonked) curried function type into (parameter types, return).
-    /// `unit → ret` (the zero-arg method reading) keeps its `[unit]` here; the
-    /// member-call site collapses that to no arguments, matching the member-ref
-    /// signature the provider builds (`ClrProvider.externalMemberRef`).
-    let rec private decurryTy (t: SemType) : SemType list * SemType =
-        match zonk t with
-        | TyFun(a, b) ->
-            let ps, r = decurryTy b
-            a :: ps, r
-        | other -> [], other
-
     /// Recover a generic static method's per-typar instantiation at a call site
     /// (R3): structurally match each declared parameter type (`defTys`, carrying
     /// the method's typar `TypeVar`s) against the actual argument type, recording
@@ -368,12 +357,21 @@ module Emit =
     /// rewrites the saturated application to the matching body here, so the operator
     /// collapses to an `ILIntrinsic` and codegen owns *no* per-operator dispatch (the
     /// op→opcode choice lives in these bodies, exactly as it will in the eventual
-    /// operator `.fs`). Once operator-named bindings freeze and `Vesper.Core.dll`
-    /// ships the real bodies, this table is replaced by reading them — see
-    /// docs/core-operators-handoff.md (the front-end gap). The bodies are
-    /// *monomorphic* at the use-site type: the int/float/char primitive clauses all
-    /// share an opcode, so no `when ^T : …` static-optimization resolution (prereq 3)
-    /// is needed yet.
+    /// operator `.fs`). The bodies are *monomorphic* at the use-site type: the
+    /// int/float/char primitive clauses all share an opcode, so no `when ^T : …`
+    /// static-optimization resolution is done here.
+    ///
+    /// DELETE-WHEN-COMPLETE. This table is a *fallback* now that operator `.fs`
+    /// bodies are landing in `src/Vesper.Core/ops-platform.fs`
+    /// (core-operators-handoff.md "Phase 3"). The EQUALITY family (`=`/`<>`) is
+    /// already sourced from the contract: a saturated `External(op_Equality)` is
+    /// expanded from the frozen inline body by `lowerWith` *before* this table's
+    /// `expandBuiltinOps` closing phase runs, so the contract body wins on the
+    /// primary lowering path and `op_Equality`/`op_Inequality` here only still serve
+    /// union member-bodies (Codegen `expandBuiltinOps mem.Body`) and eta-reified
+    /// operator values, which do not yet route through the inline bodies. Once the
+    /// arithmetic/bitwise `.fs` bodies land AND those two secondary paths route
+    /// through them, delete this whole table.
     module private BuiltinOps =
 
         /// `(# op operands : retTy #)` — the operator whose body is a single opcode.
@@ -476,6 +474,21 @@ module Emit =
     /// does for generic static methods, but **tolerant**: a typar the params don't
     /// pin is left as its own `TyVar` so the catch-all `when ^T : ^T` clause still
     /// selects rather than crashing. Returned in `Inline.quantifiedTypars` order.
+    /// A (zonked) `SemType` with no free `TyVar` anywhere — fully monomorphic, so
+    /// codegen can encode it. The cross-package equality/`hash` inline bodies reach
+    /// `EqualityComparer<^T>`, which `recoverTypeArgs`/`encodeType` can only emit
+    /// when `^T` is ground; an unpinned operand (`let f a b = a = b`) leaves it free
+    /// and must fall back to `Emit.BuiltinOps` instead (type-args-bug.md DoD §3).
+    let rec private isGroundType (t: SemType) : bool =
+        match zonk t with
+        | TyVar _ -> false
+        | TyConst _ -> true
+        | TyFun(a, b) -> isGroundType a && isGroundType b
+        | TyTuple xs -> List.forall isGroundType xs
+        | TyRecord(_, xs)
+        | TyUnion(_, xs)
+        | TyClass(_, xs) -> List.forall isGroundType xs
+
     let private deriveInlineTypeArgs (declTy: SemType) (spineArgs: (TExpr * SemType) list) : SemType[] =
         match Inline.quantifiedTypars declTy with
         | [] -> [||]
@@ -610,6 +623,17 @@ module Emit =
                 |> Inline.freshen mint
             | _ -> failwith "Emit: external inline body must be a TDecl.Let"
 
+        // A cross-package inline whose static-opt fall-clause rides
+        // `EqualityComparer<^T>` (the `=`/`<>`/`hash` family) can only be expanded
+        // when the call site pins `^T` to a ground type — otherwise the comparer
+        // can't encode the free `!0`. An unpinned operand (`let f a b = a = b`)
+        // leaves the External call head in place so the closing `expandBuiltinOps`
+        // routes it to `Emit.BuiltinOps`'s `ceq` instead (type-args-bug.md DoD §3).
+        let externalInlineArgsGround (decl: TDecl) (spineArgs: (TExpr * SemType) list) : bool =
+            match decl with
+            | TDecl.Let(_, _, _, declTy) -> deriveInlineTypeArgs declTy spineArgs |> Array.forall isGroundType
+            | _ -> false
+
         let rec lowerExpr (e: TExpr) : TExpr =
             match e with
             | TExpr.App _ ->
@@ -618,7 +642,10 @@ module Emit =
                 match head with
                 | TExpr.Var(k, _) when inlines.ContainsKey k ->
                     lowerExpr (betaReduce (expandInlineAt k spineArgs) spineArgs)
-                | TExpr.External(name, _, _) when externalInlines.ContainsKey name ->
+                | TExpr.External(name, _, _) when
+                    externalInlines.ContainsKey name
+                    && externalInlineArgsGround externalInlines.[name] spineArgs
+                    ->
                     lowerExpr (betaReduce (expandExternalInlineAt externalInlines.[name] spineArgs) spineArgs)
                 | _ ->
                     // An `External` head is a recipe call, so it stays in call
@@ -1344,29 +1371,62 @@ module Emit =
                 b.Add(ILInstr.Call(callHandle, sm.Arity, 1))
                 foldInvoke env b sm.ResultTy rest
 
-            | TExpr.ExternalMember(receiver, key, _, false, memberTy) ->
+            | TExpr.ExternalMember(receiver, key, name, false, memberTy) ->
                 // An external instance/static *method* call (P4): push the receiver
-                // (instance only) beneath the declared arguments, then `call`
-                // (static) / `callvirt` (instance) the keyed member ref. The arg
-                // count is the member type's parameter count (`unit → ret` ⇒ 0).
+                // (instance only) beneath the arguments, then `call` (static) /
+                // `callvirt` (instance) the keyed member ref. A .NET method is
+                // **tupled** (`m(a, b)` = one application to `(a, b)`), so the call
+                // consumes a single spine element — the argument list — and the
+                // parameter count comes from the chosen key's `argSig` length
+                // (authoritative: `memberTy` alone can't tell a flattened 2-param
+                // method from a genuine single `(int*int)` param — type-args-bug.md
+                // Layer 3). A literal `TExpr.Tuple` argument is pushed element-wise
+                // (no tuple object is constructed).
                 let isStatic = ValueOption.isNone receiver
 
                 let argCount =
-                    match decurryTy memberTy with
-                    | [ TyConst "unit" ], _ -> 0
-                    | ps, _ -> List.length ps
+                    match key with
+                    | SymbolKey.MemberKey(_, _, argSig) -> List.length argSig
+                    | other -> failwithf "Emit: ExternalMember key is not a MemberKey: %A" other
 
-                let leading, rest = List.splitAt argCount spineArgs
+                // The method consumes one spine element (its argument list); any
+                // remainder is further application of the result (rare).
+                let argList, rest =
+                    match spineArgs with
+                    | first :: more -> ValueSome first, more
+                    | [] -> ValueNone, []
 
                 match receiver with
                 | ValueSome r -> buildExpr env b r
                 | ValueNone -> ()
 
-                for (a, _) in leading do
-                    buildExpr env b a
+                let pushedArgs =
+                    match argList with
+                    | ValueNone -> 0 // no argument supplied (a 0-param method)
+                    | ValueSome(argExpr, _) ->
+                        if argCount >= 2 then
+                            match argExpr with
+                            | TExpr.Tuple(elems, _) when List.length elems = argCount ->
+                                for el in elems do
+                                    buildExpr env b el
+
+                                argCount
+                            | _ ->
+                                failwithf
+                                    "Emit: external member '%s' expects %d tupled arguments but the argument is not a literal %d-tuple"
+                                    name
+                                    argCount
+                                    argCount
+                        elif argCount = 1 then
+                            buildExpr env b argExpr
+                            1
+                        else
+                            // argCount = 0: a `unit → ret` method; the lone arg is
+                            // `()`, which has no IL value to push.
+                            0
 
                 let handle = env.Provider.ExternalMemberRef(key, false, isStatic, zonk memberTy)
-                let total = (if isStatic then 0 else 1) + argCount
+                let total = (if isStatic then 0 else 1) + pushedArgs
 
                 if isStatic then
                     b.Add(ILInstr.Call(handle, total, 1))
@@ -1374,11 +1434,11 @@ module Emit =
                     b.Add(ILInstr.Callvirt(handle, total, 1))
 
                 // A method returning a function value applied further (rare): the
-                // result type is the last consumed `App` node's type.
+                // result type is the consumed `App` node's type.
                 let resultTy =
-                    match List.tryLast leading with
-                    | Some(_, ty) -> ty
-                    | None -> typeOfExpr head
+                    match argList with
+                    | ValueSome(_, ty) -> ty
+                    | ValueNone -> typeOfExpr head
 
                 foldInvoke env b resultTy rest
 

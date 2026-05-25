@@ -117,6 +117,10 @@ module ReferencedProject =
                 | ValueSome mem -> ValueSome { mem with Origin = origin }
                 | ValueNone -> ValueNone
 
+            member _.TryLookupMembers(typeName, memberName) =
+                inner.TryLookupMembers(typeName, memberName)
+                |> Array.map (fun mem -> { mem with Origin = origin })
+
           interface IAmbientOpenScope with
               member _.AmbientOpenPrefixes = ambient
         }

@@ -27,6 +27,7 @@ let private provider: IExternalSymbolProvider =
                 ValueNone
 
         member _.TryLookupMember(_, _) = ValueNone
+        member _.TryLookupMembers(_, _) = [||]
     }
 
 let private analyse (input: string) =

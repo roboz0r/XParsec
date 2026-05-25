@@ -175,6 +175,13 @@ module Freeze =
                     [ for sub in args -> translatePat ctx sub ]
 
             TPat.Union(caseName, subPats, ty)
+        | Pat.Op _ ->
+            // Operator-named binding head (`let (=) x y = …`): a single binder,
+            // shaped like a `Pat.NamedSimple`. Its source name is the operator's
+            // compiled name (`memberNameOfBinding` → `op_Equality`); the key
+            // matches `CstKeys.ofBinding`, so the binding's `ModuleMembers` entry
+            // (and thus the cross-package inline-body loader) finds it.
+            TPat.NamedSimple(key, ty)
         | _ -> failwithf "Freeze.translatePat: TODO %A" p
 
     /// `()` literal. Distinct from `parseConst` because `Expr.EmptyBlock`
@@ -384,6 +391,21 @@ module Freeze =
             // `r.X` (or chained `r.X.Y`) parsed as a single multi-segment
             // LongIdent: head resolved as a local binding, rest field accesses.
             translateLongIdentFieldChain ctx li ty
+        // Static member on an *external* type reached through a folded LongIdent
+        // (`System.Console.Out`, `Console.Out`) — Unification resolved the prefix
+        // as a type and recorded the member in `ExternalAccess`. Emit the same
+        // keyed `TExpr.ExternalMember` as the generic `DotLookup` form; always
+        // static, so the type-name receiver is dropped.
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
+            li.Idents.Length >= 2 && ctx.ExternalAccess.ContainsKey key
+            ->
+            let info =
+                match ctx.ExternalAccess.TryGetValue key with
+                | ValueSome i -> i
+                | ValueNone -> failwith "Freeze: unreachable (ExternalAccess membership just checked)"
+
+            let memberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+            TExpr.ExternalMember(ValueNone, info.Key, memberName, info.IsProperty, ty)
         // `new T(args)` — Unification stamps `ty` with the `TyClass`. The CST-side
         // fallback is purely defensive for error paths where Unification couldn't
         // pin the receiver.
@@ -1570,6 +1592,10 @@ module Freeze =
         let rec walk (p: Pat<SyntaxToken>) =
             match p with
             | Pat.NamedSimple id -> ValueSome(ctx.NameOf id)
+            // Operator-named binding head: surface the operator's compiled name
+            // (`(=)` → `op_Equality`) so the member is addressable from a use
+            // site's desugared `External(op_Equality)` head.
+            | Pat.Op io -> Desugar.opPatCompiledName io
             | Pat.EnclosedBlock(pat = inner)
             | Pat.Typed(pat = inner) -> walk inner
             | _ -> ValueNone

@@ -45,6 +45,11 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
                     }
             else
                 ValueNone
+
+        member this.TryLookupMembers(t, m) =
+            match this.TryLookupMember(t, m) with
+            | ValueSome mem -> [| mem |]
+            | ValueNone -> [||]
     }
 
 /// The `TyConst` tag carried by a resolved value symbol, for asserting which

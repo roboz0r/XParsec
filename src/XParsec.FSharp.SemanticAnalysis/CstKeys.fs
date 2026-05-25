@@ -112,6 +112,7 @@ module CstKeys =
         | Pat.As(pat = inner) -> firstTokenOfPat inner
         | Pat.Or(left = inner) -> firstTokenOfPat inner
         | Pat.Record(lBrace = t) -> t
+        | Pat.Op io -> firstTokenOfIdentOrOp io
         | _ -> failwithf "CstKeys.firstTokenOfPat: TODO %A" p
 
     let ofExpr (e: Expr<SyntaxToken>) : NodeKey =
@@ -178,6 +179,7 @@ module CstKeys =
             | Pat.Or _ -> NodeKind.PatOr
             | Pat.EmptyBlock _ -> NodeKind.PatEmptyBlock
             | Pat.Record _ -> NodeKind.PatRecord
+            | Pat.Op _ -> NodeKind.PatOp
             | _ -> NodeKind.Unknown
 
         NodeKey.ofToken (firstTokenOfPat p) kind

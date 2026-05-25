@@ -81,10 +81,16 @@ module private MetadataMapping =
                 Some(fun _ -> TyConst name)
             | fullName -> Some(fun _ -> TyClass(fullName, []))
 
-    /// Curried `arg1 → … → argN → ret` over the declaring type's typars; a
-    /// zero-parameter method reads as `unit → ret`. `None` if any parameter or the
-    /// return type doesn't map, or the method has its own generic parameters (P2
-    /// resolves no method-owned typars).
+    /// **Tupled** member signature `(p1 * … * pN) → ret` over the declaring type's
+    /// typars — the .NET calling convention (`m(a, b)` is one application to the
+    /// tuple `(a, b)`), NOT a curried `p1 → … → pN → ret` (a concrete .NET method is
+    /// a single N-ary method, not curried). A zero-parameter method reads as
+    /// `unit → ret`; a one-parameter method as `p → ret` (curried and tupled
+    /// coincide at arity ≤ 1). Modelling N ≥ 2 tupled makes the existing front-end
+    /// `unify`/`recoverTypeArgs` TyTuple arms recover the declaring typar from the
+    /// element, not the whole tuple (type-args-bug.md Layer 1). `None` if any
+    /// parameter or the return type doesn't map, or the method has its own generic
+    /// parameters (P2 resolves no method-owned typars).
     let tryMethodSignature (m: MethodInfo) : (SemType[] -> SemType) option =
         if m.IsGenericMethodDefinition then
             None
@@ -103,10 +109,10 @@ module private MetadataMapping =
                 Some(fun args ->
                     let ret = rb args
 
-                    if pbs.Length = 0 then
-                        TyFun(TyConst "unit", ret)
-                    else
-                        Array.foldBack (fun (pb: SemType[] -> SemType) acc -> TyFun(pb args, acc)) pbs ret
+                    match pbs.Length with
+                    | 0 -> TyFun(TyConst "unit", ret)
+                    | 1 -> TyFun(pbs.[0] args, ret)
+                    | _ -> TyFun(TyTuple [ for pb in pbs -> pb args ], ret)
                 )
 
     /// A property reads as a value of its type (no leading arrow) — `Default` is a
@@ -169,6 +175,9 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
 
     let memberCache =
         ConcurrentDictionary<struct (string * string), ExternalMember voption>()
+
+    let membersCache =
+        ConcurrentDictionary<struct (string * string), ExternalMember[]>()
 
     let declaredFlags =
         BindingFlags.Public
@@ -243,23 +252,50 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                 | None -> ValueNone
             )
 
-    let computeMember (typeName: string) (memberName: string) : ExternalMember voption =
+    /// All overloads of `memberName` whose signature maps — the candidate set for
+    /// application-site overload resolution (type-args-bug.md Layer 2). A property
+    /// wins as a singleton (a property and a like-named method don't coexist as a
+    /// call group — `Default` is a property). Methods are sorted most-parameters
+    /// first so the singular `computeMember` reading (`Array.head`) keeps its
+    /// "most-params wins" tie-break.
+    let computeMembers (typeName: string) (memberName: string) : ExternalMember[] =
         lock
             gate
             (fun () ->
                 match resolveTypeLocked typeName with
-                | None -> ValueNone
+                | None -> [||]
                 | Some t ->
                     let origin = originOf t (Some(MetadataMapping.metadataName t))
                     let declKey = MetadataMapping.declTypeKey t
 
                     // A property wins over a like-named method (`Default` is a property).
-                    let asProperty =
-                        match t.GetProperty(memberName, declaredFlags) with
-                        | null -> None
-                        | p ->
-                            MetadataMapping.tryPropertySignature p
+                    match t.GetProperty(memberName, declaredFlags) with
+                    | (null: PropertyInfo) ->
+                        t.GetMethods declaredFlags
+                        |> Array.filter (fun m -> m.Name = memberName)
+                        |> Array.sortByDescending (fun m -> m.GetParameters().Length)
+                        |> Array.choose (fun m ->
+                            MetadataMapping.tryMethodSignature m
                             |> Option.map (fun build ->
+                                let argSig =
+                                    m.GetParameters()
+                                    |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
+                                    |> Array.toList
+
+                                {
+                                    Name = memberName
+                                    IsStatic = m.IsStatic
+                                    IsProperty = false
+                                    BuildSignature = build
+                                    Origin = origin
+                                    Key = SymbolKey.MemberKey(declKey, memberName, argSig)
+                                }
+                            )
+                        )
+                    | p ->
+                        match MetadataMapping.tryPropertySignature p with
+                        | Some build ->
+                            [|
                                 {
                                     Name = memberName
                                     IsStatic = (not (isNull p.GetMethod) && p.GetMethod.IsStatic)
@@ -269,41 +305,17 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                                     // A property carries no parameters → empty argSig.
                                     Key = SymbolKey.MemberKey(declKey, memberName, [])
                                 }
-                            )
-
-                    let resolved =
-                        match asProperty with
-                        | Some _ -> asProperty
-                        | None ->
-                            // First overload whose whole signature maps; prefer the
-                            // most-parameters one so `GetHashCode(T)` wins over an
-                            // inherited-shape `GetHashCode()` were both ever declared.
-                            t.GetMethods declaredFlags
-                            |> Array.filter (fun m -> m.Name = memberName)
-                            |> Array.sortByDescending (fun m -> m.GetParameters().Length)
-                            |> Array.tryPick (fun m ->
-                                MetadataMapping.tryMethodSignature m
-                                |> Option.map (fun build ->
-                                    let argSig =
-                                        m.GetParameters()
-                                        |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
-                                        |> Array.toList
-
-                                    {
-                                        Name = memberName
-                                        IsStatic = m.IsStatic
-                                        IsProperty = false
-                                        BuildSignature = build
-                                        Origin = origin
-                                        Key = SymbolKey.MemberKey(declKey, memberName, argSig)
-                                    }
-                                )
-                            )
-
-                    match resolved with
-                    | Some m -> ValueSome m
-                    | None -> ValueNone
+                            |]
+                        | None -> [||]
             )
+
+    /// The single best member by the legacy name + arity heuristic (most-params
+    /// wins). Kept for the bare member-as-value path and single-candidate access;
+    /// the call site resolves overloads through `computeMembers` instead.
+    let computeMember (typeName: string) (memberName: string) : ExternalMember voption =
+        match computeMembers typeName memberName with
+        | [||] -> ValueNone
+        | arr -> ValueSome arr.[0]
 
     interface IExternalSymbolProvider with
         // The BCL exposes no F#-style module values; type + member access is the P2
@@ -326,6 +338,16 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
             | _ ->
                 let v = computeMember typeName memberName
                 memberCache.[key] <- v
+                v
+
+        member _.TryLookupMembers(typeName, memberName) =
+            let key = struct (typeName, memberName)
+
+            match membersCache.TryGetValue key with
+            | true, v -> v
+            | _ ->
+                let v = computeMembers typeName memberName
+                membersCache.[key] <- v
                 v
 
 module MetadataSymbols =

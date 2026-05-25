@@ -674,6 +674,7 @@ let tests =
 
                         member _.TryLookupType _ = ValueNone
                         member _.TryLookupMember(_, _) = ValueNone
+                        member _.TryLookupMembers(_, _) = [||]
                     }
 
                 let input = "let r = Math.pi"

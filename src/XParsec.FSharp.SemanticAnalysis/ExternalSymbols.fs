@@ -124,7 +124,9 @@ type ExternalCaseShape =
 /// type (symbol-resolution-plan §4). `BuildSignature` is parameterised over the
 /// *enclosing type's* typars, exactly like `ExternalFieldShape.BuildType`:
 /// callers pass a `SemType[]` (one entry per declared typar) and the builder
-/// substitutes them through, yielding the curried `arg → … → ret` signature.
+/// substitutes them through, yielding the **tupled** `(p1 * … * pN) → ret`
+/// signature (the .NET calling convention; arity ≤ 1 is unchanged — see
+/// `MetadataMapping.tryMethodSignature`).
 type ExternalMember =
     {
         Name: string
@@ -171,8 +173,19 @@ type IExternalSymbolProvider =
     /// type's compiled name and the member name. This is what types
     /// `EqualityComparer<'T>.Default` (static property) and `.GetHashCode`
     /// (instance method). Defaults to `ValueNone` for providers that don't model
-    /// members (symbol-resolution-plan §4).
+    /// members (symbol-resolution-plan §4). When several overloads share a name
+    /// this collapses to a single best-by-arity pick; the *call site* uses
+    /// `TryLookupMembers` instead to resolve by argument types (type-args-bug.md
+    /// Layer 2).
     abstract TryLookupMember: typeName: string * memberName: string -> ExternalMember voption
+
+    /// Look up **all** overloads of a member by name — the candidate set the
+    /// application-site overload resolver picks from (by arity, then argument-type
+    /// betterness; type-args-bug.md Layer 2). Providers that don't model members
+    /// return `[||]`. A provider that models members SHOULD return every overload
+    /// whose signature maps (the same filter `TryLookupMember` applies, minus the
+    /// single-pick collapse).
+    abstract TryLookupMembers: typeName: string * memberName: string -> ExternalMember[]
 
 /// Optional capability a provider may implement to contribute an *ambient*
 /// (implicit) open-prefix set — the prelude / referenced-contract `[<AutoOpen>]`
@@ -228,6 +241,7 @@ module ExternalSymbols =
             member _.TryLookup _ = ValueNone
             member _.TryLookupType _ = ValueNone
             member _.TryLookupMember(_, _) = ValueNone
+            member _.TryLookupMembers(_, _) = [||]
         }
 
     /// First-hit-wins down the list; `[]` ⇒ `nullProvider`, a singleton ⇒ that
@@ -285,6 +299,20 @@ module ExternalSymbols =
 
                     while result.IsNone && i < sources.Length do
                         result <- sources.[i].TryLookupMember(typeName, memberName)
+                        i <- i + 1
+
+                    result
+
+                // First source that knows the type wins the whole overload set — a
+                // type's members live in one assembly, so a later source never
+                // *adds* overloads to an earlier one's hit (same first-hit-wins
+                // shadowing as the singular lookups).
+                member _.TryLookupMembers(typeName, memberName) =
+                    let mutable result = [||]
+                    let mutable i = 0
+
+                    while Array.isEmpty result && i < sources.Length do
+                        result <- sources.[i].TryLookupMembers(typeName, memberName)
                         i <- i + 1
 
                     result
@@ -478,4 +506,5 @@ module MockBuiltins =
 
             member _.TryLookupType _ = ValueNone
             member _.TryLookupMember(_, _) = ValueNone
+            member _.TryLookupMembers(_, _) = [||]
         }

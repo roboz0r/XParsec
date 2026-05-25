@@ -70,6 +70,9 @@ type NodeKind =
     /// stable NodeKey to attach it to.
     | PatForToVar = 110us
     | PatEmptyBlock = 111us
+    /// Operator-named binding head (`let (=) x y = …`); the `IdentOrOp` carries
+    /// the operator token, not a plain ident.
+    | PatOp = 112us
 
     | TypeNamed = 200us
     | TypeVarRef = 201us

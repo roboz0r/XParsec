@@ -646,9 +646,9 @@ type ClrProvider
     /// parameterless `get_<name>` getter; a method decurries its open signature
     /// (`unit → ret`, the zero-arg reading, collapses to no parameters).
     let externalMemberRef (key: SymbolKey) (isProperty: bool) (isStatic: bool) (memberTy: SemType) : EntityHandle =
-        let declKey, memberName =
+        let declKey, memberName, argSig =
             match key with
-            | SymbolKey.MemberKey(d, m, _) -> d, m
+            | SymbolKey.MemberKey(d, m, a) -> d, m, a
             | other -> failwithf "ClrProvider: ExternalMember key is not a MemberKey: %A" other
 
         let asm, ns, name =
@@ -668,8 +668,22 @@ type ClrProvider
             let markerRoots = markers |> List.map UnionFind.find
             let markerTys = markers |> List.map TyVar |> List.toArray
 
+            // Build the open signature from the *exact* overload the front end
+            // committed (its key, incl. `argSig`, matches `key`) — NOT a singular
+            // re-pick, which would re-collapse a resolved overload back to the
+            // most-params one and disagree with the node's `memberTy` (type-args-bug.md
+            // Layer 2). The singular `TryLookupMember` is the fallback for providers
+            // that expose only that surface (a member with a single overload).
             let openSig =
-                match symbols.TryLookupMember(declFullName, memberName) with
+                let chosen =
+                    match
+                        symbols.TryLookupMembers(declFullName, memberName)
+                        |> Array.tryFind (fun m -> m.Key = key)
+                    with
+                    | Some m -> ValueSome m
+                    | None -> symbols.TryLookupMember(declFullName, memberName)
+
+                match chosen with
                 | ValueSome m -> m.BuildSignature markerTys
                 | ValueNone ->
                     failwithf "ClrProvider: external member '%s.%s' did not resolve at emit" declFullName memberName
@@ -697,9 +711,16 @@ type ClrProvider
             else
                 let rawParams, retTy = decurryTy openSig
 
+                // A .NET method of arity ≥ 2 is modelled tupled (`(p1*…*pN) → ret`,
+                // type-args-bug.md Layer 1), so the lone decurried "parameter" is the
+                // argument `TyTuple` — flatten it back to N separate parameters for
+                // the member-ref blob, driven by the chosen key's `argSig` length
+                // (authoritative: a genuine single `(int*int)` param has argSig
+                // length 1 and must stay one parameter). Arity ≤ 1 is unchanged.
                 let paramTys =
                     match rawParams with
                     | [ TyConst "unit" ] -> []
+                    | [ TyTuple elems ] when List.length argSig >= 2 && List.length elems = List.length argSig -> elems
                     | ps -> ps
 
                 BlobEncoder(s)

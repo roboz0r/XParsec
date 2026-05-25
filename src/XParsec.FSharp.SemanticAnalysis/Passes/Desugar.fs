@@ -55,6 +55,18 @@ module Desugar =
     /// by NameResolution / Unification / Freeze to resolve `(op)` references.
     let symbolicOpCompiledName (t: Token) : string voption = infixOpName t
 
+    /// Compiled name for an operator-named binding *head* (`let (=) x y = …` →
+    /// "op_Equality"). Lifts the same token→compiled-name mapping the infix /
+    /// value forms use to the `IdentOrOp` a binding head carries, so an operator
+    /// definition freezes under the same compiled member name its use sites
+    /// reference. Consumed by NameResolution / Freeze. Only symbolic operators
+    /// are mapped today (the equality family); range / active-pattern heads
+    /// return `ValueNone`.
+    let opPatCompiledName (io: IdentOrOp<SyntaxToken>) : string voption =
+        match io with
+        | IdentOrOp.ParenOp(opName = OpName.SymbolicOp tok) -> symbolicOpCompiledName tok.Token
+        | _ -> ValueNone
+
     /// Token.OpSubtraction is used by both binary `a - b` (InfixApp) and
     /// unary `-x` (PrefixApp). The PrefixApp form maps to op_UnaryNegation.
     let private prefixOpName (t: Token) : string voption =

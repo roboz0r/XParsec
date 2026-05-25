@@ -1047,6 +1047,9 @@ module Unification =
         else
             match b.headPat with
             | Pat.NamedSimple _ -> true
+            // An operator-named binding (`let inline (=) …`) is a single-name
+            // head; generalise it like any other function value.
+            | Pat.Op _ -> true
             | _ -> false
 
     /// Pulled out of `inferConst` so the measured-literal arm can stamp this
@@ -1225,7 +1228,22 @@ module Unification =
                             | true, info ->
                                 let args = [ for _ in info.TypeParams -> TyVar(freshTyVar ctx) ]
                                 TyClass(name, args)
-                            | false, _ -> TyConst name
+                            | false, _ ->
+                                // Not project-local: probe the external provider
+                                // (a short BCL name under its `open`) before the
+                                // opaque fallback. See `tryResolveExternalType`.
+                                match tryResolveExternalType ctx name [] with
+                                | ValueSome ty -> ty
+                                | ValueNone -> TyConst name
+        | Type.NamedType li ->
+            // Multi-segment named type (`System.Text.StringBuilder`). Project-local
+            // types are single-segment, so a dotted name is either external or
+            // unknown; probe the provider before the catch-all TyVar.
+            let qualName = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
+
+            match tryResolveExternalType ctx qualName [] with
+            | ValueSome ty -> ty
+            | ValueNone -> TyVar(freshTyVar ctx)
         | Type.GenericType(longIdent = li; typeArgs = args) when
             li.Idents.Length = 1
             && args.Length = 1
@@ -1279,6 +1297,23 @@ module Unification =
                 ]
 
             resolveNamedGeneric ctx diagKey name translatedArgs
+        | Type.GenericType(longIdent = li; typeArgs = args) ->
+            // Multi-segment generic type
+            // (`System.Collections.Generic.EqualityComparer<int>`); the
+            // single-segment forms are handled above.
+            let qualName = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
+
+            let translatedArgs =
+                [
+                    for a in args ->
+                        match a with
+                        | TypeArg.Type t -> translateType ctx t
+                        | TypeArg.Measure _ -> TyVar(freshTyVar ctx)
+                ]
+
+            match tryResolveExternalType ctx qualName translatedArgs with
+            | ValueSome ty -> ty
+            | ValueNone -> TyVar(freshTyVar ctx)
         | Type.SuffixedType(baseType = baseTy; longIdent = li) when li.Idents.Length = 1 ->
             // Postfix generic syntax: `'T list` ≡ `list<'T>`. Multi-arg
             // postfix forms (`(int, string) Map`) parse the base as a tuple
@@ -1349,9 +1384,68 @@ module Unification =
                             checkArity (List.length info.TypeParams)
                             TyClass(name, translatedArgs)
                         | false, _ ->
-                            // Unknown name with type args — opaque TyConst,
-                            // args ignored (matches the bare-name arm).
-                            TyConst name
+                            match tryResolveExternalType ctx name translatedArgs with
+                            | ValueSome ty -> ty
+                            | ValueNone ->
+                                // Unknown name with type args — opaque TyConst,
+                                // args ignored (matches the bare-name arm).
+                                TyConst name
+
+    /// Resolve a named/generic type reference that missed every project-local
+    /// registry against the external provider — the type-annotation analogue of
+    /// `tryExternalTypeReceiver` (which only typed static-member *receivers*, so a
+    /// `(c : EqualityComparer<int>)` annotation used to land as an opaque
+    /// `TyConst`). A short name resolves through `OpenScope` exactly like that
+    /// sibling, so `EqualityComparer<int>` under `open System.Collections.Generic`
+    /// reaches the qualified metadata name. The resolved provider key *is* the
+    /// canonical SemType name — the same name member signatures and list literals
+    /// carry — so the annotation unifies with the resolved receiver type. Two
+    /// keying conventions coexist: the metadata (BCL) layer keys generic types by
+    /// their arity-suffixed name (`` EqualityComparer`1 ``), the contract layer by
+    /// the bare compiled name, so both forms are probed and the hit's key becomes
+    /// the SemType name. An arity-mismatched hit is rejected (a generic type
+    /// referenced at the wrong arity isn't this type, and guards the abbrev/record
+    /// builders against a wrong-length arg array). Abbreviations are left to the
+    /// caller's opaque fallback rather than expanded here — expanding would discard
+    /// the abbrev name the extractor convention pins (symbol-resolution-handoff.md).
+    and private tryResolveExternalType
+        (ctx: PassContext)
+        (qualName: string)
+        (translatedArgs: SemType list)
+        : SemType voption =
+        let arity = List.length translatedArgs
+
+        // Metadata keys generic types `Name`arity`; the contract layer keys them
+        // bare. Probe the suffixed form first so it wins when both could match.
+        let keysFor (n: string) : string list =
+            if arity = 0 then [ n ] else [ sprintf "%s`%d" n arity; n ]
+
+        let shapeArity (shape: ExternalTypeShape) : int =
+            match shape with
+            | ExternalTypeShape.Class(arity = a)
+            | ExternalTypeShape.Record(arity = a)
+            | ExternalTypeShape.Union(arity = a)
+            | ExternalTypeShape.Abbrev(arity = a) -> a
+
+        let lookup (candidate: string) : SemType voption =
+            let picked =
+                keysFor candidate
+                |> List.tryPick (fun key ->
+                    match ctx.Provider.TryLookupType key with
+                    | ValueSome shape when shapeArity shape = arity ->
+                        match shape with
+                        | ExternalTypeShape.Class _ -> Some(TyClass(key, translatedArgs))
+                        | ExternalTypeShape.Record _ -> Some(TyRecord(key, translatedArgs))
+                        | ExternalTypeShape.Union _ -> Some(TyUnion(key, translatedArgs))
+                        | ExternalTypeShape.Abbrev _ -> None
+                    | _ -> None
+                )
+
+            match picked with
+            | Some ty -> ValueSome ty
+            | None -> ValueNone
+
+        OpenScope.tryResolve ctx.OpenScope lookup qualName
 
     /// Attach to the constrained typar's TyVar through the current
     /// `ctx.TyparScope`. Unsupported kinds (Coercion, MemberTrait, etc.) are
@@ -1820,6 +1914,11 @@ module Unification =
             // Use tvOf so a let-rec sibling whose TyVar was already lazy-minted
             // by a forward reference (or pre-allocated by inferBindingGroup)
             // is reused, not overwritten.
+            TyVar(tvOf ctx key)
+        | Pat.Op _ ->
+            // An operator-named binding head (`let (=) x y = …`) introduces a
+            // single name, exactly like a `Pat.NamedSimple`; its name is the
+            // operator's compiled name (`op_Equality`), surfaced by Freeze.
             TyVar(tvOf ctx key)
         | Pat.Named(longIdent = li; argumentPats = args) when
             li.Idents.Length >= 1
@@ -2290,39 +2389,43 @@ module Unification =
                 match OpenScope.tryResolve ctx.OpenScope ctx.Provider.TryLookup name with
                 | ValueSome sym -> sym.Instantiate ctx.CurrentLevel
                 | ValueNone ->
-                    let singleSegName =
-                        match e with
-                        | Expr.Ident t -> ValueSome(ctx.NameOf t)
-                        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
-                            ValueSome(ctx.NameOf li.Idents.[0])
-                        | _ -> ValueNone
 
-                    match singleSegName with
-                    | ValueSome n ->
-                        let info, count = resolveCtorName ctx n
+                    match tryExternalStaticLongIdent ctx key e with
+                    | ValueSome ty -> ty
+                    | ValueNone ->
+                        let singleSegName =
+                            match e with
+                            | Expr.Ident t -> ValueSome(ctx.NameOf t)
+                            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
+                                ValueSome(ctx.NameOf li.Idents.[0])
+                            | _ -> ValueNone
 
-                        match info with
-                        | ValueSome i -> ctorType ctx i
-                        | ValueNone when count >= 2 ->
-                            ctx.Diagnostics.Add
-                                {
-                                    Key = key
-                                    Message =
-                                        sprintf
-                                            "Ambiguous constructor '%s'; declared in %d union types — add a qualifier or annotation"
-                                            n
-                                            count
-                                    Severity = Error
-                                }
+                        match singleSegName with
+                        | ValueSome n ->
+                            let info, count = resolveCtorName ctx n
 
-                            TyVar(freshTyVar ctx)
-                        | ValueNone ->
-                            // Class-name-as-function: `Point(3, 4)` parses as
-                            // `Expr.App (Expr.Ident "Point", ...)`. Return the
-                            // ctor as a function value so `inferApp` types the
-                            // call through the normal function arm.
-                            classCtorAsFunction ctx n
-                    | ValueNone -> TyVar(freshTyVar ctx)
+                            match info with
+                            | ValueSome i -> ctorType ctx i
+                            | ValueNone when count >= 2 ->
+                                ctx.Diagnostics.Add
+                                    {
+                                        Key = key
+                                        Message =
+                                            sprintf
+                                                "Ambiguous constructor '%s'; declared in %d union types — add a qualifier or annotation"
+                                                n
+                                                count
+                                        Severity = Error
+                                    }
+
+                                TyVar(freshTyVar ctx)
+                            | ValueNone ->
+                                // Class-name-as-function: `Point(3, 4)` parses as
+                                // `Expr.App (Expr.Ident "Point", ...)`. Return the
+                                // ctor as a function value so `inferApp` types the
+                                // call through the normal function arm.
+                                classCtorAsFunction ctx n
+                        | ValueNone -> TyVar(freshTyVar ctx)
 
     /// Joins multi-segment names with `.` so the provider can look up dotted
     /// names like `Math.PI` directly.
@@ -2340,15 +2443,28 @@ module Unification =
         match tryInferPrintfApp ctx key fn args with
         | ValueSome ty -> ty
         | ValueNone ->
-            let mutable currTy = infer ctx fn
+            // A .NET static method is tupled: `String.Concat ("a", "b")` is one
+            // tuple argument. Resolve a multi-overload static method by its arg
+            // types at the call site (type-args-bug.md Layer 2) before the generic
+            // curried application path.
+            match
+                (if args.Length = 1 then
+                     tryInferExternalStaticMethodCall ctx key fn args.[0]
+                 else
+                     ValueNone)
+            with
+            | ValueSome ty -> ty
+            | ValueNone ->
 
-            for a in args do
-                let argTy = infer ctx a
-                let resultTy = TyVar(freshTyVar ctx)
-                unify ctx key currTy (TyFun(argTy, resultTy))
-                currTy <- resultTy
+                let mutable currTy = infer ctx fn
 
-            currTy
+                for a in args do
+                    let argTy = infer ctx a
+                    let resultTy = TyVar(freshTyVar ctx)
+                    unify ctx key currTy (TyFun(argTy, resultTy))
+                    currTy <- resultTy
+
+                currTy
 
     /// Printf-family typing rule (front-end-gaps-plan §B). When `fn` is a
     /// recognised printf entry point (not shadowed by a local binding) with a
@@ -2438,12 +2554,17 @@ module Unification =
         (fn: Expr<SyntaxToken>)
         (arg: Expr<SyntaxToken>)
         : SemType =
-        // `f(x)` — same shape as `Expr.App fn [|arg|]`, a separate CST case.
-        let fnTy = infer ctx fn
-        let argTy = infer ctx arg
-        let resultTy = TyVar(freshTyVar ctx)
-        unify ctx key fnTy (TyFun(argTy, resultTy))
-        resultTy
+        // `f(x)` — same shape as `Expr.App fn [|arg|]`, a separate CST case. A
+        // no-space method call (`String.Concat("a", "b")`) is a HighPrecedenceApp,
+        // so the call-site overload resolver is checked here too.
+        match tryInferExternalStaticMethodCall ctx key fn arg with
+        | ValueSome ty -> ty
+        | ValueNone ->
+            let fnTy = infer ctx fn
+            let argTy = infer ctx arg
+            let resultTy = TyVar(freshTyVar ctx)
+            unify ctx key fnTy (TyFun(argTy, resultTy))
+            resultTy
 
     and private inferRange
         (ctx: PassContext)
@@ -3152,6 +3273,245 @@ module Unification =
             | ValueSome resolved -> ValueSome(metaNameOf resolved, List.ofSeq typeArgs)
             | ValueNone -> ValueNone
 
+    /// `System.Console.Out` / `Console.Out` (under `open System`): a multi-segment
+    /// LongIdent whose prefix resolves as a *non-generic* external type and whose
+    /// last segment is a static member. The non-generic analogue of the generic
+    /// `EqualityComparer<int>.Default` DotLookup arm — there the `<int>` keeps the
+    /// type receiver a separate `Expr.TypeApp`, but a non-generic type folds into a
+    /// single LongIdent (the parser merges consecutive `.ident`), so the split is
+    /// recovered here. Resolves the prefix through `OpenScope` like
+    /// `tryExternalTypeReceiver`, then records the access
+    /// (`inferExternalStaticMember`) so Freeze stamps a keyed `TExpr.ExternalMember`.
+    /// Always static — an instance receiver is either a local binding (caught by
+    /// the field-chain arm) or a `DotLookup`. A resolved prefix whose last segment
+    /// is *not* an accessible static member (e.g. a const field, not modelled yet)
+    /// falls through silently rather than diagnosing — it's valid F#, just
+    /// unsupported (symbol-resolution-handoff.md: static fields are a later phase).
+    and private tryExternalStaticLongIdent (ctx: PassContext) (key: NodeKey) (e: Expr<SyntaxToken>) : SemType voption =
+        match e with
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length >= 2 ->
+            let lastTok = li.Idents.[li.Idents.Length - 1]
+
+            let prefixName =
+                seq { for i in 0 .. li.Idents.Length - 2 -> ctx.NameOf li.Idents.[i] }
+                |> String.concat "."
+
+            let probe (n: string) =
+                match ctx.Provider.TryLookupType n with
+                | ValueSome(ExternalTypeShape.Class _) -> true
+                | _ -> false
+
+            match OpenScope.tryQualify ctx.OpenScope probe prefixName with
+            | ValueSome resolved ->
+                // Claim it only if the member actually resolves; otherwise leave
+                // the node to the ctor/TyVar fallback without a spurious error.
+                match ctx.Provider.TryLookupMember(resolved, ctx.NameOf lastTok) with
+                | ValueSome _ -> ValueSome(inferExternalStaticMember ctx key resolved [] lastTok)
+                | ValueNone -> ValueNone
+            | ValueNone -> ValueNone
+        | _ -> ValueNone
+
+    // ---- Application-site overload resolution (type-args-bug.md Layer 2) ----
+    //
+    // .NET methods are an unresolved *method group* until applied; overloading is
+    // resolved at the call with the argument types in hand (fsc
+    // `ConstraintSolver.ResolveOverloadingCore`). This project resolves only the
+    // **static, folded-LongIdent** method-call shape (`String.Concat("a", "b")`)
+    // this way, and only when the name has **more than one** mapped overload — a
+    // single candidate (the common case, incl. the `EqualityComparer.Equals`
+    // equality fall-clause whose `DeclaredOnly` lookup is unique) keeps the eager
+    // `DotLookup`/`tryExternalStaticLongIdent` single-pick, unchanged. Resolution
+    // is: filter by **arity**, then by **applicability** (each arg assignable to
+    // the param), then **betterness** (the unique most-specific parameter set).
+    // The specificity test is **non-mutating** over (ground) zonked types — no
+    // speculative unify/undo (type-args-bug.md "Hard stop").
+
+    /// Structural `SemType` equality (ground types; primitive alias names compared
+    /// verbatim — the overload sets we resolve don't hinge on `int`/`int32`).
+    and private semTypeEq (a: SemType) (b: SemType) : bool =
+        match zonk a, zonk b with
+        | TyConst x, TyConst y -> x = y
+        | TyVar x, TyVar y -> System.Object.ReferenceEquals(UnionFind.find x, UnionFind.find y)
+        | TyFun(a1, r1), TyFun(a2, r2) -> semTypeEq a1 a2 && semTypeEq r1 r2
+        | TyTuple xs, TyTuple ys -> xs.Length = ys.Length && List.forall2 semTypeEq xs ys
+        | TyRecord(n1, xs), TyRecord(n2, ys)
+        | TyUnion(n1, xs), TyUnion(n2, ys)
+        | TyClass(n1, xs), TyClass(n2, ys) -> n1 = n2 && xs.Length = ys.Length && List.forall2 semTypeEq xs ys
+        | _ -> false
+
+    /// `System.Object` / `obj` — the universal supertype in our conservative
+    /// subtype model (everything boxes to it; we model no other reference
+    /// hierarchy, so a non-`object` param only matches an arg it equals).
+    and private isObjectTy (t: SemType) : bool =
+        match zonk t with
+        | TyClass("System.Object", []) -> true
+        | TyConst "obj" -> true
+        | _ -> false
+
+    /// An argument of type `argTy` is assignable to a parameter of type `paramTy`
+    /// (conservative: exact match, or the param is `object`).
+    and private argAssignable (argTy: SemType) (paramTy: SemType) : bool =
+        semTypeEq argTy paramTy || isObjectTy paramTy
+
+    /// `aTy` is at least as specific as `bTy` for betterness (equal, or `bTy` is
+    /// the universal `object` and `aTy` is something more derived).
+    and private asSpecificOrEq (aTy: SemType) (bTy: SemType) : bool = semTypeEq aTy bTy || isObjectTy bTy
+
+    /// The declared parameter count of an external member (its key's `argSig`
+    /// length — authoritative, distinguishes a flattened N-param method from a
+    /// genuine single tuple param).
+    and private memberParamCount (m: ExternalMember) : int =
+        match m.Key with
+        | SymbolKey.MemberKey(_, _, argSig) -> List.length argSig
+        | _ -> 0
+
+    /// The member's parameter types (instantiated at `typeArgs`), flattening the
+    /// tupled signature back to N parameters (type-args-bug.md Layer 1/3).
+    and private memberParamTypes (typeArgs: SemType[]) (m: ExternalMember) : SemType list =
+        let n = memberParamCount m
+
+        match zonk (m.BuildSignature typeArgs) with
+        | TyFun(TyTuple elems, _) when n >= 2 && List.length elems = n -> elems
+        | TyFun(TyConst "unit", _) when n = 0 -> []
+        | TyFun(p, _) -> [ p ]
+        | _ -> []
+
+    /// Pick the overload for a call of arg types `argElems`: arity, then
+    /// applicability, then betterness. `ValueNone` = none applicable, or no unique
+    /// best (ambiguous — the caller diagnoses).
+    and private pickStaticOverload
+        (typeArgs: SemType[])
+        (candidates: ExternalMember[])
+        (argElems: SemType list)
+        : ExternalMember voption =
+        let arity = List.length argElems
+
+        let applicable =
+            candidates
+            |> Array.filter (fun m ->
+                memberParamCount m = arity
+                && (let ps = memberParamTypes typeArgs m
+                    List.length ps = arity && List.forall2 argAssignable argElems ps)
+            )
+
+        match applicable with
+        | [||] -> ValueNone
+        | [| only |] -> ValueSome only
+        | many ->
+            let betterThan (a: ExternalMember) (b: ExternalMember) =
+                let pa = memberParamTypes typeArgs a
+                let pb = memberParamTypes typeArgs b
+
+                List.forall2 asSpecificOrEq pa pb
+                && List.exists2 (fun x y -> not (semTypeEq x y)) pa pb
+
+            let best =
+                many
+                |> Array.filter (fun a ->
+                    many
+                    |> Array.forall (fun b -> System.Object.ReferenceEquals(a, b) || betterThan a b)
+                )
+
+            match best with
+            | [| unique |] -> ValueSome unique
+            | _ -> ValueNone
+
+    /// Resolve a folded-LongIdent external *static* member reference
+    /// (`System.String.Concat`) to its declaring type's metadata name + member
+    /// token, when the prefix is an external `Class` declaring ≥1 such member.
+    /// (The head being a local binding — a `r.X.Y` field chain — is excluded.)
+    and private tryResolveExternalStaticMemberRef
+        (ctx: PassContext)
+        (e: Expr<SyntaxToken>)
+        : (string * SyntaxToken) voption =
+        match e with
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
+            li.Idents.Length >= 2
+            && not (ctx.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent))
+            ->
+            let lastTok = li.Idents.[li.Idents.Length - 1]
+
+            let prefixName =
+                seq { for i in 0 .. li.Idents.Length - 2 -> ctx.NameOf li.Idents.[i] }
+                |> String.concat "."
+
+            let probe (n: string) =
+                match ctx.Provider.TryLookupType n with
+                | ValueSome(ExternalTypeShape.Class _) -> true
+                | _ -> false
+
+            match OpenScope.tryQualify ctx.OpenScope probe prefixName with
+            | ValueSome resolved when (ctx.Provider.TryLookupMembers(resolved, ctx.NameOf lastTok)).Length > 0 ->
+                ValueSome(resolved, lastTok)
+            | _ -> ValueNone
+        | _ -> ValueNone
+
+    /// Application-site overload resolution for a static external method call
+    /// (`String.Concat("a", "b")`). Fires only when the member name has >1 mapped
+    /// overload (single-candidate access keeps the existing single-pick path, so
+    /// behaviour is unchanged everywhere it already worked). Resolves the overload
+    /// by the argument types, commits the chosen `SymbolKey` to `ExternalAccess`
+    /// keyed on the member node (where Freeze reads it), and types the call.
+    and private tryInferExternalStaticMethodCall
+        (ctx: PassContext)
+        (key: NodeKey)
+        (fn: Expr<SyntaxToken>)
+        (argExpr: Expr<SyntaxToken>)
+        : SemType voption =
+        match tryResolveExternalStaticMemberRef ctx fn with
+        | ValueNone -> ValueNone
+        | ValueSome(metaName, memberTok) ->
+            let memberName = ctx.NameOf memberTok
+            let candidates = ctx.Provider.TryLookupMembers(metaName, memberName)
+
+            // A folded LongIdent names a non-generic type (generics need `<>`), so
+            // the declaring type has no type arguments to instantiate.
+            let typeArgs: SemType[] = [||]
+
+            if candidates.Length <= 1 then
+                // 0 / 1 candidate: defer to the eager single-pick path unchanged.
+                ValueNone
+            else
+                let argTy = infer ctx argExpr
+
+                let argElems =
+                    match zonk argTy with
+                    | TyTuple xs -> xs
+                    | TyConst "unit" -> []
+                    | single -> [ single ]
+
+                match pickStaticOverload typeArgs candidates argElems with
+                | ValueSome chosen ->
+                    let fnKey = CstKeys.ofExpr fn
+
+                    ctx.ExternalAccess.Set(
+                        fnKey,
+                        {
+                            Key = chosen.Key
+                            IsStatic = chosen.IsStatic
+                            IsProperty = chosen.IsProperty
+                        }
+                    )
+
+                    let memberSig = chosen.BuildSignature typeArgs
+                    (freshTv ctx fnKey).Link <- ValueSome memberSig
+                    let resultTy = TyVar(freshTyVar ctx)
+                    unify ctx key memberSig (TyFun(argTy, resultTy))
+                    ValueSome resultTy
+                | ValueNone ->
+                    ctx.Diagnostics.Add
+                        {
+                            Key = key
+                            Message =
+                                sprintf
+                                    "No applicable (or no unique best) overload of '%s' on type '%s' for the given arguments"
+                                    memberName
+                                    metaName
+                            Severity = Error
+                        }
+
+                    ValueSome(TyVar(freshTyVar ctx))
+
     /// Type a static member access on an external type via `TryLookupMember`,
     /// recording the resolved member (its interned `SymbolKey`) so Freeze stamps a
     /// `TExpr.ExternalMember` (symbol-resolution-plan §7.2). `typeArgs` instantiate
@@ -3455,7 +3815,8 @@ module Unification =
 
         for b in bindings do
             match b.headPat with
-            | Pat.NamedSimple _ -> tvOf ctx (CstKeys.ofPat b.headPat) |> ignore
+            | Pat.NamedSimple _
+            | Pat.Op _ -> tvOf ctx (CstKeys.ofPat b.headPat) |> ignore
             | _ -> ()
 
         for b in bindings do

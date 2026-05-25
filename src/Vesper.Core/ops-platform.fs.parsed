@@ -1,33 +1,621 @@
-namespace                          'namespace'       KWNamespace         tok=   0  pos=   0
-                                   'Vesper'          Identifier          tok=   2  pos=  10
+namespace                                              'namespace'       KWNamespace         tok=   0  pos=   0
+                                                       'Vesper'          Identifier          tok=   2  pos=  10
   Import:
-    open                           'open'            KWOpen              tok=   5  pos=  18
-                                   'System'          Identifier          tok=   7  pos=  23
-                                   'Collection...'   Identifier          tok=   9  pos=  30
-                                   'Generic'         Identifier          tok=  11  pos=  42
+    open                                               'open'            KWOpen              tok=   5  pos=  18
+                                                       'System'          Identifier          tok=   7  pos=  23
+                                                       'Collection...'   Identifier          tok=   9  pos=  30
+                                                       'Generic'         Identifier          tok=  11  pos=  42
   Module:
-    [<                             '[<'              KWLAttrBracket      tok=  47  pos=1164
+    [<                                                 '[<'              KWLAttrBracket      tok=  81  pos=2306
     NamedType:
-      Ident                        'AutoOpen'        Identifier          tok=  48  pos=1166
-    >]                             '>]'              KWRAttrBracket      tok=  49  pos=1174
-    module                         'module'          KWModule            tok=  51  pos=1177
-    ident                          'Operators'       Identifier          tok=  53  pos=1184
-    =                              '='               OpEquality          tok=  55  pos=1194
-    begin                          <virt>            KWBegin             tok=virt  pos=1553
+      Ident                                            'AutoOpen'        Identifier          tok=  82  pos=2308
+    >]                                                 '>]'              KWRAttrBracket      tok=  83  pos=2316
+    module                                             'module'          KWModule            tok=  85  pos=2319
+    ident                                              'EqualityOp...'   Identifier          tok=  87  pos=2326
+    =                                                  '='               OpEquality          tok=  89  pos=2344
+    begin                                              <virt>            KWBegin             tok=virt  pos=2700
       FunctionOrValue:
-        let                        'let'             KWLet               tok=  74  pos=1553
-          inline                   'inline'          KWInline            tok=  76  pos=1557
-          Pat.NamedSimple          'hash'            Identifier          tok=  78  pos=1564
+        let                                            'let'             KWLet               tok= 108  pos=2700
+          inline                                       'inline'          KWInline            tok= 110  pos=2704
+          Pat.Op:
+            ParenOp:
+                                                       '('               KWLParen            tok= 112  pos=2711
+              SymbolicOp                               '='               OpEquality          tok= 113  pos=2712
+                                                       ')'               KWRParen            tok= 114  pos=2713
           Pats:
-            ParenBlock             '('               KWLParen            tok=  80  pos=1569
+            ParenBlock                                 '('               KWLParen            tok= 116  pos=2715
               Pat.Typed:
-                Pat.NamedSimple    'obj'             Identifier          tok=  81  pos=1570
-                Colon              ':'               OpColon             tok=  82  pos=1573
+                Pat.NamedSimple                        'x'               Identifier          tok= 117  pos=2716
+                Colon                                  ':'               OpColon             tok= 118  pos=2717
+                VarType:
+                  Typar.Static:
+                                                       '^'               OpConcatenate       tok= 120  pos=2719
+                                                       'T'               Identifier          tok= 121  pos=2720
+                                                       ')'               KWRParen            tok= 122  pos=2721
+            ParenBlock                                 '('               KWLParen            tok= 124  pos=2723
+              Pat.Typed:
+                Pat.NamedSimple                        'y'               Identifier          tok= 125  pos=2724
+                Colon                                  ':'               OpColon             tok= 126  pos=2725
+                VarType:
+                  Typar.Static:
+                                                       '^'               OpConcatenate       tok= 128  pos=2727
+                                                       'T'               Identifier          tok= 129  pos=2728
+                                                       ')'               KWRParen            tok= 130  pos=2729
+          ReturnColon                                  ':'               OpColon             tok= 132  pos=2731
+          NamedType:
+            Ident                                      'bool'            Identifier          tok= 134  pos=2733
+          =                                            '='               OpEquality          tok= 136  pos=2738
+            LibraryOnlyStaticOptimization:
+              LibraryOnlyStaticOptimization:
+                LibraryOnlyStaticOptimization:
+                  LibraryOnlyStaticOptimization:
+                    LibraryOnlyStaticOptimization:
+                      LibraryOnlyStaticOptimization:
+                        LibraryOnlyStaticOptimization:
+                          HighPrecedenceApp:
+                            Func:
+                              DotLookup:
+                                Expr:
+                                  DotLookup:
+                                    Expr:
+                                      TypeApp:
+                                        Expr:
+                                          Ident        'EqualityCo...'   Identifier          tok= 139  pos=2748
+                                        Types:
+                                          VarType:
+                                            Typar.Static:
+                                                       '^'               OpConcatenate       tok= 142  pos=2766
+                                                       'T'               Identifier          tok= 143  pos=2767
+                                    Dot                '.'               OpDot               tok= 145  pos=2770
+                                    LongIdentOrOp:
+                                      Ident            'Default'         Identifier          tok= 146  pos=2771
+                                Dot                    '.'               OpDot               tok= 147  pos=2778
+                                LongIdentOrOp:
+                                  Ident                'Equals'          Identifier          tok= 148  pos=2779
+                            (                          '('               KWLParen            tok= 149  pos=2785
+                            Arg:
+                              Tuple:
+                                Ident                  'x'               Identifier          tok= 150  pos=2786
+                                Ident                  'y'               Identifier          tok= 153  pos=2789
+                                                       ')'               KWRParen            tok= 154  pos=2790
+                          when                         'when'            KWWhen              tok= 157  pos=2800
+                          WhenTyparTyconEqualsTycon:
+                            Typar.Static:
+                                                       '^'               OpConcatenate       tok= 159  pos=2805
+                                                       'T'               Identifier          tok= 160  pos=2806
+                            :                          ':'               OpColon             tok= 161  pos=2807
+                            NamedType:
+                              Ident                    'int'             Identifier          tok= 163  pos=2809
+                          =                            '='               OpEquality          tok= 165  pos=2813
+                          ILIntrinsic:
+                            (#                         '(#'              KWLHashParen        tok= 167  pos=2815
+                            StringLiteral              '"'               StringOpen          tok= 169  pos=2818
+                            Parts:
+                              Text                     'ceq'             StringFragment      tok= 170  pos=2819
+                                                       '"'               StringClose         tok= 171  pos=2822
+                            Arg:
+                              Ident                    'x'               Identifier          tok= 173  pos=2824
+                            Arg:
+                              Ident                    'y'               Identifier          tok= 175  pos=2826
+                            ILReturnType:
+                              :                        ':'               OpColon             tok= 177  pos=2828
+                              NamedType:
+                                Ident                  'bool'            Identifier          tok= 179  pos=2830
+                            #)                         '#)'              KWRHashParen        tok= 181  pos=2835
+                        when                           'when'            KWWhen              tok= 184  pos=2846
+                        WhenTyparTyconEqualsTycon:
+                          Typar.Static:
+                                                       '^'               OpConcatenate       tok= 186  pos=2851
+                                                       'T'               Identifier          tok= 187  pos=2852
+                          :                            ':'               OpColon             tok= 188  pos=2853
+                          NamedType:
+                            Ident                      'int64'           Identifier          tok= 190  pos=2855
+                        =                              '='               OpEquality          tok= 192  pos=2861
+                        ILIntrinsic:
+                          (#                           '(#'              KWLHashParen        tok= 194  pos=2863
+                          StringLiteral                '"'               StringOpen          tok= 196  pos=2866
+                          Parts:
+                            Text                       'ceq'             StringFragment      tok= 197  pos=2867
+                                                       '"'               StringClose         tok= 198  pos=2870
+                          Arg:
+                            Ident                      'x'               Identifier          tok= 200  pos=2872
+                          Arg:
+                            Ident                      'y'               Identifier          tok= 202  pos=2874
+                          ILReturnType:
+                            :                          ':'               OpColon             tok= 204  pos=2876
+                            NamedType:
+                              Ident                    'bool'            Identifier          tok= 206  pos=2878
+                          #)                           '#)'              KWRHashParen        tok= 208  pos=2883
+                      when                             'when'            KWWhen              tok= 211  pos=2894
+                      WhenTyparTyconEqualsTycon:
+                        Typar.Static:
+                                                       '^'               OpConcatenate       tok= 213  pos=2899
+                                                       'T'               Identifier          tok= 214  pos=2900
+                        :                              ':'               OpColon             tok= 215  pos=2901
+                        NamedType:
+                          Ident                        'float'           Identifier          tok= 217  pos=2903
+                      =                                '='               OpEquality          tok= 219  pos=2909
+                      ILIntrinsic:
+                        (#                             '(#'              KWLHashParen        tok= 221  pos=2911
+                        StringLiteral                  '"'               StringOpen          tok= 223  pos=2914
+                        Parts:
+                          Text                         'ceq'             StringFragment      tok= 224  pos=2915
+                                                       '"'               StringClose         tok= 225  pos=2918
+                        Arg:
+                          Ident                        'x'               Identifier          tok= 227  pos=2920
+                        Arg:
+                          Ident                        'y'               Identifier          tok= 229  pos=2922
+                        ILReturnType:
+                          :                            ':'               OpColon             tok= 231  pos=2924
+                          NamedType:
+                            Ident                      'bool'            Identifier          tok= 233  pos=2926
+                        #)                             '#)'              KWRHashParen        tok= 235  pos=2931
+                    when                               'when'            KWWhen              tok= 238  pos=2942
+                    WhenTyparTyconEqualsTycon:
+                      Typar.Static:
+                                                       '^'               OpConcatenate       tok= 240  pos=2947
+                                                       'T'               Identifier          tok= 241  pos=2948
+                      :                                ':'               OpColon             tok= 242  pos=2949
+                      NamedType:
+                        Ident                          'float32'         Identifier          tok= 244  pos=2951
+                    =                                  '='               OpEquality          tok= 246  pos=2959
+                    ILIntrinsic:
+                      (#                               '(#'              KWLHashParen        tok= 248  pos=2961
+                      StringLiteral                    '"'               StringOpen          tok= 250  pos=2964
+                      Parts:
+                        Text                           'ceq'             StringFragment      tok= 251  pos=2965
+                                                       '"'               StringClose         tok= 252  pos=2968
+                      Arg:
+                        Ident                          'x'               Identifier          tok= 254  pos=2970
+                      Arg:
+                        Ident                          'y'               Identifier          tok= 256  pos=2972
+                      ILReturnType:
+                        :                              ':'               OpColon             tok= 258  pos=2974
+                        NamedType:
+                          Ident                        'bool'            Identifier          tok= 260  pos=2976
+                      #)                               '#)'              KWRHashParen        tok= 262  pos=2981
+                  when                                 'when'            KWWhen              tok= 265  pos=2992
+                  WhenTyparTyconEqualsTycon:
+                    Typar.Static:
+                                                       '^'               OpConcatenate       tok= 267  pos=2997
+                                                       'T'               Identifier          tok= 268  pos=2998
+                    :                                  ':'               OpColon             tok= 269  pos=2999
+                    NamedType:
+                      Ident                            'bool'            Identifier          tok= 271  pos=3001
+                  =                                    '='               OpEquality          tok= 273  pos=3006
+                  ILIntrinsic:
+                    (#                                 '(#'              KWLHashParen        tok= 275  pos=3008
+                    StringLiteral                      '"'               StringOpen          tok= 277  pos=3011
+                    Parts:
+                      Text                             'ceq'             StringFragment      tok= 278  pos=3012
+                                                       '"'               StringClose         tok= 279  pos=3015
+                    Arg:
+                      Ident                            'x'               Identifier          tok= 281  pos=3017
+                    Arg:
+                      Ident                            'y'               Identifier          tok= 283  pos=3019
+                    ILReturnType:
+                      :                                ':'               OpColon             tok= 285  pos=3021
+                      NamedType:
+                        Ident                          'bool'            Identifier          tok= 287  pos=3023
+                    #)                                 '#)'              KWRHashParen        tok= 289  pos=3028
+                when                                   'when'            KWWhen              tok= 292  pos=3039
+                WhenTyparTyconEqualsTycon:
+                  Typar.Static:
+                                                       '^'               OpConcatenate       tok= 294  pos=3044
+                                                       'T'               Identifier          tok= 295  pos=3045
+                  :                                    ':'               OpColon             tok= 296  pos=3046
+                  NamedType:
+                    Ident                              'char'            Identifier          tok= 298  pos=3048
+                =                                      '='               OpEquality          tok= 300  pos=3053
+                ILIntrinsic:
+                  (#                                   '(#'              KWLHashParen        tok= 302  pos=3055
+                  StringLiteral                        '"'               StringOpen          tok= 304  pos=3058
+                  Parts:
+                    Text                               'ceq'             StringFragment      tok= 305  pos=3059
+                                                       '"'               StringClose         tok= 306  pos=3062
+                  Arg:
+                    Ident                              'x'               Identifier          tok= 308  pos=3064
+                  Arg:
+                    Ident                              'y'               Identifier          tok= 310  pos=3066
+                  ILReturnType:
+                    :                                  ':'               OpColon             tok= 312  pos=3068
+                    NamedType:
+                      Ident                            'bool'            Identifier          tok= 314  pos=3070
+                  #)                                   '#)'              KWRHashParen        tok= 316  pos=3075
+              when                                     'when'            KWWhen              tok= 319  pos=3086
+              WhenTyparTyconEqualsTycon:
+                Typar.Static:
+                                                       '^'               OpConcatenate       tok= 321  pos=3091
+                                                       'T'               Identifier          tok= 322  pos=3092
+                :                                      ':'               OpColon             tok= 323  pos=3093
+                NamedType:
+                  Ident                                'byte'            Identifier          tok= 325  pos=3095
+              =                                        '='               OpEquality          tok= 327  pos=3100
+              ILIntrinsic:
+                (#                                     '(#'              KWLHashParen        tok= 329  pos=3102
+                StringLiteral                          '"'               StringOpen          tok= 331  pos=3105
+                Parts:
+                  Text                                 'ceq'             StringFragment      tok= 332  pos=3106
+                                                       '"'               StringClose         tok= 333  pos=3109
+                Arg:
+                  Ident                                'x'               Identifier          tok= 335  pos=3111
+                Arg:
+                  Ident                                'y'               Identifier          tok= 337  pos=3113
+                ILReturnType:
+                  :                                    ':'               OpColon             tok= 339  pos=3115
+                  NamedType:
+                    Ident                              'bool'            Identifier          tok= 341  pos=3117
+                #)                                     '#)'              KWRHashParen        tok= 343  pos=3122
+      FunctionOrValue:
+        let                                            'let'             KWLet               tok= 359  pos=3392
+          inline                                       'inline'          KWInline            tok= 361  pos=3396
+          Pat.Op:
+            ParenOp:
+                                                       '('               KWLParen            tok= 363  pos=3403
+              SymbolicOp                               '<>'              op_Inequality       tok= 364  pos=3404
+                                                       ')'               KWRParen            tok= 365  pos=3406
+          Pats:
+            ParenBlock                                 '('               KWLParen            tok= 367  pos=3408
+              Pat.Typed:
+                Pat.NamedSimple                        'x'               Identifier          tok= 368  pos=3409
+                Colon                                  ':'               OpColon             tok= 369  pos=3410
+                VarType:
+                  Typar.Static:
+                                                       '^'               OpConcatenate       tok= 371  pos=3412
+                                                       'T'               Identifier          tok= 372  pos=3413
+                                                       ')'               KWRParen            tok= 373  pos=3414
+            ParenBlock                                 '('               KWLParen            tok= 375  pos=3416
+              Pat.Typed:
+                Pat.NamedSimple                        'y'               Identifier          tok= 376  pos=3417
+                Colon                                  ':'               OpColon             tok= 377  pos=3418
+                VarType:
+                  Typar.Static:
+                                                       '^'               OpConcatenate       tok= 379  pos=3420
+                                                       'T'               Identifier          tok= 380  pos=3421
+                                                       ')'               KWRParen            tok= 381  pos=3422
+          ReturnColon                                  ':'               OpColon             tok= 383  pos=3424
+          NamedType:
+            Ident                                      'bool'            Identifier          tok= 385  pos=3426
+          =                                            '='               OpEquality          tok= 387  pos=3431
+            LibraryOnlyStaticOptimization:
+              LibraryOnlyStaticOptimization:
+                LibraryOnlyStaticOptimization:
+                  LibraryOnlyStaticOptimization:
+                    LibraryOnlyStaticOptimization:
+                      LibraryOnlyStaticOptimization:
+                        LibraryOnlyStaticOptimization:
+                          ILIntrinsic:
+                            (#                         '(#'              KWLHashParen        tok= 390  pos=3441
+                            StringLiteral              '"'               StringOpen          tok= 392  pos=3444
+                            Parts:
+                              Text                     'ceq'             StringFragment      tok= 393  pos=3445
+                                                       '"'               StringClose         tok= 394  pos=3448
+                            Arg:
+                              ParenBlock               '('               KWLParen            tok= 396  pos=3450
+                                HighPrecedenceApp:
+                                  Func:
+                                    DotLookup:
+                                      Expr:
+                                        DotLookup:
+                                          Expr:
+                                            TypeApp:
+                                              Expr:
+                                                Ident  'EqualityCo...'   Identifier          tok= 397  pos=3451
+                                              Types:
+                                                VarType:
+                                                  Typar.Static:
+                                                       '^'               OpConcatenate       tok= 400  pos=3469
+                                                       'T'               Identifier          tok= 401  pos=3470
+                                          Dot          '.'               OpDot               tok= 403  pos=3473
+                                          LongIdentOrOp:
+                                            Ident      'Default'         Identifier          tok= 404  pos=3474
+                                      Dot              '.'               OpDot               tok= 405  pos=3481
+                                      LongIdentOrOp:
+                                        Ident          'Equals'          Identifier          tok= 406  pos=3482
+                                  (                    '('               KWLParen            tok= 407  pos=3488
+                                  Arg:
+                                    Tuple:
+                                      Ident            'x'               Identifier          tok= 408  pos=3489
+                                      Ident            'y'               Identifier          tok= 411  pos=3492
+                                                       ')'               KWRParen            tok= 412  pos=3493
+                                                       ')'               KWRParen            tok= 413  pos=3494
+                            Arg:
+                              Const                    'false'           KWFalse             tok= 415  pos=3496
+                            ILReturnType:
+                              :                        ':'               OpColon             tok= 417  pos=3502
+                              NamedType:
+                                Ident                  'bool'            Identifier          tok= 419  pos=3504
+                            #)                         '#)'              KWRHashParen        tok= 421  pos=3509
+                          when                         'when'            KWWhen              tok= 424  pos=3520
+                          WhenTyparTyconEqualsTycon:
+                            Typar.Static:
+                                                       '^'               OpConcatenate       tok= 426  pos=3525
+                                                       'T'               Identifier          tok= 427  pos=3526
+                            :                          ':'               OpColon             tok= 428  pos=3527
+                            NamedType:
+                              Ident                    'int'             Identifier          tok= 430  pos=3529
+                          =                            '='               OpEquality          tok= 432  pos=3533
+                          ILIntrinsic:
+                            (#                         '(#'              KWLHashParen        tok= 434  pos=3535
+                            StringLiteral              '"'               StringOpen          tok= 436  pos=3538
+                            Parts:
+                              Text                     'ceq'             StringFragment      tok= 437  pos=3539
+                                                       '"'               StringClose         tok= 438  pos=3542
+                            Arg:
+                              ILIntrinsic:
+                                (#                     '(#'              KWLHashParen        tok= 440  pos=3544
+                                StringLiteral          '"'               StringOpen          tok= 442  pos=3547
+                                Parts:
+                                  Text                 'ceq'             StringFragment      tok= 443  pos=3548
+                                                       '"'               StringClose         tok= 444  pos=3551
+                                Arg:
+                                  Ident                'x'               Identifier          tok= 446  pos=3553
+                                Arg:
+                                  Ident                'y'               Identifier          tok= 448  pos=3555
+                                ILReturnType:
+                                  :                    ':'               OpColon             tok= 450  pos=3557
+                                  NamedType:
+                                    Ident              'bool'            Identifier          tok= 452  pos=3559
+                                #)                     '#)'              KWRHashParen        tok= 454  pos=3564
+                            Arg:
+                              Const                    'false'           KWFalse             tok= 456  pos=3567
+                            ILReturnType:
+                              :                        ':'               OpColon             tok= 458  pos=3573
+                              NamedType:
+                                Ident                  'bool'            Identifier          tok= 460  pos=3575
+                            #)                         '#)'              KWRHashParen        tok= 462  pos=3580
+                        when                           'when'            KWWhen              tok= 465  pos=3591
+                        WhenTyparTyconEqualsTycon:
+                          Typar.Static:
+                                                       '^'               OpConcatenate       tok= 467  pos=3596
+                                                       'T'               Identifier          tok= 468  pos=3597
+                          :                            ':'               OpColon             tok= 469  pos=3598
+                          NamedType:
+                            Ident                      'int64'           Identifier          tok= 471  pos=3600
+                        =                              '='               OpEquality          tok= 473  pos=3606
+                        ILIntrinsic:
+                          (#                           '(#'              KWLHashParen        tok= 475  pos=3608
+                          StringLiteral                '"'               StringOpen          tok= 477  pos=3611
+                          Parts:
+                            Text                       'ceq'             StringFragment      tok= 478  pos=3612
+                                                       '"'               StringClose         tok= 479  pos=3615
+                          Arg:
+                            ILIntrinsic:
+                              (#                       '(#'              KWLHashParen        tok= 481  pos=3617
+                              StringLiteral            '"'               StringOpen          tok= 483  pos=3620
+                              Parts:
+                                Text                   'ceq'             StringFragment      tok= 484  pos=3621
+                                                       '"'               StringClose         tok= 485  pos=3624
+                              Arg:
+                                Ident                  'x'               Identifier          tok= 487  pos=3626
+                              Arg:
+                                Ident                  'y'               Identifier          tok= 489  pos=3628
+                              ILReturnType:
+                                :                      ':'               OpColon             tok= 491  pos=3630
+                                NamedType:
+                                  Ident                'bool'            Identifier          tok= 493  pos=3632
+                              #)                       '#)'              KWRHashParen        tok= 495  pos=3637
+                          Arg:
+                            Const                      'false'           KWFalse             tok= 497  pos=3640
+                          ILReturnType:
+                            :                          ':'               OpColon             tok= 499  pos=3646
+                            NamedType:
+                              Ident                    'bool'            Identifier          tok= 501  pos=3648
+                          #)                           '#)'              KWRHashParen        tok= 503  pos=3653
+                      when                             'when'            KWWhen              tok= 506  pos=3664
+                      WhenTyparTyconEqualsTycon:
+                        Typar.Static:
+                                                       '^'               OpConcatenate       tok= 508  pos=3669
+                                                       'T'               Identifier          tok= 509  pos=3670
+                        :                              ':'               OpColon             tok= 510  pos=3671
+                        NamedType:
+                          Ident                        'float'           Identifier          tok= 512  pos=3673
+                      =                                '='               OpEquality          tok= 514  pos=3679
+                      ILIntrinsic:
+                        (#                             '(#'              KWLHashParen        tok= 516  pos=3681
+                        StringLiteral                  '"'               StringOpen          tok= 518  pos=3684
+                        Parts:
+                          Text                         'ceq'             StringFragment      tok= 519  pos=3685
+                                                       '"'               StringClose         tok= 520  pos=3688
+                        Arg:
+                          ILIntrinsic:
+                            (#                         '(#'              KWLHashParen        tok= 522  pos=3690
+                            StringLiteral              '"'               StringOpen          tok= 524  pos=3693
+                            Parts:
+                              Text                     'ceq'             StringFragment      tok= 525  pos=3694
+                                                       '"'               StringClose         tok= 526  pos=3697
+                            Arg:
+                              Ident                    'x'               Identifier          tok= 528  pos=3699
+                            Arg:
+                              Ident                    'y'               Identifier          tok= 530  pos=3701
+                            ILReturnType:
+                              :                        ':'               OpColon             tok= 532  pos=3703
+                              NamedType:
+                                Ident                  'bool'            Identifier          tok= 534  pos=3705
+                            #)                         '#)'              KWRHashParen        tok= 536  pos=3710
+                        Arg:
+                          Const                        'false'           KWFalse             tok= 538  pos=3713
+                        ILReturnType:
+                          :                            ':'               OpColon             tok= 540  pos=3719
+                          NamedType:
+                            Ident                      'bool'            Identifier          tok= 542  pos=3721
+                        #)                             '#)'              KWRHashParen        tok= 544  pos=3726
+                    when                               'when'            KWWhen              tok= 547  pos=3737
+                    WhenTyparTyconEqualsTycon:
+                      Typar.Static:
+                                                       '^'               OpConcatenate       tok= 549  pos=3742
+                                                       'T'               Identifier          tok= 550  pos=3743
+                      :                                ':'               OpColon             tok= 551  pos=3744
+                      NamedType:
+                        Ident                          'float32'         Identifier          tok= 553  pos=3746
+                    =                                  '='               OpEquality          tok= 555  pos=3754
+                    ILIntrinsic:
+                      (#                               '(#'              KWLHashParen        tok= 557  pos=3756
+                      StringLiteral                    '"'               StringOpen          tok= 559  pos=3759
+                      Parts:
+                        Text                           'ceq'             StringFragment      tok= 560  pos=3760
+                                                       '"'               StringClose         tok= 561  pos=3763
+                      Arg:
+                        ILIntrinsic:
+                          (#                           '(#'              KWLHashParen        tok= 563  pos=3765
+                          StringLiteral                '"'               StringOpen          tok= 565  pos=3768
+                          Parts:
+                            Text                       'ceq'             StringFragment      tok= 566  pos=3769
+                                                       '"'               StringClose         tok= 567  pos=3772
+                          Arg:
+                            Ident                      'x'               Identifier          tok= 569  pos=3774
+                          Arg:
+                            Ident                      'y'               Identifier          tok= 571  pos=3776
+                          ILReturnType:
+                            :                          ':'               OpColon             tok= 573  pos=3778
+                            NamedType:
+                              Ident                    'bool'            Identifier          tok= 575  pos=3780
+                          #)                           '#)'              KWRHashParen        tok= 577  pos=3785
+                      Arg:
+                        Const                          'false'           KWFalse             tok= 579  pos=3788
+                      ILReturnType:
+                        :                              ':'               OpColon             tok= 581  pos=3794
+                        NamedType:
+                          Ident                        'bool'            Identifier          tok= 583  pos=3796
+                      #)                               '#)'              KWRHashParen        tok= 585  pos=3801
+                  when                                 'when'            KWWhen              tok= 588  pos=3812
+                  WhenTyparTyconEqualsTycon:
+                    Typar.Static:
+                                                       '^'               OpConcatenate       tok= 590  pos=3817
+                                                       'T'               Identifier          tok= 591  pos=3818
+                    :                                  ':'               OpColon             tok= 592  pos=3819
+                    NamedType:
+                      Ident                            'bool'            Identifier          tok= 594  pos=3821
+                  =                                    '='               OpEquality          tok= 596  pos=3826
+                  ILIntrinsic:
+                    (#                                 '(#'              KWLHashParen        tok= 598  pos=3828
+                    StringLiteral                      '"'               StringOpen          tok= 600  pos=3831
+                    Parts:
+                      Text                             'ceq'             StringFragment      tok= 601  pos=3832
+                                                       '"'               StringClose         tok= 602  pos=3835
+                    Arg:
+                      ILIntrinsic:
+                        (#                             '(#'              KWLHashParen        tok= 604  pos=3837
+                        StringLiteral                  '"'               StringOpen          tok= 606  pos=3840
+                        Parts:
+                          Text                         'ceq'             StringFragment      tok= 607  pos=3841
+                                                       '"'               StringClose         tok= 608  pos=3844
+                        Arg:
+                          Ident                        'x'               Identifier          tok= 610  pos=3846
+                        Arg:
+                          Ident                        'y'               Identifier          tok= 612  pos=3848
+                        ILReturnType:
+                          :                            ':'               OpColon             tok= 614  pos=3850
+                          NamedType:
+                            Ident                      'bool'            Identifier          tok= 616  pos=3852
+                        #)                             '#)'              KWRHashParen        tok= 618  pos=3857
+                    Arg:
+                      Const                            'false'           KWFalse             tok= 620  pos=3860
+                    ILReturnType:
+                      :                                ':'               OpColon             tok= 622  pos=3866
+                      NamedType:
+                        Ident                          'bool'            Identifier          tok= 624  pos=3868
+                    #)                                 '#)'              KWRHashParen        tok= 626  pos=3873
+                when                                   'when'            KWWhen              tok= 629  pos=3884
+                WhenTyparTyconEqualsTycon:
+                  Typar.Static:
+                                                       '^'               OpConcatenate       tok= 631  pos=3889
+                                                       'T'               Identifier          tok= 632  pos=3890
+                  :                                    ':'               OpColon             tok= 633  pos=3891
+                  NamedType:
+                    Ident                              'char'            Identifier          tok= 635  pos=3893
+                =                                      '='               OpEquality          tok= 637  pos=3898
+                ILIntrinsic:
+                  (#                                   '(#'              KWLHashParen        tok= 639  pos=3900
+                  StringLiteral                        '"'               StringOpen          tok= 641  pos=3903
+                  Parts:
+                    Text                               'ceq'             StringFragment      tok= 642  pos=3904
+                                                       '"'               StringClose         tok= 643  pos=3907
+                  Arg:
+                    ILIntrinsic:
+                      (#                               '(#'              KWLHashParen        tok= 645  pos=3909
+                      StringLiteral                    '"'               StringOpen          tok= 647  pos=3912
+                      Parts:
+                        Text                           'ceq'             StringFragment      tok= 648  pos=3913
+                                                       '"'               StringClose         tok= 649  pos=3916
+                      Arg:
+                        Ident                          'x'               Identifier          tok= 651  pos=3918
+                      Arg:
+                        Ident                          'y'               Identifier          tok= 653  pos=3920
+                      ILReturnType:
+                        :                              ':'               OpColon             tok= 655  pos=3922
+                        NamedType:
+                          Ident                        'bool'            Identifier          tok= 657  pos=3924
+                      #)                               '#)'              KWRHashParen        tok= 659  pos=3929
+                  Arg:
+                    Const                              'false'           KWFalse             tok= 661  pos=3932
+                  ILReturnType:
+                    :                                  ':'               OpColon             tok= 663  pos=3938
+                    NamedType:
+                      Ident                            'bool'            Identifier          tok= 665  pos=3940
+                  #)                                   '#)'              KWRHashParen        tok= 667  pos=3945
+              when                                     'when'            KWWhen              tok= 670  pos=3956
+              WhenTyparTyconEqualsTycon:
+                Typar.Static:
+                                                       '^'               OpConcatenate       tok= 672  pos=3961
+                                                       'T'               Identifier          tok= 673  pos=3962
+                :                                      ':'               OpColon             tok= 674  pos=3963
+                NamedType:
+                  Ident                                'byte'            Identifier          tok= 676  pos=3965
+              =                                        '='               OpEquality          tok= 678  pos=3970
+              ILIntrinsic:
+                (#                                     '(#'              KWLHashParen        tok= 680  pos=3972
+                StringLiteral                          '"'               StringOpen          tok= 682  pos=3975
+                Parts:
+                  Text                                 'ceq'             StringFragment      tok= 683  pos=3976
+                                                       '"'               StringClose         tok= 684  pos=3979
+                Arg:
+                  ILIntrinsic:
+                    (#                                 '(#'              KWLHashParen        tok= 686  pos=3981
+                    StringLiteral                      '"'               StringOpen          tok= 688  pos=3984
+                    Parts:
+                      Text                             'ceq'             StringFragment      tok= 689  pos=3985
+                                                       '"'               StringClose         tok= 690  pos=3988
+                    Arg:
+                      Ident                            'x'               Identifier          tok= 692  pos=3990
+                    Arg:
+                      Ident                            'y'               Identifier          tok= 694  pos=3992
+                    ILReturnType:
+                      :                                ':'               OpColon             tok= 696  pos=3994
+                      NamedType:
+                        Ident                          'bool'            Identifier          tok= 698  pos=3996
+                    #)                                 '#)'              KWRHashParen        tok= 700  pos=4001
+                Arg:
+                  Const                                'false'           KWFalse             tok= 702  pos=4004
+                ILReturnType:
+                  :                                    ':'               OpColon             tok= 704  pos=4010
+                  NamedType:
+                    Ident                              'bool'            Identifier          tok= 706  pos=4012
+                #)                                     '#)'              KWRHashParen        tok= 708  pos=4017
+    end                                                <virt>            KWEnd               tok=virt  pos=4021
+  Module:
+    [<                                                 '[<'              KWLAttrBracket      tok= 711  pos=4021
+    NamedType:
+      Ident                                            'AutoOpen'        Identifier          tok= 712  pos=4023
+    >]                                                 '>]'              KWRAttrBracket      tok= 713  pos=4031
+    module                                             'module'          KWModule            tok= 715  pos=4034
+    ident                                              'Operators'       Identifier          tok= 717  pos=4041
+    =                                                  '='               OpEquality          tok= 719  pos=4051
+    begin                                              <virt>            KWBegin             tok=virt  pos=4410
+      FunctionOrValue:
+        let                                            'let'             KWLet               tok= 738  pos=4410
+          inline                                       'inline'          KWInline            tok= 740  pos=4414
+          Pat.NamedSimple                              'hash'            Identifier          tok= 742  pos=4421
+          Pats:
+            ParenBlock                                 '('               KWLParen            tok= 744  pos=4426
+              Pat.Typed:
+                Pat.NamedSimple                        'obj'             Identifier          tok= 745  pos=4427
+                Colon                                  ':'               OpColon             tok= 746  pos=4430
                 VarType:
                   Typar.Named:
-                                   ''T'              TypeParameter       tok=  84  pos=1575
-                                   ')'               KWRParen            tok=  85  pos=1577
-          =                        '='               OpEquality          tok=  87  pos=1579
+                                                       ''T'              TypeParameter       tok= 748  pos=4432
+                                                       ')'               KWRParen            tok= 749  pos=4434
+          =                                            '='               OpEquality          tok= 751  pos=4436
             App:
               Func:
                 DotLookup:
@@ -36,17 +624,17 @@ namespace                          'namespace'       KWNamespace         tok=   
                       Expr:
                         TypeApp:
                           Expr:
-                            Ident  'EqualityCo...'   Identifier          tok=  89  pos=1581
+                            Ident                      'EqualityCo...'   Identifier          tok= 753  pos=4438
                           Types:
                             VarType:
                               Typar.Named:
-                                   ''T'              TypeParameter       tok=  91  pos=1598
-                      Dot          '.'               OpDot               tok=  92  pos=1601
+                                                       ''T'              TypeParameter       tok= 755  pos=4455
+                      Dot                              '.'               OpDot               tok= 756  pos=4458
                       LongIdentOrOp:
-                        Ident      'Default'         Identifier          tok=  93  pos=1602
-                  Dot              '.'               OpDot               tok=  94  pos=1609
+                        Ident                          'Default'         Identifier          tok= 757  pos=4459
+                  Dot                                  '.'               OpDot               tok= 758  pos=4466
                   LongIdentOrOp:
-                    Ident          'GetHashCod...'   Identifier          tok=  95  pos=1610
+                    Ident                              'GetHashCod...'   Identifier          tok= 759  pos=4467
               Args:
-                Ident              'obj'             Identifier          tok=  97  pos=1622
-    end                            <virt>            KWEnd               tok=virt  pos=1626
+                Ident                                  'obj'             Identifier          tok= 761  pos=4479
+    end                                                <virt>            KWEnd               tok=virt  pos=4483

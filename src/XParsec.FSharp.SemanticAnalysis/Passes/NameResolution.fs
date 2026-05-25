@@ -135,6 +135,14 @@ module NameResolution =
                 for sub in args do
                     yield! bindingsOfPat ctx sub
             ]
+        | Pat.Op io ->
+            // Operator-named binding head (`let (=) x y = …`): bind the operator's
+            // compiled name (`op_Equality`) so the binding site records a
+            // `ctx.Binding` self-entry. Use sites resolve through Desugar→External,
+            // not this scope entry, but Validation's per-binding loop expects one.
+            match Desugar.opPatCompiledName io with
+            | ValueSome n -> [ n, CstKeys.ofPat p ]
+            | ValueNone -> []
         | _ -> []
 
     // Lambda args / for-in / match-arm patterns can't carry `mutable`, so
@@ -249,7 +257,28 @@ module NameResolution =
                     // A fully-qualified external type used as a static-access
                     // receiver (`System.Collections.Generic.EqualityComparer<int>`)
                     // resolves through the provider in Unification, not as a value.
-                    if isQualifiedCtor || isQualifiedStatic || resolvesAsExternalType ctx qualName then
+                    //
+                    // A non-generic external static member folds into one LongIdent
+                    // (`System.Console.Out`), so the receiver type isn't the whole
+                    // `qualName` — its *prefix* (all but the last segment) is. If that
+                    // resolves as an external type, leave the member to Unification's
+                    // `tryExternalStaticLongIdent`. (It falls through silently when the
+                    // tail isn't an accessible member — e.g. a not-yet-modelled field —
+                    // so suppression here doesn't manufacture a member that isn't there.)
+                    let isExternalStaticMember =
+                        li.Idents.Length >= 2
+                        && (let prefix =
+                                seq { for i in 0 .. li.Idents.Length - 2 -> ctx.NameOf li.Idents.[i] }
+                                |> String.concat "."
+
+                            resolvesAsExternalType ctx prefix)
+
+                    if
+                        isQualifiedCtor
+                        || isQualifiedStatic
+                        || resolvesAsExternalType ctx qualName
+                        || isExternalStaticMember
+                    then
                         ()
                     else
                         ctx.Diagnostics.Add
