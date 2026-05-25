@@ -29,6 +29,7 @@
     <Compile Include="IlIrTests.fs" />
     <Compile Include="MetadataSymbolsTests.fs" />
     <Compile Include="SymbolProviderWiringTests.fs" />
+    <Compile Include="ExternalMemberTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

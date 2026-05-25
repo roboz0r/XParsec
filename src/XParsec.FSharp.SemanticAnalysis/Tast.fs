@@ -121,6 +121,16 @@ type TExpr =
     /// Same arg-peeling as `MethodCall`; no receiver.
     | StaticMethodCall of className: string * methodName: string * args: TExpr list * ty: SemType
     | StaticPropertyGet of className: string * propertyName: string * ty: SemType
+    /// Member access on an *external* type resolved through `IExternalSymbolProvider`
+    /// (symbol-resolution-plan §7.2). `key` interns the resolved `SymbolKey` so
+    /// codegen (P4) mints the ref off the node's identity instead of re-resolving by
+    /// name — the external analogue of `TExpr.Var`'s `BindingSite`. `receiver` is
+    /// `ValueNone` for a static member (`EqualityComparer<int>.Default`) and
+    /// `ValueSome` for an instance member (`…Default.GetHashCode`). `isProperty`
+    /// distinguishes a property get from a method value/group. `ty` is the access's
+    /// result type — the property's type, or the method's *curried* function type
+    /// (a `… GetHashCode 5` lands as `App(ExternalMember(…, ty = int -> int), 5)`).
+    | ExternalMember of receiver: TExpr voption * key: SymbolKey * memberName: string * isProperty: bool * ty: SemType
     /// Lowered printf / string-interpolation (vesper-printf-plan P1, D9):
     /// `segments` is the interleaved literal / hole sequence in source order,
     /// each hole carrying its argument expression inline (codegen folds left to

@@ -132,6 +132,11 @@ type ExternalMember =
         IsProperty: bool
         BuildSignature: SemType[] -> SemType
         Origin: SymbolOrigin
+        /// The interned identity (symbol-resolution-plan §7.2/§7.3): a
+        /// `SymbolKey.MemberKey` over the *open* declaring type (its `argSig` in
+        /// `!0`-typars), minted by the resolving source. Freeze stamps it into
+        /// `TExpr.ExternalMember` so codegen reads the binding off the node.
+        Key: SymbolKey
     }
 
 /// Type-declaration shape carried by `IExternalSymbolProvider.TryLookupType`.

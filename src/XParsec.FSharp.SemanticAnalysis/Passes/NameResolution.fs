@@ -34,6 +34,19 @@ module NameResolution =
     /// (Validation's immutable-assignment check) don't need a second hop.
     type private Scope = Map<string, NodeKey * bool>
 
+    /// True if `name` (a possibly-dotted path) resolves as an *external type* at
+    /// some small arity — i.e. it's a type reference used as a static-member-access
+    /// receiver (`EqualityComparer<int>.Default`), not an unresolved value. The
+    /// receiver's arity lives on the enclosing `Expr.TypeApp`, which this name's
+    /// own `visit` doesn't see, so probe a bounded arity range (results are cached
+    /// by the provider). symbol-resolution-plan §7.2, P3.
+    let private resolvesAsExternalType (ctx: PassContext) (name: string) : bool =
+        let probe n =
+            ctx.Provider.TryLookupType n |> ValueOption.isSome
+
+        probe name
+        || [ 1; 2; 3; 4 ] |> List.exists (fun a -> probe (sprintf "%s`%d" name a))
+
     let private resolveIdent (ctx: PassContext) (scope: Scope list) (tok: SyntaxToken) (useKey: NodeKey) =
         let name = ctx.NameOf tok
 
@@ -62,8 +75,14 @@ module NameResolution =
                 // DU ctor references resolve through `ctx.CtorIndex` in
                 // Unification, not `ctx.Binding`; class names used as
                 // ctor-as-function (`Point(3, 4)`) live in `ctx.ClassTypes`.
-                // Suppress the "Unresolved identifier" diagnostic for both.
-                if ctx.CtorIndex.ContainsKey name || ctx.ClassTypes.ContainsKey name then
+                // An external type name used as a static-access receiver resolves
+                // through the provider in Unification, not as a value. Suppress the
+                // "Unresolved identifier" diagnostic for all three.
+                if
+                    ctx.CtorIndex.ContainsKey name
+                    || ctx.ClassTypes.ContainsKey name
+                    || resolvesAsExternalType ctx name
+                then
                     ()
                 else
                     ctx.Diagnostics.Add
@@ -217,7 +236,10 @@ module NameResolution =
                             || (ctx.UnionTypes.ContainsKey typeName
                                 && staticIn ctx.UnionTypes.[typeName].Members))
 
-                    if isQualifiedCtor || isQualifiedStatic then
+                    // A fully-qualified external type used as a static-access
+                    // receiver (`System.Collections.Generic.EqualityComparer<int>`)
+                    // resolves through the provider in Unification, not as a value.
+                    if isQualifiedCtor || isQualifiedStatic || resolvesAsExternalType ctx qualName then
                         ()
                     else
                         ctx.Diagnostics.Add

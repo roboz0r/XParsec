@@ -152,6 +152,7 @@ module Inline =
         | TExpr.PropertyGet(r, n, t) -> TExpr.PropertyGet(sE r, n, sT t)
         | TExpr.StaticMethodCall(c, n, args, t) -> TExpr.StaticMethodCall(c, n, List.map sE args, sT t)
         | TExpr.StaticPropertyGet(c, n, t) -> TExpr.StaticPropertyGet(c, n, sT t)
+        | TExpr.ExternalMember(r, k, n, isProp, t) -> TExpr.ExternalMember(ValueOption.map sE r, k, n, isProp, sT t)
         | TExpr.Format(sink, segs, t) ->
             let sink =
                 match sink with
@@ -299,6 +300,7 @@ module Inline =
             | TExpr.PropertyGet(r, n, t) -> TExpr.PropertyGet(fE r, n, t)
             | TExpr.StaticMethodCall(c, n, args, t) -> TExpr.StaticMethodCall(c, n, List.map fE args, t)
             | TExpr.StaticPropertyGet(c, n, t) -> TExpr.StaticPropertyGet(c, n, t)
+            | TExpr.ExternalMember(r, k, n, isProp, t) -> TExpr.ExternalMember(ValueOption.map fE r, k, n, isProp, t)
             | TExpr.Format(sink, segs, t) ->
                 let sink =
                     match sink with

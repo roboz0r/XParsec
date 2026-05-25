@@ -155,6 +155,7 @@ module Emit =
         | TExpr.PropertyGet(_, _, ty) -> ty
         | TExpr.StaticMethodCall(_, _, _, ty) -> ty
         | TExpr.StaticPropertyGet(_, _, ty) -> ty
+        | TExpr.ExternalMember(_, _, _, _, ty) -> ty
         | TExpr.Format(_, _, ty) -> ty
         | TExpr.ILIntrinsic(_, _, ty) -> ty
         | TExpr.StaticOptimization(_, _, ty) -> ty
@@ -284,6 +285,7 @@ module Emit =
         | TExpr.MethodCall(r, n, args, t) -> TExpr.MethodCall(f r, n, List.map f args, t)
         | TExpr.PropertyGet(r, n, t) -> TExpr.PropertyGet(f r, n, t)
         | TExpr.StaticMethodCall(c, n, args, t) -> TExpr.StaticMethodCall(c, n, List.map f args, t)
+        | TExpr.ExternalMember(r, k, n, isProp, t) -> TExpr.ExternalMember(ValueOption.map f r, k, n, isProp, t)
         | TExpr.Format(sink, segs, t) ->
             let sink =
                 match sink with

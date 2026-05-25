@@ -201,6 +201,12 @@ module ResolvedTypes =
             for a in args do
                 walkExpr ctx allowed acc a
         | TExpr.StaticPropertyGet(_, _, ty) -> addFreeRoots allowed acc ty
+        | TExpr.ExternalMember(receiver, _, _, _, ty) ->
+            addFreeRoots allowed acc ty
+
+            match receiver with
+            | ValueSome r -> walkExpr ctx allowed acc r
+            | ValueNone -> ()
         | TExpr.Format(sink, segments, ty) ->
             addFreeRoots allowed acc ty
 

@@ -705,6 +705,27 @@ module Freeze =
                 ]
 
             TExpr.RecordClone(translateExpr ctx src, overrides, ty)
+        // Member access on an *external* type (static `Type.Member` or instance
+        // `value.Member`) that Unification resolved through the provider — emit a
+        // keyed `TExpr.ExternalMember` (symbol-resolution-plan §7.2, P3). A static
+        // access drops the type-name receiver (`info.IsStatic`).
+        | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when
+            li.Idents.Length = 1 && ctx.ExternalAccess.ContainsKey key
+            ->
+            let info =
+                match ctx.ExternalAccess.TryGetValue key with
+                | ValueSome i -> i
+                | ValueNone -> failwith "Freeze: unreachable (ExternalAccess membership just checked)"
+
+            let memberName = ctx.NameOf li.Idents.[0]
+
+            let receiver =
+                if info.IsStatic then
+                    ValueNone
+                else
+                    ValueSome(translateExpr ctx r)
+
+            TExpr.ExternalMember(receiver, info.Key, memberName, info.IsProperty, ty)
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
             let memberName = ctx.NameOf li.Idents.[0]
             let rTy = Unification.zonk (typeOfKey ctx (CstKeys.ofExpr r))
@@ -1440,6 +1461,7 @@ module Freeze =
         | TExpr.PropertyGet(r, n, ty) -> TExpr.PropertyGet(pe r, n, f ty)
         | TExpr.StaticMethodCall(cn, n, args, ty) -> TExpr.StaticMethodCall(cn, n, List.map pe args, f ty)
         | TExpr.StaticPropertyGet(cn, n, ty) -> TExpr.StaticPropertyGet(cn, n, f ty)
+        | TExpr.ExternalMember(r, k, n, isProp, ty) -> TExpr.ExternalMember(ValueOption.map pe r, k, n, isProp, f ty)
         | TExpr.Format(sink, segs, ty) ->
             let sink =
                 match sink with

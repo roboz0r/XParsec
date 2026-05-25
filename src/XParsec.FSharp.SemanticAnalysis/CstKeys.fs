@@ -85,6 +85,10 @@ module CstKeys =
             | StringKind.VerbatimInterpolatedString t
             | StringKind.Interpolated3String t -> t
         | Expr.DotLookup(expr = inner) -> firstTokenOfExpr inner
+        // A generic-type / generic-value application's first token is the applied
+        // expr's (`EqualityComparer` in `EqualityComparer<int>`). Reached when an
+        // enclosing node (a static-member `DotLookup`) keys off its first token.
+        | Expr.TypeApp(expr = inner) -> firstTokenOfExpr inner
         | Expr.Record(lBrace = pk) -> firstTokenOfParenKind pk
         | Expr.RecordClone(lBrace = pk) -> firstTokenOfParenKind pk
         | Expr.New(newToken = t) -> t
@@ -111,44 +115,54 @@ module CstKeys =
         | _ -> failwithf "CstKeys.firstTokenOfPat: TODO %A" p
 
     let ofExpr (e: Expr<SyntaxToken>) : NodeKey =
-        let kind =
-            match e with
-            | Expr.Const _ -> NodeKind.ExprConst
-            | Expr.Ident _ -> NodeKind.ExprIdent
-            | Expr.LongIdentOrOp _ -> NodeKind.ExprLongIdent
-            | Expr.App _ -> NodeKind.ExprApp
-            | Expr.InfixApp _ -> NodeKind.ExprInfixApp
-            | Expr.PrefixApp _ -> NodeKind.ExprPrefixApp
-            | Expr.Fun _ -> NodeKind.ExprLambda
-            | Expr.LetOrUse _ -> NodeKind.ExprLet
-            | Expr.EnclosedBlock _ -> NodeKind.ExprEnclosedBlock
-            | Expr.IfThenElse _ -> NodeKind.ExprIfThenElse
-            | Expr.Tuple _ -> NodeKind.ExprTuple
-            | Expr.Sequential _ -> NodeKind.ExprSequential
-            | Expr.TypeAnnotation _ -> NodeKind.ExprTypeAnnotation
-            | Expr.EmptyBlock _ -> NodeKind.ExprEmptyBlock
-            | Expr.While _ -> NodeKind.ExprWhile
-            | Expr.ForTo _ -> NodeKind.ExprForTo
-            | Expr.ForIn _ -> NodeKind.ExprForIn
-            | Expr.String _ -> NodeKind.ExprString
-            | Expr.Match _ -> NodeKind.ExprMatch
-            | Expr.Function _ -> NodeKind.ExprFunction
-            | Expr.TryWith _ -> NodeKind.ExprTryWith
-            | Expr.TryFinally _ -> NodeKind.ExprTryFinally
-            | Expr.Assignment _ -> NodeKind.ExprAssignment
-            | Expr.HighPrecedenceApp _ -> NodeKind.ExprHighPrecApp
-            | Expr.Range _ -> NodeKind.ExprRange
-            | Expr.SteppedRange _ -> NodeKind.ExprSteppedRange
-            | Expr.Null _ -> NodeKind.ExprNull
-            | Expr.DotLookup _ -> NodeKind.ExprDotLookup
-            | Expr.Record _ -> NodeKind.ExprRecord
-            | Expr.RecordClone _ -> NodeKind.ExprRecordClone
-            | Expr.New _ -> NodeKind.ExprNew
-            | Expr.ILIntrinsic _ -> NodeKind.ExprILIntrinsic
-            | Expr.LibraryOnlyStaticOptimization _ -> NodeKind.ExprStaticOptimization
-            | _ -> NodeKind.Unknown
+        match e with
+        // Key a dotted member access by its *member-name* token, not the receiver's
+        // first token. Chained accesses on a complex receiver (`T<x>.A.B`) are
+        // nested `DotLookup`s that all share the receiver's first token, so keying
+        // off `firstTokenOfExpr` would collide them onto one NodeKey. (A simple-head
+        // chain `r.A.B` is a single multi-segment LongIdent, not nested DotLookups,
+        // so it never reached here.)
+        | Expr.DotLookup(longIdentOrOp = lio) -> NodeKey.ofToken (firstTokenOfLongIdentOrOp lio) NodeKind.ExprDotLookup
+        | _ ->
 
-        NodeKey.ofToken (firstTokenOfExpr e) kind
+            let kind =
+                match e with
+                | Expr.Const _ -> NodeKind.ExprConst
+                | Expr.Ident _ -> NodeKind.ExprIdent
+                | Expr.LongIdentOrOp _ -> NodeKind.ExprLongIdent
+                | Expr.App _ -> NodeKind.ExprApp
+                | Expr.InfixApp _ -> NodeKind.ExprInfixApp
+                | Expr.PrefixApp _ -> NodeKind.ExprPrefixApp
+                | Expr.Fun _ -> NodeKind.ExprLambda
+                | Expr.LetOrUse _ -> NodeKind.ExprLet
+                | Expr.EnclosedBlock _ -> NodeKind.ExprEnclosedBlock
+                | Expr.IfThenElse _ -> NodeKind.ExprIfThenElse
+                | Expr.Tuple _ -> NodeKind.ExprTuple
+                | Expr.Sequential _ -> NodeKind.ExprSequential
+                | Expr.TypeAnnotation _ -> NodeKind.ExprTypeAnnotation
+                | Expr.EmptyBlock _ -> NodeKind.ExprEmptyBlock
+                | Expr.While _ -> NodeKind.ExprWhile
+                | Expr.ForTo _ -> NodeKind.ExprForTo
+                | Expr.ForIn _ -> NodeKind.ExprForIn
+                | Expr.String _ -> NodeKind.ExprString
+                | Expr.Match _ -> NodeKind.ExprMatch
+                | Expr.Function _ -> NodeKind.ExprFunction
+                | Expr.TryWith _ -> NodeKind.ExprTryWith
+                | Expr.TryFinally _ -> NodeKind.ExprTryFinally
+                | Expr.Assignment _ -> NodeKind.ExprAssignment
+                | Expr.HighPrecedenceApp _ -> NodeKind.ExprHighPrecApp
+                | Expr.Range _ -> NodeKind.ExprRange
+                | Expr.SteppedRange _ -> NodeKind.ExprSteppedRange
+                | Expr.Null _ -> NodeKind.ExprNull
+                | Expr.DotLookup _ -> NodeKind.ExprDotLookup
+                | Expr.Record _ -> NodeKind.ExprRecord
+                | Expr.RecordClone _ -> NodeKind.ExprRecordClone
+                | Expr.New _ -> NodeKind.ExprNew
+                | Expr.ILIntrinsic _ -> NodeKind.ExprILIntrinsic
+                | Expr.LibraryOnlyStaticOptimization _ -> NodeKind.ExprStaticOptimization
+                | _ -> NodeKind.Unknown
+
+            NodeKey.ofToken (firstTokenOfExpr e) kind
 
     let ofPat (p: Pat<SyntaxToken>) : NodeKey =
         let kind =

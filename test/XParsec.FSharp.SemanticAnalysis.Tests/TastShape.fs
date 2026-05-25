@@ -418,6 +418,13 @@ type private Renderer() =
 
             push "]"
 
+        | TExpr.ExternalMember(receiver, _, name, _, _) ->
+            match receiver with
+            | ValueSome r ->
+                this.Expr r
+                push "."
+                push name
+            | ValueNone -> push name
         | TExpr.ILIntrinsic(opCode, args, _) ->
             push "(# \""
             push opCode

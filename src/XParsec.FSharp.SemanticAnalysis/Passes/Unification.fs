@@ -2148,6 +2148,17 @@ module Unification =
                 TyVar(freshTyVar ctx)
             | Expr.Record(fieldInitializers = inits) -> inferRecord ctx key inits
             | Expr.RecordClone(expr = src; fieldInitializers = inits) -> inferRecordClone ctx key src inits
+            // Static member on an *external* type: `EqualityComparer<int>.Default`
+            // — the receiver is a (generic) type name the provider resolves, not a
+            // value. Checked before the field-access arm so the type-name receiver
+            // isn't `infer`d as a value. (Instance access — `value.Member` — falls
+            // through to `inferFieldAccess`/`resolveFieldStep`.)
+            | Expr.DotLookup(expr = recv; longIdentOrOp = LongIdentOrOp.LongIdent li) when
+                li.Idents.Length = 1 && (tryExternalTypeReceiver ctx recv).IsSome
+                ->
+                let (metaName, typeArgsCst) = (tryExternalTypeReceiver ctx recv).Value
+                let args = [ for t in typeArgsCst -> translateType ctx t ]
+                inferExternalStaticMember ctx key metaName args li.Idents.[0]
             | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
                 inferFieldAccess ctx key r li.Idents.[0]
             | Expr.New(typ = t; expr = argExpr) -> inferNew ctx key t argExpr
@@ -3016,14 +3027,31 @@ module Unification =
 
                     TyVar(freshTyVar ctx)
             | false, _ ->
-                ctx.Diagnostics.Add
-                    {
-                        Key = diagKey
-                        Message = sprintf "Unknown class type '%s'" clsName
-                        Severity = Error
-                    }
+                // Not a project-local class — an *external* type (e.g. a BCL
+                // `TyClass("…EqualityComparer`1", [int])` produced by a prior static
+                // access). Resolve the instance member through the provider and
+                // record it for Freeze (symbol-resolution-plan §7.2, P3).
+                match ctx.Provider.TryLookupMember(clsName, memberName) with
+                | ValueSome m when not m.IsStatic ->
+                    ctx.ExternalAccess.Set(
+                        diagKey,
+                        {
+                            Key = m.Key
+                            IsStatic = false
+                            IsProperty = m.IsProperty
+                        }
+                    )
 
-                TyVar(freshTyVar ctx)
+                    m.BuildSignature(List.toArray args)
+                | _ ->
+                    ctx.Diagnostics.Add
+                        {
+                            Key = diagKey
+                            Message = sprintf "Unknown class type '%s'" clsName
+                            Severity = Error
+                        }
+
+                    TyVar(freshTyVar ctx)
         | TyUnion(unionName, args) ->
             // Union instance member access (P3d.3) — mirrors the `TyClass`
             // arm against the union's augmentation members.
@@ -3075,6 +3103,68 @@ module Unification =
                 {
                     Key = diagKey
                     Message = sprintf "Cannot read member '%s' from non-record non-class type" memberName
+                    Severity = Error
+                }
+
+            TyVar(freshTyVar ctx)
+
+    /// If `recv` is an *external generic type name* used as a static-access
+    /// receiver (`EqualityComparer<int>` in `EqualityComparer<int>.Default`),
+    /// return its metadata name (`` …EqualityComparer`1 ``) and the raw CST type
+    /// args (translation deferred to the caller so the guard stays side-effect
+    /// free — it only probes the provider). `ValueNone` for a value expression or
+    /// an unknown type. v1 handles the `TypeApp` form only; non-generic external
+    /// static access (`System.Console.Out`) is a follow-up.
+    and private tryExternalTypeReceiver
+        (ctx: PassContext)
+        (recv: Expr<SyntaxToken>)
+        : (string * Type<SyntaxToken> list) voption =
+        match recv with
+        | Expr.TypeApp(expr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li); types = typeArgs) ->
+            let qualName = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
+
+            let metaName =
+                if typeArgs.Length = 0 then
+                    qualName
+                else
+                    sprintf "%s`%d" qualName typeArgs.Length
+
+            match ctx.Provider.TryLookupType metaName with
+            | ValueSome(ExternalTypeShape.Class _) -> ValueSome(metaName, List.ofSeq typeArgs)
+            | _ -> ValueNone
+        | _ -> ValueNone
+
+    /// Type a static member access on an external type via `TryLookupMember`,
+    /// recording the resolved member (its interned `SymbolKey`) so Freeze stamps a
+    /// `TExpr.ExternalMember` (symbol-resolution-plan §7.2). `typeArgs` instantiate
+    /// the declaring type's typars, so `EqualityComparer<int>.Default` types as
+    /// `EqualityComparer<int>`.
+    and private inferExternalStaticMember
+        (ctx: PassContext)
+        (key: NodeKey)
+        (metaName: string)
+        (typeArgs: SemType list)
+        (memberTok: SyntaxToken)
+        : SemType =
+        let memberName = ctx.NameOf memberTok
+
+        match ctx.Provider.TryLookupMember(metaName, memberName) with
+        | ValueSome m ->
+            ctx.ExternalAccess.Set(
+                key,
+                {
+                    Key = m.Key
+                    IsStatic = m.IsStatic
+                    IsProperty = m.IsProperty
+                }
+            )
+
+            m.BuildSignature(List.toArray typeArgs)
+        | ValueNone ->
+            ctx.Diagnostics.Add
+                {
+                    Key = key
+                    Message = sprintf "Type '%s' has no accessible member '%s'" metaName memberName
                     Severity = Error
                 }
 

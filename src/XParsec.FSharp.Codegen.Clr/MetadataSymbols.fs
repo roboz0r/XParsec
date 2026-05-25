@@ -114,6 +114,41 @@ module private MetadataMapping =
     /// to expect a `TyFun`.
     let tryPropertySignature (p: PropertyInfo) : (SemType[] -> SemType) option = tryBuildType p.PropertyType
 
+    /// A type rendered in OPEN typars for a `SymbolKey.MemberKey.argSig`
+    /// (symbol-resolution-plan §7.3): the declaring type's i-th typar is `!i`, a
+    /// method-owned typar `!!i`, a constructed generic recurses, everything else is
+    /// its metadata full name. The argSig only *disambiguates overloads* and is
+    /// never re-parsed, so an exotic shape rendering by `Name` is harmless.
+    let rec openTyparSig (t: Type) : string =
+        if t.IsGenericParameter then
+            if isNull t.DeclaringMethod then
+                "!" + string t.GenericParameterPosition
+            else
+                "!!" + string t.GenericParameterPosition
+        elif t.IsGenericType && not t.IsGenericTypeDefinition then
+            let def = t.GetGenericTypeDefinition().FullName
+            let args = t.GetGenericArguments() |> Array.map openTyparSig |> String.concat ","
+            def + "<" + args + ">"
+        else
+            match t.FullName with
+            | null -> t.Name
+            | fn -> fn
+
+    /// The declaring type's `SymbolKey.TypeKey` — `(assembly, namespace,
+    /// name`arity)` with the namespace stripped off the metadata name so the key's
+    /// `name` is the simple `` EqualityComparer`1 `` (symbol-resolution-plan §7.3).
+    let declTypeKey (t: Type) : SymbolKey =
+        let asm = t.Assembly.GetName().Name |> Option.ofObj
+        let full = metadataName t
+
+        let ns, simple =
+            match t.Namespace with
+            | null -> "", full
+            | nsv when full.StartsWith(nsv + ".") -> nsv, full.Substring(nsv.Length + 1)
+            | nsv -> nsv, full
+
+        SymbolKey.TypeKey(asm, ns, simple)
+
 /// `IExternalSymbolProvider` over a set of reference assembly paths, read through a
 /// single shared `MetadataLoadContext`. `assemblyPaths` is the resolver's search
 /// set — supplied as a compiler input (like `fsc`'s `-r:`), see
@@ -216,6 +251,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                 | None -> ValueNone
                 | Some t ->
                     let origin = originOf t (Some(MetadataMapping.metadataName t))
+                    let declKey = MetadataMapping.declTypeKey t
 
                     // A property wins over a like-named method (`Default` is a property).
                     let asProperty =
@@ -230,6 +266,8 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                                     IsProperty = true
                                     BuildSignature = build
                                     Origin = origin
+                                    // A property carries no parameters → empty argSig.
+                                    Key = SymbolKey.MemberKey(declKey, memberName, [])
                                 }
                             )
 
@@ -246,12 +284,18 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                             |> Array.tryPick (fun m ->
                                 MetadataMapping.tryMethodSignature m
                                 |> Option.map (fun build ->
+                                    let argSig =
+                                        m.GetParameters()
+                                        |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
+                                        |> Array.toList
+
                                     {
                                         Name = memberName
                                         IsStatic = m.IsStatic
                                         IsProperty = false
                                         BuildSignature = build
                                         Origin = origin
+                                        Key = SymbolKey.MemberKey(declKey, memberName, argSig)
                                     }
                                 )
                             )

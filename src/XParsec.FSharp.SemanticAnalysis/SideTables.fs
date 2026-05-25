@@ -188,6 +188,20 @@ type ClassTypeInfo
     /// member body in this class.
     member val ThisKey = thisKey
 
+/// A member access on an *external* type that resolved through the provider
+/// (symbol-resolution-plan §7.2). Recorded by `Unification` keyed by the
+/// member-access node's `NodeKey`; `Freeze` reads it to mint a
+/// `TExpr.ExternalMember` carrying the interned `SymbolKey`. `IsStatic`
+/// distinguishes `Type.Member` from `value.Member` (drives whether Freeze keeps
+/// the receiver), `IsProperty` a property get from a method value.
+[<Struct>]
+type ResolvedExternalMember =
+    {
+        Key: SymbolKey
+        IsStatic: bool
+        IsProperty: bool
+    }
+
 [<Sealed>]
 type SideTable<'V>() =
     let dict = Dictionary<NodeKey, 'V>(HashIdentity.Structural)
@@ -242,6 +256,12 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// `Inline.inlineExpand` can substitute it at the call site. See
     /// docs/core-operators-handoff.md (prereq 3).
     member val StaticOpt = SideTable<TStaticOptConstraint list>() with get
+    /// Keyed by a member-access node's `NodeKey` (`Expr.DotLookup`): the resolved
+    /// external member (`TryLookupMember` hit) for a `<externalType>.Member` or
+    /// static `Type.Member` access. Freeze reads it to mint a `TExpr.ExternalMember`
+    /// stamping the resolved `SymbolKey` (symbol-resolution-plan §7.2, P3). Absent
+    /// for project-local member access (resolved via `ClassTypes`/`UnionTypes`).
+    member val ExternalAccess = SideTable<ResolvedExternalMember>() with get
     member val Diagnostics = ResizeArray<Diagnostic>() with get
     /// Current let-depth (Rémy's levels). Push on entering a binding group's
     /// RHSes, pop after typing them; generalisation uses the pre-push value as
