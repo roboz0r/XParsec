@@ -20,25 +20,25 @@ let tests =
         [
             test "`<` types as int -> int -> bool, result is bool" {
                 let tast = analyse "let b = 1 < 2"
-                Expect.equal (declType tast) MockBuiltins.tyBool "b : bool"
+                Expect.equal (declType tast) BuiltinTypes.tyBool "b : bool"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
             test "`&&` between two bool literals" {
                 let tast = analyse "let b = true && false"
-                Expect.equal (declType tast) MockBuiltins.tyBool "b : bool"
+                Expect.equal (declType tast) BuiltinTypes.tyBool "b : bool"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
             test "`/` and `%` type as int -> int -> int" {
                 let tast = analyse "let r = 10 / 3 % 2"
-                Expect.equal (declType tast) MockBuiltins.tyInt "r : int"
+                Expect.equal (declType tast) BuiltinTypes.tyInt "r : int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
             test "`=` on int operands types as bool" {
                 let tast = analyse "let b = 1 = 1"
-                Expect.equal (declType tast) MockBuiltins.tyBool "b : bool"
+                Expect.equal (declType tast) BuiltinTypes.tyBool "b : bool"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
@@ -46,7 +46,7 @@ let tests =
                 // `-x` (where x is a variable) forces a PrefixApp; `-5` would
                 // be folded into a negative literal by the parser.
                 let tast = analyse "let f x = -x"
-                let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                let intToInt = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)
                 // Without a use-site forcing x : int, x stays polymorphic. Use
                 // the operator to constrain it — `let f x = -x + 0`.
                 let tast = analyse "let f x = -x + 0"
@@ -62,7 +62,7 @@ let tests =
 
             test "if true then 1 else 2 types as int" {
                 let tast = analyse "let r = if true then 1 else 2"
-                Expect.equal (declType tast) MockBuiltins.tyInt "r : int"
+                Expect.equal (declType tast) BuiltinTypes.tyInt "r : int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
@@ -80,12 +80,12 @@ let tests =
 
                 Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = if true then 1 else 2" "TAST shape"
 
-                Expect.equal (declType tast) MockBuiltins.tyInt "ITE result type"
+                Expect.equal (declType tast) BuiltinTypes.tyInt "ITE result type"
             }
 
             test "if-then-else with non-trivial branches: let abs n = if n < 0 then -n else n" {
                 let tast = analyse "let abs n = if n < 0 then -n else n"
-                let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                let intToInt = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)
                 Expect.equal (declType tast) intToInt "abs : int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -93,7 +93,7 @@ let tests =
             test "pair of ints types as int * int" {
                 let tast = analyse "let p = 1, 2"
 
-                Expect.equal (declType tast) (TyTuple [ MockBuiltins.tyInt; MockBuiltins.tyInt ]) "p : int * int"
+                Expect.equal (declType tast) (TyTuple [ BuiltinTypes.tyInt; BuiltinTypes.tyInt ]) "p : int * int"
 
                 Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = (1, 2)" "TAST shape"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -104,7 +104,7 @@ let tests =
 
                 Expect.equal
                     (declType tast)
-                    (TyTuple [ MockBuiltins.tyInt; MockBuiltins.tyBool; MockBuiltins.tyInt ])
+                    (TyTuple [ BuiltinTypes.tyInt; BuiltinTypes.tyBool; BuiltinTypes.tyInt ])
                     "t : int * bool * int"
 
                 Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = (1, true, (2 + 3))" "TAST shape"
@@ -117,7 +117,7 @@ let tests =
 
                 Expect.equal
                     (declType tast)
-                    (TyFun(MockBuiltins.tyInt, TyTuple [ MockBuiltins.tyInt; MockBuiltins.tyBool; MockBuiltins.tyInt ]))
+                    (TyFun(BuiltinTypes.tyInt, TyTuple [ BuiltinTypes.tyInt; BuiltinTypes.tyBool; BuiltinTypes.tyInt ]))
                     "f : int -> int * bool * int"
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -125,7 +125,7 @@ let tests =
 
             test "`()` literal types as unit" {
                 let tast = analyse "let x = ()"
-                Expect.equal (declType tast) MockBuiltins.tyUnit "x : unit"
+                Expect.equal (declType tast) BuiltinTypes.tyUnit "x : unit"
                 Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = ()" "TAST shape"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -133,7 +133,7 @@ let tests =
             test "sequential returns last expression's type" {
                 // `(); x + 1` evaluates () (unit, discarded) then returns x + 1 (int).
                 let tast = analyse "let f x = (); x + 1"
-                let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                let intToInt = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)
                 Expect.equal (declType tast) intToInt "f : int -> int"
 
                 Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = fun v1 -> ((); (v1 + 1))" "TAST shape"
@@ -153,7 +153,7 @@ let tests =
 
             test "(e : int) constrains e to int" {
                 let tast = analyse "let f x = (x : int) + 1"
-                let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                let intToInt = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)
                 Expect.equal (declType tast) intToInt "f : int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -171,7 +171,7 @@ let tests =
                 // Note the extra parens around `fun x -> x` — without them
                 // the `:` binds to `x`, giving `(int -> int) -> (int -> int)`.
                 let tast = analyse "let g = ((fun x -> x) : int -> int)"
-                let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                let intToInt = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)
                 Expect.equal (declType tast) intToInt "g : int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -179,7 +179,7 @@ let tests =
             test "let rec: self-reference resolves" {
                 // Without `rec`, the inner `f` would be unresolved (or shadowed).
                 let tast = analyse "let rec f x = if x = 0 then 0 else f (x - 1)"
-                let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                let intToInt = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)
                 Expect.equal (declType tast) intToInt "f : int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -215,14 +215,14 @@ let tests =
 
             test "compound: bool from && and comparison" {
                 let tast = analyse "let inRange x = x > 0 && x < 100"
-                let intToBool = TyFun(MockBuiltins.tyInt, MockBuiltins.tyBool)
+                let intToBool = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyBool)
                 Expect.equal (declType tast) intToBool "inRange : int -> bool"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
             test "`while true do ()` types as unit" {
                 let tast = analyse "let r = while true do ()"
-                Expect.equal (declType tast) MockBuiltins.tyUnit "r : unit"
+                Expect.equal (declType tast) BuiltinTypes.tyUnit "r : unit"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = while true do ()" "while TAST shape"
@@ -248,14 +248,14 @@ let tests =
 
             test "`for i = 1 to 10 do ()` types as unit" {
                 let tast = analyse "let r = for i = 1 to 10 do ()"
-                Expect.equal (declType tast) MockBuiltins.tyUnit "r : unit"
+                Expect.equal (declType tast) BuiltinTypes.tyUnit "r : unit"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
             test "for-to loop variable bound as int and visible in body" {
                 // `n` is the function arg; the body uses both `n` and the loop var `i`.
                 let tast = analyse "let f n = for i = 0 to n do ()"
-                let intToUnit = TyFun(MockBuiltins.tyInt, MockBuiltins.tyUnit)
+                let intToUnit = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyUnit)
                 Expect.equal (declType tast) intToUnit "f : int -> unit"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -282,7 +282,7 @@ let tests =
 
             test "float literal types as float" {
                 let tast = analyse "let pi = 3.14"
-                Expect.equal (declType tast) MockBuiltins.tyFloat "pi : float"
+                Expect.equal (declType tast) BuiltinTypes.tyFloat "pi : float"
 
                 match tast.Decls.[0] with
                 | TDecl.Let(_, TExpr.Const(TConstValue.Float v, _), _, _) ->
@@ -292,7 +292,7 @@ let tests =
 
             test "int64 literal types as int64" {
                 let tast = analyse "let big = 1L"
-                Expect.equal (declType tast) MockBuiltins.tyInt64 "big : int64"
+                Expect.equal (declType tast) BuiltinTypes.tyInt64 "big : int64"
 
                 match tast.Decls.[0] with
                 | TDecl.Let(_, TExpr.Const(TConstValue.Int64 1L, _), _, _) -> ()
@@ -301,7 +301,7 @@ let tests =
 
             test "byte literal types as byte" {
                 let tast = analyse "let b = 255uy"
-                Expect.equal (declType tast) MockBuiltins.tyByte "b : byte"
+                Expect.equal (declType tast) BuiltinTypes.tyByte "b : byte"
 
                 match tast.Decls.[0] with
                 | TDecl.Let(_, TExpr.Const(TConstValue.Byte 255uy, _), _, _) -> ()
@@ -319,7 +319,7 @@ let tests =
 
             test "plain string literal types as string" {
                 let tast = analyse "let s = \"hello\""
-                Expect.equal (declType tast) MockBuiltins.tyString "s : string"
+                Expect.equal (declType tast) BuiltinTypes.tyString "s : string"
 
                 match tast.Decls.[0] with
                 | TDecl.Let(_, TExpr.Const(TConstValue.String text, _), _, _) ->
@@ -329,7 +329,7 @@ let tests =
 
             test "verbatim string literal types as string" {
                 let tast = analyse "let s = @\"C:\\foo\""
-                Expect.equal (declType tast) MockBuiltins.tyString "s : string"
+                Expect.equal (declType tast) BuiltinTypes.tyString "s : string"
             }
 
             test "`fun _ -> 0` types as 'a -> int" {
@@ -355,7 +355,7 @@ let tests =
 
             test "lambda with tuple param: `fun (a, b) -> a + b`" {
                 let tast = analyse "let f = fun (a, b) -> a + b"
-                let intType = MockBuiltins.tyInt
+                let intType = BuiltinTypes.tyInt
                 let expected = TyFun(TyTuple [ intType; intType ], intType)
                 Expect.equal (declType tast) expected "f : int * int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -365,7 +365,7 @@ let tests =
 
             test "function-form let with tuple arg: `let f (a, b) = a * b`" {
                 let tast = analyse "let f (a, b) = a * b"
-                let intType = MockBuiltins.tyInt
+                let intType = BuiltinTypes.tyInt
                 let expected = TyFun(TyTuple [ intType; intType ], intType)
                 Expect.equal (declType tast) expected "f : int * int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -373,7 +373,7 @@ let tests =
 
             test "let-in with tuple-destructuring head: `let (a, b) = 1, 2 in a + b`" {
                 let tast = analyse "let r = let (a, b) = 1, 2 in a + b"
-                Expect.equal (declType tast) MockBuiltins.tyInt "r : int"
+                Expect.equal (declType tast) BuiltinTypes.tyInt "r : int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
@@ -389,7 +389,7 @@ let tests =
 
             test "nested tuple pattern: `fun ((a, b), c) -> a + b + c`" {
                 let tast = analyse "let f = fun ((a, b), c) -> a + b + c"
-                let i = MockBuiltins.tyInt
+                let i = BuiltinTypes.tyInt
                 let expected = TyFun(TyTuple [ TyTuple [ i; i ]; i ], i)
                 Expect.equal (declType tast) expected "f : (int * int) * int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -397,7 +397,7 @@ let tests =
 
             test "match on int with int patterns and int body types as int" {
                 let tast = analyse "let f x = match x with | 0 -> 1 | _ -> 2"
-                let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                let intToInt = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)
                 Expect.equal (declType tast) intToInt "f : int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -413,7 +413,7 @@ let tests =
 
             test "match arm binding visible in body" {
                 let tast = analyse "let f x = match x with | y -> y + 1"
-                let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                let intToInt = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)
                 Expect.equal (declType tast) intToInt "f : int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -430,14 +430,14 @@ let tests =
 
             test "match arm bool guard typechecks" {
                 let tast = analyse "let f x = match x with | y when y > 0 -> y | _ -> 0"
-                let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                let intToInt = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)
                 Expect.equal (declType tast) intToInt "f : int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
             test "match on tuple with tuple pattern" {
                 let tast = analyse "let f p = match p with | (a, b) -> a + b"
-                let i = MockBuiltins.tyInt
+                let i = BuiltinTypes.tyInt
                 let expected = TyFun(TyTuple [ i; i ], i)
                 Expect.equal (declType tast) expected "f : int * int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -445,7 +445,7 @@ let tests =
 
             test "match on bool with bool patterns" {
                 let tast = analyse "let toInt b = match b with | true -> 1 | false -> 0"
-                let boolToInt = TyFun(MockBuiltins.tyBool, MockBuiltins.tyInt)
+                let boolToInt = TyFun(BuiltinTypes.tyBool, BuiltinTypes.tyInt)
                 Expect.equal (declType tast) boolToInt "toInt : bool -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -461,7 +461,7 @@ let tests =
 
             test "`function` shorthand: `function | 0 -> 1 | _ -> 2`" {
                 let tast = analyse "let f = function | 0 -> 1 | _ -> 2"
-                let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                let intToInt = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)
                 Expect.equal (declType tast) intToInt "f : int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }

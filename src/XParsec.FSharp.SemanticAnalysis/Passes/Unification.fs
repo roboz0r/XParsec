@@ -1054,25 +1054,25 @@ module Unification =
     let private literalCarrier (t: SyntaxToken) : SemType =
         match t.Token with
         | Token.KWTrue
-        | Token.KWFalse -> MockBuiltins.tyBool
+        | Token.KWFalse -> BuiltinTypes.tyBool
         | Token.NumIEEE64
         | Token.NumIEEE64Hex
         | Token.NumIEEE64Octal
-        | Token.NumIEEE64Binary -> MockBuiltins.tyFloat
+        | Token.NumIEEE64Binary -> BuiltinTypes.tyFloat
         | Token.NumInt64
         | Token.NumInt64Hex
         | Token.NumInt64Octal
-        | Token.NumInt64Binary -> MockBuiltins.tyInt64
+        | Token.NumInt64Binary -> BuiltinTypes.tyInt64
         | Token.NumByte
         | Token.NumByteHex
         | Token.NumByteOctal
-        | Token.NumByteBinary -> MockBuiltins.tyByte
-        | Token.CharLiteral -> MockBuiltins.tyChar
+        | Token.NumByteBinary -> BuiltinTypes.tyByte
+        | Token.CharLiteral -> BuiltinTypes.tyChar
         | Token.NumDecimal
         | Token.NumDecimalHex
         | Token.NumDecimalOctal
-        | Token.NumDecimalBinary -> MockBuiltins.tyDecimal
-        | _ -> MockBuiltins.tyInt
+        | Token.NumDecimalBinary -> BuiltinTypes.tyDecimal
+        | _ -> BuiltinTypes.tyInt
 
     /// Multi-segment qualified unit names (`Microsoft.FSharp.SI.kg`) and
     /// measure typars (`'u`) are v2 — they produce an empty term plus a
@@ -1184,13 +1184,13 @@ module Unification =
             let name = ctx.NameOf li.Idents.[0]
 
             match name with
-            | "int" -> MockBuiltins.tyInt
-            | "bool" -> MockBuiltins.tyBool
-            | "unit" -> MockBuiltins.tyUnit
-            | "float" -> MockBuiltins.tyFloat
-            | "string" -> MockBuiltins.tyString
-            | "int64" -> MockBuiltins.tyInt64
-            | "byte" -> MockBuiltins.tyByte
+            | "int" -> BuiltinTypes.tyInt
+            | "bool" -> BuiltinTypes.tyBool
+            | "unit" -> BuiltinTypes.tyUnit
+            | "float" -> BuiltinTypes.tyFloat
+            | "string" -> BuiltinTypes.tyString
+            | "int64" -> BuiltinTypes.tyInt64
+            | "byte" -> BuiltinTypes.tyByte
             | _ when ctx.IntrinsicReprTypes.ContainsKey name ->
                 // Primitive binding (`type int = (# "System.Int32" #)`): a
                 // nominal intrinsic, NOT a transparent abbreviation. Resolve to
@@ -1600,7 +1600,7 @@ module Unification =
             | "op_Division", ValueSome m, ValueNone -> Some(TyVar(freshTyVarWith ctx carrier (ValueSome m)))
             | "op_Division", ValueNone, ValueSome m ->
                 Some(TyVar(freshTyVarWith ctx carrier (ValueSome(MeasureTerm.inv m))))
-            | name, ValueSome m1, ValueSome m2 when isComparisonOp name && m1.Equals m2 -> Some MockBuiltins.tyBool
+            | name, ValueSome m1, ValueSome m2 when isComparisonOp name && m1.Equals m2 -> Some BuiltinTypes.tyBool
             | name, ValueSome m1, ValueSome m2 when isComparisonOp name ->
                 ctx.Diagnostics.Add
                     {
@@ -1609,7 +1609,7 @@ module Unification =
                         Severity = Error
                     }
 
-                Some MockBuiltins.tyBool
+                Some BuiltinTypes.tyBool
             | name, ValueSome m, ValueNone
             | name, ValueNone, ValueSome m when isComparisonOp name ->
                 ctx.Diagnostics.Add
@@ -1619,7 +1619,7 @@ module Unification =
                         Severity = Error
                     }
 
-                Some MockBuiltins.tyBool
+                Some BuiltinTypes.tyBool
             | _ -> None
 
     /// v1 only supports single-segment (`X`) and two-segment qualified
@@ -1681,7 +1681,7 @@ module Unification =
 
             let arg =
                 match paramTys with
-                | [] -> MockBuiltins.tyUnit
+                | [] -> BuiltinTypes.tyUnit
                 | [ t ] -> t
                 | many -> TyTuple many
 
@@ -1934,8 +1934,8 @@ module Unification =
             annTy
         | Pat.EmptyBlock _ ->
             let nodeTv = freshTv ctx key
-            nodeTv.Link <- ValueSome MockBuiltins.tyUnit
-            MockBuiltins.tyUnit
+            nodeTv.Link <- ValueSome BuiltinTypes.tyUnit
+            BuiltinTypes.tyUnit
         | Pat.Or(left = leftPat; right = rightPat) ->
             // Validation checks the name set; here we only unify the
             // patterns' overall types for scrutinee consistency.
@@ -2129,7 +2129,7 @@ module Unification =
             | Expr.EmptyBlock(lParen = ParenKind.Array _; rParen = rTok) ->
                 checkLiteralClose ctx key rTok Token.KWRArrayBracket "|]"
                 emptyListLikeLiteral ctx key true
-            | Expr.EmptyBlock _ -> MockBuiltins.tyUnit
+            | Expr.EmptyBlock _ -> BuiltinTypes.tyUnit
             | Expr.While(condition = cond; body = body) -> inferWhile ctx key cond body
             | Expr.ForTo(ident = ident; startExpr = startE; endExpr = endE; body = body) ->
                 inferForTo ctx key ident startE endE body
@@ -2455,17 +2455,17 @@ module Unification =
         // Tiny subset: endpoints (and step) constrained to int, result the
         // `seq<int>` placeholder. Real F# is generic over the `..` overload.
         let fromTy = infer ctx fromE
-        unify ctx key fromTy MockBuiltins.tyInt
+        unify ctx key fromTy BuiltinTypes.tyInt
 
         match stepE with
         | ValueSome s ->
             let stepTy = infer ctx s
-            unify ctx key stepTy MockBuiltins.tyInt
+            unify ctx key stepTy BuiltinTypes.tyInt
         | ValueNone -> ()
 
         let toTy = infer ctx toE
-        unify ctx key toTy MockBuiltins.tyInt
-        MockBuiltins.tySeqInt
+        unify ctx key toTy BuiltinTypes.tyInt
+        BuiltinTypes.tySeqInt
 
     and private inferInfix
         (ctx: PassContext)
@@ -2532,7 +2532,7 @@ module Unification =
         (elseB: ElseBranch<SyntaxToken> voption)
         : SemType =
         let condTy = infer ctx cond
-        unify ctx key condTy MockBuiltins.tyBool
+        unify ctx key condTy BuiltinTypes.tyBool
 
         let thenTy = infer ctx thenE
 
@@ -2543,7 +2543,7 @@ module Unification =
                 | ElifBranch.ElseIf(condition = c; expr = e) -> c, e
 
             let elifCondTy = infer ctx elifCond
-            unify ctx key elifCondTy MockBuiltins.tyBool
+            unify ctx key elifCondTy BuiltinTypes.tyBool
             let elifTy = infer ctx elifExpr
             unify ctx key thenTy elifTy
 
@@ -2578,11 +2578,11 @@ module Unification =
     and private inferSequential (ctx: PassContext) (key: NodeKey) (items: ImmutableArray<Expr<SyntaxToken>>) : SemType =
         // All but the last must be unit; result is the last's type.
         if items.Length = 0 then
-            MockBuiltins.tyUnit
+            BuiltinTypes.tyUnit
         else
             for i = 0 to items.Length - 2 do
                 let ty = infer ctx items.[i]
-                unify ctx key ty MockBuiltins.tyUnit
+                unify ctx key ty BuiltinTypes.tyUnit
 
             infer ctx items.[items.Length - 1]
 
@@ -2679,10 +2679,10 @@ module Unification =
         (body: Expr<SyntaxToken>)
         : SemType =
         let condTy = infer ctx cond
-        unify ctx key condTy MockBuiltins.tyBool
+        unify ctx key condTy BuiltinTypes.tyBool
         let bodyTy = infer ctx body
-        unify ctx key bodyTy MockBuiltins.tyUnit
-        MockBuiltins.tyUnit
+        unify ctx key bodyTy BuiltinTypes.tyUnit
+        BuiltinTypes.tyUnit
 
     and private inferForTo
         (ctx: PassContext)
@@ -2693,15 +2693,15 @@ module Unification =
         (body: Expr<SyntaxToken>)
         : SemType =
         let startTy = infer ctx startE
-        unify ctx key startTy MockBuiltins.tyInt
+        unify ctx key startTy BuiltinTypes.tyInt
         let endTy = infer ctx endE
-        unify ctx key endTy MockBuiltins.tyInt
+        unify ctx key endTy BuiltinTypes.tyInt
         let varKey = CstKeys.ofForToVar ident
         let varTv = freshTv ctx varKey
-        varTv.Link <- ValueSome MockBuiltins.tyInt
+        varTv.Link <- ValueSome BuiltinTypes.tyInt
         let bodyTy = infer ctx body
-        unify ctx key bodyTy MockBuiltins.tyUnit
-        MockBuiltins.tyUnit
+        unify ctx key bodyTy BuiltinTypes.tyUnit
+        BuiltinTypes.tyUnit
 
     and private inferForIn
         (ctx: PassContext)
@@ -2724,8 +2724,8 @@ module Unification =
             | _ -> false
 
         if isRangeSource then
-            unify ctx key srcTy MockBuiltins.tySeqInt
-            unify ctx key patTy MockBuiltins.tyInt
+            unify ctx key srcTy BuiltinTypes.tySeqInt
+            unify ctx key patTy BuiltinTypes.tyInt
         else
             ctx.Diagnostics.Add
                 {
@@ -2735,8 +2735,8 @@ module Unification =
                 }
 
         let bodyTy = infer ctx body
-        unify ctx key bodyTy MockBuiltins.tyUnit
-        MockBuiltins.tyUnit
+        unify ctx key bodyTy BuiltinTypes.tyUnit
+        BuiltinTypes.tyUnit
 
     and private inferRules
         (ctx: PassContext)
@@ -2754,7 +2754,7 @@ module Unification =
                 match guard with
                 | ValueSome(PatternGuard(expr = g)) ->
                     let gTy = infer ctx g
-                    unify ctx key gTy MockBuiltins.tyBool
+                    unify ctx key gTy BuiltinTypes.tyBool
                 | ValueNone -> ()
 
                 let bodyTy = infer ctx body
@@ -2804,7 +2804,7 @@ module Unification =
         : SemType =
         let resultTy = infer ctx body
         let finallyTy = infer ctx finallyE
-        unify ctx key finallyTy MockBuiltins.tyUnit
+        unify ctx key finallyTy BuiltinTypes.tyUnit
         resultTy
 
     and private inferAssignment
@@ -2817,7 +2817,7 @@ module Unification =
         let leftTy = infer ctx left
         let rightTy = infer ctx right
         unify ctx key leftTy rightTy
-        MockBuiltins.tyUnit
+        BuiltinTypes.tyUnit
 
     and private inferRecord
         (ctx: PassContext)
@@ -3222,7 +3222,7 @@ module Unification =
 
                 let expected =
                     match paramTys with
-                    | [] -> MockBuiltins.tyUnit
+                    | [] -> BuiltinTypes.tyUnit
                     | [ t ] -> t
                     | many -> TyTuple many
 
@@ -3267,7 +3267,7 @@ module Unification =
 
         match returnType with
         | ValueSome(ReturnType(typ = t)) -> translateType ctx t
-        | ValueNone -> MockBuiltins.tyUnit
+        | ValueNone -> BuiltinTypes.tyUnit
 
     /// `expr when ^T : Type [and ^U : Type]* = optimizedExpr` — one clause of an
     /// F# library-only static optimization. Type the default `baseE` and this
@@ -3356,7 +3356,7 @@ module Unification =
                 | ValueNone -> ()
             | _ -> ()
 
-        MockBuiltins.tyString
+        BuiltinTypes.tyString
 
     and private inferTypeAnnotation
         (ctx: PassContext)

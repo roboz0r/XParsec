@@ -48,7 +48,7 @@ let tests =
             test "measured literal carries its measure" {
                 let tast = analyse "let x = 1.0<m>"
                 let carrier, units = measuredOf (declType tast)
-                Expect.equal carrier MockBuiltins.tyFloat "carrier float"
+                Expect.equal carrier BuiltinTypes.tyFloat "carrier float"
                 Expect.equal units (measure [ "m", 1 ]) "units = m"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -61,7 +61,7 @@ let tests =
             test "same-measure addition works" {
                 let tast = analyse "let r = 1.0<m> + 2.0<m>"
                 let carrier, units = measuredOf (declType tast)
-                Expect.equal carrier MockBuiltins.tyFloat "carrier float"
+                Expect.equal carrier BuiltinTypes.tyFloat "carrier float"
                 Expect.equal units (measure [ "m", 1 ]) "units = m"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -78,9 +78,9 @@ let tests =
                 | TyFun(arg, ret) ->
                     let argCarrier, argUnits = measuredOf arg
                     let retCarrier, retUnits = measuredOf ret
-                    Expect.equal argCarrier MockBuiltins.tyFloat "arg carrier float"
+                    Expect.equal argCarrier BuiltinTypes.tyFloat "arg carrier float"
                     Expect.equal argUnits (measure [ "m", 1 ]) "arg units = m"
-                    Expect.equal retCarrier MockBuiltins.tyFloat "ret carrier float"
+                    Expect.equal retCarrier BuiltinTypes.tyFloat "ret carrier float"
                     Expect.equal retUnits (measure [ "m", 1 ]) "ret units = m"
                 | other -> failtestf "expected TyFun, got %A" other
 
@@ -123,7 +123,7 @@ let tests =
                 match tast.Decls with
                 | [ _; TDecl.Let(_, _, _, vTy) ] ->
                     let carrier, units = measuredOf vTy
-                    Expect.equal carrier MockBuiltins.tyFloat "v carrier float"
+                    Expect.equal carrier BuiltinTypes.tyFloat "v carrier float"
                     Expect.equal units (measure [ "m", 1; "s", -1 ]) "v : float<m/s>"
                 | other -> failwithf "expected two decls, got %A" other
 

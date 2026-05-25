@@ -85,7 +85,7 @@ type TExpr =
     | Null of ty: SemType
     /// `start..stop` or `start..step..stop`. Endpoints (and step) all type
     /// as int in the tiny subset; `ty` is `seq<int>` (a TyConst placeholder
-    /// — see [[MockBuiltins.tySeqInt]]).
+    /// — see [[BuiltinTypes.tySeqInt]]).
     | Range of startExpr: TExpr * step: TExpr option * stopExpr: TExpr * ty: SemType
     /// `{ X = e1; Y = e2 }` record literal. `ty` is a `TyRecord`; field
     /// list is in source order (the unification pass already validated

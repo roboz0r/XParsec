@@ -27,26 +27,26 @@ let tests =
                 // pat x at offset 4.
                 let ctx = analyse "let x = 1"
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) MockBuiltins.tyInt "x : int"
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "x : int"
             }
 
             test "infix `+` types as int -> int -> int -> int (mono operator)" {
                 let ctx = analyse "let x = 1 + 2"
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) MockBuiltins.tyInt "x : int"
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "x : int"
             }
 
             test "lambda body type propagates to function type" {
                 let ctx = analyse "let f = fun x -> x + 1"
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
-                let expected = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                let expected = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)
                 Expect.equal (typeOf ctx patKey) expected "f : int -> int"
             }
 
             test "function-form let infers parameter type from body" {
                 let ctx = analyse "let f x = x + 1"
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
-                let expected = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                let expected = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)
                 Expect.equal (typeOf ctx patKey) expected "f : int -> int"
             }
 
@@ -55,7 +55,7 @@ let tests =
                 // expression (else the parser picks a different top-level shape).
                 let ctx = analyse "let result = let id = fun x -> x in id 42"
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) MockBuiltins.tyInt "result : int"
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "result : int"
             }
 
             test "type mismatch on int + bool emits a diagnostic" {
@@ -70,13 +70,13 @@ let tests =
             test "ident `true` types as bool via provider" {
                 let ctx = analyse "let b = true"
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) MockBuiltins.tyBool "b : bool"
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyBool "b : bool"
             }
 
             test "nested infix: 1 + 2 * 3 types as int" {
                 let ctx = analyse "let x = 1 + 2 * 3"
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) MockBuiltins.tyInt "x : int"
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "x : int"
             }
 
             test "record literal infers record type from field set" {
@@ -113,7 +113,7 @@ let tests =
                 let ctx = analyse "type R = { X: int }\nlet f (r: R) = r.X"
 
                 let patKey = NodeKey.ofSource 24 NodeKind.PatIdent
-                let expected = TyFun(TyRecord("R", []), MockBuiltins.tyInt)
+                let expected = TyFun(TyRecord("R", []), BuiltinTypes.tyInt)
                 Expect.equal (typeOf ctx patKey) expected "f : R -> int"
 
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
@@ -182,7 +182,7 @@ let tests =
                 let ctx = analyse "type S = | Circle of float\nlet f = Circle"
 
                 let patKey = NodeKey.ofSource 31 NodeKind.PatIdent
-                let expected = TyFun(MockBuiltins.tyFloat, TyUnion("S", []))
+                let expected = TyFun(BuiltinTypes.tyFloat, TyUnion("S", []))
                 Expect.equal (typeOf ctx patKey) expected "f : float -> S"
             }
 
@@ -194,7 +194,7 @@ let tests =
 
                 // area pat at 31 (27-char type decl + "let "), s param at 36.
                 let areaKey = NodeKey.ofSource 31 NodeKind.PatIdent
-                let expected = TyFun(TyUnion("S", []), MockBuiltins.tyFloat)
+                let expected = TyFun(TyUnion("S", []), BuiltinTypes.tyFloat)
                 Expect.equal (typeOf ctx areaKey) expected "area : S -> float"
             }
 
@@ -222,7 +222,7 @@ let tests =
                 let ctx = analyse "type Box<'a> = { Value: 'a }\nlet b = { Value = 1 }"
                 // pat at 33: 29-char type decl + "let b = ".
                 let patKey = NodeKey.ofSource 33 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyRecord("Box", [ MockBuiltins.tyInt ])) "b : Box<int>"
+                Expect.equal (typeOf ctx patKey) (TyRecord("Box", [ BuiltinTypes.tyInt ])) "b : Box<int>"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
@@ -231,7 +231,7 @@ let tests =
                     analyse "type Box<'a> = { Value: 'a }\nlet b : Box<string> = { Value = \"x\" }"
 
                 let patKey = NodeKey.ofSource 33 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyRecord("Box", [ MockBuiltins.tyString ])) "b : Box<string>"
+                Expect.equal (typeOf ctx patKey) (TyRecord("Box", [ BuiltinTypes.tyString ])) "b : Box<string>"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
@@ -250,7 +250,7 @@ let tests =
                 let ctx = analyse "type Option<'a> = | Some of 'a | None\nlet s = Some 1"
                 // pat at 42: 38-char type decl + "let ".
                 let patKey = NodeKey.ofSource 42 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyUnion("Option", [ MockBuiltins.tyInt ])) "s : Option<int>"
+                Expect.equal (typeOf ctx patKey) (TyUnion("Option", [ BuiltinTypes.tyInt ])) "s : Option<int>"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
@@ -260,7 +260,7 @@ let tests =
 
                 let patKey = NodeKey.ofSource 42 NodeKind.PatIdent
 
-                Expect.equal (typeOf ctx patKey) (TyUnion("Option", [ MockBuiltins.tyString ])) "n : Option<string>"
+                Expect.equal (typeOf ctx patKey) (TyUnion("Option", [ BuiltinTypes.tyString ])) "n : Option<string>"
 
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
@@ -298,7 +298,7 @@ let tests =
                 let ctx = analyse "type Box<'a> = { Value: 'a }\nlet f (b : Box<int>) = b.Value"
                 // pat f at offset 33.
                 let patKey = NodeKey.ofSource 33 NodeKind.PatIdent
-                let expected = TyFun(TyRecord("Box", [ MockBuiltins.tyInt ]), MockBuiltins.tyInt)
+                let expected = TyFun(TyRecord("Box", [ BuiltinTypes.tyInt ]), BuiltinTypes.tyInt)
                 Expect.equal (typeOf ctx patKey) expected "f : Box<int> -> int"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
@@ -316,7 +316,7 @@ let tests =
                 // pat n at 23: 19-char type decl + "let ".
                 let ctx = analyse "type Name = string\nlet n : Name = \"x\""
                 let patKey = NodeKey.ofSource 23 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) MockBuiltins.tyString "n : string"
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyString "n : string"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
@@ -324,7 +324,7 @@ let tests =
                 let ctx = analyse "type Pair<'a> = 'a * 'a\nlet p : Pair<int> = (1, 2)"
                 // pat p at 28: 24-char type decl + "let ".
                 let patKey = NodeKey.ofSource 28 NodeKind.PatIdent
-                let expected = TyTuple [ MockBuiltins.tyInt; MockBuiltins.tyInt ]
+                let expected = TyTuple [ BuiltinTypes.tyInt; BuiltinTypes.tyInt ]
                 Expect.equal (typeOf ctx patKey) expected "p : int * int"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
@@ -333,7 +333,7 @@ let tests =
                 let ctx = analyse "type A = B\ntype B = int\nlet x : A = 1"
                 // pat x at 28: 11 + 13 char type decls + "let ".
                 let patKey = NodeKey.ofSource 28 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) MockBuiltins.tyInt "x : int"
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "x : int"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
@@ -343,7 +343,7 @@ let tests =
                     analyse "type IntPair = Pair<int>\ntype Pair<'a> = 'a * 'a\nlet p : IntPair = (1, 2)"
                 // pat p at 53: 25 + 24 char type decls + "let ".
                 let patKey = NodeKey.ofSource 53 NodeKind.PatIdent
-                let expected = TyTuple [ MockBuiltins.tyInt; MockBuiltins.tyInt ]
+                let expected = TyTuple [ BuiltinTypes.tyInt; BuiltinTypes.tyInt ]
                 Expect.equal (typeOf ctx patKey) expected "p : int * int"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
@@ -370,7 +370,7 @@ let tests =
                 let ctx = analyse "type Endo<'a> = 'a -> 'a\nlet inc : Endo<int> = fun x -> x + 1"
                 // pat inc at 29: 25-char type decl + "let ".
                 let patKey = NodeKey.ofSource 29 NodeKind.PatIdent
-                let expected = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                let expected = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)
                 Expect.equal (typeOf ctx patKey) expected "inc : int -> int"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
@@ -380,7 +380,7 @@ let tests =
                     analyse "type Box<'a> = { Value: 'a }\ntype IntBox = Box<int>\nlet b : IntBox = { Value = 1 }"
                 // pat b at 56: 29 + 23 char type decls + "let ".
                 let patKey = NodeKey.ofSource 56 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyRecord("Box", [ MockBuiltins.tyInt ])) "b : Box<int>"
+                Expect.equal (typeOf ctx patKey) (TyRecord("Box", [ BuiltinTypes.tyInt ])) "b : Box<int>"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
@@ -436,7 +436,7 @@ let tests =
                     analyse "type Point(x: int, y: int) =\n    member this.X = x\nlet f (p : Point) = p.X"
                 // pat f at 55: 29 + 22 char decl lines + "let ".
                 let patKey = NodeKey.ofSource 55 NodeKind.PatIdent
-                let expected = TyFun(TyClass("Point", []), MockBuiltins.tyInt)
+                let expected = TyFun(TyClass("Point", []), BuiltinTypes.tyInt)
                 Expect.equal (typeOf ctx patKey) expected "f : Point -> int"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
@@ -447,7 +447,7 @@ let tests =
                         "type Point(x: int, y: int) =\n    member this.Magnitude () = x * x + y * y\nlet m (p : Point) = p.Magnitude()"
                 // pat m at 78: 29 + 45 char decl lines + "let ".
                 let patKey = NodeKey.ofSource 78 NodeKind.PatIdent
-                let expected = TyFun(TyClass("Point", []), MockBuiltins.tyInt)
+                let expected = TyFun(TyClass("Point", []), BuiltinTypes.tyInt)
                 Expect.equal (typeOf ctx patKey) expected "m : Point -> int"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
@@ -464,7 +464,7 @@ let tests =
                     analyse "type Box<'a>(value: 'a) =\n    member this.Value = value\nlet b = Box(1)"
                 // pat b at 60: 26 + 30 char decl lines + "let ".
                 let patKey = NodeKey.ofSource 60 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyClass("Box", [ MockBuiltins.tyInt ])) "b : Box<int>"
+                Expect.equal (typeOf ctx patKey) (TyClass("Box", [ BuiltinTypes.tyInt ])) "b : Box<int>"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
@@ -474,7 +474,7 @@ let tests =
                         "type Box<'a>(value: 'a) =\n    member this.Value = value\nlet b : Box<string> = Box(\"hi\")"
 
                 let patKey = NodeKey.ofSource 60 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyClass("Box", [ MockBuiltins.tyString ])) "b : Box<string>"
+                Expect.equal (typeOf ctx patKey) (TyClass("Box", [ BuiltinTypes.tyString ])) "b : Box<string>"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
@@ -496,7 +496,7 @@ let tests =
                 let ctx = analyse "type C() =\n    static member Origin = (0, 0)\nlet o = C.Origin"
                 // pat o at 49: 11 + 34 char decl lines + "let ".
                 let patKey = NodeKey.ofSource 49 NodeKind.PatIdent
-                let expected = TyTuple [ MockBuiltins.tyInt; MockBuiltins.tyInt ]
+                let expected = TyTuple [ BuiltinTypes.tyInt; BuiltinTypes.tyInt ]
                 Expect.equal (typeOf ctx patKey) expected "o : int * int"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
@@ -524,7 +524,7 @@ let tests =
                 let ctx = analyse "let xs = [1; 2; 3]"
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
 
-                let expected = TyRecord("Microsoft.FSharp.Collections.list", [ MockBuiltins.tyInt ])
+                let expected = TyRecord("Microsoft.FSharp.Collections.list", [ BuiltinTypes.tyInt ])
 
                 Expect.equal (typeOf ctx patKey) expected "xs : list<int>"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
@@ -533,7 +533,7 @@ let tests =
             test "array literal `[|1; 2; 3|]` types as `int[]`" {
                 let ctx = analyse "let xs = [|1; 2; 3|]"
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
-                let expected = TyRecord("Microsoft.FSharp.Core.[]", [ MockBuiltins.tyInt ])
+                let expected = TyRecord("Microsoft.FSharp.Core.[]", [ BuiltinTypes.tyInt ])
                 Expect.equal (typeOf ctx patKey) expected "xs : int[]"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }

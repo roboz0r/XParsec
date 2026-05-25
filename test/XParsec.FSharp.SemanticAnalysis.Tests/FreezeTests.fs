@@ -25,8 +25,8 @@ let tests =
 
                 match tast.Decls.[0] with
                 | TDecl.Let(_, TExpr.Const(TConstValue.Int 1, ty), _, letTy) ->
-                    Expect.equal ty MockBuiltins.tyInt "value type"
-                    Expect.equal letTy MockBuiltins.tyInt "binding type"
+                    Expect.equal ty BuiltinTypes.tyInt "value type"
+                    Expect.equal letTy BuiltinTypes.tyInt "binding type"
                 | other -> failtestf "unexpected: %A" other
             }
 
@@ -35,13 +35,13 @@ let tests =
 
                 match tast.Decls.[0] with
                 | TDecl.Let(_, TExpr.Const(TConstValue.Bool true, ty), _, _) ->
-                    Expect.equal ty MockBuiltins.tyBool "value type bool"
+                    Expect.equal ty BuiltinTypes.tyBool "value type bool"
                 | other -> failtestf "unexpected: %A" other
             }
 
             test "`let f = fun x -> x + 1` -> Lambda over App chain with External operator" {
                 let tast = analyse "let f = fun x -> x + 1"
-                let intTy = MockBuiltins.tyInt
+                let intTy = BuiltinTypes.tyInt
                 let intToInt = TyFun(intTy, intTy)
 
                 Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = fun v1 -> (v1 + 1)" "TAST shape"
@@ -55,7 +55,7 @@ let tests =
 
             test "function-form `let f x = x + 1` produces same shape as fun-form" {
                 let tast = analyse "let f x = x + 1"
-                let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                let intToInt = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)
 
                 Expect.equal
                     (TastShape.prettyDecl tast.Decls.[0])
@@ -75,7 +75,7 @@ let tests =
                     "let v0 = let v1 = fun v2 -> v2 in (v1 42)"
                     "TAST shape"
 
-                Expect.equal (declType tast) MockBuiltins.tyInt "result : int"
+                Expect.equal (declType tast) BuiltinTypes.tyInt "result : int"
             }
 
             test "TDecl.Let binding NodeKey matches headPat NodeKey" {
@@ -105,7 +105,7 @@ let tests =
 
             test "`let xs = [1; 2; 3]` freezes as nested Cons / Nil over `list<int>`" {
                 let tast = analyse "let xs = [1; 2; 3]"
-                let intTy = MockBuiltins.tyInt
+                let intTy = BuiltinTypes.tyInt
                 let listTy = TyRecord("Microsoft.FSharp.Collections.list", [ intTy ])
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -143,7 +143,7 @@ let tests =
 
             test "`let xs = [|1; 2|]` wraps the Cons chain in Array.ofList" {
                 let tast = analyse "let xs = [|1; 2|]"
-                let intTy = MockBuiltins.tyInt
+                let intTy = BuiltinTypes.tyInt
                 let listTy = TyRecord("Microsoft.FSharp.Collections.list", [ intTy ])
                 let arrayTy = TyRecord("Microsoft.FSharp.Core.[]", [ intTy ])
 
@@ -195,8 +195,8 @@ let namespaceTests =
 
                 match tast.Decls.[0] with
                 | TDecl.Let(_, TExpr.Const(TConstValue.Int 1, ty), _, letTy) ->
-                    Expect.equal ty MockBuiltins.tyInt "value type int"
-                    Expect.equal letTy MockBuiltins.tyInt "binding type int"
+                    Expect.equal ty BuiltinTypes.tyInt "value type int"
+                    Expect.equal letTy BuiltinTypes.tyInt "binding type int"
                 | other -> failtestf "unexpected: %A" other
             }
 
@@ -231,7 +231,7 @@ let namespaceTests =
                     "cross-referencing namespace bindings freeze identically to the module form"
 
                 match nsForm.Decls.[1] with
-                | TDecl.Let(_, _, _, declTy) -> Expect.equal declTy MockBuiltins.tyInt "y : int"
+                | TDecl.Let(_, _, _, declTy) -> Expect.equal declTy BuiltinTypes.tyInt "y : int"
                 | other -> failtestf "unexpected: %A" other
             }
         ]
@@ -255,8 +255,8 @@ let nestedModuleTests =
 
                 match tast.Decls.[1] with
                 | TDecl.Let(_, TExpr.Const(TConstValue.Int 1, ty), _, letTy) ->
-                    Expect.equal ty MockBuiltins.tyInt "value type int"
-                    Expect.equal letTy MockBuiltins.tyInt "binding type int"
+                    Expect.equal ty BuiltinTypes.tyInt "value type int"
+                    Expect.equal letTy BuiltinTypes.tyInt "binding type int"
                 | other -> failtestf "unexpected: %A" other
             }
 
@@ -271,7 +271,7 @@ let nestedModuleTests =
                 Expect.isEmpty tast.Diagnostics "top resolves inside the nested module"
 
                 match tast.Decls.[1] with
-                | TDecl.Let(_, _, _, declTy) -> Expect.equal declTy MockBuiltins.tyInt "y : int"
+                | TDecl.Let(_, _, _, declTy) -> Expect.equal declTy BuiltinTypes.tyInt "y : int"
                 | other -> failtestf "unexpected: %A" other
             }
 
@@ -282,7 +282,7 @@ let nestedModuleTests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls.[1] with
-                | TDecl.Let(_, _, _, declTy) -> Expect.equal declTy MockBuiltins.tyInt "x : int"
+                | TDecl.Let(_, _, _, declTy) -> Expect.equal declTy BuiltinTypes.tyInt "x : int"
                 | other -> failtestf "unexpected: %A" other
             }
 

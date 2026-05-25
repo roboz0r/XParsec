@@ -33,7 +33,7 @@ let tests =
                 // The headline case. `id` generalises to `∀'a. 'a -> 'a`,
                 // each use at a different type mints its own variable.
                 let tast = analyse "let r = let id = fun x -> x in id 1, id true"
-                Expect.equal (declType tast) (TyTuple [ MockBuiltins.tyInt; MockBuiltins.tyBool ]) "r : int * bool"
+                Expect.equal (declType tast) (TyTuple [ BuiltinTypes.tyInt; BuiltinTypes.tyBool ]) "r : int * bool"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
@@ -42,21 +42,21 @@ let tests =
                 let tast =
                     analyse "let r = let id = fun x -> x in id 1 + (if id true then 0 else 1)"
 
-                Expect.equal (declType tast) MockBuiltins.tyInt "r : int"
+                Expect.equal (declType tast) BuiltinTypes.tyInt "r : int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
             test "polymorphic constant returned by application" {
                 // `k 1 true` — k : 'a -> 'b -> 'a, applied to int and bool, returns int.
                 let tast = analyse "let r = let k = fun x -> fun _ -> x in k 1 true"
-                Expect.equal (declType tast) MockBuiltins.tyInt "r : int"
+                Expect.equal (declType tast) BuiltinTypes.tyInt "r : int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
             test "function-form let generalises" {
                 // `let id x = x` is sugar for `let id = fun x -> x`; same scheme.
                 let tast = analyse "let r = let id x = x in id 1, id true"
-                Expect.equal (declType tast) (TyTuple [ MockBuiltins.tyInt; MockBuiltins.tyBool ]) "r : int * bool"
+                Expect.equal (declType tast) (TyTuple [ BuiltinTypes.tyInt; BuiltinTypes.tyBool ]) "r : int * bool"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
@@ -79,8 +79,8 @@ let tests =
 
             test "nested let-poly: inner binding generalises inside outer body" {
                 let tast = analyse "let outer () = let inner x = x in inner 1, inner true"
-                let unitTy = MockBuiltins.tyUnit
-                let bodyTy = TyTuple [ MockBuiltins.tyInt; MockBuiltins.tyBool ]
+                let unitTy = BuiltinTypes.tyUnit
+                let bodyTy = TyTuple [ BuiltinTypes.tyInt; BuiltinTypes.tyBool ]
                 Expect.equal (declType tast) (TyFun(unitTy, bodyTy)) "outer : unit -> int * bool"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -116,7 +116,7 @@ let tests =
                 let lexed, file = parseFile input
                 let tast = Pipeline.analyse provider input lexed file
 
-                Expect.equal (declType tast) (TyTuple [ MockBuiltins.tyInt; MockBuiltins.tyBool ]) "r : int * bool"
+                Expect.equal (declType tast) (TyTuple [ BuiltinTypes.tyInt; BuiltinTypes.tyBool ]) "r : int * bool"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
@@ -156,8 +156,8 @@ let tests =
 
                 match tast.Decls with
                 | [ _; TDecl.Let(_, _, _, aTy); TDecl.Let(_, _, _, bTy) ] ->
-                    Expect.equal aTy MockBuiltins.tyInt "a : int"
-                    Expect.equal bTy MockBuiltins.tyBool "b : bool"
+                    Expect.equal aTy BuiltinTypes.tyInt "a : int"
+                    Expect.equal bTy BuiltinTypes.tyBool "b : bool"
                 | other -> failwithf "expected three decls, got %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -169,7 +169,7 @@ let tests =
                 // No mismatch expected — this just confirms it type-checks.
                 let tast = analyse "let r = let (f, _) = (fun x -> x), 0 in f 1"
                 Expect.isEmpty tast.Diagnostics "no diagnostics for monomorphic tuple-destructure"
-                Expect.equal (declType tast) MockBuiltins.tyInt "r : int"
+                Expect.equal (declType tast) BuiltinTypes.tyInt "r : int"
             }
 
             test "mutable binding does NOT generalise (no scheme entry)" {
@@ -203,7 +203,7 @@ let tests =
                     | ValueSome tv -> Unification.zonk (TyVar tv)
                     | ValueNone -> failtest "no TypeVar for r"
 
-                let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                let intToInt = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)
                 Expect.equal rTy intToInt "r : int -> int after assignment"
             }
         ]

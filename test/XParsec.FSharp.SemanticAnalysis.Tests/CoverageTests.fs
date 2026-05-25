@@ -36,7 +36,7 @@ let tests =
                     | other -> failwithf "expected two decls, got %A" other
 
                 match resultDecl with
-                | TDecl.Let(_, _, _, ty) -> Expect.equal ty MockBuiltins.tyInt "r : int"
+                | TDecl.Let(_, _, _, ty) -> Expect.equal ty BuiltinTypes.tyInt "r : int"
                 | other -> failtestf "unexpected: %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -62,7 +62,7 @@ let tests =
                     | other -> failwithf "expected two decls, got %A" other
 
                 match resultDecl with
-                | TDecl.Let(_, _, _, ty) -> Expect.equal ty MockBuiltins.tyInt "r : int"
+                | TDecl.Let(_, _, _, ty) -> Expect.equal ty BuiltinTypes.tyInt "r : int"
                 | other -> failtestf "unexpected: %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -88,7 +88,7 @@ let tests =
 
                 match hDecl with
                 | TDecl.Let(_, _, _, ty) ->
-                    Expect.equal ty (TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)) "h : int -> int"
+                    Expect.equal ty (TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)) "h : int -> int"
                 | other -> failtestf "unexpected: %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -104,7 +104,7 @@ let tests =
 
                 match hDecl with
                 | TDecl.Let(_, _, _, ty) ->
-                    Expect.equal ty (TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)) "h : int -> int"
+                    Expect.equal ty (TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)) "h : int -> int"
                 | other -> failtestf "unexpected: %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -122,7 +122,7 @@ let tests =
 
             test "`try body with | _ -> body2` types as body's type" {
                 let tast = analyse "let r = try 1 with | _ -> 2"
-                Expect.equal (declType tast) MockBuiltins.tyInt "r : int"
+                Expect.equal (declType tast) BuiltinTypes.tyInt "r : int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
@@ -137,7 +137,7 @@ let tests =
 
             test "`try body finally cleanup`" {
                 let tast = analyse "let r = try 1 finally ()"
-                Expect.equal (declType tast) MockBuiltins.tyInt "r : int"
+                Expect.equal (declType tast) BuiltinTypes.tyInt "r : int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
@@ -167,7 +167,7 @@ let tests =
                 // see ValidationTests).
                 let tast = analyse "let r = let mutable x = 0 in x <- 1"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
-                Expect.equal (declType tast) MockBuiltins.tyUnit "r : unit"
+                Expect.equal (declType tast) BuiltinTypes.tyUnit "r : unit"
             }
 
             test "assignment unifies left and right" {
@@ -188,7 +188,7 @@ let tests =
 
             test "typed pattern annotates parameter type" {
                 let tast = analyse "let f (x: int) = x"
-                let expected = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                let expected = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)
                 Expect.equal (declType tast) expected "f : int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -205,7 +205,7 @@ let tests =
 
             test "typed pattern in tuple: `let f ((x: int), b) = b`" {
                 let tast = analyse "let f ((x: int), b) = x + b"
-                let intTy = MockBuiltins.tyInt
+                let intTy = BuiltinTypes.tyInt
                 let expected = TyFun(TyTuple [ intTy; intTy ], intTy)
                 Expect.equal (declType tast) expected "f : int * int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -213,7 +213,7 @@ let tests =
 
             test "or-pattern with literal alternatives" {
                 let tast = analyse "let f x = match x with | 0 | 1 -> true | _ -> false"
-                let intToBool = TyFun(MockBuiltins.tyInt, MockBuiltins.tyBool)
+                let intToBool = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyBool)
                 Expect.equal (declType tast) intToBool "f : int -> bool"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -247,7 +247,7 @@ let tests =
                     | other -> failwithf "expected two decls, got %A" other
 
                 match resultDecl with
-                | TDecl.Let(_, _, _, ty) -> Expect.equal ty MockBuiltins.tyInt "r : int"
+                | TDecl.Let(_, _, _, ty) -> Expect.equal ty BuiltinTypes.tyInt "r : int"
                 | other -> failtestf "unexpected: %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -275,13 +275,13 @@ let tests =
 
             test "`1..10` types as seq<int>" {
                 let tast = analyse "let r = 1..10"
-                Expect.equal (declType tast) MockBuiltins.tySeqInt "r : seq<int>"
+                Expect.equal (declType tast) BuiltinTypes.tySeqInt "r : seq<int>"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
             test "stepped range `1..2..10` types as seq<int>" {
                 let tast = analyse "let r = 1..2..10"
-                Expect.equal (declType tast) MockBuiltins.tySeqInt "r : seq<int>"
+                Expect.equal (declType tast) BuiltinTypes.tySeqInt "r : seq<int>"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
@@ -307,7 +307,7 @@ let tests =
                 // The variable `n` flows through both the range endpoint
                 // (forcing int) and the use site `n + 0` (also int).
                 let tast = analyse "let f n = let r = 1..n in n + 0"
-                let intToInt = TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)
+                let intToInt = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)
                 Expect.equal (declType tast) intToInt "f : int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -326,7 +326,7 @@ let tests =
 
             test "`for i in 1..10 do ()` types as unit with no diagnostic" {
                 let tast = analyse "let r = for i in 1..10 do ()"
-                Expect.equal (declType tast) MockBuiltins.tyUnit "r : unit"
+                Expect.equal (declType tast) BuiltinTypes.tyUnit "r : unit"
                 // The range special case suppresses the "not implemented" Info.
                 Expect.isEmpty tast.Diagnostics "no diagnostics for range-source for-in"
             }
@@ -347,7 +347,7 @@ let tests =
 
             test "for-in over parenthesised range still recognised" {
                 let tast = analyse "let r = for i in (1..10) do ()"
-                Expect.equal (declType tast) MockBuiltins.tyUnit "r : unit"
+                Expect.equal (declType tast) BuiltinTypes.tyUnit "r : unit"
                 Expect.isEmpty tast.Diagnostics "parens around range don't disable the special case"
             }
 
@@ -367,7 +367,7 @@ let tests =
 
             test "`let () = ()` types and translates" {
                 let tast = analyse "let () = ()"
-                Expect.equal (declType tast) MockBuiltins.tyUnit "binding type is unit"
+                Expect.equal (declType tast) BuiltinTypes.tyUnit "binding type is unit"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
@@ -382,7 +382,7 @@ let tests =
 
             test "match arm with `()` pattern types as unit" {
                 let tast = analyse "let f x = match x with | () -> 0"
-                let unitToInt = TyFun(MockBuiltins.tyUnit, MockBuiltins.tyInt)
+                let unitToInt = TyFun(BuiltinTypes.tyUnit, BuiltinTypes.tyInt)
                 Expect.equal (declType tast) unitToInt "f : unit -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -527,33 +527,33 @@ let tests =
 
             test "generic record literal carries arg-bearing type" {
                 let tast = analyse "type Box<'a> = { Value: 'a }\nlet b = { Value = 1 }"
-                Expect.equal (declType tast) (TyRecord("Box", [ MockBuiltins.tyInt ])) "b : Box<int>"
+                Expect.equal (declType tast) (TyRecord("Box", [ BuiltinTypes.tyInt ])) "b : Box<int>"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
             test "generic ctor application carries arg-bearing type" {
                 let tast = analyse "type Option<'a> = | Some of 'a | None\nlet s = Some 1"
-                Expect.equal (declType tast) (TyUnion("Option", [ MockBuiltins.tyInt ])) "s : Option<int>"
+                Expect.equal (declType tast) (TyUnion("Option", [ BuiltinTypes.tyInt ])) "s : Option<int>"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
             test "generic record-field access resolves via substitution" {
                 let tast = analyse "type Box<'a> = { Value: 'a }\nlet f (b : Box<int>) = b.Value"
 
-                let expected = TyFun(TyRecord("Box", [ MockBuiltins.tyInt ]), MockBuiltins.tyInt)
+                let expected = TyFun(TyRecord("Box", [ BuiltinTypes.tyInt ]), BuiltinTypes.tyInt)
                 Expect.equal (declType tast) expected "f : Box<int> -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
             test "TAST: monomorphic abbreviation erases to underlying type" {
                 let tast = analyse "type Name = string\nlet n : Name = \"x\""
-                Expect.equal (declType tast) MockBuiltins.tyString "declType is string"
+                Expect.equal (declType tast) BuiltinTypes.tyString "declType is string"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
             test "TAST: generic abbreviation literal expands to tuple" {
                 let tast = analyse "type Pair<'a> = 'a * 'a\nlet p : Pair<int> = (1, 2)"
-                let expected = TyTuple [ MockBuiltins.tyInt; MockBuiltins.tyInt ]
+                let expected = TyTuple [ BuiltinTypes.tyInt; BuiltinTypes.tyInt ]
                 Expect.equal (declType tast) expected "declType is int * int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -594,7 +594,7 @@ let tests =
                 match body with
                 | TExpr.PropertyGet(_, name, ty) ->
                     Expect.equal name "X" "property name"
-                    Expect.equal ty MockBuiltins.tyInt "property type"
+                    Expect.equal ty BuiltinTypes.tyInt "property type"
                 | _ -> failtestf "expected PropertyGet, got %A" body
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -619,7 +619,7 @@ let tests =
                 | TExpr.MethodCall(_, name, args, ty) ->
                     Expect.equal name "Magnitude" "method name"
                     Expect.equal args.Length 0 "no args (unit-arg fold)"
-                    Expect.equal ty MockBuiltins.tyInt "method return"
+                    Expect.equal ty BuiltinTypes.tyInt "method return"
                 | _ -> failtestf "expected MethodCall, got %A" body
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -637,7 +637,7 @@ let tests =
                 | TExpr.StaticPropertyGet(className, name, ty) ->
                     Expect.equal className "C" "class name"
                     Expect.equal name "Origin" "property name"
-                    Expect.equal ty MockBuiltins.tyInt "ty is int"
+                    Expect.equal ty BuiltinTypes.tyInt "ty is int"
                 | _ -> failtestf "expected StaticPropertyGet, got %A" valExpr
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -657,7 +657,7 @@ let tests =
                     Expect.equal className "C" "class name"
                     Expect.equal methodName "M" "method name"
                     Expect.equal args.Length 1 "one arg"
-                    Expect.equal ty MockBuiltins.tyInt "method return"
+                    Expect.equal ty BuiltinTypes.tyInt "method return"
                 | _ -> failtestf "expected StaticMethodCall, got %A" valExpr
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -668,7 +668,7 @@ let tests =
                     { new IExternalSymbolProvider with
                         member _.TryLookup name =
                             if name = "Math.pi" then
-                                ValueSome(ExternalSymbols.mono name MockBuiltins.tyFloat)
+                                ValueSome(ExternalSymbols.mono name BuiltinTypes.tyFloat)
                             else
                                 MockBuiltins.provider.TryLookup name
 
@@ -680,7 +680,7 @@ let tests =
                 let lexed, file = parseFile input
                 let tast = Pipeline.analyse provider input lexed file
 
-                Expect.equal (declType tast) MockBuiltins.tyFloat "r : float"
+                Expect.equal (declType tast) BuiltinTypes.tyFloat "r : float"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
         ]

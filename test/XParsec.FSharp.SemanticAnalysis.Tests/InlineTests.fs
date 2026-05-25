@@ -50,7 +50,7 @@ let tests =
             test "inline binding still types and freezes its body verbatim" {
                 let tast = analyse "let inline succ x = x + 1"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
-                Expect.equal (declType tast) (TyFun(MockBuiltins.tyInt, MockBuiltins.tyInt)) "succ : int -> int"
+                Expect.equal (declType tast) (TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)) "succ : int -> int"
             }
 
             test "monomorphic inline binding has no quantified typars" {
@@ -82,7 +82,7 @@ let tests =
 
             test "expanding a polymorphic binding substitutes the typar through the body" {
                 let decl = firstDecl "let inline id x = x"
-                let expanded = Inline.inlineExpand decl [| MockBuiltins.tyInt |]
+                let expanded = Inline.inlineExpand decl [| BuiltinTypes.tyInt |]
 
                 // `id`'s body is `fun x -> x`; instantiating 'a := int makes
                 // every position concrete int.
@@ -96,7 +96,7 @@ let tests =
             test "inlineExpand does not mutate the original decl" {
                 let decl = firstDecl "let inline id x = x"
                 // Expand once at int…
-                Inline.inlineExpand decl [| MockBuiltins.tyInt |] |> ignore
+                Inline.inlineExpand decl [| BuiltinTypes.tyInt |] |> ignore
 
                 // …the decl's own type must still carry a free typar so a
                 // second call-site can instantiate it independently.
@@ -104,7 +104,7 @@ let tests =
                 | TDecl.Let(_, _, _, declTy) ->
                     Expect.equal (List.length (Inline.quantifiedTypars declTy)) 1 "typar still free after expansion"
 
-                    let again = Inline.inlineExpand decl [| MockBuiltins.tyBool |]
+                    let again = Inline.inlineExpand decl [| BuiltinTypes.tyBool |]
 
                     match again with
                     | TExpr.Lambda(TPat.NamedSimple(_, TyConst "bool"), _, _) -> ()
@@ -115,7 +115,7 @@ let tests =
             test "inlineExpand on a TDecl.Expression raises" {
                 // A top-level expression has no binding to expand.
                 let decl =
-                    TDecl.Expression(TExpr.Const(TConstValue.Unit, MockBuiltins.tyUnit), MockBuiltins.tyUnit)
+                    TDecl.Expression(TExpr.Const(TConstValue.Unit, BuiltinTypes.tyUnit), BuiltinTypes.tyUnit)
 
                 Expect.throws (fun () -> Inline.inlineExpand decl [||] |> ignore) "expects a TDecl.Let"
             }
@@ -198,7 +198,7 @@ let tests =
                 // `let bound = <free> in bound`: `free`'s key is never bound
                 // inside the body, so it must pass through; `bound` is rebound
                 // and its reference rewired.
-                let tyInt = MockBuiltins.tyInt
+                let tyInt = BuiltinTypes.tyInt
                 let freeKey = NodeKey.ofSource 999 NodeKind.ExprIdent
                 let boundKey = NodeKey.ofSource 1 NodeKind.PatIdent
 

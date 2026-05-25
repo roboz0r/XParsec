@@ -26,9 +26,9 @@ let private specType (s: string) : FormatType =
     | ValueSome ph -> ph.Type
     | ValueNone -> failwithf "not a well-formed placeholder: %s" s
 
-let private tyUnit = MockBuiltins.tyUnit
-let private tyInt = MockBuiltins.tyInt
-let private tyString = MockBuiltins.tyString
+let private tyUnit = BuiltinTypes.tyUnit
+let private tyInt = BuiltinTypes.tyInt
+let private tyString = BuiltinTypes.tyString
 
 [<Tests>]
 let tests =

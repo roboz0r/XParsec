@@ -293,18 +293,13 @@ module ExternalSymbols =
                   member _.AmbientOpenPrefixes = ambientPrefixes
             }
 
-/// **Production-path code wires `FSharpLib.buildProvider` instead** — this
-/// module exists as a test fixture and as the simplest possible example of the
-/// provider interface. It stays for test isolation (most tests want a known
-/// minimal surface so a failure is unambiguously the unifier's, not the
-/// extractor's) and as a legible "fake target" provider slot.
-///
-/// Divergence risk: this provider declares some ops monomorphically
-/// (`(+) : int -> int -> int`) where the real lib declares them
-/// polymorphically with SRTP. Tests that need real-world behaviour should
-/// wire `FSharpLib.buildProvider` directly or chain it in front of this
-/// one — see `FSharpLib.chain`.
-module MockBuiltins =
+/// The primitive `SemType` anchors the type-checker pins literals and built-in
+/// constructs to (`Unification` / `Freeze`). These are **production
+/// infrastructure**, not part of any mock — they were hoisted out of
+/// `MockBuiltins` (which is marked for deletion) so the real passes no longer
+/// import their primitive types from a module named "Mock". Codegen maps each
+/// `TyConst` name to its target IL type via `IntrinsicRepr`.
+module BuiltinTypes =
 
     let tyInt: SemType = TyConst "int"
     let tyInt64: SemType = TyConst "int64"
@@ -319,6 +314,25 @@ module MockBuiltins =
     /// (`1..10`, `1..2..10`). Until generic types are modelled this is an
     /// opaque TyConst that only unifies with itself.
     let tySeqInt: SemType = TyConst "seq<int>"
+
+/// **MARKED FOR DELETION.** This module is a *test fixture* (the symbol-provider
+/// `provider` + its op/printf/list/core tables); the contract-as-provider
+/// demotion removed it from the codegen stack entirely (see
+/// `project_contract_demotion` / docs/symbol-resolution-handoff.md). What remains
+/// is its use by the front-end unit suites (for an isolated, known-minimal symbol
+/// surface) and the Vesper.Core/List DLL compiles in the codegen `TestHelpers`.
+/// Once those move onto a contract-backed (or small purpose-built) provider, this
+/// whole module goes — the primitive `SemType` constants it used to own already
+/// live in `BuiltinTypes` above, so deletion no longer touches production code.
+///
+/// Divergence risk (the reason to retire it): this provider declares some ops
+/// monomorphically (`(+) : int -> int -> int`) where the real contract declares
+/// them polymorphically with SRTP. Tests that need real-world behaviour should
+/// wire `FSharpLib.buildProvider` directly or chain it in front of this one — see
+/// `FSharpLib.chain`.
+module MockBuiltins =
+
+    open BuiltinTypes
 
     let private tyBinOp (a: SemType) (b: SemType) (r: SemType) : SemType = TyFun(a, TyFun(b, r))
 

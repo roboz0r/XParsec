@@ -807,7 +807,7 @@ module Freeze =
                 TExpr.New(
                     name,
                     [
-                        TExpr.Const(TConstValue.String(stitchLiteralString ctx parts), MockBuiltins.tyString)
+                        TExpr.Const(TConstValue.String(stitchLiteralString ctx parts), BuiltinTypes.tyString)
                     ],
                     ty
                 )
