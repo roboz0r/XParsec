@@ -152,7 +152,7 @@ let tests =
 
                 match tast.Decls.[0] with
                 | TDecl.Let(_,
-                            TExpr.App(TExpr.External("Microsoft.FSharp.Collections.ArrayModule.OfList", opTy),
+                            TExpr.App(TExpr.External("Microsoft.FSharp.Collections.ArrayModule.OfList", _, opTy),
                                       TExpr.UnionCons("Cons", _, innerTy),
                                       outerTy),
                             _,

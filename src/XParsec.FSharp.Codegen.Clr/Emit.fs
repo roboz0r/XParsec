@@ -129,7 +129,7 @@ module Emit =
         match e with
         | TExpr.Const(_, ty) -> ty
         | TExpr.Var(_, ty) -> ty
-        | TExpr.External(_, ty) -> ty
+        | TExpr.External(_, _, ty) -> ty
         | TExpr.Lambda(_, _, ty) -> ty
         | TExpr.App(_, _, ty) -> ty
         | TExpr.Let(_, _, _, ty) -> ty
@@ -429,7 +429,7 @@ module Emit =
             let head, spine = collectSpine [] e
 
             match head with
-            | TExpr.External(name, _) when BuiltinOps.isSaturated name (List.length spine) ->
+            | TExpr.External(name, _, _) when BuiltinOps.isSaturated name (List.length spine) ->
                 // `collectSpine` pairs each arg with its `App` node's result type,
                 // so the last pair's type is the whole application's result.
                 let retTy = snd (List.last spine)
@@ -554,7 +554,7 @@ module Emit =
                 | (k, pty) :: rest, TyFun(_, resTy) -> applyAll (TExpr.App(acc, TExpr.Var(k, pty), resTy)) resTy rest
                 | _ -> failwith "Emit: eta-reification arity mismatch"
 
-            let appBody = applyAll (TExpr.External(name, ty)) ty kts
+            let appBody = applyAll (TExpr.External(name, ValueNone, ty)) ty kts
 
             kts
             |> List.foldBack (fun (k, pty) (innerBody, innerTy) ->
@@ -595,7 +595,7 @@ module Emit =
                         | _ -> lowerExpr head
 
                     rebuildApp head' [ for (a, t) in spineArgs -> lowerExpr a, t ]
-            | TExpr.External(name, ty) when isFunTy ty -> etaExpand name ty
+            | TExpr.External(name, _, ty) when isFunTy ty -> etaExpand name ty
             | TExpr.Var(k, _) when inlines.ContainsKey k -> lowerExpr (expandInline k)
             | _ -> mapChildren lowerExpr e
 
@@ -1246,7 +1246,7 @@ module Emit =
             let head, spineArgs = collectSpine [] e
 
             match head with
-            | TExpr.External(name, _) when isFailwith name ->
+            | TExpr.External(name, _, _) when isFailwith name ->
                 // `failwith "msg"` → `ldstr msg; newobj System.Exception(string);
                 // throw`. BCL-only (the provider's `ExceptionCtor`), and terminal
                 // — `throw` ends the path, so it tolerates a value position the
@@ -1257,7 +1257,7 @@ module Emit =
                     b.Add(ILInstr.Newobj(env.Provider.ExceptionCtor, 1))
                     b.Add ILInstr.Throw
                 | [] -> failwith "Emit: failwith with no argument"
-            | TExpr.External(name, _) when isHash name ->
+            | TExpr.External(name, _, _) when isHash name ->
                 // `hash x` → `EqualityComparer<'T>.Default.GetHashCode(x)`. There is
                 // no IL opcode for a structural hash, so — unlike `=`/`+`/`<`, which
                 // `expandBuiltinOps` collapses to a `TExpr.ILIntrinsic` — `hash`
@@ -1278,7 +1278,7 @@ module Emit =
                     buildExpr env b arg
                     b.Add(ILInstr.Callvirt(env.Provider.EqualityComparerGetHashCode elemTy, 2, 1)) // .GetHashCode(x)
                 | [] -> failwith "Emit: hash with no argument"
-            | TExpr.External(name, _) ->
+            | TExpr.External(name, _, _) ->
                 // The recipe reads its generic instantiation from the head's
                 // full curried type (`fnTy`).
                 match env.Provider.TryEmitCall(name, typeOfExpr head) with

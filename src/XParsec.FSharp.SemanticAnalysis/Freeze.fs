@@ -534,7 +534,7 @@ module Freeze =
                 // Function-typed ctor-as-value; codegen can eta-expand to a
                 // UnionCons lambda.
                 let caseName = (tryCtorRef ctx e).Value
-                TExpr.External(caseName, ty)
+                TExpr.External(caseName, ValueNone, ty)
         | Expr.Ident _
         | Expr.LongIdentOrOp _ -> translateIdent ctx e key ty
         | Expr.App(fn, args) when (tryCtorRef ctx fn).IsSome ->
@@ -657,7 +657,7 @@ module Freeze =
                     let headExpr =
                         match headBinding with
                         | ValueSome rb -> TExpr.Var(rb.BindingSite, headTy)
-                        | ValueNone -> TExpr.External(ctx.NameOf head, headTy)
+                        | ValueNone -> TExpr.External(ctx.NameOf head, ValueNone, headTy)
 
                     let mutable curr = headExpr
                     let mutable currTy = headTy
@@ -937,7 +937,7 @@ module Freeze =
                     | ValueNone -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
                 | _ -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
 
-            TExpr.External(name, ty)
+            TExpr.External(name, ValueNone, ty)
 
     /// Fold a multi-segment `r.X.Y…` LongIdent into nested `FieldGet` nodes. The
     /// head segment's TAST node is a `Var` pointing back at the local binding.
@@ -960,7 +960,7 @@ module Freeze =
         let headExpr =
             match headBinding with
             | ValueSome rb -> TExpr.Var(rb.BindingSite, headTy)
-            | ValueNone -> TExpr.External(ctx.NameOf head, headTy)
+            | ValueNone -> TExpr.External(ctx.NameOf head, ValueNone, headTy)
 
         let mutable currTy = headTy
         let mutable curr = headExpr
@@ -1189,7 +1189,7 @@ module Freeze =
             let rightTy = typeOfKey ctx (CstKeys.ofExpr right)
             let partialTy = TyFun(rightTy, resultTy)
             let opTy = TyFun(leftTy, partialTy)
-            let opExpr = TExpr.External(name, opTy)
+            let opExpr = TExpr.External(name, ValueNone, opTy)
             let app1 = TExpr.App(opExpr, translateExpr ctx left, partialTy)
             TExpr.App(app1, translateExpr ctx right, resultTy)
         | ValueSome _
@@ -1210,7 +1210,7 @@ module Freeze =
             // rather than re-instantiating the scheme.
             let operandTy = typeOfKey ctx (CstKeys.ofExpr operand)
             let opTy = TyFun(operandTy, resultTy)
-            let opExpr = TExpr.External(name, opTy)
+            let opExpr = TExpr.External(name, ValueNone, opTy)
             TExpr.App(opExpr, translateExpr ctx operand, resultTy)
         | ValueSome _
         | ValueNone -> failwithf "Freeze: PrefixApp at %O missing DesugaredForm entry" key
@@ -1271,7 +1271,7 @@ module Freeze =
             // targets are free to swap the wrapper.
             let opName = "Microsoft.FSharp.Collections.ArrayModule.OfList"
             let opTy = TyFun(listTy, arrayTy)
-            TExpr.App(TExpr.External(opName, opTy), listExpr, arrayTy)
+            TExpr.App(TExpr.External(opName, ValueNone, opTy), listExpr, arrayTy)
         else
             listExpr
 
@@ -1414,7 +1414,7 @@ module Freeze =
         match e with
         | TExpr.Const(v, ty) -> TExpr.Const(v, f ty)
         | TExpr.Var(k, ty) -> TExpr.Var(k, f ty)
-        | TExpr.External(n, ty) -> TExpr.External(n, f ty)
+        | TExpr.External(n, k, ty) -> TExpr.External(n, k, f ty)
         | TExpr.Lambda(p, b, ty) -> TExpr.Lambda(pp p, pe b, f ty)
         | TExpr.App(fn, a, ty) -> TExpr.App(pe fn, pe a, f ty)
         | TExpr.Let(p, v, b, ty) -> TExpr.Let(pp p, pe v, pe b, f ty)

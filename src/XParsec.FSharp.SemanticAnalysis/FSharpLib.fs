@@ -340,6 +340,8 @@ module FSharpLib =
                                 | _ -> i <- i + 1
 
                             hit
+
+                member _.TryLookupMember(_, _) = ValueNone
             }
 
     let private nameOfTok (lexed: Lexed) (input: string) (tok: SyntaxToken) : string =
@@ -1254,6 +1256,7 @@ module FSharpLib =
                             Name = compiled
                             Instantiate = instantiate
                             Constraints = resolved
+                            Origin = SymbolOrigin.Empty
                         }
 
                     ctx.Symbols.[compiled] <- sym
@@ -1707,6 +1710,11 @@ module FSharpLib =
                 match primary.TryLookupType name with
                 | ValueSome _ as r -> r
                 | ValueNone -> secondary.TryLookupType name
+
+            member _.TryLookupMember(typeName, memberName) =
+                match primary.TryLookupMember(typeName, memberName) with
+                | ValueSome _ as r -> r
+                | ValueNone -> secondary.TryLookupMember(typeName, memberName)
         }
 
     /// Lazy cache keyed by `libRoot` so repeated callers parse the lib at

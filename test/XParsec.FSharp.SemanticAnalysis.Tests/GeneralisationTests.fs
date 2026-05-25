@@ -109,6 +109,7 @@ let tests =
                                 MockBuiltins.provider.TryLookup name
 
                         member _.TryLookupType _ = ValueNone
+                        member _.TryLookupMember(_, _) = ValueNone
                     }
 
                 let input = "let r = let f = myId in f 1, f true"

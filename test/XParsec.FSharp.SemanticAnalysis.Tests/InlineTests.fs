@@ -141,7 +141,7 @@ let tests =
                 // substitution returning the retained `fun x -> x + 1` body.
                 match Inline.inlineExpand succDecl [||] with
                 | TExpr.Lambda(TPat.NamedSimple(_, TyConst "int"),
-                               TExpr.App(TExpr.App(TExpr.External("op_Addition", _), TExpr.Var(_, TyConst "int"), _),
+                               TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _), TExpr.Var(_, TyConst "int"), _),
                                          TExpr.Const(TConstValue.Int 1, _),
                                          _),
                                TyFun(TyConst "int", TyConst "int")) -> ()
@@ -163,7 +163,7 @@ let tests =
             let succBinderAndVar (e: TExpr) =
                 match e with
                 | TExpr.Lambda(TPat.NamedSimple(kb, _),
-                               TExpr.App(TExpr.App(TExpr.External("op_Addition", _), TExpr.Var(kv, _), _),
+                               TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _), TExpr.Var(kv, _), _),
                                          TExpr.Const(TConstValue.Int 1, _),
                                          _),
                                _) -> kb, kv

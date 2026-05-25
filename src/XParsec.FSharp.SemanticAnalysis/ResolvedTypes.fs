@@ -88,7 +88,7 @@ module ResolvedTypes =
         match e with
         | TExpr.Const(_, ty)
         | TExpr.Var(_, ty)
-        | TExpr.External(_, ty)
+        | TExpr.External(_, _, ty)
         | TExpr.Null ty -> addFreeRoots allowed acc ty
         | TExpr.Lambda(p, body, ty) ->
             addFreeRoots allowed acc ty

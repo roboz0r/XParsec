@@ -48,7 +48,7 @@ let private prefixSym = Map.ofList [ "op_UnaryNegation", "-" ]
 
 let private (|InfixOp|_|) (e: TExpr) =
     match e with
-    | TExpr.App(TExpr.App(TExpr.External(name, _), left, _), right, _) ->
+    | TExpr.App(TExpr.App(TExpr.External(name, _, _), left, _), right, _) ->
         match Map.tryFind name opSym with
         | Some sym -> Some(sym, left, right)
         | None -> None
@@ -56,7 +56,7 @@ let private (|InfixOp|_|) (e: TExpr) =
 
 let private (|PrefixOp|_|) (e: TExpr) =
     match e with
-    | TExpr.App(TExpr.External(name, _), operand, _) ->
+    | TExpr.App(TExpr.External(name, _, _), operand, _) ->
         match Map.tryFind name prefixSym with
         | Some sym -> Some(sym, operand)
         | None -> None
@@ -105,7 +105,7 @@ type private Renderer() =
             push s
             push "\""
         | TExpr.Var(k, _) -> push (nameOf k)
-        | TExpr.External(name, _) -> push name
+        | TExpr.External(name, _, _) -> push name
 
         | InfixOp(sym, l, r) ->
             push "("

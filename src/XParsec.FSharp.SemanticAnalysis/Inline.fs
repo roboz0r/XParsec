@@ -126,7 +126,7 @@ module Inline =
         match e with
         | TExpr.Const(v, t) -> TExpr.Const(v, sT t)
         | TExpr.Var(k, t) -> TExpr.Var(k, sT t)
-        | TExpr.External(n, t) -> TExpr.External(n, sT t)
+        | TExpr.External(n, k, t) -> TExpr.External(n, k, sT t)
         | TExpr.Null t -> TExpr.Null(sT t)
         | TExpr.Lambda(p, b, t) -> TExpr.Lambda(sP p, sE b, sT t)
         | TExpr.App(f, a, t) -> TExpr.App(sE f, sE a, sT t)

@@ -17,7 +17,7 @@ let tests =
                 let listTy = TyRecord("Microsoft.FSharp.Collections.list", [ TyConst "int" ])
 
                 match tast.Decls with
-                | [ TDecl.Expression(TExpr.App(TExpr.App(TExpr.External("printfn", _), TExpr.New _, _),
+                | [ TDecl.Expression(TExpr.App(TExpr.App(TExpr.External("printfn", _, _), TExpr.New _, _),
                                                TExpr.UnionCons("Cons",
                                                                [ TExpr.Const(TConstValue.Int 1, _)
                                                                  TExpr.UnionCons("Cons",

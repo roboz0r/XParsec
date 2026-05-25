@@ -24,7 +24,9 @@ let tests =
 
                 match tast.Decls with
                 | [ TDecl.Let(TPat.NamedSimple(kx, _),
-                              TExpr.App(TExpr.App(TExpr.External("op_Addition", _), TExpr.Const(TConstValue.Int 1, _), _),
+                              TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _),
+                                                  TExpr.Const(TConstValue.Int 1, _),
+                                                  _),
                                         TExpr.Const(TConstValue.Int 2, _),
                                         _),
                               false,

@@ -47,7 +47,10 @@ type TExpr =
     /// Symbol resolved through IExternalSymbolProvider. Carries the compiled
     /// name so target plugins can dispatch (`op_Addition` -> CIL `add` on
     /// .NET, native `+` on Rust, etc. — see [[project_inline_il_target_specific]]).
-    | External of compiledName: string * ty: SemType
+    /// `key` interns the resolved `SymbolKey` so codegen reads the binding off the
+    /// node instead of re-resolving by name (symbol-resolution-plan §7.2);
+    /// `ValueNone` until Freeze stamps it (P3) — every site is name-only today.
+    | External of compiledName: string * key: SymbolKey voption * ty: SemType
     | Lambda of param: TPat * body: TExpr * ty: SemType
     | App of fn: TExpr * arg: TExpr * ty: SemType
     | Let of binding: TPat * value: TExpr * body: TExpr * ty: SemType

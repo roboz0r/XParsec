@@ -4,6 +4,45 @@ namespace XParsec.FSharp.SemanticAnalysis
 // per-target inline IL) is firmly future work — see
 // [[project_inline_il_target_specific]] for why we don't model it here.
 
+/// Where a resolved symbol physically lives — enough for codegen to mint a ref
+/// without re-resolving. `Assembly` is a simple name keyed into a `ProjectInfo`'s
+/// resolved reference set; `None` ⇒ defined in the project being compiled. See
+/// symbol-resolution-plan §4.
+type SymbolOrigin =
+    {
+        Assembly: string option
+        Namespace: string
+        DeclaringType: string option
+    }
+
+    /// The default carried by symbols that don't (yet) record an origin —
+    /// project-local, root namespace, no declaring type. P0 stamps this
+    /// everywhere; later phases fill it from the resolving source.
+    static member Empty =
+        {
+            Assembly = None
+            Namespace = ""
+            DeclaringType = None
+        }
+
+/// Platform-agnostic, scope-unambiguous symbol identity (symbol-resolution-plan
+/// §7.3). All strings/ints — never a CLR `EntityHandle` or `System.Type` (those
+/// are per-context and target-specific). The discriminator is the *origin*
+/// (assembly, namespace[, declaring type]), not the bare name, so a project-local
+/// `List` and `System.Collections.Generic.List`1` get different keys by
+/// construction. Keyed on the open generic *definition* (`name` includes the
+/// `` `arity `` suffix); instantiation is the cheap per-use substitution.
+[<RequireQualifiedAccess>]
+type SymbolKey =
+    /// A type definition. `name` includes the arity suffix (`` IEnumerable`1 ``).
+    | TypeKey of asm: string option * ns: string * name: string
+    /// A value (module-level binding / operator).
+    | ValueKey of asm: string option * ns: string * name: string
+    /// A member on a type. `argSig` is written in the declaring type's OPEN
+    /// typars (`!0`, …) and disambiguates overloads (`GetHashCode()` vs
+    /// `GetHashCode(!0)`).
+    | MemberKey of decl: SymbolKey * memberName: string * argSig: string list
+
 /// SRTP / trait / default constraint captured on an external symbol's typar
 /// list. Member-trait clauses are recorded as opaque markers; default clauses
 /// carry a SemBuilder over the symbol's typar list so `Instantiate` can stamp
@@ -54,6 +93,9 @@ type ExternalSymbol =
         /// closure for diagnostic introspection and to let future passes audit
         /// which constraints are still unimplemented.
         Constraints: ExternalConstraint list
+        /// Where the symbol lives — the bridge to codegen (symbol-resolution-plan
+        /// §4). `SymbolOrigin.Empty` until a resolving source fills it.
+        Origin: SymbolOrigin
     }
 
 /// Per-field shape inside an `ExternalTypeShape.Record`. Field types are
@@ -78,10 +120,24 @@ type ExternalCaseShape =
         BuildFieldTypes: (SemType[] -> SemType)[]
     }
 
+/// A resolved member (static/instance method or property getter) on an external
+/// type (symbol-resolution-plan §4). `BuildSignature` is parameterised over the
+/// *enclosing type's* typars, exactly like `ExternalFieldShape.BuildType`:
+/// callers pass a `SemType[]` (one entry per declared typar) and the builder
+/// substitutes them through, yielding the curried `arg → … → ret` signature.
+type ExternalMember =
+    {
+        Name: string
+        IsStatic: bool
+        IsProperty: bool
+        BuildSignature: SemType[] -> SemType
+        Origin: SymbolOrigin
+    }
+
 /// Type-declaration shape carried by `IExternalSymbolProvider.TryLookupType`.
 /// `arity` is the number of declared typars (same length the builder
-/// arrays expect at instantiation). class/interface/enum/delegate types are
-/// deferred and currently return `ValueNone` from the provider.
+/// arrays expect at instantiation). enum/delegate types are deferred and
+/// currently return `ValueNone` from the provider.
 [<RequireQualifiedAccess>]
 type ExternalTypeShape =
     | Abbrev of arity: int * body: (SemType[] -> SemType)
@@ -89,6 +145,9 @@ type ExternalTypeShape =
     | Record of arity: int * fields: ExternalFieldShape[]
     /// Case order matches source.
     | Union of arity: int * cases: ExternalCaseShape[]
+    /// A class or interface (the gap that makes `EqualityComparer<_>` resolve to
+    /// `ValueNone` today). Members are resolved separately via `TryLookupMember`.
+    | Class of arity: int * isInterface: bool * origin: SymbolOrigin
 
 /// **Thread-safety:** `TryLookup` and `TryLookupType` must be safe to call
 /// concurrently from multiple threads. Implementations that cache lazily must
@@ -100,10 +159,15 @@ type IExternalSymbolProvider =
     abstract TryLookup: name: string -> ExternalSymbol voption
     /// Look up the body of a `type` declaration by canonical compiled name.
     /// Returns `ValueNone` for unknown names or for types whose body shape the
-    /// provider doesn't (yet) model — classes, interfaces, enums, delegates,
-    /// etc. Consumers fall back to `TyConst` / `TyRecord` nominal behaviour
-    /// when this returns `ValueNone`.
+    /// provider doesn't (yet) model — enums, delegates, etc. Consumers fall back
+    /// to `TyConst` / `TyRecord` nominal behaviour when this returns `ValueNone`.
     abstract TryLookupType: name: string -> ExternalTypeShape voption
+    /// Look up a static/instance member on an external type by the declaring
+    /// type's compiled name and the member name. This is what types
+    /// `EqualityComparer<'T>.Default` (static property) and `.GetHashCode`
+    /// (instance method). Defaults to `ValueNone` for providers that don't model
+    /// members (symbol-resolution-plan §4).
+    abstract TryLookupMember: typeName: string * memberName: string -> ExternalMember voption
 
 module ExternalSymbols =
 
@@ -112,6 +176,7 @@ module ExternalSymbols =
             Name = name
             Instantiate = fun _ -> ty
             Constraints = []
+            Origin = SymbolOrigin.Empty
         }
 
     /// `build level` is invoked per lookup so any `TypeVar` it allocates is
@@ -121,6 +186,7 @@ module ExternalSymbols =
             Name = name
             Instantiate = build
             Constraints = []
+            Origin = SymbolOrigin.Empty
         }
 
     /// Like `poly` but carries constraints. The `build` closure is responsible
@@ -131,6 +197,7 @@ module ExternalSymbols =
             Name = name
             Instantiate = build
             Constraints = constraints
+            Origin = SymbolOrigin.Empty
         }
 
     /// For tests that want to isolate behavior from external-symbol noise.
@@ -138,6 +205,7 @@ module ExternalSymbols =
         { new IExternalSymbolProvider with
             member _.TryLookup _ = ValueNone
             member _.TryLookupType _ = ValueNone
+            member _.TryLookupMember(_, _) = ValueNone
         }
 
 /// **Production-path code wires `FSharpLib.buildProvider` instead** — this
@@ -310,4 +378,5 @@ module MockBuiltins =
                 | None -> ValueNone
 
             member _.TryLookupType _ = ValueNone
+            member _.TryLookupMember(_, _) = ValueNone
         }

@@ -35,7 +35,7 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics — (+) resolves as a value"
 
                 match tast.Decls with
-                | [ TDecl.Let(TPat.NamedSimple(kAdd, _), TExpr.External("op_Addition", _), false, _)
+                | [ TDecl.Let(TPat.NamedSimple(kAdd, _), TExpr.External("op_Addition", _, _), false, _)
                     TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _), _) ] ->
                     match EqArray.toList segs with
                     | [ FormatSeg.Hole(_,

@@ -22,7 +22,7 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match Emit.lower tast.Decls with
-                | [ TDecl.Let(TPat.NamedSimple _, TExpr.App(TExpr.External("hash", _), _, _), false, _) ] -> ()
+                | [ TDecl.Let(TPat.NamedSimple _, TExpr.App(TExpr.External("hash", _, _), _, _), false, _) ] -> ()
                 | other -> failtestf "expected `hash 5` to stay an External(\"hash\") application, got %A" other
             }
 
