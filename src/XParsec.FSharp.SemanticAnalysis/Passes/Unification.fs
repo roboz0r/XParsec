@@ -2151,6 +2151,7 @@ module Unification =
             | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
                 inferFieldAccess ctx key r li.Idents.[0]
             | Expr.New(typ = t; expr = argExpr) -> inferNew ctx key t argExpr
+            | Expr.ILIntrinsic(args = args; returnType = rt) -> inferILIntrinsic ctx args rt
             | _ ->
                 // TODO: other expression kinds.
                 TyVar(freshTyVar ctx)
@@ -3138,6 +3139,25 @@ module Unification =
 
             infer ctx argExpr |> ignore
             TyVar(freshTyVar ctx)
+
+    /// Value-level inline IL `(# "op" args : retTy #)`. The instruction string
+    /// and the operand types are opaque to the type-checker (the IL contract is
+    /// the platform author's responsibility); we only type each operand so its
+    /// own subtree is solved, and take the node's type from the declared result
+    /// annotation. An IL op with no result annotation produces `unit`. This is
+    /// the value-level analogue of the type-level intrinsic (`Type.ILIntrinsic`,
+    /// which NameResolution records into `IntrinsicReprTypes`).
+    and private inferILIntrinsic
+        (ctx: PassContext)
+        (args: ImmutableArray<Expr<SyntaxToken>>)
+        (returnType: ReturnType<SyntaxToken> voption)
+        : SemType =
+        for a in args do
+            infer ctx a |> ignore
+
+        match returnType with
+        | ValueSome(ReturnType(typ = t)) -> translateType ctx t
+        | ValueNone -> MockBuiltins.tyUnit
 
     /// `r.X.Y…` parsed as a single multi-segment `Expr.LongIdentOrOp`. The
     /// head segment was resolved by NameResolution as a local binding — type

@@ -418,6 +418,17 @@ type private Renderer() =
 
             push "]"
 
+        | TExpr.ILIntrinsic(opCode, args, _) ->
+            push "(# \""
+            push opCode
+            push "\""
+
+            for a in args do
+                push " "
+                this.Expr a
+
+            push " #)"
+
     member this.Pat(p: TPat) : unit =
         match p with
         | TPat.NamedSimple(k, _) -> push (nameOf k)

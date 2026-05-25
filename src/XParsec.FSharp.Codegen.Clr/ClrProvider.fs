@@ -691,15 +691,6 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>, references: M
             }
         | other -> failwithf "ClrProvider: cannot invoke non-function type: %A" other
 
-    /// Bare CIL arithmetic intrinsic (`add` / `sub` / `mul`): pops two
-    /// operands, pushes one result, references no metadata.
-    let arithmetic (opCode: ILOpCode) : CallRecipe =
-        {
-            Emit = fun il -> il.Encoder.OpCode opCode
-            ArgCount = 2
-            Pushes = 1
-        }
-
     /// `new PrintfFormat<tyArgs>(string)`.
     let emitPrintfFormatCtor (tyArgs: SemType list) : CtorRecipe =
         markFSharpCoreDep "Microsoft.FSharp.Core.PrintfFormat`4 (.ctor)"
@@ -1379,9 +1370,9 @@ type ClrProvider(ctx: MetadataContext, reprs: Map<string, string>, references: M
             else
                 match lastSegment compiledName with
                 | "printfn" -> ValueSome(emitPrintfn (zonk fnTy))
-                | "op_Addition" -> ValueSome(arithmetic ILOpCode.Add)
-                | "op_Subtraction" -> ValueSome(arithmetic ILOpCode.Sub)
-                | "op_Multiply" -> ValueSome(arithmetic ILOpCode.Mul)
+                // Arithmetic / equality / comparison operators no longer reach here:
+                // `Emit.lower` expands them to `TExpr.ILIntrinsic` from their inline-IL
+                // bodies before emission (docs/core-operators-handoff.md, C-Eq1).
                 | _ -> ValueNone
 
         member _.TryEmitCtor(className, tyArgs) =

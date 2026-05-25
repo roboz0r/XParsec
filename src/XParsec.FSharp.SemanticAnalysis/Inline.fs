@@ -129,6 +129,7 @@ module Inline =
                 )
 
             TExpr.Format(sink, segs, sT t)
+        | TExpr.ILIntrinsic(op, args, t) -> TExpr.ILIntrinsic(op, List.map sE args, sT t)
 
     and private substArm (subst: Dictionary<TypeVar, SemType>) (arm: TMatchArm) : TMatchArm =
         {
@@ -253,6 +254,7 @@ module Inline =
                     )
 
                 TExpr.Format(sink, segs, t)
+            | TExpr.ILIntrinsic(op, args, t) -> TExpr.ILIntrinsic(op, List.map fE args, t)
 
         and fArm (arm: TMatchArm) : TMatchArm =
             {

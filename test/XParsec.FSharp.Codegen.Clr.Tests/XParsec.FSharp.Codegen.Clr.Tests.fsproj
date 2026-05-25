@@ -22,6 +22,8 @@
     <Compile Include="Rung2Tests.fs" />
     <Compile Include="SelfHostR3Tests.fs" />
     <Compile Include="SelfHostR4Tests.fs" />
+    <Compile Include="ILIntrinsicTests.fs" />
+    <Compile Include="OperatorRoutingTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

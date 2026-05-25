@@ -52,6 +52,7 @@ type NodeKind =
     | ExprDotLookup = 32us
     | ExprRecordClone = 33us
     | ExprNew = 34us
+    | ExprILIntrinsic = 35us
 
     | PatConst = 100us
     | PatIdent = 101us

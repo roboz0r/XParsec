@@ -233,6 +233,72 @@ module Cil =
 
     let emitRet (il: Il) : unit = il.Encoder.OpCode(ILOpCode.Ret)
 
+    // ---- Inline-IL value ops (the value-level `(# "op" args : ty #)`) ----
+
+    /// Map an F# inline-IL mnemonic (`"ceq"`, `"add"`, `"conv.i2"`) to its
+    /// `ILOpCode`. The value-level sibling of the type-level intrinsic repr map
+    /// (`IntrinsicRepr`): an operator `.fs` body (`(=)` → `ceq`, `(<)` → `clt`,
+    /// `(+)` → `add`) lowers to `TExpr.ILIntrinsic` carrying the mnemonic, and
+    /// codegen interprets it here rather than special-casing the operator name.
+    /// Scoped to the stack-balanced single-result ops the equality / comparison /
+    /// arithmetic surface needs; `ValueNone` for anything else (operand-bearing
+    /// branches, loads/stores) the simple value-op emitter can't model. Mnemonics
+    /// are lower-case with `.`-separated suffixes, matching F# `(# … #)` syntax.
+    let tryOpCodeOfMnemonic (mnemonic: string) : ILOpCode voption =
+        match mnemonic with
+        // Comparison (each leaves an int32 bool).
+        | "ceq" -> ValueSome ILOpCode.Ceq
+        | "cgt" -> ValueSome ILOpCode.Cgt
+        | "cgt.un" -> ValueSome ILOpCode.Cgt_un
+        | "clt" -> ValueSome ILOpCode.Clt
+        | "clt.un" -> ValueSome ILOpCode.Clt_un
+        // Arithmetic.
+        | "add" -> ValueSome ILOpCode.Add
+        | "add.ovf" -> ValueSome ILOpCode.Add_ovf
+        | "add.ovf.un" -> ValueSome ILOpCode.Add_ovf_un
+        | "sub" -> ValueSome ILOpCode.Sub
+        | "sub.ovf" -> ValueSome ILOpCode.Sub_ovf
+        | "sub.ovf.un" -> ValueSome ILOpCode.Sub_ovf_un
+        | "mul" -> ValueSome ILOpCode.Mul
+        | "mul.ovf" -> ValueSome ILOpCode.Mul_ovf
+        | "mul.ovf.un" -> ValueSome ILOpCode.Mul_ovf_un
+        | "div" -> ValueSome ILOpCode.Div
+        | "div.un" -> ValueSome ILOpCode.Div_un
+        | "rem" -> ValueSome ILOpCode.Rem
+        | "rem.un" -> ValueSome ILOpCode.Rem_un
+        | "neg" -> ValueSome ILOpCode.Neg
+        // Bitwise / shift.
+        | "and" -> ValueSome ILOpCode.And
+        | "or" -> ValueSome ILOpCode.Or
+        | "xor" -> ValueSome ILOpCode.Xor
+        | "not" -> ValueSome ILOpCode.Not
+        | "shl" -> ValueSome ILOpCode.Shl
+        | "shr" -> ValueSome ILOpCode.Shr
+        | "shr.un" -> ValueSome ILOpCode.Shr_un
+        // Conversions (each pops one, pushes one).
+        | "conv.i1" -> ValueSome ILOpCode.Conv_i1
+        | "conv.i2" -> ValueSome ILOpCode.Conv_i2
+        | "conv.i4" -> ValueSome ILOpCode.Conv_i4
+        | "conv.i8" -> ValueSome ILOpCode.Conv_i8
+        | "conv.u1" -> ValueSome ILOpCode.Conv_u1
+        | "conv.u2" -> ValueSome ILOpCode.Conv_u2
+        | "conv.u4" -> ValueSome ILOpCode.Conv_u4
+        | "conv.u8" -> ValueSome ILOpCode.Conv_u8
+        | "conv.i" -> ValueSome ILOpCode.Conv_i
+        | "conv.u" -> ValueSome ILOpCode.Conv_u
+        | "conv.r4" -> ValueSome ILOpCode.Conv_r4
+        | "conv.r8" -> ValueSome ILOpCode.Conv_r8
+        | "conv.r.un" -> ValueSome ILOpCode.Conv_r_un
+        | _ -> ValueNone
+
+    /// Emit a value-producing inline-IL op whose `argCount` operands are already
+    /// on the stack (pushed by the caller). Every op in `tryOpCodeOfMnemonic`'s
+    /// scope leaves exactly one result, so the net stack delta is `1 - argCount`
+    /// (binary ops `-1`, unary conversions `0`).
+    let emitIntrinsicValueOp (il: Il) (code: ILOpCode) (argCount: int) : unit =
+        il.Encoder.OpCode code
+        il.Adjust(1 - argCount)
+
     // ---- Branching ----
 
     /// `buildBody`'s `ControlFlowBuilder` resolves the offset once `markLabel` places the target.

@@ -156,6 +156,7 @@ module Emit =
         | TExpr.StaticMethodCall(_, _, _, ty) -> ty
         | TExpr.StaticPropertyGet(_, _, ty) -> ty
         | TExpr.Format(_, _, ty) -> ty
+        | TExpr.ILIntrinsic(_, _, ty) -> ty
 
     let private typeOfPat (p: TPat) : SemType =
         match p with
@@ -298,6 +299,7 @@ module Emit =
                 )
 
             TExpr.Format(sink, segs, t)
+        | TExpr.ILIntrinsic(op, args, t) -> TExpr.ILIntrinsic(op, List.map f args, t)
 
     /// Reuses `mapChildren`, discarding the rebuilt tree — only the one-shot
     /// discovery / free-variable pre-passes call this.
@@ -341,6 +343,97 @@ module Emit =
             TExpr.Let(TPat.NamedSimple(k, paramTy), arg, reduced, typeOfExpr reduced)
         | TExpr.Lambda(param, _, _), _ -> failwithf "Emit: inline parameter destructuring is out of scope: %A" param
         | _, _ :: _ -> failwith "Emit: over-application of an inline function"
+
+    // ---- Built-in operator bodies (the inline-IL the operator surface lowers onto) ----
+
+    /// The stopgap source of operator `.fs` bodies, expressed as the inline IL the
+    /// general `TExpr.ILIntrinsic` path emits. An operator use site (`a = b`,
+    /// `x + y`) freezes to an `External(compiledName)` call head; `expandBuiltinOps`
+    /// rewrites the saturated application to the matching body here, so the operator
+    /// collapses to an `ILIntrinsic` and codegen owns *no* per-operator dispatch (the
+    /// op→opcode choice lives in these bodies, exactly as it will in the eventual
+    /// operator `.fs`). Once operator-named bindings freeze and `Vesper.Core.dll`
+    /// ships the real bodies, this table is replaced by reading them — see
+    /// docs/core-operators-handoff.md (the front-end gap). The bodies are
+    /// *monomorphic* at the use-site type: the int/float/char primitive clauses all
+    /// share an opcode, so no `when ^T : …` static-optimization resolution (prereq 3)
+    /// is needed yet.
+    module private BuiltinOps =
+
+        /// `(# op operands : retTy #)` — the operator whose body is a single opcode.
+        let private ilBin (op: string) : TExpr list -> SemType -> TExpr =
+            fun operands retTy -> TExpr.ILIntrinsic(op, operands, retTy)
+
+        /// `not (# op operands : retTy #)`, realised as `ceq (# op … #) false` — the
+        /// derived ops with no direct opcode (`<>` = `not =`, `<=` = `not >`,
+        /// `>=` = `not <`). `retTy` is `bool`, so the inner result and the `false`
+        /// literal are both bool; the outer `ceq` against 0 negates it. Each operand
+        /// still appears once, so the body needs no rebinding.
+        let private ilBinNot (op: string) : TExpr list -> SemType -> TExpr =
+            fun operands retTy ->
+                let inner = TExpr.ILIntrinsic(op, operands, retTy)
+                TExpr.ILIntrinsic("ceq", [ inner; TExpr.Const(TConstValue.Bool false, retTy) ], retTy)
+
+        /// compiled name → (arity, body builder over the operand expressions).
+        /// `&&` / `||` are intentionally absent — they short-circuit and freeze to
+        /// `IfThenElse`, not an opcode.
+        let private table: Map<string, int * (TExpr list -> SemType -> TExpr)> =
+            Map
+                [
+                    // Equality family (C-Eq1) — `=` / `<>`.
+                    "op_Equality", (2, ilBin "ceq")
+                    "op_Inequality", (2, ilBinNot "ceq")
+                    // Ordering family — primitive `clt` / `cgt` (IEEE on floats, O7).
+                    "op_LessThan", (2, ilBin "clt")
+                    "op_GreaterThan", (2, ilBin "cgt")
+                    "op_LessThanOrEqual", (2, ilBinNot "cgt")
+                    "op_GreaterThanOrEqual", (2, ilBinNot "clt")
+                    // Arithmetic — supersedes the per-op `ClrProvider.TryEmitCall` arms.
+                    "op_Addition", (2, ilBin "add")
+                    "op_Subtraction", (2, ilBin "sub")
+                    "op_Multiply", (2, ilBin "mul")
+                    "op_Division", (2, ilBin "div")
+                    "op_Modulus", (2, ilBin "rem")
+                    "op_UnaryNegation", (1, ilBin "neg")
+                ]
+
+        /// True when `name` is a built-in operator applied to exactly its arity —
+        /// the saturated use site rewritten to inline IL. A partial application
+        /// (`(=) 1`) is left as a call head for the eta path.
+        let isSaturated (name: string) (spineLen: int) : bool =
+            match Map.tryFind name table with
+            | Some(arity, _) -> spineLen = arity
+            | None -> false
+
+        /// Build the operator's inline-IL body, splicing the (already-rewritten)
+        /// operand expressions directly. `retTy` is the application's result type.
+        let buildApp (name: string) (opArgs: TExpr list) (retTy: SemType) : TExpr =
+            let _, makeInner = table.[name]
+            makeInner opArgs retTy
+
+    /// Rewrite every saturated built-in operator application (`a = b`, `x + y`,
+    /// `-x`) to its inline-IL body, so it emits through the single
+    /// `TExpr.ILIntrinsic` path and codegen owns no per-operator recipe. Run as the
+    /// closing phase of `lower` (after inline expansion + eta-reification have
+    /// surfaced every operator application) and over type-member bodies, which are
+    /// emitted straight from `tast.Decls` and so never pass through `lower`. The
+    /// splice is direct — each body uses each operand exactly once — so no binder is
+    /// introduced and closure discovery / free-variable analysis are undisturbed.
+    /// See docs/core-operators-handoff.md (C-Eq1 last mile).
+    let rec expandBuiltinOps (e: TExpr) : TExpr =
+        match e with
+        | TExpr.App _ ->
+            let head, spine = collectSpine [] e
+
+            match head with
+            | TExpr.External(name, _) when BuiltinOps.isSaturated name (List.length spine) ->
+                // `collectSpine` pairs each arg with its `App` node's result type,
+                // so the last pair's type is the whole application's result.
+                let retTy = snd (List.last spine)
+                let opArgs = [ for (a, _) in spine -> expandBuiltinOps a ]
+                BuiltinOps.buildApp name opArgs retTy
+            | _ -> mapChildren expandBuiltinOps e
+        | _ -> mapChildren expandBuiltinOps e
 
     // ---- Lowering: inline expansion + External-as-value eta-reification ----
 
@@ -422,12 +515,15 @@ module Emit =
             | TExpr.Var(k, _) when inlines.ContainsKey k -> lowerExpr (expandInline k)
             | _ -> mapChildren lowerExpr e
 
+        // Inline / eta lowering surfaces operator applications (an inline body's
+        // `+`, an eta-reified `(+)`); `expandBuiltinOps` then collapses every
+        // saturated one to inline IL — a closing phase so it sees them all.
         decls
         |> List.choose (fun d ->
             match d with
             | TDecl.Let(_, _, true, _) -> None
-            | TDecl.Let(p, value, false, t) -> Some(TDecl.Let(p, lowerExpr value, false, t))
-            | TDecl.Expression(e, t) -> Some(TDecl.Expression(lowerExpr e, t))
+            | TDecl.Let(p, value, false, t) -> Some(TDecl.Let(p, expandBuiltinOps (lowerExpr value), false, t))
+            | TDecl.Expression(e, t) -> Some(TDecl.Expression(expandBuiltinOps (lowerExpr e), t))
             // Type declarations are emitted as metadata, not through the expr stream.
             | TDecl.Type _ -> None
         )
@@ -1197,6 +1293,18 @@ module Emit =
             Cil.emitCall il handle (List.length args) 1
 
         | TExpr.Format(sink, segments, _) -> emitFormat env il sink segments
+
+        | TExpr.ILIntrinsic(opCode, args, _) ->
+            // Push each operand, then append the mapped opcode. The dispatch
+            // (which opcode for which operator/primitive) lives in the operator
+            // `.fs` body this node was lowered from, not here — codegen only
+            // interprets the IL. See docs/core-operators-handoff.md.
+            for a in args do
+                emitExpr env il a
+
+            match Cil.tryOpCodeOfMnemonic opCode with
+            | ValueSome code -> Cil.emitIntrinsicValueOp il code (List.length args)
+            | ValueNone -> failwithf "Emit: unsupported inline-IL instruction '%s'" opCode
 
         | other -> failwithf "Emit: unsupported expression: %A" other
 

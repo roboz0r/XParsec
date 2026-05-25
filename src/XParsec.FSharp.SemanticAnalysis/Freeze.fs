@@ -352,6 +352,25 @@ module Freeze =
         | Expr.Sequential(exprs = items) -> [ for x in items -> x ]
         | single -> [ single ]
 
+    /// Stitch a value-level `Expr.ILIntrinsic` instruction string (e.g.
+    /// `(# "ceq" … #)` → `"ceq"`), trimming surrounding whitespace. Mirrors
+    /// `NameResolution.ilIntrinsicString` for the type-level intrinsic.
+    let private stitchIlInstruction (ctx: PassContext) (parts: ImmutableArray<StringPart<SyntaxToken>>) : string =
+        let sb = System.Text.StringBuilder()
+
+        for part in parts do
+            match part with
+            | StringPart.Text t
+            | StringPart.EscapeSequence t
+            | StringPart.FormatSpecifier t
+            | StringPart.EscapePercent t
+            | StringPart.VerbatimEscapeQuote t
+            | StringPart.OrphanFormatSpecifier t
+            | StringPart.InvalidText t -> sb.Append(ctx.NameOf t) |> ignore
+            | StringPart.Expr _ -> ()
+
+        sb.ToString().Trim()
+
     let rec private translateExpr (ctx: PassContext) (e: Expr<SyntaxToken>) : TExpr =
         let key = CstKeys.ofExpr e
         let ty = typeOfKey ctx key
@@ -704,6 +723,9 @@ module Freeze =
         | Expr.Range(fromExpr = a; toExpr = b) -> TExpr.Range(translateExpr ctx a, None, translateExpr ctx b, ty)
         | Expr.SteppedRange(fromExpr = a; stepExpr = s; toExpr = b) ->
             TExpr.Range(translateExpr ctx a, Some(translateExpr ctx s), translateExpr ctx b, ty)
+        | Expr.ILIntrinsic(instrParts = parts; args = args) ->
+            let opCode = stitchIlInstruction ctx parts
+            TExpr.ILIntrinsic(opCode, [ for a in args -> translateExpr ctx a ], ty)
         | _ ->
             // TODO: extend as the subset grows; surface the unhandled case
             // loudly rather than emitting a broken TExpr.
@@ -1409,6 +1431,7 @@ module Freeze =
                 )
 
             TExpr.Format(sink, segs, f ty)
+        | TExpr.ILIntrinsic(op, args, ty) -> TExpr.ILIntrinsic(op, List.map pe args, f ty)
 
     /// Classify an object-model body as an interface — every element an abstract
     /// method signature, no base type, no `let`/`do` preamble — and build its

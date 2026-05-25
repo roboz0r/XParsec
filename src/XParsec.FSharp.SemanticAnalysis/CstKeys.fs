@@ -88,6 +88,7 @@ module CstKeys =
         | Expr.Record(lBrace = pk) -> firstTokenOfParenKind pk
         | Expr.RecordClone(lBrace = pk) -> firstTokenOfParenKind pk
         | Expr.New(newToken = t) -> t
+        | Expr.ILIntrinsic(lHashParen = t) -> t
         | _ -> failwithf "CstKeys.firstTokenOfExpr: TODO %A" e
 
     let rec firstTokenOfPat (p: Pat<SyntaxToken>) : SyntaxToken =
@@ -139,6 +140,7 @@ module CstKeys =
             | Expr.Record _ -> NodeKind.ExprRecord
             | Expr.RecordClone _ -> NodeKind.ExprRecordClone
             | Expr.New _ -> NodeKind.ExprNew
+            | Expr.ILIntrinsic _ -> NodeKind.ExprILIntrinsic
             | _ -> NodeKind.Unknown
 
         NodeKey.ofToken (firstTokenOfExpr e) kind

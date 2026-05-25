@@ -126,6 +126,15 @@ type TExpr =
     /// printf semantics a generic call node cannot. `ty` is the call's result
     /// (`unit` for `printf`/`printfn`, `string` for `sprintf`).
     | Format of sink: FormatSink * segments: EqArray<FormatSeg> * ty: SemType
+    /// Value-level inline IL: `(# "opcode" args : retTy #)`. `opCode` is the
+    /// stitched instruction mnemonic (e.g. `"ceq"`, `"add"`), `args` the operand
+    /// expressions in source order, `ty` the declared result type. Codegen emits
+    /// each arg then maps the mnemonic → `ILOpCode` (`Cil.tryOpCodeOfMnemonic`).
+    /// The value-level sibling of the type-level `(# "..." #)` intrinsic carried
+    /// in `TastFile.IntrinsicReprTypes`; operator `.fs` bodies (`(=)` → `ceq`,
+    /// `(+)` → `add`, …) lower to this so codegen owns no per-operator dispatch.
+    /// See docs/core-operators-handoff.md.
+    | ILIntrinsic of opCode: string * args: TExpr list * ty: SemType
 
 and TMatchArm =
     {

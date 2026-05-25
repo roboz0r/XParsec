@@ -217,6 +217,11 @@ module ResolvedTypes =
                 | FormatSeg.Hole(hole, arg) ->
                     addFreeRoots allowed acc hole.Ty
                     walkExpr ctx allowed acc arg
+        | TExpr.ILIntrinsic(_, args, ty) ->
+            addFreeRoots allowed acc ty
+
+            for a in args do
+                walkExpr ctx allowed acc a
 
     and private walkArm (ctx: PassContext) (allowed: HashSet<TypeVar>) (acc: HashSet<TypeVar>) (arm: TMatchArm) : unit =
         walkPat allowed acc arm.Pat
