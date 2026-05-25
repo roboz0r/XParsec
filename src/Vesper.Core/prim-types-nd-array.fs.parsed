@@ -1,0 +1,408 @@
+namespace              'namespace'       KWNamespace         tok=   0  pos=   0
+                       'Vesper'          Identifier          tok=   2  pos=  10
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok=  19  pos= 169
+    TypeName           '``[,]``'         BacktickedIdentifier  tok=  21  pos= 172
+    =                  '='               OpEquality          tok=  23  pos= 180
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok=  25  pos= 182
+        StringLiteral  '"'               StringOpen          tok=  27  pos= 185
+        Parts:
+          Text         '!0[0 ... ,...'   StringFragment      tok=  28  pos= 186
+                       '"'               StringClose         tok=  29  pos= 204
+        #)             '#)'              KWRHashParen        tok=  31  pos= 206
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok=  36  pos= 215
+    TypeName           '``[,,]``'        BacktickedIdentifier  tok=  38  pos= 218
+    =                  '='               OpEquality          tok=  40  pos= 227
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok=  42  pos= 229
+        StringLiteral  '"'               StringOpen          tok=  44  pos= 232
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok=  45  pos= 233
+                       '"'               StringClose         tok=  46  pos= 254
+        #)             '#)'              KWRHashParen        tok=  48  pos= 256
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok=  53  pos= 265
+    TypeName           '``[,,,]``'       BacktickedIdentifier  tok=  55  pos= 268
+    =                  '='               OpEquality          tok=  57  pos= 278
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok=  59  pos= 280
+        StringLiteral  '"'               StringOpen          tok=  61  pos= 283
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok=  62  pos= 284
+                       '"'               StringClose         tok=  63  pos= 311
+        #)             '#)'              KWRHashParen        tok=  65  pos= 313
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok=  70  pos= 322
+    TypeName           '``[,,,,]``'      BacktickedIdentifier  tok=  72  pos= 325
+    =                  '='               OpEquality          tok=  74  pos= 336
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok=  76  pos= 338
+        StringLiteral  '"'               StringOpen          tok=  78  pos= 341
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok=  79  pos= 342
+                       '"'               StringClose         tok=  80  pos= 375
+        #)             '#)'              KWRHashParen        tok=  82  pos= 377
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok=  87  pos= 386
+    TypeName           '``[,,,,,]`...'   BacktickedIdentifier  tok=  89  pos= 389
+    =                  '='               OpEquality          tok=  91  pos= 401
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok=  93  pos= 403
+        StringLiteral  '"'               StringOpen          tok=  95  pos= 406
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok=  96  pos= 407
+                       '"'               StringClose         tok=  97  pos= 446
+        #)             '#)'              KWRHashParen        tok=  99  pos= 448
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 104  pos= 457
+    TypeName           '``[,,,,,,]...'   BacktickedIdentifier  tok= 106  pos= 460
+    =                  '='               OpEquality          tok= 108  pos= 473
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 110  pos= 475
+        StringLiteral  '"'               StringOpen          tok= 112  pos= 478
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 113  pos= 479
+                       '"'               StringClose         tok= 114  pos= 524
+        #)             '#)'              KWRHashParen        tok= 116  pos= 526
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 121  pos= 535
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 123  pos= 538
+    =                  '='               OpEquality          tok= 125  pos= 552
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 127  pos= 554
+        StringLiteral  '"'               StringOpen          tok= 129  pos= 557
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 130  pos= 558
+                       '"'               StringClose         tok= 131  pos= 609
+        #)             '#)'              KWRHashParen        tok= 133  pos= 611
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 138  pos= 620
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 140  pos= 623
+    =                  '='               OpEquality          tok= 142  pos= 638
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 144  pos= 640
+        StringLiteral  '"'               StringOpen          tok= 146  pos= 643
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 147  pos= 644
+                       '"'               StringClose         tok= 148  pos= 701
+        #)             '#)'              KWRHashParen        tok= 150  pos= 703
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 155  pos= 712
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 157  pos= 715
+    =                  '='               OpEquality          tok= 159  pos= 731
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 162  pos= 737
+        StringLiteral  '"'               StringOpen          tok= 164  pos= 740
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 165  pos= 741
+                       '"'               StringClose         tok= 166  pos= 804
+        #)             '#)'              KWRHashParen        tok= 168  pos= 806
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 173  pos= 815
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 175  pos= 818
+    =                  '='               OpEquality          tok= 177  pos= 835
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 180  pos= 841
+        StringLiteral  '"'               StringOpen          tok= 182  pos= 844
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 183  pos= 845
+                       '"'               StringClose         tok= 184  pos= 914
+        #)             '#)'              KWRHashParen        tok= 186  pos= 916
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 191  pos= 925
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 193  pos= 928
+    =                  '='               OpEquality          tok= 195  pos= 946
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 198  pos= 952
+        StringLiteral  '"'               StringOpen          tok= 200  pos= 955
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 201  pos= 956
+                       '"'               StringClose         tok= 202  pos=1031
+        #)             '#)'              KWRHashParen        tok= 204  pos=1033
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 209  pos=1042
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 211  pos=1045
+    =                  '='               OpEquality          tok= 213  pos=1064
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 216  pos=1070
+        StringLiteral  '"'               StringOpen          tok= 218  pos=1073
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 219  pos=1074
+                       '"'               StringClose         tok= 220  pos=1155
+        #)             '#)'              KWRHashParen        tok= 222  pos=1157
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 227  pos=1166
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 229  pos=1169
+    =                  '='               OpEquality          tok= 231  pos=1189
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 234  pos=1195
+        StringLiteral  '"'               StringOpen          tok= 236  pos=1198
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 237  pos=1199
+                       '"'               StringClose         tok= 238  pos=1286
+        #)             '#)'              KWRHashParen        tok= 240  pos=1288
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 245  pos=1297
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 247  pos=1300
+    =                  '='               OpEquality          tok= 249  pos=1321
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 252  pos=1327
+        StringLiteral  '"'               StringOpen          tok= 254  pos=1330
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 255  pos=1331
+                       '"'               StringClose         tok= 256  pos=1424
+        #)             '#)'              KWRHashParen        tok= 258  pos=1426
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 263  pos=1435
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 265  pos=1438
+    =                  '='               OpEquality          tok= 267  pos=1460
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 270  pos=1466
+        StringLiteral  '"'               StringOpen          tok= 272  pos=1469
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 273  pos=1470
+                       '"'               StringClose         tok= 274  pos=1569
+        #)             '#)'              KWRHashParen        tok= 276  pos=1571
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 281  pos=1580
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 283  pos=1583
+    =                  '='               OpEquality          tok= 285  pos=1606
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 288  pos=1612
+        StringLiteral  '"'               StringOpen          tok= 290  pos=1615
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 291  pos=1616
+                       '"'               StringClose         tok= 292  pos=1721
+        #)             '#)'              KWRHashParen        tok= 294  pos=1723
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 299  pos=1732
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 301  pos=1735
+    =                  '='               OpEquality          tok= 303  pos=1759
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 306  pos=1765
+        StringLiteral  '"'               StringOpen          tok= 308  pos=1768
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 309  pos=1769
+                       '"'               StringClose         tok= 310  pos=1880
+        #)             '#)'              KWRHashParen        tok= 312  pos=1882
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 317  pos=1891
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 319  pos=1894
+    =                  '='               OpEquality          tok= 321  pos=1919
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 324  pos=1925
+        StringLiteral  '"'               StringOpen          tok= 326  pos=1928
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 327  pos=1929
+                       '"'               StringClose         tok= 328  pos=2046
+        #)             '#)'              KWRHashParen        tok= 330  pos=2048
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 335  pos=2057
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 337  pos=2060
+    =                  '='               OpEquality          tok= 339  pos=2086
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 342  pos=2092
+        StringLiteral  '"'               StringOpen          tok= 344  pos=2095
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 345  pos=2096
+                       '"'               StringClose         tok= 346  pos=2219
+        #)             '#)'              KWRHashParen        tok= 348  pos=2221
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 353  pos=2230
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 355  pos=2233
+    =                  '='               OpEquality          tok= 357  pos=2260
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 360  pos=2266
+        StringLiteral  '"'               StringOpen          tok= 362  pos=2269
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 363  pos=2270
+                       '"'               StringClose         tok= 364  pos=2399
+        #)             '#)'              KWRHashParen        tok= 366  pos=2401
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 371  pos=2410
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 373  pos=2413
+    =                  '='               OpEquality          tok= 375  pos=2441
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 378  pos=2447
+        StringLiteral  '"'               StringOpen          tok= 380  pos=2450
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 381  pos=2451
+                       '"'               StringClose         tok= 382  pos=2586
+        #)             '#)'              KWRHashParen        tok= 384  pos=2588
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 389  pos=2597
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 391  pos=2600
+    =                  '='               OpEquality          tok= 393  pos=2629
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 396  pos=2635
+        StringLiteral  '"'               StringOpen          tok= 398  pos=2638
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 399  pos=2639
+                       '"'               StringClose         tok= 400  pos=2780
+        #)             '#)'              KWRHashParen        tok= 402  pos=2782
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 407  pos=2791
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 409  pos=2794
+    =                  '='               OpEquality          tok= 411  pos=2824
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 414  pos=2830
+        StringLiteral  '"'               StringOpen          tok= 416  pos=2833
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 417  pos=2834
+                       '"'               StringClose         tok= 418  pos=2981
+        #)             '#)'              KWRHashParen        tok= 420  pos=2983
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 425  pos=2992
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 427  pos=2995
+    =                  '='               OpEquality          tok= 429  pos=3026
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 432  pos=3032
+        StringLiteral  '"'               StringOpen          tok= 434  pos=3035
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 435  pos=3036
+                       '"'               StringClose         tok= 436  pos=3189
+        #)             '#)'              KWRHashParen        tok= 438  pos=3191
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 443  pos=3200
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 445  pos=3203
+    =                  '='               OpEquality          tok= 447  pos=3235
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 450  pos=3241
+        StringLiteral  '"'               StringOpen          tok= 452  pos=3244
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 453  pos=3245
+                       '"'               StringClose         tok= 454  pos=3404
+        #)             '#)'              KWRHashParen        tok= 456  pos=3406
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 461  pos=3415
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 463  pos=3418
+    =                  '='               OpEquality          tok= 465  pos=3451
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 468  pos=3457
+        StringLiteral  '"'               StringOpen          tok= 470  pos=3460
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 471  pos=3461
+                       '"'               StringClose         tok= 472  pos=3626
+        #)             '#)'              KWRHashParen        tok= 474  pos=3628
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 479  pos=3637
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 481  pos=3640
+    =                  '='               OpEquality          tok= 483  pos=3674
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 486  pos=3680
+        StringLiteral  '"'               StringOpen          tok= 488  pos=3683
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 489  pos=3684
+                       '"'               StringClose         tok= 490  pos=3855
+        #)             '#)'              KWRHashParen        tok= 492  pos=3857
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 497  pos=3866
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 499  pos=3869
+    =                  '='               OpEquality          tok= 501  pos=3904
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 504  pos=3910
+        StringLiteral  '"'               StringOpen          tok= 506  pos=3913
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 507  pos=3914
+                       '"'               StringClose         tok= 508  pos=4091
+        #)             '#)'              KWRHashParen        tok= 510  pos=4093
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 515  pos=4102
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 517  pos=4105
+    =                  '='               OpEquality          tok= 519  pos=4141
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 522  pos=4147
+        StringLiteral  '"'               StringOpen          tok= 524  pos=4150
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 525  pos=4151
+                       '"'               StringClose         tok= 526  pos=4334
+        #)             '#)'              KWRHashParen        tok= 528  pos=4336
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 533  pos=4345
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 535  pos=4348
+    =                  '='               OpEquality          tok= 537  pos=4385
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 540  pos=4391
+        StringLiteral  '"'               StringOpen          tok= 542  pos=4394
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 543  pos=4395
+                       '"'               StringClose         tok= 544  pos=4584
+        #)             '#)'              KWRHashParen        tok= 546  pos=4586
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                       ''T'              TypeParameter       tok= 551  pos=4595
+    TypeName           '``[,,,,,,,...'   BacktickedIdentifier  tok= 553  pos=4598
+    =                  '='               OpEquality          tok= 555  pos=4636
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 558  pos=4642
+        StringLiteral  '"'               StringOpen          tok= 560  pos=4645
+        Parts:
+          Text         '!0[0 ...,0...'   StringFragment      tok= 561  pos=4646
+                       '"'               StringClose         tok= 562  pos=4841
+        #)             '#)'              KWRHashParen        tok= 564  pos=4843
+---
+WarnDirectives:
+  #nowarn 42 (Ln 2)

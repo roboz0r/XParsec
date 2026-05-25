@@ -38,12 +38,26 @@ let private contractFiles =
         "ops-std.fsi"
     ]
 
-/// Impl `.fs` files — our-backend target source. `ops-platform.fs` carries the
-/// `hash` inline body the codegen inline-body loader reads (milestone M). The
-/// cons-list (`list-min.fs` / `List.fs`) moved to the standalone `Vesper.List`
-/// package (package-split-plan PS1) — see `vesperListContractTests` below.
+/// Impl `.fs` files — our-backend target source, one companion per `prim-types-*`
+/// contract (each binds its extern types to `(# "..." #)` intrinsics).
+/// `ops-platform.fs` carries the `hash` inline body the codegen inline-body
+/// loader reads (milestone M). The cons-list (`list-min.fs` / `List.fs`) moved to
+/// the standalone `Vesper.List` package (package-split-plan PS1) — see
+/// `vesperListContractTests` below.
 let private implFiles =
-    [ "prim-types-min.fs"; "prim-types-string.fs"; "ops-platform.fs" ]
+    [
+        "prim-types-min.fs"
+        "prim-types-int.fs"
+        "prim-types-float.fs"
+        "prim-types-string.fs"
+        "prim-types-object.fs"
+        "prim-types-exn.fs"
+        "prim-types-decimal.fs"
+        "prim-types-nativeint.fs"
+        "prim-types-nd-array.fs"
+        "prim-types-attr.fs"
+        "ops-platform.fs"
+    ]
 
 [<Tests>]
 let vesperCoreContractTests =

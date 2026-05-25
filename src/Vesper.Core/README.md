@@ -48,8 +48,12 @@ declarations file by file).
 | `ops-std.fsi` | logical / composition / pipe — target-agnostic, over `bool` / `Fun` |
 
 Impl side (`.fs`, our-backend target source — **not** built by `dotnet`/`fsc`):
-`prim-types-min.fs`, `prim-types-string.fs`. (The cons-list impl moved to the
-standalone `src/Vesper.List/` package — see its README.)
+every `prim-types-*.fsi` now has a companion `prim-types-*.fs` that binds its
+`extern` types to `(# "..." #)` intrinsics (`prim-types-min.fs`, `-int.fs`,
+`-float.fs`, `-string.fs`, `-object.fs`, `-exn.fs`, `-decimal.fs`,
+`-nativeint.fs`, `-nd-array.fs`, `-attr.fs`). Retargeting a primitive (e.g. `int`
+to 64-bit) is a one-line edit in the relevant `.fs`. (The cons-list impl moved to
+the standalone `src/Vesper.List/` package — see its README.)
 
 ## Naming / shape decisions
 

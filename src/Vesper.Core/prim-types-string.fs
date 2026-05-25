@@ -1,13 +1,9 @@
 namespace Vesper
 
-open System
+#nowarn "42"
 
-/// <summary>An abbreviation for the CLI type <see cref="T:System.Char"/>.</summary>
-///
-/// <category>Basic Types</category>
-type char = Char
+// Impl side: per-target intrinsic bindings for the text primitives. Retarget a
+// primitive here in one line.
 
-/// <summary>An abbreviation for the CLI type <see cref="T:System.String"/>.</summary>
-///
-/// <category>Basic Types</category>
-type string = String
+type char = (# "System.Char" #)
+type string = (# "System.String" #)

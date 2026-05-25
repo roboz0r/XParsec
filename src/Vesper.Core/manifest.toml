@@ -49,10 +49,12 @@ files = [
 
 # Per-target `.fs` bodies the codegen inline-body loader reads across the package
 # boundary (symbol-resolution-plan §5.2/§5.3). Only `ops-platform.fs` (the `hash`
-# inline body, milestone M) so far; `prim-types-min.fs` / `prim-types-string.fs`
-# are compiled into Vesper.Core.dll separately (they bind extern *types*, not
-# inline values, so they are not inline-body sources). The operator `.fs` bodies
-# join this list once operator-named bindings freeze.
+# inline body, milestone M) so far. Every `prim-types-*.fsi` now has a companion
+# `prim-types-*.fs` (the extern types bound to `(# "..." #)` intrinsics), but
+# those are compiled into Vesper.Core.dll separately — they bind extern *types*,
+# not inline values, so they are NOT inline-body sources and stay out of this
+# list. The operator `.fs` bodies join this list once operator-named bindings
+# freeze.
 impl = [
     "ops-platform.fs",
 ]

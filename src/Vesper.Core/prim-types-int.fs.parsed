@@ -1,0 +1,95 @@
+namespace              'namespace'       KWNamespace         tok=   0  pos=   0
+                       'Vesper'          Identifier          tok=   2  pos=  10
+  TypeDefn.Abbrev:
+    TypeName           'sbyte'           Identifier          tok=  19  pos= 193
+    =                  '='               OpEquality          tok=  21  pos= 199
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok=  23  pos= 201
+        StringLiteral  '"'               StringOpen          tok=  25  pos= 204
+        Parts:
+          Text         'System.SBy...'   StringFragment      tok=  26  pos= 205
+                       '"'               StringClose         tok=  27  pos= 217
+        #)             '#)'              KWRHashParen        tok=  29  pos= 219
+  TypeDefn.Abbrev:
+    TypeName           'byte'            Identifier          tok=  33  pos= 227
+    =                  '='               OpEquality          tok=  35  pos= 232
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok=  37  pos= 234
+        StringLiteral  '"'               StringOpen          tok=  39  pos= 237
+        Parts:
+          Text         'System.Byt...'   StringFragment      tok=  40  pos= 238
+                       '"'               StringClose         tok=  41  pos= 249
+        #)             '#)'              KWRHashParen        tok=  43  pos= 251
+  TypeDefn.Abbrev:
+    TypeName           'int8'            Identifier          tok=  47  pos= 259
+    =                  '='               OpEquality          tok=  49  pos= 264
+      NamedType:
+        Ident          'sbyte'           Identifier          tok=  51  pos= 266
+  TypeDefn.Abbrev:
+    TypeName           'uint8'           Identifier          tok=  55  pos= 277
+    =                  '='               OpEquality          tok=  57  pos= 283
+      NamedType:
+        Ident          'byte'            Identifier          tok=  59  pos= 285
+  TypeDefn.Abbrev:
+    TypeName           'int16'           Identifier          tok=  63  pos= 295
+    =                  '='               OpEquality          tok=  65  pos= 301
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok=  67  pos= 303
+        StringLiteral  '"'               StringOpen          tok=  69  pos= 306
+        Parts:
+          Text         'System.Int...'   StringFragment      tok=  70  pos= 307
+                       '"'               StringClose         tok=  71  pos= 319
+        #)             '#)'              KWRHashParen        tok=  73  pos= 321
+  TypeDefn.Abbrev:
+    TypeName           'uint16'          Identifier          tok=  77  pos= 329
+    =                  '='               OpEquality          tok=  79  pos= 336
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok=  81  pos= 338
+        StringLiteral  '"'               StringOpen          tok=  83  pos= 341
+        Parts:
+          Text         'System.UIn...'   StringFragment      tok=  84  pos= 342
+                       '"'               StringClose         tok=  85  pos= 355
+        #)             '#)'              KWRHashParen        tok=  87  pos= 357
+  TypeDefn.Abbrev:
+    TypeName           'int32'           Identifier          tok=  91  pos= 365
+    =                  '='               OpEquality          tok=  93  pos= 371
+      NamedType:
+        Ident          'int'             Identifier          tok=  95  pos= 373
+  TypeDefn.Abbrev:
+    TypeName           'uint32'          Identifier          tok=  99  pos= 382
+    =                  '='               OpEquality          tok= 101  pos= 389
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 103  pos= 391
+        StringLiteral  '"'               StringOpen          tok= 105  pos= 394
+        Parts:
+          Text         'System.UIn...'   StringFragment      tok= 106  pos= 395
+                       '"'               StringClose         tok= 107  pos= 408
+        #)             '#)'              KWRHashParen        tok= 109  pos= 410
+  TypeDefn.Abbrev:
+    TypeName           'int64'           Identifier          tok= 113  pos= 418
+    =                  '='               OpEquality          tok= 115  pos= 424
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 117  pos= 426
+        StringLiteral  '"'               StringOpen          tok= 119  pos= 429
+        Parts:
+          Text         'System.Int...'   StringFragment      tok= 120  pos= 430
+                       '"'               StringClose         tok= 121  pos= 442
+        #)             '#)'              KWRHashParen        tok= 123  pos= 444
+  TypeDefn.Abbrev:
+    TypeName           'uint64'          Identifier          tok= 127  pos= 452
+    =                  '='               OpEquality          tok= 129  pos= 459
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok= 131  pos= 461
+        StringLiteral  '"'               StringOpen          tok= 133  pos= 464
+        Parts:
+          Text         'System.UIn...'   StringFragment      tok= 134  pos= 465
+                       '"'               StringClose         tok= 135  pos= 478
+        #)             '#)'              KWRHashParen        tok= 137  pos= 480
+  TypeDefn.Abbrev:
+    TypeName           'uint'            Identifier          tok= 141  pos= 488
+    =                  '='               OpEquality          tok= 143  pos= 493
+      NamedType:
+        Ident          'uint32'          Identifier          tok= 145  pos= 495
+---
+WarnDirectives:
+  #nowarn 42 (Ln 2)

@@ -1,12 +1,8 @@
-namespace        'namespace'       KWNamespace         tok=   0  pos=   0
-                 'Vesper'          Identifier          tok=   2  pos=  10
-  Import:
-    open         'open'            KWOpen              tok=   5  pos=  18
-                 'System'          Identifier          tok=   7  pos=  23
+namespace       'namespace'       KWNamespace         tok=   0  pos=   0
+                'Vesper'          Identifier          tok=   2  pos=  10
   Type:
-    type         'type'            KWType              tok=  17  pos= 161
-    TypeSig.Abbrev:
-      TypeName   'decimal'         Identifier          tok=  19  pos= 166
-      =          '='               OpEquality          tok=  21  pos= 174
-        NamedType:
-          Ident  'Decimal'         Identifier          tok=  23  pos= 176
+    type        'type'            KWType              tok=  11  pos= 147
+    TypeSig.Extern:
+      TypeName  'decimal'         Identifier          tok=  13  pos= 152
+      =         '='               OpEquality          tok=  15  pos= 160
+      extern    'extern'          KWExtern            tok=  17  pos= 162

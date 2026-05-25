@@ -1,56 +1,54 @@
 namespace Vesper
 
-open System
-
 /// <summary>An abbreviation for the CLI type <see cref="T:System.SByte"/>.</summary>
 ///
 /// <category>Basic Types</category>
-type sbyte = SByte
+type sbyte = extern
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.Byte"/>.</summary>
 ///
 /// <category>Basic Types</category>
-type byte = Byte
+type byte = extern
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.SByte"/>.</summary>
 ///
 /// <category>Basic Types</category>
-type int8 = SByte
+type int8 = sbyte
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.Byte"/>.</summary>
 ///
 /// <category>Basic Types</category>
-type uint8 = Byte
+type uint8 = byte
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.Int16"/>.</summary>
 ///
 /// <category>Basic Types</category>
-type int16 = Int16
+type int16 = extern
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.UInt16"/>.</summary>
 ///
 /// <category>Basic Types</category>
-type uint16 = UInt16
+type uint16 = extern
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.Int32"/>.</summary>
 ///
 /// <category>Basic Types</category>
-type int32 = Int32
+type int32 = int
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.UInt32"/>.</summary>
 ///
 /// <category>Basic Types</category>
-type uint32 = UInt32
+type uint32 = extern
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.Int64"/>.</summary>
 ///
 /// <category>Basic Types</category>
-type int64 = Int64
+type int64 = extern
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.UInt64"/>.</summary>
 ///
 /// <category>Basic Types</category>
-type uint64 = UInt64
+type uint64 = extern
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.UInt32"/>.</summary>
 ///
