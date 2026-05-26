@@ -1,9 +1,9 @@
 namespace Vesper
 
-open System
-
-/// <summary>The type of mutable references. Use the functions [!] and [:=] to get and
-/// set values of this type.</summary>
+/// <summary>The type of mutable references. The captured-mutable promotion pass
+/// (Passes/RefCellPromotion) reads and writes the `contents` field directly; the
+/// `Value` property and `!` / `:=` / `incr` / `decr` operators of FSharp.Core's
+/// `FSharpRef` are deferred (records-handoff.md Phase 2 follow-up).</summary>
 ///
 /// <category>Basic Types</category>
 /// <exclude />
@@ -12,16 +12,11 @@ open System
 // `[<StructuralEquality; StructuralComparison>]`.
 [<ReferenceEquality>]
 [<NoComparison>]
-[<CompiledName("FSharpRef`1")>]
 type Ref<'T> =
     {  /// The current value of the reference cell
         mutable contents: 'T }
 
-    /// <summary>The current value of the reference cell</summary>
-    member Value: 'T with get,set
-        
-/// <summary>The type of mutable references. Use the functions [!] and [:=] to get and
-/// set values of this type.</summary>
+/// <summary>The type of mutable references. Same backing record as `Ref<'T>`.</summary>
 /// <category>Basic Types</category>
 and 'T ref = Ref<'T>
 

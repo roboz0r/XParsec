@@ -1422,7 +1422,11 @@ module FSharpLib =
         | None ->
             match bodyTyparsOk collector arity with
             | Error e -> ctx.Skipped.Add(file, sprintf "type %s body: %s" compiled e)
-            | Ok() -> ctx.TypeShapes.[compiled] <- ExternalTypeShape.Record(arity, shapes.ToArray())
+            | Ok() ->
+                // `Origin` is filled later by `ReferencedProject.wrap` (which
+                // knows the package's assembly + namespace from the manifest);
+                // the extractor itself records `Empty`.
+                ctx.TypeShapes.[compiled] <- ExternalTypeShape.Record(arity, shapes.ToArray(), SymbolOrigin.Empty)
 
     let private extractUnionBody
         (ctx: ExtractCtx)

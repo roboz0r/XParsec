@@ -1,0 +1,30 @@
+namespace        'namespace'       KWNamespace         tok=   0  pos=   0
+                 'Vesper'          Identifier          tok=   2  pos=  10
+  TypeDefn.Record:
+    [<           '[<'              KWLAttrBracket      tok=  31  pos= 663
+    NamedType:
+      Ident      'ReferenceE...'   Identifier          tok=  32  pos= 665
+    >]           '>]'              KWRAttrBracket      tok=  33  pos= 682
+    [<           '[<'              KWLAttrBracket      tok=  35  pos= 685
+    NamedType:
+      Ident      'NoComparis...'   Identifier          tok=  36  pos= 687
+    >]           '>]'              KWRAttrBracket      tok=  37  pos= 699
+    TypeName     'Ref'             Identifier          tok=  41  pos= 707
+    TyparDefns:
+      <          '<'               op_LessThan         tok=  42  pos= 710
+      Typar.Named:
+                 ''T'              TypeParameter       tok=  43  pos= 711
+      >          '>'               op_GreaterThan      tok=  44  pos= 713
+    =            '='               OpEquality          tok=  46  pos= 715
+    {            '{'               KWLBrace            tok=  48  pos= 717
+      Field:
+        mutable  'mutable'         KWMutable           tok=  50  pos= 719
+        ident    'contents'        Identifier          tok=  52  pos= 727
+        :        ':'               OpColon             tok=  53  pos= 735
+        VarType:
+          Typar.Named:
+                 ''T'              TypeParameter       tok=  55  pos= 737
+    }            '}'               KWRBrace            tok=  57  pos= 740
+---
+WarnDirectives:
+  #nowarn 42 (Ln 2)

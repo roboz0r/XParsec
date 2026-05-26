@@ -107,9 +107,14 @@ module ReferencedProject =
 
             member _.TryLookupType name =
                 match inner.TryLookupType name with
-                // Only `Class` carries an origin slot; Abbrev/Record/Union don't.
                 | ValueSome(ExternalTypeShape.Class(arity, isInterface, _)) ->
                     ValueSome(ExternalTypeShape.Class(arity, isInterface, origin))
+                // A record now also carries its package's `Origin` so the
+                // codegen can mint a `TypeRef` for it (records-handoff Phase 2
+                // follow-up F2). Abbrev/Union still don't (their cross-package
+                // emit paths land later, with the same shape).
+                | ValueSome(ExternalTypeShape.Record(arity, fields, _)) ->
+                    ValueSome(ExternalTypeShape.Record(arity, fields, origin))
                 | other -> other
 
             member _.TryLookupMember(typeName, memberName) =

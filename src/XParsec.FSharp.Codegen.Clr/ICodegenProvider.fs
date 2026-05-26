@@ -116,6 +116,32 @@ type ICodegenProvider =
     /// here — its `Def` tokens are used directly (records-plan §B2).
     abstract GenericRecordMemberRef: name: string * args: SemType list * which: RecordMember -> EntityHandle
 
+    /// A `MemberRef` to a *referenced-assembly* record's `.ctor`, instantiated
+    /// at `tyArgs`. The mirror of `TryEmitUnionCons` for records: when
+    /// `env.Records` doesn't hold the type (it lives in another package — e.g.
+    /// `Vesper.Ref\`1` in `Vesper.Core.dll` after records-handoff Phase 2
+    /// follow-up F2), the provider looks the record up through its external
+    /// symbol stack and mints a `MemberRef` on the instantiated `TypeSpec`.
+    /// `ValueNone` ⇒ the type is unknown to the provider (no contract / metadata
+    /// hit), in which case the caller falls back to its old hard error.
+    /// `fieldNames` is the source-order field list the caller would have used
+    /// to drive the ctor argument push — `TryEmitRecordCons` returns the ctor
+    /// recipe and the caller is responsible for matching declaration order via
+    /// the type's external field shape (today: the contract's field order is
+    /// the declaration order, so the source-order initialiser drives a separate
+    /// reorder if needed).
+    abstract TryEmitRecordCons: typeName: string * tyArgs: SemType list * fieldNames: string list -> CtorRecipe voption
+
+    /// A `MemberRef` to one named field on a *referenced-assembly* record,
+    /// instantiated at `tyArgs` — the sibling of `TryEmitRecordCons` for the
+    /// `FieldGet` / `FieldSet` / record-pattern paths. Returns the field
+    /// `MemberRef` on the instantiated `TypeSpec` plus the field's declared
+    /// type after applying the record's typar substitution (`'T` ⇒ `tyArgs.[i]`),
+    /// so a `FieldGet` knows the value type a subsequent encode/store expects.
+    /// `ValueNone` ⇒ unknown record, or unknown field on a known record.
+    abstract TryResolveExternalRecordField:
+        typeName: string * tyArgs: SemType list * fieldName: string -> (EntityHandle * SemType) voption
+
     /// A `MethodSpec` instantiating a *generic* module-static method (`fold`) at a
     /// call site (R3). `handle` is the method's (predicted) `MethodDefinition`;
     /// `instTypes` the per-typar instantiation recovered by matching the method's

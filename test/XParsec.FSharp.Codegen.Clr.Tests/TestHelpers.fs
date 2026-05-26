@@ -53,15 +53,16 @@ let vesperCoreSource (fileName: string) : string =
 let vesperListSource (fileName: string) : string =
     IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", "Vesper.List", fileName)
 
-/// Compile `Vesper.Core.dll` from `prim-types-min.fs` (the `Vesper.Fun\`2`
-/// interface + primitive intrinsics — R1), load it into the *Default*
-/// `AssemblyLoadContext`, and return its path. An in-process user PE loaded into a
-/// fresh context resolves `Fun` through that context's fallback to Default, exactly
-/// how `Vesper.Printf` already resolves. Forced once; later compiles inject the
-/// path so their function values reference this DLL. Compiled with **no** core
-/// injected — `Vesper.Core` *defines* `Fun`. The cons-list is its own package now
-/// (`vesperListDll` → `Vesper.List.dll`, package-split-plan PS2), not concatenated
-/// here.
+/// Compile `Vesper.Core.dll` from `prim-types-min.fs` + `core-types.fs` (the
+/// `Vesper.Fun\`2` interface, the primitive intrinsics, and the `Vesper.Ref\`1`
+/// captured-mutable cell), load it into the *Default* `AssemblyLoadContext`, and
+/// return its path. An in-process user PE loaded into a fresh context resolves
+/// `Fun` / `Ref` through that context's fallback to Default, exactly how
+/// `Vesper.Printf` already resolves. Forced once; later compiles inject the path
+/// so their function values + promoted-mutable cells reference this DLL.
+/// Compiled with **no** core injected — `Vesper.Core` *defines* `Fun` and
+/// `Ref`. The cons-list is its own package now (`vesperListDll` →
+/// `Vesper.List.dll`, package-split-plan PS2), not concatenated here.
 let vesperCoreDll: Lazy<string> =
     lazy
         (let outDir = tmpDir "vesper-core"
@@ -72,7 +73,17 @@ let vesperCoreDll: Lazy<string> =
                  OutputPath = Some corePath
              }
 
-         let src = IO.File.ReadAllText(vesperCoreSource "prim-types-min.fs")
+         // Both files declare `namespace Vesper` and contribute disjoint types
+         // (Fun + intrinsics in prim-types-min.fs, Ref in core-types.fs). Joined
+         // with two blank lines so the second `namespace Vesper` starts a fresh
+         // top-level block.
+         let src =
+             [
+                 IO.File.ReadAllText(vesperCoreSource "prim-types-min.fs")
+                 IO.File.ReadAllText(vesperCoreSource "core-types.fs")
+             ]
+             |> String.concat "\n\n"
+
          let lexed, file = parseFile src
          let tast = Pipeline.analyse MockBuiltins.provider src lexed file
          let artifact = Codegen.compile MockBuiltins.provider project tast

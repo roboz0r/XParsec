@@ -34,6 +34,7 @@
     <Compile Include="ExternalMemberTests.fs" />
     <Compile Include="RecordTests.fs" />
     <Compile Include="EqualityAttributeTests.fs" />
+    <Compile Include="CapturedMutableTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

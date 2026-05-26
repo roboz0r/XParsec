@@ -373,6 +373,60 @@ type ClrProvider
             ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, ns, simple)))
         | _ -> ValueNone
 
+    /// Look up a *referenced-assembly* record's shape by `TyRecord`-carried name
+    /// + arity (records-handoff Phase 2 follow-up F2): returns the field shapes
+    /// (declaration order) and the `Origin` (assembly + namespace) so the
+    /// caller can mint a `TypeRef`. The contract layer keys generic records by
+    /// the bare compiled name (`Vesper.Ref`), the metadata layer by the
+    /// arity-suffixed key (`` Vesper.Ref`1 ``); both forms are probed.
+    /// `ValueNone` ⇒ unknown record or one whose origin is `Empty` (no assembly
+    /// to mint a `TypeRef` against).
+    let externalRecordShape (fullName: string) (arity: int) : (ExternalFieldShape[] * SymbolOrigin) voption =
+        let probe (key: string) =
+            match symbols.TryLookupType key with
+            | ValueSome(ExternalTypeShape.Record(a, fields, origin)) when a = arity && origin.Assembly.IsSome ->
+                ValueSome(fields, origin)
+            | _ -> ValueNone
+
+        let suffixed =
+            if arity > 0 then
+                sprintf "%s`%d" fullName arity
+            else
+                fullName
+
+        match probe fullName with
+        | ValueSome v -> ValueSome v
+        | ValueNone -> probe suffixed
+
+    /// A `TypeRef` for a referenced-assembly record (records-handoff Phase 2
+    /// follow-up F2). Records-handoff sibling of `externalClassRef`: a generic
+    /// record published in another package (`Vesper.Core.dll`'s `Ref<'T>`)
+    /// reaches its `TypeDefinition` through this path, so the captured-mutable
+    /// promotion's `RecordCons` can mint a member ref onto the instantiated
+    /// `TypeSpec` instead of declaring a local copy.
+    let externalRecordRef (fullName: string) (arity: int) : (EntityHandle * ExternalFieldShape[]) voption =
+        match externalRecordShape fullName arity with
+        | ValueNone -> ValueNone
+        | ValueSome(fields, origin) ->
+            let ns = origin.Namespace
+
+            let bareSimple =
+                if ns <> "" && fullName.StartsWith(ns + ".") then
+                    fullName.Substring(ns.Length + 1)
+                else
+                    fullName
+
+            // Metadata `TypeRef` simple names carry the `` `n `` arity suffix for
+            // a generic type. The contract-layer key (`Vesper.Ref`) lacks it; the
+            // metadata-layer key (`Vesper.Ref`1`) already has it. Add when absent.
+            let simple =
+                if arity > 0 && not (bareSimple.Contains '`') then
+                    sprintf "%s`%d" bareSimple arity
+                else
+                    bareSimple
+
+            ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, ns, simple)), fields)
+
     /// `FSharpList\`1<X>` where `X` is encoded by `inner`. The one place that
     /// knows the list type's metadata shape, shared by `encodeType`'s list case
     /// (elem encoded recursively) and the cons/nil recipe signatures (where the
@@ -568,6 +622,20 @@ type ClrProvider
                 // argument is intercepted by `tryLeaf` (`!i`), exactly like the user
                 // union arm above.
                 let tref = (externalClassRef name).Value
+
+                match args with
+                | [] -> te.Type(tref, false)
+                | _ ->
+                    let g = te.GenericInstantiation(tref, List.length args, false)
+
+                    for a in args do
+                        encodeTypeCore tryLeaf (g.AddArgument()) a
+            | TyRecord(name, args) when (externalRecordRef name (List.length args)).IsSome ->
+                // A referenced-assembly *record* (records-handoff Phase 2 follow-up
+                // F2): its `TypeRef`, instantiated over each argument when generic.
+                // Lower priority than the user-record arm above (`userTypes` is
+                // checked first), so a same-named user record still wins.
+                let tref, _ = (externalRecordRef name (List.length args)).Value
 
                 match args with
                 | [] -> te.Type(tref, false)
@@ -962,6 +1030,84 @@ type ClrProvider
                 encodeUnionType typeIx (BlobEncoder(s).FieldSignature()) declTy
                 toEntity (ctx.MemberRef(parent, fieldName, s))
             | None -> failwithf "ClrProvider: generic record '%s' has no field '%s'" name fieldName
+
+    // ---- Cross-package record emission (records-handoff Phase 2 follow-up F2) ----
+    //
+    // A record published in another package — `Vesper.Ref<'T>` in
+    // `Vesper.Core.dll`, after the captured-mutable promotion writes a
+    // `TyRecord("Vesper.Ref", _)` — is *not* in `genericRecords` / `userTypes`
+    // (those only track records emitted into the current assembly). The
+    // member-ref parent is its `TypeSpec` over its external `TypeRef`, exactly
+    // the shape `externalMemberRef` already mints for an `EqualityComparer<>::Default`
+    // — minus the open-typars machinery, because a cross-package record's field
+    // signatures are read directly from the contract layer's
+    // `ExternalFieldShape.BuildType` over marker typars.
+
+    /// Mint the `MemberRef` for a referenced-assembly record's `.ctor`,
+    /// instantiated at `args`. Parameter types are the record's declared fields
+    /// (in declaration order), each in its *open* typar form — encoded against
+    /// the same `markerRoots` an external-class member-ref uses.
+    let externalRecordCtor (fullName: string) (args: SemType list) : EntityHandle voption =
+        let arity = List.length args
+
+        match externalRecordRef fullName arity with
+        | ValueNone -> ValueNone
+        | ValueSome(tref, fields) ->
+            let parent = externalTypeSpec tref (List.map zonk args)
+
+            // Encode field-type slots in the type's own marker typars (`!0`),
+            // same convention as `externalMemberRef`'s open signatures.
+            let markers = [ for _ in 1..arity -> TypeVar() ]
+            let markerRoots = markers |> List.map UnionFind.find
+            let markerTys = markers |> List.map TyVar |> List.toArray
+            let paramTys = [ for f in fields -> f.BuildType markerTys ]
+
+            let s = BlobBuilder()
+
+            BlobEncoder(s)
+                .MethodSignature(isInstanceMethod = true)
+                .Parameters(
+                    List.length paramTys,
+                    (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                    (fun (pars: ParametersEncoder) ->
+                        for p in paramTys do
+                            encodeOpen markerRoots (pars.AddParameter().Type()) p
+                    )
+                )
+
+            ValueSome(toEntity (ctx.MemberRef(parent, ".ctor", s)))
+
+    /// Mint the `MemberRef` for one named field on a referenced-assembly
+    /// record, instantiated at `args`. Returns the field handle plus its
+    /// *substituted* declared type — `'T` substituted to the matching `args.[i]`
+    /// — so a `FieldGet` knows the value type a subsequent encode expects.
+    let externalRecordField
+        (fullName: string)
+        (args: SemType list)
+        (fieldName: string)
+        : (EntityHandle * SemType) voption =
+        let arity = List.length args
+
+        match externalRecordRef fullName arity with
+        | ValueNone -> ValueNone
+        | ValueSome(tref, fields) ->
+            match fields |> Array.tryFind (fun f -> f.Name = fieldName) with
+            | None -> ValueNone
+            | Some field ->
+                let parent = externalTypeSpec tref (List.map zonk args)
+                let markers = [ for _ in 1..arity -> TypeVar() ]
+                let markerRoots = markers |> List.map UnionFind.find
+                let markerTys = markers |> List.map TyVar |> List.toArray
+                let openFieldTy = field.BuildType markerTys
+
+                let s = BlobBuilder()
+                encodeOpen markerRoots (BlobEncoder(s).FieldSignature()) openFieldTy
+                let handle = toEntity (ctx.MemberRef(parent, fieldName, s))
+
+                // The substituted field type for the caller (used for the
+                // subsequent local / encode step in a `FieldGet`).
+                let substitutedTy = field.BuildType(List.toArray args)
+                ValueSome(handle, substitutedTy)
 
     /// `MethodSpec` instantiating a generic static method (R3) — a call site
     /// (`fold<int,int>`) or a recursive self-call (`fold<!!0,!!1>`, the ambient set
@@ -2081,6 +2227,22 @@ type ClrProvider
 
         member _.GenericRecordMemberRef(name, args, which) =
             genericRecordMemberRef name (List.map zonk args) which
+
+        member _.TryEmitRecordCons(typeName, tyArgs, _fieldNames) =
+            let zonkedArgs = List.map zonk tyArgs
+
+            match externalRecordCtor typeName zonkedArgs with
+            | ValueNone -> ValueNone
+            | ValueSome handle ->
+                let argCount =
+                    match externalRecordShape typeName (List.length zonkedArgs) with
+                    | ValueSome(fields, _) -> fields.Length
+                    | ValueNone -> 0
+
+                ValueSome { Handle = handle; ArgCount = argCount }
+
+        member _.TryResolveExternalRecordField(typeName, tyArgs, fieldName) =
+            externalRecordField typeName (List.map zonk tyArgs) fieldName
 
         member _.StaticFnMethodSpec(handle, instTypes) = staticFnMethodSpec handle instTypes
 

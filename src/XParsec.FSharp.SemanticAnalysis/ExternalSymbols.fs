@@ -148,8 +148,12 @@ type ExternalMember =
 [<RequireQualifiedAccess>]
 type ExternalTypeShape =
     | Abbrev of arity: int * body: (SemType[] -> SemType)
-    /// Field order matches source.
-    | Record of arity: int * fields: ExternalFieldShape[]
+    /// Field order matches source. `origin` is filled by the layer that knows
+    /// where the type lives (`ReferencedProject.wrap` from the manifest's
+    /// assembly + namespace); the inner extractor records `SymbolOrigin.Empty`.
+    /// Records-handoff Phase 2 follow-up F2 reads it to mint a `TypeRef` for
+    /// cross-package record emission (an external `RecordCons` / field access).
+    | Record of arity: int * fields: ExternalFieldShape[] * origin: SymbolOrigin
     /// Case order matches source.
     | Union of arity: int * cases: ExternalCaseShape[]
     /// A class or interface (the gap that makes `EqualityComparer<_>` resolve to

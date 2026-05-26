@@ -1228,7 +1228,9 @@ module Emit =
     /// handle and declared type. A monomorphic record returns the field's `Def`
     /// token; a *generic* record returns a `MemberRef` on the receiver's
     /// instantiated `TypeSpec` (`Box<int>::Value`) — the records-plan §B3 mirror
-    /// of `resolveInstanceMember` for unions. The receiver must be a record (the
+    /// of `resolveInstanceMember` for unions. A referenced-assembly record
+    /// (records-handoff Phase 2 follow-up F2) goes through the provider's
+    /// `TryResolveExternalRecordField`. The receiver must be a record (the
     /// front end has already routed non-record field access elsewhere).
     let private resolveRecordField (env: EmitEnv) (receiverTy: SemType) (fieldName: string) : EntityHandle * SemType =
         let typeName, tyArgs =
@@ -1248,7 +1250,10 @@ module Emit =
 
                 handle, ty
             | None -> failwithf "Emit: record '%s' has no field '%s'" typeName fieldName
-        | false, _ -> failwithf "Emit: no emitted record for field access on '%s'" typeName
+        | false, _ ->
+            match env.Provider.TryResolveExternalRecordField(typeName, tyArgs, fieldName) with
+            | ValueSome(handle, ty) -> handle, ty
+            | ValueNone -> failwithf "Emit: no emitted record for field access on '%s'" typeName
 
     /// `failwith "msg"` resolves through the symbol provider to this name; the
     /// backend lowers it to a BCL-only `throw new System.Exception(msg)` (P3d.3),
@@ -1569,12 +1574,30 @@ module Emit =
                         env.Provider.GenericRecordMemberRef(typeName, tyArgs, RecordMember.Ctor)
 
                 b.Add(ILInstr.Newobj(ctor, List.length r.Fields))
-            | false, _ -> failwithf "Emit: no emitted record for '%s'" typeName
+            | false, _ ->
+                // Records-handoff Phase 2 follow-up F2: the record lives in a
+                // referenced assembly (`Vesper.Ref\`1` in `Vesper.Core.dll`,
+                // routed here from `RefCellPromotion`). The provider mints a
+                // `MemberRef` on its instantiated `TypeSpec`; field arguments are
+                // pushed in source order (the contract layer's field order is
+                // also the declaration order, which matches the ctor's parameter
+                // layout, so no reorder is required for the supported one-field
+                // `Ref<'T>` shape — multi-field external records will revisit).
+                let fieldNames = [ for (n, _) in srcFields -> n ]
+
+                match env.Provider.TryEmitRecordCons(typeName, tyArgs, fieldNames) with
+                | ValueSome recipe ->
+                    for (_, e) in srcFields do
+                        buildExpr env b e
+
+                    b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))
+                | ValueNone -> failwithf "Emit: no emitted record for '%s'" typeName
 
         | TExpr.FieldGet(receiver, name, _) ->
             // `r.X` — load the receiver and `ldfld` the field. The field handle is
             // a `Def` token for a monomorphic record, a `MemberRef` on the receiver's
-            // `TypeSpec` for a generic one (`resolveRecordField`).
+            // `TypeSpec` for a generic one (`resolveRecordField`). A
+            // referenced-assembly record (F2) routes through the provider.
             let handle, _ = resolveRecordField env (typeOfExpr receiver) name
             buildExpr env b receiver
             b.Add(ILInstr.Ldfld handle)

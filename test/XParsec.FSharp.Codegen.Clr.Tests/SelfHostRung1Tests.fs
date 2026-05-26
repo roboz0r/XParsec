@@ -2,6 +2,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.SelfHostRung1Tests
 
 open System.IO
 open System.Reflection
+open System.Runtime.Loader
 open Expecto
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
@@ -49,6 +50,37 @@ let tests =
                 Expect.equal ps.Length 1 "Invoke takes one argument"
                 Expect.equal ps.[0].ParameterType typars.[0] "the argument is 'A"
                 Expect.equal invoke.ReturnType typars.[1] "the return is 'B"
+
+                let refs = asm.GetReferencedAssemblies() |> Array.map (fun a -> a.Name)
+
+                Expect.isFalse
+                    (refs |> Array.contains "FSharp.Core")
+                    (sprintf "Vesper.Core.dll must not reference FSharp.Core (refs: %A)" refs)
+            }
+
+            // records-handoff Phase 2 follow-up F1: `Vesper.Ref<'T>` ships in
+            // `Vesper.Core.dll` alongside `Fun\`2`, so the captured-mutable
+            // promotion can resolve the cell type through the normal external-
+            // reference path rather than synthesising a local copy. The bytes
+            // are produced by `vesperCoreDll`'s shared compile (prim-types-min.fs
+            // + core-types.fs), so this reflection check round-trips that exact
+            // artifact.
+            test "Vesper.Core.dll contains Vesper.Ref`1 (records-handoff Phase 2 follow-up F1)" {
+                let asm = AssemblyLoadContext.Default.LoadFromAssemblyPath vesperCoreDll.Value
+
+                let refTy = asm.GetType("Vesper.Ref`1")
+                Expect.isNotNull refTy "the DLL contains Vesper.Ref`1"
+                Expect.isTrue refTy.IsClass "Ref`1 is a (reference) class"
+                Expect.isTrue refTy.IsGenericTypeDefinition "Ref`1 is a generic type definition"
+
+                let typars = refTy.GetGenericArguments()
+                Expect.equal typars.Length 1 "Ref`1 has one type parameter"
+                Expect.equal typars.[0].Name "T" "the type parameter is 'T"
+
+                let contents = refTy.GetField "contents"
+                Expect.isNotNull contents "Ref`1 has a `contents` field"
+                Expect.equal contents.FieldType typars.[0] "the field's declared type is 'T"
+                Expect.isFalse contents.IsInitOnly "the field is mutable"
 
                 let refs = asm.GetReferencedAssemblies() |> Array.map (fun a -> a.Name)
 

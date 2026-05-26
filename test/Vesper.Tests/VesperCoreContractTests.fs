@@ -56,6 +56,7 @@ let private implFiles =
         "prim-types-nativeint.fs"
         "prim-types-nd-array.fs"
         "prim-types-attr.fs"
+        "core-types.fs"
         "ops-platform.fs"
     ]
 
