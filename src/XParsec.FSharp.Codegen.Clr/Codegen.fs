@@ -350,16 +350,13 @@ module Codegen =
             ResizeArray<string * string * string list * FieldDefinitionHandle * MethodDefinitionHandle>()
 
         // Per union: the parameterless `.ctor`, one factory per case, one method
-        // per augmentation member (P3d.3), and — for a *monomorphic* union — the
-        // synthesised `GetHashCode()` + `Equals(object)` + typed `Equals(Self)`
-        // triple (C-Eq1). Generic unions get no triple yet (R2 generic-member
-        // machinery), so they add 0.
+        // per augmentation member (P3d.3), and the synthesised `GetHashCode()` +
+        // `Equals(object)` + typed `Equals(Self)` triple (C-Eq1 / S4). Every union
+        // — monomorphic and generic alike — now gets the triple (a generic one
+        // written in its own `!0`), so the count is `+3` unconditionally.
         let unionMethodTotal =
             unionDecls
-            |> List.sumBy (fun (td, cases, members) ->
-                let triple = if List.isEmpty td.TypeParams then 3 else 0
-                1 + List.length cases + List.length members + triple
-            )
+            |> List.sumBy (fun (_, cases, members) -> 1 + List.length cases + List.length members + 3)
 
         let closureMethodTotal = 2 * List.length closures
 
@@ -728,84 +725,114 @@ module Codegen =
 
                 methodCount <- methodCount + 1 // each member-method row
 
-            // Synthesised structural-equality triple (C-Eq1), for a *monomorphic*
-            // union only: `Equals(object)` + `GetHashCode()` overrides that walk
-            // the cases' fields by the §3.2 rule (`EqualityComparer<F>.Default`,
-            // `System.HashCode`). Generic unions are deferred (R2 generic-member
-            // machinery), so they keep inheriting `Object`'s reference equality.
-            // These rows land inside this union's contiguous method range, after
-            // its members; their count is reflected in `unionMethodTotal` above.
-            if List.isEmpty td.TypeParams then
-                // `(field handle, field type)` across every case, in declaration
-                // order. The flat walk is sound because inactive-case fields are
-                // always default (see `Emit.UnionEqualitySupport`).
-                let allFields =
-                    [
-                        for c in cases do
-                            let handles = caseFields |> List.find (fun (n, _) -> n = c.Name) |> snd
+            // Synthesised structural-equality triple (C-Eq1 / S4): `Equals(object)`
+            // + `GetHashCode()` overrides + the typed `IEquatable<Self>::Equals(Self)`
+            // that walk the cases' fields by the §3.2 rule (`EqualityComparer<F>.Default`,
+            // `System.HashCode`). A *generic* union (S4) gets the same triple written
+            // in its own `!0`: field/tag access goes through `MemberRef`s on its
+            // `TypeSpec`, `isinst`/`other`/the typed-`Equals` param/the interface arg
+            // are the type's own `TypeSpec` (`List<!0>`), and a typar-typed field
+            // reaches `EqualityComparer<!0>` / `HashCode.Add<!0>` via the ambient
+            // type-typar set installed here. These rows land inside this union's
+            // contiguous method range, after its members; their count (+3) is in
+            // `unionMethodTotal` above. The ambient `!0` mapping must be live while
+            // the comparer/hash refs and the `!0`-relative signatures are minted —
+            // some lazily, during body build — so it spans the whole block.
+            provider.SetTypeTypars td.TypeParams
 
-                            for fi in 0 .. c.Fields.Length - 1 -> handles.[fi], Emit.zonk (snd c.Fields.[fi])
-                    ]
+            // `(field handle, field type)` across every case, in declaration order.
+            // The flat walk is sound because inactive-case fields are always default
+            // (see `Emit.UnionEqualitySupport`). A generic union's field/tag handles
+            // are `MemberRef`s on its own `TypeSpec`; a monomorphic union's are `Def`s.
+            let allFields =
+                [
+                    for c in cases do
+                        let handles = caseFields |> List.find (fun (n, _) -> n = c.Name) |> snd
 
-                let support: Emit.UnionEqualitySupport =
-                    {
-                        SelfType = provider.UserTypeHandle td.Name
-                        SelfSemType = TyUnion(td.Name, [])
-                        TagField = tagField
-                        Fields = allFields
-                        IntType = TyConst "int"
-                        ComparerDefault = fun t -> provider.EqualityComparerDefault t
-                        ComparerEquals = fun t -> provider.EqualityComparerEquals t
-                        HashCodeLocal = provider.HashCodeType
-                        HashCodeAdd = fun t -> provider.HashCodeAdd t
-                        HashCodeToHashCode = provider.HashCodeToHashCode
-                    }
+                        for fi in 0 .. c.Fields.Length - 1 ->
+                            let fieldHandle =
+                                if isGeneric then
+                                    icodegen.GenericUnionMemberRef(td.Name, typarMarkers, UnionMember.Field(c.Name, fi))
+                                else
+                                    handles.[fi]
 
-                let getHashCodeBody =
-                    Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildUnionGetHashCode support))
+                            fieldHandle, Emit.zonk (snd c.Fields.[fi])
+                ]
 
-                ctx.AddMethodWithParamList(
-                    overrideMethodAttrs,
-                    "GetHashCode",
-                    provider.GetHashCodeOverrideSignature(),
-                    getHashCodeBody,
-                    addParams []
-                )
-                |> ignore
+            let support: Emit.UnionEqualitySupport =
+                {
+                    SelfType =
+                        if isGeneric then
+                            provider.GenericUnionSelfSpec td.Name
+                        else
+                            provider.UserTypeHandle td.Name
+                    SelfSemType = TyUnion(td.Name, typarMarkers)
+                    TagField =
+                        if isGeneric then
+                            icodegen.GenericUnionMemberRef(td.Name, typarMarkers, UnionMember.Tag)
+                        else
+                            tagField
+                    Fields = allFields
+                    IntType = TyConst "int"
+                    ComparerDefault = fun t -> provider.EqualityComparerDefault t
+                    ComparerEquals = fun t -> provider.EqualityComparerEquals t
+                    HashCodeLocal = provider.HashCodeType
+                    HashCodeAdd = fun t -> provider.HashCodeAdd t
+                    HashCodeToHashCode = provider.HashCodeToHashCode
+                }
 
-                methodCount <- methodCount + 1
+            // A generic union's triple bodies declare an `other` local typed in its
+            // own `!0` (`List<!0>`), so they encode locals through the generic
+            // encoder (`memberEncodeLocals`, = `encodeLocals` for a monomorphic union).
+            let getHashCodeBody =
+                Cil.buildBody memberEncodeLocals bodyStream (IlIr.lower (Emit.buildUnionGetHashCode support))
 
-                let equalsBody =
-                    Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildUnionEquals support))
+            ctx.AddMethodWithParamList(
+                overrideMethodAttrs,
+                "GetHashCode",
+                provider.GetHashCodeOverrideSignature(),
+                getHashCodeBody,
+                addParams []
+            )
+            |> ignore
 
-                ctx.AddMethodWithParamList(
-                    overrideMethodAttrs,
-                    "Equals",
-                    provider.EqualsOverrideSignature(),
-                    equalsBody,
-                    addParams [ "obj" ]
-                )
-                |> ignore
+            methodCount <- methodCount + 1
 
-                methodCount <- methodCount + 1
+            let equalsBody =
+                Cil.buildBody memberEncodeLocals bodyStream (IlIr.lower (Emit.buildUnionEquals support))
 
-                // The typed `IEquatable<Self>::Equals(Self)` — the boxing-free path
-                // `EqualityComparer<Self>.Default` reaches once the union declares
-                // `IEquatable<Self>` (the `InterfaceImpl` row is added with the
-                // union's `TypeDefinition` below). Same field walk, `Self` operand.
-                let equalsTypedBody =
-                    Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildUnionEqualsTyped support))
+            ctx.AddMethodWithParamList(
+                overrideMethodAttrs,
+                "Equals",
+                provider.EqualsOverrideSignature(),
+                equalsBody,
+                addParams [ "obj" ]
+            )
+            |> ignore
 
-                ctx.AddMethodWithParamList(
-                    ifaceEqualsAttrs,
-                    "Equals",
-                    provider.EqualsTypedSignature(TyUnion(td.Name, [])),
-                    equalsTypedBody,
-                    addParams [ "other" ]
-                )
-                |> ignore
+            methodCount <- methodCount + 1
 
-                methodCount <- methodCount + 1
+            // The typed `IEquatable<Self>::Equals(Self)` — the boxing-free path
+            // `EqualityComparer<Self>.Default` reaches once the union declares
+            // `IEquatable<Self>` (the `InterfaceImpl` row is added with the union's
+            // `TypeDefinition` below). Same field walk, `Self` operand. For a generic
+            // union `Self` is `List<!0>` (the ambient set makes `EqualsTypedSignature`
+            // write it).
+            let equalsTypedBody =
+                Cil.buildBody memberEncodeLocals bodyStream (IlIr.lower (Emit.buildUnionEqualsTyped support))
+
+            ctx.AddMethodWithParamList(
+                ifaceEqualsAttrs,
+                "Equals",
+                provider.EqualsTypedSignature(TyUnion(td.Name, typarMarkers)),
+                equalsTypedBody,
+                addParams [ "other" ]
+            )
+            |> ignore
+
+            methodCount <- methodCount + 1
+
+            provider.ClearTypeTypars()
 
             unionTypes.Add(td.Name, (defaultArg td.Namespace ""), td.TypeParams, firstField, unionCtor)
 
@@ -1016,14 +1043,21 @@ module Codegen =
             let typeHandle =
                 ctx.AddClass(unionAttrs, ns, metaName, provider.ObjectType, firstField, firstUnionMethod)
 
-            // A monomorphic union declares `IEquatable<Self>` (its typed `Equals`
-            // emitted above implements it). The `InterfaceImpl` table is sorted by
-            // `Class`: union `TypeDefinition`s are added here in ascending row order,
-            // *before* the closure loop adds its own `InterfaceImpl` rows (closures
-            // sort after unions), so the table stays ordered. Generic unions get no
-            // triple yet (R2), so no row.
-            if List.isEmpty typars then
-                ctx.AddInterfaceImplementation(typeHandle, provider.EquatableInterfaceSpec(TyUnion(name, [])))
+            // Every union declares `IEquatable<Self>` (its typed `Equals` emitted
+            // above implements it). For a generic union the arg is its own `TypeSpec`
+            // self (`List<!0>`); the ambient `!0` mapping makes `EquatableInterfaceSpec`
+            // write it. The `InterfaceImpl` table is sorted by `Class`: union
+            // `TypeDefinition`s are added here in ascending row order, *before* the
+            // closure loop adds its own `InterfaceImpl` rows (closures sort after
+            // unions), so the table stays ordered.
+            provider.SetTypeTypars typars
+
+            ctx.AddInterfaceImplementation(
+                typeHandle,
+                provider.EquatableInterfaceSpec(TyUnion(name, [ for t in typars -> TyConst t ]))
+            )
+
+            provider.ClearTypeTypars()
 
             // A generic union's typars are owned by this TypeDef (collected here,
             // emitted sorted with the rest — the metadata name drops the F# quote).

@@ -242,3 +242,200 @@ let tests =
                     "comparer.Equals(Circle 3, Circle 5) — through the typed path"
             }
         ]
+
+// C-Eq1 tail / equality §6 S4 (docs/core-operators-handoff.md, type-args-bug.md):
+// a *generic* user DU now emits the same equality triple as a monomorphic one,
+// written in its own `!0` — field/tag access through `MemberRef`s on the type's
+// `TypeSpec`, `EqualityComparer<!0>` / `HashCode.Add<!0>` for a typar-typed field
+// (the deferred "generic operand"), and `IEquatable<List<!0>>` as the interface.
+// These reflect the emitted members on a *constructed* instantiation (`Box<int>`)
+// and also drive a `=` use site so the BCL comparer is shown to reach the typed,
+// structural `Equals` (a distinct-but-equal generic pair compares true).
+[<Tests>]
+let genericTests =
+    let declaredInstance =
+        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
+
+    let factory (ty: Type) (name: string) =
+        ty.GetMethod(name, BindingFlags.Public ||| BindingFlags.Static)
+
+    let equalsObjMethod (ty: Type) =
+        ty.GetMethod("Equals", declaredInstance, null, [| typeof<obj> |], null)
+
+    let typedEqualsMethod (ty: Type) =
+        ty.GetMethod("Equals", declaredInstance, null, [| ty |], null)
+
+    let hashMethod (ty: Type) =
+        ty.GetMethod("GetHashCode", declaredInstance, null, [||], null)
+
+    let eq (ty: Type) (a: obj) (b: obj) : bool =
+        (equalsObjMethod ty).Invoke(a, [| b |]) :?> bool
+
+    let eqTyped (ty: Type) (a: obj) (b: obj) : bool =
+        (typedEqualsMethod ty).Invoke(a, [| b |]) :?> bool
+
+    let hash (ty: Type) (a: obj) : int = (hashMethod ty).Invoke(a, [||]) :?> int
+
+    // A single-field generic DU whose field *is* the declaring typar `'T`, so the
+    // generated triple compares/hashes it through `EqualityComparer<!0>` — the
+    // "generic operand" the C-Eq1 tail deferred.
+    let boxSrc = String.concat "\n" [ "type Box<'T> ="; "    | Box of 'T" ]
+
+    // A self-recursive generic DU (the canonical cons-list): the `Cons` tail field
+    // is `Lst<'T>`, so the structural recursion runs through `EqualityComparer<Lst<!0>>`.
+    let lstSrc =
+        String.concat "\n" [ "type Lst<'T> ="; "    | Nil"; "    | Cons of 'T * Lst<'T>" ]
+
+    testList
+        "GenericStructuralEquality"
+        [
+            test "a generic DU emits the equality triple + IEquatable<Self> on its `1 type" {
+                let _, artifact = compileSource "GenEqMeta" boxSrc
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let boxTy = asm.GetType "Box`1"
+                Expect.isNotNull boxTy "the assembly contains the generic union Box`1"
+                Expect.isTrue boxTy.IsGenericTypeDefinition "Box`1 is a generic type definition"
+
+                let boxInt = boxTy.MakeGenericType typeof<int>
+                Expect.isNotNull (equalsObjMethod boxInt) "Box<int> declares its own Equals(object) override"
+                Expect.isNotNull (hashMethod boxInt) "Box<int> declares its own GetHashCode() override"
+                Expect.isNotNull (typedEqualsMethod boxInt) "Box<int> declares a typed Equals(Box<int>)"
+
+                Expect.isTrue (equalsObjMethod boxInt).IsVirtual "Equals(object) is virtual"
+                Expect.isTrue (hashMethod boxInt).IsVirtual "GetHashCode() is virtual"
+
+                // The override reuses Object's slot (no new vtable slot), so a boxed
+                // `.Equals(obj)` and the comparer's nested-DU path both find it.
+                Expect.equal
+                    ((equalsObjMethod boxInt).GetBaseDefinition().DeclaringType)
+                    typeof<obj>
+                    "Equals(object) overrides Object.Equals (reuses its slot)"
+
+                let iface = typedefof<IEquatable<_>>.MakeGenericType boxInt
+                Expect.isTrue (iface.IsAssignableFrom boxInt) "Box<int> implements IEquatable<Box<int>>"
+            }
+
+            test "a typar-typed field (`'T`) compares via EqualityComparer<!0> at int and string instantiations" {
+                let _, artifact = compileSource "GenEqField" boxSrc
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let boxTy = asm.GetType "Box`1"
+
+                let mk (t: Type) (v: obj) =
+                    (factory (boxTy.MakeGenericType t) "Box").Invoke(null, [| v |])
+
+                let boxInt = boxTy.MakeGenericType typeof<int>
+                let bi3a = mk typeof<int> (box 3)
+                let bi3b = mk typeof<int> (box 3)
+                let bi5 = mk typeof<int> (box 5)
+
+                Expect.isTrue (eqTyped boxInt bi3a bi3b) "Box 3 = Box 3 (int field via EqualityComparer<!0>)"
+                Expect.isFalse (eqTyped boxInt bi3a bi5) "Box 3 <> Box 5 (int field)"
+                Expect.equal (hash boxInt bi3a) (hash boxInt bi3b) "equal Box<int> hash equal"
+
+                // The *same* generated members, at a different instantiation: the `!0`
+                // field encoding works for any element type, not just int.
+                let boxStr = boxTy.MakeGenericType typeof<string>
+                let bsa = mk typeof<string> (box "hi")
+                let bsb = mk typeof<string> (box "hi")
+                let bsc = mk typeof<string> (box "yo")
+
+                Expect.isTrue (eqTyped boxStr bsa bsb) "Box \"hi\" = Box \"hi\" (string field via EqualityComparer<!0>)"
+                Expect.isFalse (eqTyped boxStr bsa bsc) "Box \"hi\" <> Box \"yo\" (string field)"
+                Expect.equal (hash boxStr bsa) (hash boxStr bsb) "equal Box<string> hash equal"
+            }
+
+            test "Equals(object) rejects null and a different instantiation (isinst on the type's own TypeSpec)" {
+                let _, artifact = compileSource "GenEqIsinst" boxSrc
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let boxTy = asm.GetType "Box`1"
+
+                let mk (t: Type) (v: obj) =
+                    (factory (boxTy.MakeGenericType t) "Box").Invoke(null, [| v |])
+
+                let boxInt = boxTy.MakeGenericType typeof<int>
+                let bi3 = mk typeof<int> (box 3)
+                let bs3 = mk typeof<string> (box "3")
+
+                Expect.isFalse (eq boxInt bi3 null) "Box<int> 3 <> null"
+                Expect.isFalse (eq boxInt bi3 bs3) "Box<int> 3 <> Box<string> \"3\" (isinst Box<int> fails)"
+            }
+
+            test "a self-recursive generic DU compares + hashes structurally through EqualityComparer<Lst<!0>>" {
+                let _, artifact = compileSource "GenEqLst" lstSrc
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let lstTy = asm.GetType "Lst`1"
+                let lstInt = lstTy.MakeGenericType typeof<int>
+
+                let nil = (factory lstInt "Nil").Invoke(null, [||])
+
+                let cons (h: int) (t: obj) =
+                    (factory lstInt "Cons").Invoke(null, [| box h; t |])
+
+                let a = cons 1 (cons 2 (cons 3 nil))
+                let b = cons 1 (cons 2 (cons 3 nil))
+                let c = cons 1 (cons 2 (cons 9 nil))
+
+                Expect.isTrue
+                    (eqTyped lstInt a b)
+                    "deep-equal lists are equal (tail recurses via EqualityComparer<Lst<!0>>)"
+
+                Expect.isFalse (eqTyped lstInt a c) "lists differing in a deep element are unequal"
+                Expect.isFalse (eqTyped lstInt a nil) "Cons(…) <> Nil (tag distinguishes)"
+                Expect.equal (hash lstInt a) (hash lstInt b) "deep-equal lists hash equal"
+            }
+
+            test "EqualityComparer<Box<int>>.Default selects the IEquatable-based comparer" {
+                let _, artifact = compileSource "GenEqComparer" boxSrc
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let boxTy = asm.GetType "Box`1"
+                let boxInt = boxTy.MakeGenericType typeof<int>
+
+                let comparerTy =
+                    typedefof<System.Collections.Generic.EqualityComparer<_>>.MakeGenericType boxInt
+
+                let defaultComparer = comparerTy.GetProperty("Default").GetValue null
+
+                Expect.stringContains
+                    (defaultComparer.GetType().Name)
+                    "GenericEqualityComparer"
+                    "EqualityComparer<Box<int>>.Default is the IEquatable-based GenericEqualityComparer"
+            }
+
+            test "generic DU equality pins no FSharp.Core dependency (eq §4)" {
+                let _, artifact = compileSource "GenEqNoDep" lstSrc
+
+                Expect.isEmpty
+                    artifact.FSharpCoreDependencies
+                    (sprintf "generated generic triple references only the BCL (%A)" artifact.FSharpCoreDependencies)
+            }
+
+            test "a `=` use site on a generic-DU instantiation reaches the structural triple via the comparer" {
+                // End-to-end: `Box<int>` is ground, so the `=` static-opt base routes
+                // to `EqualityComparer<Box<int>>.Default.Equals(x, y)`. Because the
+                // generic union now implements `IEquatable<Box<int>>`, that comparer
+                // is structural — two distinct-but-equal `Box 1` heap instances compare
+                // `true` (a reference `ceq` would give `false`). This is the generic
+                // twin of OperatorRoutingTests' "DU `=` is structural".
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Box<'T> ="
+                            "    | Box of 'T"
+                            "let x = Box 1"
+                            "let y = Box 1"
+                            "printfn \"%d\" (if x = y then 1 else 0)"
+                            "printfn \"%d\" (if x <> y then 1 else 0)"
+                        ]
+
+                let _, artifact = compileSource "GenEqUseSite" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "1\n0"
+                    "distinct-but-equal generic-DU pair compares structurally (true), not by reference"
+            }
+        ]

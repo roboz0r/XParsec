@@ -402,6 +402,43 @@ type ClrProvider
                 | None -> false
             | _ -> false
 
+    // ---- Ambient *type*-typar context (S4: generic-union equality triple) ----
+    //
+    // A generic union's synthesised `Equals`/`GetHashCode`/`IEquatable` triple is
+    // written in the type's own generic parameters (`!0`): a typar-typed field
+    // (`Head : 'T`) reaches `EqualityComparer<!0>` / `HashCode.Add<!0>`, and the
+    // self refs (`isinst`, the `other` local, the typed-`Equals` param, the
+    // interface arg) are the type's `TypeSpec` (`List<!0>`). `SetTypeTypars`
+    // installs a name → index map (`'T` ⇒ `!0`) around the triple emission so the
+    // shared equality helpers — which encode through `encodeType` — map a marker
+    // leaf to the type's `GenericTypeParameter`; `ClearTypeTypars` removes it.
+    // Empty everywhere else (parallels `methodTyparRoots`'s `!!i`), so every other
+    // emission, monomorphic and generic-member alike, is unchanged.
+    let mutable typeTyparIx: Map<string, int> = Map.empty
+
+    /// A zonked leaf that is a declaring-type typar marker (`TyConst "'T"`)
+    /// encodes to that type's `GenericTypeParameter` (`!0`) while the ambient set
+    /// is installed. (Markers carry the F# leading quote, as registered in
+    /// `genericUnions`.)
+    let typeTyparLeaf (te: SignatureTypeEncoder) (zt: SemType) : bool =
+        if Map.isEmpty typeTyparIx then
+            false
+        else
+            match zt with
+            | TyConst name ->
+                match Map.tryFind name typeTyparIx with
+                | Some i ->
+                    te.GenericTypeParameter i
+                    true
+                | None -> false
+            | _ -> false
+
+    /// The executable-path leaf: a generic *method* typar (`!!i`, R3) first, then
+    /// a generic *type* typar (`!0`, S4). Both sets are empty on the common path,
+    /// so this is the prior no-op leaf unless one is installed.
+    let ambientTyparLeaf (te: SignatureTypeEncoder) (zt: SemType) : bool =
+        methodTyparLeaf te zt || typeTyparLeaf te zt
+
     /// Encode a (zonked) `SemType` into a metadata signature type slot.
     /// `tryLeaf` gets first crack at each zonked node before the structural
     /// match: when it encodes the node (returning `true`) recursion stops there.
@@ -523,7 +560,7 @@ type ClrProvider
     /// the ambient generic-method-typar resolver (`!!i`), which is empty except
     /// while a generic static method (`List.fold`) is being emitted (R3) — so
     /// every monomorphic emission is unchanged.
-    and encodeType (te: SignatureTypeEncoder) (t: SemType) : unit = encodeTypeCore methodTyparLeaf te t
+    and encodeType (te: SignatureTypeEncoder) (t: SemType) : unit = encodeTypeCore ambientTyparLeaf te t
 
     /// Encode a `SemType` mapping each function arrow to FSharp.Core's
     /// `FSharpFunc\`2` (curried, nested), not `Vesper.Fun`. For the FSharp.Core
@@ -1677,6 +1714,23 @@ type ClrProvider
         methodTyparRoots <- typars |> List.map UnionFind.find
 
     member _.ClearMethodTypars() : unit = methodTyparRoots <- []
+
+    /// Install the ambient *type*-typar set for a generic union's equality triple
+    /// (S4), so `encodeType` maps a declaring-typar marker (`'T`) to that type's
+    /// `GenericTypeParameter` (`!0`). The names carry the F# leading quote (as in
+    /// `genericUnions`). `ClearTypeTypars` resets it (empty ⇒ unchanged emission).
+    /// A monomorphic union passes `[]` here — a no-op map.
+    member _.SetTypeTypars(typars: string list) : unit =
+        typeTyparIx <- typars |> List.mapi (fun i n -> n, i) |> Map.ofList
+
+    member _.ClearTypeTypars() : unit = typeTyparIx <- Map.empty
+
+    /// A generic union's own instantiation `TypeSpec` over its declaring typars
+    /// (`List\`1<!0>`) — the `isinst` target / `other`-local / typed-`Equals` self
+    /// for its synthesised equality triple (S4). Registered in `genericUnions`.
+    member _.GenericUnionSelfSpec(name: string) : EntityHandle =
+        let typars, _ = genericUnions.[name]
+        genericUnionTypeSpec name [ for t in typars -> TyConst t ]
 
     /// `<ret> <name><`n>(<params…>)` — a *generic* module-static-method signature
     /// (R3): the method declares `typarCount` generic parameters, and every typar
