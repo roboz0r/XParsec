@@ -84,6 +84,29 @@ type EscapeState =
     | CallerStack
     | HeapShared
 
+/// Per-type decision on whether the structural-equality triple
+/// (`GetHashCode()` / `Equals(object)` / `IEquatable<Self>::Equals(Self)`) ships
+/// on a record / union. Driven by C-Attr (`Passes/Attributes.fs`) off the
+/// type's `[<StructuralEquality>]` / `[<ReferenceEquality>]` / `[<NoEquality>]`
+/// declarations and, when no attribute is present, the default rule
+/// (records-plan §B4 / brainstorm-structural-equality §8): an all-immutable
+/// record or any union ⇒ `Structural`; a record with any mutable field ⇒
+/// `Reference`. An interface ignores it (no triple is ever synthesised). See
+/// [`docs/records-handoff.md`](docs/records-handoff.md) Phase 1.
+[<RequireQualifiedAccess>]
+type EqualityVerdict =
+    /// Emit the structural-equality triple + the `IEquatable<Self>`
+    /// `InterfaceImpl`. Default for a union and an all-immutable record.
+    | Structural
+    /// Emit no triple; `Object.Equals` / `Object.GetHashCode` (reference
+    /// identity) suffice. Default for a record with any mutable field; also
+    /// the `[<ReferenceEquality>]`-attributed case.
+    | Reference
+    /// Emit no triple AND mark the type as forbidding equality; a `=` /
+    /// `<>` use site against this type is a diagnostic (driven through the
+    /// `Equality` typar-constraint check in `Unification`).
+    | NoEquality
+
 /// Mutually recursive with TypeVar — every TyVar is a pointer into the
 /// union-find graph. Will grow to include generics, units.
 type SemType =

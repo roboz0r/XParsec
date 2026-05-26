@@ -525,23 +525,37 @@ module Unification =
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyRecord(name, args) ->
             match ctx.RecordTypes.TryGetValue name with
             | true, info ->
-                let subst = mkNamedTypeSubst info.TypeParams args
+                // C-Attr verdict overrides the field-walk for equality. A
+                // `[<NoEquality>]` record at a `=` / `<>` use site is a
+                // diagnostic; a `[<ReferenceEquality>]` record satisfies the
+                // equality predicate via BCL `Object.Equals` (the comparison
+                // predicate still field-walks until Phase 3 wires the
+                // comparison verdict). See records-handoff §1.
+                match c.Kind, info.EqualitySupport with
+                | SemanticConstraintKind.Equality, EqualityVerdict.NoEquality -> Violated
+                | SemanticConstraintKind.Equality, EqualityVerdict.Reference -> Satisfied
+                | _ ->
+                    let subst = mkNamedTypeSubst info.TypeParams args
 
-                info.Fields
-                |> Array.map (fun f -> substituteWith subst f.Type)
-                |> Array.toList
-                |> reduceOutcome (checkConstraint ctx c)
+                    info.Fields
+                    |> Array.map (fun f -> substituteWith subst f.Type)
+                    |> Array.toList
+                    |> reduceOutcome (checkConstraint ctx c)
             | false, _ -> Defer
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyUnion(name, args) ->
             match ctx.UnionTypes.TryGetValue name with
             | true, info ->
-                let subst = mkNamedTypeSubst info.TypeParams args
+                match c.Kind, info.EqualitySupport with
+                | SemanticConstraintKind.Equality, EqualityVerdict.NoEquality -> Violated
+                | SemanticConstraintKind.Equality, EqualityVerdict.Reference -> Satisfied
+                | _ ->
+                    let subst = mkNamedTypeSubst info.TypeParams args
 
-                [
-                    for case in info.Cases do
-                        for field in case.Fields -> substituteWith subst field
-                ]
-                |> reduceOutcome (checkConstraint ctx c)
+                    [
+                        for case in info.Cases do
+                            for field in case.Fields -> substituteWith subst field
+                    ]
+                    |> reduceOutcome (checkConstraint ctx c)
             | false, _ -> Defer
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyClass _ ->
             // Per docs/classes-plan.md §Open questions: F# classes are

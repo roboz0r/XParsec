@@ -462,6 +462,23 @@ module NameResolution =
                             typarConstraintsOfTypeName tn
                         )
 
+                    // C-Attr: record's equality posture (records-handoff §1).
+                    // Explicit `[<StructuralEquality>]` / `[<ReferenceEquality>]` /
+                    // `[<NoEquality>]` wins; absence falls back to the records-plan
+                    // §B4 default ⇒ `Structural` when every field is immutable,
+                    // `Reference` otherwise. The verdict feeds both
+                    // `Unification.checkConstraint` (use-site diagnosis for
+                    // `NoEquality`) and the codegen triple gate (`Freeze` copies
+                    // it onto `TTypeDecl.EqualitySupport`).
+                    info.EqualitySupport <-
+                        match Attributes.decodeEqualityAttributes ctx (Attributes.attributesOfTypeName tn) with
+                        | ValueSome v -> v
+                        | ValueNone ->
+                            if fieldInfos |> Array.forall (fun fi -> not fi.IsMutable) then
+                                EqualityVerdict.Structural
+                            else
+                                EqualityVerdict.Reference
+
                     ctx.RecordTypes.[name] <- info
 
                     for fi in fieldInfos do
@@ -583,6 +600,15 @@ module NameResolution =
 
                     let info =
                         UnionTypeInfo(name, typeParams, caseInfos, declKey, typarConstraintsOfTypeName tn)
+
+                    // C-Attr: a union's equality posture defaults to `Structural`
+                    // (records-handoff §1 / brainstorm §8). Explicit
+                    // `[<ReferenceEquality>]` / `[<NoEquality>]` overrides the
+                    // default.
+                    info.EqualitySupport <-
+                        match Attributes.decodeEqualityAttributes ctx (Attributes.attributesOfTypeName tn) with
+                        | ValueSome v -> v
+                        | ValueNone -> EqualityVerdict.Structural
 
                     ctx.UnionTypes.[name] <- info
 

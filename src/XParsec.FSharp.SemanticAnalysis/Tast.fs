@@ -222,6 +222,11 @@ and TTypeDecl =
         /// Declared type parameters in source order (e.g. `["'A"; "'B"]`).
         TypeParams: string list
         Kind: TTypeKind
+        /// Equality posture for this type (records / unions / interfaces).
+        /// Defaults to `Structural` — interfaces ignore it (no triple is ever
+        /// synthesised), records / unions consume it in the codegen loops. See
+        /// [`docs/records-handoff.md`](docs/records-handoff.md) Phase 1.
+        EqualitySupport: EqualityVerdict
     }
 
 and [<RequireQualifiedAccess>] TTypeKind =

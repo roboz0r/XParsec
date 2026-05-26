@@ -1735,6 +1735,7 @@ module Freeze =
                         Namespace = ns
                         TypeParams = [ for (n, _) in info.TypeParams -> n ]
                         Kind = TTypeKind.Union(cases, members)
+                        EqualitySupport = info.EqualitySupport
                     }
             )
 
@@ -1774,6 +1775,7 @@ module Freeze =
                         Namespace = ns
                         TypeParams = [ for (n, _) in info.TypeParams -> n ]
                         Kind = TTypeKind.Record(fields, [])
+                        EqualitySupport = info.EqualitySupport
                     }
             )
 
@@ -1792,6 +1794,10 @@ module Freeze =
                             Namespace = ns
                             TypeParams = typars
                             Kind = TTypeKind.Interface methods
+                            // Interfaces never synthesise an equality triple;
+                            // the field is filled to keep the record shape
+                            // total and the value is unread for this kind.
+                            EqualitySupport = EqualityVerdict.Structural
                         }
                 )
             | None -> None
