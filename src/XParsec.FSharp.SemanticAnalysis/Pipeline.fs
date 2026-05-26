@@ -24,8 +24,8 @@ module Pipeline =
         Validation.run ctx file
         let tast0 = Freeze.run ctx file
         // TAST→TAST promotion of `let mutable` cells captured by escaping
-        // closures (records-handoff.md Phase 2). The pass reads `ctx.Escape`
-        // / `ctx.Binding`; running before ResolvedTypes keeps the validation
+        // closures (records-plan §B7). The pass reads `ctx.Escape` /
+        // `ctx.Binding`; running before ResolvedTypes keeps the validation
         // sweep observing post-promotion types.
         let tast1 = RefCellPromotion.run ctx tast0
         ResolvedTypes.run ctx tast1

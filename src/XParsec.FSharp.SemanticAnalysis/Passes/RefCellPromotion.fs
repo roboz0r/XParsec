@@ -9,10 +9,9 @@ open XParsec.FSharp.SemanticAnalysis
 //       is rewritten into `let x = { contents = init } : Vesper.Ref<'T>`; every
 //       `TExpr.Var x` in the binding's scope reads through `x.contents`; every
 //       `TExpr.Assignment(Var x, v)` writes through `x.contents <- v`. The cell
-//       type lives in `Vesper.Core.dll` (records-handoff Phase 2 follow-up F1)
-//       and the codegen resolves it through the cross-package record path
-//       (records-handoff Phase 2 follow-up F2) — no `TDecl.Type` is synthesised
-//       into the consumer PE. See docs/records-handoff.md Phase 2 follow-up.
+//       type lives in `Vesper.Core.dll` and the codegen resolves it through
+//       the cross-package record path (records-plan §B7) — no `TDecl.Type` is
+//       synthesised into the consumer PE.
 
 module RefCellPromotion =
 

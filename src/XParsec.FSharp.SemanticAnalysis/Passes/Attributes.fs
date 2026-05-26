@@ -4,18 +4,18 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
-// C-Attr (docs/records-handoff.md Phase 1): decode the small set of attributes
-// that govern a record / union's equality posture, off the type's
-// `TypeName.attributes` CST node. The decoder is intentionally syntactic — F#
-// attributes resolve by short name (with the `Attribute` suffix optional) and a
-// fully qualified path collapses to the same leaf, so matching on the
-// long-ident's last segment is what F# itself does for these BCL attributes.
+// C-Attr (docs/records-plan.md §B4 + §B6): decode the small set of
+// attributes that govern a record / union's equality AND comparison postures,
+// off the type's `TypeName.attributes` CST node. The decoder is intentionally
+// syntactic — F# attributes resolve by short name (with the `Attribute` suffix
+// optional) and a fully qualified path collapses to the same leaf, so matching
+// on the long-ident's last segment is what F# itself does for these BCL
+// attributes.
 //
-// Scope (PR A): equality only. The parallel `[<NoComparison>]` /
-// `[<StructuralComparison>]` axis is tracked separately by Phase 3; this
-// module emits an `EqualityVerdict option` and ignores comparison-only
-// attributes. (Combinations like `[<StructuralEquality; NoComparison>]` are
-// still valid — the equality half lands here, the comparison half lands later.)
+// Equality and comparison are independent axes: `[<StructuralEquality;
+// NoComparison>]` is a valid combination. Each `decode*Attributes` decoder
+// returns its own verdict, and `NameResolution` writes both onto the matching
+// `*Info` mutable.
 
 module Attributes =
 
@@ -29,6 +29,19 @@ module Attributes =
         [ "ReferenceEquality"; "ReferenceEqualityAttribute" ]
 
     let private noEqualityNames = [ "NoEquality"; "NoEqualityAttribute" ]
+
+    /// Canonical comparison-relevant short names. `[<StructuralComparison>]`
+    /// opts a record / union INTO structural comparison (per
+    /// brainstorm-comparison §9 the default is opt-in); `[<NoComparison>]` is
+    /// explicit refusal. `CustomComparison` is reserved for the augmentation
+    /// path (brainstorm-comparison §10) and is treated as
+    /// `NoComparison` by the decoder until augmentation-member support lands —
+    /// no triple is synthesised, but a use site is allowed (the augmentation
+    /// would provide one).
+    let private structuralComparisonNames =
+        [ "StructuralComparison"; "StructuralComparisonAttribute" ]
+
+    let private noComparisonNames = [ "NoComparison"; "NoComparisonAttribute" ]
 
     /// The attribute "class" lives inside `ObjectConstruction.typ` as the
     /// long-ident the user wrote (`StructuralEquality`, or
@@ -75,6 +88,37 @@ module Attributes =
                                 verdict <- ValueSome EqualityVerdict.Reference
                             | ValueSome n when List.contains n noEqualityNames ->
                                 verdict <- ValueSome EqualityVerdict.NoEquality
+                            | _ -> ()
+
+            verdict
+
+    /// Decode an attribute set list into a `ComparisonVerdict`. Mirrors
+    /// `decodeEqualityAttributes`. `ValueNone` ⇒ no comparison-relevant
+    /// attribute is present, and the caller falls back to the default
+    /// (`NoComparison` per brainstorm-comparison §9 — opt-in).
+    let decodeComparisonAttributes
+        (ctx: PassContext)
+        (attrs: Attributes<SyntaxToken> voption)
+        : ComparisonVerdict voption =
+        match attrs with
+        | ValueNone -> ValueNone
+        | ValueSome sets ->
+            let mutable verdict = ValueNone
+
+            for AttributeSet(attributes = entries) in sets do
+                if verdict.IsNone then
+                    for Attribute(construction = construction), _sep in entries do
+                        if verdict.IsNone then
+                            let attrTy =
+                                match construction with
+                                | ObjectConstruction(typ = t) -> t
+                                | InterfaceConstruction(typ = t) -> t
+
+                            match attributeShortName ctx attrTy with
+                            | ValueSome n when List.contains n structuralComparisonNames ->
+                                verdict <- ValueSome ComparisonVerdict.Structural
+                            | ValueSome n when List.contains n noComparisonNames ->
+                                verdict <- ValueSome ComparisonVerdict.NoComparison
                             | _ -> ()
 
             verdict

@@ -1,0 +1,455 @@
+module XParsec.FSharp.Codegen.Clr.Tests.StructuralComparisonTests
+
+open System
+open System.Collections.Generic
+open System.Reflection
+open Expecto
+open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Clr
+open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+
+// Structural comparison (records-plan §B6, brainstorm-comparison §9):
+// `<` / `>` / `<=` / `>=` on records and unions, opt-in via
+// `[<StructuralComparison>]`. The emit side ships an `int CompareTo(Self)` +
+// `int CompareTo(object)` pair (the comparison parallel of the equality
+// triple) plus `IComparable<Self>` + `IComparable` `InterfaceImpl` rows; the
+// front-end side rejects ordering use sites on un-annotated records / unions
+// through the `Comparison` typar-constraint check.
+
+[<Tests>]
+let tests =
+    let declaredInstance =
+        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
+
+    let compareToObj (ty: Type) =
+        ty.GetMethod("CompareTo", declaredInstance, null, [| typeof<obj> |], null)
+
+    let typedCompareTo (ty: Type) =
+        ty.GetMethod("CompareTo", declaredInstance, null, [| ty |], null)
+
+    let implementsIComparable (ty: Type) =
+        let generic = typedefof<IComparable<_>>.MakeGenericType ty
+        generic.IsAssignableFrom ty && typeof<IComparable>.IsAssignableFrom ty
+
+    let errors (tast: TastFile) =
+        tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+    /// Invoke the typed `CompareTo(Self)` (not the boxed `IComparable`
+    /// override) so the test sees the raw `int` the body returns. Both
+    /// arguments are already boxed for the reflection call.
+    let compareTyped (ty: Type) (a: obj) (b: obj) : int =
+        (typedCompareTo ty).Invoke(a, [| b |]) :?> int
+
+    /// Same shape, but via the `CompareTo(object)` boxing entry. Used to
+    /// exercise the `IComparable` path (and the `ArgumentException` branch).
+    let compareObj (ty: Type) (a: obj) (b: obj) : int =
+        (compareToObj ty).Invoke(a, [| b |]) :?> int
+
+    let signOf (n: int) : int =
+        if n < 0 then -1
+        elif n > 0 then 1
+        else 0
+
+    testList
+        "Phase 3 structural comparison"
+        [
+            test "record CompareTo compares fields in declaration order" {
+                // §Tests #1: `{ X = 1; Y = 2 }.CompareTo({ X = 1; Y = 3 }) < 0`.
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "[<StructuralComparison>]"
+                            "type Pair = { X: int; Y: int }"
+                            "let p = { X = 0; Y = 0 }"
+                        ]
+
+                let tast, artifact = compileSource "StructCmpRecField" src
+                Expect.isEmpty (errors tast) "no diagnostics on the opted-in decl"
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "Pair"
+
+                Expect.isNotNull (typedCompareTo ty) "CompareTo(Pair) emitted"
+                Expect.isNotNull (compareToObj ty) "CompareTo(object) emitted"
+                Expect.isTrue (implementsIComparable ty) "Pair declares IComparable<Pair> + IComparable"
+
+                let mk x y =
+                    Activator.CreateInstance(ty, [| box (x: int); box (y: int) |])
+
+                let p12 = mk 1 2
+                let p13 = mk 1 3
+                let p11 = mk 1 1
+
+                Expect.equal (signOf (compareTyped ty p12 p13)) -1 "{1;2} < {1;3}"
+                Expect.equal (signOf (compareTyped ty p13 p12)) 1 "{1;3} > {1;2}"
+                Expect.equal (signOf (compareTyped ty p12 p12)) 0 "{1;2} = {1;2}"
+                Expect.equal (signOf (compareTyped ty p13 p11)) 1 "{1;3} > {1;1}"
+            }
+
+            test "record CompareTo is lexicographic (first differing field wins)" {
+                // §Tests #2: `{ X = 1; Y = 99 } < { X = 2; Y = 0 }` — X
+                // decides, Y is irrelevant once X differs.
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "[<StructuralComparison>]"
+                            "type Pair = { X: int; Y: int }"
+                            "let p = { X = 0; Y = 0 }"
+                        ]
+
+                let _, artifact = compileSource "StructCmpRecLex" src
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "Pair"
+
+                let mk x y =
+                    Activator.CreateInstance(ty, [| box (x: int); box (y: int) |])
+
+                Expect.equal (signOf (compareTyped ty (mk 1 99) (mk 2 0))) -1 "X differs ⇒ Y ignored"
+
+                Expect.equal (signOf (compareTyped ty (mk 2 0) (mk 1 99))) 1 "X differs (reverse) ⇒ Y ignored"
+            }
+
+            test "union CompareTo compares tags first, then payload fields" {
+                // §Tests #3 + #4: tag-then-fields. Cases are declared in
+                // source order, so their tags are 0, 1, 2 respectively. A
+                // `Square 3` (tag 0) sorts before any `Box` (tag 1) regardless
+                // of payload; within a case, the payload field decides.
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "[<StructuralComparison>]"
+                            "type Shape ="
+                            "    | Square of int"
+                            "    | Box of int * int"
+                            "    | Circle of int"
+                            "let s = Square 0"
+                        ]
+
+                let _, artifact = compileSource "StructCmpUnionTag" src
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "Shape"
+
+                Expect.isNotNull (typedCompareTo ty) "CompareTo(Shape) emitted"
+                Expect.isTrue (implementsIComparable ty) "Shape declares IComparable<Shape> + IComparable"
+
+                // Factories: `static Shape Square(int)`, `Box(int,int)`, `Circle(int)`.
+                let square (n: int) =
+                    ty.GetMethod("Square", BindingFlags.Public ||| BindingFlags.Static).Invoke(null, [| box n |])
+
+                let mkBox (a: int) (b: int) =
+                    ty.GetMethod("Box", BindingFlags.Public ||| BindingFlags.Static).Invoke(null, [| box a; box b |])
+
+                let circle (n: int) =
+                    ty.GetMethod("Circle", BindingFlags.Public ||| BindingFlags.Static).Invoke(null, [| box n |])
+
+                // tag 0 < tag 1 < tag 2 — irrespective of payload.
+                Expect.equal (signOf (compareTyped ty (square 99) (mkBox 0 0))) -1 "Square < Box regardless of payload"
+                Expect.equal (signOf (compareTyped ty (mkBox 0 0) (circle 0))) -1 "Box < Circle"
+                Expect.equal (signOf (compareTyped ty (circle 1) (square 99))) 1 "Circle > Square"
+
+                // Same case ⇒ payload fields decide.
+                Expect.equal (signOf (compareTyped ty (circle 3) (circle 5))) -1 "Circle 3 < Circle 5"
+                Expect.equal (signOf (compareTyped ty (circle 5) (circle 3))) 1 "Circle 5 > Circle 3"
+                Expect.equal (signOf (compareTyped ty (circle 3) (circle 3))) 0 "Circle 3 = Circle 3"
+                Expect.equal (signOf (compareTyped ty (mkBox 1 2) (mkBox 1 3))) -1 "Box(1,2) < Box(1,3)"
+
+                Expect.equal
+                    (signOf (compareTyped ty (mkBox 1 9) (mkBox 2 0)))
+                    -1
+                    "Box(1,9) < Box(2,0) — lex on payload"
+            }
+
+            test "CompareTo(object) boxing entry routes through the typed CompareTo" {
+                // §Tests #5: `Comparer<obj>.Default.Compare` finds
+                // `IComparable.CompareTo(object)` on the type and uses it.
+                let src =
+                    String.concat "\n" [ "[<StructuralComparison>]"; "type Holder = { N: int }"; "let h = { N = 0 }" ]
+
+                let _, artifact = compileSource "StructCmpBoxedEntry" src
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "Holder"
+
+                let mk n =
+                    Activator.CreateInstance(ty, [| box (n: int) |])
+
+                Expect.equal (signOf (compareObj ty (mk 1) (mk 2))) -1 "CompareTo(object) field-walks"
+
+                // Routing through `Comparer<obj>.Default.Compare` is the
+                // BCL's path for boxed comparison; once `IComparable` is on
+                // the type the comparer reaches it.
+                let cmp = Comparer<obj>.Default
+                Expect.equal (signOf (cmp.Compare(mk 3, mk 4))) -1 "Comparer<obj>.Default sees IComparable on Holder"
+                Expect.equal (signOf (cmp.Compare(mk 4, mk 3))) 1 "Comparer<obj>.Default reverse"
+            }
+
+            test "CompareTo(object) throws ArgumentException on a mismatched type" {
+                // Matching F# / BCL convention: a non-`Self` argument throws
+                // `ArgumentException`. Reflection surfaces it as a
+                // `TargetInvocationException` wrapping `ArgumentException`.
+                let src =
+                    String.concat "\n" [ "[<StructuralComparison>]"; "type Holder = { N: int }"; "let h = { N = 0 }" ]
+
+                let _, artifact = compileSource "StructCmpBoxedThrow" src
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "Holder"
+
+                let mk n =
+                    Activator.CreateInstance(ty, [| box (n: int) |])
+
+                let caught =
+                    try
+                        compareObj ty (mk 1) (box "not a Holder") |> ignore
+                        None
+                    with
+                    | :? TargetInvocationException as ex -> Some ex.InnerException
+                    | ex -> Some ex
+
+                match caught with
+                | None -> failtest "expected an exception on a non-Self obj, got none"
+                | Some inner ->
+                    Expect.isTrue (inner :? ArgumentException) (sprintf "expected ArgumentException, got %A" inner)
+            }
+
+            test "CompareTo(object) returns 1 for a null argument (null sorts first)" {
+                // brainstorm-comparison §5.3: null sorts first, so the
+                // receiver compares positive against it.
+                let src =
+                    String.concat "\n" [ "[<StructuralComparison>]"; "type Holder = { N: int }"; "let h = { N = 0 }" ]
+
+                let _, artifact = compileSource "StructCmpNullArg" src
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "Holder"
+                let h = Activator.CreateInstance(ty, [| box 7 |])
+
+                Expect.equal (signOf (compareObj ty h null)) 1 "CompareTo(null) = 1"
+                Expect.equal (signOf (compareTyped ty h null)) 1 "Typed CompareTo(null) = 1"
+            }
+
+            test "[<NoComparison>] on a record skips the pair AND has no IComparable" {
+                // §Tests #6 — opt-out / default: a record without
+                // `[<StructuralComparison>]` emits no `CompareTo` and declares
+                // no `IComparable`.
+                let src =
+                    String.concat "\n" [ "[<NoComparison>]"; "type Sealed = { X: int }"; "let s = { X = 0 }" ]
+
+                let tast, artifact = compileSource "StructCmpNoCmp" src
+                Expect.isEmpty (errors tast) "decl alone ⇒ no diagnostic"
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "Sealed"
+
+                Expect.isNull (typedCompareTo ty) "no typed CompareTo on [<NoComparison>] record"
+                Expect.isNull (compareToObj ty) "no CompareTo(object) on [<NoComparison>] record"
+                Expect.isFalse (implementsIComparable ty) "Sealed does NOT declare IComparable<Sealed>"
+            }
+
+            test "default (no attribute) on a record skips the pair (opt-in)" {
+                // brainstorm-comparison §9 default is opt-in: `[<NoComparison>]`
+                // and "no attribute" are observationally identical at the emit
+                // boundary.
+                let src =
+                    String.concat "\n" [ "type Pair = { X: int; Y: int }"; "let p = { X = 0; Y = 0 }" ]
+
+                let _, artifact = compileSource "StructCmpDefault" src
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "Pair"
+
+                Expect.isNull (typedCompareTo ty) "no typed CompareTo on un-annotated record"
+                Expect.isNull (compareToObj ty) "no CompareTo(object) on un-annotated record"
+                Expect.isFalse (implementsIComparable ty) "no IComparable on un-annotated record"
+            }
+
+            test "default on a union also skips the pair (opt-in)" {
+                // Same opt-in posture for unions: brainstorm §9 governs both.
+                // (Contrast with the equality verdict, where a union defaults
+                // to `Structural` — comparison is a separate, stricter axis.)
+                let src =
+                    String.concat "\n" [ "type Tag ="; "    | A"; "    | B of int"; "let t = A" ]
+
+                let _, artifact = compileSource "StructCmpUnionDefault" src
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "Tag"
+
+                Expect.isNull (typedCompareTo ty) "no typed CompareTo on un-annotated union"
+                Expect.isNull (compareToObj ty) "no CompareTo(object) on un-annotated union"
+                Expect.isFalse (implementsIComparable ty) "no IComparable on un-annotated union"
+            }
+
+            test "[<StructuralComparison>] on a union emits the pair" {
+                // Companion to the `Tag` default: the same shape with
+                // `[<StructuralComparison>]` ships the pair.
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "[<StructuralComparison>]"
+                            "type Tag ="
+                            "    | A"
+                            "    | B of int"
+                            "let t = A"
+                        ]
+
+                let _, artifact = compileSource "StructCmpUnionOptIn" src
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "Tag"
+
+                Expect.isNotNull (typedCompareTo ty) "typed CompareTo emitted on opt-in union"
+                Expect.isNotNull (compareToObj ty) "CompareTo(object) emitted on opt-in union"
+                Expect.isTrue (implementsIComparable ty) "Tag declares IComparable<Tag> + IComparable"
+            }
+
+            test "the decoder accepts the `Attribute` suffix and qualified paths" {
+                // Mirror of `EqualityAttributeTests.fs`'s suffix / qualified
+                // tests: `[<StructuralComparisonAttribute>]` and
+                // `[<Microsoft.FSharp.Core.StructuralComparison>]` both
+                // resolve on the leaf name.
+                let suffixSrc =
+                    String.concat
+                        "\n"
+                        [
+                            "[<StructuralComparisonAttribute>]"
+                            "type Pair = { X: int }"
+                            "let p = { X = 0 }"
+                        ]
+
+                let _, artifact = compileSource "StructCmpAttrSuffix" suffixSrc
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "Pair"
+
+                Expect.isNotNull (typedCompareTo ty) "suffix variant routes to Structural"
+
+                let qualifiedSrc =
+                    String.concat
+                        "\n"
+                        [
+                            "[<Microsoft.FSharp.Core.StructuralComparison>]"
+                            "type Pair2 = { X: int }"
+                            "let p = { X = 0 }"
+                        ]
+
+                let _, artifact2 = compileSource "StructCmpAttrQualified" qualifiedSrc
+                let asm2 = loadAssembly (Codegen.toBytes artifact2)
+                let ty2 = asm2.GetType "Pair2"
+
+                Expect.isNotNull (typedCompareTo ty2) "qualified StructuralComparison resolved by leaf segment"
+            }
+
+            test "the < operator routes through Comparer<T>.Default.Compare for a [<StructuralComparison>] record" {
+                // End-to-end: source-level `<` / `>` / `<=` / `>=` against two
+                // values of an opted-in record type compiles + runs. The
+                // `comparison.fs` inline body's static-opt base routes to
+                // `Comparer<Pair>.Default.Compare(x, y) <op> 0`, which
+                // dispatches to our generated `IComparable<Pair>::CompareTo`.
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "[<StructuralComparison>]"
+                            "type Pair = { X: int; Y: int }"
+                            "let a = { X = 1; Y = 2 }"
+                            "let b = { X = 1; Y = 3 }"
+                            "printfn \"%b\" (a < b)" // true
+                            "printfn \"%b\" (a > b)" // false
+                            "printfn \"%b\" (a <= b)" // true
+                            "printfn \"%b\" (a >= b)" // false
+                            "printfn \"%b\" (a <= a)" // true — equal sorts <=
+                            "printfn \"%b\" (a >= a)" // true — equal sorts >=
+                        ]
+
+                let tast, artifact = compileSource "StructCmpOpRouting" src
+                Expect.isEmpty (errors tast) "no diagnostics on `<` against an opted-in record"
+
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "true\nfalse\ntrue\nfalse\ntrue\ntrue"
+                    "the four ordering ops route through Comparer<Pair>.Default.Compare"
+            }
+
+            test "the < operator on an unannotated record raises a Comparison diagnostic" {
+                // §Tests #6 driver: `r1 < r2` against a record whose
+                // `ComparisonSupport` is `NoComparison` (the opt-in default)
+                // produces a `Comparison` typar-constraint diagnostic.
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Pair = { X: int }"
+                            "let a = { X = 1 }"
+                            "let b = { X = 2 }"
+                            "let r = a < b"
+                        ]
+
+                let tast, _ = compileSource "StructCmpNoCmpDiag" src
+
+                let cmpErrors =
+                    errors tast |> List.filter (fun d -> d.Message.Contains "comparison")
+
+                Expect.isNonEmpty
+                    cmpErrors
+                    (sprintf
+                        "expected a 'Comparison' constraint error for `<` on unannotated record; got %A"
+                        (errors tast))
+            }
+
+            test "generic record with [<StructuralComparison>] emits the pair via Comparer<!0>" {
+                // §Tests #7: the ambient `!0` machinery for the equality
+                // triple carries over to the comparison pair verbatim — a
+                // generic record gets `CompareTo(Box<!0>)` whose body reaches
+                // `Comparer<!0>.Default.Compare` for its lone field.
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "[<StructuralComparison>]"
+                            "type Box<'T> = { Value: 'T }"
+                            "let b = { Value = 0 }"
+                        ]
+
+                let _, artifact = compileSource "StructCmpGeneric" src
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let openTy = asm.GetType "Box`1"
+
+                Expect.isNotNull openTy "Box`1 emitted as a generic type"
+
+                let closed = openTy.MakeGenericType(typeof<int>)
+
+                // The typed `CompareTo(Box<int>)` is reachable via the open
+                // generic by matching on parameter shape (the closed type's
+                // `CompareTo` parameter is `Box<int>`).
+                let typedCmp =
+                    closed.GetMethods(declaredInstance)
+                    |> Array.tryFind (fun m ->
+                        m.Name = "CompareTo"
+                        && m.GetParameters().Length = 1
+                        && m.GetParameters().[0].ParameterType = closed
+                    )
+
+                let objCmp =
+                    closed.GetMethods(declaredInstance)
+                    |> Array.tryFind (fun m ->
+                        m.Name = "CompareTo"
+                        && m.GetParameters().Length = 1
+                        && m.GetParameters().[0].ParameterType = typeof<obj>
+                    )
+
+                Expect.isSome typedCmp "typed CompareTo(Box<int>) emitted on the closed generic"
+                Expect.isSome objCmp "CompareTo(object) emitted on the closed generic"
+
+                let mk (v: int) =
+                    let ctor = closed.GetConstructors().[0]
+                    ctor.Invoke([| box v |])
+
+                Expect.equal (signOf (typedCmp.Value.Invoke(mk 1, [| mk 2 |]) :?> int)) -1 "Box<int> 1 < 2"
+                Expect.equal (signOf (typedCmp.Value.Invoke(mk 5, [| mk 5 |]) :?> int)) 0 "Box<int> 5 = 5"
+
+                let iface = typedefof<IComparable<_>>.MakeGenericType(closed)
+                Expect.isTrue (iface.IsAssignableFrom closed) "Box`1 declares IComparable<Box<!0>>"
+                Expect.isTrue (typeof<IComparable>.IsAssignableFrom closed) "Box`1 declares IComparable"
+            }
+        ]

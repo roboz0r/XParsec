@@ -58,14 +58,14 @@ let tests =
                     (sprintf "Vesper.Core.dll must not reference FSharp.Core (refs: %A)" refs)
             }
 
-            // records-handoff Phase 2 follow-up F1: `Vesper.Ref<'T>` ships in
-            // `Vesper.Core.dll` alongside `Fun\`2`, so the captured-mutable
-            // promotion can resolve the cell type through the normal external-
-            // reference path rather than synthesising a local copy. The bytes
-            // are produced by `vesperCoreDll`'s shared compile (prim-types-min.fs
-            // + core-types.fs), so this reflection check round-trips that exact
+            // `Vesper.Ref<'T>` ships in `Vesper.Core.dll` alongside `Fun\`2`
+            // (records-plan §B7), so the captured-mutable promotion can resolve
+            // the cell type through the normal external-reference path rather
+            // than synthesising a local copy. The bytes are produced by
+            // `vesperCoreDll`'s shared compile (prim-types-min.fs +
+            // core-types.fs), so this reflection check round-trips that exact
             // artifact.
-            test "Vesper.Core.dll contains Vesper.Ref`1 (records-handoff Phase 2 follow-up F1)" {
+            test "Vesper.Core.dll contains Vesper.Ref`1" {
                 let asm = AssemblyLoadContext.Default.LoadFromAssemblyPath vesperCoreDll.Value
 
                 let refTy = asm.GetType("Vesper.Ref`1")

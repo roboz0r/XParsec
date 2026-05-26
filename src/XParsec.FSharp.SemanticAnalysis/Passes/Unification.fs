@@ -525,15 +525,17 @@ module Unification =
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyRecord(name, args) ->
             match ctx.RecordTypes.TryGetValue name with
             | true, info ->
-                // C-Attr verdict overrides the field-walk for equality. A
+                // C-Attr verdict overrides the field-walk. Equality: a
                 // `[<NoEquality>]` record at a `=` / `<>` use site is a
                 // diagnostic; a `[<ReferenceEquality>]` record satisfies the
-                // equality predicate via BCL `Object.Equals` (the comparison
-                // predicate still field-walks until Phase 3 wires the
-                // comparison verdict). See records-handoff §1.
-                match c.Kind, info.EqualitySupport with
-                | SemanticConstraintKind.Equality, EqualityVerdict.NoEquality -> Violated
-                | SemanticConstraintKind.Equality, EqualityVerdict.Reference -> Satisfied
+                // equality predicate via BCL `Object.Equals`. Comparison
+                // (brainstorm-comparison §9) is opt-in, so an unannotated
+                // record is `NoComparison` ⇒ ordering use site rejected;
+                // `[<StructuralComparison>]` falls through to the field-walk.
+                match c.Kind, info.EqualitySupport, info.ComparisonSupport with
+                | SemanticConstraintKind.Equality, EqualityVerdict.NoEquality, _ -> Violated
+                | SemanticConstraintKind.Equality, EqualityVerdict.Reference, _ -> Satisfied
+                | SemanticConstraintKind.Comparison, _, ComparisonVerdict.NoComparison -> Violated
                 | _ ->
                     let subst = mkNamedTypeSubst info.TypeParams args
 
@@ -545,9 +547,10 @@ module Unification =
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyUnion(name, args) ->
             match ctx.UnionTypes.TryGetValue name with
             | true, info ->
-                match c.Kind, info.EqualitySupport with
-                | SemanticConstraintKind.Equality, EqualityVerdict.NoEquality -> Violated
-                | SemanticConstraintKind.Equality, EqualityVerdict.Reference -> Satisfied
+                match c.Kind, info.EqualitySupport, info.ComparisonSupport with
+                | SemanticConstraintKind.Equality, EqualityVerdict.NoEquality, _ -> Violated
+                | SemanticConstraintKind.Equality, EqualityVerdict.Reference, _ -> Satisfied
+                | SemanticConstraintKind.Comparison, _, ComparisonVerdict.NoComparison -> Violated
                 | _ ->
                     let subst = mkNamedTypeSubst info.TypeParams args
 

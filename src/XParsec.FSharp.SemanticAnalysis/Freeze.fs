@@ -1736,6 +1736,7 @@ module Freeze =
                         TypeParams = [ for (n, _) in info.TypeParams -> n ]
                         Kind = TTypeKind.Union(cases, members)
                         EqualitySupport = info.EqualitySupport
+                        ComparisonSupport = info.ComparisonSupport
                     }
             )
 
@@ -1776,6 +1777,7 @@ module Freeze =
                         TypeParams = [ for (n, _) in info.TypeParams -> n ]
                         Kind = TTypeKind.Record(fields, [])
                         EqualitySupport = info.EqualitySupport
+                        ComparisonSupport = info.ComparisonSupport
                     }
             )
 
@@ -1798,6 +1800,10 @@ module Freeze =
                             // the field is filled to keep the record shape
                             // total and the value is unread for this kind.
                             EqualitySupport = EqualityVerdict.Structural
+                            // Interfaces never synthesise a comparison pair
+                            // either — same reasoning. Default to
+                            // `NoComparison` so the field is present.
+                            ComparisonSupport = ComparisonVerdict.NoComparison
                         }
                 )
             | None -> None

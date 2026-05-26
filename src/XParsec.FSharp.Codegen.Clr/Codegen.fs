@@ -12,6 +12,24 @@ open XParsec.FSharp.SemanticAnalysis
 // `compile` is pure-ish (deterministic given the same inputs); `materialise`
 // is the only side effect.
 
+/// One row in `Codegen`'s deferred `TypeDefinition` lists (`unionTypes` /
+/// `recordTypes`). The actual `TypeDefinition` / `InterfaceImpl` /
+/// `GenericParam` rows aren't added until every method/field row exists, so
+/// the per-type loop accumulates this shape and the trailing pass walks it.
+/// `DeclaresIEquatable` (records-plan §B4) and `DeclaresIComparable`
+/// (records-plan §B6) decide which `InterfaceImpl` rows pair with the
+/// type — see the comment on `unionTypes` for the per-flag detail.
+type internal EmittedTypeRow =
+    {
+        Name: string
+        Namespace: string
+        Typars: string list
+        FirstField: FieldDefinitionHandle
+        FirstMethod: MethodDefinitionHandle
+        DeclaresIEquatable: bool
+        DeclaresIComparable: bool
+    }
+
 /// The in-memory assembled PE plus enough to inspect / write it.
 type ClrArtifact =
     {
@@ -373,23 +391,28 @@ module Codegen =
         let unions = Dictionary<string, Emit.EmittedUnion>()
         let records = Dictionary<string, Emit.EmittedRecord>()
 
-        // (name, namespace, typars, firstField, firstMethod, declares-IEquatable)
-        // for each emitted union's `TypeDefinition`, claimed after every
-        // method/field row exists. `typars` drives the metadata arity suffix
-        // (`List\`1`) + `GenericParam` rows for a generic union (empty ⇒
-        // monomorphic). The trailing flag mirrors the record path: when the
-        // C-Attr verdict is `Structural` the union declares `IEquatable<Self>`
-        // (the `InterfaceImpl` row pairs with the typed `Equals` it emitted);
-        // otherwise the interface declaration is skipped.
-        let unionTypes =
-            ResizeArray<string * string * string list * FieldDefinitionHandle * MethodDefinitionHandle * bool>()
+        // One row per emitted union/record `TypeDefinition`, claimed after
+        // every method/field row exists. `Typars` drives the metadata arity
+        // suffix (`List\`1`) + `GenericParam` rows for a generic union (empty
+        // ⇒ monomorphic). The two flags decide which `InterfaceImpl` rows
+        // pair with the type's `TypeDefinition` below:
+        //   * `DeclaresIEquatable` (records-plan §B4) pairs with the emitted
+        //     `Equals(Self)` — `IEquatable<Self>`.
+        //   * `DeclaresIComparable` (records-plan §B6) pairs with the
+        //     emitted `CompareTo(Self)` + `CompareTo(object)` —
+        //     `IComparable<Self>` and the non-generic `IComparable`.
+        // Both default to `false` when the corresponding C-Attr verdict is
+        // anything other than `Structural`.
+        let unionTypes = ResizeArray<EmittedTypeRow>()
 
         // Per union: the parameterless `.ctor`, one factory per case, one method
         // per augmentation member (P3d.3), and — when the C-Attr verdict is
         // `Structural` (default) — the synthesised `GetHashCode()` +
         // `Equals(object)` + typed `Equals(Self)` triple (C-Eq1 / S4). A
         // `[<ReferenceEquality>]` / `[<NoEquality>]` union skips the triple
-        // (records-handoff §1).
+        // (records-plan §B4). A `[<StructuralComparison>]` union also gets
+        // the synthesised `CompareTo(Self)` + `CompareTo(object)` pair
+        // (records-plan §B6).
         let unionMethodTotal =
             unionDecls
             |> List.sumBy (fun (td, cases, members) ->
@@ -398,7 +421,12 @@ module Codegen =
                     | EqualityVerdict.Structural -> 3
                     | _ -> 0
 
-                1 + List.length cases + List.length members + triple
+                let pair =
+                    match td.ComparisonSupport with
+                    | ComparisonVerdict.Structural -> 2
+                    | _ -> 0
+
+                1 + List.length cases + List.length members + triple + pair
             )
 
         // Per record: one ctor taking the fields, one method per augmentation
@@ -409,7 +437,9 @@ module Codegen =
         // `[<StructuralEquality>]` / `[<ReferenceEquality>]` / `[<NoEquality>]`
         // overrides the default. The verdict is computed in
         // `NameResolution.registerRecordTypeDefn` and projected onto
-        // `td.EqualitySupport` by `Freeze`.
+        // `td.EqualitySupport` by `Freeze`. A `[<StructuralComparison>]`
+        // record also gets the synthesised `CompareTo` pair
+        // (records-plan §B6).
         let recordMethodTotal =
             recordDecls
             |> List.sumBy (fun (td, _, members) ->
@@ -418,7 +448,12 @@ module Codegen =
                     | EqualityVerdict.Structural -> 3
                     | _ -> 0
 
-                1 + List.length members + triple
+                let pair =
+                    match td.ComparisonSupport with
+                    | ComparisonVerdict.Structural -> 2
+                    | _ -> 0
+
+                1 + List.length members + triple + pair
             )
 
         let closureMethodTotal = 2 * List.length closures
@@ -791,8 +826,8 @@ module Codegen =
                 methodCount <- methodCount + 1 // each member-method row
 
             // Synthesised structural-equality triple (C-Eq1 / S4) when the
-            // C-Attr verdict is `Structural` (default for a union; records-handoff
-            // §1). `Equals(object)` + `GetHashCode()` overrides + the typed
+            // C-Attr verdict is `Structural` (default for a union; records-plan
+            // §B4). `Equals(object)` + `GetHashCode()` overrides + the typed
             // `IEquatable<Self>::Equals(Self)` walk the cases' fields by the
             // §3.2 rule (`EqualityComparer<F>.Default`, `System.HashCode`). A
             // *generic* union (S4) gets the same triple written in its own
@@ -913,13 +948,101 @@ module Codegen =
 
                 provider.ClearTypeTypars()
 
+            // Structural-comparison pair for a union whose C-Attr verdict is
+            // `Structural` (records-plan §B6). Mirrors the equality
+            // triple block above — same ambient `!0` map, same `allFields`
+            // walk over every payload field in declaration order. Adds
+            // `CompareTo(Self)` then `CompareTo(object)`; the obj-typed entry
+            // delegates to the typed one, so the typed handle is captured
+            // first. Skipped by default since brainstorm-comparison §9 is
+            // opt-in.
+            let emitsUnionComparison = td.ComparisonSupport = ComparisonVerdict.Structural
+
+            if emitsUnionComparison then
+                provider.SetTypeTypars td.TypeParams
+
+                let allFieldsForCmp =
+                    [
+                        for c in cases do
+                            let handles = caseFields |> List.find (fun (n, _) -> n = c.Name) |> snd
+
+                            for fi in 0 .. c.Fields.Length - 1 ->
+                                let fieldHandle =
+                                    if isGeneric then
+                                        icodegen.GenericUnionMemberRef(
+                                            td.Name,
+                                            typarMarkers,
+                                            UnionMember.Field(c.Name, fi)
+                                        )
+                                    else
+                                        handles.[fi]
+
+                                fieldHandle, Emit.zonk (snd c.Fields.[fi])
+                    ]
+
+                let cmpSupport: Emit.UnionComparisonSupport =
+                    {
+                        SelfType =
+                            if isGeneric then
+                                provider.GenericUnionSelfSpec td.Name
+                            else
+                                provider.UserTypeHandle td.Name
+                        SelfSemType = TyUnion(td.Name, typarMarkers)
+                        TagField =
+                            if isGeneric then
+                                icodegen.GenericUnionMemberRef(td.Name, typarMarkers, UnionMember.Tag)
+                            else
+                                tagField
+                        Fields = allFieldsForCmp
+                        ComparerDefault = fun t -> provider.ComparerDefault t
+                        ComparerCompare = fun t -> provider.ComparerCompare t
+                        ArgumentExceptionCtor = provider.ArgumentExceptionCtor
+                        MismatchMessage = ctx.UserString "Object type mismatch"
+                    }
+
+                let compareToTypedBody =
+                    Cil.buildBody memberEncodeLocals bodyStream (IlIr.lower (Emit.buildUnionCompareTo cmpSupport))
+
+                let typedCompareTo =
+                    ctx.AddMethodWithParamList(
+                        ifaceEqualsAttrs,
+                        "CompareTo",
+                        provider.CompareToTypedSignature(TyUnion(td.Name, typarMarkers)),
+                        compareToTypedBody,
+                        addParams [ "other" ]
+                    )
+
+                methodCount <- methodCount + 1
+
+                let compareToObjBody =
+                    Cil.buildBody
+                        memberEncodeLocals
+                        bodyStream
+                        (IlIr.lower (Emit.buildUnionCompareToObj cmpSupport (toEntity typedCompareTo)))
+
+                ctx.AddMethodWithParamList(
+                    ifaceEqualsAttrs,
+                    "CompareTo",
+                    provider.CompareToOverrideSignature(),
+                    compareToObjBody,
+                    addParams [ "obj" ]
+                )
+                |> ignore
+
+                methodCount <- methodCount + 1
+
+                provider.ClearTypeTypars()
+
             unionTypes.Add(
-                td.Name,
-                (defaultArg td.Namespace ""),
-                td.TypeParams,
-                firstField,
-                unionCtor,
-                emitsUnionTriple
+                {
+                    Name = td.Name
+                    Namespace = defaultArg td.Namespace ""
+                    Typars = td.TypeParams
+                    FirstField = firstField
+                    FirstMethod = unionCtor
+                    DeclaresIEquatable = emitsUnionTriple
+                    DeclaresIComparable = emitsUnionComparison
+                }
             )
 
         // ---- Records (records-plan §B2/B4) ----
@@ -929,14 +1052,14 @@ module Codegen =
         // firstField, ctor-handle, declares-IEquatable) tuple used to add the
         // `TypeDefinition` row + `InterfaceImpl` row + `GenericParam` rows below,
         // exactly mirroring the union path's `unionTypes`.
-        let recordTypes =
-            ResizeArray<string * string * string list * FieldDefinitionHandle * MethodDefinitionHandle * bool>()
+        // Mirrors `unionTypes` — see its comment.
+        let recordTypes = ResizeArray<EmittedTypeRow>()
 
         for (td, fields, members) in recordDecls do
             let firstField = MetadataTokens.FieldDefinitionHandle(fieldCount + 1)
             let isGeneric = not (List.isEmpty td.TypeParams)
             // C-Attr verdict drives both the triple emission and the
-            // `IEquatable<Self>` `InterfaceImpl` row (records-handoff §1). The
+            // `IEquatable<Self>` `InterfaceImpl` row (records-plan §B4). The
             // default for a record was previously `isAllImmutable`; that rule
             // now lives on `info.EqualitySupport` (NameResolution).
             let emitsEqualityTriple = td.EqualitySupport = EqualityVerdict.Structural
@@ -1004,7 +1127,7 @@ module Codegen =
             ignore members
 
             // Structural-equality triple for a record whose C-Attr verdict is
-            // `Structural` (records-handoff §1). The ambient `!0` map is
+            // `Structural` (records-plan §B4). The ambient `!0` map is
             // installed for the duration so a typar-typed field reaches
             // `EqualityComparer<!0>` / `HashCode.Add<!0>` and the `isinst` /
             // `other` / typed-`Equals` self resolve to the record's own
@@ -1093,13 +1216,94 @@ module Codegen =
 
                 provider.ClearTypeTypars()
 
+            // Structural-comparison pair for a record whose C-Attr verdict is
+            // `Structural` (records-plan §B6). Mirrors the equality
+            // triple block above — same ambient `!0` map, same field walk in
+            // declaration order. Adds `CompareTo(Self)` then `CompareTo(object)`;
+            // the obj-typed entry delegates to the typed one. Skipped by
+            // default since brainstorm-comparison §9 is opt-in.
+            let emitsRecordComparison = td.ComparisonSupport = ComparisonVerdict.Structural
+
+            if emitsRecordComparison then
+                provider.SetTypeTypars td.TypeParams
+
+                let memberEncodeLocals =
+                    if isGeneric then
+                        fun locals -> provider.EncodeGenericLocalSignature(td.TypeParams, locals)
+                    else
+                        encodeLocals
+
+                let allFieldsForCmp =
+                    [
+                        for (name, _, fty) in fieldHandles ->
+                            let fieldHandle =
+                                if isGeneric then
+                                    icodegen.GenericRecordMemberRef(td.Name, typarMarkers, RecordMember.Field name)
+                                else
+                                    let _, h, _ = fieldHandles |> List.find (fun (n, _, _) -> n = name)
+                                    h
+
+                            fieldHandle, Emit.zonk fty
+                    ]
+
+                let cmpSupport: Emit.RecordComparisonSupport =
+                    {
+                        SelfType =
+                            if isGeneric then
+                                provider.GenericRecordSelfSpec td.Name
+                            else
+                                provider.UserTypeHandle td.Name
+                        SelfSemType = TyRecord(td.Name, typarMarkers)
+                        Fields = allFieldsForCmp
+                        ComparerDefault = fun t -> provider.ComparerDefault t
+                        ComparerCompare = fun t -> provider.ComparerCompare t
+                        ArgumentExceptionCtor = provider.ArgumentExceptionCtor
+                        MismatchMessage = ctx.UserString "Object type mismatch"
+                    }
+
+                let compareToTypedBody =
+                    Cil.buildBody memberEncodeLocals bodyStream (IlIr.lower (Emit.buildRecordCompareTo cmpSupport))
+
+                let typedCompareTo =
+                    ctx.AddMethodWithParamList(
+                        ifaceEqualsAttrs,
+                        "CompareTo",
+                        provider.CompareToTypedSignature(TyRecord(td.Name, typarMarkers)),
+                        compareToTypedBody,
+                        addParams [ "other" ]
+                    )
+
+                methodCount <- methodCount + 1
+
+                let compareToObjBody =
+                    Cil.buildBody
+                        memberEncodeLocals
+                        bodyStream
+                        (IlIr.lower (Emit.buildRecordCompareToObj cmpSupport (toEntity typedCompareTo)))
+
+                ctx.AddMethodWithParamList(
+                    ifaceEqualsAttrs,
+                    "CompareTo",
+                    provider.CompareToOverrideSignature(),
+                    compareToObjBody,
+                    addParams [ "obj" ]
+                )
+                |> ignore
+
+                methodCount <- methodCount + 1
+
+                provider.ClearTypeTypars()
+
             recordTypes.Add(
-                td.Name,
-                (defaultArg td.Namespace ""),
-                td.TypeParams,
-                firstField,
-                recordCtor,
-                emitsEqualityTriple
+                {
+                    Name = td.Name
+                    Namespace = defaultArg td.Namespace ""
+                    Typars = td.TypeParams
+                    FirstField = firstField
+                    FirstMethod = recordCtor
+                    DeclaresIEquatable = emitsEqualityTriple
+                    DeclaresIComparable = emitsRecordComparison
+                }
             )
 
         // ---- Closures (leaves-first) ----
@@ -1316,15 +1520,15 @@ module Codegen =
             td.TypeParams
             |> List.iteri (fun i n -> genericParams.Add(toEntity typeHandle, i, n.TrimStart('\'')))
 
-        for (name, ns, typars, firstField, firstUnionMethod, declaresIEquatable) in unionTypes do
+        for row in unionTypes do
             let metaName =
-                if List.isEmpty typars then
-                    name
+                if List.isEmpty row.Typars then
+                    row.Name
                 else
-                    sprintf "%s`%d" name (List.length typars)
+                    sprintf "%s`%d" row.Name (List.length row.Typars)
 
             let typeHandle =
-                ctx.AddClass(unionAttrs, ns, metaName, provider.ObjectType, firstField, firstUnionMethod)
+                ctx.AddClass(unionAttrs, row.Namespace, metaName, provider.ObjectType, row.FirstField, row.FirstMethod)
 
             // A union whose C-Attr verdict is `Structural` (default) declares
             // `IEquatable<Self>` — the typed `Equals` emitted above implements
@@ -1335,20 +1539,36 @@ module Codegen =
             // ascending row order, *before* the closure loop adds its own
             // `InterfaceImpl` rows (closures sort after unions), so the table
             // stays ordered. `[<ReferenceEquality>]` / `[<NoEquality>]` unions
-            // skip the row (records-handoff §1).
-            if declaresIEquatable then
-                provider.SetTypeTypars typars
+            // skip the row (records-plan §B4). A `[<StructuralComparison>]`
+            // union additionally declares `IComparable<Self>` + `IComparable`
+            // for its emitted `CompareTo` pair (records-plan §B6); the
+            // SRM `InterfaceImpl` writer sorts ties on Interface coded index
+            // internally, so the order of these `Add` calls on a single class
+            // does not need to match the final row order.
+            if row.DeclaresIEquatable || row.DeclaresIComparable then
+                provider.SetTypeTypars row.Typars
 
-                ctx.AddInterfaceImplementation(
-                    typeHandle,
-                    provider.EquatableInterfaceSpec(TyUnion(name, [ for t in typars -> TyConst t ]))
-                )
+                let selfMarkers = [ for t in row.Typars -> TyConst t ]
+
+                if row.DeclaresIEquatable then
+                    ctx.AddInterfaceImplementation(
+                        typeHandle,
+                        provider.EquatableInterfaceSpec(TyUnion(row.Name, selfMarkers))
+                    )
+
+                if row.DeclaresIComparable then
+                    ctx.AddInterfaceImplementation(
+                        typeHandle,
+                        provider.ComparableInterfaceSpec(TyUnion(row.Name, selfMarkers))
+                    )
+
+                    ctx.AddInterfaceImplementation(typeHandle, provider.IComparableType)
 
                 provider.ClearTypeTypars()
 
             // A generic union's typars are owned by this TypeDef (collected here,
             // emitted sorted with the rest — the metadata name drops the F# quote).
-            typars
+            row.Typars
             |> List.iteri (fun i n -> genericParams.Add(toEntity typeHandle, i, n.TrimStart('\'')))
 
         // Records mirror unions: sealed reference class derived from `Object`,
@@ -1356,29 +1576,43 @@ module Codegen =
         // generic typars owned by the `TypeDefinition` (records-plan §B2/B4).
         // These rows land between the union and closure TypeDefinitions so the
         // ascending `InterfaceImpl` / `GenericParam` order holds.
-        for (name, ns, typars, firstField, firstRecordMethod, declaresIEquatable) in recordTypes do
+        for row in recordTypes do
             let metaName =
-                if List.isEmpty typars then
-                    name
+                if List.isEmpty row.Typars then
+                    row.Name
                 else
-                    sprintf "%s`%d" name (List.length typars)
+                    sprintf "%s`%d" row.Name (List.length row.Typars)
 
             let typeHandle =
-                ctx.AddClass(unionAttrs, ns, metaName, provider.ObjectType, firstField, firstRecordMethod)
+                ctx.AddClass(unionAttrs, row.Namespace, metaName, provider.ObjectType, row.FirstField, row.FirstMethod)
 
             // Skip the `IEquatable<Self>` declaration for a mutable record (its
-            // triple was skipped above, so there's nothing to bind here).
-            if declaresIEquatable then
-                provider.SetTypeTypars typars
+            // triple was skipped above, so there's nothing to bind here). A
+            // `[<StructuralComparison>]` record additionally declares
+            // `IComparable<Self>` + `IComparable` for its emitted `CompareTo`
+            // pair (records-plan §B6).
+            if row.DeclaresIEquatable || row.DeclaresIComparable then
+                provider.SetTypeTypars row.Typars
 
-                ctx.AddInterfaceImplementation(
-                    typeHandle,
-                    provider.EquatableInterfaceSpec(TyRecord(name, [ for t in typars -> TyConst t ]))
-                )
+                let selfMarkers = [ for t in row.Typars -> TyConst t ]
+
+                if row.DeclaresIEquatable then
+                    ctx.AddInterfaceImplementation(
+                        typeHandle,
+                        provider.EquatableInterfaceSpec(TyRecord(row.Name, selfMarkers))
+                    )
+
+                if row.DeclaresIComparable then
+                    ctx.AddInterfaceImplementation(
+                        typeHandle,
+                        provider.ComparableInterfaceSpec(TyRecord(row.Name, selfMarkers))
+                    )
+
+                    ctx.AddInterfaceImplementation(typeHandle, provider.IComparableType)
 
                 provider.ClearTypeTypars()
 
-            typars
+            row.Typars
             |> List.iteri (fun i n -> genericParams.Add(toEntity typeHandle, i, n.TrimStart('\'')))
 
         // Each closure derives from `System.Object` and implements its

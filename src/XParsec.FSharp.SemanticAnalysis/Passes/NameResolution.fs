@@ -462,7 +462,7 @@ module NameResolution =
                             typarConstraintsOfTypeName tn
                         )
 
-                    // C-Attr: record's equality posture (records-handoff §1).
+                    // C-Attr: record's equality posture (records-plan §B4).
                     // Explicit `[<StructuralEquality>]` / `[<ReferenceEquality>]` /
                     // `[<NoEquality>]` wins; absence falls back to the records-plan
                     // §B4 default ⇒ `Structural` when every field is immutable,
@@ -478,6 +478,17 @@ module NameResolution =
                                 EqualityVerdict.Structural
                             else
                                 EqualityVerdict.Reference
+
+                    // C-Attr (Phase 3): record's comparison posture defaults to
+                    // `NoComparison` per brainstorm-comparison §9 (opt-in).
+                    // Explicit `[<StructuralComparison>]` / `[<NoComparison>]`
+                    // overrides; absent that, no comparison pair is emitted and
+                    // `<` / `>` / `<=` / `>=` against the type is a diagnostic
+                    // through the `Comparison` typar-constraint check.
+                    info.ComparisonSupport <-
+                        match Attributes.decodeComparisonAttributes ctx (Attributes.attributesOfTypeName tn) with
+                        | ValueSome v -> v
+                        | ValueNone -> ComparisonVerdict.NoComparison
 
                     ctx.RecordTypes.[name] <- info
 
@@ -602,13 +613,24 @@ module NameResolution =
                         UnionTypeInfo(name, typeParams, caseInfos, declKey, typarConstraintsOfTypeName tn)
 
                     // C-Attr: a union's equality posture defaults to `Structural`
-                    // (records-handoff §1 / brainstorm §8). Explicit
+                    // (records-plan §B4 / brainstorm §8). Explicit
                     // `[<ReferenceEquality>]` / `[<NoEquality>]` overrides the
                     // default.
                     info.EqualitySupport <-
                         match Attributes.decodeEqualityAttributes ctx (Attributes.attributesOfTypeName tn) with
                         | ValueSome v -> v
                         | ValueNone -> EqualityVerdict.Structural
+
+                    // C-Attr (Phase 3): union's comparison posture defaults to
+                    // `NoComparison` per brainstorm-comparison §9 (opt-in).
+                    // Explicit `[<StructuralComparison>]` / `[<NoComparison>]`
+                    // overrides; absent that, no comparison pair is emitted and
+                    // `<` / `>` / `<=` / `>=` against the type is a diagnostic
+                    // through the `Comparison` typar-constraint check.
+                    info.ComparisonSupport <-
+                        match Attributes.decodeComparisonAttributes ctx (Attributes.attributesOfTypeName tn) with
+                        | ValueSome v -> v
+                        | ValueNone -> ComparisonVerdict.NoComparison
 
                     ctx.UnionTypes.[name] <- info
 

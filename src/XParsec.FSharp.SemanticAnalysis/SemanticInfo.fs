@@ -92,7 +92,7 @@ type EscapeState =
 /// (records-plan §B4 / brainstorm-structural-equality §8): an all-immutable
 /// record or any union ⇒ `Structural`; a record with any mutable field ⇒
 /// `Reference`. An interface ignores it (no triple is ever synthesised). See
-/// [`docs/records-handoff.md`](docs/records-handoff.md) Phase 1.
+/// [`docs/records-plan.md`](docs/records-plan.md) §B4.
 [<RequireQualifiedAccess>]
 type EqualityVerdict =
     /// Emit the structural-equality triple + the `IEquatable<Self>`
@@ -106,6 +106,26 @@ type EqualityVerdict =
     /// `<>` use site against this type is a diagnostic (driven through the
     /// `Equality` typar-constraint check in `Unification`).
     | NoEquality
+
+/// Per-type decision on whether the structural-comparison pair
+/// (`int CompareTo(Self)` / `int CompareTo(object)` + `IComparable<Self>` /
+/// `IComparable` `InterfaceImpl`s) ships on a record / union. Driven by C-Attr
+/// (`Passes/Attributes.fs`) off the type's `[<StructuralComparison>]` /
+/// `[<NoComparison>]` declarations. Per brainstorm-comparison §9 the default
+/// is **opt-in**: an unannotated record / union is `NoComparison`, so
+/// ordering use sites (`r1 < r2`) are rejected unless the author writes
+/// `[<StructuralComparison>]`. See [`docs/records-plan.md`](docs/records-plan.md)
+/// §B6 and [`docs/brainstorm-comparison.md`](docs/brainstorm-comparison.md) §9.
+[<RequireQualifiedAccess>]
+type ComparisonVerdict =
+    /// Emit the structural-comparison pair + the `IComparable<Self>` /
+    /// `IComparable` `InterfaceImpl`s. Requires an explicit
+    /// `[<StructuralComparison>]` attribute on the type.
+    | Structural
+    /// Emit no pair; `<` / `>` / `<=` / `>=` against this type is a diagnostic
+    /// (driven through the `Comparison` typar-constraint check in
+    /// `Unification`). Default for unannotated records / unions.
+    | NoComparison
 
 /// Mutually recursive with TypeVar — every TyVar is a pointer into the
 /// union-find graph. Will grow to include generics, units.

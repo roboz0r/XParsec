@@ -119,9 +119,9 @@ type ICodegenProvider =
     /// A `MemberRef` to a *referenced-assembly* record's `.ctor`, instantiated
     /// at `tyArgs`. The mirror of `TryEmitUnionCons` for records: when
     /// `env.Records` doesn't hold the type (it lives in another package — e.g.
-    /// `Vesper.Ref\`1` in `Vesper.Core.dll` after records-handoff Phase 2
-    /// follow-up F2), the provider looks the record up through its external
-    /// symbol stack and mints a `MemberRef` on the instantiated `TypeSpec`.
+    /// `Vesper.Ref\`1` in `Vesper.Core.dll`, per records-plan §B7), the
+    /// provider looks the record up through its external symbol stack and
+    /// mints a `MemberRef` on the instantiated `TypeSpec`.
     /// `ValueNone` ⇒ the type is unknown to the provider (no contract / metadata
     /// hit), in which case the caller falls back to its old hard error.
     /// `fieldNames` is the source-order field list the caller would have used

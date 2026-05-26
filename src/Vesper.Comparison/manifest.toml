@@ -1,11 +1,15 @@
 # Vesper.Comparison — the ordering family as a standalone package
 # (package-split-plan PS1/PS4; operators-plan.md O2).
 #
-# Same shape as src/Vesper.Core / src/Vesper.Option / src/Vesper.List: the `.fsi`
-# is the front-end symbol contract (parsed by XParsec.FSharp, walked into an
-# IExternalSymbolProvider). There is no `.fs` impl — the ordering operators carry
-# no runtime member; codegen special-cases them to CIL `clt`/`cgt` on primitives
-# and to a structural `CompareTo` on opted-in types (operators-plan.md O6).
+# Same shape as src/Vesper.Core: the `.fsi` is the front-end symbol contract
+# (parsed by XParsec.FSharp, walked into an IExternalSymbolProvider) and the
+# `.fs` is the per-target *implementation* — F# static-optimization over inline
+# IL, read across the package boundary by the codegen inline-body loader
+# (`SymbolProviders.inlineBodies`) and spliced at each use site. Same
+# cross-package-inline mechanism Vesper.Core's `(=)` / `(<>)` / `hash` use
+# (operators-plan.md O6): per-primitive clauses lower to CIL `clt` / `cgt`,
+# the structural-comparison base routes through `Comparer<^T>.Default.Compare(x, y)`
+# for an opted-in record / union.
 #
 # Depends on Vesper.Core (`Fun`, `unit`, `bool`, the `when 'T: comparison`
 # constraint vocabulary, and the recognised comparison attributes which live in
@@ -15,8 +19,8 @@
 # available without an explicit reference (operators-plan.md O3) — is a separate
 # follow-up (slice C-Cmp1).
 #
-# This pass stands up the contract surface only: the four bare ordering operators
-# relocated out of Vesper.Core. `compare` / `min` / `max` join them in C-Cmp1.
+# This pass stands up the contract surface + the four operator bodies; `compare`
+# / `min` / `max` join them in C-Cmp1.
 #
 # See ../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md and
 # ../XParsec.FSharp.SemanticAnalysis/docs/operators-plan.md.
@@ -30,4 +34,11 @@ depends-on = ["Vesper.Core"]
 # Contract `.fsi` files in compile order (one, today).
 files = [
     "comparison.fsi",
+]
+
+# Per-target `.fs` body the codegen inline-body loader reads across the package
+# boundary (symbol-resolution-plan §5.2/§5.3): the static-optimization over
+# inline IL for each of the four bare ordering operators.
+impl = [
+    "comparison.fs",
 ]

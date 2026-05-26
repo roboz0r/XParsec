@@ -3,7 +3,7 @@ namespace Vesper
 /// <summary>The type of mutable references. The captured-mutable promotion pass
 /// (Passes/RefCellPromotion) reads and writes the `contents` field directly; the
 /// `Value` property and `!` / `:=` / `incr` / `decr` operators of FSharp.Core's
-/// `FSharpRef` are deferred (records-handoff.md Phase 2 follow-up).</summary>
+/// `FSharpRef` are deferred.</summary>
 ///
 /// <category>Basic Types</category>
 /// <exclude />

@@ -6,28 +6,19 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Records-handoff Phase 2 follow-up: `let mutable` captured by an escaping
-// closure is promoted to a `Vesper.Ref<'T>` cell so the closure and outer frame
-// share the same heap-allocated reference. The cell type itself lives in
-// `Vesper.Core.dll` (F1); the codegen resolves it through the cross-package
-// record path (F2); the consumer PE declares no copy. The promotion fires only
-// for bindings whose Regions verdict is `HeapShared` — uncaptured `let mutable`
-// (CallerStack) stays a stack-local. See docs/records-handoff.md Phase 2
-// follow-up.
+// Captured-mutable promotion (records-plan §B7): `let mutable` captured by an
+// escaping closure is rewritten to a `Vesper.Ref<'T>` cell so the closure and
+// outer frame share the same heap-allocated reference. The cell type lives in
+// `Vesper.Core.dll`; the codegen resolves it through the cross-package record
+// path; the consumer PE declares no copy. The promotion fires only for
+// bindings whose Regions verdict is `HeapShared` — uncaptured `let mutable`
+// (CallerStack) stays a stack-local.
 //
-// The handoff's end-to-end runtime tests (`mkCounter ()` / `mkPair ()`) are
-// pinned by two pre-existing backend limitations the captured-mutable
-// promotion does NOT introduce: (a) unit parameters (`fun () ->`) aren't peeled
-// by `Emit.peelLambda` so the closure path errors with "closure parameter
-// destructuring is out of scope"; (b) a higher-order function that *returns*
-// a closure (`let mkF x = fun y -> y + x; let c = mkF 10`) currently exposes
-// an un-pinned `TyVar` in the inner closure's capture-field signature
-// (`ClrProvider: cannot encode SemType: TyVar`). Once either is addressed the
-// runtime cases listed in `docs/records-handoff.md` Phase 2 land verbatim.
-//
-// The tests below cover the promotion's TAST-level guarantees: the consumer's
-// `Decls` carries no `Ref` type (the cell lives in `Vesper.Core.dll`), the
-// binding-site rewrite, and the `n <- v` ↦ FieldSet + `n` ↦ FieldGet lowering.
+// These tests cover the promotion's TAST-level guarantees: the consumer's
+// `Decls` carries no `Ref` type, the binding-site rewrite, and the `n <- v`
+// ↦ FieldSet + `n` ↦ FieldGet lowering. Generic-closure synthesis
+// (closure-plan.md) is the remaining gap for runtime cases that surface an
+// un-pinned `TyVar` in a closure's capture-field signature.
 
 [<Tests>]
 let tests =
@@ -269,31 +260,24 @@ let tests =
                 Expect.equal (output.Trim()) "3" "three increments, observed through the read closure, sum to 3"
             }
 
-            // Records-handoff F3.2 (still open): a higher-order function that
-            // *returns* a closure with an un-pinned typar in its capture-field
-            // signature surfaces `ClrProvider: cannot encode SemType: TyVar`
-            // at codegen time. The fix needs generic closure synthesis — the
-            // inner closure type becomes generic over its enclosing static
-            // method's typars, instantiated per call site — which is a
-            // substantial follow-up (closure ctor/Invoke signatures, TypeSpec
-            // instantiation at the construction site). NOT required for the
-            // F3 runtime tests listed in `docs/records-handoff.md` (`mkCounter
-            // ()`, two-closures-share-the-cell), which use only ground types.
-            // Documented as pending so the gap stays visible.
-            // F3.2: genuine generic-closure case — the inner closure captures a
-            // value of an *unconstrained* typar (`'a`). No operators apply to
-            // `x` inside the inner closure, so F#'s static-member-default
-            // mechanism never kicks in; `mkConst` stays `'a -> unit -> 'a` and
-            // the static method's typar must flow through into the closure's
-            // capture-field signature. See `closure-plan.md`.
+            // Pending (closure-plan.md): a higher-order function that *returns*
+            // a closure with an un-pinned typar in its capture-field signature
+            // surfaces `ClrProvider: cannot encode SemType: TyVar`. The fix
+            // needs generic closure synthesis — the inner closure type becomes
+            // generic over its enclosing static method's typars, instantiated
+            // per call site. The genuine generic-closure case here: the inner
+            // closure captures a value of an *unconstrained* typar (`'a`). No
+            // operators apply to `x` inside the inner closure, so F#'s
+            // static-member-default mechanism never kicks in; `mkConst` stays
+            // `'a -> unit -> 'a` and the static method's typar must flow
+            // through into the closure's capture-field signature.
             //
-            // (The earlier "`mkAdder x = fun y -> y + x`" example *would* be
-            // monomorphic in correctly-defaulting F# — the `+` operator's
-            // `default ^T1: int` clause in `Vesper.Core/ops-platform.fsi`
-            // forces `int` in the absence of other type direction, so it's a
-            // defaults-not-applied symptom rather than a generic-closure case.
-            // `mkConst` cannot be defaulted; it is the genuine F3.2 trigger.)
-            ptest "F3.2: higher-order returning a closure with an un-pinned typar (generic-closure follow-up)" {
+            // (`let mkAdder x = fun y -> y + x` is NOT a generic-closure case
+            // in F# — the `+` operator's `default ^T1: int` clause in
+            // `Vesper.Core/ops-platform.fsi` forces `int` in the absence of
+            // other type direction. `mkConst` cannot be defaulted; it is the
+            // genuine trigger.)
+            ptest "Higher-order returning a closure with an un-pinned typar (closure-plan.md)" {
                 let src =
                     "let mkConst x = fun () -> x\nlet always10 = mkConst 10\nprintfn \"%d\" (always10 ())"
 
@@ -303,6 +287,10 @@ let tests =
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 (sprintf "Main returns 0 (output: %s)" output)
-                Expect.equal (output.Trim()) "10" "the inner closure carries its capture's type through the static-method typar"
+
+                Expect.equal
+                    (output.Trim())
+                    "10"
+                    "the inner closure carries its capture's type through the static-method typar"
             }
         ]

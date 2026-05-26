@@ -109,10 +109,10 @@ module ReferencedProject =
                 match inner.TryLookupType name with
                 | ValueSome(ExternalTypeShape.Class(arity, isInterface, _)) ->
                     ValueSome(ExternalTypeShape.Class(arity, isInterface, origin))
-                // A record now also carries its package's `Origin` so the
-                // codegen can mint a `TypeRef` for it (records-handoff Phase 2
-                // follow-up F2). Abbrev/Union still don't (their cross-package
-                // emit paths land later, with the same shape).
+                // A record carries its package's `Origin` so the codegen can
+                // mint a `TypeRef` for it (records-plan §B7). Abbrev/Union
+                // still don't (their cross-package emit paths land later, with
+                // the same shape).
                 | ValueSome(ExternalTypeShape.Record(arity, fields, _)) ->
                     ValueSome(ExternalTypeShape.Record(arity, fields, origin))
                 | other -> other

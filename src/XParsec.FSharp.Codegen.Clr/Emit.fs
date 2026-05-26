@@ -1257,7 +1257,7 @@ module Emit =
     /// token; a *generic* record returns a `MemberRef` on the receiver's
     /// instantiated `TypeSpec` (`Box<int>::Value`) — the records-plan §B3 mirror
     /// of `resolveInstanceMember` for unions. A referenced-assembly record
-    /// (records-handoff Phase 2 follow-up F2) goes through the provider's
+    /// (records-plan §B7) goes through the provider's
     /// `TryResolveExternalRecordField`. The receiver must be a record (the
     /// front end has already routed non-record field access elsewhere).
     let private resolveRecordField (env: EmitEnv) (receiverTy: SemType) (fieldName: string) : EntityHandle * SemType =
@@ -2438,5 +2438,240 @@ module Emit =
 
         b.Add(ILInstr.Ldloca hc)
         b.Add(ILInstr.Call(s.HashCodeToHashCode, 1, 1))
+        b.Add ILInstr.Ret
+        b.Body
+
+    // ---- Structural comparison for a union (records-plan §B6) ----
+    //
+    // Mirror of `UnionEqualitySupport` minus the hashing surface (no
+    // `HashCode.Add` for comparison) and plus the comparer/IComparable handles
+    // a `CompareTo(Self)` body and the `CompareTo(object)` boxing entry need.
+    //
+    // The per-field walk uses `Comparer<F>.Default.Compare(this.F, other.F)`,
+    // returning the first non-zero result (lexicographic). The union compares
+    // tags first via `sub` — tag values are small case indices, so subtraction
+    // is safe. Same flat walk as equality: every payload field is compared in
+    // declaration order regardless of active case, sound because inactive-case
+    // fields are always default (per `emitUnionFactory`).
+
+    type UnionComparisonSupport =
+        {
+            /// The union's own `TypeDefinition` — the `isinst` target the
+            /// `CompareTo(object)` boxing entry uses to cast and type-check.
+            SelfType: EntityHandle
+            /// `TyUnion(name, …)` — the type of the cast `other` local and the
+            /// param type of the typed `CompareTo(Self)`.
+            SelfSemType: SemType
+            TagField: EntityHandle
+            /// `(field handle, field type)` across every case, declaration order.
+            Fields: (EntityHandle * SemType) list
+            /// `Comparer<T>.Default` getter for a field type.
+            ComparerDefault: SemType -> EntityHandle
+            /// `Comparer<T>::Compare(T, T) : int32` for a field type.
+            ComparerCompare: SemType -> EntityHandle
+            /// `System.ArgumentException::.ctor(string)` — the
+            /// `CompareTo(object)` body throws this on a non-`Self` arg.
+            ArgumentExceptionCtor: EntityHandle
+            /// `UserStringHandle` for the `"Object type mismatch"` literal the
+            /// `CompareTo(object)` body pushes onto the stack. Codegen mints
+            /// this via `ctx.UserString` before building the support struct
+            /// (the builder owns no metadata context).
+            MismatchMessage: UserStringHandle
+        }
+
+    /// The §5.2 tag-then-field lex comparison shared by both entry points (the
+    /// `CompareTo(object)` override and the typed `IComparable<Self>::CompareTo`):
+    /// `this` is `ldarg.0`, `other` is loaded by `loadOther` (already non-null
+    /// `Self`). The first non-zero result is left in `cLocal` and `brtrue`-ed to
+    /// `returnLabel`; on fall-through every comparison returned 0.
+    let private buildTagAndFieldComparison
+        (s: UnionComparisonSupport)
+        (b: IlBuilder)
+        (loadOther: IlBuilder -> unit)
+        (cLocal: int)
+        (returnLabel: int)
+        : unit =
+        // c = this._tag - other._tag;  if (c != 0) goto return;
+        b.Add(ILInstr.Ldarg 0)
+        b.Add(ILInstr.Ldfld s.TagField)
+        loadOther b
+        b.Add(ILInstr.Ldfld s.TagField)
+        b.Add(ILInstr.Bin ILOpCode.Sub)
+        b.Add(ILInstr.Stloc cLocal)
+        b.Add(ILInstr.Ldloc cLocal)
+        b.Add(ILInstr.Brtrue returnLabel)
+
+        // per field: c = Comparer<F>.Default.Compare(this.F, other.F);
+        //           if (c != 0) goto return;
+        for (fieldHandle, fieldTy) in s.Fields do
+            b.Add(ILInstr.Call(s.ComparerDefault fieldTy, 0, 1))
+            b.Add(ILInstr.Ldarg 0)
+            b.Add(ILInstr.Ldfld fieldHandle)
+            loadOther b
+            b.Add(ILInstr.Ldfld fieldHandle)
+            b.Add(ILInstr.Callvirt(s.ComparerCompare fieldTy, 3, 1))
+            b.Add(ILInstr.Stloc cLocal)
+            b.Add(ILInstr.Ldloc cLocal)
+            b.Add(ILInstr.Brtrue returnLabel)
+
+    /// `int CompareTo(Self other)` — the typed `IComparable<Self>::CompareTo`
+    /// the union implements (records-plan §B6). A `null` `other` sorts
+    /// before any non-null value (brainstorm-comparison §5.3, matching BCL
+    /// convention), so this returns `1` in that case; otherwise the shared tag/
+    /// field lex walk. The walk stores its current `c` in a local and branches
+    /// to a shared return label as soon as `c != 0`; on fall-through every
+    /// comparison was equal, so it returns `0`.
+    let buildUnionCompareTo (s: UnionComparisonSupport) : ILBody =
+        let b = IlBuilder()
+        let c = b.Local(TyConst "int")
+        let nullLabel = b.Label()
+        let returnLabel = b.Label()
+
+        // if (other == null) return 1;
+        b.Add(ILInstr.Ldarg 1)
+        b.Add(ILInstr.Brfalse nullLabel)
+
+        buildTagAndFieldComparison s b (fun b -> b.Add(ILInstr.Ldarg 1)) c returnLabel
+
+        // Fall-through: every comparison returned 0.
+        b.Add(ILInstr.LdcI4 0)
+        b.Add ILInstr.Ret
+        // First non-zero result is in `c`.
+        b.Add(ILInstr.Mark returnLabel)
+        b.Add(ILInstr.Ldloc c)
+        b.Add ILInstr.Ret
+        b.Add(ILInstr.Mark nullLabel)
+        b.Add(ILInstr.LdcI4 1)
+        b.Add ILInstr.Ret
+        b.Body
+
+    /// `int CompareTo(object obj)` — the non-generic
+    /// `IComparable::CompareTo(object)` entry the union implements. Matches
+    /// F#'s convention: `null` sorts first (returns `1`), a non-`Self` argument
+    /// throws `ArgumentException`, otherwise delegate to the typed
+    /// `CompareTo(Self)`. Uses `isinst` + a `Self`-typed local to avoid an
+    /// explicit `castclass` (same pattern `buildUnionEquals` uses).
+    let buildUnionCompareToObj (s: UnionComparisonSupport) (typedCompareTo: EntityHandle) : ILBody =
+        let b = IlBuilder()
+        let other = b.Local s.SelfSemType
+        let nullLabel = b.Label()
+        let throwLabel = b.Label()
+
+        // if (obj == null) return 1;
+        b.Add(ILInstr.Ldarg 1)
+        b.Add(ILInstr.Brfalse nullLabel)
+        // other = obj as Self;  if (other == null) goto throw;
+        b.Add(ILInstr.Ldarg 1)
+        b.Add(ILInstr.Isinst s.SelfType)
+        b.Add(ILInstr.Stloc other)
+        b.Add(ILInstr.Ldloc other)
+        b.Add(ILInstr.Brfalse throwLabel)
+        // return this.CompareTo(other);
+        b.Add(ILInstr.Ldarg 0)
+        b.Add(ILInstr.Ldloc other)
+        b.Add(ILInstr.Call(typedCompareTo, 2, 1))
+        b.Add ILInstr.Ret
+        // throw new ArgumentException("Object type mismatch");
+        b.Add(ILInstr.Mark throwLabel)
+        b.Add(ILInstr.Ldstr s.MismatchMessage)
+        b.Add(ILInstr.Newobj(s.ArgumentExceptionCtor, 1))
+        b.Add ILInstr.Throw
+        b.Add(ILInstr.Mark nullLabel)
+        b.Add(ILInstr.LdcI4 1)
+        b.Add ILInstr.Ret
+        b.Body
+
+    // ---- Structural comparison for a record (records-plan §B6) ----
+
+    /// Mirror of `RecordEqualitySupport` for the comparison pair. Same shape
+    /// as `UnionComparisonSupport` minus the tag — a record is one nameless
+    /// "case", so the union walk minus the tag compare is the record pair.
+    type RecordComparisonSupport =
+        {
+            SelfType: EntityHandle
+            SelfSemType: SemType
+            /// `(field handle, field type)` in declaration order.
+            Fields: (EntityHandle * SemType) list
+            ComparerDefault: SemType -> EntityHandle
+            ComparerCompare: SemType -> EntityHandle
+            ArgumentExceptionCtor: EntityHandle
+            MismatchMessage: UserStringHandle
+        }
+
+    /// The field-by-field lex comparison shared by both record `CompareTo`
+    /// entry points. Same shape as `buildTagAndFieldComparison` minus the
+    /// leading tag compare. The first non-zero result is stored in `cLocal`
+    /// and branched to `returnLabel`; on fall-through every field was equal.
+    let private buildRecordFieldComparison
+        (s: RecordComparisonSupport)
+        (b: IlBuilder)
+        (loadOther: IlBuilder -> unit)
+        (cLocal: int)
+        (returnLabel: int)
+        : unit =
+        for (fieldHandle, fieldTy) in s.Fields do
+            b.Add(ILInstr.Call(s.ComparerDefault fieldTy, 0, 1))
+            b.Add(ILInstr.Ldarg 0)
+            b.Add(ILInstr.Ldfld fieldHandle)
+            loadOther b
+            b.Add(ILInstr.Ldfld fieldHandle)
+            b.Add(ILInstr.Callvirt(s.ComparerCompare fieldTy, 3, 1))
+            b.Add(ILInstr.Stloc cLocal)
+            b.Add(ILInstr.Ldloc cLocal)
+            b.Add(ILInstr.Brtrue returnLabel)
+
+    /// `int CompareTo(Self other)` — the typed `IComparable<Self>::CompareTo`
+    /// the record implements. `null` `other` sorts before any non-null value
+    /// (returns `1`); otherwise the shared field lex walk.
+    let buildRecordCompareTo (s: RecordComparisonSupport) : ILBody =
+        let b = IlBuilder()
+        let c = b.Local(TyConst "int")
+        let nullLabel = b.Label()
+        let returnLabel = b.Label()
+
+        b.Add(ILInstr.Ldarg 1)
+        b.Add(ILInstr.Brfalse nullLabel)
+
+        buildRecordFieldComparison s b (fun b -> b.Add(ILInstr.Ldarg 1)) c returnLabel
+
+        b.Add(ILInstr.LdcI4 0)
+        b.Add ILInstr.Ret
+        b.Add(ILInstr.Mark returnLabel)
+        b.Add(ILInstr.Ldloc c)
+        b.Add ILInstr.Ret
+        b.Add(ILInstr.Mark nullLabel)
+        b.Add(ILInstr.LdcI4 1)
+        b.Add ILInstr.Ret
+        b.Body
+
+    /// `int CompareTo(object obj)` — the non-generic
+    /// `IComparable::CompareTo(object)` entry the record implements. Same
+    /// shape as `buildUnionCompareToObj` (the record's
+    /// `RecordComparisonSupport` and the union's `UnionComparisonSupport`
+    /// share the relevant fields here — `SelfType` / `ArgumentExceptionCtor`
+    /// / `MismatchMessage`).
+    let buildRecordCompareToObj (s: RecordComparisonSupport) (typedCompareTo: EntityHandle) : ILBody =
+        let b = IlBuilder()
+        let other = b.Local s.SelfSemType
+        let nullLabel = b.Label()
+        let throwLabel = b.Label()
+
+        b.Add(ILInstr.Ldarg 1)
+        b.Add(ILInstr.Brfalse nullLabel)
+        b.Add(ILInstr.Ldarg 1)
+        b.Add(ILInstr.Isinst s.SelfType)
+        b.Add(ILInstr.Stloc other)
+        b.Add(ILInstr.Ldloc other)
+        b.Add(ILInstr.Brfalse throwLabel)
+        b.Add(ILInstr.Ldarg 0)
+        b.Add(ILInstr.Ldloc other)
+        b.Add(ILInstr.Call(typedCompareTo, 2, 1))
+        b.Add ILInstr.Ret
+        b.Add(ILInstr.Mark throwLabel)
+        b.Add(ILInstr.Ldstr s.MismatchMessage)
+        b.Add(ILInstr.Newobj(s.ArgumentExceptionCtor, 1))
+        b.Add ILInstr.Throw
+        b.Add(ILInstr.Mark nullLabel)
+        b.Add(ILInstr.LdcI4 1)
         b.Add ILInstr.Ret
         b.Body

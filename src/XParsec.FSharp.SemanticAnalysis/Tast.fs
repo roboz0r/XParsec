@@ -225,8 +225,17 @@ and TTypeDecl =
         /// Equality posture for this type (records / unions / interfaces).
         /// Defaults to `Structural` — interfaces ignore it (no triple is ever
         /// synthesised), records / unions consume it in the codegen loops. See
-        /// [`docs/records-handoff.md`](docs/records-handoff.md) Phase 1.
+        /// [`docs/records-plan.md`](docs/records-plan.md) §B4.
         EqualitySupport: EqualityVerdict
+        /// Comparison posture for this type (records / unions / interfaces).
+        /// Defaults to `NoComparison` — interfaces ignore it (no pair is ever
+        /// synthesised), records / unions consume it in the codegen loops to
+        /// decide whether to emit the `IComparable<Self>` / `IComparable`
+        /// `InterfaceImpl`s and the `CompareTo(Self)` / `CompareTo(object)`
+        /// pair. Per brainstorm-comparison §9 the default is **opt-in**, so an
+        /// unannotated record / union skips the pair. See
+        /// [`docs/records-plan.md`](docs/records-plan.md) §B6.
+        ComparisonSupport: ComparisonVerdict
     }
 
 and [<RequireQualifiedAccess>] TTypeKind =

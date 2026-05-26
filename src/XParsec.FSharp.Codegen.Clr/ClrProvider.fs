@@ -208,6 +208,31 @@ type ClrProvider
     let eEquatable1 =
         lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "IEquatable`1")))
 
+    // BCL refs for synthesised structural comparison (records-plan §B6).
+    // `Comparer\`1` is the comparison analogue of `EqualityComparer\`1`; the two
+    // `IComparable` shapes mirror the equality side's `IEquatable\`1`. All live in
+    // `System.Private.CoreLib`, so a record / union's generated `CompareTo` pair
+    // pins only the BCL — no FSharp.Core, no Vesper.Core.
+    let eComparer1 =
+        lazy (toEntity (ctx.TypeRef(coreRef.Value, "System.Collections.Generic", "Comparer`1")))
+
+    /// `System.IComparable\`1` — the generic interface the typed `CompareTo(Self)`
+    /// implements (the boxing-free path `Comparer<Self>.Default` reaches once the
+    /// type declares it).
+    let eComparable1 =
+        lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "IComparable`1")))
+
+    /// `System.IComparable` — the non-generic interface `CompareTo(object)`
+    /// implements (the path `Comparer<obj>.Default` and BCL non-generic sort APIs
+    /// reach when the type lacks `IComparable<T>` for the specific argument).
+    let eComparable =
+        lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "IComparable")))
+
+    /// `System.ArgumentException` — the exception type `CompareTo(object)` throws
+    /// when the argument is not of `Self`, matching F#'s emission.
+    let eArgumentException =
+        lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "ArgumentException")))
+
     /// `instance void System.Object::.ctor()` — the base ctor a union's own
     /// parameterless `.ctor` chains to.
     let eObjectCtor =
@@ -235,6 +260,23 @@ type ClrProvider
                  )
 
              toEntity (ctx.MemberRef(eException.Value, ".ctor", s)))
+
+    /// `instance void System.ArgumentException::.ctor(string)` — the constructor
+    /// the generated `CompareTo(object)` throws when the argument is not of the
+    /// declaring type (records-plan §B6).
+    let eArgumentExceptionCtor =
+        lazy
+            (let s = BlobBuilder()
+
+             BlobEncoder(s)
+                 .MethodSignature(isInstanceMethod = true)
+                 .Parameters(
+                     1,
+                     (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                     (fun (pars: ParametersEncoder) -> pars.AddParameter().Type().String())
+                 )
+
+             toEntity (ctx.MemberRef(eArgumentException.Value, ".ctor", s)))
 
     /// `instance void System.Decimal::.ctor(int32, int32, int32, bool, uint8)` —
     /// the lo/mid/hi/sign/scale constructor used to materialise a `decimal`
@@ -374,7 +416,7 @@ type ClrProvider
         | _ -> ValueNone
 
     /// Look up a *referenced-assembly* record's shape by `TyRecord`-carried name
-    /// + arity (records-handoff Phase 2 follow-up F2): returns the field shapes
+    /// + arity (records-plan §B7): returns the field shapes
     /// (declaration order) and the `Origin` (assembly + namespace) so the
     /// caller can mint a `TypeRef`. The contract layer keys generic records by
     /// the bare compiled name (`Vesper.Ref`), the metadata layer by the
@@ -398,12 +440,12 @@ type ClrProvider
         | ValueSome v -> ValueSome v
         | ValueNone -> probe suffixed
 
-    /// A `TypeRef` for a referenced-assembly record (records-handoff Phase 2
-    /// follow-up F2). Records-handoff sibling of `externalClassRef`: a generic
-    /// record published in another package (`Vesper.Core.dll`'s `Ref<'T>`)
-    /// reaches its `TypeDefinition` through this path, so the captured-mutable
-    /// promotion's `RecordCons` can mint a member ref onto the instantiated
-    /// `TypeSpec` instead of declaring a local copy.
+    /// A `TypeRef` for a referenced-assembly record (records-plan §B7). Sibling
+    /// of `externalClassRef`: a generic record published in another package
+    /// (`Vesper.Core.dll`'s `Ref<'T>`) reaches its `TypeDefinition` through
+    /// this path, so the captured-mutable promotion's `RecordCons` can mint a
+    /// member ref onto the instantiated `TypeSpec` instead of declaring a
+    /// local copy.
     let externalRecordRef (fullName: string) (arity: int) : (EntityHandle * ExternalFieldShape[]) voption =
         match externalRecordShape fullName arity with
         | ValueNone -> ValueNone
@@ -631,8 +673,8 @@ type ClrProvider
                     for a in args do
                         encodeTypeCore tryLeaf (g.AddArgument()) a
             | TyRecord(name, args) when (externalRecordRef name (List.length args)).IsSome ->
-                // A referenced-assembly *record* (records-handoff Phase 2 follow-up
-                // F2): its `TypeRef`, instantiated over each argument when generic.
+                // A referenced-assembly *record* (records-plan §B7): its
+                // `TypeRef`, instantiated over each argument when generic.
                 // Lower priority than the user-record arm above (`userTypes` is
                 // checked first), so a same-named user record still wins.
                 let tref, _ = (externalRecordRef name (List.length args)).Value
@@ -1031,7 +1073,7 @@ type ClrProvider
                 toEntity (ctx.MemberRef(parent, fieldName, s))
             | None -> failwithf "ClrProvider: generic record '%s' has no field '%s'" name fieldName
 
-    // ---- Cross-package record emission (records-handoff Phase 2 follow-up F2) ----
+    // ---- Cross-package record emission (records-plan §B7) ----
     //
     // A record published in another package — `Vesper.Ref<'T>` in
     // `Vesper.Core.dll`, after the captured-mutable promotion writes a
@@ -1838,6 +1880,70 @@ type ClrProvider
         encodeType (g.AddArgument()) (zonk selfTy)
         toEntity (ctx.TypeSpec tsB)
 
+    // ---- Structural comparison helpers (records-plan §B6) ----
+    //
+    // Sibling of the equality helpers above. `Comparer\`1<T>` is the comparison
+    // analogue of `EqualityComparer\`1<T>`: `static Comparer<T> get_Default()`
+    // returns the well-known dispatcher, and `instance int32 Compare(T, T)` is
+    // the abstract method that routes to `IComparable<T>` when the type
+    // implements it.
+
+    /// `Comparer\`1<elem>` as a member-ref parent `TypeSpec`.
+    let comparerTypeSpec (elem: SemType) : EntityHandle =
+        let tsB = BlobBuilder()
+        let te = BlobEncoder(tsB).TypeSpecificationSignature()
+        let g = te.GenericInstantiation(eComparer1.Value, 1, false)
+        encodeType (g.AddArgument()) (zonk elem)
+        toEntity (ctx.TypeSpec tsB)
+
+    /// `static Comparer\`1<!0> get_Default()` on `Comparer\`1<elem>`.
+    let comparerDefault (elem: SemType) : EntityHandle =
+        let parent = comparerTypeSpec elem
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(isInstanceMethod = false)
+            .Parameters(
+                0,
+                (fun (ret: ReturnTypeEncoder) ->
+                    let g = ret.Type().GenericInstantiation(eComparer1.Value, 1, false)
+                    g.AddArgument().GenericTypeParameter(0)
+                ),
+                (fun (_: ParametersEncoder) -> ())
+            )
+
+        toEntity (ctx.MemberRef(parent, "get_Default", s))
+
+    /// `instance int32 Compare(!0, !0)` on `Comparer\`1<elem>` — the abstract
+    /// method `Comparer<T>` declares (reached via `callvirt`). Routes through
+    /// `IComparable<T>` if the type implements it.
+    let comparerCompare (elem: SemType) : EntityHandle =
+        let parent = comparerTypeSpec elem
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(isInstanceMethod = true)
+            .Parameters(
+                2,
+                (fun (ret: ReturnTypeEncoder) -> ret.Type().Int32()),
+                (fun (pars: ParametersEncoder) ->
+                    pars.AddParameter().Type().GenericTypeParameter(0)
+                    pars.AddParameter().Type().GenericTypeParameter(0)
+                )
+            )
+
+        toEntity (ctx.MemberRef(parent, "Compare", s))
+
+    /// `System.IComparable\`1<self>` as a `TypeSpec` `EntityHandle` — the
+    /// type's `InterfaceImpl` row (records-plan §B6). Mirror of
+    /// `equatableInterfaceSpec`.
+    let comparableInterfaceSpec (selfTy: SemType) : EntityHandle =
+        let tsB = BlobBuilder()
+        let te = BlobEncoder(tsB).TypeSpecificationSignature()
+        let g = te.GenericInstantiation(eComparable1.Value, 1, false)
+        encodeType (g.AddArgument()) (zonk selfTy)
+        toEntity (ctx.TypeSpec tsB)
+
     member _.ObjectType: EntityHandle = eObject.Value
 
     /// Member ref to `System.Object::.ctor()` for a union's base-ctor chain.
@@ -2157,6 +2263,59 @@ type ClrProvider
             .Parameters(
                 1,
                 (fun (ret: ReturnTypeEncoder) -> ret.Type().Boolean()),
+                (fun (pars: ParametersEncoder) -> encodeType (pars.AddParameter().Type()) (zonk selfTy))
+            )
+
+        s
+
+    // ---- Structural comparison surface (records-plan §B6) ----
+
+    /// `Comparer<T>.Default` getter for a field type `T`.
+    member _.ComparerDefault(elem: SemType) : EntityHandle = comparerDefault elem
+
+    /// `Comparer<T>::Compare(T, T) : int` for a field type `T`.
+    member _.ComparerCompare(elem: SemType) : EntityHandle = comparerCompare elem
+
+    /// `System.IComparable\`1<self>` `TypeSpec` for the type's `InterfaceImpl` row.
+    member _.ComparableInterfaceSpec(selfTy: SemType) : EntityHandle = comparableInterfaceSpec selfTy
+
+    /// `System.IComparable` (non-generic) `EntityHandle` for the type's second
+    /// `InterfaceImpl` row. No instantiation needed — `IComparable` is plain.
+    member _.IComparableType: EntityHandle = eComparable.Value
+
+    /// `System.ArgumentException::.ctor(string)` — the `CompareTo(object)` body
+    /// throws this when the argument is not of `Self`.
+    member _.ArgumentExceptionCtor: EntityHandle = eArgumentExceptionCtor.Value
+
+    /// `override int32 CompareTo(object)` signature. The parameter uses the
+    /// compact `ELEMENT_TYPE_OBJECT` encoding (`.Object()`) to match how
+    /// `IComparable::CompareTo(object)` is declared — implicit interface binding
+    /// is signature-blob match, so the encodings must agree.
+    member _.CompareToOverrideSignature() : BlobBuilder =
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(isInstanceMethod = true)
+            .Parameters(
+                1,
+                (fun (ret: ReturnTypeEncoder) -> ret.Type().Int32()),
+                (fun (pars: ParametersEncoder) -> pars.AddParameter().Type().Object())
+            )
+
+        s
+
+    /// `instance int32 CompareTo(Self)` — the typed
+    /// `IComparable<Self>::CompareTo` signature. The parameter is the type's
+    /// own `TypeDefinition` (via `encodeType`); implicit interface binding
+    /// matches it to the instantiated `IComparable<Self>::CompareTo(!0)`.
+    member _.CompareToTypedSignature(selfTy: SemType) : BlobBuilder =
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(isInstanceMethod = true)
+            .Parameters(
+                1,
+                (fun (ret: ReturnTypeEncoder) -> ret.Type().Int32()),
                 (fun (pars: ParametersEncoder) -> encodeType (pars.AddParameter().Type()) (zonk selfTy))
             )
 

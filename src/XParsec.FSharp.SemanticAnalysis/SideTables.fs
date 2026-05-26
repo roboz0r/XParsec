@@ -55,14 +55,21 @@ type RecordTypeInfo
     /// `Unification.fillRecordFieldTypes` walks this and attaches each
     /// constraint to the matching prototype TyVar in `TypeParams`.
     member val TyparConstraints = typarConstraints
-    /// Equality posture per [`docs/records-handoff.md`](docs/records-handoff.md)
-    /// Phase 1 (C-Attr). Filled during `NameResolution.registerRecordTypeDefn`
-    /// from the type's attributes; the placeholder defaults to `Structural` so
-    /// any path that overlooks the registration (mostly tests that synthesise
-    /// records directly) stays equal-by-fields. `Unification.checkConstraint`
-    /// reads it to short-circuit `NoEquality` types; `Freeze` projects it onto
+    /// Equality posture per [`docs/records-plan.md`](docs/records-plan.md) §B4.
+    /// Filled during `NameResolution.registerRecordTypeDefn` from the type's
+    /// attributes; the placeholder defaults to `Structural` so any path that
+    /// overlooks the registration (mostly tests that synthesise records
+    /// directly) stays equal-by-fields. `Unification.checkConstraint` reads it
+    /// to short-circuit `NoEquality` types; `Freeze` projects it onto
     /// `TTypeDecl.EqualitySupport` for codegen.
     member val EqualitySupport = EqualityVerdict.Structural with get, set
+    /// Comparison posture per [`docs/records-plan.md`](docs/records-plan.md)
+    /// §B6. Filled during `NameResolution.registerRecordTypeDefn` from the
+    /// type's attributes. Defaults to `NoComparison` (brainstorm-comparison §9
+    /// opt-in). `Unification.checkConstraint` reads it to reject `<` / `>` /
+    /// `<=` / `>=` on un-annotated types; `Freeze` projects it onto
+    /// `TTypeDecl.ComparisonSupport` for codegen.
+    member val ComparisonSupport = ComparisonVerdict.NoComparison with get, set
 
 /// Properties in v1 are read-only (get-only); v1 `AutoProperty` also lands here
 /// as `Property`.
@@ -131,12 +138,19 @@ type UnionTypeInfo
     /// Synthetic NodeKey for the `this` binder shared across every instance
     /// member body in this union. Set during registration when there are members.
     member val ThisKey = Unchecked.defaultof<NodeKey> with get, set
-    /// Equality posture per [`docs/records-handoff.md`](docs/records-handoff.md)
-    /// Phase 1 (C-Attr). Filled during `NameResolution.registerUnionTypeDefn`;
-    /// defaults to `Structural` (the records-plan §B4 / brainstorm §8 rule for
-    /// unions). `Unification.checkConstraint` short-circuits on `NoEquality`;
-    /// `Freeze` projects it onto `TTypeDecl.EqualitySupport` for codegen.
+    /// Equality posture per [`docs/records-plan.md`](docs/records-plan.md) §B4.
+    /// Filled during `NameResolution.registerUnionTypeDefn`; defaults to
+    /// `Structural` (the records-plan §B4 / brainstorm §8 rule for unions).
+    /// `Unification.checkConstraint` short-circuits on `NoEquality`; `Freeze`
+    /// projects it onto `TTypeDecl.EqualitySupport` for codegen.
     member val EqualitySupport = EqualityVerdict.Structural with get, set
+    /// Comparison posture per [`docs/records-plan.md`](docs/records-plan.md)
+    /// §B6. Filled during `NameResolution.registerUnionTypeDefn` from the
+    /// type's attributes. Defaults to `NoComparison` (brainstorm-comparison §9
+    /// opt-in). `Unification.checkConstraint` reads it to reject `<` / `>` /
+    /// `<=` / `>=` on un-annotated types; `Freeze` projects it onto
+    /// `TTypeDecl.ComparisonSupport` for codegen.
+    member val ComparisonSupport = ComparisonVerdict.NoComparison with get, set
 
 /// `InProgress` is set while translating the RHS so a re-entry through
 /// `translateType` can detect a cycle and short-circuit. `Filled` is terminal —

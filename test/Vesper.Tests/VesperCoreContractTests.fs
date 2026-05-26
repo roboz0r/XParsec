@@ -102,7 +102,9 @@ let vesperResultContractTests =
 
 /// Vesper.Comparison — the ordering family relocated out of Vesper.Core's
 /// `ops-platform.fsi` (operators-plan.md O2). Same golden-file bar: `comparison.fsi`
-/// must parse with zero recovery diagnostics.
+/// must parse with zero recovery diagnostics; the impl `comparison.fs` (the four
+/// operator bodies as static-optimization over inline IL, records-plan §B6)
+/// must parse too.
 [<Tests>]
 let vesperComparisonContractTests =
     let comparisonPath fileName = vesperPath "Vesper.Comparison" fileName
@@ -111,6 +113,7 @@ let vesperComparisonContractTests =
         "VesperComparisonContract"
         [
             test "Parsing comparison.fsi" { testParseSignatureFile (comparisonPath "comparison.fsi") }
+            test "Parsing comparison.fs" { testParseFile (comparisonPath "comparison.fs") }
         ]
 
 /// Vesper.List — standalone package carved out of Vesper.Core's core-types
