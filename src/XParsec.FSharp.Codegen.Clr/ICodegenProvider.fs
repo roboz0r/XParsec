@@ -45,6 +45,26 @@ type UnionMember =
     /// case table).
     | Member of metaName: string * isStatic: bool * paramTys: SemType list * retTy: SemType
 
+/// Which member of an emitted *generic* closure a `GenericClosureMemberRef`
+/// resolves to. A generic closure is a real generic `TypeDefinition` (one
+/// `<closure>$n` per enclosing-method specialisation point); every reference to
+/// one of its members — construction site, capture-field load inside the
+/// closure's own `Invoke` — must go through a `MemberRef` on the `TypeSpec` of
+/// the closure instantiated with the use-site's arguments (`<closure>$n<int>`
+/// externally, `<closure>$n<!0>` from inside the closure's own `Invoke`). The
+/// member-ref *signature* is written in terms of the closure's own generic
+/// parameters (`!i`), with the instantiation riding the parent `TypeSpec`.
+/// Monomorphic closures keep using their `Def` tokens directly
+/// (function-representation-plan §Generic closures, C2).
+[<RequireQualifiedAccess>]
+type ClosureMember =
+    /// The closure's `.ctor(capture0, capture1, …)`.
+    | Ctor
+    /// The capture field at index `i` (declaration order = ctor-arg order).
+    | CaptureField of fieldIndex: int
+    /// `instance ResultTy Invoke(ParamTy)` — the closure's `Invoke` override.
+    | Invoke
+
 /// Which member of an emitted *generic* record a `GenericRecordMemberRef`
 /// resolves to. The records-plan §B2 analogue of `UnionMember`, but minus the
 /// tag/factory machinery — a record has one nameless shape with one ctor
@@ -115,6 +135,12 @@ type ICodegenProvider =
     /// `ClrProvider.RegisterGenericRecord`. A monomorphic record never reaches
     /// here — its `Def` tokens are used directly (records-plan §B2).
     abstract GenericRecordMemberRef: name: string * args: SemType list * which: RecordMember -> EntityHandle
+
+    /// A `MemberRef` to one member of an emitted *generic* closure `name`,
+    /// instantiated at `args`. The closure must have been registered with
+    /// `ClrProvider.RegisterClosure`. A monomorphic closure never reaches here —
+    /// its `Def` tokens are used directly (function-representation-plan §Generic closures, C2/C3).
+    abstract GenericClosureMemberRef: name: string * args: SemType list * which: ClosureMember -> EntityHandle
 
     /// A `MemberRef` to a *referenced-assembly* record's `.ctor`, instantiated
     /// at `tyArgs`. The mirror of `TryEmitUnionCons` for records: when

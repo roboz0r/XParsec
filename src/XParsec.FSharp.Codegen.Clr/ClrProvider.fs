@@ -14,6 +14,23 @@ open XParsec.FSharp.SemanticAnalysis
 // Slice 1 covers `printfn "hi"`: the `PrintfFormat\`4` constructor and the
 // generic `PrintfModule.PrintFormatLine` call. Coverage grows with the slices.
 
+/// Per-generic-closure registry entry (function-representation-plan §Generic closures, C2): the typar union-find
+/// roots inherited from the enclosing static method (`Closure.Typars`, C1), the
+/// capture-field types in declaration order, the `Invoke` parameter / result
+/// types, and the closure's predicted `TypeDefinition` handle (the parent for
+/// `MemberRef`s minted off this closure's instantiated `TypeSpec`). All
+/// `SemType` fields embed the typar roots verbatim; `closureTyparLeaf` maps
+/// them to the closure type's `GenericTypeParameter` (`!i`) during the closure's
+/// own emission.
+type internal GenericClosureShape =
+    {
+        TyparRoots: TypeVar list
+        CaptureSigs: SemType list
+        ParamTy: SemType
+        ResultTy: SemType
+        DefHandle: EntityHandle
+    }
+
 /// `ICodegenProvider` over the BCL + the referenced assemblies. `reprs` is the
 /// Vesper-primitive-name → IL-representation map (`IntrinsicRepr.merge` of a
 /// file's intrinsic bindings over the built-in defaults); `encodeType` keys the
@@ -347,6 +364,17 @@ type ClrProvider
     /// instance). Monomorphic records are *not* registered here.
     let genericRecords = Dictionary<string, string list * (string * SemType) list>()
 
+    /// Generic closures emitted into this assembly (function-representation-plan §Generic closures, C2), by
+    /// closure name → its shape. Unlike generic unions / records, the typars
+    /// here are not source-level names but the *enclosing static method's*
+    /// `TypeVar` roots (`Closure.Typars`, C1); signature encoding identifies
+    /// them by root identity rather than marker name. The capture/param/result
+    /// `SemType`s embed those same roots wherever a typar appears —
+    /// `closureTyparLeaf` maps them to `!i` during the closure's own emission.
+    /// Monomorphic closures are *not* registered here (their `Def` tokens
+    /// suffice, same as monomorphic unions / records).
+    let genericClosures = Dictionary<string, GenericClosureShape>()
+
     /// Resolve a `SemType` to its concrete representative, chasing union-find
     /// links. After `ResolvedTypes` no *free* TyVar survives, so the only job
     /// here is dereferencing linked ones.
@@ -538,11 +566,51 @@ type ClrProvider
                 | None -> false
             | _ -> false
 
+    // ---- Ambient *closure*-typar context (function-representation-plan §Generic closures, C2) ----
+    //
+    // A generic closure's `TypeDefinition` carries its enclosing static method's
+    // typars (`Closure.Typars`, by union-find root) — encoded as
+    // `GenericTypeParameter` (`!i`) on the type, *not* `GenericMethodTypeParameter`
+    // (`!!i`). `SetClosureTypars` installs the set (by root) around the closure's
+    // own ctor / Invoke / field signatures (and locals, body when added in C3);
+    // `ClearClosureTypars` removes it. While installed, `encodeType` maps a free
+    // `TyVar` whose root is in the set to that closure type's
+    // `GenericTypeParameter`. Empty everywhere else (parallels `methodTyparRoots`'s
+    // `!!i`, `typeTyparIx`'s `!0` marker case), so every other emission —
+    // monomorphic closures, static methods, union/record bodies — is unchanged.
+    //
+    // Invariant: at most one of `methodTyparRoots`, `typeTyparIx`, `closureTyparRoots`
+    // is installed (non-empty) at any given moment during a single signature
+    // encoding. The three contexts emit `!!i`, `!i`-by-name (TyConst marker), and
+    // `!i`-by-root (TyVar) respectively; the leaves are disjoint by construction
+    // (each is empty unless its `Set…` is active), so the OR-chain below is safe.
+    let mutable closureTyparRoots: TypeVar list = []
+
+    /// A zonked-leaf hook: a free `TypeVar` whose root is one of the current
+    /// closure's typars encodes to that closure type's `GenericTypeParameter`
+    /// (`!i`). Empty `closureTyparRoots` ⇒ no-op (every other phase).
+    let closureTyparLeaf (te: SignatureTypeEncoder) (zt: SemType) : bool =
+        match closureTyparRoots with
+        | [] -> false
+        | roots ->
+            match zt with
+            | TyVar tv ->
+                let root = UnionFind.find tv
+
+                match roots |> List.tryFindIndex (fun r -> System.Object.ReferenceEquals(r, root)) with
+                | Some i ->
+                    te.GenericTypeParameter i
+                    true
+                | None -> false
+            | _ -> false
+
     /// The executable-path leaf: a generic *method* typar (`!!i`, R3) first, then
-    /// a generic *type* typar (`!0`, S4). Both sets are empty on the common path,
-    /// so this is the prior no-op leaf unless one is installed.
+    /// a generic *type* typar (`!0` by name, S4), then a generic *closure* typar
+    /// (`!i` by root, function-representation-plan §Generic closures, C2). All three sets are empty on the
+    /// common path, so this is the prior no-op leaf unless one is installed; at
+    /// most one is installed at a time (disjoint by phase).
     let ambientTyparLeaf (te: SignatureTypeEncoder) (zt: SemType) : bool =
-        methodTyparLeaf te zt || typeTyparLeaf te zt
+        methodTyparLeaf te zt || typeTyparLeaf te zt || closureTyparLeaf te zt
 
     /// Encode a (zonked) `SemType` into a metadata signature type slot.
     /// `tryLeaf` gets first crack at each zonked node before the structural
@@ -1072,6 +1140,111 @@ type ClrProvider
                 encodeUnionType typeIx (BlobEncoder(s).FieldSignature()) declTy
                 toEntity (ctx.MemberRef(parent, fieldName, s))
             | None -> failwithf "ClrProvider: generic record '%s' has no field '%s'" name fieldName
+
+    // ---- Generic closure emission (function-representation-plan §Generic closures, C2) ----
+    //
+    // The closure analogue of `genericUnionTypeSpec` / `genericUnionMemberRef`.
+    // A generic closure is a real generic `TypeDefinition` whose typars mirror
+    // the enclosing static method's; references to its members go through a
+    // `MemberRef` on the closure's instantiated `TypeSpec`, signatures written
+    // in the closure's own `!i` markers (`closureTyparLeaf` ambient).
+    //
+    // The `args` at a construction site are typically the enclosing static
+    // method's typars (encoded `!!i` via `methodTyparLeaf` — `closureTyparRoots`
+    // is *not* installed there, so there is no `!i`/`!!i` ambiguity); inside the
+    // closure's own emission (capture fields, ctor, Invoke), `closureTyparRoots`
+    // *is* installed and the args resolve to `!i` instead.
+
+    /// `<closure>$n<args>` as a member-ref parent `TypeSpec`. `args` is the
+    /// use-site instantiation; each argument is encoded via `encodeType` (the
+    /// ambient leaf chain — `methodTyparLeaf` at the construction site,
+    /// `closureTyparLeaf` from inside the closure's own emission).
+    let genericClosureTypeSpec (name: string) (args: SemType list) : EntityHandle =
+        let shape = genericClosures.[name]
+        let tsB = BlobBuilder()
+        let te = BlobEncoder(tsB).TypeSpecificationSignature()
+
+        let g =
+            te.GenericInstantiation(shape.DefHandle, List.length shape.TyparRoots, false)
+
+        for a in args do
+            encodeType (g.AddArgument()) a
+
+        toEntity (ctx.TypeSpec tsB)
+
+    /// A `MemberRef` to one member of generic closure `name` instantiated at
+    /// `args`. The parent is the `TypeSpec` above; the signature is written in
+    /// the closure's own typars (`!i`), with the parent supplying the runtime
+    /// instantiation. Signature encoding installs `closureTyparRoots` for the
+    /// duration so a free `TyVar` whose root is one of the closure's typars
+    /// resolves to `!i` via `closureTyparLeaf`. The C3 mirror of
+    /// `genericUnionMemberRef` — fewer cases (no tag / factories / aug
+    /// members; just the ctor, the indexed capture fields, and `Invoke`).
+    let genericClosureMemberRef (name: string) (args: SemType list) (which: ClosureMember) : EntityHandle =
+        let shape = genericClosures.[name]
+        let parent = genericClosureTypeSpec name args
+
+        // Install the ambient typars around the signature emission only. The
+        // `parent` TypeSpec above was minted under the *caller's* ambient
+        // (methodTyparRoots at a construction site, or another closureTyparRoots
+        // for an inner-closure self-construction); the member-ref signature
+        // below speaks the closure's own typars.
+        let savedClosure = closureTyparRoots
+        let savedMethod = methodTyparRoots
+        closureTyparRoots <- shape.TyparRoots
+        methodTyparRoots <- []
+
+        let handle =
+            match which with
+            | ClosureMember.Ctor ->
+                // `instance void .ctor(capture0, capture1, …)` — one parameter
+                // per captured value, in declaration order (field order =
+                // ctor-arg order = construction-site push order).
+                let s = BlobBuilder()
+
+                BlobEncoder(s)
+                    .MethodSignature(isInstanceMethod = true)
+                    .Parameters(
+                        List.length shape.CaptureSigs,
+                        (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                        (fun (pars: ParametersEncoder) ->
+                            for c in shape.CaptureSigs do
+                                encodeType (pars.AddParameter().Type()) c
+                        )
+                    )
+
+                toEntity (ctx.MemberRef(parent, ".ctor", s))
+            | ClosureMember.CaptureField idx ->
+                if idx < 0 || idx >= List.length shape.CaptureSigs then
+                    failwithf
+                        "ClrProvider: generic closure '%s' has %d capture fields, asked for index %d"
+                        name
+                        (List.length shape.CaptureSigs)
+                        idx
+
+                let captureTy = shape.CaptureSigs.[idx]
+                let s = BlobBuilder()
+                encodeType (BlobEncoder(s).FieldSignature()) captureTy
+                toEntity (ctx.MemberRef(parent, sprintf "capture%d" idx, s))
+            | ClosureMember.Invoke ->
+                // `instance ResultTy Invoke(ParamTy)` — the closure's `Invoke`
+                // override implementing `Vesper.Fun\`2::Invoke` at the type's
+                // own typars.
+                let s = BlobBuilder()
+
+                BlobEncoder(s)
+                    .MethodSignature(isInstanceMethod = true)
+                    .Parameters(
+                        1,
+                        (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) shape.ResultTy),
+                        (fun (pars: ParametersEncoder) -> encodeType (pars.AddParameter().Type()) shape.ParamTy)
+                    )
+
+                toEntity (ctx.MemberRef(parent, "Invoke", s))
+
+        closureTyparRoots <- savedClosure
+        methodTyparRoots <- savedMethod
+        handle
 
     // ---- Cross-package record emission (records-plan §B7) ----
     //
@@ -2171,6 +2344,83 @@ type ClrProvider
     /// Field signature for a captured value of type `ty`.
     member _.FieldSignature(ty: SemType) : BlobBuilder = fieldSignature ty
 
+    // ---- Generic closure surface (function-representation-plan §Generic closures, C2) ----
+
+    /// Register a *generic* closure's shape (typar roots, capture-field types,
+    /// Invoke param + result types, predicted `TypeDefinition` handle) so
+    /// `GenericClosureMemberRef` can mint `MemberRef`s on its `TypeSpec`. Called
+    /// once per generic closure as its `TypeDefinition` is laid out (C3, in
+    /// `Codegen.fs`'s closure loop), before any member ref against it. A
+    /// monomorphic closure (`Closure.Typars = []`) is *not* registered here —
+    /// its `Def` tokens are used directly, same as monomorphic unions / records.
+    member _.RegisterClosure
+        (
+            name: string,
+            typars: TypeVar list,
+            captureSigs: SemType list,
+            paramTy: SemType,
+            resultTy: SemType,
+            defHandle: EntityHandle
+        ) : unit =
+        genericClosures.[name] <-
+            {
+                TyparRoots = typars |> List.map UnionFind.find
+                CaptureSigs = captureSigs
+                ParamTy = paramTy
+                ResultTy = resultTy
+                DefHandle = defHandle
+            }
+
+    /// `<closure>$n<args>` `TypeSpec` for a generic closure
+    /// (function-representation-plan §Generic closures, C2). The closure must
+    /// have been registered with `RegisterClosure`.
+    /// Each `args` arg is encoded through `encodeType` against the current
+    /// ambient — `methodTyparLeaf` at a construction site (so a method typar
+    /// resolves to `!!i`), `closureTyparLeaf` from inside the closure's own
+    /// emission (`!i`).
+    member _.GenericClosureTypeSpec(name: string, args: SemType list) : EntityHandle =
+        genericClosureTypeSpec name (List.map zonk args)
+
+    /// A `MemberRef` to one member (`Ctor`, `CaptureField i`, `Invoke`) of
+    /// generic closure `name` instantiated at `args`. The signature is written
+    /// in the closure's own typars (`!i`); the parent `TypeSpec` supplies the
+    /// instantiation. C3 uses this for the construction-site `Newobj` and for
+    /// the in-`Invoke` capture-field loads.
+    member _.GenericClosureMemberRef(name: string, args: SemType list, which: ClosureMember) : EntityHandle =
+        genericClosureMemberRef name (List.map zonk args) which
+
+    /// A capture-field signature for a *generic* closure, encoded in the
+    /// closure's own typars (`!i`). The mirror of `FieldSignature` for the
+    /// monomorphic case; `closureTypars` are the closure's typar roots
+    /// (`Closure.Typars`), installed for the duration of one `encodeType` call
+    /// so a free `TyVar` in `ty` whose root is one of them resolves to that
+    /// closure type's `GenericTypeParameter` via `closureTyparLeaf`.
+    member _.GenericCaptureFieldSignature(closureTypars: TypeVar list, ty: SemType) : BlobBuilder =
+        let savedClosure = closureTyparRoots
+        let savedMethod = methodTyparRoots
+        closureTyparRoots <- closureTypars |> List.map UnionFind.find
+        methodTyparRoots <- []
+        let blob = BlobBuilder()
+        encodeType (BlobEncoder(blob).FieldSignature()) ty
+        closureTyparRoots <- savedClosure
+        methodTyparRoots <- savedMethod
+        blob
+
+    /// Install the ambient closure-typar set (by union-find root) around a
+    /// generic closure's own ctor / Invoke / field-signature / locals emission
+    /// (function-representation-plan §Generic closures, C2). While installed, `encodeType` maps a free `TyVar`
+    /// whose root is in the set to the closure type's `GenericTypeParameter`
+    /// (`!i`) via `closureTyparLeaf`. `ClearClosureTypars` resets it (empty ⇒
+    /// the default everywhere outside a generic closure's emission).
+    ///
+    /// Invariant: at most one of `SetMethodTypars` / `SetTypeTypars` /
+    /// `SetClosureTypars` may be active at a time (the three contexts are
+    /// disjoint by phase — see `closureTyparRoots`'s notes).
+    member _.SetClosureTypars(typars: TypeVar list) : unit =
+        closureTyparRoots <- typars |> List.map UnionFind.find
+
+    member _.ClearClosureTypars() : unit = closureTyparRoots <- []
+
     /// Encode an abstract interface-method signature leaf (the library path, G5).
     /// A typar marker (`TyConst "'A"`) resolves to a positional generic parameter —
     /// the method's own typars (`methodIx`) shadow the declaring type's
@@ -2386,6 +2636,9 @@ type ClrProvider
 
         member _.GenericRecordMemberRef(name, args, which) =
             genericRecordMemberRef name (List.map zonk args) which
+
+        member _.GenericClosureMemberRef(name, args, which) =
+            genericClosureMemberRef name (List.map zonk args) which
 
         member _.TryEmitRecordCons(typeName, tyArgs, _fieldNames) =
             let zonkedArgs = List.map zonk tyArgs

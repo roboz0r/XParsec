@@ -38,6 +38,17 @@ module Emit =
             /// there's no self-capture chicken-and-egg at construction.
             /// `ValueNone` for an anonymous lambda.
             SelfKey: NodeKey voption
+            /// The enclosing static method's typars (`TypeVar` union-find roots,
+            /// in `StaticMethodRef.Typars` order) at this closure's discovery
+            /// point — empty for a closure resident in `Main` / a top-level
+            /// value let / a monomorphic static method. A non-empty set marks
+            /// this as a *generic* closure (C3): its `TypeDefinition` carries
+            /// matching `GenericParam` rows, its capture-field / ctor / Invoke
+            /// signatures encode free `TyVar`s as `!i`, and the construction
+            /// site `Newobj`s a `MemberRef` on the instantiated `TypeSpec`.
+            /// An inner closure inherits the enclosing closure's set (and
+            /// therefore, transitively, the enclosing static method's set).
+            Typars: TypeVar list
         }
 
     /// One case of an emitted union: its runtime `Tag`, the static factory
@@ -978,13 +989,54 @@ module Emit =
 
         staticFns, eligible
 
+    /// A generic static method's type parameters (R3): the distinct free
+    /// `TypeVar` roots of its signature (parameter types, then result type), in
+    /// first-appearance order. Empty ⇒ a monomorphic method, emitted unchanged.
+    /// These same `TypeVar` objects appear in the method's body, so the
+    /// backend's ambient typar set (`ClrProvider.SetMethodTypars`) maps them to
+    /// `!!i`. A closure walked from this fn's body inherits this set on its
+    /// `Closure.Typars` (function-representation-plan §Generic closures, C1).
+    let staticFnTypars (fn: StaticFn) : TypeVar list =
+        let seen = HashSet<TypeVar>(HashIdentity.Reference)
+        let acc = ResizeArray<TypeVar>()
+
+        let rec go (t: SemType) =
+            match zonk t with
+            | TyVar tv ->
+                let r = UnionFind.find tv
+
+                if seen.Add r then
+                    acc.Add r
+            | TyFun(a, b) ->
+                go a
+                go b
+            | TyTuple xs
+            | TyRecord(_, xs)
+            | TyUnion(_, xs)
+            | TyClass(_, xs) -> List.iter go xs
+            | TyConst _ -> ()
+
+        for (_, pty) in fn.Params do
+            go pty
+
+        go fn.ResultTy
+        List.ofSeq acc
+
     /// Enumerate every `Lambda` in the lowered tree leaves-first (a closure
     /// before any closure that constructs it), with its capture set; the returned
     /// dictionary maps each lambda node (by reference) to its `Closure`.
     /// `staticFnKeys`' outer lambdas are *not* closures (only their bodies are
     /// walked for inner closures), since a reference to one is a direct call.
+    ///
+    /// `staticFnTypars` maps each static-method key to its typar set
+    /// (`StaticMethodRef.Typars`). A closure walked from a generic static fn's
+    /// body inherits that fn's typars on its `Closure.Typars`; an inner closure
+    /// inherits the enclosing closure's set verbatim (rule generalises cleanly
+    /// when a future change makes a child's typars a strict subset of the
+    /// enclosing method's — see function-representation-plan §Generic closures).
     let discoverClosures
         (staticFnKeys: HashSet<NodeKey>)
+        (staticFnTypars: IReadOnlyDictionary<NodeKey, TypeVar list>)
         (decls: TDecl list)
         : Closure list * Dictionary<TExpr, Closure> =
         let order = ResizeArray<TExpr>()
@@ -993,12 +1045,14 @@ module Emit =
 
         // `selfKey` is the binding key when this node is the immediate value of a
         // `let f = …` lambda — a recursive self-reference resolves to `this`.
-        let rec go (selfKey: NodeKey voption) (e: TExpr) =
+        // `currentTypars` is the ambient typar set inherited from the enclosing
+        // static method (or, for inner closures, the enclosing closure verbatim).
+        let rec go (currentTypars: TypeVar list) (selfKey: NodeKey voption) (e: TExpr) =
             (match e with
              | TExpr.Let(TPat.NamedSimple(k, _), (TExpr.Lambda _ as v), body, _) ->
-                 go (ValueSome k) v
-                 go ValueNone body
-             | _ -> iterChildren (go ValueNone) e) // children (and inner lambdas) first → leaves-first
+                 go currentTypars (ValueSome k) v
+                 go currentTypars ValueNone body
+             | _ -> iterChildren (go currentTypars ValueNone) e) // children (and inner lambdas) first → leaves-first
 
             let registerClosure (p: NodeKey) (pty: SemType) (body: TExpr) (lamTy: SemType) =
                 let resultTy =
@@ -1016,6 +1070,7 @@ module Emit =
                         Body = body
                         Captures = freeVars staticFnKeys p selfKey body
                         SelfKey = selfKey
+                        Typars = currentTypars
                     }
 
                 counter <- counter + 1
@@ -1033,16 +1088,22 @@ module Emit =
             | TExpr.Lambda(p, _, _) -> failwithf "Emit: closure parameter destructuring is out of scope: %A" p
             | _ -> ()
 
+        let typarsForStaticFn (k: NodeKey) : TypeVar list =
+            match staticFnTypars.TryGetValue k with
+            | true, tps -> tps
+            | false, _ -> []
+
         for d in decls do
             match d with
             // A static-method function's lambda is not a closure, but its body
-            // may still construct inner closures — walk only the body.
+            // may still construct inner closures — walk only the body. The
+            // closures inherit the method's typars.
             | TDecl.Let(TPat.NamedSimple(k, _), value, _, _) when staticFnKeys.Contains k ->
                 let _, body = peelLambda value
-                go ValueNone body
-            | TDecl.Let(TPat.NamedSimple(k, _), value, _, _) -> go (ValueSome k) value
-            | TDecl.Let(_, value, _, _) -> go ValueNone value
-            | TDecl.Expression(e, _) -> go ValueNone e
+                go (typarsForStaticFn k) ValueNone body
+            | TDecl.Let(TPat.NamedSimple(k, _), value, _, _) -> go [] (ValueSome k) value
+            | TDecl.Let(_, value, _, _) -> go [] ValueNone value
+            | TDecl.Expression(e, _) -> go [] ValueNone e
             | TDecl.Type _ -> ()
 
         [ for n in order -> lookup.[n] ], lookup
@@ -1405,14 +1466,32 @@ module Emit =
             // A function value: construct its closure. Captures are pushed via
             // the *current* resolver (a local in `Main`, the param or a capture
             // inside an enclosing closure), then `newobj` its ctor.
+            //
+            // A *generic* closure (function-representation-plan §Generic closures, C3) routes the `Newobj`
+            // through a `MemberRef` on `<closure>$n<args>`, where `args` is the
+            // closure's typars zonked at the call site (`!!i` inside the
+            // enclosing static method's body, `!i` inside an enclosing closure's
+            // `Invoke`) — both encodings reference the same TypeVar roots, and
+            // the parent's `TypeSpec` captures the use-site instantiation.
             match env.ClosureByNode.TryGetValue e with
             | true, closure ->
                 for (k, _) in closure.Captures do
                     buildVarLoad env b k
 
-                match env.CtorHandleByNode.TryGetValue e with
-                | true, ctor -> b.Add(ILInstr.Newobj(ctor, List.length closure.Captures))
-                | false, _ -> failwith "Emit: closure constructor not yet emitted (leaves-first ordering broken)"
+                let ctorHandle =
+                    if List.isEmpty closure.Typars then
+                        match env.CtorHandleByNode.TryGetValue e with
+                        | true, ctor -> ctor
+                        | false, _ ->
+                            failwith "Emit: closure constructor not yet emitted (leaves-first ordering broken)"
+                    else
+                        env.Provider.GenericClosureMemberRef(
+                            closure.Name,
+                            closure.Typars |> List.map TyVar,
+                            ClosureMember.Ctor
+                        )
+
+                b.Add(ILInstr.Newobj(ctorHandle, List.length closure.Captures))
             | false, _ -> failwith "Emit: a Lambda value was not discovered as a closure"
 
         | TExpr.New(className, args, ty) ->

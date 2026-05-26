@@ -66,37 +66,6 @@ module Codegen =
 
         sigB
 
-    /// A generic static method's type parameters (R3): the distinct free
-    /// `TypeVar` roots of its signature (parameter types, then result type), in
-    /// first-appearance order. Empty ⇒ a monomorphic method, emitted unchanged.
-    /// These same `TypeVar` objects appear in the method's body, so the backend's
-    /// ambient typar set (`ClrProvider.SetMethodTypars`) maps them to `!!i`.
-    let private staticFnTypars (fn: Emit.StaticFn) : TypeVar list =
-        let seen = HashSet<TypeVar>(HashIdentity.Reference)
-        let acc = ResizeArray<TypeVar>()
-
-        let rec go (t: SemType) =
-            match Emit.zonk t with
-            | TyVar tv ->
-                let r = UnionFind.find tv
-
-                if seen.Add r then
-                    acc.Add r
-            | TyFun(a, b) ->
-                go a
-                go b
-            | TyTuple xs
-            | TyRecord(_, xs)
-            | TyUnion(_, xs)
-            | TyClass(_, xs) -> List.iter go xs
-            | TyConst _ -> ()
-
-        for (_, pty) in fn.Params do
-            go pty
-
-        go fn.ResultTy
-        List.ofSeq acc
-
     /// Shared assembly scaffolding: module + assembly rows, a `Main` whose
     /// body comes from `build`, the `<Module>` pseudo-type, and the holder
     /// class. `build` receives the wired context + provider so a hand-written
@@ -298,7 +267,20 @@ module Codegen =
         let holderlessFns = staticFns |> List.filter (fun fn -> fn.Holder.IsNone)
         let staticFnsEmitOrder = (namedHolderGroups |> List.collect snd) @ holderlessFns
 
-        let closures, closureByNode = Emit.discoverClosures staticFnKeys lowered
+        // Each static fn's typar set, by binding key. A closure walked from a
+        // generic static fn's body inherits this on its `Closure.Typars`; an
+        // empty list (monomorphic fn / `Main` resident) leaves the closure
+        // monomorphic. Computed *before* the `staticMethods` dictionary
+        // proper (handles aren't predicted yet at this point); both end up
+        // with the same `Typars` for any given key.
+        let staticFnTyparsMap = Dictionary<NodeKey, TypeVar list>()
+
+        for fn in staticFns do
+            staticFnTyparsMap.[fn.Key] <- Emit.staticFnTypars fn
+
+        let closures, closureByNode =
+            Emit.discoverClosures staticFnKeys staticFnTyparsMap lowered
+
         let ctorHandleByNode = Dictionary<TExpr, EntityHandle>(HashIdentity.Reference)
 
         // Declared types split by kind (two disjoint `tast.Decls` walks). Both
@@ -388,6 +370,24 @@ module Codegen =
                 provider.RegisterGenericRecord(td.Name, td.TypeParams, shape)
         )
 
+        let recordCount = List.length recordDecls
+
+        // A *generic* closure (function-representation-plan §Generic closures, C3) is a real generic
+        // `TypeDefinition`, sitting immediately after interfaces/unions/records
+        // and before the holders. Predict its handle here so any reference inside
+        // the closure's own emission (capture-field `MemberRef`s built before the
+        // type row exists) and the construction-site `Newobj` both reach it.
+        // Monomorphic closures are skipped — their `Def` tokens are used directly
+        // (matching the union / record split).
+        closures
+        |> List.iteri (fun i c ->
+            if not (List.isEmpty c.Typars) then
+                let handle =
+                    toEntity (MetadataTokens.TypeDefinitionHandle(2 + interfaceCount + unionCount + recordCount + i))
+
+                provider.RegisterClosure(c.Name, c.Typars, c.Captures |> List.map snd, c.ParamTy, c.ResultTy, handle)
+        )
+
         let unions = Dictionary<string, Emit.EmittedUnion>()
         let records = Dictionary<string, Emit.EmittedRecord>()
 
@@ -472,7 +472,7 @@ module Codegen =
                     Handle = toEntity (MetadataTokens.MethodDefinitionHandle(staticBase + 1 + i))
                     Arity = List.length fn.Params
                     ResultTy = fn.ResultTy
-                    Typars = staticFnTypars fn
+                    Typars = staticFnTyparsMap.[fn.Key]
                     ParamTys = fn.Params |> List.map snd
                 }
         )
@@ -1312,22 +1312,54 @@ module Codegen =
         // then add its method rows. Defer the `TypeDefinition` rows (collected
         // here) until every field/method row exists, so the type ranges are
         // contiguous.
+        //
+        // A *generic* closure (function-representation-plan §Generic closures, C3) installs its typars as the
+        // ambient `closureTyparRoots` set around every signature/body emission,
+        // so a free `TyVar` in a capture type / `ParamTy` / `ResultTy` resolves
+        // to the closure type's `GenericTypeParameter` (`!i`). Capture-field
+        // loads inside its own `Invoke` use `MemberRef`s on its self-`TypeSpec`
+        // (`<closure>$n<!0, !1, …>::capture_i`), the same shape generic unions
+        // use for their own factory bodies (P3d.4).
         let closureTypes =
-            ResizeArray<string * EntityHandle * FieldDefinitionHandle * MethodDefinitionHandle>()
+            ResizeArray<string * TypeVar list * EntityHandle * FieldDefinitionHandle * MethodDefinitionHandle>()
 
         for c in closures do
             let firstField = MetadataTokens.FieldDefinitionHandle(fieldCount + 1)
             let captureFields = Dictionary<NodeKey, EntityHandle>()
+            let isGenericClosure = not (List.isEmpty c.Typars)
+
+            // The closure's own typars as `SemType` args (TyVars over their
+            // union-find roots). Used as the instantiation argument list when
+            // minting `MemberRef`s on the closure's *self*-`TypeSpec` from
+            // inside its own emission — with `closureTyparRoots = c.Typars`
+            // installed, each encodes to `!i` via `closureTyparLeaf`.
+            let selfArgs = c.Typars |> List.map TyVar
+
+            if isGenericClosure then
+                provider.SetClosureTypars c.Typars
 
             let fieldHandles =
                 c.Captures
                 |> List.mapi (fun i (k, ty) ->
+                    // Field signature: monomorphic closure → concrete encoding;
+                    // generic closure → `!i` for typar-typed captures (the
+                    // ambient `closureTyparLeaf` resolves free `TyVar`s).
                     let h =
                         ctx.AddField(FieldAttributes.Public, sprintf "capture%d" i, provider.FieldSignature ty)
 
-                    captureFields.[k] <- toEntity h
+                    // Generic closure: the handle that `stfld` (in the ctor) and
+                    // `ldfld` (in `Invoke`, via `captureFields`) reference is a
+                    // `MemberRef` on the closure's self-`TypeSpec`. Monomorphic
+                    // keeps the `Def` token.
+                    let handleForUse =
+                        if isGenericClosure then
+                            icodegen.GenericClosureMemberRef(c.Name, selfArgs, ClosureMember.CaptureField i)
+                        else
+                            toEntity h
+
+                    captureFields.[k] <- handleForUse
                     fieldCount <- fieldCount + 1
-                    toEntity h
+                    handleForUse
                 )
 
             // The closure derives from `System.Object` and implements
@@ -1376,10 +1408,39 @@ module Codegen =
 
             claimFirstMethod ctorHandle
 
-            ctorHandleByNode.[c.Node] <- toEntity ctorHandle
-            // Carry the `Vesper.Fun\`2<param, result>` interface `TypeSpec` so the
-            // `TypeDefinition` row below can attach its `InterfaceImpl` (R1).
-            closureTypes.Add(c.Name, provider.FunInterfaceSpec(c.ParamTy, c.ResultTy), firstField, ctorHandle)
+            // Monomorphic closures: the construction-site `Newobj` targets the
+            // ctor's `Def` directly (via this dict). Generic closures: the
+            // construction site mints a fresh `MemberRef` on the use-site's
+            // `TypeSpec` instantiation through `provider.GenericClosureMemberRef`
+            // (the dict is left unpopulated; `buildExpr TExpr.Lambda` branches
+            // on `closure.Typars`).
+            if not isGenericClosure then
+                ctorHandleByNode.[c.Node] <- toEntity ctorHandle
+
+            // `Fun\`2<param, result>` interface `TypeSpec` — with the closure's
+            // ambient still installed, free `TyVar`s in `ParamTy` / `ResultTy`
+            // encode to `!i` (so the `InterfaceImpl` row below is
+            // `Fun\`2<!0, !1>`, the type's own view of itself).
+            let ifaceSpec = provider.FunInterfaceSpec(c.ParamTy, c.ResultTy)
+
+            // Generic closure: own typars owned by the predicted `TypeDefinition`
+            // — collected into the shared sort buffer (the assembler emits
+            // `GenericParam` rows globally sorted by owner + index). Clear the
+            // ambient now that every signature/spec encoding is done.
+            if isGenericClosure then
+                let closureHandle =
+                    toEntity (
+                        MetadataTokens.TypeDefinitionHandle(
+                            2 + interfaceCount + unionCount + recordCount + closureTypes.Count
+                        )
+                    )
+
+                c.Typars
+                |> List.iteri (fun i _ -> genericParams.Add(closureHandle, i, sprintf "T%d" i))
+
+                provider.ClearClosureTypars()
+
+            closureTypes.Add(c.Name, c.Typars, ifaceSpec, firstField, ctorHandle)
 
         // ---- Static methods (P3b) ----
         //
@@ -1618,10 +1679,19 @@ module Codegen =
         // Each closure derives from `System.Object` and implements its
         // `Vesper.Fun\`2<param, result>` interface (R1). The `InterfaceImpl` table
         // is sorted by `Class`, and these `TypeDefinition`s are added ascending, so
-        // adding each row right after its `AddClass` keeps the table ordered.
-        for (name, ifaceSpec, firstField, ctorHandle) in closureTypes do
+        // adding each row right after its `AddClass` keeps the table ordered. A
+        // *generic* closure (function-representation-plan §Generic closures, C3) wears the arity suffix
+        // (`<closure>$n\`N`) on its metadata name, matching how generic unions
+        // and records mint their suffixed metaName.
+        for (name, typars, ifaceSpec, firstField, ctorHandle) in closureTypes do
+            let metaName =
+                if List.isEmpty typars then
+                    name
+                else
+                    sprintf "%s`%d" name (List.length typars)
+
             let closureHandle =
-                ctx.AddClass(closureAttrs, "", name, provider.ObjectType, firstField, ctorHandle)
+                ctx.AddClass(closureAttrs, "", metaName, provider.ObjectType, firstField, ctorHandle)
 
             ctx.AddInterfaceImplementation(closureHandle, ifaceSpec)
 
