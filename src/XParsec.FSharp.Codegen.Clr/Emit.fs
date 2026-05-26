@@ -409,6 +409,16 @@ module Emit =
                     "op_Division", (2, ilBin "div")
                     "op_Modulus", (2, ilBin "rem")
                     "op_UnaryNegation", (1, ilBin "neg")
+                    // Bitwise / shift — the signed/default IL form. The contract `.fs`
+                    // bodies (`ops-platform.fs`) win at a ground use site (with the
+                    // narrow-int / unsigned refinements); these serve the un-ground
+                    // fallback (nested / generic operands) the same way arithmetic does.
+                    "op_BitwiseAnd", (2, ilBin "and")
+                    "op_BitwiseOr", (2, ilBin "or")
+                    "op_ExclusiveOr", (2, ilBin "xor")
+                    "op_LeftShift", (2, ilBin "shl")
+                    "op_RightShift", (2, ilBin "shr")
+                    "op_LogicalNot", (1, ilBin "not")
                 ]
 
         /// True when `name` is a built-in operator applied to exactly its arity —

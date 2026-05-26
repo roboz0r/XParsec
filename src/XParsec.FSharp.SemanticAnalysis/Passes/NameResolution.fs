@@ -140,7 +140,7 @@ module NameResolution =
             // compiled name (`op_Equality`) so the binding site records a
             // `ctx.Binding` self-entry. Use sites resolve through Desugar→External,
             // not this scope entry, but Validation's per-binding loop expects one.
-            match Desugar.opPatCompiledName io with
+            match Desugar.opPatCompiledName ctx.NameOf io with
             | ValueSome n -> [ n, CstKeys.ofPat p ]
             | ValueNone -> []
         | _ -> []

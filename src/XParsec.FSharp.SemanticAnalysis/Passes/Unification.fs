@@ -648,6 +648,18 @@ module Unification =
     and private arithmeticBinaryOps =
         Set.ofList [ "op_Addition"; "op_Subtraction"; "op_Multiply"; "op_Division"; "op_Modulus" ]
 
+    // Bitwise AND/OR/XOR have the same `^T * ^T -> ^T` primitive shape as
+    // arithmetic; the shift operators differ — their second operand is `int32`,
+    // not `^T` (`op_LeftShift`/`op_RightShift`: `^T * int32 -> ^T`).
+    and private bitwiseBinaryOps =
+        Set.ofList [ "op_BitwiseAnd"; "op_BitwiseOr"; "op_ExclusiveOr" ]
+
+    and private shiftOps = Set.ofList [ "op_LeftShift"; "op_RightShift" ]
+
+    // Unary `~-` / `~+` / `~~~` — one primitive operand, `^T -> ^T`.
+    and private unaryPrimitiveOps =
+        Set.ofList [ "op_UnaryNegation"; "op_UnaryPlus"; "op_LogicalNot" ]
+
     and private equalityBinaryOps = Set.ofList [ "op_Equality"; "op_Inequality" ]
 
     and private orderingBinaryOps =
@@ -669,10 +681,18 @@ module Unification =
     and private tryPrimitiveTraitCandidate (memberName: string) (primName: string) (argCount: int) : SemType voption =
         if not (Set.contains primName numericPrimitives) then
             ValueNone
-        elif argCount = 2 && Set.contains memberName arithmeticBinaryOps then
+        elif
+            argCount = 2
+            && (Set.contains memberName arithmeticBinaryOps
+                || Set.contains memberName bitwiseBinaryOps)
+        then
             let t = TyConst primName
             ValueSome(TyFun(TyTuple [ t; t ], t))
-        elif argCount = 1 && memberName = "op_UnaryNegation" then
+        elif argCount = 2 && Set.contains memberName shiftOps then
+            // `value: ^T -> shift: int32 -> ^T` — the shift amount is always int32.
+            let t = TyConst primName
+            ValueSome(TyFun(TyTuple [ t; TyConst "int" ], t))
+        elif argCount = 1 && Set.contains memberName unaryPrimitiveOps then
             let t = TyConst primName
             ValueSome(TyFun(t, t))
         elif argCount = 2 && Set.contains memberName comparisonBinaryOps then
@@ -1437,7 +1457,14 @@ module Unification =
                         | ExternalTypeShape.Class _ -> Some(TyClass(key, translatedArgs))
                         | ExternalTypeShape.Record _ -> Some(TyRecord(key, translatedArgs))
                         | ExternalTypeShape.Union _ -> Some(TyUnion(key, translatedArgs))
-                        | ExternalTypeShape.Abbrev _ -> None
+                        // A transparent abbreviation dealiases to its body: `int32 =
+                        // int` (`int = (# "System.Int32" #)`) resolves to `TyConst
+                        // "int"`, the form codegen actually encodes — without this an
+                        // abbrev name (`int32`) leaked through as a nominal `TyConst
+                        // "int32"` the IL encoder doesn't key. Mirrors the *local*
+                        // abbrev expansion (`expandAbbreviation`); the `build` closure
+                        // substitutes the type args into the (already-translated) RHS.
+                        | ExternalTypeShape.Abbrev(_, build) -> Some(build (List.toArray translatedArgs))
                     | _ -> None
                 )
 
@@ -3630,16 +3657,30 @@ module Unification =
         | ValueNone -> BuiltinTypes.tyUnit
 
     /// `expr when ^T : Type [and ^U : Type]* = optimizedExpr` — one clause of an
-    /// F# library-only static optimization. Type the default `baseE` and this
-    /// clause's `optimizedExpr` and unify them (every branch of a static-opt has
-    /// the same type — for the equality family that is always `bool`). The
-    /// `when ^T : Type` constraints are a *compile-time dispatch*, NOT unification
-    /// constraints, so the typar is **not** unified with its required type; it is
-    /// translated only to record the verdict for `Inline.inlineExpand` to resolve
-    /// at the call site. The typar resolves through `ctx.TyparScope` — already
-    /// seeded by the enclosing binding's parameters (`(x: ^T)`) — so the recorded
-    /// `SemType` carries the binding's quantified root. See
-    /// docs/core-operators-handoff.md (prereq 3).
+    /// F# library-only static optimization. Type the default `baseE` (its type is
+    /// the node's type — the operator's declared result, e.g. `bool` for the
+    /// equality family, `^T` for `(+)`) and type this clause's `optimizedExpr` so
+    /// its own subtree (operands, nested inline IL) is solved.
+    ///
+    /// The clause body is **NOT** cross-unified with the base. F#'s static-opt
+    /// rule is per-clause — "assume the constraint, then check the body against the
+    /// return type": under `when ^T : int` the body's `int` matches the (then-also
+    /// -`int`) declared result `^T`. The earlier blanket `unify baseTy optTy` only
+    /// happens to work when every clause shares one concrete type (the equality
+    /// family's `bool`); it wrongly fuses the distinct clause results of an
+    /// `^T`-returning op — `byte`/`int16`/`^T` for `(+)` — and fails to unify them.
+    /// We omit that check (a fully sound version would speculatively unify under
+    /// the assumed constraint and undo — out of scope, type-args-bug.md's
+    /// no-speculative-unification stop); soundness rides on the clause being
+    /// selected (and its body substituted) at expansion, where `^T` is concrete.
+    ///
+    /// The `when ^T : Type` constraints are a *compile-time dispatch*, NOT
+    /// unification constraints, so the typar is **not** unified with its required
+    /// type; it is translated only to record the verdict for `Inline.inlineExpand`
+    /// to resolve at the call site. The typar resolves through `ctx.TyparScope` —
+    /// already seeded by the enclosing binding's parameters (`(x: ^T)`) — so the
+    /// recorded `SemType` carries the binding's quantified root. See
+    /// docs/core-operators-handoff.md (the arithmetic/bitwise/unary task).
     and private inferLibraryOnlyStaticOptimization
         (ctx: PassContext)
         (key: NodeKey)
@@ -3648,8 +3689,7 @@ module Unification =
         (optimizedExpr: Expr<SyntaxToken>)
         : SemType =
         let baseTy = infer ctx baseE
-        let optTy = infer ctx optimizedExpr
-        unify ctx key baseTy optTy
+        infer ctx optimizedExpr |> ignore
 
         let resolved =
             [

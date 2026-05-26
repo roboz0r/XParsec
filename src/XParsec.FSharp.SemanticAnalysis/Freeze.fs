@@ -1595,7 +1595,7 @@ module Freeze =
             // Operator-named binding head: surface the operator's compiled name
             // (`(=)` → `op_Equality`) so the member is addressable from a use
             // site's desugared `External(op_Equality)` head.
-            | Pat.Op io -> Desugar.opPatCompiledName io
+            | Pat.Op io -> Desugar.opPatCompiledName ctx.NameOf io
             | Pat.EnclosedBlock(pat = inner)
             | Pat.Typed(pat = inner) -> walk inner
             | _ -> ValueNone

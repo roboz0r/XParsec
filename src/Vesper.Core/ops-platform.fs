@@ -31,10 +31,111 @@ open System.Collections.Generic
 // — the comparer can't encode a free `!0` without the deferred generic-member
 // machinery.
 //
-// The arithmetic / bitwise OPERATOR bodies declared in `ops-platform.fsi` are
-// NOT implemented here yet (they return `^T`/narrow-int types and need the
-// per-clause static-opt return typing — core-operators-handoff.md); they remain
-// on the `Emit.BuiltinOps` fallback until then.
+// The ARITHMETIC / UNARY OPERATOR bodies (`+ - * / %`, unary `~-`) now live here
+// too (`module ArithmeticOperators`). Unlike equality (every clause returns
+// `bool`), these return `^T`, so each `when ^T : …` clause body has its own type
+// — `byte`/`int16`/… — which the per-clause static-opt return typing now allows
+// (`Unification.inferLibraryOnlyStaticOptimization` no longer cross-unifies clause
+// bodies; see core-operators-handoff.md). The static-opt *base* `(# "add" x y :
+// ^T #)` already covers every wide signed/float type (the CIL arithmetic opcodes
+// are type-polymorphic over the eval stack), so only the cases that need DIFFERENT
+// IL carry a clause: the sub-`int32` widths need a `conv.*` to truncate the
+// int32-on-stack result back to their width (otherwise `200uy + 100uy` wouldn't
+// wrap to 44), and unsigned `/`/`%` need the `*.un` opcodes. An unpinned generic
+// operand (`let f a b = a + b`) still falls back to `Emit.BuiltinOps` (the codegen
+// `isGround` guard), exactly like the equality family.
+
+[<AutoOpen>]
+module ArithmeticOperators =
+
+    /// Overloaded addition. The base `(# "add" … #)` serves int/int64/float/
+    /// float32/native/wide-unsigned; the sub-int32 widths truncate the
+    /// int32-on-stack sum back to their width with a `conv.*`.
+    let inline (+) (x: ^T) (y: ^T) : ^T =
+        (# "add" x y : ^T #)
+        when ^T: byte = (# "conv.u1" (# "add" x y : int32 #) : byte #)
+        when ^T: sbyte = (# "conv.i1" (# "add" x y : int32 #) : sbyte #)
+        when ^T: int16 = (# "conv.i2" (# "add" x y : int32 #) : int16 #)
+        when ^T: uint16 = (# "conv.u2" (# "add" x y : int32 #) : uint16 #)
+
+    /// Overloaded subtraction. Same shape as `(+)` — `sub` is sign-agnostic
+    /// (two's complement), only the narrow result width needs truncation.
+    let inline (-) (x: ^T) (y: ^T) : ^T =
+        (# "sub" x y : ^T #)
+        when ^T: byte = (# "conv.u1" (# "sub" x y : int32 #) : byte #)
+        when ^T: sbyte = (# "conv.i1" (# "sub" x y : int32 #) : sbyte #)
+        when ^T: int16 = (# "conv.i2" (# "sub" x y : int32 #) : int16 #)
+        when ^T: uint16 = (# "conv.u2" (# "sub" x y : int32 #) : uint16 #)
+
+    /// Overloaded multiplication. Same shape as `(+)`. Written `( * )` (spaces
+    /// required — `(*` opens a block comment).
+    let inline ( * ) (x: ^T) (y: ^T) : ^T =
+        (# "mul" x y : ^T #)
+        when ^T: byte = (# "conv.u1" (# "mul" x y : int32 #) : byte #)
+        when ^T: sbyte = (# "conv.i1" (# "mul" x y : int32 #) : sbyte #)
+        when ^T: int16 = (# "conv.i2" (# "mul" x y : int32 #) : int16 #)
+        when ^T: uint16 = (# "conv.u2" (# "mul" x y : int32 #) : uint16 #)
+
+    /// Overloaded division. The base is the SIGNED `div` (int/int64/float/
+    /// native); the unsigned widths need `div.un` (signed `div` reads their high
+    /// bit as a sign), and the sub-int32 widths additionally truncate.
+    let inline (/) (x: ^T) (y: ^T) : ^T =
+        (# "div" x y : ^T #)
+        when ^T: uint32 = (# "div.un" x y : uint32 #)
+        when ^T: uint64 = (# "div.un" x y : uint64 #)
+        when ^T: byte = (# "conv.u1" (# "div.un" x y : int32 #) : byte #)
+        when ^T: sbyte = (# "conv.i1" (# "div" x y : int32 #) : sbyte #)
+        when ^T: int16 = (# "conv.i2" (# "div" x y : int32 #) : int16 #)
+        when ^T: uint16 = (# "conv.u2" (# "div.un" x y : int32 #) : uint16 #)
+
+    /// Overloaded remainder. Same shape as `(/)` — unsigned widths need `rem.un`.
+    let inline (%) (x: ^T) (y: ^T) : ^T =
+        (# "rem" x y : ^T #)
+        when ^T: uint32 = (# "rem.un" x y : uint32 #)
+        when ^T: uint64 = (# "rem.un" x y : uint64 #)
+        when ^T: byte = (# "conv.u1" (# "rem.un" x y : int32 #) : byte #)
+        when ^T: sbyte = (# "conv.i1" (# "rem" x y : int32 #) : sbyte #)
+        when ^T: int16 = (# "conv.i2" (# "rem" x y : int32 #) : int16 #)
+        when ^T: uint16 = (# "conv.u2" (# "rem.un" x y : int32 #) : uint16 #)
+
+    /// Overloaded unary negation. `neg` is two's-complement on every integral
+    /// width and IEEE sign-flip on floats; the base covers all of them.
+    let inline (~-) (n: ^T) : ^T = (# "neg" n : ^T #)
+
+    /// Overloaded unary plus — the identity. No opcode: it just yields its operand.
+    let inline (~+) (value: ^T) : ^T = value
+
+[<AutoOpen>]
+module BitwiseOperators =
+
+    /// Bitwise AND/OR/XOR. No narrow-int `conv.*` is needed: a bitwise op of two
+    /// in-range operands stays in range, so the int32-on-stack result already holds
+    /// the correct sub-int32 value. (`and`/`or`/`xor` are CIL mnemonics, not F#
+    /// keywords here — they're the operand of `(# … #)`.)
+    let inline (&&&) (x: ^T) (y: ^T) : ^T = (# "and" x y : ^T #)
+
+    let inline (|||) (x: ^T) (y: ^T) : ^T = (# "or" x y : ^T #)
+
+    let inline (^^^) (x: ^T) (y: ^T) : ^T = (# "xor" x y : ^T #)
+
+    /// Bitwise complement. `not` flips every bit of the int32-on-stack value; a
+    /// sub-int32 width keeps the meaningful low bits, so no truncation is needed.
+    let inline (~~~) (value: ^T) : ^T = (# "not" value : ^T #)
+
+    /// Left shift by `shift` bits. `shl` is sign-agnostic, so the base covers every
+    /// width. (`shift: int32` dealiases through `int32 = int` to the `int`
+    /// intrinsic — `tryResolveExternalType`'s abbreviation arm.)
+    let inline (<<<) (value: ^T) (shift: int32) : ^T = (# "shl" value shift : ^T #)
+
+    /// Right shift by `shift` bits. The base is the SIGNED `shr` (arithmetic shift,
+    /// sign-extending — correct for the signed widths); the unsigned widths need
+    /// the LOGICAL `shr.un` (zero-fill).
+    let inline (>>>) (value: ^T) (shift: int32) : ^T =
+        (# "shr" value shift : ^T #)
+        when ^T: uint32 = (# "shr.un" value shift : uint32 #)
+        when ^T: uint64 = (# "shr.un" value shift : uint64 #)
+        when ^T: byte = (# "shr.un" value shift : byte #)
+        when ^T: uint16 = (# "shr.un" value shift : uint16 #)
 
 [<AutoOpen>]
 module EqualityOperators =

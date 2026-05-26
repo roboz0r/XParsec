@@ -35,6 +35,15 @@ module Desugar =
         | Token.OpGreaterThanOrEqual -> ValueSome "op_GreaterThanOrEqual"
         | Token.OpEquality -> ValueSome "op_Equality"
         | Token.OpInequality -> ValueSome "op_Inequality"
+        // Bitwise binary ops. A *bare* use site (`a &&& b`) lexes to the distinct
+        // `Token` (`Token.ofCustomOperator`'s isBare arms), so the enum match is
+        // reliable here; a binding head `(&&&)` is generic and resolves by text
+        // (`opCompiledNameOfText`).
+        | Token.OpBitwiseAnd -> ValueSome "op_BitwiseAnd"
+        | Token.OpBitwiseOr -> ValueSome "op_BitwiseOr"
+        | Token.OpExclusiveOr -> ValueSome "op_ExclusiveOr"
+        | Token.OpLeftShift -> ValueSome "op_LeftShift"
+        | Token.OpRightShift -> ValueSome "op_RightShift"
         // Source `&&` / `||` lex as OpAmpAmp / OpBarBar, not OpBooleanAnd /
         // OpBooleanOr (those share OpFamily.OpGeneric — see memory note
         // about Token-encoding aliases).
@@ -53,18 +62,37 @@ module Desugar =
     /// "op_Addition"). A parenthesised operator denotes the same FSharp.Core
     /// member the infix form desugars to, so the mapping is shared. Consumed
     /// by NameResolution / Unification / Freeze to resolve `(op)` references.
+    /// NOTE: a *bare* operator at a use site lexes to its distinct `Token`
+    /// (`+` → `OpAddition`), so this enum match is reliable there; an operator
+    /// inside parens (a binding head / value) lexes to a *generic* operator token
+    /// and must be resolved by source text — see `opPatCompiledName`.
     let symbolicOpCompiledName (t: Token) : string voption = infixOpName t
 
     /// Compiled name for an operator-named binding *head* (`let (=) x y = …` →
-    /// "op_Equality"). Lifts the same token→compiled-name mapping the infix /
-    /// value forms use to the `IdentOrOp` a binding head carries, so an operator
+    /// "op_Equality", `let (~-) n = …` → "op_UnaryNegation"), so an operator
     /// definition freezes under the same compiled member name its use sites
-    /// reference. Consumed by NameResolution / Freeze. Only symbolic operators
-    /// are mapped today (the equality family); range / active-pattern heads
-    /// return `ValueNone`.
-    let opPatCompiledName (io: IdentOrOp<SyntaxToken>) : string voption =
+    /// reference (and is then collectable as a cross-package inline body).
+    ///
+    /// Well-known / keyword-encoded operators (`=` `+` `&&` …) lex to their
+    /// distinct `Token` even inside parens, so the enum match
+    /// (`symbolicOpCompiledName`) resolves them; the *generic*-token operators
+    /// (`~-` `~+`, and the bitwise ops in non-bare position, which share
+    /// `OpFamily.OpGeneric`) fall back to the parser's canonical operator-name
+    /// function (`OperatorInfo.GetName`, fed the head token's lexed text via
+    /// `nameOf`/`ctx.NameOf`). `( * )` parses to a dedicated `IdentOrOp.StarOp`
+    /// (its star is a *virtual* token, so it has no usable lexed text) and is
+    /// mapped directly. Range / active-pattern heads return `ValueNone`.
+    let opPatCompiledName (nameOf: SyntaxToken -> string) (io: IdentOrOp<SyntaxToken>) : string voption =
         match io with
-        | IdentOrOp.ParenOp(opName = OpName.SymbolicOp tok) -> symbolicOpCompiledName tok.Token
+        | IdentOrOp.StarOp _ -> ValueSome "op_Multiply"
+        | IdentOrOp.ParenOp(opName = OpName.NilOp _) -> ValueSome "op_Nil"
+        | IdentOrOp.ParenOp(opName = OpName.SymbolicOp tok) ->
+            match symbolicOpCompiledName tok.Token with
+            | ValueSome n -> ValueSome n
+            | ValueNone ->
+                match OperatorInfo.TryCreate tok.PositionedToken with
+                | ValueSome op -> ValueSome(op.GetName(nameOf tok))
+                | ValueNone -> ValueNone
         | _ -> ValueNone
 
     /// Token.OpSubtraction is used by both binary `a - b` (InfixApp) and
@@ -72,6 +100,10 @@ module Desugar =
     let private prefixOpName (t: Token) : string voption =
         match t with
         | Token.OpSubtraction -> ValueSome "op_UnaryNegation"
+        // `~~~x` (bitwise complement) lexes to the distinct `OpLogicalNot`
+        // (wellKnownOps); `~-`/`~+` only appear as binding heads / values today,
+        // not as their own prefix use site (`-x` is `OpSubtraction`).
+        | Token.OpLogicalNot -> ValueSome "op_LogicalNot"
         | _ -> ValueNone
 
     /// `[ … ]` / `[| … |]` literals share the same lowering target — the
