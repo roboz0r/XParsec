@@ -232,6 +232,11 @@ and [<RequireQualifiedAccess>] TTypeKind =
     /// augmentation members (`with member …` / `static member …`). See
     /// docs/self-host-rung2-plan.md.
     | Union of cases: TUnionCase list * members: TTypeMember list
+    /// `fields` are the record's payload in declaration order, paired with their
+    /// declared types and mutability. `members` carries augmentation members
+    /// (`with member …` / `static member …`) — empty for v1, where records carry
+    /// only their field shape. See docs/records-plan.md §B1.
+    | Record of fields: TRecordField list * members: TTypeMember list
 
 /// `Fields` are the case's payload in declaration order; a field's name is
 /// `ValueNone` when the source is positional (`Cons of 'T * list`). Empty
@@ -240,6 +245,19 @@ and TUnionCase =
     {
         Name: string
         Fields: (string voption * SemType) list
+    }
+
+/// One field of a `TTypeKind.Record`. `Type` carries the field's declared
+/// type — with the declaring type's typar markers (`TyConst "'T"`) for a
+/// generic record, exactly like `TUnionCase.Fields`. `IsMutable` is the
+/// source-level `mutable` annotation; downstream consumers (the equality
+/// triple's "all-immutable record" gate, C-Attr) read it from here rather
+/// than re-querying `ctx.RecordTypes`.
+and TRecordField =
+    {
+        Name: string
+        Type: SemType
+        IsMutable: bool
     }
 
 and [<RequireQualifiedAccess>] TMemberKind =

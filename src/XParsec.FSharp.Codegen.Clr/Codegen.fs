@@ -310,9 +310,21 @@ module Codegen =
                 | _ -> None
             )
 
+        let recordDecls =
+            tast.Decls
+            |> List.choose (fun d ->
+                match d with
+                | TDecl.Type td ->
+                    match td.Kind with
+                    | TTypeKind.Record(fields, members) -> Some(td, fields, members)
+                    | _ -> None
+                | _ -> None
+            )
+
         // ---- Forward-reference prediction ----
 
         let interfaceCount = List.length interfaceDecls
+        let unionCount = List.length unionDecls
 
         let interfaceMethodTotal =
             interfaceDecls |> List.sumBy (fun (_, methods) -> List.length methods)
@@ -340,7 +352,26 @@ module Codegen =
                 provider.RegisterGenericUnion(td.Name, td.TypeParams, shape)
         )
 
+        // Records sit immediately after unions in the `TypeDefinition` table
+        // (records-plan §B2). Same up-front registration shape: predict the
+        // `TypeDefinition` handle so a record-typed local / `RecordCons` ctor /
+        // member-ref signature can reach the type before its row exists, and
+        // register a generic record's field shape so `GenericRecordMemberRef`
+        // can mint `MemberRef`s on its `TypeSpec` (`Box\`1<int>::Value`).
+        recordDecls
+        |> List.iteri (fun i (td, fields, _) ->
+            provider.RegisterUserType(
+                td.Name,
+                toEntity (MetadataTokens.TypeDefinitionHandle(2 + interfaceCount + unionCount + i))
+            )
+
+            if not (List.isEmpty td.TypeParams) then
+                let shape = [ for f in fields -> f.Name, f.Type ]
+                provider.RegisterGenericRecord(td.Name, td.TypeParams, shape)
+        )
+
         let unions = Dictionary<string, Emit.EmittedUnion>()
+        let records = Dictionary<string, Emit.EmittedRecord>()
 
         // (name, namespace, typars, firstField, firstMethod) for each emitted
         // union's `TypeDefinition`, claimed after every method/field row exists.
@@ -358,11 +389,29 @@ module Codegen =
             unionDecls
             |> List.sumBy (fun (_, cases, members) -> 1 + List.length cases + List.length members + 3)
 
+        // Per record: one ctor taking the fields, one method per augmentation
+        // member (empty in v1), and — when *every* field is immutable — the
+        // synthesised `GetHashCode()` + `Equals(object)` + typed `Equals(Self)`
+        // triple (records-plan §B4 / brainstorm-structural-equality §8). A
+        // record with any `mutable` field skips the triple (gated to C-Attr).
+        let recordMethodTotal =
+            recordDecls
+            |> List.sumBy (fun (_, fields, members) ->
+                let triple =
+                    if fields |> List.forall (fun f -> not f.IsMutable) then
+                        3
+                    else
+                        0
+
+                1 + List.length members + triple
+            )
+
         let closureMethodTotal = 2 * List.length closures
 
-        // Static methods follow the interface, union, and closure methods, so a
-        // static method's `MethodDefinition` is `staticBase + 1 + i`.
-        let staticBase = interfaceMethodTotal + unionMethodTotal + closureMethodTotal
+        // Static methods follow the interface, union, record, and closure methods,
+        // so a static method's `MethodDefinition` is `staticBase + 1 + i`.
+        let staticBase =
+            interfaceMethodTotal + unionMethodTotal + recordMethodTotal + closureMethodTotal
 
         let staticMethods = Dictionary<NodeKey, Emit.StaticMethodRef>()
 
@@ -686,6 +735,7 @@ module Codegen =
                                 closureByNode
                                 ctorHandleByNode
                                 unions
+                                records
                                 staticMethods
                                 mem.ThisKey
                                 mem.Params
@@ -836,6 +886,180 @@ module Codegen =
 
             unionTypes.Add(td.Name, (defaultArg td.Namespace ""), td.TypeParams, firstField, unionCtor)
 
+        // ---- Records (records-plan §B2/B4) ----
+        //
+        // Per record: one ctor + the structural-equality triple (when the record
+        // is all-immutable). `recordTypes` carries the (name, namespace, typars,
+        // firstField, ctor-handle, declares-IEquatable) tuple used to add the
+        // `TypeDefinition` row + `InterfaceImpl` row + `GenericParam` rows below,
+        // exactly mirroring the union path's `unionTypes`.
+        let recordTypes =
+            ResizeArray<string * string * string list * FieldDefinitionHandle * MethodDefinitionHandle * bool>()
+
+        for (td, fields, members) in recordDecls do
+            let firstField = MetadataTokens.FieldDefinitionHandle(fieldCount + 1)
+            let isGeneric = not (List.isEmpty td.TypeParams)
+            let isAllImmutable = fields |> List.forall (fun f -> not f.IsMutable)
+            let typarMarkers = [ for n in td.TypeParams -> TyConst n ]
+
+            // One `public` field per record field, in declaration order. A
+            // generic record's field signature uses the type's own typars
+            // (`Value : !0`); a monomorphic record's is concrete. The handle list
+            // is paired with `(name, type)` for `EmittedRecord` so `FieldGet` /
+            // `FieldSet` can look up by source field name.
+            let fieldHandles =
+                fields
+                |> List.map (fun f ->
+                    let sigBlob =
+                        if isGeneric then
+                            provider.GenericFieldSignature(td.TypeParams, f.Type)
+                        else
+                            provider.FieldSignature f.Type
+
+                    let h = ctx.AddField(FieldAttributes.Public, f.Name, sigBlob)
+                    fieldCount <- fieldCount + 1
+                    f.Name, toEntity h, f.Type
+                )
+
+            // The ctor body: chain to `Object::.ctor()`, then store each `ldarg.(i+1)`
+            // into its field. The shared `Emit.buildRecordCtor` is structurally
+            // identical to a closure ctor (records-plan §B3).
+            let ctorBodyOffset =
+                Cil.buildBody
+                    encodeLocals
+                    bodyStream
+                    (IlIr.lower (Emit.buildRecordCtor provider.ObjectCtorRef [ for (_, h, _) in fieldHandles -> h ]))
+
+            let ctorSig =
+                if isGeneric then
+                    provider.GenericRecordCtorSignature(td.TypeParams, [ for f in fields -> f.Type ])
+                else
+                    provider.ClosureCtorSignature [ for f in fields -> f.Type ]
+
+            let recordCtor =
+                ctx.AddMethodWithParamList(
+                    ctorAttrs,
+                    ".ctor",
+                    ctorSig,
+                    ctorBodyOffset,
+                    addParams [ for f in fields -> f.Name ]
+                )
+
+            claimFirstMethod recordCtor
+            methodCount <- methodCount + 1
+
+            // Register the record before any aug-member body / equality triple
+            // body builds, so they resolve their own record (none reference it
+            // today, but matches the union shape).
+            records.[td.Name] <-
+                {
+                    Name = td.Name
+                    Typars = td.TypeParams
+                    Fields = fieldHandles
+                    Ctor = toEntity recordCtor
+                }
+
+            // v1: records have no augmentation members. `members` is always [];
+            // this block is the placeholder slot the union loop fills for P3d.3.
+            ignore members
+
+            // Structural-equality triple for an all-immutable record (records-plan
+            // §B4). The ambient `!0` map is installed for the duration so a
+            // typar-typed field reaches `EqualityComparer<!0>` / `HashCode.Add<!0>`
+            // and the `isinst` / `other` / typed-`Equals` self resolve to the
+            // record's own `TypeSpec` (`Box<!0>`). Skipped for a record with any
+            // `mutable` field (gated to C-Attr — brainstorm §8).
+            if isAllImmutable then
+                provider.SetTypeTypars td.TypeParams
+
+                let memberEncodeLocals =
+                    if isGeneric then
+                        fun locals -> provider.EncodeGenericLocalSignature(td.TypeParams, locals)
+                    else
+                        encodeLocals
+
+                let allFields =
+                    [
+                        for (name, _, fty) in fieldHandles ->
+                            let fieldHandle =
+                                if isGeneric then
+                                    icodegen.GenericRecordMemberRef(td.Name, typarMarkers, RecordMember.Field name)
+                                else
+                                    let _, h, _ = fieldHandles |> List.find (fun (n, _, _) -> n = name)
+                                    h
+
+                            fieldHandle, Emit.zonk fty
+                    ]
+
+                let support: Emit.RecordEqualitySupport =
+                    {
+                        SelfType =
+                            if isGeneric then
+                                provider.GenericRecordSelfSpec td.Name
+                            else
+                                provider.UserTypeHandle td.Name
+                        SelfSemType = TyRecord(td.Name, typarMarkers)
+                        Fields = allFields
+                        ComparerDefault = fun t -> provider.EqualityComparerDefault t
+                        ComparerEquals = fun t -> provider.EqualityComparerEquals t
+                        HashCodeLocal = provider.HashCodeType
+                        HashCodeAdd = fun t -> provider.HashCodeAdd t
+                        HashCodeToHashCode = provider.HashCodeToHashCode
+                    }
+
+                let getHashCodeBody =
+                    Cil.buildBody memberEncodeLocals bodyStream (IlIr.lower (Emit.buildRecordGetHashCode support))
+
+                ctx.AddMethodWithParamList(
+                    overrideMethodAttrs,
+                    "GetHashCode",
+                    provider.GetHashCodeOverrideSignature(),
+                    getHashCodeBody,
+                    addParams []
+                )
+                |> ignore
+
+                methodCount <- methodCount + 1
+
+                let equalsBody =
+                    Cil.buildBody memberEncodeLocals bodyStream (IlIr.lower (Emit.buildRecordEquals support))
+
+                ctx.AddMethodWithParamList(
+                    overrideMethodAttrs,
+                    "Equals",
+                    provider.EqualsOverrideSignature(),
+                    equalsBody,
+                    addParams [ "obj" ]
+                )
+                |> ignore
+
+                methodCount <- methodCount + 1
+
+                let equalsTypedBody =
+                    Cil.buildBody memberEncodeLocals bodyStream (IlIr.lower (Emit.buildRecordEqualsTyped support))
+
+                ctx.AddMethodWithParamList(
+                    ifaceEqualsAttrs,
+                    "Equals",
+                    provider.EqualsTypedSignature(TyRecord(td.Name, typarMarkers)),
+                    equalsTypedBody,
+                    addParams [ "other" ]
+                )
+                |> ignore
+
+                methodCount <- methodCount + 1
+
+                provider.ClearTypeTypars()
+
+            recordTypes.Add(
+                td.Name,
+                (defaultArg td.Namespace ""),
+                td.TypeParams,
+                firstField,
+                recordCtor,
+                isAllImmutable
+            )
+
         // ---- Closures (leaves-first) ----
         //
         // Emit each closure's capture fields, build its ctor + `Invoke` bodies,
@@ -880,6 +1104,7 @@ module Codegen =
                             closureByNode
                             ctorHandleByNode
                             unions
+                            records
                             staticMethods
                             c
                             captureFields
@@ -937,7 +1162,15 @@ module Codegen =
                     encodeLocals
                     bodyStream
                     (IlIr.lower (
-                        Emit.buildStaticMethod icodegen ctx closureByNode ctorHandleByNode unions staticMethods fn
+                        Emit.buildStaticMethod
+                            icodegen
+                            ctx
+                            closureByNode
+                            ctorHandleByNode
+                            unions
+                            records
+                            staticMethods
+                            fn
                     ))
 
             let signature =
@@ -979,7 +1212,15 @@ module Codegen =
                         encodeLocals
                         bodyStream
                         (IlIr.lower (
-                            Emit.buildMain icodegen ctx closureByNode ctorHandleByNode unions staticMethods lowered
+                            Emit.buildMain
+                                icodegen
+                                ctx
+                                closureByNode
+                                ctorHandleByNode
+                                unions
+                                records
+                                staticMethods
+                                lowered
                         ))
 
                 let handle =
@@ -1061,6 +1302,36 @@ module Codegen =
 
             // A generic union's typars are owned by this TypeDef (collected here,
             // emitted sorted with the rest — the metadata name drops the F# quote).
+            typars
+            |> List.iteri (fun i n -> genericParams.Add(toEntity typeHandle, i, n.TrimStart('\'')))
+
+        // Records mirror unions: sealed reference class derived from `Object`,
+        // declares `IEquatable<Self>` when its triple was emitted (all-immutable),
+        // generic typars owned by the `TypeDefinition` (records-plan §B2/B4).
+        // These rows land between the union and closure TypeDefinitions so the
+        // ascending `InterfaceImpl` / `GenericParam` order holds.
+        for (name, ns, typars, firstField, firstRecordMethod, declaresIEquatable) in recordTypes do
+            let metaName =
+                if List.isEmpty typars then
+                    name
+                else
+                    sprintf "%s`%d" name (List.length typars)
+
+            let typeHandle =
+                ctx.AddClass(unionAttrs, ns, metaName, provider.ObjectType, firstField, firstRecordMethod)
+
+            // Skip the `IEquatable<Self>` declaration for a mutable record (its
+            // triple was skipped above, so there's nothing to bind here).
+            if declaresIEquatable then
+                provider.SetTypeTypars typars
+
+                ctx.AddInterfaceImplementation(
+                    typeHandle,
+                    provider.EquatableInterfaceSpec(TyRecord(name, [ for t in typars -> TyConst t ]))
+                )
+
+                provider.ClearTypeTypars()
+
             typars
             |> List.iteri (fun i n -> genericParams.Add(toEntity typeHandle, i, n.TrimStart('\'')))
 

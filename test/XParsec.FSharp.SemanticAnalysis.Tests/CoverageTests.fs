@@ -407,10 +407,13 @@ let tests =
             test "record literal TAST shape" {
                 let tast = analyse "type R = { X: int; Y: int }\nlet r = { X = 1; Y = 2 }"
 
+                // Records-plan §B1: `type R = { … }` now surfaces as a `TDecl.Type`
+                // (the front-end gap codegen-plan §B1 closed), so the value binding
+                // is the *second* decl.
                 let resultDecl =
                     match tast.Decls with
-                    | [ d ] -> d
-                    | other -> failwithf "expected one decl, got %A" other
+                    | [ _; d ] -> d
+                    | other -> failwithf "expected [type; let], got %A" other
 
                 Expect.equal (TastShape.prettyDecl resultDecl) "let v0 = { X = 1; Y = 2 }" "record cons shape"
 
@@ -422,8 +425,8 @@ let tests =
 
                 let resultDecl =
                     match tast.Decls with
-                    | [ d ] -> d
-                    | other -> failwithf "expected one decl, got %A" other
+                    | [ _; d ] -> d
+                    | other -> failwithf "expected [type; let], got %A" other
 
                 Expect.equal (TastShape.prettyDecl resultDecl) "let v0 = fun v1 -> v1.X" "field get shape"
 
@@ -435,8 +438,8 @@ let tests =
 
                 let resultDecl =
                     match tast.Decls with
-                    | [ d ] -> d
-                    | other -> failwithf "expected one decl, got %A" other
+                    | [ _; d ] -> d
+                    | other -> failwithf "expected [type; let], got %A" other
 
                 Expect.equal (TastShape.prettyDecl resultDecl) "let v0 = fun v1 -> v1.X <- 5" "field set shape"
 
@@ -447,11 +450,11 @@ let tests =
                 let tast =
                     analyse "type R = { X: int; Y: int }\nlet p = { X = 1; Y = 2 }\nlet q = { p with Y = 5 }"
 
-                // The type decl doesn't surface as a TDecl — only p and q do.
+                // The type decl now surfaces too (records-plan §B1) — [type; p; q].
                 let qDecl =
                     match tast.Decls with
-                    | [ _; d ] -> d
-                    | other -> failwithf "expected two decls, got %A" other
+                    | [ _; _; d ] -> d
+                    | other -> failwithf "expected [type; p; q], got %A" other
 
                 Expect.equal (TastShape.prettyDecl qDecl) "let v0 = { v1 with Y = 5 }" "record clone shape"
 
@@ -464,8 +467,8 @@ let tests =
 
                 let resultDecl =
                     match tast.Decls with
-                    | [ d ] -> d
-                    | other -> failwithf "expected one decl, got %A" other
+                    | [ _; d ] -> d
+                    | other -> failwithf "expected [type; let], got %A" other
 
                 Expect.stringContains (TastShape.prettyDecl resultDecl) "{ X = " "record pattern rendered"
 

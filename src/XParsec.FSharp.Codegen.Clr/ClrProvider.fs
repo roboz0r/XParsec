@@ -296,6 +296,15 @@ type ClrProvider
     let genericUnions =
         Dictionary<string, string list * (string * (string * SemType) list) list>()
 
+    /// Generic user records emitted into this assembly (records-plan §B2), by
+    /// simple name → (typar names, fields). A field is `(name, declTy)` where
+    /// `declTy` carries the declaring-typar markers (`TyConst "'T"`). The
+    /// records-plan analogue of `genericUnions`: same role (parent `TypeSpec` +
+    /// member-ref signatures written in the type's own typars), simpler shape
+    /// (no cases — a record is one nameless "case", every field on every
+    /// instance). Monomorphic records are *not* registered here.
+    let genericRecords = Dictionary<string, string list * (string * SemType) list>()
+
     /// Resolve a `SemType` to its concrete representative, chasing union-find
     /// links. After `ResolvedTypes` no *free* TyVar survives, so the only job
     /// here is dereferencing linked ones.
@@ -531,6 +540,19 @@ type ClrProvider
                 // argument encoded recursively (a typar argument is intercepted by
                 // `tryLeaf` — `'T` ⇒ `!0` — so this serves both a concrete `[int]`
                 // use site and the type's own `[!0]` self-reference) (P3d.4).
+                match args with
+                | [] -> te.Type(userTypes.[name], false)
+                | _ ->
+                    let g = te.GenericInstantiation(userTypes.[name], List.length args, false)
+
+                    for a in args do
+                        encodeTypeCore tryLeaf (g.AddArgument()) a
+            | TyRecord(name, args) when userTypes.ContainsKey name ->
+                // A user *record* emitted into this assembly (records-plan §B2)
+                // — same encoding as a user union, keyed by `TyRecord`. The list
+                // special-cases above (`isVesperListName` / `listTypeName`) win
+                // by precedence so a `list<elem>` slot still maps to `FSharpList\`1`
+                // / `Vesper.Collections.List\`1`; only *user* records reach here.
                 match args with
                 | [] -> te.Type(userTypes.[name], false)
                 | _ ->
@@ -883,6 +905,63 @@ type ClrProvider
                 )
 
             toEntity (ctx.MemberRef(parent, metaName, s))
+
+    // ---- Generic record emission (records-plan §B2) ----
+
+    /// `name\`n<args>` for a generic *record* as a member-ref parent `TypeSpec`,
+    /// instantiated at `args`. Sibling of `genericUnionTypeSpec`; the same
+    /// `encodeUnionType` encoder is reused for the instantiation arguments
+    /// (typar markers map to `!i`, concrete leaves to their IL types).
+    let genericRecordTypeSpec (name: string) (args: SemType list) : EntityHandle =
+        let typars, _ = genericRecords.[name]
+        let typeIx = typarIx typars
+        let tsB = BlobBuilder()
+        let te = BlobEncoder(tsB).TypeSpecificationSignature()
+        let g = te.GenericInstantiation(userTypes.[name], List.length typars, false)
+
+        for a in args do
+            encodeUnionType typeIx (g.AddArgument()) a
+
+        toEntity (ctx.TypeSpec tsB)
+
+    /// A `MemberRef` to one member of generic record `name` instantiated at
+    /// `args`. The parent is `genericRecordTypeSpec`; the signature is written
+    /// in the type's own typars (`!0`), with the parent supplying the runtime
+    /// instantiation. The records-plan §B2 mirror of `genericUnionMemberRef` —
+    /// fewer cases (a record has no tag / factories / aug members in v1; just
+    /// the ctor and the named fields).
+    let genericRecordMemberRef (name: string) (args: SemType list) (which: RecordMember) : EntityHandle =
+        let typars, fields = genericRecords.[name]
+        let typeIx = typarIx typars
+        let parent = genericRecordTypeSpec name args
+
+        match which with
+        | RecordMember.Ctor ->
+            // `instance void .ctor(field0, field1, …)` — the ctor a `RecordCons`
+            // calls. Parameter types are the field types (declaration order),
+            // written in the type's own typars.
+            let paramTys = fields |> List.map snd
+            let s = BlobBuilder()
+
+            BlobEncoder(s)
+                .MethodSignature(isInstanceMethod = true)
+                .Parameters(
+                    List.length paramTys,
+                    (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                    (fun (pars: ParametersEncoder) ->
+                        for p in paramTys do
+                            encodeUnionType typeIx (pars.AddParameter().Type()) p
+                    )
+                )
+
+            toEntity (ctx.MemberRef(parent, ".ctor", s))
+        | RecordMember.Field fieldName ->
+            match fields |> List.tryFind (fun (n, _) -> n = fieldName) with
+            | Some(_, declTy) ->
+                let s = BlobBuilder()
+                encodeUnionType typeIx (BlobEncoder(s).FieldSignature()) declTy
+                toEntity (ctx.MemberRef(parent, fieldName, s))
+            | None -> failwithf "ClrProvider: generic record '%s' has no field '%s'" name fieldName
 
     /// `MethodSpec` instantiating a generic static method (R3) — a call site
     /// (`fold<int,int>`) or a recursive self-call (`fold<!!0,!!1>`, the ambient set
@@ -1633,6 +1712,13 @@ type ClrProvider
         : unit =
         genericUnions.[name] <- (typars, cases)
 
+    /// Register a *generic* record's shape (typar names + fields) so
+    /// `GenericRecordMemberRef` can mint `MemberRef`s on its `TypeSpec`
+    /// (records-plan §B2). `fields` is `(name, declTy)` in declaration order;
+    /// call after `RegisterUserType`. A no-op for a monomorphic record.
+    member _.RegisterGenericRecord(name: string, typars: string list, fields: (string * SemType) list) : unit =
+        genericRecords.[name] <- (typars, fields)
+
     /// `<field-type>` field signature for a generic union's case field, encoded
     /// in terms of the type's own generic parameters (`Head : 'T` ⇒ `!0`).
     member _.GenericFieldSignature(typars: string list, declTy: SemType) : BlobBuilder =
@@ -1652,6 +1738,28 @@ type ClrProvider
             .Parameters(
                 List.length paramTys,
                 (fun (ret: ReturnTypeEncoder) -> encodeUnionType typeIx (ret.Type()) retTy),
+                (fun (pars: ParametersEncoder) ->
+                    for p in paramTys do
+                        encodeUnionType typeIx (pars.AddParameter().Type()) p
+                )
+            )
+
+        s
+
+    /// `instance void .ctor(field0, field1, …)` for a *generic* record's
+    /// declared ctor (records-plan §B2). Parameters are the field types in
+    /// declaration order, written in the record's own typars (`Box::.ctor(!0)`).
+    /// Monomorphic records use `ClosureCtorSignature` — the parameters are
+    /// already concrete, no typar map needed.
+    member _.GenericRecordCtorSignature(typars: string list, paramTys: SemType list) : BlobBuilder =
+        let typeIx = typarIx typars
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(isInstanceMethod = true)
+            .Parameters(
+                List.length paramTys,
+                (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                 (fun (pars: ParametersEncoder) ->
                     for p in paramTys do
                         encodeUnionType typeIx (pars.AddParameter().Type()) p
@@ -1731,6 +1839,14 @@ type ClrProvider
     member _.GenericUnionSelfSpec(name: string) : EntityHandle =
         let typars, _ = genericUnions.[name]
         genericUnionTypeSpec name [ for t in typars -> TyConst t ]
+
+    /// A generic record's own instantiation `TypeSpec` over its declaring typars
+    /// (`Box\`1<!0>`) — the `isinst` target / `other`-local / typed-`Equals` self
+    /// for its synthesised equality triple (records-plan §B4). Same role as
+    /// `GenericUnionSelfSpec`.
+    member _.GenericRecordSelfSpec(name: string) : EntityHandle =
+        let typars, _ = genericRecords.[name]
+        genericRecordTypeSpec name [ for t in typars -> TyConst t ]
 
     /// `<ret> <name><`n>(<params…>)` — a *generic* module-static-method signature
     /// (R3): the method declares `typarCount` generic parameters, and every typar
@@ -1962,6 +2078,9 @@ type ClrProvider
 
         member _.GenericUnionMemberRef(name, args, which) =
             genericUnionMemberRef name (List.map zonk args) which
+
+        member _.GenericRecordMemberRef(name, args, which) =
+            genericRecordMemberRef name (List.map zonk args) which
 
         member _.StaticFnMethodSpec(handle, instTypes) = staticFnMethodSpec handle instTypes
 

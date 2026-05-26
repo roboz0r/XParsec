@@ -1738,8 +1738,47 @@ module Freeze =
                     }
             )
 
-    /// Surface an interface-shaped or union `TypeDefn` as a `TDecl.Type`.
-    /// Anything else (abbrevs, records, concrete classes) surfaces nothing.
+    /// Surface a `TypeDefn.Record` as a `TDecl.Type` from the resolved
+    /// `RecordTypeInfo`. Field types are remapped through the declaring-type
+    /// typars (a no-op for a monomorphic record — `TypeParams` empty — but the
+    /// right shape for the generic record path, exactly like `tryUnionType`).
+    /// Augmentation members are out of scope for v1 (records-plan §B1) — the
+    /// member list stays empty; the front end never registers them under a record
+    /// today.
+    let private tryRecordType (ctx: PassContext) (ns: string option) (name: string) : TDecl option =
+        match ctx.RecordTypes.TryGetValue name with
+        | false, _ -> None
+        | true, info ->
+            let markers =
+                [
+                    for (n, ptv) in info.TypeParams do
+                        match Unification.zonk (TyVar ptv) with
+                        | TyVar root -> yield (root, n)
+                        | _ -> ()
+                ]
+
+            let fields =
+                [
+                    for f in info.Fields ->
+                        {
+                            Name = f.Name
+                            Type = remapDeclTypars markers f.Type
+                            IsMutable = f.IsMutable
+                        }
+                ]
+
+            Some(
+                TDecl.Type
+                    {
+                        Name = name
+                        Namespace = ns
+                        TypeParams = [ for (n, _) in info.TypeParams -> n ]
+                        Kind = TTypeKind.Record(fields, [])
+                    }
+            )
+
+    /// Surface an interface-shaped, union, or record `TypeDefn` as a
+    /// `TDecl.Type`. Anything else (abbrevs, concrete classes) surfaces nothing.
     let private tryTypeDecl (ctx: PassContext) (ns: string option) (td: TypeDefn<SyntaxToken>) : TDecl option =
         let classify tn body =
             let name = typeNameSimple ctx tn
@@ -1761,6 +1800,7 @@ module Freeze =
         | TypeDefn.Anon(typeName = tn; body = body) -> classify tn body
         | TypeDefn.Interface(typeName = tn; body = body) -> classify tn body
         | TypeDefn.Union(typeName = tn; extensions = ext) -> tryUnionType ctx ns (typeNameSimple ctx tn) ext
+        | TypeDefn.Record(typeName = tn) -> tryRecordType ctx ns (typeNameSimple ctx tn)
         | _ -> None
 
     let private longIdentText (ctx: PassContext) (li: LongIdent<SyntaxToken>) : string =

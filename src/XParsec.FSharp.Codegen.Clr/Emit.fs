@@ -84,6 +84,25 @@ module Emit =
             Members: Dictionary<string, EmittedMember>
         }
 
+    /// A record emitted into this assembly: a sealed class with one public
+    /// field per record field and a single ctor taking the fields in
+    /// declaration order. `Fields` is `(name, handle, declared type)` in
+    /// declaration order — name-keyed lookup for `FieldGet` / `FieldSet`,
+    /// ordered iteration for `RecordCons` (which reorders source-order
+    /// initialisers to declaration order before pushing).
+    ///
+    /// `Typars` ⇒ empty for a monomorphic record (the `Field` / `Ctor` handles
+    /// are `Def` tokens used directly). A *generic* record reaches its members
+    /// through `ICodegenProvider.GenericRecordMemberRef` (a `MemberRef` on the
+    /// instantiated `TypeSpec`, exactly like the generic-union machinery).
+    type EmittedRecord =
+        {
+            Name: string
+            Typars: string list
+            Fields: (string * EntityHandle * SemType) list
+            Ctor: EntityHandle
+        }
+
     /// A top-level function binding lowered to a **static method**:
     /// `let [rec] f p0 p1 … = body` becomes `static <ResultTy> f(p0, p1, …)`,
     /// the curried parameters flattened to method parameters. Eligible only when
@@ -1023,6 +1042,7 @@ module Emit =
             SelfKey: NodeKey voption
             CaptureFields: Dictionary<NodeKey, EntityHandle>
             Unions: Dictionary<string, EmittedUnion>
+            Records: Dictionary<string, EmittedRecord>
             StaticMethods: Dictionary<NodeKey, StaticMethodRef>
         }
 
@@ -1113,6 +1133,38 @@ module Emit =
                         buildMatchTest env b fldSlot nextLabel subPat
                 )
             | false, _ -> failwithf "Emit: no emitted union for match on '%s'" typeName
+        | TPat.Record(fields, ty) ->
+            // A record pattern never fails on shape (no tag to compare): for each
+            // named sub-pattern, `ldfld` the field into a fresh local and recurse
+            // — only the sub-patterns themselves can branch to `nextLabel`. A
+            // wildcard sub-pattern is skipped (it would always match), exactly
+            // like the union arm above.
+            let typeName, tyArgs =
+                match ty with
+                | TyRecord(n, xs) -> n, xs
+                | other -> failwithf "Emit: record pattern with non-record type %A" other
+
+            match env.Records.TryGetValue typeName with
+            | true, r ->
+                for (fieldName, subPat) in fields do
+                    match subPat with
+                    | TPat.Wildcard _ -> ()
+                    | _ ->
+                        match r.Fields |> List.tryFind (fun (n, _, _) -> n = fieldName) with
+                        | Some(_, handle, _) ->
+                            let fieldRef =
+                                if List.isEmpty r.Typars then
+                                    handle
+                                else
+                                    env.Provider.GenericRecordMemberRef(typeName, tyArgs, RecordMember.Field fieldName)
+
+                            let fldSlot = b.Local(typeOfPat subPat)
+                            b.Add(ILInstr.Ldloc scrutSlot)
+                            b.Add(ILInstr.Ldfld fieldRef)
+                            b.Add(ILInstr.Stloc fldSlot)
+                            buildMatchTest env b fldSlot nextLabel subPat
+                        | None -> failwithf "Emit: record '%s' has no field '%s'" typeName fieldName
+            | false, _ -> failwithf "Emit: no emitted record for pattern on '%s'" typeName
         | other -> failwithf "Emit: match pattern is out of scope: %A" other
 
     /// The fallthrough a `match` reaches when no arm matched — `throw new
@@ -1171,6 +1223,32 @@ module Emit =
                         name
             | false, _ -> failwithf "Emit: union '%s' has no emitted static member '%s'" typeName name
         | false, _ -> failwithf "Emit: no emitted union for static member access on '%s'" typeName
+
+    /// Resolve a record field by name on a `TyRecord` receiver to its emit
+    /// handle and declared type. A monomorphic record returns the field's `Def`
+    /// token; a *generic* record returns a `MemberRef` on the receiver's
+    /// instantiated `TypeSpec` (`Box<int>::Value`) — the records-plan §B3 mirror
+    /// of `resolveInstanceMember` for unions. The receiver must be a record (the
+    /// front end has already routed non-record field access elsewhere).
+    let private resolveRecordField (env: EmitEnv) (receiverTy: SemType) (fieldName: string) : EntityHandle * SemType =
+        let typeName, tyArgs =
+            match receiverTy with
+            | TyRecord(n, xs) -> n, xs
+            | other -> failwithf "Emit: field '%s' access on non-record receiver %A" fieldName other
+
+        match env.Records.TryGetValue typeName with
+        | true, r ->
+            match r.Fields |> List.tryFind (fun (n, _, _) -> n = fieldName) with
+            | Some(_, h, ty) ->
+                let handle =
+                    if List.isEmpty r.Typars then
+                        h
+                    else
+                        env.Provider.GenericRecordMemberRef(typeName, tyArgs, RecordMember.Field fieldName)
+
+                handle, ty
+            | None -> failwithf "Emit: record '%s' has no field '%s'" typeName fieldName
+        | false, _ -> failwithf "Emit: no emitted record for field access on '%s'" typeName
 
     /// `failwith "msg"` resolves through the symbol provider to this name; the
     /// backend lowers it to a BCL-only `throw new System.Exception(msg)` (P3d.3),
@@ -1458,6 +1536,97 @@ module Emit =
                 buildExpr env b head
                 foldInvoke env b (typeOfExpr head) spineArgs
 
+        | TExpr.RecordCons(srcFields, ty) ->
+            // The source-order initialiser list (`{ Y = …; X = … }`) is reordered
+            // to the type's *declaration* order before the ctor is invoked
+            // (records-plan §B3): the ctor's parameter slots correspond to
+            // declaration order so the field-store sequence in `buildRecordCtor`
+            // lines up. A generic record's `.ctor` is a `MemberRef` on its own
+            // `TypeSpec` (`Box\`1<!0>::.ctor`), exactly like a generic union's
+            // factory.
+            let typeName, tyArgs =
+                match ty with
+                | TyRecord(n, xs) -> n, xs
+                | other -> failwithf "Emit: RecordCons with non-record type %A" other
+
+            match env.Records.TryGetValue typeName with
+            | true, r ->
+                let srcMap = Map.ofList srcFields
+
+                for (fieldName, _, _) in r.Fields do
+                    match Map.tryFind fieldName srcMap with
+                    | Some e -> buildExpr env b e
+                    | None ->
+                        failwithf
+                            "Emit: record literal for '%s' is missing initialiser for field '%s'"
+                            typeName
+                            fieldName
+
+                let ctor =
+                    if List.isEmpty r.Typars then
+                        r.Ctor
+                    else
+                        env.Provider.GenericRecordMemberRef(typeName, tyArgs, RecordMember.Ctor)
+
+                b.Add(ILInstr.Newobj(ctor, List.length r.Fields))
+            | false, _ -> failwithf "Emit: no emitted record for '%s'" typeName
+
+        | TExpr.FieldGet(receiver, name, _) ->
+            // `r.X` — load the receiver and `ldfld` the field. The field handle is
+            // a `Def` token for a monomorphic record, a `MemberRef` on the receiver's
+            // `TypeSpec` for a generic one (`resolveRecordField`).
+            let handle, _ = resolveRecordField env (typeOfExpr receiver) name
+            buildExpr env b receiver
+            b.Add(ILInstr.Ldfld handle)
+
+        | TExpr.FieldSet(receiver, name, value, _) ->
+            // `r.X <- v` on a `mutable` field. Validation has rejected the
+            // immutable case before we reach here.
+            let handle, _ = resolveRecordField env (typeOfExpr receiver) name
+            buildExpr env b receiver
+            buildExpr env b value
+            b.Add(ILInstr.Stfld handle)
+
+        | TExpr.RecordClone(source, overrides, ty) ->
+            // `{ r with X = v; … }` — evaluate `r` into a local, then per
+            // declaration-order field: push the override expression if it's in
+            // the override list, else `ldloc; ldfld` from the saved source. Then
+            // `newobj` the ctor. Direct field reads (no `MemberwiseClone`) keeps
+            // it BCL-only and works identically for a generic record.
+            let typeName, tyArgs =
+                match ty with
+                | TyRecord(n, xs) -> n, xs
+                | other -> failwithf "Emit: RecordClone with non-record type %A" other
+
+            match env.Records.TryGetValue typeName with
+            | true, r ->
+                let overrideMap = Map.ofList overrides
+                let srcSlot = b.Local ty
+                buildExpr env b source
+                b.Add(ILInstr.Stloc srcSlot)
+
+                for (fieldName, handle, _) in r.Fields do
+                    match Map.tryFind fieldName overrideMap with
+                    | Some e -> buildExpr env b e
+                    | None ->
+                        let fieldRef =
+                            if List.isEmpty r.Typars then
+                                handle
+                            else
+                                env.Provider.GenericRecordMemberRef(typeName, tyArgs, RecordMember.Field fieldName)
+
+                        b.Add(ILInstr.Ldloc srcSlot)
+                        b.Add(ILInstr.Ldfld fieldRef)
+
+                let ctor =
+                    if List.isEmpty r.Typars then
+                        r.Ctor
+                    else
+                        env.Provider.GenericRecordMemberRef(typeName, tyArgs, RecordMember.Ctor)
+
+                b.Add(ILInstr.Newobj(ctor, List.length r.Fields))
+            | false, _ -> failwithf "Emit: no emitted record for '%s'" typeName
+
         | TExpr.UnionCons(caseName, args, ty) ->
             let typeName, tyArgs =
                 match ty with
@@ -1744,6 +1913,7 @@ module Emit =
         (closureByNode: Dictionary<TExpr, Closure>)
         (ctorHandleByNode: Dictionary<TExpr, EntityHandle>)
         (unions: Dictionary<string, EmittedUnion>)
+        (records: Dictionary<string, EmittedRecord>)
         (staticMethods: Dictionary<NodeKey, StaticMethodRef>)
         (decls: TDecl list)
         : ILBody =
@@ -1760,6 +1930,7 @@ module Emit =
                 SelfKey = ValueNone
                 CaptureFields = Dictionary<NodeKey, EntityHandle>()
                 Unions = unions
+                Records = records
                 StaticMethods = staticMethods
             }
 
@@ -1789,6 +1960,7 @@ module Emit =
         (closureByNode: Dictionary<TExpr, Closure>)
         (ctorHandleByNode: Dictionary<TExpr, EntityHandle>)
         (unions: Dictionary<string, EmittedUnion>)
+        (records: Dictionary<string, EmittedRecord>)
         (staticMethods: Dictionary<NodeKey, StaticMethodRef>)
         (closure: Closure)
         (captureFields: Dictionary<NodeKey, EntityHandle>)
@@ -1808,6 +1980,7 @@ module Emit =
                 SelfKey = closure.SelfKey
                 CaptureFields = captureFields
                 Unions = unions
+                Records = records
                 StaticMethods = staticMethods
             }
 
@@ -1826,6 +1999,7 @@ module Emit =
         (closureByNode: Dictionary<TExpr, Closure>)
         (ctorHandleByNode: Dictionary<TExpr, EntityHandle>)
         (unions: Dictionary<string, EmittedUnion>)
+        (records: Dictionary<string, EmittedRecord>)
         (staticMethods: Dictionary<NodeKey, StaticMethodRef>)
         (fn: StaticFn)
         : ILBody =
@@ -1844,6 +2018,7 @@ module Emit =
                 SelfKey = ValueNone
                 CaptureFields = Dictionary<NodeKey, EntityHandle>()
                 Unions = unions
+                Records = records
                 StaticMethods = staticMethods
             }
 
@@ -1863,6 +2038,7 @@ module Emit =
         (closureByNode: Dictionary<TExpr, Closure>)
         (ctorHandleByNode: Dictionary<TExpr, EntityHandle>)
         (unions: Dictionary<string, EmittedUnion>)
+        (records: Dictionary<string, EmittedRecord>)
         (staticMethods: Dictionary<NodeKey, StaticMethodRef>)
         (thisKey: NodeKey voption)
         (prms: (NodeKey * SemType) list)
@@ -1891,6 +2067,7 @@ module Emit =
                 SelfKey = ValueNone
                 CaptureFields = Dictionary<NodeKey, EntityHandle>()
                 Unions = unions
+                Records = records
                 StaticMethods = staticMethods
             }
 
@@ -2071,6 +2248,122 @@ module Emit =
         b.Add(ILInstr.Ldarg 0)
         b.Add(ILInstr.Ldfld s.TagField)
         b.Add(ILInstr.Call(s.HashCodeAdd s.IntType, 2, 0))
+
+        for (fieldHandle, fieldTy) in s.Fields do
+            b.Add(ILInstr.Ldloca hc)
+            b.Add(ILInstr.Ldarg 0)
+            b.Add(ILInstr.Ldfld fieldHandle)
+            b.Add(ILInstr.Call(s.HashCodeAdd fieldTy, 2, 0))
+
+        b.Add(ILInstr.Ldloca hc)
+        b.Add(ILInstr.Call(s.HashCodeToHashCode, 1, 1))
+        b.Add ILInstr.Ret
+        b.Body
+
+    // ---- Record emission (records-plan §B2/B4) ----
+
+    /// Build a record's `.ctor` body: chain to `Object::.ctor()`, then store
+    /// each ctor argument into the matching field (declaration order ⇒ argument
+    /// `ldarg.(i+1)` ⇒ field handle `fields.[i]`). Structurally identical to
+    /// `buildClosureCtor`, but named separately so call sites read as record vs
+    /// closure emission.
+    let buildRecordCtor (baseCtor: EntityHandle) (fields: EntityHandle list) : ILBody = buildClosureCtor baseCtor fields
+
+    // ---- Structural equality / hashing for a record (records-plan §B4) ----
+
+    /// The record-shaped analogue of `UnionEqualitySupport`: every field is
+    /// compared / hashed via `EqualityComparer<F>.Default` / `HashCode.Add<F>`
+    /// (the §3.2 rule), but there is **no `_tag`** to compare or seed — a record
+    /// is one nameless "case", so the union walk minus the tag is the record
+    /// triple. Fields are declaration-order (same store/read order the ctor
+    /// uses). Both generic and monomorphic records share this support shape; the
+    /// caller mints the field handles as `Def` tokens or `MemberRef`s on the
+    /// type's own `TypeSpec` (`Box\`1<!0>::Value`).
+    type RecordEqualitySupport =
+        {
+            /// The record's own `TypeDefinition` — the `isinst` target.
+            SelfType: EntityHandle
+            /// `TyRecord(name, …)` — the type of the cast `other` local.
+            SelfSemType: SemType
+            /// `(field handle, field type)` in declaration order.
+            Fields: (EntityHandle * SemType) list
+            ComparerDefault: SemType -> EntityHandle
+            ComparerEquals: SemType -> EntityHandle
+            HashCodeLocal: SemType
+            HashCodeAdd: SemType -> EntityHandle
+            HashCodeToHashCode: EntityHandle
+        }
+
+    /// The field-by-field comparison shared by both record equality entry
+    /// points (the `Equals(object)` override and the typed
+    /// `IEquatable<Self>::Equals`): same shape as `buildTagAndFieldEquality`
+    /// minus the leading tag compare. Any field mismatch branches to
+    /// `falseLabel`; on fall-through the operands are field-wise equal.
+    let private buildRecordFieldEquality
+        (s: RecordEqualitySupport)
+        (b: IlBuilder)
+        (loadOther: IlBuilder -> unit)
+        (falseLabel: int)
+        : unit =
+        for (fieldHandle, fieldTy) in s.Fields do
+            b.Add(ILInstr.Call(s.ComparerDefault fieldTy, 0, 1))
+            b.Add(ILInstr.Ldarg 0)
+            b.Add(ILInstr.Ldfld fieldHandle)
+            loadOther b
+            b.Add(ILInstr.Ldfld fieldHandle)
+            b.Add(ILInstr.Callvirt(s.ComparerEquals fieldTy, 3, 1))
+            b.Add(ILInstr.Brfalse falseLabel)
+
+    /// `override bool Equals(object obj)` for a record: `obj is Self` (also
+    /// rejects null), then the shared field-by-field walk. Same structure as
+    /// `buildUnionEquals` minus the tag compare.
+    let buildRecordEquals (s: RecordEqualitySupport) : ILBody =
+        let b = IlBuilder()
+        let other = b.Local s.SelfSemType
+        let falseLabel = b.Label()
+
+        b.Add(ILInstr.Ldarg 1)
+        b.Add(ILInstr.Isinst s.SelfType)
+        b.Add(ILInstr.Stloc other)
+        b.Add(ILInstr.Ldloc other)
+        b.Add(ILInstr.Brfalse falseLabel)
+
+        buildRecordFieldEquality s b (fun b -> b.Add(ILInstr.Ldloc other)) falseLabel
+
+        b.Add(ILInstr.LdcI4 1)
+        b.Add ILInstr.Ret
+        b.Add(ILInstr.Mark falseLabel)
+        b.Add(ILInstr.LdcI4 0)
+        b.Add ILInstr.Ret
+        b.Body
+
+    /// `bool Equals(Self other)` — the typed `IEquatable<Self>::Equals` the
+    /// record implements. `other` (`ldarg.1`) is already `Self`, so a `null`
+    /// guard suffices; then the same field walk. This is the boxing-free path
+    /// `EqualityComparer<Self>.Default` reaches once the record declares
+    /// `IEquatable<Self>` — so a nested record-typed field recurses through it.
+    let buildRecordEqualsTyped (s: RecordEqualitySupport) : ILBody =
+        let b = IlBuilder()
+        let falseLabel = b.Label()
+
+        b.Add(ILInstr.Ldarg 1)
+        b.Add(ILInstr.Brfalse falseLabel)
+
+        buildRecordFieldEquality s b (fun b -> b.Add(ILInstr.Ldarg 1)) falseLabel
+
+        b.Add(ILInstr.LdcI4 1)
+        b.Add ILInstr.Ret
+        b.Add(ILInstr.Mark falseLabel)
+        b.Add(ILInstr.LdcI4 0)
+        b.Add ILInstr.Ret
+        b.Body
+
+    /// `override int GetHashCode()` for a record: a `System.HashCode`
+    /// accumulator with every field added through `HashCode.Add<T>`, then
+    /// `ToHashCode()`. No tag seed — a record has one shape.
+    let buildRecordGetHashCode (s: RecordEqualitySupport) : ILBody =
+        let b = IlBuilder()
+        let hc = b.Local s.HashCodeLocal
 
         for (fieldHandle, fieldTy) in s.Fields do
             b.Add(ILInstr.Ldloca hc)

@@ -45,6 +45,20 @@ type UnionMember =
     /// case table).
     | Member of metaName: string * isStatic: bool * paramTys: SemType list * retTy: SemType
 
+/// Which member of an emitted *generic* record a `GenericRecordMemberRef`
+/// resolves to. The records-plan §B2 analogue of `UnionMember`, but minus the
+/// tag/factory machinery — a record has one nameless shape with one ctor
+/// taking the fields in declaration order, and fields are keyed by their
+/// source-level name (not by `<case>_<index>`). A monomorphic record skips
+/// this entirely and uses its `Def` tokens directly.
+[<RequireQualifiedAccess>]
+type RecordMember =
+    /// The single instance `.ctor(field0, field1, …)`.
+    | Ctor
+    /// The public field named `fieldName` (records preserve source field
+    /// names — no positional encoding).
+    | Field of fieldName: string
+
 /// Resolved metadata handles for lowering a `TExpr.Format` to the write-through
 /// handler (`Vesper.Formatter`). A `Format` can't be a `CallRecipe` — it
 /// interleaves literals and lazily-evaluated args around a ref-struct local — so
@@ -95,6 +109,12 @@ type ICodegenProvider =
     /// `ClrProvider.RegisterGenericUnion`. A monomorphic union never reaches
     /// here — its `Def` tokens are used directly.
     abstract GenericUnionMemberRef: name: string * args: SemType list * which: UnionMember -> EntityHandle
+
+    /// A `MemberRef` to one member of an emitted *generic* record `name`,
+    /// instantiated at `args`. The record must have been registered with
+    /// `ClrProvider.RegisterGenericRecord`. A monomorphic record never reaches
+    /// here — its `Def` tokens are used directly (records-plan §B2).
+    abstract GenericRecordMemberRef: name: string * args: SemType list * which: RecordMember -> EntityHandle
 
     /// A `MethodSpec` instantiating a *generic* module-static method (`fold`) at a
     /// call site (R3). `handle` is the method's (predicted) `MethodDefinition`;

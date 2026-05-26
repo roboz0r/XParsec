@@ -588,6 +588,29 @@ type private Renderer() =
                     push m.Name
                     push " : "
                     push (tyStr m.ReturnTy)
+            | TTypeKind.Record(fields, members) ->
+                push " = { "
+
+                fields
+                |> List.iteri (fun i f ->
+                    if i > 0 then
+                        push "; "
+
+                    if f.IsMutable then
+                        push "mutable "
+
+                    push f.Name
+                    push " : "
+                    push (tyStr f.Type)
+                )
+
+                push " }"
+
+                for m in members do
+                    push (if m.IsStatic then " static member " else " member ")
+                    push m.Name
+                    push " : "
+                    push (tyStr m.ReturnTy)
 
 let prettyExpr (e: TExpr) : string =
     let r = Renderer()
