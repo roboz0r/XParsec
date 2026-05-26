@@ -146,7 +146,7 @@ type TExpr =
     /// The value-level sibling of the type-level `(# "..." #)` intrinsic carried
     /// in `TastFile.IntrinsicReprTypes`; operator `.fs` bodies (`(=)` → `ceq`,
     /// `(+)` → `add`, …) lower to this so codegen owns no per-operator dispatch.
-    /// See docs/core-operators-handoff.md.
+    /// See docs/operators-plan.md.
     | ILIntrinsic of opCode: string * args: TExpr list * ty: SemType
     /// F# library-only static optimization: a default expression plus a list of
     /// type-specialized clauses (`expr when ^T : int = … when ^T : ^T = …`).
@@ -156,7 +156,7 @@ type TExpr =
     /// equality-family operator returns `bool` under every clause). Codegen does
     /// **not** emit this node directly — `Inline.inlineExpand` resolves it to the
     /// chosen branch once the call site pins the operand type (prereq 3). See
-    /// docs/core-operators-handoff.md.
+    /// docs/operators-plan.md.
     | StaticOptimization of clauses: TStaticOptClause list * defaultExpr: TExpr * ty: SemType
 
 and TMatchArm =

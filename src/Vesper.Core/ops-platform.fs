@@ -11,8 +11,8 @@ open System.Collections.Generic
 // (milestone M, symbol-resolution-handoff.md).
 //
 // The EQUALITY family (`=` / `<>`) is the first OPERATOR family sourced from here
-// rather than the codegen `Emit.BuiltinOps` stopgap (core-operators-handoff.md
-// "Phase 3"): closing the operator-named-binding freeze gap lets these `.fs`
+// rather than the codegen `Emit.BuiltinOps` stopgap (operators-plan.md
+// "Implementation status"): closing the operator-named-binding freeze gap lets these `.fs`
 // bodies freeze, be read by `SymbolProviders.inlineBodies`, and be spliced at use
 // sites — the operator surface now flows through the same cross-package-inline +
 // static-optimization machinery as `hash`, not a hard-coded codegen table.
@@ -36,7 +36,7 @@ open System.Collections.Generic
 // `bool`), these return `^T`, so each `when ^T : …` clause body has its own type
 // — `byte`/`int16`/… — which the per-clause static-opt return typing now allows
 // (`Unification.inferLibraryOnlyStaticOptimization` no longer cross-unifies clause
-// bodies; see core-operators-handoff.md). The static-opt *base* `(# "add" x y :
+// bodies; see operators-plan.md). The static-opt *base* `(# "add" x y :
 // ^T #)` already covers every wide signed/float type (the CIL arithmetic opcodes
 // are type-polymorphic over the eval stack), so only the cases that need DIFFERENT
 // IL carry a clause: the sub-`int32` widths need a `conv.*` to truncate the

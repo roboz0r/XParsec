@@ -1555,7 +1555,7 @@ type ClrProvider
     /// `hash x` use-site's body (the same comparer family the DU triple hashes
     /// fields through, so `hash` and `=` agree by construction), reached via
     /// `callvirt`. There is no IL opcode for a structural hash, so unlike `=`/`+`
-    /// this is a BCL call, not an `ILIntrinsic` (docs/core-operators-handoff.md).
+    /// this is a BCL call, not an `ILIntrinsic` (docs/operators-plan.md).
     let equalityComparerGetHashCode (elem: SemType) : EntityHandle =
         let parent = equalityComparerTypeSpec elem
         let s = BlobBuilder()
@@ -1928,7 +1928,7 @@ type ClrProvider
                 | "printfn" -> ValueSome(emitPrintfn (zonk fnTy))
                 // Arithmetic / equality / comparison operators no longer reach here:
                 // `Emit.lower` expands them to `TExpr.ILIntrinsic` from their inline-IL
-                // bodies before emission (docs/core-operators-handoff.md, C-Eq1).
+                // bodies before emission (docs/operators-plan.md, C-Eq1).
                 | _ -> ValueNone
 
         member _.TryEmitCtor(className, tyArgs) =

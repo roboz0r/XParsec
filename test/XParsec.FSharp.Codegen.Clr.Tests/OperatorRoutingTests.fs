@@ -5,7 +5,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The C-Eq1 last mile (docs/core-operators-handoff.md): an operator use site
+// The C-Eq1 last mile (docs/operators-plan.md): an operator use site
 // (`a = b`, `x + y`, `a < b`) freezes to an `External(op_*)` call head; `Emit`
 // rewrites the saturated application to the operator's inline-IL body so it emits
 // through the single `TExpr.ILIntrinsic` path — codegen owns no per-operator
@@ -16,7 +16,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // The equality family (`=`/`<>`) is now *also* sourced from the frozen
 // `Vesper.Core/ops-platform.fs` contract body when compiled through the contract
 // stack (`compileSource`): the operator-named binding `let inline (=) …` freezes
-// (the gap core-operators-handoff.md "Phase 3" called out), is collected by
+// (the gap operators-plan.md "Phase 3" called out), is collected by
 // `SymbolProviders.inlineBodies`, and is spliced + static-opt-resolved at each use
 // site — the same cross-package-inline path `hash` uses. The collection test below
 // pins that the body is sourced from the contract; the run tests pin behaviour.
@@ -141,7 +141,7 @@ let tests =
                 // / `let inline (<>)` in `ops-platform.fs` now freeze and are sourced by
                 // the codegen inline-body loader — so `=`/`<>` emit from the contract
                 // `.fs`, not just the `BuiltinOps` stopgap. (Previously these bindings
-                // never made it through the front end; `core-operators-handoff.md`.)
+                // never made it through the front end; `operators-plan.md`.)
                 let _, inlines = SymbolProviders.buildContract defaultManifests
 
                 Expect.isTrue (Map.containsKey "op_Equality" inlines) "op_Equality body sourced from ops-platform.fs"

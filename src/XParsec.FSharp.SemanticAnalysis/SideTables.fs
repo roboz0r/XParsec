@@ -270,7 +270,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// scope is live. Freeze reads it to build each `TExpr.StaticOptimization`
     /// clause; the typar carries the inline binding's quantified root so
     /// `Inline.inlineExpand` can substitute it at the call site. See
-    /// docs/core-operators-handoff.md (prereq 3).
+    /// docs/operators-plan.md (prereq 3).
     member val StaticOpt = SideTable<TStaticOptConstraint list>() with get
     /// Keyed by a member-access node's `NodeKey` (`Expr.DotLookup`): the resolved
     /// external member (`TryLookupMember` hit) for a `<externalType>.Member` or

@@ -3680,7 +3680,7 @@ module Unification =
     /// to resolve at the call site. The typar resolves through `ctx.TyparScope` —
     /// already seeded by the enclosing binding's parameters (`(x: ^T)`) — so the
     /// recorded `SemType` carries the binding's quantified root. See
-    /// docs/core-operators-handoff.md (the arithmetic/bitwise/unary task).
+    /// docs/operators-plan.md (the arithmetic/bitwise/unary task).
     and private inferLibraryOnlyStaticOptimization
         (ctx: PassContext)
         (key: NodeKey)

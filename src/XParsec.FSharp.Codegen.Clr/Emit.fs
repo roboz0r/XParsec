@@ -363,7 +363,7 @@ module Emit =
     ///
     /// DELETE-WHEN-COMPLETE. This table is a *fallback* now that operator `.fs`
     /// bodies are landing in `src/Vesper.Core/ops-platform.fs`
-    /// (core-operators-handoff.md "Phase 3"). The EQUALITY family (`=`/`<>`) is
+    /// (operators-plan.md "Phase 3"). The EQUALITY family (`=`/`<>`) is
     /// already sourced from the contract: a saturated `External(op_Equality)` is
     /// expanded from the frozen inline body by `lowerWith` *before* this table's
     /// `expandBuiltinOps` closing phase runs, so the contract body wins on the
@@ -443,7 +443,7 @@ module Emit =
     /// emitted straight from `tast.Decls` and so never pass through `lower`. The
     /// splice is direct — each body uses each operand exactly once — so no binder is
     /// introduced and closure discovery / free-variable analysis are undisturbed.
-    /// See docs/core-operators-handoff.md (C-Eq1 last mile).
+    /// See docs/operators-plan.md (C-Eq1 last mile).
     let rec expandBuiltinOps (e: TExpr) : TExpr =
         match e with
         | TExpr.App _ ->
@@ -1545,7 +1545,7 @@ module Emit =
             // Push each operand, then append the mapped opcode. The dispatch
             // (which opcode for which operator/primitive) lives in the operator
             // `.fs` body this node was lowered from, not here — codegen only
-            // interprets the IL. See docs/core-operators-handoff.md.
+            // interprets the IL. See docs/operators-plan.md.
             for a in args do
                 buildExpr env b a
 

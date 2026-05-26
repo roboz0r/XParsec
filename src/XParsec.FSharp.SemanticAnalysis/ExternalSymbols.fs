@@ -489,7 +489,7 @@ module MockBuiltins =
             // `when 'T: equality` constraint the real `.fsi` carries is the
             // contract provider's concern; MockBuiltins is the codegen test
             // provider, so it only needs the shape — `hash x` resolving and
-            // typing — to drive the backend (docs/core-operators-handoff.md).
+            // typing — to drive the backend (docs/operators-plan.md).
             "hash", fun level -> TyFun(freshAt level, tyInt)
         ]
         |> List.map (fun (n, build) -> n, ExternalSymbols.poly n build)

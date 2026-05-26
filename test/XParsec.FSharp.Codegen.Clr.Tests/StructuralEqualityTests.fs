@@ -7,7 +7,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// C-Eq1 backend slice 2 (docs/core-operators-handoff.md): a monomorphic user DU
+// C-Eq1 backend slice 2 (docs/operators-plan.md): a monomorphic user DU
 // gets real `Equals(object)` / `GetHashCode()` overrides walking each case's
 // fields by the §3.2 rule (`EqualityComparer<F>.Default` / `System.HashCode`).
 // Generation is independent of a `=` *use site* (which can't type a DU operand
@@ -243,7 +243,7 @@ let tests =
             }
         ]
 
-// C-Eq1 tail / equality §6 S4 (docs/core-operators-handoff.md, type-args-bug.md):
+// C-Eq1 tail / equality §6 S4 (docs/operators-plan.md, type-args-bug.md):
 // a *generic* user DU now emits the same equality triple as a monomorphic one,
 // written in its own `!0` — field/tag access through `MemberRef`s on the type's
 // `TypeSpec`, `EqualityComparer<!0>` / `HashCode.Add<!0>` for a typar-typed field

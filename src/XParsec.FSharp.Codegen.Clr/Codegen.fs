@@ -691,7 +691,7 @@ module Codegen =
                                 mem.Params
                                 // Member bodies emit straight from `tast.Decls`, never
                                 // through `Emit.lower`, so the operator → inline-IL rewrite
-                                // is applied here (core-operators-handoff.md, C-Eq1).
+                                // is applied here (operators-plan.md, C-Eq1).
                                 (Emit.expandBuiltinOps mem.Body)
                         ))
 

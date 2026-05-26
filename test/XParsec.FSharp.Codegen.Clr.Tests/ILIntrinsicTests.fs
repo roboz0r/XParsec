@@ -9,7 +9,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // machinery the operator surface (`=`/`<`/`+`/…) lowers onto: an operator `.fs`
 // body supplies the per-primitive opcode and codegen interprets it via
 // `TExpr.ILIntrinsic`, owning no per-operator dispatch. See
-// docs/core-operators-handoff.md (C-Eq1 backend, prereqs 1+2).
+// docs/operators-plan.md (C-Eq1 backend, prereqs 1+2).
 
 [<Tests>]
 let tests =

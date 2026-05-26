@@ -174,7 +174,7 @@ module Inline =
         // call-site type args have pinned `^T`, so pick the first clause whose
         // constraints hold and keep only its (substituted) body. This is prereq 3
         // — static-opt clause resolution at `let inline` expansion. See
-        // docs/core-operators-handoff.md.
+        // docs/operators-plan.md.
         | TExpr.StaticOptimization(clauses, def, _) -> resolveStaticOpt subst clauses def
 
     and private resolveStaticOpt

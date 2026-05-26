@@ -66,7 +66,7 @@ module SymbolProviders =
     /// `hash` is the first such body: `let inline hash (obj: 'T) =
     /// EqualityComparer<'T>.Default.GetHashCode obj` (`ops-platform.fs`). It is a
     /// normal identifier, so it clears the operator-named-binding freeze gap that
-    /// still blocks `=`/`+`/… (core-operators-handoff.md). The arithmetic/equality
+    /// still blocks `=`/`+`/… (operators-plan.md). The arithmetic/equality
     /// operators have no `.fs` body yet and stay on the `Emit.BuiltinOps` stopgap.
     let private collectInlineBodies (tast: TastFile) : (string * TDecl) list =
         tast.Decls

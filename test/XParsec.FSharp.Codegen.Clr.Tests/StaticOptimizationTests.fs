@@ -6,7 +6,7 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // Static-optimization clause resolution at `let inline` expansion — prereq 3 of
-// docs/core-operators-handoff.md (the C-Eq1 last mile). An inline body of the
+// docs/operators-plan.md (the C-Eq1 last mile). An inline body of the
 // FSharp.Core operator shape
 //
 //     let inline f (x: ^T) … =

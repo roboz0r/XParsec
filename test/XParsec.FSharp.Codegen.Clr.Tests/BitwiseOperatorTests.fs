@@ -12,7 +12,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // wired into `Desugar.infixOpName` + `Unification.tryPrimitiveTraitCandidate`
 // (the `bitwiseBinaryOps` / `shiftOps` sets). `>>>` is a static-opt (signed `shr`
 // base + unsigned `shr.un` clauses); the rest are single-IL bodies. See
-// docs/core-operators-handoff.md (the arithmetic/bitwise/unary task).
+// docs/operators-plan.md (the arithmetic/bitwise/unary task).
 
 [<Tests>]
 let tests =

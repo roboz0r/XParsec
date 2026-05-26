@@ -14,7 +14,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // clauses return DIFFERENT types (`byte` / `int16` / …) than the declared `^T`,
 // which only type-checks because `inferLibraryOnlyStaticOptimization` no longer
 // cross-unifies clause bodies (the per-clause static-opt return typing fix —
-// docs/core-operators-handoff.md, the arithmetic/bitwise/unary task).
+// docs/operators-plan.md, the arithmetic/bitwise/unary task).
 //
 // The byte-wraparound tests are the load-bearing proof the contract body — not
 // the `BuiltinOps` fallback — is what emits at a ground use site: `BuiltinOps`

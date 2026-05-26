@@ -76,15 +76,17 @@ operators alone force it: a `let inline (+)` body needs inline IL /
 parsed by `XParsec.FSharp` and walked into an `IExternalSymbolProvider`; the
 `.fs` are compiled by our own backend once the self-host ladder lands.
 
-> **No `ops-platform.fs` exists yet.** The operator/`hash` *implementations* are
-> not source anywhere — the only `.fs` here are `prim-types-min.fs` +
-> `prim-types-string.fs`. The live `=`/`<>`/arithmetic and `hash` semantics in
-> emitted programs come from **codegen-side stopgaps** (`Emit.BuiltinOps` op→opcode
-> table + `Emit.isHash`), not a frozen `.fs` the backend reads. Writing the real
-> bodies is blocked on two front-end gaps — operator-named bindings don't freeze,
-> and there's no BCL generic-member resolution for the `EqualityComparer<'T>`
-> fall-clauses. See
-> [`core-operators-handoff.md`](../XParsec.FSharp.SemanticAnalysis/docs/core-operators-handoff.md).
+> **`ops-platform.fs` now carries the operator + `hash` implementations.** The live
+> `=`/`<>`, arithmetic/bitwise/unary, and `hash` semantics in emitted programs come
+> from this frozen `.fs` (F# static-optimization over inline IL), read across the
+> package boundary by the codegen inline-body loader (`SymbolProviders.inlineBodies`)
+> and spliced at each use site. The `Emit.BuiltinOps` op→opcode table remains only as
+> the un-ground / nested / generic fallback (and `Emit.isHash` is gone). Both
+> front-end gaps that once blocked this are closed — operator-named bindings freeze
+> with their compiled name, and BCL generic-member resolution reaches the
+> `EqualityComparer<'T>` fall-clauses. See
+> [`operators-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/operators-plan.md)
+> "Implementation status".
 
 Parser coverage is verified: every `.fsi`/`.fs` here parses with zero recovery
 diagnostics — the same bar as the FSharp.Core corpus — by

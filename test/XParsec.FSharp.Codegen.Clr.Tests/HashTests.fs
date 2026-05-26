@@ -5,7 +5,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// `hash` — the third equality-family member (docs/core-operators-handoff.md,
+// `hash` — the third equality-family member (docs/operators-plan.md,
 // C-Eq1) — now sourced from `src/Vesper.Core/ops-platform.fs`, not the
 // `Emit.isHash` codegen stopgap (milestone M, docs/symbol-resolution-handoff.md).
 //

@@ -309,7 +309,7 @@ type TypeScheme(quantified: TypeVar list, body: SemType, constraints: (TypeVar *
 /// rebuilt by Freeze, not stored. The typar is a `TyVar` over the inline
 /// binding's quantified root, so `Inline.inlineExpand`'s typar substitution
 /// turns it into the call site's concrete type before the clause is tested.
-/// See docs/core-operators-handoff.md (prereq 3).
+/// See docs/operators-plan.md (prereq 3).
 [<RequireQualifiedAccess>]
 type TStaticOptConstraint =
     /// `when ^T : SomeType` — holds when the type substituted for `typar` equals
