@@ -346,14 +346,34 @@ module Emit =
     let private rebuildApp (head: TExpr) (args: (TExpr * SemType) list) : TExpr =
         List.fold (fun acc (arg, resTy) -> TExpr.App(acc, arg, resTy)) head args
 
-    /// Peel a curried `Lambda` chain of simple (`NamedSimple`) parameters. A
-    /// non-`NamedSimple` parameter (or a non-lambda) stops the peel, so the
-    /// "arity" is the count of leading simple-param lambdas.
+    /// Source of synthetic `NodeKey`s for unit-parameter binders (`fun () -> …`
+    /// in `peelLambda` / `discoverClosures`). A unit-typed `TPat.Const(Unit, _)`
+    /// has no name to bind, so the lambda body never references its key — any
+    /// non-colliding key serves. We mint a fresh synthetic key per call so an
+    /// `args.[key]` dict (closure `Invoke`, static-method body) can map it to
+    /// the corresponding `ldarg` slot without clashing with other binders, and
+    /// `freeVars`/`freeVarKeys` can treat it as bound. `Interlocked` keeps it
+    /// safe across the parallel test runner; the `synBit` keeps it disjoint
+    /// from source keys.
+    let mutable private unitParamSynthCounter = 0
+
+    let private mintUnitParamKey () : NodeKey =
+        let c = System.Threading.Interlocked.Increment(&unitParamSynthCounter)
+        NodeKey.ofSynthetic c NodeKind.SynthLambdaBody
+
+    /// Peel a curried `Lambda` chain of simple (`NamedSimple`) or unit-pattern
+    /// (`TPat.Const(Unit, _)`, from `fun () -> …`) parameters. A unit binder
+    /// gets a synthetic placeholder `NodeKey` (the body never references it)
+    /// so the static-method emission still allocates an `ldarg` slot for the
+    /// unit value the caller pushes. Any other pattern stops the peel.
     let rec private peelLambda (e: TExpr) : (NodeKey * SemType) list * TExpr =
         match e with
         | TExpr.Lambda(TPat.NamedSimple(k, pty), body, _) ->
             let ps, b = peelLambda body
             (k, pty) :: ps, b
+        | TExpr.Lambda(TPat.Const(TConstValue.Unit, pty), body, _) ->
+            let ps, b = peelLambda body
+            (mintUnitParamKey (), pty) :: ps, b
         | _ -> [], e
 
     /// Beta-reduce a curried lambda (an inline expansion's output) against its
@@ -980,8 +1000,7 @@ module Emit =
                  go ValueNone body
              | _ -> iterChildren (go ValueNone) e) // children (and inner lambdas) first → leaves-first
 
-            match e with
-            | TExpr.Lambda(TPat.NamedSimple(p, pty), body, lamTy) ->
+            let registerClosure (p: NodeKey) (pty: SemType) (body: TExpr) (lamTy: SemType) =
                 let resultTy =
                     match lamTy with
                     | TyFun(_, r) -> r
@@ -1002,6 +1021,15 @@ module Emit =
                 counter <- counter + 1
                 lookup.[e] <- c
                 order.Add e
+
+            match e with
+            | TExpr.Lambda(TPat.NamedSimple(p, pty), body, lamTy) -> registerClosure p pty body lamTy
+            | TExpr.Lambda(TPat.Const(TConstValue.Unit, pty), body, lamTy) ->
+                // A `fun () ->` unit binder has no name to reference, but the
+                // closure's `Invoke` still allocates `ldarg.1` for the unit
+                // value the caller pushes; mint a synthetic placeholder so the
+                // `args` map (and `freeVars`'s bound set) still has a key.
+                registerClosure (mintUnitParamKey ()) pty body lamTy
             | TExpr.Lambda(p, _, _) -> failwithf "Emit: closure parameter destructuring is out of scope: %A" p
             | _ -> ()
 
@@ -1287,6 +1315,13 @@ module Emit =
             b.Add(ILInstr.LdcI4(if flags < 0 then 1 else 0)) // sign (high bit of flags)
             b.Add(ILInstr.LdcI4((flags >>> 16) &&& 0xFF)) // scale
             b.Add(ILInstr.Newobj(env.Provider.DecimalCtor, 5))
+        | TExpr.Const(TConstValue.Unit, _) ->
+            // `()` literal — the unit value is `Unit`'s null (encodeTypeCore
+            // maps `unit` to `FSharp.Core.Unit`, whose canonical value is
+            // `null`). Pushed when a closure invocation needs a unit arg
+            // (`c ()`) or a unit value is otherwise reified — F3 (Phase 2 §1
+            // mkCounter pattern).
+            b.Add ILInstr.Ldnull
 
         | TExpr.Var(binding, _) -> buildVarLoad env b binding
 
@@ -1604,11 +1639,18 @@ module Emit =
 
         | TExpr.FieldSet(receiver, name, value, _) ->
             // `r.X <- v` on a `mutable` field. Validation has rejected the
-            // immutable case before we reach here.
+            // immutable case before we reach here. `stfld` consumes both pushes
+            // and leaves nothing on the stack, but a `FieldSet` is *unit-typed*
+            // — every consumer (`Sequential` middle items, the body of a
+            // unit-returning closure / static method) expects a unit value to be
+            // present. Push `ldnull` (Unit's value) to match F#'s emission and
+            // keep the IL verifier happy when the body is just a FieldSet
+            // (`fun () -> n <- n + 1`, F3 §1).
             let handle, _ = resolveRecordField env (typeOfExpr receiver) name
             buildExpr env b receiver
             buildExpr env b value
             b.Add(ILInstr.Stfld handle)
+            b.Add ILInstr.Ldnull // unit value
 
         | TExpr.RecordClone(source, overrides, ty) ->
             // `{ r with X = v; … }` — evaluate `r` into a local, then per

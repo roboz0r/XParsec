@@ -201,4 +201,108 @@ let tests =
                     "Vesper.Core"
                     (sprintf "consumer PE must reference Vesper.Core for Vesper.Ref`1 (refs: %A)" refs)
             }
+
+            // Records-handoff Phase 2 §1 (runtime): the captured-mutable cell
+            // survives across multiple invocations of the escaping closure. The
+            // `unit -> int` Invoke + `mkCounter ()` static-method call both
+            // require F3's unit-parameter closure peel (peelLambda /
+            // discoverClosures); the cell itself is the F2 `Vesper.Ref\`1` from
+            // `Vesper.Core.dll`.
+            test "mkCounter () counter: three invocations see the shared Vesper.Ref<int> cell" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "let mkCounter () ="
+                            "    let mutable n = 0"
+                            "    fun () ->"
+                            "        n <- n + 1"
+                            "        n"
+                            "let c = mkCounter ()"
+                            "printfn \"%d\" (c ())"
+                            "printfn \"%d\" (c ())"
+                            "printfn \"%d\" (c ())"
+                        ]
+
+                vesperCoreDll.Value |> ignore
+
+                let _, artifact = compileSource "MkCounter" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 (sprintf "Main returns 0 (output: %s)" output)
+
+                Expect.equal
+                    (output.Trim().Replace("\r\n", "\n"))
+                    "1\n2\n3"
+                    "the three invocations read 1, 2, 3 from the shared Ref<int> cell"
+            }
+
+            // Records-handoff Phase 2 §1 test #3 (runtime): two closures captured
+            // by the same `let mutable` cell observe each other's writes — the
+            // F2 `Vesper.Ref\`1` is shared. Both closures take a unit parameter,
+            // so F3.1 is required for both to compile. Wrapped in an outer
+            // function (`useTwoClosures`) so RefCellPromotion fires for the
+            // local `let mutable n` (module-level mutables don't promote — they
+            // live in a static field, a different mechanism beyond F3).
+            test "two closures share a single Vesper.Ref<int> cell" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "let useTwoClosures () ="
+                            "    let mutable n = 0"
+                            "    let inc () = n <- n + 1"
+                            "    let read () = n"
+                            "    inc ()"
+                            "    inc ()"
+                            "    inc ()"
+                            "    read ()"
+                            "printfn \"%d\" (useTwoClosures ())"
+                        ]
+
+                vesperCoreDll.Value |> ignore
+
+                let _, artifact = compileSource "TwoClosuresShareCell" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 (sprintf "Main returns 0 (output: %s)" output)
+                Expect.equal (output.Trim()) "3" "three increments, observed through the read closure, sum to 3"
+            }
+
+            // Records-handoff F3.2 (still open): a higher-order function that
+            // *returns* a closure with an un-pinned typar in its capture-field
+            // signature surfaces `ClrProvider: cannot encode SemType: TyVar`
+            // at codegen time. The fix needs generic closure synthesis — the
+            // inner closure type becomes generic over its enclosing static
+            // method's typars, instantiated per call site — which is a
+            // substantial follow-up (closure ctor/Invoke signatures, TypeSpec
+            // instantiation at the construction site). NOT required for the
+            // F3 runtime tests listed in `docs/records-handoff.md` (`mkCounter
+            // ()`, two-closures-share-the-cell), which use only ground types.
+            // Documented as pending so the gap stays visible.
+            // F3.2: genuine generic-closure case — the inner closure captures a
+            // value of an *unconstrained* typar (`'a`). No operators apply to
+            // `x` inside the inner closure, so F#'s static-member-default
+            // mechanism never kicks in; `mkConst` stays `'a -> unit -> 'a` and
+            // the static method's typar must flow through into the closure's
+            // capture-field signature. See `closure-plan.md`.
+            //
+            // (The earlier "`mkAdder x = fun y -> y + x`" example *would* be
+            // monomorphic in correctly-defaulting F# — the `+` operator's
+            // `default ^T1: int` clause in `Vesper.Core/ops-platform.fsi`
+            // forces `int` in the absence of other type direction, so it's a
+            // defaults-not-applied symptom rather than a generic-closure case.
+            // `mkConst` cannot be defaulted; it is the genuine F3.2 trigger.)
+            ptest "F3.2: higher-order returning a closure with an un-pinned typar (generic-closure follow-up)" {
+                let src =
+                    "let mkConst x = fun () -> x\nlet always10 = mkConst 10\nprintfn \"%d\" (always10 ())"
+
+                vesperCoreDll.Value |> ignore
+
+                let _, artifact = compileSource "MkConst" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 (sprintf "Main returns 0 (output: %s)" output)
+                Expect.equal (output.Trim()) "10" "the inner closure carries its capture's type through the static-method typar"
+            }
         ]

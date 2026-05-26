@@ -273,9 +273,164 @@ let runEntryPoint (bytes: byte[]) : int * string =
             Console.SetOut captured
 
             try
-                let result = entry.Invoke(null, [| box (Array.empty<string>) |])
-                Console.Out.Flush()
-                (result :?> int), captured.ToString()
+                try
+                    let result = entry.Invoke(null, [| box (Array.empty<string>) |])
+                    Console.Out.Flush()
+                    (result :?> int), captured.ToString()
+                with
+                // `MethodBase.Invoke` wraps any user-code exception in a
+                // `TargetInvocationException`. Surface the inner exception's
+                // type, message, and stack trace so a runtime IL bug
+                // (`InvalidProgramException` from a malformed method body, a
+                // `NullReferenceException`, a typed `ArithmeticException`) is
+                // *legible* in the test failure instead of a single line of
+                // "Exception has been thrown by the target of an invocation".
+                | :? System.Reflection.TargetInvocationException as e when not (isNull e.InnerException) ->
+                    let inner = e.InnerException
+                    let captured = captured.ToString()
+
+                    failwithf
+                        "Entry-point threw %s: %s\n--- inner stack ---\n%s\n--- captured stdout ---\n%s"
+                        (inner.GetType().FullName)
+                        inner.Message
+                        inner.StackTrace
+                        captured
             finally
                 Console.SetOut original
         )
+
+// ---- PE inspection helpers (deep introspection for codegen tests) -----------
+// Reach beyond `loadAssembly`'s reflection view: open the emitted PE through
+// `System.Reflection.Metadata` so a test can read raw metadata (Method/Field
+// tokens, AssemblyRef table, IL bytes) without going through the runtime
+// loader. Useful when debugging a malformed IL emission (`InvalidProgramException`)
+// or asserting the *structure* of an emitted PE — e.g., "method X references
+// AssemblyRef Vesper.Core", "field F has signature Y" — rather than the
+// behaviour of its execution.
+
+open System.Reflection.Metadata
+open System.Reflection.PortableExecutable
+
+/// Open a PE byte stream as a metadata reader. The caller must dispose the
+/// returned `PEReader`; the `MetadataReader` it yields stays valid for the
+/// reader's lifetime.
+let openPe (bytes: byte[]) : PEReader =
+    new PEReader(System.Collections.Immutable.ImmutableArray.Create<byte>(bytes))
+
+/// List every type-def's full name (`Namespace.TypeName`) in the PE. Anonymous
+/// `<Module>` is excluded so a "no user type" assertion can be punctual.
+let peTypeDefNames (bytes: byte[]) : string list =
+    use peReader = openPe bytes
+    let md = peReader.GetMetadataReader()
+
+    [
+        for h in md.TypeDefinitions do
+            let td = md.GetTypeDefinition h
+            let name = md.GetString td.Name
+
+            if name <> "<Module>" then
+                let ns = md.GetString td.Namespace
+
+                if System.String.IsNullOrEmpty ns then
+                    name
+                else
+                    sprintf "%s.%s" ns name
+    ]
+
+/// List every method-def's `(declaringType, methodName)` in the PE. The
+/// declaring type's name comes through `peTypeDefNames`'s formatting.
+let peMethodNames (bytes: byte[]) : (string * string) list =
+    use peReader = openPe bytes
+    let md = peReader.GetMetadataReader()
+
+    [
+        for tdHandle in md.TypeDefinitions do
+            let td = md.GetTypeDefinition tdHandle
+            let typeName = md.GetString td.Name
+
+            if typeName <> "<Module>" then
+                let ns = md.GetString td.Namespace
+
+                let qualified =
+                    if System.String.IsNullOrEmpty ns then
+                        typeName
+                    else
+                        sprintf "%s.%s" ns typeName
+
+                for mdh in td.GetMethods() do
+                    let m = md.GetMethodDefinition mdh
+                    yield qualified, md.GetString m.Name
+    ]
+
+/// Every AssemblyRef name in the PE's reference table — the dependency surface
+/// the loader resolves at load. Symmetric to `Assembly.GetReferencedAssemblies`
+/// but works directly off PE bytes (no `AssemblyLoadContext` needed).
+let peAssemblyRefs (bytes: byte[]) : string list =
+    use peReader = openPe bytes
+    let md = peReader.GetMetadataReader()
+
+    [
+        for h in md.AssemblyReferences do
+            let r = md.GetAssemblyReference h
+            md.GetString r.Name
+    ]
+
+/// Read the IL byte stream of a method by `(declaringType, methodName)` —
+/// useful for asserting a specific opcode sequence (e.g., "the closure body
+/// emits stfld, ldnull, ret") or printing a hex dump in a failing test. Returns
+/// an empty array for an abstract method (no body). Throws if the method is
+/// not found.
+let peMethodIl (bytes: byte[]) (declaringType: string) (methodName: string) : byte[] =
+    use peReader = openPe bytes
+    let md = peReader.GetMetadataReader()
+
+    let typeMatches (td: TypeDefinition) =
+        let name = md.GetString td.Name
+        let ns = md.GetString td.Namespace
+
+        let qualified =
+            if System.String.IsNullOrEmpty ns then
+                name
+            else
+                sprintf "%s.%s" ns name
+
+        qualified = declaringType
+
+    let methodHandle =
+        md.TypeDefinitions
+        |> Seq.tryPick (fun tdh ->
+            let td = md.GetTypeDefinition tdh
+
+            if typeMatches td then
+                td.GetMethods()
+                |> Seq.tryFind (fun mdh -> md.GetString(md.GetMethodDefinition(mdh).Name) = methodName)
+            else
+                None
+        )
+
+    match methodHandle with
+    | None -> failwithf "peMethodIl: no method '%s' on type '%s'" methodName declaringType
+    | Some mdh ->
+        let m = md.GetMethodDefinition mdh
+
+        if m.RelativeVirtualAddress = 0 then
+            [||]
+        else
+            let body = peReader.GetMethodBody m.RelativeVirtualAddress
+            let ilReader = body.GetILReader()
+            let buf = Array.zeroCreate ilReader.RemainingBytes
+            ilReader.ReadBytes(ilReader.RemainingBytes, buf, 0)
+            buf
+
+/// Format a PE byte array as a hex string (`"02 00 01 …"`), capped so a test
+/// failure message stays readable.
+let formatIlBytes (bytes: byte[]) : string =
+    bytes
+    |> Array.truncate 64
+    |> Array.map (sprintf "%02x")
+    |> String.concat " "
+    |> fun s ->
+        if bytes.Length > 64 then
+            s + sprintf " ... (%d bytes total)" bytes.Length
+        else
+            s
