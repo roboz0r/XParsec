@@ -529,6 +529,21 @@ module Codegen =
                 }
         )
 
+        // Codegen-run-wide registries shared by every builder (H4). Adding a new
+        // shared dictionary (e.g., `Classes` for B-1) is a one-line change to
+        // `EmitContext` instead of threading a positional argument through every
+        // builder + every call site.
+        let emitCtx: Emit.EmitContext =
+            {
+                Provider = icodegen
+                Ctx = ctx
+                ClosureByNode = closureByNode
+                CtorHandleByNode = ctorHandleByNode
+                Unions = unions
+                Records = records
+                StaticMethods = staticMethods
+            }
+
         // ---- Attribute sets ----
 
         let closureAttrs =
@@ -832,13 +847,7 @@ module Codegen =
                         bodyStream
                         (IlIr.lower (
                             Emit.buildMember
-                                icodegen
-                                ctx
-                                closureByNode
-                                ctorHandleByNode
-                                unions
-                                records
-                                staticMethods
+                                emitCtx
                                 mem.ThisKey
                                 mem.Params
                                 // Member bodies emit straight from `tast.Decls`, never
@@ -1467,21 +1476,7 @@ module Codegen =
                     (IlIr.lower (Emit.buildClosureCtor provider.ObjectCtorRef fieldHandles))
 
             let invokeBodyOffset =
-                Cil.buildBody
-                    encodeLocals
-                    bodyStream
-                    (IlIr.lower (
-                        Emit.buildClosureInvoke
-                            icodegen
-                            ctx
-                            closureByNode
-                            ctorHandleByNode
-                            unions
-                            records
-                            staticMethods
-                            c
-                            captureFields
-                    ))
+                Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildClosureInvoke emitCtx c captureFields))
 
             let ctorHandle =
                 ctx.AddMethodWithParamList(
@@ -1572,20 +1567,7 @@ module Codegen =
             provider.SetMethodTypars typars
 
             let bodyOffset =
-                Cil.buildBody
-                    encodeLocals
-                    bodyStream
-                    (IlIr.lower (
-                        Emit.buildStaticMethod
-                            icodegen
-                            ctx
-                            closureByNode
-                            ctorHandleByNode
-                            unions
-                            records
-                            staticMethods
-                            fn
-                    ))
+                Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildStaticMethod emitCtx fn))
 
             let signature =
                 if List.isEmpty typars then
@@ -1622,20 +1604,7 @@ module Codegen =
         let mainDef =
             if emitEntryPoint then
                 let mainBodyOffset =
-                    Cil.buildBody
-                        encodeLocals
-                        bodyStream
-                        (IlIr.lower (
-                            Emit.buildMain
-                                icodegen
-                                ctx
-                                closureByNode
-                                ctorHandleByNode
-                                unions
-                                records
-                                staticMethods
-                                lowered
-                        ))
+                    Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildMain emitCtx lowered))
 
                 let handle =
                     ctx.AddMethodWithParamList(

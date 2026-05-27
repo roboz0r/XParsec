@@ -1117,6 +1117,24 @@ module Emit =
     /// shared dictionaries `ClosureByNode` / `CtorHandleByNode` / `StaticMethods`
     /// resolve a `Lambda` value, its (leaves-first) ctor handle, and a top-level
     /// function reference to a direct `call`.
+    /// The codegen-run-wide registries every builder needs: the provider seam,
+    /// the metadata writer, and the four shared dictionaries that resolve a
+    /// `Lambda` value to its emitted closure, its (leaves-first) `.ctor` handle,
+    /// a nominal type reference, and a top-level function to a direct `call`.
+    /// Constructed once at the top of the codegen run and threaded into every
+    /// builder; per-method state (slots, args, captures, self) is layered on
+    /// top inside each builder when it constructs an `EmitEnv`.
+    type EmitContext =
+        {
+            Provider: ICodegenProvider
+            Ctx: MetadataContext
+            ClosureByNode: Dictionary<TExpr, Closure>
+            CtorHandleByNode: Dictionary<TExpr, EntityHandle>
+            Unions: Dictionary<string, EmittedUnion>
+            Records: Dictionary<string, EmittedRecord>
+            StaticMethods: Dictionary<NodeKey, StaticMethodRef>
+        }
+
     type private EmitEnv =
         {
             Provider: ICodegenProvider
@@ -2051,38 +2069,29 @@ module Emit =
     /// binds a `Main` local — except a function lowered to a static method (P3b),
     /// which has no value here; each effectful expression is emitted in source
     /// order; then `ldc.i4.0; ret`. (Inline bindings were removed by `lower`.)
-    let buildMain
-        (provider: ICodegenProvider)
-        (ctx: MetadataContext)
-        (closureByNode: Dictionary<TExpr, Closure>)
-        (ctorHandleByNode: Dictionary<TExpr, EntityHandle>)
-        (unions: Dictionary<string, EmittedUnion>)
-        (records: Dictionary<string, EmittedRecord>)
-        (staticMethods: Dictionary<NodeKey, StaticMethodRef>)
-        (decls: TDecl list)
-        : ILBody =
+    let buildMain (ctx: EmitContext) (decls: TDecl list) : ILBody =
         let b = IlBuilder()
 
         let env =
             {
-                Provider = provider
-                Ctx = ctx
+                Provider = ctx.Provider
+                Ctx = ctx.Ctx
                 Slots = Dictionary<NodeKey, int>()
-                ClosureByNode = closureByNode
-                CtorHandleByNode = ctorHandleByNode
+                ClosureByNode = ctx.ClosureByNode
+                CtorHandleByNode = ctx.CtorHandleByNode
                 Args = Dictionary<NodeKey, int>()
                 SelfKey = ValueNone
                 CaptureFields = Dictionary<NodeKey, EntityHandle>()
-                Unions = unions
-                Records = records
-                StaticMethods = staticMethods
+                Unions = ctx.Unions
+                Records = ctx.Records
+                StaticMethods = ctx.StaticMethods
             }
 
         for d in decls do
             match d with
             | TDecl.Expression(e, _) -> buildStatement env b e
             // A function emitted as a static method has no Main local.
-            | TDecl.Let(TPat.NamedSimple(binding, _), _, _, _) when staticMethods.ContainsKey binding -> ()
+            | TDecl.Let(TPat.NamedSimple(binding, _), _, _, _) when ctx.StaticMethods.ContainsKey binding -> ()
             | TDecl.Let(TPat.NamedSimple(binding, _), value, _, ty) ->
                 let slot = b.Local ty
                 env.Slots.[binding] <- slot
@@ -2099,13 +2108,7 @@ module Emit =
     /// resolver mapping the parameter to `ldarg.1` and each capture to its
     /// field, leaving the result on the stack, then `ret`.
     let buildClosureInvoke
-        (provider: ICodegenProvider)
-        (ctx: MetadataContext)
-        (closureByNode: Dictionary<TExpr, Closure>)
-        (ctorHandleByNode: Dictionary<TExpr, EntityHandle>)
-        (unions: Dictionary<string, EmittedUnion>)
-        (records: Dictionary<string, EmittedRecord>)
-        (staticMethods: Dictionary<NodeKey, StaticMethodRef>)
+        (ctx: EmitContext)
         (closure: Closure)
         (captureFields: Dictionary<NodeKey, EntityHandle>)
         : ILBody =
@@ -2115,17 +2118,17 @@ module Emit =
 
         let env =
             {
-                Provider = provider
-                Ctx = ctx
+                Provider = ctx.Provider
+                Ctx = ctx.Ctx
                 Slots = Dictionary<NodeKey, int>()
-                ClosureByNode = closureByNode
-                CtorHandleByNode = ctorHandleByNode
+                ClosureByNode = ctx.ClosureByNode
+                CtorHandleByNode = ctx.CtorHandleByNode
                 Args = args
                 SelfKey = closure.SelfKey
                 CaptureFields = captureFields
-                Unions = unions
-                Records = records
-                StaticMethods = staticMethods
+                Unions = ctx.Unions
+                Records = ctx.Records
+                StaticMethods = ctx.StaticMethods
             }
 
         buildExpr env b closure.Body
@@ -2137,33 +2140,24 @@ module Emit =
     /// first parameter is `ldarg.0`), evaluate the body leaving its result on the
     /// stack, then `ret`. A recursive self-call resolves to a direct `call`
     /// through `staticMethods` (the `App` arm), so no self-binding is needed.
-    let buildStaticMethod
-        (provider: ICodegenProvider)
-        (ctx: MetadataContext)
-        (closureByNode: Dictionary<TExpr, Closure>)
-        (ctorHandleByNode: Dictionary<TExpr, EntityHandle>)
-        (unions: Dictionary<string, EmittedUnion>)
-        (records: Dictionary<string, EmittedRecord>)
-        (staticMethods: Dictionary<NodeKey, StaticMethodRef>)
-        (fn: StaticFn)
-        : ILBody =
+    let buildStaticMethod (ctx: EmitContext) (fn: StaticFn) : ILBody =
         let b = IlBuilder()
         let args = Dictionary<NodeKey, int>()
         fn.Params |> List.iteri (fun i (k, _) -> args.[k] <- i)
 
         let env =
             {
-                Provider = provider
-                Ctx = ctx
+                Provider = ctx.Provider
+                Ctx = ctx.Ctx
                 Slots = Dictionary<NodeKey, int>()
-                ClosureByNode = closureByNode
-                CtorHandleByNode = ctorHandleByNode
+                ClosureByNode = ctx.ClosureByNode
+                CtorHandleByNode = ctx.CtorHandleByNode
                 Args = args
                 SelfKey = ValueNone
                 CaptureFields = Dictionary<NodeKey, EntityHandle>()
-                Unions = unions
-                Records = records
-                StaticMethods = staticMethods
+                Unions = ctx.Unions
+                Records = ctx.Records
+                StaticMethods = ctx.StaticMethods
             }
 
         buildExpr env b fn.Body
@@ -2177,13 +2171,7 @@ module Emit =
     /// discovery pass walks only value/expression decls), so an empty
     /// closure/ctor map is passed.
     let buildMember
-        (provider: ICodegenProvider)
-        (ctx: MetadataContext)
-        (closureByNode: Dictionary<TExpr, Closure>)
-        (ctorHandleByNode: Dictionary<TExpr, EntityHandle>)
-        (unions: Dictionary<string, EmittedUnion>)
-        (records: Dictionary<string, EmittedRecord>)
-        (staticMethods: Dictionary<NodeKey, StaticMethodRef>)
+        (ctx: EmitContext)
         (thisKey: NodeKey voption)
         (prms: (NodeKey * SemType) list)
         (body: TExpr)
@@ -2202,17 +2190,17 @@ module Emit =
 
         let env =
             {
-                Provider = provider
-                Ctx = ctx
+                Provider = ctx.Provider
+                Ctx = ctx.Ctx
                 Slots = Dictionary<NodeKey, int>()
-                ClosureByNode = closureByNode
-                CtorHandleByNode = ctorHandleByNode
+                ClosureByNode = ctx.ClosureByNode
+                CtorHandleByNode = ctx.CtorHandleByNode
                 Args = args
                 SelfKey = ValueNone
                 CaptureFields = Dictionary<NodeKey, EntityHandle>()
-                Unions = unions
-                Records = records
-                StaticMethods = staticMethods
+                Unions = ctx.Unions
+                Records = ctx.Records
+                StaticMethods = ctx.StaticMethods
             }
 
         buildExpr env b body
