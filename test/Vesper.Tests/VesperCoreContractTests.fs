@@ -132,3 +132,19 @@ let vesperListContractTests =
             test "Parsing list-min.fs" { testParseFile (listPath "list-min.fs") }
             test "Parsing List.fs" { testParseFile (listPath "List.fs") }
         ]
+
+/// Vesper.Set — standalone package (package-split-plan PS1). Both `set.fsi`
+/// (contract) and `set.fs` (impl) are verbatim copies of FSharp.Core's
+/// `set.fsi`/`set.fs` with only the namespace patched to `Vesper.Collections`
+/// and the `Microsoft.FSharp.*` opens dropped. Same golden-file bar: each must
+/// parse with zero recovery diagnostics.
+[<Tests>]
+let vesperSetContractTests =
+    let setPath fileName = vesperPath "Vesper.Set" fileName
+
+    testList
+        "VesperSetContract"
+        [
+            test "Parsing set.fsi" { testParseSignatureFile (setPath "set.fsi") }
+            test "Parsing set.fs" { testParseFile (setPath "set.fs") }
+        ]

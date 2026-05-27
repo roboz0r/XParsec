@@ -9,3 +9,5 @@ src/Vesper.Core/
 # fixed shape; parser coverage is the golden `.parsed` snapshots, not Fantomas.
 src/Vesper.List/
 src/Vesper.Comparison/
+# Vesper.Set — verbatim FSharp.Core copy; preserve upstream formatting/comments.
+src/Vesper.Set/

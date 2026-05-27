@@ -1,0 +1,48 @@
+# Vesper.Set — the immutable AVL-tree set type + the `Set` module as a
+# standalone package (package-split-plan PS1: one package per type; PS2: one
+# impl DLL per package).
+#
+# Same shape as src/Vesper.List / src/Vesper.Option / src/Vesper.Result: the
+# `.fsi` is the front-end symbol contract (parsed by XParsec.FSharp, walked
+# into an IExternalSymbolProvider); `set.fs` is the runtime impl compiled by
+# this repo's own backend → Vesper.Set.dll (BCL-only, no FSharp.Core). No
+# `.fsproj`: like its siblings this tree is not built by `dotnet`/`fsc`.
+#
+# Both `set.fsi` and `set.fs` are *verbatim copies* of FSharp.Core's
+# `set.fsi`/`set.fs` with the namespace (`Microsoft.FSharp.Collections` →
+# `Vesper.Collections`) and the `Microsoft.FSharp.*` opens patched. The impl
+# is parse-tested today but not yet compiled by the backend (it uses
+# FSharp.Core idioms — `OptimizedClosures.FSharpFunc`,
+# `LanguagePrimitives.FastGenericComparer`, the `SR.*` string-resource
+# indirection — that are out of scope for the present self-host rung). Same
+# stance as `Vesper.List/List.fs` before the cons-list cutover landed.
+#
+# Depends on Vesper.Core (`Fun`, `unit`, `int`, `bool`) and Vesper.List
+# (the `Set` module surfaces `Set.toList` / `Set.ofList`, naming `'T list`).
+# `name` and `depends-on` are recorded here per the package-split-plan package
+# schema; the root-manifest / a la carte loader wiring (PS-Loader) is a
+# separate follow-up.
+#
+# Per PS5 the package is named `Vesper.Set` but contributes type `Set` into
+# namespace `Vesper.Collections`, not `Vesper.Set`.
+#
+# See ./README.md and
+# ../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md.
+
+[core]
+name = "Vesper.Set"
+namespace = "Vesper.Collections"
+description = "The immutable AVL-tree set type and the Set module (FSharp.Core verbatim)."
+depends-on = ["Vesper.Core", "Vesper.List"]
+
+# Contract `.fsi` files in compile order (one, today).
+files = [
+    "set.fsi",
+]
+
+# Runtime impl `.fs` files (our-backend target source). `set.fs` is parse-tested
+# today and lined up for compilation once the backend supports the FSharp.Core-
+# style surface it uses.
+impl = [
+    "set.fs",
+]
