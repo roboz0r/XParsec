@@ -22,6 +22,9 @@
     <Compile Include="Passes\Attributes.fs" />
     <Compile Include="Passes\Desugar.fs" />
     <Compile Include="Passes\NameResolution.fs" />
+    <Compile Include="Passes\Unification\Engine.fs" />
+    <Compile Include="Passes\Unification\Translate.fs" />
+    <Compile Include="Passes\Unification\Infer.fs" />
     <Compile Include="Passes\Unification.fs" />
     <Compile Include="Passes\Regions.fs" />
     <Compile Include="Passes\Validation.fs" />
