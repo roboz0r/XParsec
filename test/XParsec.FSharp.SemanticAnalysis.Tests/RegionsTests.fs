@@ -55,7 +55,7 @@ let private escapeOf (input: string) (name: string) : EscapeState option =
     let ctx, file = analyse input
     let key = headKeyOf ctx file name
 
-    match ctx.Escape.TryGetValue key with
+    match ctx.Bindings.Escape.TryGetValue key with
     | ValueSome s -> Some s
     | ValueNone -> None
 
@@ -66,7 +66,7 @@ let private regionOf (input: string) (name: string) : RegionId option =
     let ctx, file = analyse input
     let key = headKeyOf ctx file name
 
-    match ctx.TypeVar.TryGetValue key with
+    match ctx.Bindings.TypeVar.TryGetValue key with
     | ValueSome tv ->
         let root = UnionFind.find tv
 
@@ -125,7 +125,7 @@ let tests =
                         | ValueSome k -> k
                         | ValueNone -> failwith "f not found"
 
-                    match ctx.Escape.TryGetValue key with
+                    match ctx.Bindings.Escape.TryGetValue key with
                     | ValueSome s -> Some s
                     | ValueNone -> None
 
@@ -168,7 +168,7 @@ let tests =
                 let mkEscape =
                     let k = headKeyOf ctx file "mk"
 
-                    match ctx.Escape.TryGetValue k with
+                    match ctx.Bindings.Escape.TryGetValue k with
                     | ValueSome s -> Some s
                     | ValueNone -> None
 
@@ -190,7 +190,7 @@ let tests =
                     CstKeys.ofPat xPat
 
                 let xEscape =
-                    match ctx.Escape.TryGetValue xKey with
+                    match ctx.Bindings.Escape.TryGetValue xKey with
                     | ValueSome s -> Some s
                     | ValueNone -> None
 
@@ -222,7 +222,7 @@ let tests =
                     let regionOfHead (b: Binding<SyntaxToken>) =
                         let k = CstKeys.ofPat b.headPat
 
-                        match ctx.TypeVar.TryGetValue k with
+                        match ctx.Bindings.TypeVar.TryGetValue k with
                         | ValueSome tv ->
                             let root = UnionFind.find tv
 
@@ -273,7 +273,7 @@ let tests =
                 let k = headKeyOf ctx file "f"
 
                 let escape =
-                    match ctx.Escape.TryGetValue k with
+                    match ctx.Bindings.Escape.TryGetValue k with
                     | ValueSome s -> Some s
                     | ValueNone -> None
                 // Either a classification or no entry is acceptable — what
@@ -327,7 +327,7 @@ let tests =
                     | _ -> failwithf "expected As pattern, got %A" asPat
 
                 let regionOfKey k =
-                    match ctx.TypeVar.TryGetValue k with
+                    match ctx.Bindings.TypeVar.TryGetValue k with
                     | ValueSome tv ->
                         let root = UnionFind.find tv
                         if root.Region.Raw >= 0 then Some root.Region else None
@@ -370,7 +370,7 @@ let tests =
                     | _ -> failwithf "expected Tuple pattern, got %A" tuplePat
 
                 let regionOfKey k =
-                    match ctx.TypeVar.TryGetValue k with
+                    match ctx.Bindings.TypeVar.TryGetValue k with
                     | ValueSome tv ->
                         let root = UnionFind.find tv
                         if root.Region.Raw >= 0 then Some root.Region else None
@@ -456,7 +456,7 @@ let tests =
                     | ValueSome k -> k
                     | ValueNone -> failwith "n not found"
 
-                match ctx.Escape.TryGetValue nKey with
+                match ctx.Bindings.Escape.TryGetValue nKey with
                 | ValueSome HeapShared -> ()
                 | other -> failwithf "expected HeapShared for captured mutable, got %A" other
             }

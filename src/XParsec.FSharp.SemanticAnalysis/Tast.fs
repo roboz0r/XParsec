@@ -36,7 +36,7 @@ type TPat =
     | Record of fields: (string * TPat) list * ty: SemType
     /// `fields` is the per-field sub-pattern list, empty for nullary cases. `ty`
     /// is always a `TyUnion`. The declaring union is recoverable via
-    /// `ctx.CtorIndex[caseName]` at consumption time.
+    /// `ctx.Types.CtorIndex[caseName]` at consumption time.
     | Union of caseName: string * fields: TPat list * ty: SemType
 
 [<RequireQualifiedAccess>]
@@ -266,7 +266,7 @@ and TUnionCase =
 /// generic record, exactly like `TUnionCase.Fields`. `IsMutable` is the
 /// source-level `mutable` annotation; downstream consumers (the equality
 /// triple's "all-immutable record" gate, C-Attr) read it from here rather
-/// than re-querying `ctx.RecordTypes`.
+/// than re-querying `ctx.Types.Record`.
 and TRecordField =
     {
         Name: string

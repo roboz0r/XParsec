@@ -3,7 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 open System.Collections.Generic
 open XParsec.FSharp.SemanticAnalysis
 
-// Pre:  Freeze has produced a `TastFile`; ctx.Escape (Regions) and ctx.Binding
+// Pre:  Freeze has produced a `TastFile`; ctx.Bindings.Escape (Regions) and ctx.Bindings.Binding
 //       (NameResolution) are populated.
 // Post: every `let mutable x = init` whose binding-site has `Escape = HeapShared`
 //       is rewritten into `let x = { contents = init } : Vesper.Ref<'T>`; every
@@ -31,15 +31,15 @@ module RefCellPromotion =
     let private refType (inner: SemType) : SemType = TyRecord(RefTypeName, [ inner ])
 
     /// Walk `decls` collecting binding-site `NodeKey`s for every `let mutable`
-    /// whose `ctx.Escape` is `HeapShared`. The value bound at each key is the
+    /// whose `ctx.Bindings.Escape` is `HeapShared`. The value bound at each key is the
     /// *post-promotion* type of the local (`Ref<'origTy>`).
     let private collectPromotions (ctx: PassContext) (decls: TDecl list) : Dictionary<NodeKey, SemType> =
         let promote = Dictionary<NodeKey, SemType>(HashIdentity.Structural)
 
         let consider (k: NodeKey) (origTy: SemType) =
-            match ctx.Binding.TryGetValue k with
+            match ctx.Bindings.Binding.TryGetValue k with
             | ValueSome rb when rb.IsMutable ->
-                match ctx.Escape.TryGetValue k with
+                match ctx.Bindings.Escape.TryGetValue k with
                 | ValueSome HeapShared -> promote.[k] <- refType origTy
                 | _ -> ()
             | _ -> ()

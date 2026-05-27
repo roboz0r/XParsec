@@ -47,7 +47,7 @@ module ResolvedTypes =
     let private pushScheme (ctx: PassContext) (binding: TPat) (allowed: HashSet<TypeVar>) : TypeVar list =
         match binding with
         | TPat.NamedSimple(key, _) ->
-            match ctx.Scheme.TryGetValue key with
+            match ctx.Bindings.Scheme.TryGetValue key with
             | ValueSome scheme ->
                 [
                     for tv in scheme.Quantified do

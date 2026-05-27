@@ -248,6 +248,138 @@ type SideTable<'V>() =
     /// Callers must treat the returned dictionary as read-only once Freeze starts.
     member _.AsDictionary() : IReadOnlyDictionary<NodeKey, 'V> = dict :> _
 
+/// Type-definition side tables: the project-wide registry of records, unions,
+/// classes, and abbreviations plus their reverse / member indexes. Populated by
+/// `NameResolution.registerXxx`, filled in by `Unification`, read everywhere
+/// downstream. Grouped here so the class sprint can add new tables in one
+/// place. See [`docs/pre-sprint-cleanup.md`](docs/pre-sprint-cleanup.md) P2.3.
+type PassContextTypes =
+    {
+        /// Field types are filled in by Unification after the registry is populated.
+        Record: Dictionary<string, RecordTypeInfo>
+        /// Case field types are filled in by Unification after the registry is populated.
+        Union: Dictionary<string, UnionTypeInfo>
+        /// Member types start as placeholder TyVars and get linked by Unification's
+        /// `fillClassMembers` pre-pass.
+        Class: Dictionary<string, ClassTypeInfo>
+        /// Bodies are filled in by Unification's `fillAbbreviationBodies` pre-pass.
+        /// Abbreviations expand eagerly at every `translateType` lookup, so
+        /// downstream passes see the underlying type as if written longhand.
+        Abbreviation: Dictionary<string, AbbreviationInfo>
+        /// Reverse index: ctor name → list of case-info entries (each tagged with
+        /// the declaring union type).
+        CtorIndex: Dictionary<string, UnionCaseInfo list>
+        /// Reverse index: field name → list of record types that declare it.
+        FieldIndex: Dictionary<string, RecordTypeInfo list>
+        /// Reverse index: member name → list of (class, member) pairs. Used only for
+        /// ambiguity diagnostics when a receiver's type is free and the member name
+        /// occurs in multiple classes.
+        ClassMemberIndex: Dictionary<string, (ClassTypeInfo * ClassMemberInfo) list>
+        /// Maps the Vesper type name to its target representation (the inline-IL
+        /// string), from an intrinsic-binding abbrev (`type int = (# "System.Int32" #)`).
+        /// Unlike `Abbreviation`, these are NOT transparent: a use site resolves to
+        /// `TyConst name`, not the RHS — the binding records *how the target
+        /// represents* the type, not an alias to expand. Input to the future
+        /// `encodeType` rekey; see docs/self-host-rung1-plan.md.
+        IntrinsicReprTypes: Dictionary<string, string>
+    }
+
+module PassContextTypes =
+    let empty () : PassContextTypes =
+        {
+            Record = Dictionary<_, _>()
+            Union = Dictionary<_, _>()
+            Class = Dictionary<_, _>()
+            Abbreviation = Dictionary<_, _>()
+            CtorIndex = Dictionary<_, _>()
+            FieldIndex = Dictionary<_, _>()
+            ClassMemberIndex = Dictionary<_, _>()
+            IntrinsicReprTypes = Dictionary<_, _>()
+        }
+
+/// Per-binding side tables: the resolved binder / inferred scheme / TyVar
+/// graph / escape-classification entries indexed by `NodeKey`, plus the
+/// `module Foo = …` holder map that `Freeze` snapshots into the TAST.
+type PassContextBindings =
+    {
+        Binding: SideTable<ResolvedBinding>
+        /// Keyed by the binding's headPat NodeKey (which is also the `BindingSite`
+        /// NameResolution records). Present only for `let`-bound names that pass
+        /// `shouldGeneralise` — module-level, nested, and `let rec` single-name
+        /// bindings. Compound destructuring heads and lambda parameters do NOT get
+        /// schemes.
+        Scheme: SideTable<TypeScheme>
+        TypeVar: SideTable<TypeVar>
+        Escape: SideTable<EscapeState>
+        /// Module-level bindings inside a named `module Foo = …` (R3 deferred): each
+        /// binding's `NodeKey.Raw` → where its emitted static method belongs (a real
+        /// `Foo`/`FooModule` holder type, not the anonymous "Program" holder).
+        /// Populated by `Freeze` and snapshotted into `TastFile.ModuleMembers`; the
+        /// backend keys off it to name + place a module function (`ListModule::fold`).
+        ModuleMembers: Dictionary<uint64, ModuleMemberInfo>
+    }
+
+module PassContextBindings =
+    let empty () : PassContextBindings =
+        {
+            Binding = SideTable<_>()
+            Scheme = SideTable<_>()
+            TypeVar = SideTable<_>()
+            Escape = SideTable<_>()
+            ModuleMembers = Dictionary<_, _>()
+        }
+
+/// Name-resolution scopes: the `open` / typar / external-access state the passes
+/// thread per module element. `OpenScope` / `AmbientOpenScope` / `TyparScope` /
+/// `TyparScopeStrict` mutate per-element; `ExternalAccess` accumulates resolved
+/// external member-access hits keyed by `NodeKey`.
+type PassContextResolution =
+    {
+        /// The `open` / auto-open namespace prefixes active at the module element
+        /// currently being analysed. Set per top-level element by the pass walk
+        /// (from `CstWalk.walkModuleTree`), then read by the provider-probe sites
+        /// (`tryQualify`) so a short name resolves against the opens in scope.
+        /// Constant inside any one expression (`open` is a declaration-level node).
+        /// See docs/symbol-resolution-handoff.md (open-resolution). Seeded to the
+        /// provider's ambient prelude (below) so a pass that reads it before the
+        /// walk sets a per-element scope still sees the auto-opens.
+        mutable OpenScope: OpenScope
+        /// The *stable* ambient prelude each pass seeds its `walkModuleTree` from —
+        /// distinct from the mutable `OpenScope` (which a pass overwrites per
+        /// element). Seeded from the provider's `IAmbientOpenScope` (the
+        /// referenced-contract `[<AutoOpen>]` modules / prelude), empty when the
+        /// provider surfaces none. Both NameResolution and Unification must read
+        /// the *same* seed, so it can't be the per-element `OpenScope` they mutate.
+        mutable AmbientOpenScope: OpenScope
+        /// Per-signature type-parameter scope: each signature opens its own scope
+        /// and restores the prior one on exit. Anonymous typars (`_`) never enter
+        /// the scope — they're fresh per occurrence. See docs/generics-plan.md
+        /// §"Typar scope".
+        mutable TyparScope: Dictionary<string, TypeVar>
+        /// When true, `translateType` rejects any `'a` not already present in
+        /// `TyparScope` rather than introducing it implicitly. Used by the type-defn
+        /// fill-in walk: implicit free typars in a record / DU declaration aren't
+        /// legal F# (only `<'a>`-declared typars are). Binding-level scopes keep
+        /// this `false`.
+        mutable TyparScopeStrict: bool
+        /// Keyed by a member-access node's `NodeKey` (`Expr.DotLookup`): the resolved
+        /// external member (`TryLookupMember` hit) for a `<externalType>.Member` or
+        /// static `Type.Member` access. Freeze reads it to mint a `TExpr.ExternalMember`
+        /// stamping the resolved `SymbolKey` (symbol-resolution-plan §7.2, P3). Absent
+        /// for project-local member access (resolved via `Types.Class` / `Types.Union`).
+        ExternalAccess: SideTable<ResolvedExternalMember>
+    }
+
+module PassContextResolution =
+    let create (ambient: OpenScope) : PassContextResolution =
+        {
+            OpenScope = ambient
+            AmbientOpenScope = ambient
+            TyparScope = Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
+            TyparScopeStrict = false
+            ExternalAccess = SideTable<_>()
+        }
+
 /// **Thread-safety:** a `PassContext` is single-threaded — its side tables,
 /// `Diagnostics` channel, and the `TypeVar` graph it owns all mutate in
 /// place and are not safe to access from multiple threads. Parallelism
@@ -255,6 +387,11 @@ type SideTable<'V>() =
 /// and analysing them concurrently; the shared `IExternalSymbolProvider`
 /// is the only object that crosses thread boundaries (and its contract
 /// requires thread-safe `TryLookup`). See [`docs/architecture.md`](docs/architecture.md#parallelism).
+///
+/// The bulk of the per-file state lives in three sub-records grouped by
+/// concern: [`Types`](#Types) (project type registry), [`Bindings`](#Bindings)
+/// (per-binder side tables), [`Resolution`](#Resolution) (name-resolution
+/// scopes). See [`docs/pre-sprint-cleanup.md`](docs/pre-sprint-cleanup.md) P2.3.
 [<Sealed>]
 type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed) =
     // Seed the ambient (implicit-open) prelude from the provider if it surfaces
@@ -276,16 +413,11 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     member val Provider = provider
     member val Input = input
     member val Lexed = lexed
+    member val Diagnostics = ResizeArray<Diagnostic>() with get
+    member val Types = PassContextTypes.empty () with get
+    member val Bindings = PassContextBindings.empty () with get
+    member val Resolution = PassContextResolution.create ambientOpenScope with get
     member val Desugared = SideTable<DesugaredForm>() with get
-    member val Binding = SideTable<ResolvedBinding>() with get
-    member val TypeVar = SideTable<TypeVar>() with get
-    /// Keyed by the binding's headPat NodeKey (which is also the `BindingSite`
-    /// NameResolution records). Present only for `let`-bound names that pass
-    /// `shouldGeneralise` — module-level, nested, and `let rec` single-name
-    /// bindings. Compound destructuring heads and lambda parameters do NOT get
-    /// schemes.
-    member val Scheme = SideTable<TypeScheme>() with get
-    member val Escape = SideTable<EscapeState>() with get
     /// Keyed by an `Expr.App` NodeKey; present only for the printf calls P1
     /// lowers inline (literal format, fully applied, a
     /// `StdOut`/`StdErr`/`StringResult` sink, every specifier in
@@ -300,43 +432,10 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// `Inline.inlineExpand` can substitute it at the call site. See
     /// docs/operators-plan.md (prereq 3).
     member val StaticOpt = SideTable<TStaticOptConstraint list>() with get
-    /// Keyed by a member-access node's `NodeKey` (`Expr.DotLookup`): the resolved
-    /// external member (`TryLookupMember` hit) for a `<externalType>.Member` or
-    /// static `Type.Member` access. Freeze reads it to mint a `TExpr.ExternalMember`
-    /// stamping the resolved `SymbolKey` (symbol-resolution-plan §7.2, P3). Absent
-    /// for project-local member access (resolved via `ClassTypes`/`UnionTypes`).
-    member val ExternalAccess = SideTable<ResolvedExternalMember>() with get
-    member val Diagnostics = ResizeArray<Diagnostic>() with get
     /// Current let-depth (Rémy's levels). Push on entering a binding group's
     /// RHSes, pop after typing them; generalisation uses the pre-push value as
     /// the threshold for "which TyVars do I quantify?".
     member val CurrentLevel = 0 with get, set
-    /// Field types are filled in by Unification after the registry is populated.
-    member val RecordTypes = Dictionary<string, RecordTypeInfo>() with get
-    /// Reverse index: field name → list of record types that declare it.
-    member val FieldIndex = Dictionary<string, RecordTypeInfo list>() with get
-    /// Case field types are filled in by Unification after the registry is populated.
-    member val UnionTypes = Dictionary<string, UnionTypeInfo>() with get
-    /// Reverse index: ctor name → list of case-info entries (each tagged with
-    /// the declaring union type).
-    member val CtorIndex = Dictionary<string, UnionCaseInfo list>() with get
-    /// Bodies are filled in by Unification's `fillAbbreviationBodies` pre-pass.
-    /// Abbreviations expand eagerly at every `translateType` lookup, so
-    /// downstream passes see the underlying type as if written longhand.
-    member val AbbreviationTypes = Dictionary<string, AbbreviationInfo>() with get
-    /// Maps the Vesper type name to its target representation (the inline-IL
-    /// string), from an intrinsic-binding abbrev (`type int = (# "System.Int32" #)`).
-    /// Unlike `AbbreviationTypes`, these are NOT transparent: a use site resolves
-    /// to `TyConst name`, not the RHS — the binding records *how the target
-    /// represents* the type, not an alias to expand. Input to the future
-    /// `encodeType` rekey; see docs/self-host-rung1-plan.md.
-    member val IntrinsicReprTypes = Dictionary<string, string>() with get
-    /// Module-level bindings inside a named `module Foo = …` (R3 deferred): each
-    /// binding's `NodeKey.Raw` → where its emitted static method belongs (a real
-    /// `Foo`/`FooModule` holder type, not the anonymous "Program" holder).
-    /// Populated by `Freeze` and snapshotted into `TastFile.ModuleMembers`; the
-    /// backend keys off it to name + place a module function (`ListModule::fold`).
-    member val ModuleMembers = Dictionary<uint64, ModuleMemberInfo>() with get
     /// Bare-program list literals (R3): each `[…]` whose container type was left
     /// *flexible* (a fresh `TypeVar`, paired with its element type) so a consumer
     /// can drive it — `List.fold`'s `Vesper.Collections.List` parameter flips it to
@@ -345,41 +444,6 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// to the default list, a flipped one has its element reconciled. Programs that
     /// declare their own `list` abbrev never register here (they resolve eagerly).
     member val ListLiterals = ResizeArray<TypeVar * SemType>() with get
-    /// Member types start as placeholder TyVars and get linked by Unification's
-    /// `fillClassMembers` pre-pass.
-    member val ClassTypes = Dictionary<string, ClassTypeInfo>() with get
-    /// Reverse index: member name → list of (class, member) pairs. Used only for
-    /// ambiguity diagnostics when a receiver's type is free and the member name
-    /// occurs in multiple classes.
-    member val ClassMemberIndex = Dictionary<string, (ClassTypeInfo * ClassMemberInfo) list>() with get
-    /// Per-signature type-parameter scope: each signature opens its own scope
-    /// and restores the prior one on exit. Anonymous typars (`_`) never enter
-    /// the scope — they're fresh per occurrence. See docs/generics-plan.md
-    /// §"Typar scope".
-    member val TyparScope = Dictionary<string, TypeVar>(System.StringComparer.Ordinal) with get, set
-    /// When true, `translateType` rejects any `'a` not already present in
-    /// `TyparScope` rather than introducing it implicitly. Used by the type-defn
-    /// fill-in walk: implicit free typars in a record / DU declaration aren't
-    /// legal F# (only `<'a>`-declared typars are). Binding-level scopes keep
-    /// this `false`.
-    member val TyparScopeStrict = false with get, set
-    /// The `open` / auto-open namespace prefixes active at the module element
-    /// currently being analysed. Set per top-level element by the pass walk
-    /// (from `CstWalk.walkModuleTree`), then read by the provider-probe sites
-    /// (`tryQualify`) so a short name resolves against the opens in scope.
-    /// Constant inside any one expression (`open` is a declaration-level node).
-    /// See docs/symbol-resolution-handoff.md (open-resolution). Seeded to the provider's ambient
-    /// prelude (below) so a pass that reads it before the walk sets a per-element
-    /// scope still sees the auto-opens.
-    member val OpenScope = ambientOpenScope with get, set
-    /// The *stable* ambient prelude each pass seeds its `walkModuleTree` from —
-    /// distinct from the mutable `OpenScope` (which a pass overwrites per element).
-    /// Empty today; the referenced-contract `[<AutoOpen>]` prefix set later
-    /// (symbol-resolution-handoff.md, open-resolution). Both NameResolution and Unification must read
-    /// the *same* seed, so it can't be the per-element `OpenScope` they mutate.
-    /// Seeded from the provider's `IAmbientOpenScope` (the referenced-contract
-    /// `[<AutoOpen>]` modules / prelude), empty when the provider surfaces none.
-    member val AmbientOpenScope = ambientOpenScope with get, set
 
     /// Source text of `token`. Empty for virtual (synthesised) tokens.
     member this.NameOf(token: SyntaxToken) : string =

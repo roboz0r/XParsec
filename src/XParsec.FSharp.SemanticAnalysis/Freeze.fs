@@ -15,7 +15,7 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 module Freeze =
 
     let private typeOfKey (ctx: PassContext) (key: NodeKey) : SemType =
-        match ctx.TypeVar.TryGetValue key with
+        match ctx.Bindings.TypeVar.TryGetValue key with
         | ValueSome tv -> Unification.zonk (TyVar tv)
         | ValueNone -> TyVar(TypeVar())
 
@@ -122,7 +122,7 @@ module Freeze =
         match p with
         | Pat.NamedSimple t when
             let n = ctx.NameOf t
-            n.Length > 0 && System.Char.IsUpper n.[0] && ctx.CtorIndex.ContainsKey n
+            n.Length > 0 && System.Char.IsUpper n.[0] && ctx.Types.CtorIndex.ContainsKey n
             ->
             // Nullary ctor in pattern position. Must precede the plain
             // NamedSimple arm.
@@ -159,8 +159,8 @@ module Freeze =
 
                 last.Length > 0
                 && System.Char.IsUpper last.[0]
-                && (li.Idents.Length = 1 && ctx.CtorIndex.ContainsKey last
-                    || li.Idents.Length = 2 && ctx.UnionTypes.ContainsKey(ctx.NameOf li.Idents.[0])))
+                && (li.Idents.Length = 1 && ctx.Types.CtorIndex.ContainsKey last
+                    || li.Idents.Length = 2 && ctx.Types.Union.ContainsKey(ctx.NameOf li.Idents.[0])))
             ->
             let caseName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
 
@@ -195,21 +195,21 @@ module Freeze =
     let private tryClassRef (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption =
         let key = CstKeys.ofExpr e
 
-        if ctx.Binding.ContainsKey key then
+        if ctx.Bindings.Binding.ContainsKey key then
             ValueNone
         else
             match e with
             | Expr.Ident t ->
                 let n = ctx.NameOf t
 
-                if ctx.ClassTypes.ContainsKey n then
+                if ctx.Types.Class.ContainsKey n then
                     ValueSome n
                 else
                     ValueNone
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
                 let n = ctx.NameOf li.Idents.[0]
 
-                if ctx.ClassTypes.ContainsKey n then
+                if ctx.Types.Class.ContainsKey n then
                     ValueSome n
                 else
                     ValueNone
@@ -254,10 +254,10 @@ module Freeze =
             | Some m -> ValueSome m
             | None -> ValueNone
 
-        match ctx.ClassTypes.TryGetValue typeName with
+        match ctx.Types.Class.TryGetValue typeName with
         | true, info -> pick info.Members
         | false, _ ->
-            match ctx.UnionTypes.TryGetValue typeName with
+            match ctx.Types.Union.TryGetValue typeName with
             | true, info -> pick info.Members
             | false, _ -> ValueNone
 
@@ -274,10 +274,10 @@ module Freeze =
             let head = li.Idents.[0]
             let headKey = NodeKey.ofToken head NodeKind.ExprIdent
 
-            match ctx.Binding.TryGetValue headKey with
+            match ctx.Bindings.Binding.TryGetValue headKey with
             | ValueNone -> ValueNone
             | ValueSome rb ->
-                match ctx.TypeVar.TryGetValue rb.BindingSite with
+                match ctx.Bindings.TypeVar.TryGetValue rb.BindingSite with
                 | ValueNone -> ValueNone
                 | ValueSome tv ->
                     match Unification.zonk (TyVar tv) with
@@ -308,10 +308,10 @@ module Freeze =
                 | Some m -> ValueSome(className, m)
                 | None -> ValueNone
 
-            match ctx.ClassTypes.TryGetValue className with
+            match ctx.Types.Class.TryGetValue className with
             | true, info -> pick info.Members
             | false, _ ->
-                match ctx.UnionTypes.TryGetValue className with
+                match ctx.Types.Union.TryGetValue className with
                 | true, info -> pick info.Members
                 | false, _ -> ValueNone
 
@@ -321,30 +321,30 @@ module Freeze =
     let private tryCtorRef (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption =
         let key = CstKeys.ofExpr e
 
-        if ctx.Binding.ContainsKey key then
+        if ctx.Bindings.Binding.ContainsKey key then
             ValueNone
         else
             match e with
             | Expr.Ident t ->
                 let n = ctx.NameOf t
 
-                if ctx.CtorIndex.ContainsKey n then
+                if ctx.Types.CtorIndex.ContainsKey n then
                     ValueSome n
                 else
                     ValueNone
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
                 let n = ctx.NameOf li.Idents.[0]
 
-                if ctx.CtorIndex.ContainsKey n then
+                if ctx.Types.CtorIndex.ContainsKey n then
                     ValueSome n
                 else
                     ValueNone
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
-                li.Idents.Length = 2 && ctx.UnionTypes.ContainsKey(ctx.NameOf li.Idents.[0])
+                li.Idents.Length = 2 && ctx.Types.Union.ContainsKey(ctx.NameOf li.Idents.[0])
                 ->
                 let typeName = ctx.NameOf li.Idents.[0]
                 let caseName = ctx.NameOf li.Idents.[1]
-                let info = ctx.UnionTypes.[typeName]
+                let info = ctx.Types.Union.[typeName]
 
                 if info.Cases |> Array.exists (fun c -> c.Name = caseName) then
                     ValueSome caseName
@@ -386,7 +386,7 @@ module Freeze =
         | Expr.Const c -> TExpr.Const(parseConst ctx c, ty)
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length > 1
-            && ctx.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
+            && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
             ->
             // `r.X` (or chained `r.X.Y`) parsed as a single multi-segment
             // LongIdent: head resolved as a local binding, rest field accesses.
@@ -397,10 +397,10 @@ module Freeze =
         // keyed `TExpr.ExternalMember` as the generic `DotLookup` form; always
         // static, so the type-name receiver is dropped.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
-            li.Idents.Length >= 2 && ctx.ExternalAccess.ContainsKey key
+            li.Idents.Length >= 2 && ctx.Resolution.ExternalAccess.ContainsKey key
             ->
             let info =
-                match ctx.ExternalAccess.TryGetValue key with
+                match ctx.Resolution.ExternalAccess.TryGetValue key with
                 | ValueSome i -> i
                 | ValueNone -> failwith "Freeze: unreachable (ExternalAccess membership just checked)"
 
@@ -657,7 +657,7 @@ module Freeze =
                 TExpr.FieldSet(translateExpr ctx r, fieldName, translateExpr ctx right, ty)
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
                 li.Idents.Length > 1
-                && ctx.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
+                && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
                 ->
                 // `r.X <- v` parsed as Assignment(LongIdent[r;X], <-, v). The
                 // head-resolved chain peels into FieldGet for the intermediate
@@ -669,7 +669,7 @@ module Freeze =
                     let head = receiverIdents.[0]
                     let headKey = NodeKey.ofToken head NodeKind.ExprIdent
 
-                    let headBinding = ctx.Binding.TryGetValue headKey
+                    let headBinding = ctx.Bindings.Binding.TryGetValue headKey
 
                     let headTy =
                         match headBinding with
@@ -691,7 +691,7 @@ module Freeze =
                         let stepTy =
                             match Unification.zonk currTy with
                             | TyRecord(recName, args) ->
-                                match ctx.RecordTypes.TryGetValue recName with
+                                match ctx.Types.Record.TryGetValue recName with
                                 | true, info ->
                                     match info.Fields |> Array.tryFind (fun f -> f.Name = segName) with
                                     | Some field ->
@@ -732,10 +732,10 @@ module Freeze =
         // keyed `TExpr.ExternalMember` (symbol-resolution-plan §7.2, P3). A static
         // access drops the type-name receiver (`info.IsStatic`).
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when
-            li.Idents.Length = 1 && ctx.ExternalAccess.ContainsKey key
+            li.Idents.Length = 1 && ctx.Resolution.ExternalAccess.ContainsKey key
             ->
             let info =
-                match ctx.ExternalAccess.TryGetValue key with
+                match ctx.Resolution.ExternalAccess.TryGetValue key with
                 | ValueSome i -> i
                 | ValueNone -> failwith "Freeze: unreachable (ExternalAccess membership just checked)"
 
@@ -963,7 +963,7 @@ module Freeze =
             None
 
     and private translateIdent (ctx: PassContext) (e: Expr<SyntaxToken>) (key: NodeKey) (ty: SemType) : TExpr =
-        match ctx.Binding.TryGetValue key with
+        match ctx.Bindings.Binding.TryGetValue key with
         | ValueSome rb -> TExpr.Var(rb.BindingSite, ty)
         | ValueNone ->
             // No Binding entry => NameResolution resolved through the provider.
@@ -991,7 +991,7 @@ module Freeze =
         : TExpr =
         let head = li.Idents.[0]
         let headKey = NodeKey.ofToken head NodeKind.ExprIdent
-        let headBinding = ctx.Binding.TryGetValue headKey
+        let headBinding = ctx.Bindings.Binding.TryGetValue headKey
 
         let headTy =
             // Unification didn't allocate a side-table entry for the synthetic
@@ -1023,7 +1023,7 @@ module Freeze =
                     let resolved =
                         match Unification.zonk currTy with
                         | TyRecord(recName, args) ->
-                            match ctx.RecordTypes.TryGetValue recName with
+                            match ctx.Types.Record.TryGetValue recName with
                             | true, info ->
                                 info.Fields
                                 |> Array.tryPick (fun f ->
@@ -1038,7 +1038,7 @@ module Freeze =
                                 )
                             | false, _ -> None
                         | TyUnion(unionName, args) ->
-                            match ctx.UnionTypes.TryGetValue unionName with
+                            match ctx.Types.Union.TryGetValue unionName with
                             | true, info ->
                                 info.Members
                                 |> Array.tryPick (fun m ->
@@ -1053,7 +1053,7 @@ module Freeze =
                                 )
                             | false, _ -> None
                         | TyClass(clsName, args) ->
-                            match ctx.ClassTypes.TryGetValue clsName with
+                            match ctx.Types.Class.TryGetValue clsName with
                             | true, info ->
                                 info.Members
                                 |> Array.tryPick (fun m ->
@@ -1079,7 +1079,7 @@ module Freeze =
             let node =
                 match Unification.zonk currTy with
                 | TyClass(clsName, _) ->
-                    match ctx.ClassTypes.TryGetValue clsName with
+                    match ctx.Types.Class.TryGetValue clsName with
                     | true, info when info.Members |> Array.exists (fun m -> m.Name = segName) ->
                         TExpr.PropertyGet(curr, segName, stepTy)
                     | _ -> TExpr.FieldGet(curr, segName, stepTy)
@@ -1087,7 +1087,7 @@ module Freeze =
                 // `xs.IsEmpty`) → `PropertyGet` (codegen calls its `get_<name>`);
                 // anything unknown stays a `FieldGet`.
                 | TyUnion(unionName, _) ->
-                    match ctx.UnionTypes.TryGetValue unionName with
+                    match ctx.Types.Union.TryGetValue unionName with
                     | true, info when info.Members |> Array.exists (fun m -> m.Name = segName) ->
                         TExpr.PropertyGet(curr, segName, stepTy)
                     | _ -> TExpr.FieldGet(curr, segName, stepTy)
@@ -1286,8 +1286,8 @@ module Freeze =
         // Arrays never retarget — always the list chain + `Array.ofList` boundary.
         let listTy, consName, nilName =
             match zonked with
-            | TyUnion(unionName, _) when not isArray && ctx.UnionTypes.ContainsKey unionName ->
-                let info = ctx.UnionTypes.[unionName]
+            | TyUnion(unionName, _) when not isArray && ctx.Types.Union.ContainsKey unionName ->
+                let info = ctx.Types.Union.[unionName]
                 let nilCase = info.Cases |> Array.tryFind (fun c -> c.Fields.Length = 0)
                 let consCase = info.Cases |> Array.tryFind (fun c -> c.Fields.Length = 2)
 
@@ -1446,7 +1446,7 @@ module Freeze =
 
     /// Classify an object-model body as an interface — every element an abstract
     /// method signature, no base type, no `let`/`do` preamble — and build its
-    /// methods from the *resolved* member signatures in `ctx.ClassTypes` (an
+    /// methods from the *resolved* member signatures in `ctx.Types.Class` (an
     /// `Anon`/`Interface` registers as a class). None for a concrete
     /// member/field/inherit (a class or later rung) or a never-registered type.
     let private tryInterfaceMethods
@@ -1467,7 +1467,7 @@ module Freeze =
         if body.inherits.IsSome || not body.classPreamble.IsEmpty || not allAbstractMethods then
             None
         else
-            match ctx.ClassTypes.TryGetValue name with
+            match ctx.Types.Class.TryGetValue name with
             | false, _ -> None
             | true, info ->
                 // The member signatures share these prototype TyVars (Unification
@@ -1592,7 +1592,7 @@ module Freeze =
         (name: string)
         (ext: TypeExtensionElements<SyntaxToken> voption)
         : TDecl option =
-        match ctx.UnionTypes.TryGetValue name with
+        match ctx.Types.Union.TryGetValue name with
         | false, _ -> None
         | true, info ->
             let markers =
@@ -1670,7 +1670,7 @@ module Freeze =
     /// member list stays empty; the front end never registers them under a record
     /// today.
     let private tryRecordType (ctx: PassContext) (ns: string option) (name: string) : TDecl option =
-        match ctx.RecordTypes.TryGetValue name with
+        match ctx.Types.Record.TryGetValue name with
         | false, _ -> None
         | true, info ->
             let markers =
@@ -1764,7 +1764,7 @@ module Freeze =
                     | Some h ->
                         match memberNameOfBinding ctx b with
                         | ValueSome nm ->
-                            ctx.ModuleMembers.[(CstKeys.ofBinding b).Raw] <-
+                            ctx.Bindings.ModuleMembers.[(CstKeys.ofBinding b).Raw] <-
                                 {
                                     Namespace = ns
                                     Holder = h
@@ -1796,9 +1796,9 @@ module Freeze =
 
                 let holderName =
                     if
-                        ctx.UnionTypes.ContainsKey moduleName
-                        || ctx.RecordTypes.ContainsKey moduleName
-                        || ctx.ClassTypes.ContainsKey moduleName
+                        ctx.Types.Union.ContainsKey moduleName
+                        || ctx.Types.Record.ContainsKey moduleName
+                        || ctx.Types.Class.ContainsKey moduleName
                     then
                         moduleName + "Module"
                     else
@@ -1834,8 +1834,11 @@ module Freeze =
             Diagnostics = List.ofSeq ctx.Diagnostics
             // Snapshot so the backend can key the emitted IL type off the
             // representation string (G7) without the PassContext.
-            IntrinsicReprTypes = ctx.IntrinsicReprTypes |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
+            IntrinsicReprTypes =
+                ctx.Types.IntrinsicReprTypes
+                |> Seq.map (fun kv -> kv.Key, kv.Value)
+                |> Map.ofSeq
             // Snapshot the named-module placements (R3 deferred): the backend keys
             // off a binding's `NodeKey.Raw` to emit it on its holder type.
-            ModuleMembers = ctx.ModuleMembers |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
+            ModuleMembers = ctx.Bindings.ModuleMembers |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
         }

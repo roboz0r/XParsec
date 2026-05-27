@@ -138,16 +138,16 @@ type SemType =
     /// Flat n-ary tuple. Unifies pairwise with same-arity TyTuple; arity
     /// mismatch is a diagnostic in Unification.
     | TyTuple of items: SemType list
-    /// Field types are not stored inline — look up `ctx.RecordTypes[name]` for
+    /// Field types are not stored inline — look up `ctx.Types.Record[name]` for
     /// the field-shape (and the declared `TypeParams` used to substitute `args`
     /// into each field). Two TyRecords unify iff their names match AND their
     /// args unify pairwise. v1 single-segment names; qualified names land with
     /// namespaces.
     | TyRecord of name: string * args: SemType list
-    /// Same shape as TyRecord. Cases / TypeParams live in `ctx.UnionTypes[name]`.
+    /// Same shape as TyRecord. Cases / TypeParams live in `ctx.Types.Union[name]`.
     | TyUnion of name: string * args: SemType list
     /// Same shape as `TyRecord` / `TyUnion`; member lookup is a side-channel on
-    /// `ctx.ClassTypes`. Two `TyClass` unify iff their names match AND their
+    /// `ctx.Types.Class`. Two `TyClass` unify iff their names match AND their
     /// args unify pairwise.
     | TyClass of name: string * args: SemType list
 
@@ -333,7 +333,7 @@ module MeasureTerm =
             m.Exponents |> List.map (fun (n, e) -> n, e * k) |> MeasureTerm.ofList
 
 /// `∀ Quantified . Body`. Built by `Unification.generalise` and stored in
-/// `PassContext.Scheme` keyed by the binding's headPat NodeKey. Each
+/// `PassContext.Bindings.Scheme` keyed by the binding's headPat NodeKey. Each
 /// `inferIdent` of a generalised binding instantiates the scheme — mints a
 /// fresh TyVar at the current level for every entry in `Quantified` and
 /// walks `Body` substituting them, so independent use sites get independent

@@ -301,7 +301,7 @@ let nestedModuleTests =
 
 // G3 (docs/selfhost-handoff.md): an interface-shaped `TypeDefn.Anon` surfaces as
 // `TDecl.Type` whose method signatures are read from the *resolved* member types
-// in `ctx.ClassTypes` (NameResolution registers the abstract member; Unification
+// in `ctx.Types.Class` (NameResolution registers the abstract member; Unification
 // fills its signature), with the declaring typars remapped to the `TyConst "'A"`
 // markers the backend consumes. Freeze no longer re-translates the CST signature.
 [<Tests>]

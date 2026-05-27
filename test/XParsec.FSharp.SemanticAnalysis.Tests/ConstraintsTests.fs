@@ -34,7 +34,7 @@ let private countMessage (ctx: PassContext) (fragment: string) =
     |> Seq.length
 
 let private typeOf (ctx: PassContext) (key: NodeKey) : SemType =
-    match ctx.TypeVar.TryGetValue key with
+    match ctx.Bindings.TypeVar.TryGetValue key with
     | ValueSome tv -> Unification.zonk (TyVar tv)
     | ValueNone -> failwithf "no TypeVar entry for %O" key
 
@@ -45,20 +45,20 @@ let tests =
         [
             test "generic record with constraints captures TyparConstraints" {
                 let ctx = analyseNR "type Set<'a when 'a : comparison> = { Items: 'a list }"
-                let info = ctx.RecordTypes.["Set"]
+                let info = ctx.Types.Record.["Set"]
                 Expect.isTrue info.TyparConstraints.IsSome "TyparConstraints captured"
             }
 
             test "generic union with constraints captures TyparConstraints" {
                 let ctx = analyseNR "type Tree<'a when 'a : comparison> = | Leaf | Node of 'a"
 
-                let info = ctx.UnionTypes.["Tree"]
+                let info = ctx.Types.Union.["Tree"]
                 Expect.isTrue info.TyparConstraints.IsSome "TyparConstraints captured"
             }
 
             test "non-constrained generic record has ValueNone TyparConstraints" {
                 let ctx = analyseNR "type Box<'a> = { Value: 'a }"
-                let info = ctx.RecordTypes.["Box"]
+                let info = ctx.Types.Record.["Box"]
                 Expect.isTrue info.TyparConstraints.IsNone "no TyparConstraints"
             }
 

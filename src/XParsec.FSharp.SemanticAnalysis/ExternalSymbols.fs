@@ -193,7 +193,7 @@ type IExternalSymbolProvider =
 
 /// Optional capability a provider may implement to contribute an *ambient*
 /// (implicit) open-prefix set — the prelude / referenced-contract `[<AutoOpen>]`
-/// modules. The pipeline seeds `PassContext.AmbientOpenScope` from it, where it
+/// modules. The pipeline seeds `PassContext.Resolution.AmbientOpenScope` from it, where it
 /// is probed strictly BEHIND explicit `open`s: a short name tries its bare form
 /// and every explicit open first, and only then these ambient prefixes
 /// (symbol-resolution-handoff.md, open-resolution — auto-opens resolve as if behind explicit opens).

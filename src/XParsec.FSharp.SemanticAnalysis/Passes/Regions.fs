@@ -5,8 +5,8 @@ open System.Collections.Immutable
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
-// Pre:  ctx.Desugared, ctx.Binding, ctx.TypeVar populated.
-// Post: ctx.Escape populated for every TypeVar; TypeVar.Region set on
+// Pre:  ctx.Desugared, ctx.Bindings.Binding, ctx.Bindings.TypeVar populated.
+// Post: ctx.Bindings.Escape populated for every TypeVar; TypeVar.Region set on
 //       TypeVars that participated in the region graph.
 //
 // Regions are inequality-only (NOT used to drive type-class dispatch).
@@ -142,7 +142,7 @@ module Regions =
     let private exprIsAllocation (ctx: PassContext) (e: Expr<SyntaxToken>) : bool =
         let key = CstKeys.ofExpr e
 
-        match ctx.TypeVar.TryGetValue key with
+        match ctx.Bindings.TypeVar.TryGetValue key with
         | ValueSome tv -> isAllocation (TyVar tv)
         | ValueNone -> false
 
@@ -152,7 +152,7 @@ module Regions =
         match p with
         | Pat.NamedSimple t when
             let n = ctx.NameOf t
-            n.Length > 0 && System.Char.IsUpper n.[0] && ctx.CtorIndex.ContainsKey n
+            n.Length > 0 && System.Char.IsUpper n.[0] && ctx.Types.CtorIndex.ContainsKey n
             ->
             // Nullary ctor pattern in disguise — binds nothing.
             []
@@ -172,8 +172,8 @@ module Regions =
 
                 last.Length > 0
                 && System.Char.IsUpper last.[0]
-                && (li.Idents.Length = 1 && ctx.CtorIndex.ContainsKey last
-                    || li.Idents.Length = 2 && ctx.UnionTypes.ContainsKey(ctx.NameOf li.Idents.[0])))
+                && (li.Idents.Length = 1 && ctx.Types.CtorIndex.ContainsKey last
+                    || li.Idents.Length = 2 && ctx.Types.Union.ContainsKey(ctx.NameOf li.Idents.[0])))
             ->
             // Ctor pattern: head binds nothing; sub-patterns introduce binders.
             // A multi-field arg may be a single tuple — recurse and let the
@@ -201,7 +201,7 @@ module Regions =
             locals.Add(k) |> ignore
 
         let consider (useKey: NodeKey) =
-            match ctx.Binding.TryGetValue useKey with
+            match ctx.Bindings.Binding.TryGetValue useKey with
             | ValueSome rb when not (locals.Contains rb.BindingSite) -> result.Add(rb.BindingSite) |> ignore
             | _ -> ()
 
@@ -252,7 +252,7 @@ module Regions =
 
     let private stampTyVar (ctx: PassContext) (key: NodeKey) (r: RegionId) : unit =
         if r.Raw >= 0 then
-            match ctx.TypeVar.TryGetValue key with
+            match ctx.Bindings.TypeVar.TryGetValue key with
             | ValueSome tv -> (UnionFind.find tv).Region <- r
             | ValueNone -> ()
 
@@ -354,7 +354,7 @@ module Regions =
     and private identRegion (s: State) (ctx: PassContext) (e: Expr<SyntaxToken>) : RegionId =
         let key = CstKeys.ofExpr e
 
-        match ctx.Binding.TryGetValue key with
+        match ctx.Bindings.Binding.TryGetValue key with
         | ValueSome rb ->
             match s.BindingRegions.TryGetValue rb.BindingSite with
             | true, r -> r
@@ -1030,8 +1030,8 @@ module Regions =
 
         let state = solve s.Graph
 
-        for kv in ctx.TypeVar.AsDictionary() do
+        for kv in ctx.Bindings.TypeVar.AsDictionary() do
             let tv = UnionFind.find kv.Value
 
             if tv.Region.Raw >= 0 && tv.Region.Raw < state.Length then
-                ctx.Escape.Set(kv.Key, state.[tv.Region.Raw])
+                ctx.Bindings.Escape.Set(kv.Key, state.[tv.Region.Raw])

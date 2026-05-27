@@ -461,9 +461,9 @@ module UnificationInfer =
     /// Function value whose argument shape matches the primary constructor
     /// and whose result is the constructed `TyClass`. Routes bare
     /// `Point(3, 4)` calls (no `new`) through the function-application
-    /// machinery. `ValueNone` if `name` isn't in `ctx.ClassTypes`.
+    /// machinery. `ValueNone` if `name` isn't in `ctx.Types.Class`.
     let private tryClassCtorAsFunction (ctx: PassContext) (name: string) : SemType voption =
-        match ctx.ClassTypes.TryGetValue name with
+        match ctx.Types.Class.TryGetValue name with
         | true, info ->
             let args, subst = freshNamedInstance ctx info.TypeParams
             let receiverTy = TyClass(info.Name, args)
@@ -492,7 +492,7 @@ module UnificationInfer =
     /// The receiver union's typars are instantiated fresh so two independent
     /// uses of `Some` don't share a `'a`.
     let private ctorType (ctx: PassContext) (info: UnionCaseInfo) : SemType =
-        let unionInfo = ctx.UnionTypes.[info.UnionName]
+        let unionInfo = ctx.Types.Union.[info.UnionName]
         let args, subst = freshNamedInstance ctx unionInfo.TypeParams
         let unionTy = TyUnion(info.UnionName, args)
 
@@ -506,7 +506,7 @@ module UnificationInfer =
     /// ValueNone with `count = 0` means "no such ctor"; `count >= 2` means
     /// ambiguous — the caller emits the appropriate diagnostic.
     let private resolveCtorName (ctx: PassContext) (name: string) : UnionCaseInfo voption * int =
-        match ctx.CtorIndex.TryGetValue name with
+        match ctx.Types.CtorIndex.TryGetValue name with
         | false, _ -> ValueNone, 0
         | true, [ info ] -> ValueSome info, 1
         | true, infos -> ValueNone, List.length infos
@@ -514,7 +514,7 @@ module UnificationInfer =
     /// Resolve a qualified ctor reference `Type.Case` against the union
     /// registry.
     let private resolveQualifiedCtor (ctx: PassContext) (typeName: string) (caseName: string) : UnionCaseInfo voption =
-        match ctx.UnionTypes.TryGetValue typeName with
+        match ctx.Types.Union.TryGetValue typeName with
         | false, _ -> ValueNone
         | true, info ->
             match info.Cases |> Array.tryFind (fun c -> c.Name = caseName) with
@@ -528,7 +528,7 @@ module UnificationInfer =
         match names with
         | [] -> ValueNone, 0
         | first :: _ ->
-            match ctx.FieldIndex.TryGetValue first with
+            match ctx.Types.FieldIndex.TryGetValue first with
             | false, _ -> ValueNone, 0
             | true, candidates ->
                 let nameSet = Set.ofList names
@@ -565,7 +565,7 @@ module UnificationInfer =
         match p with
         | Pat.NamedSimple t when
             let n = ctx.NameOf t
-            n.Length > 0 && System.Char.IsUpper n.[0] && ctx.CtorIndex.ContainsKey n
+            n.Length > 0 && System.Char.IsUpper n.[0] && ctx.Types.CtorIndex.ContainsKey n
             ->
             // Uppercase-leading bare ident matching a known ctor —
             // reinterpret as a nullary ctor pattern. Multi-candidate names
@@ -575,7 +575,7 @@ module UnificationInfer =
 
             match info with
             | ValueSome i when i.Fields.Length = 0 ->
-                let unionInfo = ctx.UnionTypes.[i.UnionName]
+                let unionInfo = ctx.Types.Union.[i.UnionName]
                 let args, _ = freshNamedInstance ctx unionInfo.TypeParams
                 let ty = TyUnion(i.UnionName, args)
                 let nodeTv = freshTv ctx key
@@ -593,7 +593,7 @@ module UnificationInfer =
                         Severity = Error
                     }
 
-                let unionInfo = ctx.UnionTypes.[i.UnionName]
+                let unionInfo = ctx.Types.Union.[i.UnionName]
                 let args, _ = freshNamedInstance ctx unionInfo.TypeParams
                 let ty = TyUnion(i.UnionName, args)
                 let nodeTv = freshTv ctx key
@@ -624,10 +624,11 @@ module UnificationInfer =
             li.Idents.Length >= 1
             && (let last = ctx.NameOf li.Idents.[li.Idents.Length - 1]
                 last.Length > 0 && System.Char.IsUpper last.[0])
-            && (li.Idents.Length = 1 && ctx.CtorIndex.ContainsKey(ctx.NameOf li.Idents.[0])
+            && (li.Idents.Length = 1
+                && ctx.Types.CtorIndex.ContainsKey(ctx.NameOf li.Idents.[0])
                 || li.Idents.Length = 2
-                   && ctx.UnionTypes.ContainsKey(ctx.NameOf li.Idents.[0])
-                   && (let info = ctx.UnionTypes.[ctx.NameOf li.Idents.[0]]
+                   && ctx.Types.Union.ContainsKey(ctx.NameOf li.Idents.[0])
+                   && (let info = ctx.Types.Union.[ctx.NameOf li.Idents.[0]]
                        let caseName = ctx.NameOf li.Idents.[1]
                        info.Cases |> Array.exists (fun c -> c.Name = caseName)))
             ->
@@ -685,7 +686,7 @@ module UnificationInfer =
                             Severity = Error
                         }
 
-                let unionInfo = ctx.UnionTypes.[i.UnionName]
+                let unionInfo = ctx.Types.Union.[i.UnionName]
                 let args, subst = freshNamedInstance ctx unionInfo.TypeParams
                 let m = min subPats.Length i.Fields.Length
 
@@ -765,7 +766,7 @@ module UnificationInfer =
             let candidate =
                 match qualifier with
                 | Some typeName ->
-                    match ctx.RecordTypes.TryGetValue typeName with
+                    match ctx.Types.Record.TryGetValue typeName with
                     | true, info -> ValueSome info
                     | false, _ ->
                         ctx.Diagnostics.Add
@@ -986,7 +987,7 @@ module UnificationInfer =
                 // Operator compiled names (`op_Addition`) resolve through the
                 // open scope: bare name first, then explicit opens, then the
                 // ambient prelude (a contract's `[<AutoOpen>]` operator module).
-                match OpenScope.tryResolve ctx.OpenScope ctx.Provider.TryLookup name with
+                match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
                 | ValueSome sym -> sym.Instantiate ctx.CurrentLevel
                 | ValueNone ->
                     ctx.Diagnostics.Add
@@ -1000,7 +1001,7 @@ module UnificationInfer =
             | ValueNone -> TyVar(freshTyVar ctx)
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length > 1
-            && ctx.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
+            && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
             ->
             inferLongIdentFieldChain ctx key li
         // Qualified static member: `Math.Pi`, `Box.Empty`. Typars are
@@ -1008,9 +1009,9 @@ module UnificationInfer =
         // share a `'a`.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length = 2
-            && not (ctx.Binding.ContainsKey key)
+            && not (ctx.Bindings.Binding.ContainsKey key)
             && (
-                match ctx.ClassTypes.TryGetValue(ctx.NameOf li.Idents.[0]) with
+                match ctx.Types.Class.TryGetValue(ctx.NameOf li.Idents.[0]) with
                 | true, info ->
                     let n = ctx.NameOf li.Idents.[1]
                     info.Members |> Array.exists (fun m -> m.IsStatic && m.Name = n)
@@ -1019,7 +1020,7 @@ module UnificationInfer =
             ->
             let className = ctx.NameOf li.Idents.[0]
             let memberName = ctx.NameOf li.Idents.[1]
-            let info = ctx.ClassTypes.[className]
+            let info = ctx.Types.Class.[className]
 
             let m = info.Members |> Array.find (fun m -> m.IsStatic && m.Name = memberName)
 
@@ -1031,9 +1032,9 @@ module UnificationInfer =
         // guard and falls through to the ctor arm.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length = 2
-            && not (ctx.Binding.ContainsKey key)
+            && not (ctx.Bindings.Binding.ContainsKey key)
             && (
-                match ctx.UnionTypes.TryGetValue(ctx.NameOf li.Idents.[0]) with
+                match ctx.Types.Union.TryGetValue(ctx.NameOf li.Idents.[0]) with
                 | true, info ->
                     let n = ctx.NameOf li.Idents.[1]
                     info.Members |> Array.exists (fun m -> m.IsStatic && m.Name = n)
@@ -1042,7 +1043,7 @@ module UnificationInfer =
             ->
             let unionName = ctx.NameOf li.Idents.[0]
             let memberName = ctx.NameOf li.Idents.[1]
-            let info = ctx.UnionTypes.[unionName]
+            let info = ctx.Types.Union.[unionName]
 
             let m = info.Members |> Array.find (fun m -> m.IsStatic && m.Name = memberName)
 
@@ -1052,8 +1053,8 @@ module UnificationInfer =
         // bypassing the CtorIndex ambiguity check.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length = 2
-            && not (ctx.Binding.ContainsKey key)
-            && ctx.UnionTypes.ContainsKey(ctx.NameOf li.Idents.[0])
+            && not (ctx.Bindings.Binding.ContainsKey key)
+            && ctx.Types.Union.ContainsKey(ctx.NameOf li.Idents.[0])
             ->
             let typeName = ctx.NameOf li.Idents.[0]
             let caseName = ctx.NameOf li.Idents.[1]
@@ -1070,13 +1071,13 @@ module UnificationInfer =
 
                 TyVar(freshTyVar ctx)
         | _ ->
-            match ctx.Binding.TryGetValue key with
+            match ctx.Bindings.Binding.TryGetValue key with
             | ValueSome rb ->
                 // Already-generalised binding: instantiate its scheme for
                 // independent use-sites. Otherwise the monomorphic TyVar from
                 // inferPat — including uses inside a sibling's RHS in the same
                 // `let rec` group, which is what forbids polymorphic recursion.
-                match ctx.Scheme.TryGetValue rb.BindingSite with
+                match ctx.Bindings.Scheme.TryGetValue rb.BindingSite with
                 | ValueSome scheme -> instantiate ctx scheme
                 | ValueNone -> TyVar(tvOf ctx rb.BindingSite)
             | ValueNone ->
@@ -1086,7 +1087,7 @@ module UnificationInfer =
                 // from the provider fall to the ctor registry.
                 let name = qualifiedNameOf ctx e
 
-                match OpenScope.tryResolve ctx.OpenScope ctx.Provider.TryLookup name with
+                match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
                 | ValueSome sym -> sym.Instantiate ctx.CurrentLevel
                 | ValueNone ->
 
@@ -1182,7 +1183,7 @@ module UnificationInfer =
 
         // A local binding shadowing a printf name is an ordinary function —
         // don't apply the special rule.
-        if ctx.Binding.ContainsKey fnKey then
+        if ctx.Bindings.Binding.ContainsKey fnKey then
             ValueNone
         else
             match fn with
@@ -1302,7 +1303,7 @@ module UnificationInfer =
             match tryMeasuredArith ctx key name leftTy rightTy with
             | Some resultTy -> resultTy
             | None ->
-                match OpenScope.tryResolve ctx.OpenScope ctx.Provider.TryLookup name with
+                match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
                 | ValueSome sym ->
                     let resultTy = TyVar(freshTyVar ctx)
                     unify ctx key (sym.Instantiate ctx.CurrentLevel) (TyFun(leftTy, TyFun(rightTy, resultTy)))
@@ -1327,7 +1328,7 @@ module UnificationInfer =
 
         match ctx.Desugared.TryGetValue key with
         | ValueSome(DesugaredForm.OpName name) ->
-            match OpenScope.tryResolve ctx.OpenScope ctx.Provider.TryLookup name with
+            match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
             | ValueSome sym ->
                 let resultTy = TyVar(freshTyVar ctx)
                 unify ctx key (sym.Instantiate ctx.CurrentLevel) (TyFun(operandTy, resultTy))
@@ -1453,7 +1454,7 @@ module UnificationInfer =
     ///      consumer-driven typing handoff R3 calls for: `%A` stays `FSharpList`
     ///      (its cold printf path), `List.fold` retargets to the Vesper list.
     and private listLiteralTy (ctx: PassContext) (key: NodeKey) (elemTy: SemType) : SemType =
-        match ctx.AbbreviationTypes.TryGetValue "list" with
+        match ctx.Types.Abbreviation.TryGetValue "list" with
         | true, info ->
             forceFill ctx info
             expandAbbreviation ctx key info [ elemTy ]
@@ -1665,7 +1666,7 @@ module UnificationInfer =
         let candidate =
             match qualifier with
             | Some typeName ->
-                match ctx.RecordTypes.TryGetValue typeName with
+                match ctx.Types.Record.TryGetValue typeName with
                 | true, info -> ValueSome info
                 | false, _ ->
                     ctx.Diagnostics.Add
@@ -1739,7 +1740,7 @@ module UnificationInfer =
 
         match resolveStep srcTy with
         | TyRecord(recName, srcArgs) ->
-            match ctx.RecordTypes.TryGetValue recName with
+            match ctx.Types.Record.TryGetValue recName with
             | true, info ->
                 // Clone preserves the source's arg list — overrides unify
                 // against the substituted field type (`'a` → source's arg).
@@ -1794,7 +1795,7 @@ module UnificationInfer =
     and private resolveFieldStep (ctx: PassContext) (diagKey: NodeKey) (rTy: SemType) (memberName: string) : SemType =
         match resolveStep rTy with
         | TyRecord(recName, args) ->
-            match ctx.RecordTypes.TryGetValue recName with
+            match ctx.Types.Record.TryGetValue recName with
             | true, info ->
                 match info.Fields |> Array.tryFind (fun f -> f.Name = memberName) with
                 | Some field ->
@@ -1819,7 +1820,7 @@ module UnificationInfer =
 
                 TyVar(freshTyVar ctx)
         | TyClass(clsName, args) ->
-            match ctx.ClassTypes.TryGetValue clsName with
+            match ctx.Types.Class.TryGetValue clsName with
             | true, info ->
                 match info.Members |> Array.tryFind (fun m -> m.Name = memberName && not m.IsStatic) with
                 | Some m ->
@@ -1857,7 +1858,7 @@ module UnificationInfer =
                 // record it for Freeze (symbol-resolution-plan §7.2, P3).
                 match ctx.Provider.TryLookupMember(clsName, memberName) with
                 | ValueSome m when not m.IsStatic ->
-                    ctx.ExternalAccess.Set(
+                    ctx.Resolution.ExternalAccess.Set(
                         diagKey,
                         {
                             Key = m.Key
@@ -1879,7 +1880,7 @@ module UnificationInfer =
         | TyUnion(unionName, args) ->
             // Union instance member access (P3d.3) — mirrors the `TyClass`
             // arm against the union's augmentation members.
-            match ctx.UnionTypes.TryGetValue unionName with
+            match ctx.Types.Union.TryGetValue unionName with
             | true, info ->
                 match info.Members |> Array.tryFind (fun m -> m.Name = memberName && not m.IsStatic) with
                 | Some m ->
@@ -1977,7 +1978,7 @@ module UnificationInfer =
             // `tryQualify` applies the `open` prefixes, so a short
             // `EqualityComparer<int>` receiver resolves to its qualified metadata
             // name (symbol-resolution-handoff.md, open-resolution).
-            match OpenScope.tryQualify ctx.OpenScope probe qualName with
+            match OpenScope.tryQualify ctx.Resolution.OpenScope probe qualName with
             | ValueSome resolved -> ValueSome(metaNameOf resolved, List.ofSeq typeArgs)
             | ValueNone -> ValueNone
 
@@ -2009,7 +2010,7 @@ module UnificationInfer =
                 | ValueSome(ExternalTypeShape.Class _) -> true
                 | _ -> false
 
-            match OpenScope.tryQualify ctx.OpenScope probe prefixName with
+            match OpenScope.tryQualify ctx.Resolution.OpenScope probe prefixName with
             | ValueSome resolved ->
                 // Claim it only if the member actually resolves; otherwise leave
                 // the node to the ctor/TyVar fallback without a spurious error.
@@ -2135,7 +2136,7 @@ module UnificationInfer =
         match e with
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length >= 2
-            && not (ctx.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent))
+            && not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent))
             ->
             let lastTok = li.Idents.[li.Idents.Length - 1]
 
@@ -2148,7 +2149,7 @@ module UnificationInfer =
                 | ValueSome(ExternalTypeShape.Class _) -> true
                 | _ -> false
 
-            match OpenScope.tryQualify ctx.OpenScope probe prefixName with
+            match OpenScope.tryQualify ctx.Resolution.OpenScope probe prefixName with
             | ValueSome resolved when (ctx.Provider.TryLookupMembers(resolved, ctx.NameOf lastTok)).Length > 0 ->
                 ValueSome(resolved, lastTok)
             | _ -> ValueNone
@@ -2192,7 +2193,7 @@ module UnificationInfer =
                 | ValueSome chosen ->
                     let fnKey = CstKeys.ofExpr fn
 
-                    ctx.ExternalAccess.Set(
+                    ctx.Resolution.ExternalAccess.Set(
                         fnKey,
                         {
                             Key = chosen.Key
@@ -2236,7 +2237,7 @@ module UnificationInfer =
 
         match ctx.Provider.TryLookupMember(metaName, memberName) with
         | ValueSome m ->
-            ctx.ExternalAccess.Set(
+            ctx.Resolution.ExternalAccess.Set(
                 key,
                 {
                     Key = m.Key
@@ -2279,7 +2280,7 @@ module UnificationInfer =
 
         match resolveStep receiverTy with
         | TyClass(name, args) ->
-            match ctx.ClassTypes.TryGetValue name with
+            match ctx.Types.Class.TryGetValue name with
             | true, info ->
                 let subst = mkNamedTypeSubst info.TypeParams args
 
@@ -2358,7 +2359,7 @@ module UnificationInfer =
     /// The `when ^T : Type` constraints are a *compile-time dispatch*, NOT
     /// unification constraints, so the typar is **not** unified with its required
     /// type; it is translated only to record the verdict for `Inline.inlineExpand`
-    /// to resolve at the call site. The typar resolves through `ctx.TyparScope` —
+    /// to resolve at the call site. The typar resolves through `ctx.Resolution.TyparScope` —
     /// already seeded by the enclosing binding's parameters (`(x: ^T)`) — so the
     /// recorded `SemType` carries the binding's quantified root. See
     /// docs/operators-plan.md (the arithmetic/bitwise/unary task).
@@ -2387,16 +2388,16 @@ module UnificationInfer =
 
     /// `r.X.Y…` parsed as a single multi-segment `Expr.LongIdentOrOp`. The
     /// head segment was resolved by NameResolution as a local binding — type
-    /// it through `ctx.Binding`/`ctx.Scheme`, then walk the remaining
+    /// it through `ctx.Bindings.Binding`/`ctx.Bindings.Scheme`, then walk the remaining
     /// segments as a field-access chain.
     and private inferLongIdentFieldChain (ctx: PassContext) (key: NodeKey) (li: LongIdent<SyntaxToken>) : SemType =
         let head = li.Idents.[0]
         let headKey = NodeKey.ofToken head NodeKind.ExprIdent
 
         let headTy =
-            match ctx.Binding.TryGetValue headKey with
+            match ctx.Bindings.Binding.TryGetValue headKey with
             | ValueSome rb ->
-                match ctx.Scheme.TryGetValue rb.BindingSite with
+                match ctx.Bindings.Scheme.TryGetValue rb.BindingSite with
                 | ValueSome scheme -> instantiate ctx scheme
                 | ValueNone -> TyVar(tvOf ctx rb.BindingSite)
             | ValueNone -> TyVar(freshTyVar ctx)
@@ -2468,8 +2469,8 @@ module UnificationInfer =
     and inferBinding (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =
         // One typar scope per binding signature: explicit `<'a>` typars seed
         // it first so later implicit `'a` mentions share the same TyVar.
-        let savedScope = ctx.TyparScope
-        ctx.TyparScope <- Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
+        let savedScope = ctx.Resolution.TyparScope
+        ctx.Resolution.TyparScope <- Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
 
         match b.typarDefns with
         | ValueSome(TyparDefns(defns = ds; constraints = bindingConstraints)) ->
@@ -2479,10 +2480,10 @@ module UnificationInfer =
                 | Typar.Static(ident = id) ->
                     let n = ctx.NameOf id
 
-                    if not (ctx.TyparScope.ContainsKey n) then
+                    if not (ctx.Resolution.TyparScope.ContainsKey n) then
                         let tv = TypeVar()
                         tv.Level <- ctx.CurrentLevel
-                        ctx.TyparScope.[n] <- tv
+                        ctx.Resolution.TyparScope.[n] <- tv
                 | Typar.Anon _ -> ()
 
             match bindingConstraints with
@@ -2520,7 +2521,7 @@ module UnificationInfer =
 
             unify ctx (CstKeys.ofBinding b) patTy rhsTy
         finally
-            ctx.TyparScope <- savedScope
+            ctx.Resolution.TyparScope <- savedScope
 
     /// Type a `let` / `let rec` group with Rémy-level discipline. Key
     /// subtlety: pre-allocate single-name sibling headPat TyVars (step 2) so
@@ -2556,4 +2557,4 @@ module UnificationInfer =
                     // re-zonk so the (now-linked) FSharpList element generalises.
                     prepareListLiterals ctx zonked outerLevel
                     let scheme = generalise (zonk zonked) outerLevel
-                    ctx.Scheme.Set(key, scheme)
+                    ctx.Bindings.Scheme.Set(key, scheme)

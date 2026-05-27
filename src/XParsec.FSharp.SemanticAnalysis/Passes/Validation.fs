@@ -51,7 +51,7 @@ module Validation =
             match core with
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
                 li.Idents.Length > 1
-                && ctx.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
+                && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
                 ->
                 true
             | _ -> false
@@ -72,15 +72,15 @@ module Validation =
             if li.Idents.Length = 2 then
                 let headKey = NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent
 
-                match ctx.Binding.TryGetValue headKey with
+                match ctx.Bindings.Binding.TryGetValue headKey with
                 | ValueSome rb ->
-                    match ctx.TypeVar.TryGetValue rb.BindingSite with
+                    match ctx.Bindings.TypeVar.TryGetValue rb.BindingSite with
                     | ValueSome tv ->
                         match Unification.zonk (TyVar tv) with
                         | TyRecord(recName, _) ->
                             let fieldName = ctx.NameOf li.Idents.[1]
 
-                            match ctx.RecordTypes.TryGetValue recName with
+                            match ctx.Types.Record.TryGetValue recName with
                             | true, info ->
                                 match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
                                 | Some field when not field.IsMutable ->
@@ -99,7 +99,7 @@ module Validation =
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _) ->
             let lhsKey = CstKeys.ofExpr core
 
-            match ctx.Binding.TryGetValue lhsKey with
+            match ctx.Bindings.Binding.TryGetValue lhsKey with
             | ValueSome rb when not rb.IsMutable ->
                 ctx.Diagnostics.Add
                     {
@@ -113,13 +113,13 @@ module Validation =
             // deferred-field-access check surfaces those.
             let rKey = CstKeys.ofExpr r
 
-            match ctx.TypeVar.TryGetValue rKey with
+            match ctx.Bindings.TypeVar.TryGetValue rKey with
             | ValueSome tv ->
                 match Unification.zonk (TyVar tv) with
                 | TyRecord(recName, _) ->
                     let fieldName = ctx.NameOf li.Idents.[0]
 
-                    match ctx.RecordTypes.TryGetValue recName with
+                    match ctx.Types.Record.TryGetValue recName with
                     | true, info ->
                         match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
                         | Some field when not field.IsMutable ->
@@ -138,7 +138,7 @@ module Validation =
     let private checkUnresolvedDotAccesses (ctx: PassContext) : unit =
         let seenRoots = System.Collections.Generic.HashSet<TypeVar>(HashIdentity.Reference)
 
-        for kv in ctx.TypeVar.AsDictionary() do
+        for kv in ctx.Bindings.TypeVar.AsDictionary() do
             let root = UnionFind.find kv.Value
 
             if seenRoots.Add(root) && not (List.isEmpty root.PendingDotAccess) then
@@ -166,11 +166,11 @@ module Validation =
         // whose binding is mutable. NameResolution writes one self-entry
         // per binding *and* one entry per use-site; filtering on
         // `kv.Key = rb.BindingSite` keeps us from firing once per use.
-        for kv in ctx.Binding.AsDictionary() do
+        for kv in ctx.Bindings.Binding.AsDictionary() do
             let rb = kv.Value
 
             if rb.IsMutable && kv.Key = rb.BindingSite then
-                match ctx.TypeVar.TryGetValue rb.BindingSite with
+                match ctx.Bindings.TypeVar.TryGetValue rb.BindingSite with
                 | ValueSome tv when hasFreeTyVar (TyVar tv) ->
                     ctx.Diagnostics.Add
                         {

@@ -23,7 +23,7 @@ let tests =
                 let bodyKey = NodeKey.ofSource 13 NodeKind.ExprIdent
                 let bindingKey = NodeKey.ofSource 4 NodeKind.PatIdent
 
-                match ctx.Binding.TryGetValue bodyKey with
+                match ctx.Bindings.Binding.TryGetValue bodyKey with
                 | ValueSome rb -> Expect.equal rb.BindingSite bindingKey "binding site"
                 | ValueNone -> failtest "body ident not resolved"
             }
@@ -34,7 +34,7 @@ let tests =
                 let bodyKey = NodeKey.ofSource 18 NodeKind.ExprIdent
                 let paramKey = NodeKey.ofSource 13 NodeKind.PatIdent
 
-                match ctx.Binding.TryGetValue bodyKey with
+                match ctx.Bindings.Binding.TryGetValue bodyKey with
                 | ValueSome rb -> Expect.equal rb.BindingSite paramKey "binding site"
                 | ValueNone -> failtest "lambda body ident not resolved"
             }
@@ -45,7 +45,7 @@ let tests =
                 let bodyKey = NodeKey.ofSource 10 NodeKind.ExprIdent
                 let argKey = NodeKey.ofSource 6 NodeKind.PatIdent
 
-                match ctx.Binding.TryGetValue bodyKey with
+                match ctx.Bindings.Binding.TryGetValue bodyKey with
                 | ValueSome rb -> Expect.equal rb.BindingSite argKey "binding site"
                 | ValueNone -> failtest "fn-form arg not resolved"
             }
@@ -56,7 +56,7 @@ let tests =
                 let bodyKey = NodeKey.ofSource 26 NodeKind.ExprIdent
                 let innerBindingKey = NodeKey.ofSource 17 NodeKind.PatIdent
 
-                match ctx.Binding.TryGetValue bodyKey with
+                match ctx.Bindings.Binding.TryGetValue bodyKey with
                 | ValueSome rb -> Expect.equal rb.BindingSite innerBindingKey "resolves to inner x"
                 | ValueNone -> failtest "body x not resolved"
             }
@@ -67,7 +67,7 @@ let tests =
                 let useKey = NodeKey.ofSource 18 NodeKind.ExprIdent
                 let bindingKey = NodeKey.ofSource 4 NodeKind.PatIdent
 
-                match ctx.Binding.TryGetValue useKey with
+                match ctx.Bindings.Binding.TryGetValue useKey with
                 | ValueSome rb -> Expect.equal rb.BindingSite bindingKey "binding site"
                 | ValueNone -> failtest "use not resolved"
             }
@@ -87,7 +87,10 @@ let tests =
                 let ctx = analyse "let x = true"
                 let useKey = NodeKey.ofSource 8 NodeKind.ExprIdent
                 Expect.equal ctx.Diagnostics.Count 0 "no diagnostics for known external"
-                Expect.isTrue (ctx.Binding.TryGetValue useKey = ValueNone) "no Binding entry for external symbol"
+
+                Expect.isTrue
+                    (ctx.Bindings.Binding.TryGetValue useKey = ValueNone)
+                    "no Binding entry for external symbol"
             }
 
             test "let mutable: binding-site IsMutable is true" {
@@ -95,7 +98,7 @@ let tests =
                 let ctx = analyse "let mutable n = 0"
                 let bindingKey = NodeKey.ofSource 12 NodeKind.PatIdent
 
-                match ctx.Binding.TryGetValue bindingKey with
+                match ctx.Bindings.Binding.TryGetValue bindingKey with
                 | ValueSome rb -> Expect.isTrue rb.IsMutable "binding-site entry has IsMutable = true"
                 | ValueNone -> failtest "no binding-site self-entry for `n`"
             }
@@ -104,7 +107,7 @@ let tests =
                 let ctx = analyse "let n = 0"
                 let bindingKey = NodeKey.ofSource 4 NodeKind.PatIdent
 
-                match ctx.Binding.TryGetValue bindingKey with
+                match ctx.Bindings.Binding.TryGetValue bindingKey with
                 | ValueSome rb -> Expect.isFalse rb.IsMutable "binding-site entry has IsMutable = false"
                 | ValueNone -> failtest "no binding-site self-entry for `n`"
             }
@@ -114,15 +117,15 @@ let tests =
                 let ctx = analyse "let mutable n = 0 in n"
                 let useKey = NodeKey.ofSource 21 NodeKind.ExprIdent
 
-                match ctx.Binding.TryGetValue useKey with
+                match ctx.Bindings.Binding.TryGetValue useKey with
                 | ValueSome rb -> Expect.isTrue rb.IsMutable "use-site IsMutable propagated from binding"
                 | ValueNone -> failtest "use of `n` not resolved"
             }
 
-            test "record type definition registers in ctx.RecordTypes" {
+            test "record type definition registers in ctx.Types.Record" {
                 let ctx = analyse "type R = { X: int; Y: int }"
 
-                match ctx.RecordTypes.TryGetValue "R" with
+                match ctx.Types.Record.TryGetValue "R" with
                 | true, info ->
                     Expect.equal info.Fields.Length 2 "two fields"
                     Expect.equal info.Fields.[0].Name "X" "first field is X"
@@ -133,11 +136,11 @@ let tests =
             test "record field index is built" {
                 let ctx = analyse "type R = { X: int; Y: int }"
 
-                match ctx.FieldIndex.TryGetValue "X" with
+                match ctx.Types.FieldIndex.TryGetValue "X" with
                 | true, infos -> Expect.equal infos.Length 1 "X referenced by exactly one type"
                 | false, _ -> failtest "X not in FieldIndex"
 
-                match ctx.FieldIndex.TryGetValue "Y" with
+                match ctx.Types.FieldIndex.TryGetValue "Y" with
                 | true, infos -> Expect.equal infos.Length 1 "Y referenced by exactly one type"
                 | false, _ -> failtest "Y not in FieldIndex"
             }
@@ -155,18 +158,18 @@ let tests =
             test "mutable field IsMutable is true" {
                 let ctx = analyse "type P = { X: int; mutable Y: int }"
 
-                match ctx.RecordTypes.TryGetValue "P" with
+                match ctx.Types.Record.TryGetValue "P" with
                 | true, info ->
                     Expect.isFalse info.Fields.[0].IsMutable "X is immutable"
                     Expect.isTrue info.Fields.[1].IsMutable "Y is mutable"
                 | false, _ -> failtest "record type P not registered"
             }
 
-            test "union type definition registers in ctx.UnionTypes" {
+            test "union type definition registers in ctx.Types.Union" {
                 let ctx =
                     analyse "type S =\n    | Circle of float\n    | Rectangle of float * float\n    | Point"
 
-                match ctx.UnionTypes.TryGetValue "S" with
+                match ctx.Types.Union.TryGetValue "S" with
                 | true, info ->
                     Expect.equal info.Cases.Length 3 "three cases"
                     Expect.equal info.Cases.[0].Name "Circle" "Circle case"
@@ -191,13 +194,13 @@ let tests =
             test "CtorIndex maps ctor name to declaring union" {
                 let ctx = analyse "type S =\n    | Circle of float\n    | Point"
 
-                match ctx.CtorIndex.TryGetValue "Circle" with
+                match ctx.Types.CtorIndex.TryGetValue "Circle" with
                 | true, infos ->
                     Expect.equal infos.Length 1 "Circle declared by exactly one union"
                     Expect.equal infos.Head.UnionName "S" "Circle belongs to S"
                 | false, _ -> failtest "Circle not in CtorIndex"
 
-                match ctx.CtorIndex.TryGetValue "Point" with
+                match ctx.Types.CtorIndex.TryGetValue "Point" with
                 | true, infos -> Expect.equal infos.Length 1 "Point declared by exactly one union"
                 | false, _ -> failtest "Point not in CtorIndex"
             }
@@ -209,7 +212,7 @@ let tests =
 
                 // Point ident at 32: 17-char type decl + "match 0 with | ".
                 let patKey = NodeKey.ofSource 32 NodeKind.PatIdent
-                let hasBinding = ctx.Binding.ContainsKey patKey
+                let hasBinding = ctx.Bindings.Binding.ContainsKey patKey
                 Expect.isFalse hasBinding "Point pattern should not be a binding site"
             }
 
@@ -225,7 +228,7 @@ let tests =
             test "generic record registers single TypeParam" {
                 let ctx = analyse "type Box<'a> = { Value: 'a }"
 
-                match ctx.RecordTypes.TryGetValue "Box" with
+                match ctx.Types.Record.TryGetValue "Box" with
                 | true, info ->
                     Expect.equal (List.length info.TypeParams) 1 "one typar"
                     Expect.equal (fst info.TypeParams.[0]) "'a" "name is 'a"
@@ -243,7 +246,7 @@ let tests =
                 NameResolution.run ctx file
                 Unification.run ctx file
 
-                match ctx.RecordTypes.TryGetValue "Box" with
+                match ctx.Types.Record.TryGetValue "Box" with
                 | true, info ->
                     let _, tparTv = info.TypeParams.[0]
                     let tparRoot = UnionFind.find tparTv
@@ -260,7 +263,7 @@ let tests =
             test "generic record keeps declaration order" {
                 let ctx = analyse "type Pair<'a, 'b> = { First: 'a; Second: 'b }"
 
-                match ctx.RecordTypes.TryGetValue "Pair" with
+                match ctx.Types.Record.TryGetValue "Pair" with
                 | true, info ->
                     Expect.equal (List.length info.TypeParams) 2 "two typars"
                     Expect.equal (fst info.TypeParams.[0]) "'a" "first is 'a"
@@ -271,7 +274,7 @@ let tests =
             test "generic union registers TypeParams" {
                 let ctx = analyse "type Option<'a> = | Some of 'a | None"
 
-                match ctx.UnionTypes.TryGetValue "Option" with
+                match ctx.Types.Union.TryGetValue "Option" with
                 | true, info ->
                     Expect.equal (List.length info.TypeParams) 1 "one typar"
                     Expect.equal (fst info.TypeParams.[0]) "'a" "name is 'a"
@@ -298,7 +301,7 @@ let tests =
             test "monomorphic abbreviation registers with no TypeParams" {
                 let ctx = analyse "type Name = string"
 
-                match ctx.AbbreviationTypes.TryGetValue "Name" with
+                match ctx.Types.Abbreviation.TryGetValue "Name" with
                 | true, info -> Expect.isTrue info.TypeParams.IsEmpty "no typars"
                 | false, _ -> failtest "abbreviation Name not registered"
             }
@@ -306,7 +309,7 @@ let tests =
             test "generic abbreviation keeps declaration order" {
                 let ctx = analyse "type Pair<'a, 'b> = 'a * 'b"
 
-                match ctx.AbbreviationTypes.TryGetValue "Pair" with
+                match ctx.Types.Abbreviation.TryGetValue "Pair" with
                 | true, info ->
                     Expect.equal (List.length info.TypeParams) 2 "two typars"
                     Expect.equal (fst info.TypeParams.[0]) "'a" "first is 'a"
@@ -334,10 +337,10 @@ let tests =
                 Expect.isTrue hasDup "duplicate-type diagnostic emitted"
             }
 
-            test "class type registers in ctx.ClassTypes with ctor params and members" {
+            test "class type registers in ctx.Types.Class with ctor params and members" {
                 let ctx = analyse "type C(x: int) =\n    member this.X = x"
 
-                match ctx.ClassTypes.TryGetValue "C" with
+                match ctx.Types.Class.TryGetValue "C" with
                 | true, info ->
                     Expect.equal info.CtorParams.Length 1 "one ctor param"
                     Expect.equal info.CtorParams.[0].Name "x" "ctor param named x"
@@ -360,7 +363,7 @@ let tests =
             test "ClassMemberIndex maps member name to declaring class" {
                 let ctx = analyse "type C() =\n    member this.M () = 1"
 
-                match ctx.ClassMemberIndex.TryGetValue "M" with
+                match ctx.Types.ClassMemberIndex.TryGetValue "M" with
                 | true, lst -> Expect.equal lst.Length 1 "one class declares M"
                 | false, _ -> failtest "M not in ClassMemberIndex"
             }
@@ -368,7 +371,7 @@ let tests =
             test "static member registers with IsStatic = true" {
                 let ctx = analyse "type C() =\n    static member M () = 1"
 
-                match ctx.ClassTypes.TryGetValue "C" with
+                match ctx.Types.Class.TryGetValue "C" with
                 | true, info ->
                     Expect.equal info.Members.Length 1 "one member"
                     Expect.isTrue info.Members.[0].IsStatic "M is static"

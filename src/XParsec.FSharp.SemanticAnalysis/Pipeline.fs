@@ -8,7 +8,7 @@ module Pipeline =
 
     /// Runs every pass and returns both the populated `PassContext` and
     /// the frozen `TastFile`. Tests that need to inspect side tables (e.g.
-    /// `ctx.Escape`) call this; `analyse` is the production entry point
+    /// `ctx.Bindings.Escape`) call this; `analyse` is the production entry point
     /// that discards `ctx`.
     let analyseWithContext
         (provider: IExternalSymbolProvider)
@@ -24,8 +24,8 @@ module Pipeline =
         Validation.run ctx file
         let tast0 = Freeze.run ctx file
         // TAST→TAST promotion of `let mutable` cells captured by escaping
-        // closures (records-plan §B7). The pass reads `ctx.Escape` /
-        // `ctx.Binding`; running before ResolvedTypes keeps the validation
+        // closures (records-plan §B7). The pass reads `ctx.Bindings.Escape` /
+        // `ctx.Bindings.Binding`; running before ResolvedTypes keeps the validation
         // sweep observing post-promotion types.
         let tast1 = RefCellPromotion.run ctx tast0
         ResolvedTypes.run ctx tast1

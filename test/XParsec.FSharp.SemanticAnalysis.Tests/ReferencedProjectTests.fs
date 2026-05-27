@@ -150,7 +150,7 @@ let tests =
                 // entirely from the contract, proving the `.fsi` is authoritative.
                 let rIdx = input.IndexOf "let r" + 4
 
-                match ctx.TypeVar.TryGetValue(NodeKey.ofSource rIdx NodeKind.PatIdent) with
+                match ctx.Bindings.TypeVar.TryGetValue(NodeKey.ofSource rIdx NodeKind.PatIdent) with
                 | ValueSome tv ->
                     match Unification.zonk (TyVar tv) with
                     | TyConst "int" -> ()

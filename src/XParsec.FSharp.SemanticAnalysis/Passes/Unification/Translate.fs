@@ -27,14 +27,14 @@ module UnificationTranslate =
     let freshTv (ctx: PassContext) (key: NodeKey) : TypeVar =
         let tv = TypeVar()
         tv.Level <- ctx.CurrentLevel
-        ctx.TypeVar.Set(key, tv)
+        ctx.Bindings.TypeVar.Set(key, tv)
         tv
 
     /// Get-or-allocate: fresh-allocates if missing — happens for binding-site
     /// patterns not yet visited by inferPat, including forward references
     /// inside `let rec` groups.
     let tvOf (ctx: PassContext) (key: NodeKey) : TypeVar =
-        match ctx.TypeVar.TryGetValue key with
+        match ctx.Bindings.TypeVar.TryGetValue key with
         | ValueSome tv -> tv
         | ValueNone -> freshTv ctx key
 
@@ -86,7 +86,7 @@ module UnificationTranslate =
         | "double" -> true
         | _ -> false
 
-    /// Reads `ctx.TyparScope` for `'a` typar resolution; callers open a
+    /// Reads `ctx.Resolution.TyparScope` for `'a` typar resolution; callers open a
     /// fresh scope per signature (binding or type defn) before walking.
     /// Bare references to generic named types back-fill the arg list with
     /// fresh TyVars so unification can pin them.
@@ -97,10 +97,10 @@ module UnificationTranslate =
         | Type.VarType(Typar.Static(ident = id)) ->
             let name = ctx.NameOf id
 
-            match ctx.TyparScope.TryGetValue name with
+            match ctx.Resolution.TyparScope.TryGetValue name with
             | true, tv -> TyVar tv
             | false, _ ->
-                if ctx.TyparScopeStrict then
+                if ctx.Resolution.TyparScopeStrict then
                     // Strict (type-defn fill-in): implicit free typars aren't
                     // legal F#. Diagnose, but still mint and memoise so later
                     // occurrences share the TyVar and don't cascade.
@@ -116,7 +116,7 @@ module UnificationTranslate =
 
                     let tv = TypeVar()
                     tv.Level <- ctx.CurrentLevel
-                    ctx.TyparScope.[name] <- tv
+                    ctx.Resolution.TyparScope.[name] <- tv
                     TyVar tv
                 else
                     // Implicit typar: mint at the binding's current level so
@@ -124,7 +124,7 @@ module UnificationTranslate =
                     // memoise so later occurrences share identity.
                     let tv = TypeVar()
                     tv.Level <- ctx.CurrentLevel
-                    ctx.TyparScope.[name] <- tv
+                    ctx.Resolution.TyparScope.[name] <- tv
                     TyVar tv
         | Type.VarType(Typar.Anon _) ->
             // `_` typar — always fresh, never stored. Distinct per
@@ -141,14 +141,14 @@ module UnificationTranslate =
             | "string" -> BuiltinTypes.tyString
             | "int64" -> BuiltinTypes.tyInt64
             | "byte" -> BuiltinTypes.tyByte
-            | _ when ctx.IntrinsicReprTypes.ContainsKey name ->
+            | _ when ctx.Types.IntrinsicReprTypes.ContainsKey name ->
                 // Primitive binding (`type int = (# "System.Int32" #)`): a
                 // nominal intrinsic, NOT a transparent abbreviation. Resolve to
                 // `TyConst name`; the representation string is consumed later by
                 // the codegen `encodeType` rekey. See docs/self-host-rung1-plan.md.
                 TyConst name
             | _ ->
-                match ctx.AbbreviationTypes.TryGetValue name with
+                match ctx.Types.Abbreviation.TryGetValue name with
                 | true, info ->
                     // Eager expansion: force the body, then substitute fresh
                     // TyVars for every declared typar.
@@ -157,7 +157,7 @@ module UnificationTranslate =
                     let diagKey = NodeKey.ofToken li.Idents.[0] NodeKind.TypeNamed
                     expandAbbreviation ctx diagKey info args
                 | false, _ ->
-                    match ctx.RecordTypes.TryGetValue name with
+                    match ctx.Types.Record.TryGetValue name with
                     | true, info ->
                         // Back-fill generic args with fresh TyVars at the
                         // current level — unpinned at the declaration site,
@@ -166,12 +166,12 @@ module UnificationTranslate =
                         let args = [ for _ in info.TypeParams -> TyVar(freshTyVar ctx) ]
                         TyRecord(name, args)
                     | false, _ ->
-                        match ctx.UnionTypes.TryGetValue name with
+                        match ctx.Types.Union.TryGetValue name with
                         | true, info ->
                             let args = [ for _ in info.TypeParams -> TyVar(freshTyVar ctx) ]
                             TyUnion(name, args)
                         | false, _ ->
-                            match ctx.ClassTypes.TryGetValue name with
+                            match ctx.Types.Class.TryGetValue name with
                             | true, info ->
                                 let args = [ for _ in info.TypeParams -> TyVar(freshTyVar ctx) ]
                                 TyClass(name, args)
@@ -306,27 +306,27 @@ module UnificationTranslate =
             if expected <> argCount then
                 diagnoseArity expected
 
-        if ctx.IntrinsicReprTypes.ContainsKey name then
+        if ctx.Types.IntrinsicReprTypes.ContainsKey name then
             // Generic primitive binding: nominal, not transparent.
             TyConst name
         else
-            match ctx.AbbreviationTypes.TryGetValue name with
+            match ctx.Types.Abbreviation.TryGetValue name with
             | true, info ->
                 forceFill ctx info
                 checkArity (List.length info.TypeParams)
                 expandAbbreviation ctx diagKey info translatedArgs
             | false, _ ->
-                match ctx.RecordTypes.TryGetValue name with
+                match ctx.Types.Record.TryGetValue name with
                 | true, info ->
                     checkArity (List.length info.TypeParams)
                     TyRecord(name, translatedArgs)
                 | false, _ ->
-                    match ctx.UnionTypes.TryGetValue name with
+                    match ctx.Types.Union.TryGetValue name with
                     | true, info ->
                         checkArity (List.length info.TypeParams)
                         TyUnion(name, translatedArgs)
                     | false, _ ->
-                        match ctx.ClassTypes.TryGetValue name with
+                        match ctx.Types.Class.TryGetValue name with
                         | true, info ->
                             checkArity (List.length info.TypeParams)
                             TyClass(name, translatedArgs)
@@ -399,10 +399,10 @@ module UnificationTranslate =
             | Some ty -> ValueSome ty
             | None -> ValueNone
 
-        OpenScope.tryResolve ctx.OpenScope lookup qualName
+        OpenScope.tryResolve ctx.Resolution.OpenScope lookup qualName
 
     /// Attach to the constrained typar's TyVar through the current
-    /// `ctx.TyparScope`. Unsupported kinds (Coercion, MemberTrait, etc.) are
+    /// `ctx.Resolution.TyparScope`. Unsupported kinds (Coercion, MemberTrait, etc.) are
     /// skipped — they belong to their own resolution phases.
     and private translateConstraint (ctx: PassContext) (c: Constraint<SyntaxToken>) : unit =
         let typarTokenOf (t: Typar<SyntaxToken>) : SyntaxToken voption =
@@ -417,7 +417,7 @@ module UnificationTranslate =
             | ValueSome id ->
                 let name = ctx.NameOf id
 
-                match ctx.TyparScope.TryGetValue name with
+                match ctx.Resolution.TyparScope.TryGetValue name with
                 | true, tv ->
                     let root = UnionFind.find tv
 
@@ -487,16 +487,16 @@ module UnificationTranslate =
             info.Status <- AbbreviationStatus.Filled
         | AbbreviationStatus.NotFilled ->
             info.Status <- AbbreviationStatus.InProgress
-            let savedScope = ctx.TyparScope
-            let savedStrict = ctx.TyparScopeStrict
+            let savedScope = ctx.Resolution.TyparScope
+            let savedStrict = ctx.Resolution.TyparScopeStrict
             let scope = Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
 
             for (n, tv) in info.TypeParams do
                 if not (scope.ContainsKey n) then
                     scope.[n] <- tv
 
-            ctx.TyparScope <- scope
-            ctx.TyparScopeStrict <- true
+            ctx.Resolution.TyparScope <- scope
+            ctx.Resolution.TyparScopeStrict <- true
 
             try
                 match info.TyparConstraints with
@@ -508,8 +508,8 @@ module UnificationTranslate =
                 if info.Status = AbbreviationStatus.InProgress then
                     info.Body <- ValueSome body
             finally
-                ctx.TyparScope <- savedScope
-                ctx.TyparScopeStrict <- savedStrict
+                ctx.Resolution.TyparScope <- savedScope
+                ctx.Resolution.TyparScopeStrict <- savedStrict
                 info.Status <- AbbreviationStatus.Filled
 
     /// Returns a fresh TyVar if `Body = ValueNone` (cycle detected, or

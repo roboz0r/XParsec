@@ -355,7 +355,7 @@ module UnificationEngine =
                 let pending = root.PendingDotAccess
                 root.PendingDotAccess <- []
 
-                match ctx.RecordTypes.TryGetValue recName with
+                match ctx.Types.Record.TryGetValue recName with
                 | true, info ->
                     let subst = mkNamedTypeSubst info.TypeParams args
 
@@ -383,7 +383,7 @@ module UnificationEngine =
                     let pending = root.PendingDotAccess
                     root.PendingDotAccess <- []
 
-                    match ctx.ClassTypes.TryGetValue clsName with
+                    match ctx.Types.Class.TryGetValue clsName with
                     | true, info ->
                         let subst = mkNamedTypeSubst info.TypeParams args
 
@@ -413,7 +413,7 @@ module UnificationEngine =
                         let pending = root.PendingDotAccess
                         root.PendingDotAccess <- []
 
-                        match ctx.UnionTypes.TryGetValue unionName with
+                        match ctx.Types.Union.TryGetValue unionName with
                         | true, info ->
                             let subst = mkNamedTypeSubst info.TypeParams args
 
@@ -503,7 +503,7 @@ module UnificationEngine =
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyTuple items ->
             reduceOutcome (checkConstraint ctx c) items
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyRecord(name, args) ->
-            match ctx.RecordTypes.TryGetValue name with
+            match ctx.Types.Record.TryGetValue name with
             | true, info ->
                 // C-Attr verdict overrides the field-walk. Equality: a
                 // `[<NoEquality>]` record at a `=` / `<>` use site is a
@@ -525,7 +525,7 @@ module UnificationEngine =
                     |> reduceOutcome (checkConstraint ctx c)
             | false, _ -> Defer
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyUnion(name, args) ->
-            match ctx.UnionTypes.TryGetValue name with
+            match ctx.Types.Union.TryGetValue name with
             | true, info ->
                 match c.Kind, info.EqualitySupport, info.ComparisonSupport with
                 | SemanticConstraintKind.Equality, EqualityVerdict.NoEquality, _ -> Violated
@@ -761,7 +761,7 @@ module UnificationEngine =
 
                             b.Resolved <- true
                     | TyClass(className, classArgs) ->
-                        match ctx.ClassTypes.TryGetValue className with
+                        match ctx.Types.Class.TryGetValue className with
                         | true, info ->
                             match info.Members |> Array.tryFind (fun m -> m.IsStatic && m.Name = b.MemberName) with
                             | Some m ->

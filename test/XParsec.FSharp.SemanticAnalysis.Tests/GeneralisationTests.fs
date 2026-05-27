@@ -179,7 +179,7 @@ let tests =
                 let ctx, _ = analyseWithCtx "let mutable id = fun x -> x"
                 let idKey = NodeKey.ofSource 12 NodeKind.PatIdent
 
-                Expect.isTrue (ctx.Scheme.TryGetValue idKey = ValueNone) "no scheme entry for mutable binding"
+                Expect.isTrue (ctx.Bindings.Scheme.TryGetValue idKey = ValueNone) "no scheme entry for mutable binding"
             }
 
             test "mutable binding is monomorphic across two use sites" {
@@ -200,7 +200,7 @@ let tests =
                 let rKey = NodeKey.ofSource 12 NodeKind.PatIdent
 
                 let rTy =
-                    match ctx.TypeVar.TryGetValue rKey with
+                    match ctx.Bindings.TypeVar.TryGetValue rKey with
                     | ValueSome tv -> Unification.zonk (TyVar tv)
                     | ValueNone -> failtest "no TypeVar for r"
 

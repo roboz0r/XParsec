@@ -5,7 +5,7 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
 // Pre:  ctx.Desugared populated.
-// Post: ctx.Binding populated for every ident-use site that resolves to a
+// Post: ctx.Bindings.Binding populated for every ident-use site that resolves to a
 //       local binding. Unresolved names that the provider also doesn't know
 //       become Error diagnostics.
 //
@@ -17,12 +17,12 @@ open XParsec.FSharp.SemanticAnalysis
 //   - Operators inside InfixApp / PrefixApp are NOT resolved here. Desugar
 //     records them as DesugaredForm.OpName, and Unification consults the
 //     provider directly when typing the application.
-//   - External-symbol resolution writes NO entry to ctx.Binding; Unification
+//   - External-symbol resolution writes NO entry to ctx.Bindings.Binding; Unification
 //     re-queries the provider when it sees a missing binding entry.
 //   - IsInline is always false for the tiny subset. It'll get a real value
 //     when the inline keyword is handled.
 //   - IsMutable mirrors the binding's `mutableToken`, propagated to every
-//     use-site entry so Validation's assignment check can `ctx.Binding[lhsKey]`
+//     use-site entry so Validation's assignment check can `ctx.Bindings.Binding[lhsKey]`
 //     directly. The binding site also gets a self-entry (`BindingSite = key`)
 //     so Validation's value-restriction loop can iterate mutable bindings by
 //     filtering `kv.Key = rb.BindingSite`.
@@ -50,7 +50,7 @@ module NameResolution =
             || [ 1; 2; 3; 4 ]
                |> List.exists (fun a -> ctx.Provider.TryLookupType(sprintf "%s`%d" n a) |> ValueOption.isSome)
 
-        OpenScope.tryQualify ctx.OpenScope probe name |> ValueOption.isSome
+        OpenScope.tryQualify ctx.Resolution.OpenScope probe name |> ValueOption.isSome
 
     let private resolveIdent (ctx: PassContext) (scope: Scope list) (tok: SyntaxToken) (useKey: NodeKey) =
         let name = ctx.NameOf tok
@@ -65,7 +65,7 @@ module NameResolution =
 
         match lookup scope with
         | ValueSome(bindingSite, isMutable) ->
-            ctx.Binding.Set(
+            ctx.Bindings.Binding.Set(
                 useKey,
                 {
                     BindingSite = bindingSite
@@ -74,18 +74,23 @@ module NameResolution =
                 }
             )
         | ValueNone ->
-            match OpenScope.tryQualify ctx.OpenScope (fun n -> ctx.Provider.TryLookup n |> ValueOption.isSome) name with
+            match
+                OpenScope.tryQualify
+                    ctx.Resolution.OpenScope
+                    (fun n -> ctx.Provider.TryLookup n |> ValueOption.isSome)
+                    name
+            with
             | ValueSome _ -> ()
             | ValueNone ->
-                // DU ctor references resolve through `ctx.CtorIndex` in
-                // Unification, not `ctx.Binding`; class names used as
-                // ctor-as-function (`Point(3, 4)`) live in `ctx.ClassTypes`.
+                // DU ctor references resolve through `ctx.Types.CtorIndex` in
+                // Unification, not `ctx.Bindings.Binding`; class names used as
+                // ctor-as-function (`Point(3, 4)`) live in `ctx.Types.Class`.
                 // An external type name used as a static-access receiver resolves
                 // through the provider in Unification, not as a value. Suppress the
                 // "Unresolved identifier" diagnostic for all three.
                 if
-                    ctx.CtorIndex.ContainsKey name
-                    || ctx.ClassTypes.ContainsKey name
+                    ctx.Types.CtorIndex.ContainsKey name
+                    || ctx.Types.Class.ContainsKey name
                     || resolvesAsExternalType ctx name
                 then
                     ()
@@ -105,7 +110,7 @@ module NameResolution =
     let private isCtorName (ctx: PassContext) (name: string) : bool =
         name.Length > 0
         && System.Char.IsUpper name.[0]
-        && ctx.CtorIndex.ContainsKey name
+        && ctx.Types.CtorIndex.ContainsKey name
 
     /// Every (name, NodeKey) pair introduced by a pattern; [] for patterns
     /// that bind nothing (Wildcard, Const, nullary ctors).
@@ -138,7 +143,7 @@ module NameResolution =
         | Pat.Op io ->
             // Operator-named binding head (`let (=) x y = …`): bind the operator's
             // compiled name (`op_Equality`) so the binding site records a
-            // `ctx.Binding` self-entry. Use sites resolve through Desugar→External,
+            // `ctx.Bindings.Binding` self-entry. Use sites resolve through Desugar→External,
             // not this scope entry, but Validation's per-binding loop expects one.
             match Desugar.opPatCompiledName ctx.NameOf io with
             | ValueSome n -> [ n, CstKeys.ofPat p ]
@@ -157,8 +162,8 @@ module NameResolution =
         s
 
     /// Build the scope additions for a let-group. Also writes a binding-site
-    /// self-entry to `ctx.Binding` for every binder — Validation's
-    /// value-restriction loop iterates `ctx.Binding` and filters by
+    /// self-entry to `ctx.Bindings.Binding` for every binder — Validation's
+    /// value-restriction loop iterates `ctx.Bindings.Binding` and filters by
     /// `kv.Key = rb.BindingSite` to find one entry per binding.
     let private bindingsToScope (ctx: PassContext) (bindings: ImmutableArray<Binding<SyntaxToken>>) : Scope =
         let mutable s = Map.empty
@@ -169,7 +174,7 @@ module NameResolution =
             for n, k in bindingsOfPat ctx b.headPat do
                 s <- Map.add n (k, isMut) s
 
-                ctx.Binding.Set(
+                ctx.Bindings.Binding.Set(
                     k,
                     {
                         BindingSite = k
@@ -208,7 +213,7 @@ module NameResolution =
                 // head's binding entry uses the ExprIdent kind on the head
                 // token so subsequent passes can look up the receiver's type
                 // by the same key.
-                ctx.Binding.Set(
+                ctx.Bindings.Binding.Set(
                     NodeKey.ofToken head NodeKind.ExprIdent,
                     {
                         BindingSite = bindingSite
@@ -221,19 +226,19 @@ module NameResolution =
 
                 match
                     OpenScope.tryQualify
-                        ctx.OpenScope
+                        ctx.Resolution.OpenScope
                         (fun n -> ctx.Provider.TryLookup n |> ValueOption.isSome)
                         qualName
                 with
                 | ValueSome _ -> ()
                 | ValueNone ->
                     // `Result2.Ok` — two-segment qualified ctor reference,
-                    // resolves through `ctx.UnionTypes`; suppress so
+                    // resolves through `ctx.Types.Union`; suppress so
                     // Unification can pick it up.
                     let isQualifiedCtor =
                         li.Idents.Length = 2
-                        && ctx.UnionTypes.ContainsKey(ctx.NameOf li.Idents.[0])
-                        && (let info = ctx.UnionTypes.[ctx.NameOf li.Idents.[0]]
+                        && ctx.Types.Union.ContainsKey(ctx.NameOf li.Idents.[0])
+                        && (let info = ctx.Types.Union.[ctx.NameOf li.Idents.[0]]
                             let caseName = ctx.NameOf li.Idents.[1]
                             info.Cases |> Array.exists (fun c -> c.Name = caseName))
 
@@ -249,10 +254,10 @@ module NameResolution =
                             let staticIn (members: ClassMemberInfo[]) =
                                 members |> Array.exists (fun m -> m.IsStatic && m.Name = memberName)
 
-                            (ctx.ClassTypes.ContainsKey typeName
-                             && staticIn ctx.ClassTypes.[typeName].Members)
-                            || (ctx.UnionTypes.ContainsKey typeName
-                                && staticIn ctx.UnionTypes.[typeName].Members))
+                            (ctx.Types.Class.ContainsKey typeName
+                             && staticIn ctx.Types.Class.[typeName].Members)
+                            || (ctx.Types.Union.ContainsKey typeName
+                                && staticIn ctx.Types.Union.[typeName].Members))
 
                     // A fully-qualified external type used as a static-access
                     // receiver (`System.Collections.Generic.EqualityComparer<int>`)
@@ -427,9 +432,9 @@ module NameResolution =
                 let name = ctx.NameOf nameTok
 
                 if
-                    ctx.RecordTypes.ContainsKey name
-                    || ctx.UnionTypes.ContainsKey name
-                    || ctx.AbbreviationTypes.ContainsKey name
+                    ctx.Types.Record.ContainsKey name
+                    || ctx.Types.Union.ContainsKey name
+                    || ctx.Types.Abbreviation.ContainsKey name
                 then
                     ctx.Diagnostics.Add
                         {
@@ -490,12 +495,12 @@ module NameResolution =
                         | ValueSome v -> v
                         | ValueNone -> ComparisonVerdict.NoComparison
 
-                    ctx.RecordTypes.[name] <- info
+                    ctx.Types.Record.[name] <- info
 
                     for fi in fieldInfos do
-                        match ctx.FieldIndex.TryGetValue fi.Name with
-                        | true, infos -> ctx.FieldIndex.[fi.Name] <- info :: infos
-                        | false, _ -> ctx.FieldIndex.[fi.Name] <- [ info ]
+                        match ctx.Types.FieldIndex.TryGetValue fi.Name with
+                        | true, infos -> ctx.Types.FieldIndex.[fi.Name] <- info :: infos
+                        | false, _ -> ctx.Types.FieldIndex.[fi.Name] <- [ info ]
         | _ -> ()
 
     let private registerRecordTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
@@ -581,7 +586,7 @@ module NameResolution =
                 let name = ctx.NameOf nameTok
                 let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
 
-                if ctx.UnionTypes.ContainsKey name || ctx.RecordTypes.ContainsKey name then
+                if ctx.Types.Union.ContainsKey name || ctx.Types.Record.ContainsKey name then
                     ctx.Diagnostics.Add
                         {
                             Key = declKey
@@ -632,12 +637,12 @@ module NameResolution =
                         | ValueSome v -> v
                         | ValueNone -> ComparisonVerdict.NoComparison
 
-                    ctx.UnionTypes.[name] <- info
+                    ctx.Types.Union.[name] <- info
 
                     for c in caseInfos do
-                        match ctx.CtorIndex.TryGetValue c.Name with
-                        | true, infos -> ctx.CtorIndex.[c.Name] <- c :: infos
-                        | false, _ -> ctx.CtorIndex.[c.Name] <- [ c ]
+                        match ctx.Types.CtorIndex.TryGetValue c.Name with
+                        | true, infos -> ctx.Types.CtorIndex.[c.Name] <- c :: infos
+                        | false, _ -> ctx.Types.CtorIndex.[c.Name] <- [ c ]
         | _ -> ()
 
     let private registerUnionTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
@@ -692,10 +697,10 @@ module NameResolution =
                 let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
 
                 if
-                    ctx.RecordTypes.ContainsKey name
-                    || ctx.UnionTypes.ContainsKey name
-                    || ctx.AbbreviationTypes.ContainsKey name
-                    || ctx.IntrinsicReprTypes.ContainsKey name
+                    ctx.Types.Record.ContainsKey name
+                    || ctx.Types.Union.ContainsKey name
+                    || ctx.Types.Abbreviation.ContainsKey name
+                    || ctx.Types.IntrinsicReprTypes.ContainsKey name
                 then
                     ctx.Diagnostics.Add
                         {
@@ -708,14 +713,14 @@ module NameResolution =
                     | Type.ILIntrinsic(instrParts = parts) ->
                         // Primitive binding: record the representation, register
                         // the name as a nominal intrinsic. Not a transparent abbrev.
-                        ctx.IntrinsicReprTypes.[name] <- ilIntrinsicString ctx parts
+                        ctx.Types.IntrinsicReprTypes.[name] <- ilIntrinsicString ctx parts
                     | _ ->
                         let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
 
                         let info =
                             AbbreviationInfo(name, typeParams, rhs, declKey, typarConstraintsOfTypeName tn)
 
-                        ctx.AbbreviationTypes.[name] <- info
+                        ctx.Types.Abbreviation.[name] <- info
         | _ -> ()
 
     let private registerAbbreviationTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
@@ -910,10 +915,10 @@ module NameResolution =
                 let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
 
                 if
-                    ctx.RecordTypes.ContainsKey name
-                    || ctx.UnionTypes.ContainsKey name
-                    || ctx.AbbreviationTypes.ContainsKey name
-                    || ctx.ClassTypes.ContainsKey name
+                    ctx.Types.Record.ContainsKey name
+                    || ctx.Types.Union.ContainsKey name
+                    || ctx.Types.Abbreviation.ContainsKey name
+                    || ctx.Types.Class.ContainsKey name
                 then
                     ctx.Diagnostics.Add
                         {
@@ -940,12 +945,12 @@ module NameResolution =
                     let info =
                         ClassTypeInfo(name, typeParams, ctorParams, members, declKey, thisName, thisKey)
 
-                    ctx.ClassTypes.[name] <- info
+                    ctx.Types.Class.[name] <- info
 
                     for m in members do
-                        match ctx.ClassMemberIndex.TryGetValue m.Name with
-                        | true, lst -> ctx.ClassMemberIndex.[m.Name] <- (info, m) :: lst
-                        | false, _ -> ctx.ClassMemberIndex.[m.Name] <- [ (info, m) ]
+                        match ctx.Types.ClassMemberIndex.TryGetValue m.Name with
+                        | true, lst -> ctx.Types.ClassMemberIndex.[m.Name] <- (info, m) :: lst
+                        | false, _ -> ctx.Types.ClassMemberIndex.[m.Name] <- [ (info, m) ]
 
     let private registerClassTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
         match m with
@@ -969,7 +974,7 @@ module NameResolution =
                     ->
                     let name = ctx.NameOf nameLi.Idents.[0]
 
-                    match ctx.UnionTypes.TryGetValue name with
+                    match ctx.Types.Union.TryGetValue name with
                     | true, info ->
                         info.Members <- extractMembers ctx info.DeclKey elems
                         info.ThisKey <- NodeKey.ofSynthetic info.DeclKey.Offset NodeKind.SynthThisBinding
@@ -978,7 +983,7 @@ module NameResolution =
         | _ -> ()
 
     /// Parameters for `walkTypeBodies`: a registry-driven walk over a
-    /// class or union's member bodies that seeds `ctx.Binding` with
+    /// class or union's member bodies that seeds `ctx.Bindings.Binding` with
     /// `this` (and any ctor params) and recurses each body through
     /// `walker`. `CtorParams` is `[||]` for unions (no primary ctor).
     [<NoEquality; NoComparison>]
@@ -993,7 +998,7 @@ module NameResolution =
     /// Walk every method / property / auto-property body of a class or
     /// union with an instance scope that binds `this` (or the `as` alias)
     /// and every primary-constructor argument. Each binding-site self-entry
-    /// is written to `ctx.Binding`. Member names are NOT in lexical scope:
+    /// is written to `ctx.Bindings.Binding`. Member names are NOT in lexical scope:
     /// sibling members reference one another only via `this.OtherMember`.
     /// Static scope (statics opt in via `staticToken`) is empty: statics
     /// don't see `this` or ctor args (F# class members spec §8.7).
@@ -1001,7 +1006,7 @@ module NameResolution =
         let mutable scopeMap: Scope = Map.empty
         scopeMap <- Map.add w.ThisName (w.ThisKey, false) scopeMap
 
-        ctx.Binding.Set(
+        ctx.Bindings.Binding.Set(
             w.ThisKey,
             {
                 BindingSite = w.ThisKey
@@ -1013,7 +1018,7 @@ module NameResolution =
         for p in w.CtorParams do
             scopeMap <- Map.add p.Name (p.DeclKey, false) scopeMap
 
-            ctx.Binding.Set(
+            ctx.Bindings.Binding.Set(
                 p.DeclKey,
                 {
                     BindingSite = p.DeclKey
@@ -1068,7 +1073,7 @@ module NameResolution =
             for td in defs do
                 match bodyOf td with
                 | ValueSome(name, body) ->
-                    match ctx.ClassTypes.TryGetValue name with
+                    match ctx.Types.Class.TryGetValue name with
                     | true, info ->
                         walkTypeBodies
                             ctx
@@ -1098,7 +1103,7 @@ module NameResolution =
                     ->
                     let name = ctx.NameOf nameLi.Idents.[0]
 
-                    match ctx.UnionTypes.TryGetValue name with
+                    match ctx.Types.Union.TryGetValue name with
                     | true, info when not (Array.isEmpty info.Members) ->
                         walkTypeBodies
                             ctx
@@ -1126,7 +1131,7 @@ module NameResolution =
             for b in bindings do
                 let rhsScope = walker.EnterBindingRhs scope isRecursive bindings b
                 CstWalk.iterExpr walker rhsScope b.expr
-            // `bindingsToScope` writes binding-site self-entries to ctx.Binding
+            // `bindingsToScope` writes binding-site self-entries to ctx.Bindings.Binding
             // as a side effect — same path used by EnterLetBody.
             let newEntries = bindingsToScope ctx bindings
 
@@ -1149,7 +1154,7 @@ module NameResolution =
         // Pre-pass: register every record / union type so subsequent
         // expression walks (and Unification) resolve against the registry.
         // Both must finish before `bindingsOfPat` runs on any pattern, since
-        // the ctor-vs-binder disambiguation reads `ctx.CtorIndex`. Registration
+        // the ctor-vs-binder disambiguation reads `ctx.Types.CtorIndex`. Registration
         // resolves no external short names, so it ignores the per-element scope.
         for (m, _) in pairs do
             registerRecordTypes ctx m
@@ -1170,26 +1175,26 @@ module NameResolution =
         // `walkModuleElem` skips `ModuleElem.Type`, so class member bodies are
         // walked here with each class's own scope (`this` + ctor params), so
         // member-body idents have Binding entries before Unification types them.
-        // `ctx.OpenScope` is set per element so a member body resolves short
+        // `ctx.Resolution.OpenScope` is set per element so a member body resolves short
         // external names against the `open`s in scope at that element.
         for (m, openScope) in pairs do
-            ctx.OpenScope <- openScope
+            ctx.Resolution.OpenScope <- openScope
             walkClassBodies ctx walker m
 
         for (m, openScope) in pairs do
-            ctx.OpenScope <- openScope
+            ctx.Resolution.OpenScope <- openScope
             walkUnionBodies ctx walker m
 
         let mutable scope = [ Map.empty ]
 
         for (m, openScope) in pairs do
-            ctx.OpenScope <- openScope
+            ctx.Resolution.OpenScope <- openScope
             scope <- walkModuleElem ctx walker scope m
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
         let walker = mkWalker ctx
         // Seed the walk with the stable ambient prelude (empty today; the
         // referenced-contract auto-open set later — symbol-resolution-handoff.md, open-resolution).
-        // `walkElems` overwrites `ctx.OpenScope` per element, so the seed is read
+        // `walkElems` overwrites `ctx.Resolution.OpenScope` per element, so the seed is read
         // from `AmbientOpenScope`, not the scope it mutates.
-        walkElems ctx walker (CstWalk.walkModuleTree ctx.NameOf ctx.AmbientOpenScope file)
+        walkElems ctx walker (CstWalk.walkModuleTree ctx.NameOf ctx.Resolution.AmbientOpenScope file)

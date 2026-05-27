@@ -9,9 +9,9 @@ open UnificationEngine
 open UnificationTranslate
 open UnificationInfer
 
-// Pre:  ctx.Desugared and ctx.Binding populated.
-// Post: ctx.TypeVar populated; every TypeVar's Link reaches its solved type
-//       via UnionFind.find. ctx.Scheme populated for every generalisable
+// Pre:  ctx.Desugared and ctx.Bindings.Binding populated.
+// Post: ctx.Bindings.TypeVar populated; every TypeVar's Link reaches its solved type
+//       via UnionFind.find. ctx.Bindings.Scheme populated for every generalisable
 //       `let`-bound name (single-name headPats — see `shouldGeneralise`).
 //
 // Algorithm J + Rémy's levels.
@@ -58,7 +58,7 @@ module Unification =
     /// Link each placeholder field TyVar (stamped by NameResolution) to its
     /// real translated CST type. Done as a pre-pass so a record's field type
     /// can reference another record declared elsewhere in the same file —
-    /// every record name is already in `ctx.RecordTypes` by now.
+    /// every record name is already in `ctx.Types.Record` by now.
     let private fillRecordFieldTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
         match m with
         | ModuleElem.Type defs ->
@@ -67,12 +67,12 @@ module Unification =
                 | TypeDefn.Record(typeName = TypeName(ident = nameLi); fields = fields) when nameLi.Idents.Length = 1 ->
                     let name = ctx.NameOf nameLi.Idents.[0]
 
-                    match ctx.RecordTypes.TryGetValue name with
+                    match ctx.Types.Record.TryGetValue name with
                     | true, info ->
-                        let savedScope = ctx.TyparScope
-                        let savedStrict = ctx.TyparScopeStrict
-                        ctx.TyparScope <- scopeOfTypeParams info.TypeParams
-                        ctx.TyparScopeStrict <- true
+                        let savedScope = ctx.Resolution.TyparScope
+                        let savedStrict = ctx.Resolution.TyparScopeStrict
+                        ctx.Resolution.TyparScope <- scopeOfTypeParams info.TypeParams
+                        ctx.Resolution.TyparScopeStrict <- true
 
                         try
                             match info.TyparConstraints with
@@ -93,8 +93,8 @@ module Unification =
 
                                 ignore id
                         finally
-                            ctx.TyparScope <- savedScope
-                            ctx.TyparScopeStrict <- savedStrict
+                            ctx.Resolution.TyparScope <- savedScope
+                            ctx.Resolution.TyparScopeStrict <- savedStrict
                     | false, _ -> ()
                 | _ -> ()
         | _ -> ()
@@ -110,12 +110,12 @@ module Unification =
                 | TypeDefn.Union(typeName = TypeName(ident = nameLi); cases = cases) when nameLi.Idents.Length = 1 ->
                     let name = ctx.NameOf nameLi.Idents.[0]
 
-                    match ctx.UnionTypes.TryGetValue name with
+                    match ctx.Types.Union.TryGetValue name with
                     | true, info ->
-                        let savedScope = ctx.TyparScope
-                        let savedStrict = ctx.TyparScopeStrict
-                        ctx.TyparScope <- scopeOfTypeParams info.TypeParams
-                        ctx.TyparScopeStrict <- true
+                        let savedScope = ctx.Resolution.TyparScope
+                        let savedStrict = ctx.Resolution.TyparScopeStrict
+                        ctx.Resolution.TyparScope <- scopeOfTypeParams info.TypeParams
+                        ctx.Resolution.TyparScopeStrict <- true
 
                         try
                             match info.TyparConstraints with
@@ -173,8 +173,8 @@ module Unification =
                                             root.Link <- ValueSome translated
                                         | _ -> ()
                         finally
-                            ctx.TyparScope <- savedScope
-                            ctx.TyparScopeStrict <- savedStrict
+                            ctx.Resolution.TyparScope <- savedScope
+                            ctx.Resolution.TyparScopeStrict <- savedStrict
                     | false, _ -> ()
                 | _ -> ()
         | _ -> ()
@@ -251,16 +251,16 @@ module Unification =
     /// Walk every method / property / auto-property body under a typar
     /// scope seeded from `TypeParams` plus a `this` binding linked to
     /// `MkSelfType`. Placeholder member TyVars are pre-populated into
-    /// `ctx.TypeVar` so `inferBinding`'s `tvOf` reuses them and its
+    /// `ctx.Bindings.TypeVar` so `inferBinding`'s `tvOf` reuses them and its
     /// final `unify patTy rhsTy` links the placeholder to the inferred
     /// member type. AutoProperty has no `Binding`, so its placeholder
     /// is linked manually. Abstract signatures (no body to infer)
     /// translate directly when `AllowAbstractSig` is set.
     let private fillTypeMembers (ctx: PassContext) (fc: TypeMembersFill) : unit =
-        let savedScope = ctx.TyparScope
-        let savedStrict = ctx.TyparScopeStrict
-        ctx.TyparScope <- scopeOfTypeParams fc.TypeParams
-        ctx.TyparScopeStrict <- true
+        let savedScope = ctx.Resolution.TyparScope
+        let savedStrict = ctx.Resolution.TyparScopeStrict
+        ctx.Resolution.TyparScope <- scopeOfTypeParams fc.TypeParams
+        ctx.Resolution.TyparScopeStrict <- true
 
         try
             fc.PrelinkExtras()
@@ -272,7 +272,7 @@ module Unification =
             thisTv.Level <- ctx.CurrentLevel
             let selfArgs = [ for (_, ptv) in fc.TypeParams -> TyVar ptv ]
             thisTv.Link <- ValueSome(fc.MkSelfType selfArgs)
-            ctx.TypeVar.Set(fc.ThisKey, thisTv)
+            ctx.Bindings.TypeVar.Set(fc.ThisKey, thisTv)
 
             // Static member bodies never see `this` / ctor params
             // (NameResolution gives them an empty binding scope);
@@ -300,7 +300,7 @@ module Unification =
                             match fc.Members |> Array.tryFind (fun m -> m.DeclKey = mKey) with
                             | Some mInfo ->
                                 match mInfo.Type with
-                                | TyVar tv -> ctx.TypeVar.Set(mKey, tv)
+                                | TyVar tv -> ctx.Bindings.TypeVar.Set(mKey, tv)
                                 | _ -> ()
                             | None -> ()
 
@@ -359,7 +359,7 @@ module Unification =
                                     // Extend the scope with the method's own
                                     // `<'C, …>` typars so they resolve to their
                                     // prototype TyVars (not diagnosed as free).
-                                    let savedMScope = ctx.TyparScope
+                                    let savedMScope = ctx.Resolution.TyparScope
 
                                     if not (List.isEmpty mInfo.MethodTypeParams) then
                                         let extended =
@@ -368,20 +368,20 @@ module Unification =
                                         for (n, ptv) in mInfo.MethodTypeParams do
                                             extended.[n] <- ptv
 
-                                        ctx.TyparScope <- extended
+                                        ctx.Resolution.TyparScope <- extended
 
                                     try
                                         root.Link <- ValueSome(curriedSigToSemType ctx csig)
                                     finally
-                                        ctx.TyparScope <- savedMScope
+                                        ctx.Resolution.TyparScope <- savedMScope
                                 | _ -> ()
                             | None -> ()
                         | ValueNone -> ()
                     | _ -> ()
                 | _ -> ()
         finally
-            ctx.TyparScope <- savedScope
-            ctx.TyparScopeStrict <- savedStrict
+            ctx.Resolution.TyparScope <- savedScope
+            ctx.Resolution.TyparScopeStrict <- savedStrict
 
     let private fillClassMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
         let common (td: TypeDefn<SyntaxToken>) =
@@ -400,18 +400,18 @@ module Unification =
             for td in defs do
                 match common td with
                 | ValueSome(name, pc, body) ->
-                    match ctx.ClassTypes.TryGetValue name with
+                    match ctx.Types.Class.TryGetValue name with
                     | true, info ->
                         let prelinkExtras () =
                             // Fill ctor-param placeholders under the class's
-                            // typar scope, then seed `ctx.TypeVar` so
+                            // typar scope, then seed `ctx.Bindings.TypeVar` so
                             // `inferIdent` lookups against the param binding
                             // sites return these.
                             fillClassCtorParamTypes ctx info pc
 
                             for p in info.CtorParams do
                                 match p.Type with
-                                | TyVar tv -> ctx.TypeVar.Set(p.DeclKey, tv)
+                                | TyVar tv -> ctx.Bindings.TypeVar.Set(p.DeclKey, tv)
                                 | _ -> ()
 
                         fillTypeMembers
@@ -440,7 +440,7 @@ module Unification =
                     ->
                     let name = ctx.NameOf nameLi.Idents.[0]
 
-                    match ctx.UnionTypes.TryGetValue name with
+                    match ctx.Types.Union.TryGetValue name with
                     | true, info when not (Array.isEmpty info.Members) ->
                         fillTypeMembers
                             ctx
@@ -470,7 +470,7 @@ module Unification =
                     | TypeDefn.Abbrev(typeName = TypeName(ident = nameLi)) when nameLi.Idents.Length = 1 ->
                         let name = ctx.NameOf nameLi.Idents.[0]
 
-                        match ctx.AbbreviationTypes.TryGetValue name with
+                        match ctx.Types.Abbreviation.TryGetValue name with
                         | true, info -> forceFill ctx info
                         | false, _ -> ()
                     | _ -> ()
@@ -480,27 +480,27 @@ module Unification =
         let elems = ImmutableArray.CreateRange(pairs |> List.map fst)
         fillAbbreviationBodies ctx elems
 
-        // Set `ctx.OpenScope` per element so the provider-probe sites
+        // Set `ctx.Resolution.OpenScope` per element so the provider-probe sites
         // (`inferIdent`, `tryExternalTypeReceiver`) resolve short external names
         // against the `open`s in scope at that element (symbol-resolution-handoff.md, open-resolution).
         for (m, openScope) in pairs do
-            ctx.OpenScope <- openScope
+            ctx.Resolution.OpenScope <- openScope
             fillRecordFieldTypes ctx m
 
         for (m, openScope) in pairs do
-            ctx.OpenScope <- openScope
+            ctx.Resolution.OpenScope <- openScope
             fillUnionFieldTypes ctx m
 
         for (m, openScope) in pairs do
-            ctx.OpenScope <- openScope
+            ctx.Resolution.OpenScope <- openScope
             fillClassMembers ctx m
 
         for (m, openScope) in pairs do
-            ctx.OpenScope <- openScope
+            ctx.Resolution.OpenScope <- openScope
             fillUnionMembers ctx m
 
         for (m, openScope) in pairs do
-            ctx.OpenScope <- openScope
+            ctx.Resolution.OpenScope <- openScope
             walkModuleElem ctx m
 
     /// Resolve the bare-program list literals left flexible by `listLiteralTy`
@@ -527,5 +527,5 @@ module Unification =
         // Recompute the same per-element `OpenScope` NameResolution did, from the
         // same stable ambient seed (`AmbientOpenScope`, not the per-element
         // `OpenScope` the walk mutates — symbol-resolution-handoff.md, open-resolution).
-        walkElems ctx (CstWalk.walkModuleTree ctx.NameOf ctx.AmbientOpenScope file)
+        walkElems ctx (CstWalk.walkModuleTree ctx.NameOf ctx.Resolution.AmbientOpenScope file)
         resolveListLiterals ctx

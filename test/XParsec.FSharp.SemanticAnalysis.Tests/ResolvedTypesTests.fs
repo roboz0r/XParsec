@@ -108,7 +108,7 @@ let tests =
                     | [ TDecl.Let(TPat.NamedSimple(k, _), _, _, _) ] -> k
                     | other -> failwithf "expected single NamedSimple decl, got %A" other
 
-                let scheme = ctx.Scheme.TryGetValue idKey
+                let scheme = ctx.Bindings.Scheme.TryGetValue idKey
 
                 let quantTv =
                     match scheme with

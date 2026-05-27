@@ -14,7 +14,7 @@ let private analyse (input: string) =
     ctx
 
 let private typeOf (ctx: PassContext) (key: NodeKey) : SemType =
-    match ctx.TypeVar.TryGetValue key with
+    match ctx.Bindings.TypeVar.TryGetValue key with
     | ValueSome tv -> Unification.zonk (TyVar tv)
     | ValueNone -> failwithf "no TypeVar entry for %O" key
 

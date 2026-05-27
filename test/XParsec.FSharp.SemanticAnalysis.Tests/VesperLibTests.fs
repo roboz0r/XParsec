@@ -563,7 +563,7 @@ let tests =
 
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
 
-                match ctx.TypeVar.TryGetValue patKey with
+                match ctx.Bindings.TypeVar.TryGetValue patKey with
                 | ValueSome tv ->
                     match Unification.zonk (TyVar tv) with
                     | TyConst "int" -> ()
@@ -592,7 +592,7 @@ let tests =
 
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
 
-                match ctx.TypeVar.TryGetValue patKey with
+                match ctx.Bindings.TypeVar.TryGetValue patKey with
                 | ValueSome tv ->
                     match Unification.zonk (TyVar tv) with
                     | TyConst "int" -> ()
@@ -623,7 +623,7 @@ let tests =
                 let vIdx = input.IndexOf "let r" + 4
                 let patKey = NodeKey.ofSource vIdx NodeKind.PatIdent
 
-                match ctx.TypeVar.TryGetValue patKey with
+                match ctx.Bindings.TypeVar.TryGetValue patKey with
                 | ValueSome tv ->
                     match Unification.zonk (TyVar tv) with
                     | TyClass("V", _) -> ()
