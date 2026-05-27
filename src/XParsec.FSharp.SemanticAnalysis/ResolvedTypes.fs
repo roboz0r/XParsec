@@ -63,188 +63,50 @@ module ResolvedTypes =
         for tv in added do
             allowed.Remove tv |> ignore
 
-    let rec private walkPat (allowed: HashSet<TypeVar>) (acc: HashSet<TypeVar>) (p: TPat) : unit =
-        match p with
-        | TPat.NamedSimple(_, t)
-        | TPat.Wildcard t
-        | TPat.Const(_, t) -> addFreeRoots allowed acc t
-        | TPat.Tuple(items, t) ->
-            addFreeRoots allowed acc t
+    /// Build the visit-only iter for one decl walk. Every node's `ty` is fed
+    /// into `addFreeRoots`; `Let` push/pops the binding's scheme so the
+    /// quantified roots are allowed only inside the binding's value (not its
+    /// body); `Format` visits each hole's `Ty` (a per-hole side type the
+    /// default walker doesn't surface).
+    let private buildIter (ctx: PassContext) (allowed: HashSet<TypeVar>) (acc: HashSet<TypeVar>) : TastWalk.Iter =
+        { TastWalk.identityIter with
+            VisitExpr =
+                fun it e ->
+                    addFreeRoots allowed acc (TastWalk.exprTy e)
 
-            for sub in items do
-                walkPat allowed acc sub
-        | TPat.Record(fields, t) ->
-            addFreeRoots allowed acc t
+                    match e with
+                    | TExpr.Let(binding, value, body, _) ->
+                        // Inner let's quantified set is scoped to the value RHS and
+                        // the binding pattern's type; restore on exit so it doesn't
+                        // leak into the body's check.
+                        let added = pushScheme ctx binding allowed
+                        TastWalk.iterPat it binding
+                        TastWalk.iterExpr it value
+                        popScheme allowed added
+                        TastWalk.iterExpr it body
+                        false
+                    | TExpr.Format(sink, segments, _) ->
+                        match sink with
+                        | FormatSink.ToWriter w
+                        | FormatSink.ToBuilder w -> TastWalk.iterExpr it w
+                        | FormatSink.ToStdOut _
+                        | FormatSink.ToStdErr _
+                        | FormatSink.ToString -> ()
 
-            for (_, sub) in fields do
-                walkPat allowed acc sub
-        | TPat.Union(_, fields, t) ->
-            addFreeRoots allowed acc t
+                        for seg in segments do
+                            match seg with
+                            | FormatSeg.Lit _ -> ()
+                            | FormatSeg.Hole(hole, arg) ->
+                                addFreeRoots allowed acc hole.Ty
+                                TastWalk.iterExpr it arg
 
-            for sub in fields do
-                walkPat allowed acc sub
-
-    let rec private walkExpr (ctx: PassContext) (allowed: HashSet<TypeVar>) (acc: HashSet<TypeVar>) (e: TExpr) : unit =
-        match e with
-        | TExpr.Const(_, ty)
-        | TExpr.Var(_, ty)
-        | TExpr.External(_, _, ty)
-        | TExpr.Null ty -> addFreeRoots allowed acc ty
-        | TExpr.Lambda(p, body, ty) ->
-            addFreeRoots allowed acc ty
-            walkPat allowed acc p
-            walkExpr ctx allowed acc body
-        | TExpr.App(fn, arg, ty) ->
-            addFreeRoots allowed acc ty
-            walkExpr ctx allowed acc fn
-            walkExpr ctx allowed acc arg
-        | TExpr.Let(binding, value, body, ty) ->
-            addFreeRoots allowed acc ty
-            // Inner let's quantified set is scoped to the value RHS and the
-            // binding pattern's type; restore on exit so it doesn't leak
-            // into the body's check.
-            let added = pushScheme ctx binding allowed
-            walkPat allowed acc binding
-            walkExpr ctx allowed acc value
-            popScheme allowed added
-            walkExpr ctx allowed acc body
-        | TExpr.IfThenElse(c, t, e2, ty) ->
-            addFreeRoots allowed acc ty
-            walkExpr ctx allowed acc c
-            walkExpr ctx allowed acc t
-            walkExpr ctx allowed acc e2
-        | TExpr.Tuple(items, ty)
-        | TExpr.Sequential(items, ty) ->
-            addFreeRoots allowed acc ty
-
-            for x in items do
-                walkExpr ctx allowed acc x
-        | TExpr.While(c, b, ty) ->
-            addFreeRoots allowed acc ty
-            walkExpr ctx allowed acc c
-            walkExpr ctx allowed acc b
-        | TExpr.ForTo(_, s, e2, b, ty) ->
-            addFreeRoots allowed acc ty
-            walkExpr ctx allowed acc s
-            walkExpr ctx allowed acc e2
-            walkExpr ctx allowed acc b
-        | TExpr.ForIn(p, src, body, ty) ->
-            addFreeRoots allowed acc ty
-            walkPat allowed acc p
-            walkExpr ctx allowed acc src
-            walkExpr ctx allowed acc body
-        | TExpr.Match(sc, arms, ty) ->
-            addFreeRoots allowed acc ty
-            walkExpr ctx allowed acc sc
-
-            for arm in arms do
-                walkArm ctx allowed acc arm
-        | TExpr.TryWith(body, arms, ty) ->
-            addFreeRoots allowed acc ty
-            walkExpr ctx allowed acc body
-
-            for arm in arms do
-                walkArm ctx allowed acc arm
-        | TExpr.TryFinally(body, cleanup, ty) ->
-            addFreeRoots allowed acc ty
-            walkExpr ctx allowed acc body
-            walkExpr ctx allowed acc cleanup
-        | TExpr.Assignment(lhs, rhs, ty) ->
-            addFreeRoots allowed acc ty
-            walkExpr ctx allowed acc lhs
-            walkExpr ctx allowed acc rhs
-        | TExpr.Range(s, step, e2, ty) ->
-            addFreeRoots allowed acc ty
-            walkExpr ctx allowed acc s
-
-            match step with
-            | Some st -> walkExpr ctx allowed acc st
-            | None -> ()
-
-            walkExpr ctx allowed acc e2
-        | TExpr.RecordCons(fields, ty) ->
-            addFreeRoots allowed acc ty
-
-            for (_, v) in fields do
-                walkExpr ctx allowed acc v
-        | TExpr.RecordClone(src, overrides, ty) ->
-            addFreeRoots allowed acc ty
-            walkExpr ctx allowed acc src
-
-            for (_, v) in overrides do
-                walkExpr ctx allowed acc v
-        | TExpr.FieldGet(r, _, ty) ->
-            addFreeRoots allowed acc ty
-            walkExpr ctx allowed acc r
-        | TExpr.FieldSet(r, _, v, ty) ->
-            addFreeRoots allowed acc ty
-            walkExpr ctx allowed acc r
-            walkExpr ctx allowed acc v
-        | TExpr.UnionCons(_, args, ty)
-        | TExpr.New(_, args, ty) ->
-            addFreeRoots allowed acc ty
-
-            for a in args do
-                walkExpr ctx allowed acc a
-        | TExpr.MethodCall(r, _, args, ty) ->
-            addFreeRoots allowed acc ty
-            walkExpr ctx allowed acc r
-
-            for a in args do
-                walkExpr ctx allowed acc a
-        | TExpr.PropertyGet(r, _, ty) ->
-            addFreeRoots allowed acc ty
-            walkExpr ctx allowed acc r
-        | TExpr.StaticMethodCall(_, _, args, ty) ->
-            addFreeRoots allowed acc ty
-
-            for a in args do
-                walkExpr ctx allowed acc a
-        | TExpr.StaticPropertyGet(_, _, ty) -> addFreeRoots allowed acc ty
-        | TExpr.ExternalMember(receiver, _, _, _, ty) ->
-            addFreeRoots allowed acc ty
-
-            match receiver with
-            | ValueSome r -> walkExpr ctx allowed acc r
-            | ValueNone -> ()
-        | TExpr.Format(sink, segments, ty) ->
-            addFreeRoots allowed acc ty
-
-            match sink with
-            | FormatSink.ToWriter w
-            | FormatSink.ToBuilder w -> walkExpr ctx allowed acc w
-            | FormatSink.ToStdOut _
-            | FormatSink.ToStdErr _
-            | FormatSink.ToString -> ()
-
-            for seg in segments do
-                match seg with
-                | FormatSeg.Lit _ -> ()
-                | FormatSeg.Hole(hole, arg) ->
-                    addFreeRoots allowed acc hole.Ty
-                    walkExpr ctx allowed acc arg
-        | TExpr.ILIntrinsic(_, args, ty) ->
-            addFreeRoots allowed acc ty
-
-            for a in args do
-                walkExpr ctx allowed acc a
-        | TExpr.StaticOptimization(clauses, def, ty) ->
-            // The constraint typars are the binding's own quantified typars
-            // (always in `allowed`), so only the branch bodies need checking.
-            addFreeRoots allowed acc ty
-            walkExpr ctx allowed acc def
-
-            for cl in clauses do
-                walkExpr ctx allowed acc cl.Body
-
-    and private walkArm (ctx: PassContext) (allowed: HashSet<TypeVar>) (acc: HashSet<TypeVar>) (arm: TMatchArm) : unit =
-        walkPat allowed acc arm.Pat
-
-        match arm.Guard with
-        | Some g -> walkExpr ctx allowed acc g
-        | None -> ()
-
-        walkExpr ctx allowed acc arm.Body
+                        false
+                    | _ -> true
+            VisitPat =
+                fun _ p ->
+                    addFreeRoots allowed acc (TastWalk.patTy p)
+                    true
+        }
 
     /// Best-effort attribution NodeKey for a decl-level diagnostic. The TAST
     /// doesn't preserve a per-node NodeKey, so we use the binding's site if
@@ -256,17 +118,18 @@ module ResolvedTypes =
 
     let private walkDecl (ctx: PassContext) (allowed: HashSet<TypeVar>) (d: TDecl) : unit =
         let acc = HashSet<TypeVar>(HashIdentity.Reference)
+        let iter = buildIter ctx allowed acc
 
         match d with
         | TDecl.Let(binding, value, _, ty) ->
             let added = pushScheme ctx binding allowed
             addFreeRoots allowed acc ty
-            walkPat allowed acc binding
-            walkExpr ctx allowed acc value
+            TastWalk.iterPat iter binding
+            TastWalk.iterExpr iter value
             popScheme allowed added
         | TDecl.Expression(e, ty) ->
             addFreeRoots allowed acc ty
-            walkExpr ctx allowed acc e
+            TastWalk.iterExpr iter e
         | TDecl.Type _ ->
             // Surfaced type declarations carry no inferred TyVars to resolve
             // (their signatures are already concrete / typar markers by Freeze).

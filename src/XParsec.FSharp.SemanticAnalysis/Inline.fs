@@ -109,79 +109,13 @@ module Inline =
             true
         | _ -> false
 
-    let rec private substPat (subst: Dictionary<TypeVar, SemType>) (p: TPat) : TPat =
-        match p with
-        | TPat.NamedSimple(k, t) -> TPat.NamedSimple(k, substType subst t)
-        | TPat.Wildcard t -> TPat.Wildcard(substType subst t)
-        | TPat.Const(v, t) -> TPat.Const(v, substType subst t)
-        | TPat.Tuple(items, t) -> TPat.Tuple(List.map (substPat subst) items, substType subst t)
-        | TPat.Record(fields, t) -> TPat.Record([ for (n, sub) in fields -> n, substPat subst sub ], substType subst t)
-        | TPat.Union(c, fields, t) -> TPat.Union(c, List.map (substPat subst) fields, substType subst t)
-
-    let rec private substExpr (subst: Dictionary<TypeVar, SemType>) (e: TExpr) : TExpr =
-        let sT t = substType subst t
-        let sE e = substExpr subst e
-        let sP p = substPat subst p
-
-        match e with
-        | TExpr.Const(v, t) -> TExpr.Const(v, sT t)
-        | TExpr.Var(k, t) -> TExpr.Var(k, sT t)
-        | TExpr.External(n, k, t) -> TExpr.External(n, k, sT t)
-        | TExpr.Null t -> TExpr.Null(sT t)
-        | TExpr.Lambda(p, b, t) -> TExpr.Lambda(sP p, sE b, sT t)
-        | TExpr.App(f, a, t) -> TExpr.App(sE f, sE a, sT t)
-        | TExpr.Let(b, v, body, t) -> TExpr.Let(sP b, sE v, sE body, sT t)
-        | TExpr.IfThenElse(c, th, el, t) -> TExpr.IfThenElse(sE c, sE th, sE el, sT t)
-        | TExpr.Tuple(items, t) -> TExpr.Tuple(List.map sE items, sT t)
-        | TExpr.Sequential(items, t) -> TExpr.Sequential(List.map sE items, sT t)
-        | TExpr.While(c, b, t) -> TExpr.While(sE c, sE b, sT t)
-        | TExpr.ForTo(k, s, e2, b, t) -> TExpr.ForTo(k, sE s, sE e2, sE b, sT t)
-        | TExpr.ForIn(p, src, b, t) -> TExpr.ForIn(sP p, sE src, sE b, sT t)
-        | TExpr.Match(sc, arms, t) -> TExpr.Match(sE sc, List.map (substArm subst) arms, sT t)
-        | TExpr.TryWith(b, arms, t) -> TExpr.TryWith(sE b, List.map (substArm subst) arms, sT t)
-        | TExpr.TryFinally(b, c, t) -> TExpr.TryFinally(sE b, sE c, sT t)
-        | TExpr.Assignment(l, r, t) -> TExpr.Assignment(sE l, sE r, sT t)
-        | TExpr.Range(s, step, e2, t) -> TExpr.Range(sE s, Option.map sE step, sE e2, sT t)
-        | TExpr.RecordCons(fields, t) -> TExpr.RecordCons([ for (n, v) in fields -> n, sE v ], sT t)
-        | TExpr.RecordClone(src, ov, t) -> TExpr.RecordClone(sE src, [ for (n, v) in ov -> n, sE v ], sT t)
-        | TExpr.FieldGet(r, n, t) -> TExpr.FieldGet(sE r, n, sT t)
-        | TExpr.FieldSet(r, n, v, t) -> TExpr.FieldSet(sE r, n, sE v, sT t)
-        | TExpr.UnionCons(c, args, t) -> TExpr.UnionCons(c, List.map sE args, sT t)
-        | TExpr.New(c, args, t) -> TExpr.New(c, List.map sE args, sT t)
-        | TExpr.MethodCall(r, n, args, t) -> TExpr.MethodCall(sE r, n, List.map sE args, sT t)
-        | TExpr.PropertyGet(r, n, t) -> TExpr.PropertyGet(sE r, n, sT t)
-        | TExpr.StaticMethodCall(c, n, args, t) -> TExpr.StaticMethodCall(c, n, List.map sE args, sT t)
-        | TExpr.StaticPropertyGet(c, n, t) -> TExpr.StaticPropertyGet(c, n, sT t)
-        | TExpr.ExternalMember(r, k, n, isProp, t) -> TExpr.ExternalMember(ValueOption.map sE r, k, n, isProp, sT t)
-        | TExpr.Format(sink, segs, t) ->
-            let sink =
-                match sink with
-                | FormatSink.ToWriter w -> FormatSink.ToWriter(sE w)
-                | FormatSink.ToBuilder w -> FormatSink.ToBuilder(sE w)
-                | other -> other
-
-            let segs =
-                segs
-                |> EqArray.map (fun seg ->
-                    match seg with
-                    | FormatSeg.Lit _ -> seg
-                    | FormatSeg.Hole(h, a) -> FormatSeg.Hole({ h with Ty = sT h.Ty }, sE a)
-                )
-
-            TExpr.Format(sink, segs, sT t)
-        | TExpr.ILIntrinsic(op, args, t) -> TExpr.ILIntrinsic(op, List.map sE args, sT t)
-        // Resolve the static optimization against the now-substituted typars: the
-        // call-site type args have pinned `^T`, so pick the first clause whose
-        // constraints hold and keep only its (substituted) body. This is prereq 3
-        // — static-opt clause resolution at `let inline` expansion. See
-        // docs/operators-plan.md.
-        | TExpr.StaticOptimization(clauses, def, _) -> resolveStaticOpt subst clauses def
-
-    and private resolveStaticOpt
-        (subst: Dictionary<TypeVar, SemType>)
-        (clauses: TStaticOptClause list)
-        (defaultExpr: TExpr)
-        : TExpr =
+    /// Build the typar-substituting mapper for one inline expansion. The
+    /// `StaticOptimization` override is the only customisation: at call-site
+    /// expansion the typars have been pinned, so pick the first clause whose
+    /// constraints hold and keep only its (substituted) body (prereq 3 — see
+    /// docs/operators-plan.md). Everything else falls through to the default
+    /// rewrite, which threads `substType subst` through every embedded `ty`.
+    let rec private substMapper (subst: Dictionary<TypeVar, SemType>) : TastWalk.Mapper =
         let sub = substType subst
 
         let holds (c: TStaticOptConstraint) =
@@ -189,16 +123,24 @@ module Inline =
             | TStaticOptConstraint.TyconEquals(typar, required) -> staticOptTypesMatch (sub typar) (sub required)
             | TStaticOptConstraint.IsStruct typar -> isStructType (sub typar)
 
-        match clauses |> List.tryFind (fun cl -> cl.Constraints |> List.forall holds) with
-        | Some cl -> substExpr subst cl.Body
-        | None -> substExpr subst defaultExpr
+        let resolveStaticOpt (clauses: TStaticOptClause list) (defaultExpr: TExpr) : TExpr =
+            let m = substMapper subst
 
-    and private substArm (subst: Dictionary<TypeVar, SemType>) (arm: TMatchArm) : TMatchArm =
-        {
-            Pat = substPat subst arm.Pat
-            Guard = Option.map (substExpr subst) arm.Guard
-            Body = substExpr subst arm.Body
+            match clauses |> List.tryFind (fun cl -> cl.Constraints |> List.forall holds) with
+            | Some cl -> TastWalk.mapExpr m cl.Body
+            | None -> TastWalk.mapExpr m defaultExpr
+
+        { TastWalk.identityMapper with
+            MapType = sub
+            OverrideExpr =
+                fun _ e ->
+                    match e with
+                    | TExpr.StaticOptimization(clauses, def, _) -> ValueSome(resolveStaticOpt clauses def)
+                    | _ -> ValueNone
         }
+
+    let private substExpr (subst: Dictionary<TypeVar, SemType>) (e: TExpr) : TExpr =
+        TastWalk.mapExpr (substMapper subst) e
 
     /// Expand an `inline` binding's retained body for one call site.
     /// `typeArgs` are the caller's concrete types for the binding's
@@ -250,85 +192,32 @@ module Inline =
             | true, k' -> k'
             | _ -> k
 
-        let rec fP (p: TPat) : TPat =
-            match p with
-            | TPat.NamedSimple(k, t) -> TPat.NamedSimple(bind k, t)
-            | TPat.Wildcard _ -> p
-            | TPat.Const _ -> p
-            | TPat.Tuple(items, t) -> TPat.Tuple(List.map fP items, t)
-            | TPat.Record(fields, t) -> TPat.Record([ for (n, sub) in fields -> n, fP sub ], t)
-            | TPat.Union(c, fields, t) -> TPat.Union(c, List.map fP fields, t)
+        // Two overrides: every `TPat.NamedSimple` binds (covers Lambda/Let/
+        // Match-arm/ForIn binders and nested binders inside Tuple/Record/Union
+        // sub-pats via default recursion); every `TExpr.Var` use rewrites
+        // through the remap. `ForTo`'s binder is a bare `NodeKey` (not a
+        // `TPat`), so it gets a manual override. The default `Let` / `Lambda`
+        // / `Match` arms in TastWalk.mapExpr evaluate `mapPat m p` before
+        // `mapExpr m body` — so binders are in the remap before any reference
+        // to them is rewritten.
+        let mapper: TastWalk.Mapper =
+            { TastWalk.identityMapper with
+                OverridePat =
+                    fun _ p ->
+                        match p with
+                        | TPat.NamedSimple(k, t) -> ValueSome(TPat.NamedSimple(bind k, t))
+                        | _ -> ValueNone
+                OverrideExpr =
+                    fun m e ->
+                        match e with
+                        | TExpr.Var(k, t) -> ValueSome(TExpr.Var(useKey k, t))
+                        | TExpr.ForTo(var, s, e2, b, t) ->
+                            let var = bind var
 
-        let rec fE (e: TExpr) : TExpr =
-            match e with
-            | TExpr.Const _ -> e
-            | TExpr.Var(k, t) -> TExpr.Var(useKey k, t)
-            | TExpr.External _ -> e
-            | TExpr.Null _ -> e
-            | TExpr.Lambda(p, b, t) ->
-                let p = fP p
-                TExpr.Lambda(p, fE b, t)
-            | TExpr.App(f, a, t) -> TExpr.App(fE f, fE a, t)
-            | TExpr.Let(b, v, body, t) ->
-                // `value` is not in the binder's scope (non-rec), but the
-                // binder key is globally unique so binding it first cannot
-                // mis-rewrite `value`; binding first keeps the rule uniform.
-                let b = fP b
-                TExpr.Let(b, fE v, fE body, t)
-            | TExpr.IfThenElse(c, th, el, t) -> TExpr.IfThenElse(fE c, fE th, fE el, t)
-            | TExpr.Tuple(items, t) -> TExpr.Tuple(List.map fE items, t)
-            | TExpr.Sequential(items, t) -> TExpr.Sequential(List.map fE items, t)
-            | TExpr.While(c, b, t) -> TExpr.While(fE c, fE b, t)
-            | TExpr.ForTo(var, s, e2, b, t) ->
-                let var = bind var
-                TExpr.ForTo(var, fE s, fE e2, fE b, t)
-            | TExpr.ForIn(p, src, b, t) ->
-                let p = fP p
-                TExpr.ForIn(p, fE src, fE b, t)
-            | TExpr.Match(sc, arms, t) -> TExpr.Match(fE sc, List.map fArm arms, t)
-            | TExpr.TryWith(b, arms, t) -> TExpr.TryWith(fE b, List.map fArm arms, t)
-            | TExpr.TryFinally(b, c, t) -> TExpr.TryFinally(fE b, fE c, t)
-            | TExpr.Assignment(l, r, t) -> TExpr.Assignment(fE l, fE r, t)
-            | TExpr.Range(s, step, e2, t) -> TExpr.Range(fE s, Option.map fE step, fE e2, t)
-            | TExpr.RecordCons(fields, t) -> TExpr.RecordCons([ for (n, v) in fields -> n, fE v ], t)
-            | TExpr.RecordClone(src, ov, t) -> TExpr.RecordClone(fE src, [ for (n, v) in ov -> n, fE v ], t)
-            | TExpr.FieldGet(r, n, t) -> TExpr.FieldGet(fE r, n, t)
-            | TExpr.FieldSet(r, n, v, t) -> TExpr.FieldSet(fE r, n, fE v, t)
-            | TExpr.UnionCons(c, args, t) -> TExpr.UnionCons(c, List.map fE args, t)
-            | TExpr.New(c, args, t) -> TExpr.New(c, List.map fE args, t)
-            | TExpr.MethodCall(r, n, args, t) -> TExpr.MethodCall(fE r, n, List.map fE args, t)
-            | TExpr.PropertyGet(r, n, t) -> TExpr.PropertyGet(fE r, n, t)
-            | TExpr.StaticMethodCall(c, n, args, t) -> TExpr.StaticMethodCall(c, n, List.map fE args, t)
-            | TExpr.StaticPropertyGet(c, n, t) -> TExpr.StaticPropertyGet(c, n, t)
-            | TExpr.ExternalMember(r, k, n, isProp, t) -> TExpr.ExternalMember(ValueOption.map fE r, k, n, isProp, t)
-            | TExpr.Format(sink, segs, t) ->
-                let sink =
-                    match sink with
-                    | FormatSink.ToWriter w -> FormatSink.ToWriter(fE w)
-                    | FormatSink.ToBuilder w -> FormatSink.ToBuilder(fE w)
-                    | other -> other
-
-                let segs =
-                    segs
-                    |> EqArray.map (fun seg ->
-                        match seg with
-                        | FormatSeg.Lit _ -> seg
-                        | FormatSeg.Hole(h, a) -> FormatSeg.Hole(h, fE a)
-                    )
-
-                TExpr.Format(sink, segs, t)
-            | TExpr.ILIntrinsic(op, args, t) -> TExpr.ILIntrinsic(op, List.map fE args, t)
-            | TExpr.StaticOptimization(clauses, def, t) ->
-                // Constraints carry no binders (only types); only the bodies and
-                // the default need binder-freshening. Reached only if a static-opt
-                // survived inline expansion unresolved (no typar to pin).
-                TExpr.StaticOptimization(clauses |> List.map (fun cl -> { cl with Body = fE cl.Body }), fE def, t)
-
-        and fArm (arm: TMatchArm) : TMatchArm =
-            {
-                Pat = fP arm.Pat
-                Guard = Option.map fE arm.Guard
-                Body = fE arm.Body
+                            ValueSome(
+                                TExpr.ForTo(var, TastWalk.mapExpr m s, TastWalk.mapExpr m e2, TastWalk.mapExpr m b, t)
+                            )
+                        | _ -> ValueNone
             }
 
-        fE body
+        TastWalk.mapExpr mapper body

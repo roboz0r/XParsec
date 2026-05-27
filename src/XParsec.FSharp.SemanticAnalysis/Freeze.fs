@@ -1432,95 +1432,17 @@ module Freeze =
 
         go (Unification.zonk t)
 
-    /// Apply `f` to every `SemType` embedded in a pattern (and its sub-patterns).
-    let rec private mapPatTypes (f: SemType -> SemType) (p: TPat) : TPat =
-        match p with
-        | TPat.NamedSimple(k, ty) -> TPat.NamedSimple(k, f ty)
-        | TPat.Wildcard ty -> TPat.Wildcard(f ty)
-        | TPat.Tuple(items, ty) -> TPat.Tuple(List.map (mapPatTypes f) items, f ty)
-        | TPat.Const(v, ty) -> TPat.Const(v, f ty)
-        | TPat.Record(fields, ty) -> TPat.Record([ for (n, sp) in fields -> n, mapPatTypes f sp ], f ty)
-        | TPat.Union(cn, fields, ty) -> TPat.Union(cn, List.map (mapPatTypes f) fields, f ty)
-
     /// Rewrite every `SemType` embedded in a member body via `f`. Used to push a
     /// generic union's declaring-typar remap (`remapDeclTypars`) through the whole
     /// member body, so a typar-typed local / scrutinee / bound variable carries the
     /// `TyConst "'T"` marker the backend's generic-member encoder consumes — just as
     /// the case-field types do (P3d.4 generalised to member bodies for R2).
-    let rec private mapExprTypes (f: SemType -> SemType) (e: TExpr) : TExpr =
-        let pe = mapExprTypes f
-        let pp = mapPatTypes f
-
-        let arm (a: TMatchArm) =
-            {
-                Pat = pp a.Pat
-                Guard = Option.map pe a.Guard
-                Body = pe a.Body
+    let private mapExprTypes (f: SemType -> SemType) (e: TExpr) : TExpr =
+        TastWalk.mapExpr
+            { TastWalk.identityMapper with
+                MapType = f
             }
-
-        match e with
-        | TExpr.Const(v, ty) -> TExpr.Const(v, f ty)
-        | TExpr.Var(k, ty) -> TExpr.Var(k, f ty)
-        | TExpr.External(n, k, ty) -> TExpr.External(n, k, f ty)
-        | TExpr.Lambda(p, b, ty) -> TExpr.Lambda(pp p, pe b, f ty)
-        | TExpr.App(fn, a, ty) -> TExpr.App(pe fn, pe a, f ty)
-        | TExpr.Let(p, v, b, ty) -> TExpr.Let(pp p, pe v, pe b, f ty)
-        | TExpr.IfThenElse(c, t, el, ty) -> TExpr.IfThenElse(pe c, pe t, pe el, f ty)
-        | TExpr.Tuple(xs, ty) -> TExpr.Tuple(List.map pe xs, f ty)
-        | TExpr.Sequential(xs, ty) -> TExpr.Sequential(List.map pe xs, f ty)
-        | TExpr.While(c, b, ty) -> TExpr.While(pe c, pe b, f ty)
-        | TExpr.ForTo(v, s, e2, b, ty) -> TExpr.ForTo(v, pe s, pe e2, pe b, f ty)
-        | TExpr.ForIn(p, src, b, ty) -> TExpr.ForIn(pp p, pe src, pe b, f ty)
-        | TExpr.Match(sc, arms, ty) -> TExpr.Match(pe sc, List.map arm arms, f ty)
-        | TExpr.TryWith(b, arms, ty) -> TExpr.TryWith(pe b, List.map arm arms, f ty)
-        | TExpr.TryFinally(b, c, ty) -> TExpr.TryFinally(pe b, pe c, f ty)
-        | TExpr.Assignment(l, r, ty) -> TExpr.Assignment(pe l, pe r, f ty)
-        | TExpr.Null ty -> TExpr.Null(f ty)
-        | TExpr.Range(s, step, stop, ty) -> TExpr.Range(pe s, Option.map pe step, pe stop, f ty)
-        | TExpr.RecordCons(fields, ty) -> TExpr.RecordCons([ for (n, v) in fields -> n, pe v ], f ty)
-        | TExpr.RecordClone(src, ov, ty) -> TExpr.RecordClone(pe src, [ for (n, v) in ov -> n, pe v ], f ty)
-        | TExpr.FieldGet(r, n, ty) -> TExpr.FieldGet(pe r, n, f ty)
-        | TExpr.FieldSet(r, n, v, ty) -> TExpr.FieldSet(pe r, n, pe v, f ty)
-        | TExpr.UnionCons(cn, args, ty) -> TExpr.UnionCons(cn, List.map pe args, f ty)
-        | TExpr.New(cn, args, ty) -> TExpr.New(cn, List.map pe args, f ty)
-        | TExpr.MethodCall(r, n, args, ty) -> TExpr.MethodCall(pe r, n, List.map pe args, f ty)
-        | TExpr.PropertyGet(r, n, ty) -> TExpr.PropertyGet(pe r, n, f ty)
-        | TExpr.StaticMethodCall(cn, n, args, ty) -> TExpr.StaticMethodCall(cn, n, List.map pe args, f ty)
-        | TExpr.StaticPropertyGet(cn, n, ty) -> TExpr.StaticPropertyGet(cn, n, f ty)
-        | TExpr.ExternalMember(r, k, n, isProp, ty) -> TExpr.ExternalMember(ValueOption.map pe r, k, n, isProp, f ty)
-        | TExpr.Format(sink, segs, ty) ->
-            let sink =
-                match sink with
-                | FormatSink.ToWriter w -> FormatSink.ToWriter(pe w)
-                | FormatSink.ToBuilder w -> FormatSink.ToBuilder(pe w)
-                | other -> other
-
-            let segs =
-                segs
-                |> EqArray.map (fun seg ->
-                    match seg with
-                    | FormatSeg.Lit _ -> seg
-                    | FormatSeg.Hole(h, a) -> FormatSeg.Hole({ h with Ty = f h.Ty }, pe a)
-                )
-
-            TExpr.Format(sink, segs, f ty)
-        | TExpr.ILIntrinsic(op, args, ty) -> TExpr.ILIntrinsic(op, List.map pe args, f ty)
-        | TExpr.StaticOptimization(clauses, def, ty) ->
-            let mapConstraint c =
-                match c with
-                | TStaticOptConstraint.TyconEquals(tp, req) -> TStaticOptConstraint.TyconEquals(f tp, f req)
-                | TStaticOptConstraint.IsStruct tp -> TStaticOptConstraint.IsStruct(f tp)
-
-            let clauses =
-                clauses
-                |> List.map (fun cl ->
-                    {
-                        Constraints = List.map mapConstraint cl.Constraints
-                        Body = pe cl.Body
-                    }
-                )
-
-            TExpr.StaticOptimization(clauses, pe def, f ty)
+            e
 
     /// Classify an object-model body as an interface — every element an abstract
     /// method signature, no base type, no `let`/`do` preamble — and build its
