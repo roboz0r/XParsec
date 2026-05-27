@@ -379,21 +379,21 @@ module Unification =
                 | true, info ->
                     let subst = mkNamedTypeSubst info.TypeParams args
 
-                    for (fieldName, useKey, resultTv) in pending do
-                        match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
-                        | Some field -> unify ctx useKey (TyVar resultTv) (substituteWith subst field.Type)
+                    for d in pending do
+                        match info.Fields |> Array.tryFind (fun f -> f.Name = d.MemberName) with
+                        | Some field -> unify ctx d.UseKey (TyVar d.ResultTv) (substituteWith subst field.Type)
                         | None ->
                             ctx.Diagnostics.Add
                                 {
-                                    Key = useKey
-                                    Message = sprintf "Type '%s' has no field '%s'" recName fieldName
+                                    Key = d.UseKey
+                                    Message = sprintf "Type '%s' has no field '%s'" recName d.MemberName
                                     Severity = Error
                                 }
                 | false, _ ->
-                    for (_, useKey, _) in pending do
+                    for d in pending do
                         ctx.Diagnostics.Add
                             {
-                                Key = useKey
+                                Key = d.UseKey
                                 Message = sprintf "Unknown record type '%s'" recName
                                 Severity = Error
                             }
@@ -407,21 +407,21 @@ module Unification =
                     | true, info ->
                         let subst = mkNamedTypeSubst info.TypeParams args
 
-                        for (memberName, useKey, resultTv) in pending do
-                            match info.Members |> Array.tryFind (fun m -> m.Name = memberName && not m.IsStatic) with
-                            | Some m -> unify ctx useKey (TyVar resultTv) (substituteWith subst m.Type)
+                        for d in pending do
+                            match info.Members |> Array.tryFind (fun m -> m.Name = d.MemberName && not m.IsStatic) with
+                            | Some m -> unify ctx d.UseKey (TyVar d.ResultTv) (substituteWith subst m.Type)
                             | None ->
                                 ctx.Diagnostics.Add
                                     {
-                                        Key = useKey
-                                        Message = sprintf "Type '%s' has no instance member '%s'" clsName memberName
+                                        Key = d.UseKey
+                                        Message = sprintf "Type '%s' has no instance member '%s'" clsName d.MemberName
                                         Severity = Error
                                     }
                     | false, _ ->
-                        for (_, useKey, _) in pending do
+                        for d in pending do
                             ctx.Diagnostics.Add
                                 {
-                                    Key = useKey
+                                    Key = d.UseKey
                                     Message = sprintf "Unknown class type '%s'" clsName
                                     Severity = Error
                                 }
@@ -437,24 +437,24 @@ module Unification =
                         | true, info ->
                             let subst = mkNamedTypeSubst info.TypeParams args
 
-                            for (memberName, useKey, resultTv) in pending do
+                            for d in pending do
                                 match
-                                    info.Members |> Array.tryFind (fun m -> m.Name = memberName && not m.IsStatic)
+                                    info.Members |> Array.tryFind (fun m -> m.Name = d.MemberName && not m.IsStatic)
                                 with
-                                | Some m -> unify ctx useKey (TyVar resultTv) (substituteWith subst m.Type)
+                                | Some m -> unify ctx d.UseKey (TyVar d.ResultTv) (substituteWith subst m.Type)
                                 | None ->
                                     ctx.Diagnostics.Add
                                         {
-                                            Key = useKey
+                                            Key = d.UseKey
                                             Message =
-                                                sprintf "Type '%s' has no instance member '%s'" unionName memberName
+                                                sprintf "Type '%s' has no instance member '%s'" unionName d.MemberName
                                             Severity = Error
                                         }
                         | false, _ ->
-                            for (_, useKey, _) in pending do
+                            for d in pending do
                                 ctx.Diagnostics.Add
                                     {
-                                        Key = useKey
+                                        Key = d.UseKey
                                         Message = sprintf "Unknown union type '%s'" unionName
                                         Severity = Error
                                     }
@@ -3264,7 +3264,15 @@ module Unification =
         | TyVar tv ->
             let root = UnionFind.find tv
             let resultTv = freshTyVar ctx
-            root.PendingDotAccess <- (memberName, diagKey, resultTv) :: root.PendingDotAccess
+
+            let access =
+                {
+                    MemberName = memberName
+                    UseKey = diagKey
+                    ResultTv = resultTv
+                }
+
+            root.PendingDotAccess <- access :: root.PendingDotAccess
             TyVar resultTv
         | _ ->
             ctx.Diagnostics.Add
@@ -4088,181 +4096,205 @@ module Unification =
         let retTy = translateType ctx ret
         List.foldBack (fun struct (g, _arrow) acc -> TyFun(groupTy g, acc)) (List.ofSeq args) retTy
 
-    /// Walk every class member body under a typar scope seeded from
-    /// `info.TypeParams` plus a binding scope supplying `this` and each ctor
-    /// param. Placeholder member TyVars are pre-populated into `ctx.TypeVar`
-    /// so `inferBinding`'s `tvOf` reuses them and its final
-    /// `unify patTy rhsTy` links the placeholder to the inferred member type.
-    /// AutoProperty has no `Binding`, so its placeholder is linked manually.
+    /// Parameters for `fillTypeMembers`: a registry-driven walk over a
+    /// class or union's member bodies. `MkSelfType` produces the `this`
+    /// type-tag (`TyClass` / `TyUnion`); `PrelinkExtras` runs after the
+    /// typar scope is set but before `this` is bound (used to fill class
+    /// ctor-param placeholders); `AllowAbstractSig` opts in to the
+    /// `AbstractSignature` arm (class only — unions have no abstract members).
+    [<NoEquality; NoComparison>]
+    type private TypeMembersFill =
+        {
+            TypeParams: (string * TypeVar) list
+            Members: ClassMemberInfo[]
+            ThisKey: NodeKey
+            MkSelfType: SemType list -> SemType
+            PrelinkExtras: unit -> unit
+            Elements: TypeDefnElements<SyntaxToken>
+            AllowAbstractSig: bool
+        }
+
+    /// Walk every method / property / auto-property body under a typar
+    /// scope seeded from `TypeParams` plus a `this` binding linked to
+    /// `MkSelfType`. Placeholder member TyVars are pre-populated into
+    /// `ctx.TypeVar` so `inferBinding`'s `tvOf` reuses them and its
+    /// final `unify patTy rhsTy` links the placeholder to the inferred
+    /// member type. AutoProperty has no `Binding`, so its placeholder
+    /// is linked manually. Abstract signatures (no body to infer)
+    /// translate directly when `AllowAbstractSig` is set.
+    let private fillTypeMembers (ctx: PassContext) (fc: TypeMembersFill) : unit =
+        let savedScope = ctx.TyparScope
+        let savedStrict = ctx.TyparScopeStrict
+        ctx.TyparScope <- scopeOfTypeParams fc.TypeParams
+        ctx.TyparScopeStrict <- true
+
+        try
+            fc.PrelinkExtras()
+
+            // `this`: fresh TyVar pre-linked to the self-type over the
+            // declaration's prototype typars, so a generic member body
+            // mentioning `'a` shares identity with them.
+            let thisTv = TypeVar()
+            thisTv.Level <- ctx.CurrentLevel
+            let selfArgs = [ for (_, ptv) in fc.TypeParams -> TyVar ptv ]
+            thisTv.Link <- ValueSome(fc.MkSelfType selfArgs)
+            ctx.TypeVar.Set(fc.ThisKey, thisTv)
+
+            // Static member bodies never see `this` / ctor params
+            // (NameResolution gives them an empty binding scope);
+            // IsStatic discriminates downstream.
+            for el in fc.Elements do
+                match el with
+                | TypeDefnElement.Member(MemberDefn.Member(defn = d)) ->
+                    match d with
+                    | MethodOrPropDefn.Method(defn = b)
+                    | MethodOrPropDefn.Property(defn = b) ->
+                        let mNameOpt =
+                            let rec walkP (p: Pat<SyntaxToken>) =
+                                match p with
+                                | Pat.NamedSimple id -> ValueSome id
+                                | Pat.EnclosedBlock(pat = inner)
+                                | Pat.Typed(pat = inner) -> walkP inner
+                                | _ -> ValueNone
+
+                            walkP b.headPat
+
+                        match mNameOpt with
+                        | ValueSome mTok ->
+                            let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
+
+                            match fc.Members |> Array.tryFind (fun m -> m.DeclKey = mKey) with
+                            | Some mInfo ->
+                                match mInfo.Type with
+                                | TyVar tv -> ctx.TypeVar.Set(mKey, tv)
+                                | _ -> ()
+                            | None -> ()
+
+                            enterLevel ctx
+
+                            try
+                                inferBinding ctx b
+                            finally
+                                exitLevel ctx
+                        | ValueNone -> ()
+                    | MethodOrPropDefn.AutoProperty(ident = id; expr = e; returnType = rt) ->
+                        enterLevel ctx
+
+                        try
+                            let bodyTy = infer ctx e
+
+                            let resultTy =
+                                match rt with
+                                | ValueSome(ReturnType(typ = t)) ->
+                                    let t' = translateType ctx t
+                                    unify ctx (CstKeys.ofExpr e) bodyTy t'
+                                    t'
+                                | ValueNone -> bodyTy
+
+                            let mKey = NodeKey.ofToken id NodeKind.PatIdent
+
+                            match fc.Members |> Array.tryFind (fun m -> m.DeclKey = mKey) with
+                            | Some mInfo ->
+                                match mInfo.Type with
+                                | TyVar tv -> (UnionFind.find tv).Link <- ValueSome resultTy
+                                | _ -> ()
+                            | None -> ()
+                        finally
+                            exitLevel ctx
+                    | MethodOrPropDefn.AbstractSignature(MemberSig.MethodOrPropSig(ident = idOrOp; sign = csig)) when
+                        fc.AllowAbstractSig
+                        ->
+                        // No body to infer — translate the signature
+                        // directly and link the placeholder.
+                        let mTokOpt =
+                            match idOrOp with
+                            | IdentOrOp.Ident t -> ValueSome t
+                            | IdentOrOp.ParenOp(opName = OpName.SymbolicOp op) -> ValueSome op
+                            | _ -> ValueNone
+
+                        match mTokOpt with
+                        | ValueSome mTok ->
+                            let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
+
+                            match fc.Members |> Array.tryFind (fun mm -> mm.DeclKey = mKey) with
+                            | Some mInfo ->
+                                match mInfo.Type with
+                                | TyVar tv ->
+                                    let root = UnionFind.find tv
+
+                                    // Extend the scope with the method's own
+                                    // `<'C, …>` typars so they resolve to their
+                                    // prototype TyVars (not diagnosed as free).
+                                    let savedMScope = ctx.TyparScope
+
+                                    if not (List.isEmpty mInfo.MethodTypeParams) then
+                                        let extended =
+                                            Dictionary<string, TypeVar>(savedMScope, System.StringComparer.Ordinal)
+
+                                        for (n, ptv) in mInfo.MethodTypeParams do
+                                            extended.[n] <- ptv
+
+                                        ctx.TyparScope <- extended
+
+                                    try
+                                        root.Link <- ValueSome(curriedSigToSemType ctx csig)
+                                    finally
+                                        ctx.TyparScope <- savedMScope
+                                | _ -> ()
+                            | None -> ()
+                        | ValueNone -> ()
+                    | _ -> ()
+                | _ -> ()
+        finally
+            ctx.TyparScope <- savedScope
+            ctx.TyparScopeStrict <- savedStrict
+
     let private fillClassMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
         let common (td: TypeDefn<SyntaxToken>) =
-            match td with
-            | TypeDefn.Class(typeName = TypeName(ident = nameLi); primaryConstr = pc; body = body)
-            | TypeDefn.Anon(typeName = TypeName(ident = nameLi); primaryConstr = pc; body = body) when
-                nameLi.Idents.Length = 1
-                ->
-                ValueSome(ctx.NameOf nameLi.Idents.[0], pc, body)
-            | _ -> ValueNone
+            match TypeDefnPatterns.tryClassLikeDecl td with
+            | ValueSome d ->
+                let (TypeName(ident = nameLi)) = d.TypeName
+
+                if nameLi.Idents.Length = 1 then
+                    ValueSome(ctx.NameOf nameLi.Idents.[0], d.PrimaryConstr, d.Body)
+                else
+                    ValueNone
+            | ValueNone -> ValueNone
 
         match m with
         | ModuleElem.Type defs ->
             for td in defs do
                 match common td with
                 | ValueSome(name, pc, body) ->
-
                     match ctx.ClassTypes.TryGetValue name with
                     | true, info ->
-                        let savedScope = ctx.TyparScope
-                        let savedStrict = ctx.TyparScopeStrict
-                        ctx.TyparScope <- scopeOfTypeParams info.TypeParams
-                        ctx.TyparScopeStrict <- true
-
-                        try
-                            // Under the class's typar scope so `'a` resolves
-                            // to the registry's prototype typar.
+                        let prelinkExtras () =
+                            // Fill ctor-param placeholders under the class's
+                            // typar scope, then seed `ctx.TypeVar` so
+                            // `inferIdent` lookups against the param binding
+                            // sites return these.
                             fillClassCtorParamTypes ctx info pc
 
-                            // Seed `ctx.TypeVar` so `inferIdent` lookups
-                            // against the param binding sites return these.
                             for p in info.CtorParams do
                                 match p.Type with
                                 | TyVar tv -> ctx.TypeVar.Set(p.DeclKey, tv)
                                 | _ -> ()
 
-                            // `this`: fresh TyVar pre-linked to `TyClass` over
-                            // the class's prototype typars, so a generic member
-                            // body mentioning `'a` shares identity with them.
-                            let thisTv = TypeVar()
-                            thisTv.Level <- ctx.CurrentLevel
-
-                            let selfArgs = [ for (_, ptv) in info.TypeParams -> TyVar ptv ]
-
-                            thisTv.Link <- ValueSome(TyClass(info.Name, selfArgs))
-                            ctx.TypeVar.Set(info.ThisKey, thisTv)
-
-                            // Static member bodies never see `this` / ctor
-                            // params (NameResolution gives them an empty
-                            // binding scope); IsStatic discriminates downstream.
-                            for el in body.elements do
-                                match el with
-                                | TypeDefnElement.Member(MemberDefn.Member(defn = d)) ->
-                                    match d with
-                                    | MethodOrPropDefn.Method(defn = b)
-                                    | MethodOrPropDefn.Property(defn = b) ->
-                                        let mNameOpt =
-                                            let rec walkP (p: Pat<SyntaxToken>) =
-                                                match p with
-                                                | Pat.NamedSimple id -> ValueSome id
-                                                | Pat.EnclosedBlock(pat = inner)
-                                                | Pat.Typed(pat = inner) -> walkP inner
-                                                | _ -> ValueNone
-
-                                            walkP b.headPat
-
-                                        match mNameOpt with
-                                        | ValueSome mTok ->
-                                            let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
-
-                                            let mInfoOpt = info.Members |> Array.tryFind (fun m -> m.DeclKey = mKey)
-
-                                            match mInfoOpt with
-                                            | Some mInfo ->
-                                                match mInfo.Type with
-                                                | TyVar tv -> ctx.TypeVar.Set(mKey, tv)
-                                                | _ -> ()
-                                            | None -> ()
-
-                                            let outerLevel = ctx.CurrentLevel
-                                            enterLevel ctx
-
-                                            try
-                                                inferBinding ctx b
-                                            finally
-                                                exitLevel ctx
-                                        | ValueNone -> ()
-                                    | MethodOrPropDefn.AutoProperty(ident = id; expr = e; returnType = rt) ->
-                                        let outerLevel = ctx.CurrentLevel
-                                        enterLevel ctx
-
-                                        try
-                                            let bodyTy = infer ctx e
-
-                                            let resultTy =
-                                                match rt with
-                                                | ValueSome(ReturnType(typ = t)) ->
-                                                    let t' = translateType ctx t
-                                                    unify ctx (CstKeys.ofExpr e) bodyTy t'
-                                                    t'
-                                                | ValueNone -> bodyTy
-
-                                            let mKey = NodeKey.ofToken id NodeKind.PatIdent
-
-                                            match info.Members |> Array.tryFind (fun m -> m.DeclKey = mKey) with
-                                            | Some mInfo ->
-                                                match mInfo.Type with
-                                                | TyVar tv ->
-                                                    let root = UnionFind.find tv
-                                                    root.Link <- ValueSome resultTy
-                                                | _ -> ()
-                                            | None -> ()
-                                        finally
-                                            exitLevel ctx
-                                    | MethodOrPropDefn.AbstractSignature(MemberSig.MethodOrPropSig(
-                                        ident = idOrOp; sign = csig)) ->
-                                        // No body to infer — translate the
-                                        // signature directly and link the placeholder.
-                                        let mTokOpt =
-                                            match idOrOp with
-                                            | IdentOrOp.Ident t -> ValueSome t
-                                            | IdentOrOp.ParenOp(opName = OpName.SymbolicOp op) -> ValueSome op
-                                            | _ -> ValueNone
-
-                                        match mTokOpt with
-                                        | ValueSome mTok ->
-                                            let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
-
-                                            match info.Members |> Array.tryFind (fun mm -> mm.DeclKey = mKey) with
-                                            | Some mInfo ->
-                                                match mInfo.Type with
-                                                | TyVar tv ->
-                                                    let root = UnionFind.find tv
-
-                                                    // Extend the scope with the method's own
-                                                    // `<'C, …>` typars so they resolve to their
-                                                    // prototype TyVars (not diagnosed as free).
-                                                    let savedMScope = ctx.TyparScope
-
-                                                    if not (List.isEmpty mInfo.MethodTypeParams) then
-                                                        let extended =
-                                                            Dictionary<string, TypeVar>(
-                                                                savedMScope,
-                                                                System.StringComparer.Ordinal
-                                                            )
-
-                                                        for (n, ptv) in mInfo.MethodTypeParams do
-                                                            extended.[n] <- ptv
-
-                                                        ctx.TyparScope <- extended
-
-                                                    try
-                                                        root.Link <- ValueSome(curriedSigToSemType ctx csig)
-                                                    finally
-                                                        ctx.TyparScope <- savedMScope
-                                                | _ -> ()
-                                            | None -> ()
-                                        | ValueNone -> ()
-                                    | _ -> ()
-                                | _ -> ()
-                        finally
-                            ctx.TyparScope <- savedScope
-                            ctx.TyparScopeStrict <- savedStrict
+                        fillTypeMembers
+                            ctx
+                            {
+                                TypeParams = info.TypeParams
+                                Members = info.Members
+                                ThisKey = info.ThisKey
+                                MkSelfType = fun args -> TyClass(info.Name, args)
+                                PrelinkExtras = prelinkExtras
+                                Elements = body.elements
+                                AllowAbstractSig = true
+                            }
                     | false, _ -> ()
                 | ValueNone -> ()
         | _ -> ()
 
-    /// Union augmentation member bodies (P3d.3). Mirrors `fillClassMembers`
-    /// but reads `extensions.elements` and binds `this` to a `TyUnion` over
-    /// the union's prototype typars (a v1 union has no primary-ctor params).
     let private fillUnionMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
         match m with
         | ModuleElem.Type defs ->
@@ -4276,83 +4308,17 @@ module Unification =
 
                     match ctx.UnionTypes.TryGetValue name with
                     | true, info when not (Array.isEmpty info.Members) ->
-                        let savedScope = ctx.TyparScope
-                        let savedStrict = ctx.TyparScopeStrict
-                        ctx.TyparScope <- scopeOfTypeParams info.TypeParams
-                        ctx.TyparScopeStrict <- true
-
-                        try
-                            // `this` pre-linked to `TyUnion` over the union's
-                            // prototype typars (shared identity for generic bodies).
-                            let thisTv = TypeVar()
-                            thisTv.Level <- ctx.CurrentLevel
-                            let selfArgs = [ for (_, ptv) in info.TypeParams -> TyVar ptv ]
-                            thisTv.Link <- ValueSome(TyUnion(info.Name, selfArgs))
-                            ctx.TypeVar.Set(info.ThisKey, thisTv)
-
-                            for el in elems do
-                                match el with
-                                | TypeDefnElement.Member(MemberDefn.Member(defn = d)) ->
-                                    match d with
-                                    | MethodOrPropDefn.Method(defn = b)
-                                    | MethodOrPropDefn.Property(defn = b) ->
-                                        let mNameOpt =
-                                            let rec walkP (p: Pat<SyntaxToken>) =
-                                                match p with
-                                                | Pat.NamedSimple id -> ValueSome id
-                                                | Pat.EnclosedBlock(pat = inner)
-                                                | Pat.Typed(pat = inner) -> walkP inner
-                                                | _ -> ValueNone
-
-                                            walkP b.headPat
-
-                                        match mNameOpt with
-                                        | ValueSome mTok ->
-                                            let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
-
-                                            match info.Members |> Array.tryFind (fun mm -> mm.DeclKey = mKey) with
-                                            | Some mInfo ->
-                                                match mInfo.Type with
-                                                | TyVar tv -> ctx.TypeVar.Set(mKey, tv)
-                                                | _ -> ()
-                                            | None -> ()
-
-                                            enterLevel ctx
-
-                                            try
-                                                inferBinding ctx b
-                                            finally
-                                                exitLevel ctx
-                                        | ValueNone -> ()
-                                    | MethodOrPropDefn.AutoProperty(ident = id; expr = e; returnType = rt) ->
-                                        enterLevel ctx
-
-                                        try
-                                            let bodyTy = infer ctx e
-
-                                            let resultTy =
-                                                match rt with
-                                                | ValueSome(ReturnType(typ = t)) ->
-                                                    let t' = translateType ctx t
-                                                    unify ctx (CstKeys.ofExpr e) bodyTy t'
-                                                    t'
-                                                | ValueNone -> bodyTy
-
-                                            let mKey = NodeKey.ofToken id NodeKind.PatIdent
-
-                                            match info.Members |> Array.tryFind (fun mm -> mm.DeclKey = mKey) with
-                                            | Some mInfo ->
-                                                match mInfo.Type with
-                                                | TyVar tv -> (UnionFind.find tv).Link <- ValueSome resultTy
-                                                | _ -> ()
-                                            | None -> ()
-                                        finally
-                                            exitLevel ctx
-                                    | _ -> ()
-                                | _ -> ()
-                        finally
-                            ctx.TyparScope <- savedScope
-                            ctx.TyparScopeStrict <- savedStrict
+                        fillTypeMembers
+                            ctx
+                            {
+                                TypeParams = info.TypeParams
+                                Members = info.Members
+                                ThisKey = info.ThisKey
+                                MkSelfType = fun args -> TyUnion(info.Name, args)
+                                PrelinkExtras = ignore
+                                Elements = elems
+                                AllowAbstractSig = false
+                            }
                     | _ -> ()
                 | _ -> ()
         | _ -> ()

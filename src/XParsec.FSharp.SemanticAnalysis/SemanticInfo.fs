@@ -253,6 +253,18 @@ and [<Struct>] SemanticConstraint =
         DeclKey: NodeKey
     }
 
+/// One element of a TypeVar's `PendingDotAccess` list. `MemberName` is the
+/// field-or-member name in `receiver.X`; `UseKey` is the access expression's
+/// NodeKey (used for diagnostics); `ResultTv` is the access expression's own
+/// TyVar — unified with the field/member's declared type when the receiver
+/// resolves.
+and [<NoEquality; NoComparison>] DeferredMemberAccess =
+    {
+        MemberName: string
+        UseKey: NodeKey
+        ResultTv: TypeVar
+    }
+
 and [<Sealed>] TypeVar() =
     /// Authoritative only on the representative — call UnionFind.find first.
     member val Link: SemType voption = ValueNone with get, set
@@ -285,14 +297,10 @@ and [<Sealed>] TypeVar() =
     /// Pending dot-access constraints accumulated while this TyVar was
     /// free. Drained by `unify` when the TyVar's `Link` becomes a
     /// `TyRecord _`, `TyClass _`, or another shape that supports dotted
-    /// dispatch. Tuple shape: (memberName, useKey, resultTyVar). The
-    /// `useKey` is the dot-access expression's NodeKey for diagnostics;
-    /// `resultTyVar` is the access expression's own TyVar that needs to be
-    /// unified with the field/member's declared type when the receiver
-    /// resolves. The drain code branches on the link-target shape to
+    /// dispatch. The drain code branches on the link-target shape to
     /// resolve against record fields vs class members. Authoritative on
     /// the union-find root.
-    member val PendingDotAccess: (string * NodeKey * TypeVar) list = [] with get, set
+    member val PendingDotAccess: DeferredMemberAccess list = [] with get, set
     /// Default-constraint chain for this TyVar (Phase 5b). Built from
     /// `ExternalConstraint.Default` clauses captured on external symbols
     /// (notably `(+)`, `(-)` etc.): `default ^T3 : ^T1` records `TyVar t1`

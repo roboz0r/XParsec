@@ -166,16 +166,15 @@ module Desugar =
                     | _ -> ()
 
             for td in defs do
-                match td with
-                | TypeDefn.Class(body = b)
-                | TypeDefn.Anon(body = b)
-                | TypeDefn.Struct(body = b)
-                | TypeDefn.Interface(body = b) -> walkMemberElems b.elements
-                | TypeDefn.Union(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
-                    walkMemberElems elems
-                | TypeDefn.Record(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
-                    walkMemberElems elems
-                | _ -> ()
+                match TypeDefnPatterns.tryObjectModelBody td with
+                | ValueSome b -> walkMemberElems b.elements
+                | ValueNone ->
+                    match td with
+                    | TypeDefn.Union(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
+                        walkMemberElems elems
+                    | TypeDefn.Record(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
+                        walkMemberElems elems
+                    | _ -> ()
         | _ -> ()
 
     let private walkElems (walker: CstWalk.ExprWalker<unit>) (elems: ModuleElems<SyntaxToken>) =

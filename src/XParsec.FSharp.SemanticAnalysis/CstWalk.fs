@@ -83,6 +83,53 @@ module OpenScope =
 // traversal. Side-effecting outputs (side tables, diagnostics) live in
 // the closure captured by `Visit`.
 
+/// Active patterns and helpers for projecting `TypeDefn` shapes. The parser
+/// emits `TypeDefn.Anon` for the bare `type C(...) = member ...` form without
+/// an explicit `class`/`end`; semantically it is identical to `TypeDefn.Class`
+/// throughout the front-end. Sites that need to treat both shapes uniformly
+/// route through these helpers so a typo on one arm can't silently drop the
+/// other.
+module TypeDefnPatterns =
+
+    /// Common fields of `TypeDefn.Class` and `TypeDefn.Anon`. Both shapes
+    /// carry the same `(typeName, primaryConstr, asDefn, body)` quartet —
+    /// only the lexical keyword token differs.
+    [<NoEquality; NoComparison>]
+    type ClassLikeDecl<'T> =
+        {
+            TypeName: TypeName<'T>
+            PrimaryConstr: PrimaryConstrArgs<'T> voption
+            AsDefn: AsDefn<'T> voption
+            Body: ObjectModelBody<'T>
+        }
+
+    /// Project a `TypeDefn.Class` or `TypeDefn.Anon` into its primary fields.
+    /// All other `TypeDefn` shapes yield `ValueNone`.
+    let tryClassLikeDecl (td: TypeDefn<'T>) : ClassLikeDecl<'T> voption =
+        match td with
+        | TypeDefn.Class(typeName = tn; primaryConstr = pc; asDefn = asD; body = body)
+        | TypeDefn.Anon(typeName = tn; primaryConstr = pc; asDefn = asD; body = body) ->
+            ValueSome
+                {
+                    TypeName = tn
+                    PrimaryConstr = pc
+                    AsDefn = asD
+                    Body = body
+                }
+        | _ -> ValueNone
+
+    /// Project the `body` field from any object-model `TypeDefn` shape:
+    /// `Class | Anon | Struct | Interface`. The four shapes share the same
+    /// body type. Returns `ValueNone` for `Record | Union | Abbrev | Enum |
+    /// Delegate | TypeExtension`.
+    let tryObjectModelBody (td: TypeDefn<'T>) : ObjectModelBody<'T> voption =
+        match td with
+        | TypeDefn.Class(body = b)
+        | TypeDefn.Anon(body = b)
+        | TypeDefn.Struct(body = b)
+        | TypeDefn.Interface(body = b) -> ValueSome b
+        | _ -> ValueNone
+
 module CstWalk =
 
     type ExprWalker<'env> =

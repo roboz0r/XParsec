@@ -287,31 +287,21 @@ module FSharpLib =
         /// stays separate (compiler-magic opens not expressible as `[<AutoOpen>]`).
         member val AutoOpenPrefixes = ResizeArray<string>() with get
 
-    /// Auto-open prefixes that F# applies implicitly to FSharp.Core symbols.
-    /// Surfaced as the provider's `IAmbientOpenScope` (no longer a
-    /// provider-internal retry): the pipeline seeds them into the open scope and
-    /// probes them BEHIND explicit `open`s — `1 + 2`'s desugared `op_Addition`
-    /// lives in `Microsoft.FSharp.Core.Operators`, not at the root, and resolves
-    /// through the ambient (symbol-resolution-handoff.md, open-resolution). Order matches F#'s prelude
-    /// open order; earlier entries win on collision.
-    let private autoOpenPrefixes =
-        [
-            "Microsoft.FSharp.Core.Operators"
-            "Microsoft.FSharp.Core.LanguagePrimitives.IntrinsicOperators"
-            "Microsoft.FSharp.Core.ExtraTopLevelOperators"
-            "Microsoft.FSharp.Core"
-            "Microsoft.FSharp.Collections"
-            "Microsoft.FSharp.Control"
-        ]
-
     module ExtractCtx =
         let empty () = ExtractCtx()
 
+        /// Provider over the extracted symbol / type-shape tables, exposing
+        /// `ctx.AutoOpenPrefixes` as its ambient. The pipeline seeds the
+        /// ambient into the open scope and probes it BEHIND explicit
+        /// `open`s — `1 + 2`'s desugared `op_Addition` lives in
+        /// `Microsoft.FSharp.Core.Operators`, not at the root, and resolves
+        /// through the ambient (symbol-resolution-handoff.md, open-resolution).
+        /// The extractor populates `ctx.AutoOpenPrefixes` from `[<AutoOpen>]`
+        /// attributes on modules; `buildProvider` supplements it with any
+        /// library-specific prelude (e.g. F#'s implicit `Microsoft.FSharp.*`
+        /// namespace opens) before calling `toProvider`. The same mechanism
+        /// `ReferencedProject` uses for Vesper packages.
         let toProvider (ctx: ExtractCtx) : IExternalSymbolProvider =
-            // Direct hits only: the implicit prelude is the `IAmbientOpenScope`
-            // below, applied by the pipeline behind explicit opens — not a
-            // provider-internal retry that would shadow an explicit open by
-            // resolving the bare name to a prelude symbol first (O3).
             { new IExternalSymbolProvider with
                 member _.TryLookup(name) =
                     match ctx.Symbols.TryGetValue name with
@@ -327,7 +317,7 @@ module FSharpLib =
                 member _.TryLookupMembers(_, _) = [||]
 
               interface IAmbientOpenScope with
-                  member _.AmbientOpenPrefixes = autoOpenPrefixes
+                  member _.AmbientOpenPrefixes = List.ofSeq ctx.AutoOpenPrefixes
             }
 
     let private nameOfTok (lexed: Lexed) (input: string) (tok: SyntaxToken) : string =
@@ -1728,6 +1718,21 @@ module FSharpLib =
                     extractModuleSigElement ctx parsed.File parsed.Lexed parsed.Input opens [] [] elems.[i]
         | _ -> ctx.Diagnostics.Add(parsed.File, "Skipped: not a signature file")
 
+    /// F#'s implicit prelude namespaces / `[<AutoOpen>]` modules in
+    /// `Microsoft.FSharp.*`. Seeded into `ctx.AutoOpenPrefixes` so the
+    /// resulting provider's `IAmbientOpenScope` resolves the prelude the
+    /// same way as `[<AutoOpen>]` modules discovered by extraction. Order
+    /// matches F#'s prelude open order; earlier entries win on collision.
+    let private fsharpCorePreludePrefixes =
+        [
+            "Microsoft.FSharp.Core.Operators"
+            "Microsoft.FSharp.Core.LanguagePrimitives.IntrinsicOperators"
+            "Microsoft.FSharp.Core.ExtraTopLevelOperators"
+            "Microsoft.FSharp.Core"
+            "Microsoft.FSharp.Collections"
+            "Microsoft.FSharp.Control"
+        ]
+
     /// Builds an `IExternalSymbolProvider` backed by XParsec.FSharp.Lib.
     /// Returns the provider plus per-file errors so callers can decide
     /// whether to proceed with a partial table or fail loudly. Files that
@@ -1737,6 +1742,12 @@ module FSharpLib =
         | Error e -> Error e
         | Ok loaded ->
             let ctx = ExtractCtx.empty ()
+
+            // Seed the F# prelude ahead of extraction so the discovered
+            // `[<AutoOpen>]` modules append after it — earlier entries win
+            // on shadowing.
+            for prefix in fsharpCorePreludePrefixes do
+                ctx.AutoOpenPrefixes.Add prefix
 
             for file in loaded.Files do
                 match parseFileFull file with

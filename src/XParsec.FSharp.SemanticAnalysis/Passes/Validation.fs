@@ -142,14 +142,14 @@ module Validation =
             let root = UnionFind.find kv.Value
 
             if seenRoots.Add(root) && not (List.isEmpty root.PendingDotAccess) then
-                for (memberName, useKey, _) in root.PendingDotAccess do
+                for d in root.PendingDotAccess do
                     ctx.Diagnostics.Add
                         {
-                            Key = useKey
+                            Key = d.UseKey
                             Message =
                                 sprintf
                                     "Cannot resolve member '%s': receiver type was never constrained to a record or class type"
-                                    memberName
+                                    d.MemberName
                             Severity = Error
                         }
 
@@ -252,7 +252,19 @@ module Validation =
             EnterMatchArm = fun () _ -> ()
         }
 
-    let private walkModuleElem (walker: CstWalk.ExprWalker<unit>) (m: ModuleElem<SyntaxToken>) : unit =
+    let private walkModuleElem
+        (ctx: PassContext)
+        (walker: CstWalk.ExprWalker<unit>)
+        (m: ModuleElem<SyntaxToken>)
+        : unit =
+        let notYetSupported (spawningOffset: int) (msg: string) =
+            ctx.Diagnostics.Add
+                {
+                    Key = NodeKey.ofSynthetic spawningOffset NodeKind.SynthUnsupportedDecl
+                    Message = msg
+                    Severity = Error
+                }
+
         match m with
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
             for b in bindings do
@@ -263,15 +275,7 @@ module Validation =
             // Records / DUs / abbreviations have no expression bodies that
             // affect Validation; only class-like member bodies are walked.
             for td in defs do
-                let bodyOpt =
-                    match td with
-                    | TypeDefn.Class(body = b)
-                    | TypeDefn.Anon(body = b)
-                    | TypeDefn.Struct(body = b)
-                    | TypeDefn.Interface(body = b) -> ValueSome b
-                    | _ -> ValueNone
-
-                match bodyOpt with
+                match TypeDefnPatterns.tryObjectModelBody td with
                 | ValueSome body ->
                     for el in body.elements do
                         match el with
@@ -283,9 +287,17 @@ module Validation =
                             | _ -> ()
                         | _ -> ()
                 | ValueNone -> ()
-        // Fail loudly rather than silently skip — grow new arms as the subset
-        // expands.
-        | ModuleElem.Exception _ -> failwith "Validation: ModuleElem.Exception not implemented"
+        // Emit a diagnostic rather than crashing — a single unhandled element
+        // shouldn't halt validation of the rest of the file. Grow real arms
+        // as features land. `Missing` and `SkipsTokens` in particular are
+        // produced by parse-recovery and reachable in any in-progress file.
+        | ModuleElem.Exception defn ->
+            let tok =
+                match defn with
+                | ExceptionDefn.Full(exceptionToken = t)
+                | ExceptionDefn.Abbreviation(exceptionToken = t) -> t
+
+            notYetSupported tok.StartIndex "`exception` declarations are not yet validated"
         // `CstWalk.implFileElems` flattens a nested module's body into the
         // element list before `walkElems` runs, so a `ModuleElem.Module` never
         // reaches here — its contents are walked as ordinary top-level elements.
@@ -295,17 +307,25 @@ module Validation =
         // them, symbol-resolution-handoff.md, open-resolution); they carry no expression to validate.
         | ModuleElem.ModuleAbbrev _ -> ()
         | ModuleElem.Import _ -> ()
-        | ModuleElem.CompilerDirective _ -> failwith "Validation: ModuleElem.CompilerDirective not implemented"
-        | ModuleElem.Missing -> failwith "Validation: ModuleElem.Missing not implemented"
-        | ModuleElem.SkipsTokens _ -> failwith "Validation: ModuleElem.SkipsTokens not implemented"
+        | ModuleElem.CompilerDirective(CompilerDirectiveDecl(hash = tok)) ->
+            notYetSupported tok.StartIndex "Compiler directives are not yet validated"
+        | ModuleElem.Missing -> notYetSupported 0 "Missing module element (parse recovery)"
+        | ModuleElem.SkipsTokens skipped ->
+            let off = if skipped.Length > 0 then skipped.[0].StartIndex else 0
 
-    let private walkElems (walker: CstWalk.ExprWalker<unit>) (elems: ModuleElems<SyntaxToken>) : unit =
+            notYetSupported off "Skipped tokens at module level (parse recovery)"
+
+    let private walkElems
+        (ctx: PassContext)
+        (walker: CstWalk.ExprWalker<unit>)
+        (elems: ModuleElems<SyntaxToken>)
+        : unit =
         for m in elems do
-            walkModuleElem walker m
+            walkModuleElem ctx walker m
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
         let walker = mkWalker ctx
-        walkElems walker (CstWalk.implFileElems file)
+        walkElems ctx walker (CstWalk.implFileElems file)
 
         checkUnresolvedDotAccesses ctx
         checkValueRestriction ctx

@@ -98,6 +98,13 @@ type NodeKind =
     /// colliding with source keys (sign bit) or other synthetics; the minter
     /// packs a monotone per-build counter into the offset slot for uniqueness.
     | SynthInlineExpansion = 1004us
+    /// Anchor for a "not yet supported" diagnostic on a CST shape whose own
+    /// keying isn't yet implemented (e.g. `ModuleElem.Missing`,
+    /// `ModuleElem.SkipsTokens`). The offset is the spawning token's source
+    /// offset where available, or `0` for shapes that carry no token. The
+    /// distinct kind keeps these placeholder keys from colliding with real
+    /// source keys at the same offset.
+    | SynthUnsupportedDecl = 1005us
 
 [<Struct>]
 type NodeKey =
