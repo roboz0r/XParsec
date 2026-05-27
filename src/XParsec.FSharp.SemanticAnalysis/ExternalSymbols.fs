@@ -248,82 +248,130 @@ module ExternalSymbols =
             member _.TryLookupMembers(_, _) = [||]
         }
 
+    /// The single provider-shim primitive: first-hit-wins composition over
+    /// `sources` plus an `IAmbientOpenScope` carrying `ambient`, optionally
+    /// rewriting every resolved `ExternalSymbol` / `ExternalTypeShape` /
+    /// `ExternalMember` to carry `stampOrigin`'s `SymbolOrigin`. `composite`,
+    /// `ReferencedProject.wrap`, and (formerly) `FSharpLib.chain` all live on
+    /// top of this — one TryLookup* fall-through, one IAmbientOpenScope
+    /// surface, one place to keep the shape switch in `TryLookupType` honest
+    /// when a new `ExternalTypeShape` case learns to carry its `Origin`.
+    let stack
+        (stampOrigin: SymbolOrigin voption)
+        (ambient: string list)
+        (sources: IExternalSymbolProvider list)
+        : IExternalSymbolProvider =
+        // Snapshot to an array so the hot lookup is an index loop, not list
+        // traversal, on a provider hit from many parallel PassContexts.
+        let sources = List.toArray sources
+
+        let stampSymbol =
+            match stampOrigin with
+            | ValueNone -> id
+            | ValueSome o -> fun (s: ExternalSymbol) -> { s with Origin = o }
+
+        let stampMember =
+            match stampOrigin with
+            | ValueNone -> id
+            | ValueSome o -> fun (m: ExternalMember) -> { m with Origin = o }
+
+        // The single place that decides which `ExternalTypeShape` cases carry
+        // their `Origin`. Class/Record do today; Abbrev/Union don't (their
+        // cross-package emit paths land later, with the same shape). Extend
+        // this match — not three call sites — when a new case learns origin.
+        let stampType =
+            match stampOrigin with
+            | ValueNone -> id
+            | ValueSome o ->
+                fun shape ->
+                    match shape with
+                    | ExternalTypeShape.Class(arity, isInterface, _) -> ExternalTypeShape.Class(arity, isInterface, o)
+                    | ExternalTypeShape.Record(arity, fields, _) -> ExternalTypeShape.Record(arity, fields, o)
+                    | ExternalTypeShape.Abbrev _
+                    | ExternalTypeShape.Union _ -> shape
+
+        { new IExternalSymbolProvider with
+            member _.TryLookup name =
+                let mutable result = ValueNone
+                let mutable i = 0
+
+                while result.IsNone && i < sources.Length do
+                    result <- sources.[i].TryLookup name
+                    i <- i + 1
+
+                match result with
+                | ValueSome s -> ValueSome(stampSymbol s)
+                | ValueNone -> ValueNone
+
+            member _.TryLookupType name =
+                let mutable result = ValueNone
+                let mutable i = 0
+
+                while result.IsNone && i < sources.Length do
+                    result <- sources.[i].TryLookupType name
+                    i <- i + 1
+
+                match result with
+                | ValueSome shape -> ValueSome(stampType shape)
+                | ValueNone -> ValueNone
+
+            member _.TryLookupMember(typeName, memberName) =
+                let mutable result = ValueNone
+                let mutable i = 0
+
+                while result.IsNone && i < sources.Length do
+                    result <- sources.[i].TryLookupMember(typeName, memberName)
+                    i <- i + 1
+
+                match result with
+                | ValueSome m -> ValueSome(stampMember m)
+                | ValueNone -> ValueNone
+
+            // First source that knows the type wins the whole overload set — a
+            // type's members live in one assembly, so a later source never
+            // *adds* overloads to an earlier one's hit (same first-hit-wins
+            // shadowing as the singular lookups).
+            member _.TryLookupMembers(typeName, memberName) =
+                let mutable result = [||]
+                let mutable i = 0
+
+                while Array.isEmpty result && i < sources.Length do
+                    result <- sources.[i].TryLookupMembers(typeName, memberName)
+                    i <- i + 1
+
+                match stampOrigin with
+                | ValueNone -> result
+                | ValueSome _ -> result |> Array.map stampMember
+
+          interface IAmbientOpenScope with
+              member _.AmbientOpenPrefixes = ambient
+        }
+
+    /// The composed ambient prelude: each source's `[<AutoOpen>]` / prelude
+    /// prefixes, concatenated in source priority order (so a higher-priority
+    /// provider's auto-opens shadow a lower one's on a name collision, same
+    /// first-hit-wins ordering as lookups). Providers without an implicit
+    /// prelude (`MockBuiltins`, inline test fakes) don't implement
+    /// `IAmbientOpenScope` and contribute nothing.
+    let private collectAmbient (sources: IExternalSymbolProvider seq) : string list =
+        [
+            for s in sources do
+                match box s with
+                | :? IAmbientOpenScope as a -> yield! a.AmbientOpenPrefixes
+                | _ -> ()
+        ]
+
     /// First-hit-wins down the list; `[]` ⇒ `nullProvider`, a singleton ⇒ that
     /// provider unwrapped. Priority encodes shadowing among *external* sources
     /// (a referenced project beats a referenced assembly — symbol-resolution-plan
-    /// §5). Project-local symbols are not here: `PassContext` resolves them before
-    /// the provider is ever consulted. `FSharpLib.chain` is the 2-deep special
-    /// case (`composite [primary; secondary]`).
+    /// §5). Project-local symbols are not here: `PassContext` resolves them
+    /// before the provider is ever consulted. Just `stack` with no origin
+    /// stamping and ambient computed from each source's `IAmbientOpenScope`.
     let composite (sources: IExternalSymbolProvider list) : IExternalSymbolProvider =
         match sources with
         | [] -> nullProvider
         | [ single ] -> single
-        | _ ->
-            // Snapshot to an array so the hot lookup is an index loop, not list
-            // traversal, on a provider hit from many parallel PassContexts.
-            let sources = List.toArray sources
-
-            // The composed ambient prelude: each source's `[<AutoOpen>]` /
-            // prelude prefixes, concatenated in source priority order (so a
-            // higher-priority provider's auto-opens shadow a lower one's on a
-            // name collision, same first-hit-wins ordering as lookups). Computed
-            // once; the pipeline seeds `PassContext.AmbientOpenScope` from it.
-            let ambientPrefixes =
-                [
-                    for s in sources do
-                        match box s with
-                        | :? IAmbientOpenScope as a -> yield! a.AmbientOpenPrefixes
-                        | _ -> ()
-                ]
-
-            { new IExternalSymbolProvider with
-                member _.TryLookup name =
-                    let mutable result = ValueNone
-                    let mutable i = 0
-
-                    while result.IsNone && i < sources.Length do
-                        result <- sources.[i].TryLookup name
-                        i <- i + 1
-
-                    result
-
-                member _.TryLookupType name =
-                    let mutable result = ValueNone
-                    let mutable i = 0
-
-                    while result.IsNone && i < sources.Length do
-                        result <- sources.[i].TryLookupType name
-                        i <- i + 1
-
-                    result
-
-                member _.TryLookupMember(typeName, memberName) =
-                    let mutable result = ValueNone
-                    let mutable i = 0
-
-                    while result.IsNone && i < sources.Length do
-                        result <- sources.[i].TryLookupMember(typeName, memberName)
-                        i <- i + 1
-
-                    result
-
-                // First source that knows the type wins the whole overload set — a
-                // type's members live in one assembly, so a later source never
-                // *adds* overloads to an earlier one's hit (same first-hit-wins
-                // shadowing as the singular lookups).
-                member _.TryLookupMembers(typeName, memberName) =
-                    let mutable result = [||]
-                    let mutable i = 0
-
-                    while Array.isEmpty result && i < sources.Length do
-                        result <- sources.[i].TryLookupMembers(typeName, memberName)
-                        i <- i + 1
-
-                    result
-
-              interface IAmbientOpenScope with
-                  member _.AmbientOpenPrefixes = ambientPrefixes
-            }
+        | _ -> stack ValueNone (collectAmbient sources) sources
 
 /// The primitive `SemType` anchors the type-checker pins literals and built-in
 /// constructs to (`Unification` / `Freeze`). These are **production

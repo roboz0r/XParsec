@@ -1756,13 +1756,6 @@ module FSharpLib =
 
             Ok(ExtractCtx.toProvider ctx, List.ofSeq ctx.Diagnostics)
 
-    /// Composes two providers: tries `primary` first, falls back to
-    /// `secondary` (e.g. `MockBuiltins.provider` as a backstop for whatever
-    /// `extractSymbols` doesn't cover yet). The 2-deep special case of
-    /// `ExternalSymbols.composite`, kept for its callers' readability.
-    let chain (primary: IExternalSymbolProvider) (secondary: IExternalSymbolProvider) : IExternalSymbolProvider =
-        ExternalSymbols.composite [ primary; secondary ]
-
     /// Lazy cache keyed by `libRoot` so repeated callers parse the lib at
     /// most once per root. Thread-safe via `Lazy<_>` publication.
     let private cachedProviders =

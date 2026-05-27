@@ -364,7 +364,7 @@ let tests =
                 // `MockBuiltins.provider` and confirm both surfaces still
                 // answer for their respective name spaces.
                 let libProvider, _ = builtProvider.Value
-                let chained = FSharpLib.chain libProvider MockBuiltins.provider
+                let chained = ExternalSymbols.composite [ libProvider; MockBuiltins.provider ]
 
                 // Lib-sourced symbol: only `buildProvider` knows about it.
                 match chained.TryLookup "Microsoft.FSharp.Core.OptionModule.Map" with
@@ -552,7 +552,7 @@ let tests =
                 // through `MockBuiltins` (still authoritative for ops in v1);
                 // the test exists to prove the chain doesn't break that path.
                 let libProvider, _ = builtProvider.Value
-                let chained = FSharpLib.chain libProvider MockBuiltins.provider
+                let chained = ExternalSymbols.composite [ libProvider; MockBuiltins.provider ]
 
                 let input = "let x = 1 + 2"
                 let lexed, file = parseFile input

@@ -3,10 +3,9 @@ module XParsec.FSharp.SemanticAnalysis.Tests.CompositeTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-// `ExternalSymbols.composite` is the N-deep, first-hit-wins generalisation of
-// `FSharpLib.chain` (symbol-resolution-plan §5 / P1). These tests pin the
-// priority semantics with trivial in-line providers, independent of any real
-// `.fsi` extraction.
+// `ExternalSymbols.composite` is the first-hit-wins composition primitive
+// (symbol-resolution-plan §5 / P1). These tests pin the priority semantics
+// with trivial in-line providers, independent of any real `.fsi` extraction.
 
 /// A provider that answers exactly `name` (value, type, and member channels)
 /// with a `TyConst tag` payload, so a winning source is identifiable by its tag.
@@ -125,18 +124,5 @@ let tests =
 
                 Expect.equal (valueTag composed "only") (ValueSome "a") "the one source answers"
                 Expect.equal (valueTag composed "other") ValueNone "and nothing else does"
-            }
-
-            test "chain is composite of exactly two, same ordering" {
-                // The P1 invariant: existing 2-deep `chain` tests pass via
-                // `composite [a; b]`. `chain` must agree name-for-name.
-                let a = tagged "shared" "a"
-                let b = tagged "shared" "b"
-
-                let chained = FSharpLib.chain a b
-                let composed = ExternalSymbols.composite [ a; b ]
-
-                Expect.equal (valueTag chained "shared") (valueTag composed "shared") "shared name agrees"
-                Expect.equal (valueTag chained "shared") (ValueSome "a") "primary wins in chain"
             }
         ]

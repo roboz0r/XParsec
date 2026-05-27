@@ -86,49 +86,24 @@ module ReferencedProject =
             | Error e -> Error(sprintf "Manifest parse error (%s): %s" manifestPath e)
             | Ok doc -> parseManifest dirName doc
 
-    /// Wrap the extractor's provider so (a) every resolved descriptor carries the
-    /// package `Origin` (the extractor records `SymbolOrigin.Empty`; the manifest
-    /// knows the assembly + namespace — symbol-resolution-plan §5.1), and (b) the
-    /// package's implicit prelude — its `[<AutoOpen>]` modules plus the namespace
-    /// itself — is surfaced as `IAmbientOpenScope`. Short-name resolution is *not*
-    /// a provider-internal retry any more: the pipeline seeds these `ambient`
-    /// prefixes into the open scope and probes them BEHIND explicit `open`s, so an
-    /// explicit `open` can shadow a prelude name (symbol-resolution-handoff.md, open-resolution).
+    /// Wrap the extractor's provider so (a) every resolved descriptor carries
+    /// the package `Origin` (the extractor records `SymbolOrigin.Empty`; the
+    /// manifest knows the assembly + namespace — symbol-resolution-plan §5.1),
+    /// and (b) the package's implicit prelude — its `[<AutoOpen>]` modules plus
+    /// the namespace itself — is surfaced as `IAmbientOpenScope`. Short-name
+    /// resolution is *not* a provider-internal retry any more: the pipeline
+    /// seeds these `ambient` prefixes into the open scope and probes them
+    /// BEHIND explicit `open`s, so an explicit `open` can shadow a prelude
+    /// name (symbol-resolution-handoff.md, open-resolution). The actual
+    /// composition / stamping / `IAmbientOpenScope` plumbing is the shared
+    /// `ExternalSymbols.stack` primitive — `wrap` is a 1-source instantiation
+    /// of it with origin stamping.
     let private wrap
         (origin: SymbolOrigin)
         (ambient: string list)
         (inner: IExternalSymbolProvider)
         : IExternalSymbolProvider =
-        { new IExternalSymbolProvider with
-            member _.TryLookup name =
-                match inner.TryLookup name with
-                | ValueSome s -> ValueSome { s with Origin = origin }
-                | ValueNone -> ValueNone
-
-            member _.TryLookupType name =
-                match inner.TryLookupType name with
-                | ValueSome(ExternalTypeShape.Class(arity, isInterface, _)) ->
-                    ValueSome(ExternalTypeShape.Class(arity, isInterface, origin))
-                // A record carries its package's `Origin` so the codegen can
-                // mint a `TypeRef` for it (records-plan §B7). Abbrev/Union
-                // still don't (their cross-package emit paths land later, with
-                // the same shape).
-                | ValueSome(ExternalTypeShape.Record(arity, fields, _)) ->
-                    ValueSome(ExternalTypeShape.Record(arity, fields, origin))
-                | other -> other
-
-            member _.TryLookupMember(typeName, memberName) =
-                match inner.TryLookupMember(typeName, memberName) with
-                | ValueSome mem -> ValueSome { mem with Origin = origin }
-                | ValueNone -> ValueNone
-
-            member _.TryLookupMembers(typeName, memberName) =
-                inner.TryLookupMembers(typeName, memberName)
-                |> Array.map (fun mem -> { mem with Origin = origin })
-
-          interface IAmbientOpenScope with
-              member _.AmbientOpenPrefixes = ambient
-        }
+        ExternalSymbols.stack (ValueSome origin) ambient [ inner ]
 
     /// Stand up a referenced project (layer 1) from its `manifest.toml`: parse
     /// each contract `.fsi` in `files` order into one accumulating `ExtractCtx`,
