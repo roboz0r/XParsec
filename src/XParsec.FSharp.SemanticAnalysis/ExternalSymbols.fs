@@ -40,11 +40,13 @@ type SymbolKey =
     | ValueKey of asm: string option * ns: string * name: string
     /// A member on a type. `argSig` is written in the declaring type's OPEN
     /// typars (`!0`, …) and disambiguates overloads (`GetHashCode()` vs
-    /// `GetHashCode(!0)`). `kind` distinguishes a plain method from a property
-    /// or an interface-method / explicit interface implementation (the latter
-    /// two carry the interface's own `SymbolKey` so codegen can write the
-    /// matching `.override` row — pre-sprint-recommendations H3).
-    | MemberKey of decl: SymbolKey * memberName: string * argSig: string list * kind: MemberKind
+    /// `GetHashCode(!0)`). `EqArray` (not `list` / not `string[]`) so the
+    /// containing `SymbolKey` keeps the structural `=` interning relies on.
+    /// `kind` distinguishes a plain method from a property or an
+    /// interface-method / explicit interface implementation (the latter two
+    /// carry the interface's own `SymbolKey` so codegen can write the matching
+    /// `.override` row — pre-sprint-recommendations H3).
+    | MemberKey of decl: SymbolKey * memberName: string * argSig: EqArray<string> * kind: MemberKind
 
 /// What kind of member a `SymbolKey.MemberKey` denotes (pre-sprint-recommendations
 /// H3). `Method` and `Property` are the today-resolvable shapes; `InterfaceMethod`
@@ -86,7 +88,7 @@ type ExternalConstraint =
     /// participating fresh TyVar is linked to a concrete shape — see
     /// `Unification.drainSrtpBounds`.
     | MemberTrait of
-        typarIndices: int list *
+        typarIndices: EqArray<int> *
         memberName: string *
         buildArgTypes: (SemType[] -> SemType)[] *
         buildReturnType: (SemType[] -> SemType)

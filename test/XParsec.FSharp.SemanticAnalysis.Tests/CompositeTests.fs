@@ -44,7 +44,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
                             SymbolKey.MemberKey(
                                 SymbolKey.TypeKey(origin.Assembly, origin.Namespace, name),
                                 name,
-                                [],
+                                EqArray.empty,
                                 MemberKind.Method
                             )
                     }

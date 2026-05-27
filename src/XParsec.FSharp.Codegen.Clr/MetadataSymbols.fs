@@ -259,7 +259,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                             IsProperty = true
                             BuildSignature = build
                             Origin = origin
-                            Key = SymbolKey.MemberKey(declKey, p.Name, [], MemberKind.Property)
+                            Key = SymbolKey.MemberKey(declKey, p.Name, EqArray.empty, MemberKind.Property)
                         }
                 | None -> None
             )
@@ -275,7 +275,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                     let argSig =
                         m.GetParameters()
                         |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
-                        |> Array.toList
+                        |> EqArray.ofArray
 
                     {
                         Name = m.Name
@@ -400,7 +400,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                                 let argSig =
                                     m.GetParameters()
                                     |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
-                                    |> Array.toList
+                                    |> EqArray.ofArray
 
                                 {
                                     Name = memberName
@@ -423,7 +423,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                                     BuildSignature = build
                                     Origin = origin
                                     // A property carries no parameters → empty argSig.
-                                    Key = SymbolKey.MemberKey(declKey, memberName, [], MemberKind.Property)
+                                    Key = SymbolKey.MemberKey(declKey, memberName, EqArray.empty, MemberKind.Property)
                                 }
                             |]
                         | None -> [||]

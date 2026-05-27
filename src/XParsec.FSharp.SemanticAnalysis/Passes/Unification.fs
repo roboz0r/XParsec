@@ -39,7 +39,7 @@ module Unification =
     /// Rebuild a type definition's typar scope from the registry entry's
     /// `TypeParams`, so a field type containing `'name` resolves to the same
     /// root the registry already holds.
-    let private scopeOfTypeParams (typeParams: (string * TypeVar) list) : Dictionary<string, TypeVar> =
+    let private scopeOfTypeParams (typeParams: EqArray<string * TypeVar>) : Dictionary<string, TypeVar> =
         let d = Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
 
         for (n, tv) in typeParams do
@@ -232,7 +232,7 @@ module Unification =
     [<NoEquality; NoComparison>]
     type private TypeMembersFill =
         {
-            TypeParams: (string * TypeVar) list
+            TypeParams: EqArray<string * TypeVar>
             Members: TypeMemberInfo[]
             ThisKey: NodeKey
             MkSelfType: EqArray<SemType> -> SemType
@@ -354,7 +354,7 @@ module Unification =
                                     // prototype TyVars (not diagnosed as free).
                                     let savedMScope = ctx.Resolution.TyparScope
 
-                                    if not (List.isEmpty mInfo.MethodTypeParams) then
+                                    if not mInfo.MethodTypeParams.IsEmpty then
                                         let extended =
                                             Dictionary<string, TypeVar>(savedMScope, System.StringComparer.Ordinal)
 

@@ -570,10 +570,12 @@ module Emit =
         | TyClass(_, xs) -> EqArray.forall isGroundType xs
 
     let private deriveInlineTypeArgs (declTy: SemType) (spineArgs: (TExpr * SemType) list) : SemType[] =
-        match Inline.quantifiedTypars declTy with
-        | [] -> [||]
-        | typars ->
-            let roots = typars |> List.map UnionFind.find
+        let typars = Inline.quantifiedTypars declTy
+
+        if typars.Length = 0 then
+            [||]
+        else
+            let roots = typars |> Array.map UnionFind.find
             let result = Array.create roots.Length ValueNone
 
             let rec go (defT: SemType) (actT: SemType) =
@@ -581,7 +583,7 @@ module Emit =
                 | TyVar tv, act ->
                     let r = UnionFind.find tv
 
-                    match roots |> List.tryFindIndex (fun x -> System.Object.ReferenceEquals(x, r)) with
+                    match roots |> Array.tryFindIndex (fun x -> System.Object.ReferenceEquals(x, r)) with
                     | Some i ->
                         if result.[i].IsNone then
                             result.[i] <- ValueSome act
@@ -1650,7 +1652,7 @@ module Emit =
 
                 let argCount =
                     match key with
-                    | SymbolKey.MemberKey(_, _, argSig, _) -> List.length argSig
+                    | SymbolKey.MemberKey(_, _, argSig, _) -> argSig.Length
                     | other -> failwithf "Emit: ExternalMember key is not a MemberKey: %A" other
 
                 // The method consumes one spine element (its argument list); any

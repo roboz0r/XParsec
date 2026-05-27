@@ -156,8 +156,7 @@ module UnificationTranslate =
                     // TyVars for every declared typar.
                     forceFill ctx info
 
-                    let args =
-                        EqArray.init (List.length info.TypeParams) (fun _ -> TyVar(freshTyVar ctx))
+                    let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
 
                     let diagKey = NodeKey.ofToken li.Idents.[0] NodeKind.TypeNamed
                     expandAbbreviation ctx diagKey info args
@@ -168,22 +167,19 @@ module UnificationTranslate =
                         // current level — unpinned at the declaration site,
                         // fixed by surrounding unification (e.g. `r : Box`
                         // unifies the args with whatever `r`'s usage pins).
-                        let args =
-                            EqArray.init (List.length info.TypeParams) (fun _ -> TyVar(freshTyVar ctx))
+                        let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
 
                         TyRecord(name, args)
                     | false, _ ->
                         match ctx.Types.Union.TryGetValue name with
                         | true, info ->
-                            let args =
-                                EqArray.init (List.length info.TypeParams) (fun _ -> TyVar(freshTyVar ctx))
+                            let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
 
                             TyUnion(name, args)
                         | false, _ ->
                             match ctx.Types.Class.TryGetValue name with
                             | true, info ->
-                                let args =
-                                    EqArray.init (List.length info.TypeParams) (fun _ -> TyVar(freshTyVar ctx))
+                                let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
 
                                 TyClass(name, args)
                             | false, _ ->
@@ -329,22 +325,22 @@ module UnificationTranslate =
             match ctx.Types.Abbreviation.TryGetValue name with
             | true, info ->
                 forceFill ctx info
-                checkArity (List.length info.TypeParams)
+                checkArity (info.TypeParams.Length)
                 expandAbbreviation ctx diagKey info translatedArgs
             | false, _ ->
                 match ctx.Types.Record.TryGetValue name with
                 | true, info ->
-                    checkArity (List.length info.TypeParams)
+                    checkArity (info.TypeParams.Length)
                     TyRecord(name, translatedArgs)
                 | false, _ ->
                     match ctx.Types.Union.TryGetValue name with
                     | true, info ->
-                        checkArity (List.length info.TypeParams)
+                        checkArity (info.TypeParams.Length)
                         TyUnion(name, translatedArgs)
                     | false, _ ->
                         match ctx.Types.Class.TryGetValue name with
                         | true, info ->
-                            checkArity (List.length info.TypeParams)
+                            checkArity (info.TypeParams.Length)
                             TyClass(name, translatedArgs)
                         | false, _ ->
                             match tryResolveExternalType ctx name translatedArgs with
@@ -544,7 +540,7 @@ module UnificationTranslate =
         (info: AbbreviationInfo)
         (args: EqArray<SemType>)
         : SemType =
-        let n = min (List.length info.TypeParams) args.Length
+        let n = min (info.TypeParams.Length) args.Length
 
         for i = 0 to n - 1 do
             let (_, protoTv) = info.TypeParams.[i]

@@ -41,7 +41,7 @@ type RecordFieldInfo(name: string, ty: SemType, isMutable: bool, declKey: NodeKe
 type RecordTypeInfo
     (
         name: string,
-        typeParams: (string * TypeVar) list,
+        typeParams: EqArray<string * TypeVar>,
         fields: RecordFieldInfo[],
         declKey: NodeKey,
         typarConstraints: TyparConstraints<SyntaxToken> voption
@@ -99,7 +99,7 @@ type TypeMemberInfo(name: string, kind: ClassMemberKind, isStatic: bool, ty: Sem
     member val DeclKey = declKey
     /// The member's *own* generic parameters (e.g. `abstract Map<'C> : ...`),
     /// as prototype TyVars keyed by source name. Empty for a non-generic member.
-    member val MethodTypeParams: (string * TypeVar) list = [] with get, set
+    member val MethodTypeParams: EqArray<string * TypeVar> = EqArray.empty with get, set
 
 /// Field types start as fresh TyVar placeholders stamped by NameResolution and
 /// are linked by Unification's field-fill-in pass before any expression is
@@ -119,7 +119,7 @@ type UnionCaseInfo(name: string, unionName: string, fields: SemType[], fieldName
 type UnionTypeInfo
     (
         name: string,
-        typeParams: (string * TypeVar) list,
+        typeParams: EqArray<string * TypeVar>,
         cases: UnionCaseInfo[],
         declKey: NodeKey,
         typarConstraints: TyparConstraints<SyntaxToken> voption
@@ -171,7 +171,7 @@ type AbbreviationStatus =
 type AbbreviationInfo
     (
         name: string,
-        typeParams: (string * TypeVar) list,
+        typeParams: EqArray<string * TypeVar>,
         rhsCst: Type<SyntaxToken>,
         declKey: NodeKey,
         typarConstraints: TyparConstraints<SyntaxToken> voption
@@ -202,7 +202,7 @@ type ClassCtorParamInfo(name: string, ty: SemType, declKey: NodeKey) =
 type ClassTypeInfo
     (
         name: string,
-        typeParams: (string * TypeVar) list,
+        typeParams: EqArray<string * TypeVar>,
         ctorParams: ClassCtorParamInfo[],
         members: TypeMemberInfo[],
         declKey: NodeKey,
@@ -282,15 +282,16 @@ type PassContextTypes =
         /// Abbreviations expand eagerly at every `translateType` lookup, so
         /// downstream passes see the underlying type as if written longhand.
         Abbreviation: Dictionary<string, AbbreviationInfo>
-        /// Reverse index: ctor name → list of case-info entries (each tagged with
-        /// the declaring union type).
-        CtorIndex: Dictionary<string, UnionCaseInfo list>
-        /// Reverse index: field name → list of record types that declare it.
-        FieldIndex: Dictionary<string, RecordTypeInfo list>
-        /// Reverse index: member name → list of declaring (class, member) entries.
+        /// Reverse index: ctor name → bucket of case-info entries (each tagged with
+        /// the declaring union type). Consumers iterate the bucket; order does not
+        /// matter, so registration appends with `EqArray.ofResizeArray`.
+        CtorIndex: Dictionary<string, EqArray<UnionCaseInfo>>
+        /// Reverse index: field name → bucket of record types that declare it.
+        FieldIndex: Dictionary<string, EqArray<RecordTypeInfo>>
+        /// Reverse index: member name → bucket of declaring (class, member) entries.
         /// Used only for ambiguity diagnostics when a receiver's type is free and
         /// the member name occurs in multiple classes.
-        ClassMemberIndex: Dictionary<string, ClassMemberIndexEntry list>
+        ClassMemberIndex: Dictionary<string, EqArray<ClassMemberIndexEntry>>
         /// Maps the Vesper type name to its target representation (the inline-IL
         /// string), from an intrinsic-binding abbrev (`type int = (# "System.Int32" #)`).
         /// Unlike `Abbreviation`, these are NOT transparent: a use site resolves to
@@ -447,7 +448,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// clause; the typar carries the inline binding's quantified root so
     /// `Inline.inlineExpand` can substitute it at the call site. See
     /// docs/operators-plan.md (prereq 3).
-    member val StaticOpt = SideTable<TStaticOptConstraint list>() with get
+    member val StaticOpt = SideTable<EqArray<TStaticOptConstraint>>() with get
     /// Current let-depth (Rémy's levels). Push on entering a binding group's
     /// RHSes, pop after typing them; generalisation uses the pre-push value as
     /// the threshold for "which TyVars do I quantify?".

@@ -66,7 +66,7 @@ let tests =
                         Expect.isTrue asm.IsSome "GetHashCode decl carries the defining assembly"
                         Expect.equal ns "System.Collections.Generic" "GetHashCode decl namespace"
                         Expect.equal name "EqualityComparer`1" "GetHashCode decl type name (arity-suffixed)"
-                        Expect.equal argSig [ "!0" ] "GetHashCode(T) argSig is the declaring typar"
+                        Expect.equal (EqArray.toList argSig) [ "!0" ] "GetHashCode(T) argSig is the declaring typar"
                     | other -> failtestf "unexpected GetHashCode key %A" other
 
                     // The `Default` static property — receiver dropped (ValueNone),
@@ -89,7 +89,7 @@ let tests =
                         | SymbolKey.MemberKey(SymbolKey.TypeKey(_, ns, name), "Default", argSig, MemberKind.Property) ->
                             Expect.equal ns "System.Collections.Generic" "Default decl namespace"
                             Expect.equal name "EqualityComparer`1" "Default decl type name"
-                            Expect.equal argSig [] "Default is a property: empty argSig"
+                            Expect.isTrue argSig.IsEmpty "Default is a property: empty argSig"
                         | other -> failtestf "unexpected Default key %A" other
                     | other -> failtestf "expected a static `Default` ExternalMember receiver, got %A" other
                 | other -> failtestf "expected App(ExternalMember GetHashCode, 5), got %A" other
@@ -163,7 +163,7 @@ let tests =
                         Expect.isTrue asm.IsSome "GetHashCode decl carries the defining assembly"
                         Expect.equal ns "System.Collections.Generic" "GetHashCode decl namespace"
                         Expect.equal name "EqualityComparer`1" "GetHashCode decl type name (arity-suffixed)"
-                        Expect.equal argSig [ "!0" ] "GetHashCode(T) argSig is the declaring typar"
+                        Expect.equal (EqArray.toList argSig) [ "!0" ] "GetHashCode(T) argSig is the declaring typar"
                     | other -> failtestf "unexpected GetHashCode key %A" other
 
                     match inner with
@@ -358,7 +358,7 @@ let tests =
                         Expect.isTrue asm.IsSome "Out decl carries the defining assembly"
                         Expect.equal ns "System" "Out decl namespace"
                         Expect.equal name "Console" "Out decl type name (non-generic, no arity suffix)"
-                        Expect.equal argSig [] "Out is a property: empty argSig"
+                        Expect.isTrue argSig.IsEmpty "Out is a property: empty argSig"
                     | other -> failtestf "unexpected Out key %A" other
                 | other -> failtestf "expected a static `Out` ExternalMember, got %A" other
             }
@@ -386,7 +386,7 @@ let tests =
                 | ValueSome(TExpr.ExternalMember(ValueNone,
                                                  SymbolKey.MemberKey(SymbolKey.TypeKey(_, "System", "Console"),
                                                                      "Out",
-                                                                     [],
+                                                                     EqList [],
                                                                      MemberKind.Property),
                                                  "Out",
                                                  true,

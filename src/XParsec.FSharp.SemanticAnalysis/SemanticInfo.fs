@@ -218,7 +218,7 @@ and [<Sealed>] MeasureTerm private (exponents: (string * Rational) list) =
 and MemberSignature =
     {
         MemberName: string
-        ArgTypes: SemType list
+        ArgTypes: EqArray<SemType>
         ReturnType: SemType
         /// Shared across every stamp of the *same* trait (one per
         /// participating typar) by reference identity: all participating

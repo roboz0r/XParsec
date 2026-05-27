@@ -461,10 +461,10 @@ module UnificationInfer =
     /// lines up with the value in `args`.
     let private freshNamedInstance
         (ctx: PassContext)
-        (typeParams: (string * TypeVar) list)
+        (typeParams: EqArray<string * TypeVar>)
         : EqArray<SemType> * Dictionary<TypeVar, SemType> =
         let subst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
-        let acc = ResizeArray<SemType>(List.length typeParams)
+        let acc = ResizeArray<SemType>(typeParams.Length)
 
         for (_, tp) in typeParams do
             let fresh = TypeVar()
@@ -531,8 +531,8 @@ module UnificationInfer =
     let private resolveCtorName (ctx: PassContext) (name: string) : UnionCaseInfo voption * int =
         match ctx.Types.CtorIndex.TryGetValue name with
         | false, _ -> ValueNone, 0
-        | true, [ info ] -> ValueSome info, 1
-        | true, infos -> ValueNone, List.length infos
+        | true, infos when infos.Length = 1 -> ValueSome infos.[0], 1
+        | true, infos -> ValueNone, infos.Length
 
     /// Resolve a qualified ctor reference `Type.Case` against the union
     /// registry.
@@ -555,18 +555,22 @@ module UnificationInfer =
             | false, _ -> ValueNone, 0
             | true, candidates ->
                 let nameSet = Set.ofList names
+                let mutable firstHit = Unchecked.defaultof<RecordTypeInfo>
+                let mutable count = 0
 
-                let matches =
-                    candidates
-                    |> List.filter (fun info ->
-                        let declared = info.Fields |> Array.map (fun f -> f.Name) |> Set.ofArray
-                        declared = nameSet
-                    )
+                for info in candidates do
+                    let declared = info.Fields |> Array.map (fun f -> f.Name) |> Set.ofArray
 
-                match matches with
-                | [ info ] -> ValueSome info, 1
-                | [] -> ValueNone, 0
-                | many -> ValueNone, List.length many
+                    if declared = nameSet then
+                        if count = 0 then
+                            firstHit <- info
+
+                        count <- count + 1
+
+                if count = 1 then
+                    ValueSome firstHit, 1
+                else
+                    ValueNone, count
 
     /// `Circle(r)` parses as `Circle (EnclosedBlock r)`; `Rectangle(w, h)`
     /// as `Circle (EnclosedBlock (Tuple [w; h]))`. v1 supports the
@@ -1048,7 +1052,7 @@ module UnificationInfer =
             let headName = ctx.NameOf li.Idents.[0]
             let tailName = ctx.NameOf li.Idents.[1]
 
-            let tryStaticMember (typeParams: (string * TypeVar) list) (members: TypeMemberInfo[]) =
+            let tryStaticMember (typeParams: EqArray<string * TypeVar>) (members: TypeMemberInfo[]) =
                 match members |> Array.tryFind (fun m -> m.IsStatic && m.Name = tailName) with
                 | Some m ->
                     let _, subst = freshNamedInstance ctx typeParams
@@ -2108,7 +2112,7 @@ module UnificationInfer =
     /// genuine single tuple param).
     and private memberParamCount (m: ExternalMember) : int =
         match m.Key with
-        | SymbolKey.MemberKey(_, _, argSig, _) -> List.length argSig
+        | SymbolKey.MemberKey(_, _, argSig, _) -> argSig.Length
         | _ -> 0
 
     /// The member's parameter types (instantiated at `typeArgs`), flattening the
@@ -2415,14 +2419,16 @@ module UnificationInfer =
         infer ctx optimizedExpr |> ignore
 
         let resolved =
-            [
-                for c in constraints do
-                    match c with
-                    | StaticOptimizationConstraint.WhenTyparTyconEqualsTycon(typar = tp; rhsType = rhs) ->
-                        TStaticOptConstraint.TyconEquals(translateType ctx (Type.VarType tp), translateType ctx rhs)
-                    | StaticOptimizationConstraint.WhenTyparIsStruct(typar = tp) ->
-                        TStaticOptConstraint.IsStruct(translateType ctx (Type.VarType tp))
-            ]
+            EqArray.ofSeq (
+                seq {
+                    for c in constraints do
+                        match c with
+                        | StaticOptimizationConstraint.WhenTyparTyconEqualsTycon(typar = tp; rhsType = rhs) ->
+                            TStaticOptConstraint.TyconEquals(translateType ctx (Type.VarType tp), translateType ctx rhs)
+                        | StaticOptimizationConstraint.WhenTyparIsStruct(typar = tp) ->
+                            TStaticOptConstraint.IsStruct(translateType ctx (Type.VarType tp))
+                }
+            )
 
         ctx.StaticOpt.Set(key, resolved)
         baseTy

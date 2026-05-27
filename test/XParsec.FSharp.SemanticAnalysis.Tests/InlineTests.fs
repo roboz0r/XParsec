@@ -65,7 +65,7 @@ let tests =
             test "polymorphic inline binding exposes one quantified typar" {
                 match firstDecl "let inline id x = x" with
                 | TDecl.Let(_, _, _, declTy) ->
-                    Expect.equal (List.length (Inline.quantifiedTypars declTy)) 1 "id has a single typar"
+                    Expect.equal (Inline.quantifiedTypars declTy).Length 1 "id has a single typar"
                 | other -> failtestf "unexpected %A" other
             }
 
@@ -105,7 +105,7 @@ let tests =
                 // second call-site can instantiate it independently.
                 match decl with
                 | TDecl.Let(_, _, _, declTy) ->
-                    Expect.equal (List.length (Inline.quantifiedTypars declTy)) 1 "typar still free after expansion"
+                    Expect.equal (Inline.quantifiedTypars declTy).Length 1 "typar still free after expansion"
 
                     let again = Inline.inlineExpand decl [| BuiltinTypes.tyBool |]
 

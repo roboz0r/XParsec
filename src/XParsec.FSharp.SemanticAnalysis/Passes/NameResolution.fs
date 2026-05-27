@@ -410,13 +410,15 @@ module NameResolution =
     /// Mint a prototype TyVar per declared typar name. Each is stored on the
     /// registry entry and substituted out at every use site, so two `Box<…>`
     /// instantiations share no variables.
-    let private mkTypeParams (names: string list) : (string * TypeVar) list =
-        [
-            for n in names ->
-                let tv = TypeVar()
-                tv.Level <- 0
-                n, tv
-        ]
+    let private mkTypeParams (names: string list) : EqArray<string * TypeVar> =
+        EqArray.ofSeq (
+            seq {
+                for n in names ->
+                    let tv = TypeVar()
+                    tv.Level <- 0
+                    n, tv
+            }
+        )
 
     /// Stamp `RecordTypeInfo` entries for every `TypeDefn.Record`. Field types
     /// start as placeholder TyVars; Unification fills them once `RecordTypes`
@@ -503,8 +505,15 @@ module NameResolution =
 
                     for fi in fieldInfos do
                         match ctx.Types.FieldIndex.TryGetValue fi.Name with
-                        | true, infos -> ctx.Types.FieldIndex.[fi.Name] <- info :: infos
-                        | false, _ -> ctx.Types.FieldIndex.[fi.Name] <- [ info ]
+                        | true, infos ->
+                            let buf = ResizeArray(infos.Length + 1)
+                            buf.Add info
+
+                            for i in infos do
+                                buf.Add i
+
+                            ctx.Types.FieldIndex.[fi.Name] <- EqArray.ofResizeArray buf
+                        | false, _ -> ctx.Types.FieldIndex.[fi.Name] <- EqArray.singleton info
         | _ -> ()
 
     let private registerRecordTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
@@ -646,8 +655,15 @@ module NameResolution =
 
                     for c in caseInfos do
                         match ctx.Types.CtorIndex.TryGetValue c.Name with
-                        | true, infos -> ctx.Types.CtorIndex.[c.Name] <- c :: infos
-                        | false, _ -> ctx.Types.CtorIndex.[c.Name] <- [ c ]
+                        | true, infos ->
+                            let buf = ResizeArray(infos.Length + 1)
+                            buf.Add c
+
+                            for i in infos do
+                                buf.Add i
+
+                            ctx.Types.CtorIndex.[c.Name] <- EqArray.ofResizeArray buf
+                        | false, _ -> ctx.Types.CtorIndex.[c.Name] <- EqArray.singleton c
         | _ -> ()
 
     let private registerUnionTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
@@ -960,8 +976,15 @@ module NameResolution =
                         let entry = { Class = info; Member = m }
 
                         match ctx.Types.ClassMemberIndex.TryGetValue m.Name with
-                        | true, lst -> ctx.Types.ClassMemberIndex.[m.Name] <- entry :: lst
-                        | false, _ -> ctx.Types.ClassMemberIndex.[m.Name] <- [ entry ]
+                        | true, lst ->
+                            let buf = ResizeArray(lst.Length + 1)
+                            buf.Add entry
+
+                            for e in lst do
+                                buf.Add e
+
+                            ctx.Types.ClassMemberIndex.[m.Name] <- EqArray.ofResizeArray buf
+                        | false, _ -> ctx.Types.ClassMemberIndex.[m.Name] <- EqArray.singleton entry
 
     let private registerClassTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
         match m with

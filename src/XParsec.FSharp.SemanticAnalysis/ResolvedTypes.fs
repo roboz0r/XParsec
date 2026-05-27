@@ -48,22 +48,24 @@ module ResolvedTypes =
     /// the list of newly-added roots so the caller can pop them after the
     /// binding's body walk. Skip-if-already-present so outer-scope
     /// quantifieds aren't accidentally popped by an inner let.
-    let private pushScheme (ctx: PassContext) (binding: TPat) (allowed: HashSet<TypeVar>) : TypeVar list =
+    let private pushScheme (ctx: PassContext) (binding: TPat) (allowed: HashSet<TypeVar>) : ResizeArray<TypeVar> =
+        let added = ResizeArray<TypeVar>()
+
         match binding with
         | TPat.NamedSimple(key, _) ->
             match ctx.Bindings.Scheme.TryGetValue key with
             | ValueSome scheme ->
-                [
-                    for tv in scheme.Quantified do
-                        let root = UnionFind.find tv
+                for tv in scheme.Quantified do
+                    let root = UnionFind.find tv
 
-                        if allowed.Add root then
-                            root
-                ]
-            | ValueNone -> []
-        | _ -> []
+                    if allowed.Add root then
+                        added.Add root
+            | ValueNone -> ()
+        | _ -> ()
 
-    let private popScheme (allowed: HashSet<TypeVar>) (added: TypeVar list) : unit =
+        added
+
+    let private popScheme (allowed: HashSet<TypeVar>) (added: ResizeArray<TypeVar>) : unit =
         for tv in added do
             allowed.Remove tv |> ignore
 

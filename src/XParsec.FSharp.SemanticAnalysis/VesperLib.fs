@@ -99,15 +99,14 @@ module VesperLib =
                 | ValueSome i -> Some(ExternalConstraint.Trait(i, kind))
                 | ValueNone -> None
             | RawConstraint.MemberTrait(names, memberName, argTys, retTy) ->
-                let indices =
-                    names
-                    |> List.choose (fun n ->
-                        match typars.TryIndexOf n with
-                        | ValueSome i -> Some i
-                        | ValueNone -> None
-                    )
+                let indexBuf = ResizeArray<int>(List.length names)
 
-                if List.isEmpty indices then
+                for n in names do
+                    match typars.TryIndexOf n with
+                    | ValueSome i -> indexBuf.Add i
+                    | ValueNone -> ()
+
+                if indexBuf.Count = 0 then
                     None
                 else
                     // Any translation failure drops the whole entry — better
@@ -128,7 +127,12 @@ module VesperLib =
                         | Error _ -> None
                         | Ok retBuilder ->
                             Some(
-                                ExternalConstraint.MemberTrait(indices, memberName, argBuilders.ToArray(), retBuilder)
+                                ExternalConstraint.MemberTrait(
+                                    EqArray.ofResizeArray indexBuf,
+                                    memberName,
+                                    argBuilders.ToArray(),
+                                    retBuilder
+                                )
                             )
             | RawConstraint.Default(n, target) ->
                 match typars.TryIndexOf n with
@@ -258,13 +262,17 @@ module VesperLib =
                                 // runs the drain; the others see it flipped and
                                 // skip.
                                 for (idxs, mName, argBs, retB) in memberTraitConstraints do
-                                    let argTys = [ for b in argBs -> b fresh ]
+                                    let argTyBuf = ResizeArray<SemType>(argBs.Length)
+
+                                    for b in argBs do
+                                        argTyBuf.Add(b fresh)
+
                                     let retTy = retB fresh
 
                                     let sig_: MemberSignature =
                                         {
                                             MemberName = mName
-                                            ArgTypes = argTys
+                                            ArgTypes = EqArray.ofResizeArray argTyBuf
                                             ReturnType = retTy
                                             Resolved = false
                                         }

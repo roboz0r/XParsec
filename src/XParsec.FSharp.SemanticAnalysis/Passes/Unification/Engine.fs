@@ -170,10 +170,13 @@ module UnificationEngine =
     /// types unsubstituted rather than silently mismatching. Public so
     /// Freeze can rebuild the same substitution when projecting fields off a
     /// generic receiver in a field-chain.
-    let mkNamedTypeSubst (typeParams: (string * TypeVar) list) (args: EqArray<SemType>) : Dictionary<TypeVar, SemType> =
+    let mkNamedTypeSubst
+        (typeParams: EqArray<string * TypeVar>)
+        (args: EqArray<SemType>)
+        : Dictionary<TypeVar, SemType> =
         let subst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
 
-        if List.length typeParams = args.Length then
+        if typeParams.Length = args.Length then
             let mutable i = 0
 
             for (_, tp) in typeParams do
@@ -190,7 +193,7 @@ module UnificationEngine =
     /// that reuse the same subst across a loop / Array.map keep the explicit
     /// `mkNamedTypeSubst` + `substituteWith` pair so the dictionary is only
     /// built once.
-    let instantiateMember (typeParams: (string * TypeVar) list, args: EqArray<SemType>) (ty: SemType) : SemType =
+    let instantiateMember (typeParams: EqArray<string * TypeVar>, args: EqArray<SemType>) (ty: SemType) : SemType =
         substituteWith (mkNamedTypeSubst typeParams args) ty
 
     /// Walk a `SemType` through TyVar Links to surface a `TyRecord _`. The
@@ -752,16 +755,18 @@ module UnificationEngine =
         (candidate: SemType)
         (bound: MemberSignature)
         : unit =
-        let tupled =
-            match bound.ArgTypes with
-            | [] -> bound.ReturnType
-            | [ a ] -> TyFun(a, bound.ReturnType)
-            | args -> TyFun(TyTuple(EqArray.ofList args), bound.ReturnType)
+        let argTys = bound.ArgTypes
 
-        match resolveStep candidate, bound.ArgTypes with
-        | TyFun(TyTuple _, _), _ -> unify ctx key candidate tupled
-        | _, _ :: _ :: _ ->
-            let curried = List.foldBack (fun a r -> TyFun(a, r)) bound.ArgTypes bound.ReturnType
+        let tupled =
+            match argTys.Length with
+            | 0 -> bound.ReturnType
+            | 1 -> TyFun(argTys.[0], bound.ReturnType)
+            | _ -> TyFun(TyTuple argTys, bound.ReturnType)
+
+        match resolveStep candidate with
+        | TyFun(TyTuple _, _) -> unify ctx key candidate tupled
+        | _ when argTys.Length >= 2 ->
+            let curried = EqArray.foldBack (fun a r -> TyFun(a, r)) argTys bound.ReturnType
 
             unify ctx key candidate curried
         | _ -> unify ctx key candidate tupled

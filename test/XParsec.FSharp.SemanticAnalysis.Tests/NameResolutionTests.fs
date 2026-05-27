@@ -197,7 +197,7 @@ let tests =
                 match ctx.Types.CtorIndex.TryGetValue "Circle" with
                 | true, infos ->
                     Expect.equal infos.Length 1 "Circle declared by exactly one union"
-                    Expect.equal infos.Head.UnionName "S" "Circle belongs to S"
+                    Expect.equal infos.[0].UnionName "S" "Circle belongs to S"
                 | false, _ -> failtest "Circle not in CtorIndex"
 
                 match ctx.Types.CtorIndex.TryGetValue "Point" with
@@ -230,7 +230,7 @@ let tests =
 
                 match ctx.Types.Record.TryGetValue "Box" with
                 | true, info ->
-                    Expect.equal (List.length info.TypeParams) 1 "one typar"
+                    Expect.equal info.TypeParams.Length 1 "one typar"
                     Expect.equal (fst info.TypeParams.[0]) "'a" "name is 'a"
                 | false, _ -> failtest "Box not registered"
             }
@@ -265,7 +265,7 @@ let tests =
 
                 match ctx.Types.Record.TryGetValue "Pair" with
                 | true, info ->
-                    Expect.equal (List.length info.TypeParams) 2 "two typars"
+                    Expect.equal info.TypeParams.Length 2 "two typars"
                     Expect.equal (fst info.TypeParams.[0]) "'a" "first is 'a"
                     Expect.equal (fst info.TypeParams.[1]) "'b" "second is 'b"
                 | false, _ -> failtest "Pair not registered"
@@ -276,7 +276,7 @@ let tests =
 
                 match ctx.Types.Union.TryGetValue "Option" with
                 | true, info ->
-                    Expect.equal (List.length info.TypeParams) 1 "one typar"
+                    Expect.equal info.TypeParams.Length 1 "one typar"
                     Expect.equal (fst info.TypeParams.[0]) "'a" "name is 'a"
                 | false, _ -> failtest "Option not registered"
             }
@@ -311,7 +311,7 @@ let tests =
 
                 match ctx.Types.Abbreviation.TryGetValue "Pair" with
                 | true, info ->
-                    Expect.equal (List.length info.TypeParams) 2 "two typars"
+                    Expect.equal info.TypeParams.Length 2 "two typars"
                     Expect.equal (fst info.TypeParams.[0]) "'a" "first is 'a"
                     Expect.equal (fst info.TypeParams.[1]) "'b" "second is 'b"
                 | false, _ -> failtest "abbreviation Pair not registered"

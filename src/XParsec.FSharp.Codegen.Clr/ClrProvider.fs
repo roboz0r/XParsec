@@ -967,8 +967,7 @@ type ClrProvider
                 let paramTys =
                     match rawParams with
                     | [ TyConst "unit" ] -> []
-                    | [ TyTuple elems ] when List.length argSig >= 2 && elems.Length = List.length argSig ->
-                        EqArray.toList elems
+                    | [ TyTuple elems ] when argSig.Length >= 2 && elems.Length = argSig.Length -> EqArray.toList elems
                     | ps -> ps
 
                 BlobEncoder(s)

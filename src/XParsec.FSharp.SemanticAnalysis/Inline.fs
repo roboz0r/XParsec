@@ -26,7 +26,7 @@ module Inline =
     /// TAST lines up with the scheme that produced it. A measure-bearing root
     /// (Link set to its carrier) is *not* a typar; like `generalise` we skip
     /// it by following the Link rather than collecting the root.
-    let quantifiedTypars (declTy: SemType) : TypeVar list =
+    let quantifiedTypars (declTy: SemType) : TypeVar[] =
         let acc = ResizeArray<TypeVar>()
         let seen = HashSet<TypeVar>(HashIdentity.Reference)
 
@@ -54,7 +54,7 @@ module Inline =
                     go a
 
         go declTy
-        List.ofSeq acc
+        acc.ToArray()
 
     /// Substitute typar roots present in `subst`. The frozen TAST is zonked,
     /// so a free typar is `TyVar root` with no Link; chase to the union-find
@@ -166,7 +166,7 @@ module Inline =
             let subst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
 
             typars
-            |> List.iteri (fun i tv ->
+            |> Array.iteri (fun i tv ->
                 if i < typeArgs.Length then
                     subst.[tv] <- typeArgs.[i]
             )

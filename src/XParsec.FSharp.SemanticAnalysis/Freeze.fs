@@ -788,12 +788,12 @@ module Freeze =
                     let cs =
                         match ctx.StaticOpt.TryGetValue(CstKeys.ofExpr node) with
                         | ValueSome v -> v
-                        | ValueNone -> []
+                        | ValueNone -> EqArray.empty
 
                     peel
                         inner
                         ({
-                            Constraints = EqArray.ofList cs
+                            Constraints = cs
                             Body = translateExpr ctx optE
                          }
                          :: acc)
@@ -1583,7 +1583,7 @@ module Freeze =
     /// Pinned typars (anything that's already collapsed to a non-`TyVar`) are
     /// dropped — there's nothing left to remap. Shared between record / union
     /// (and the upcoming class) `try*Type` surfacers.
-    let private mkTypeMarkers (typeParams: (string * TypeVar) list) : (TypeVar * string) list =
+    let private mkTypeMarkers (typeParams: EqArray<string * TypeVar>) : (TypeVar * string) list =
         [
             for (n, ptv) in typeParams do
                 match Unification.zonk (TyVar ptv) with
