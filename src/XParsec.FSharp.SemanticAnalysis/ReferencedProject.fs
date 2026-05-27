@@ -7,7 +7,7 @@ open XParsec.Toml
 /// *referenced project*, declared by its `manifest.toml`. A package's `[core]`
 /// table names the namespace and lists its contract `.fsi` files in compile
 /// order; this module parses each into one accumulating `ExtractCtx` (reusing
-/// `FSharpLib`'s extractor) and exposes the result as an `IExternalSymbolProvider`
+/// `VesperLib`'s extractor) and exposes the result as an `IExternalSymbolProvider`
 /// whose symbols carry the package `Origin` (assembly simple name + namespace) —
 /// the first real consumer of the P0 identity surface.
 ///
@@ -112,24 +112,24 @@ module ReferencedProject =
     /// fails to parse contributes no symbols but does not abort the build).
     let buildProvider
         (manifestPath: string)
-        : Result<IExternalSymbolProvider * (FSharpLib.LibFile * string) list, string> =
+        : Result<IExternalSymbolProvider * (VesperLib.LibFile * string) list, string> =
         match loadManifest manifestPath with
         | Error e -> Error e
         | Ok manifest ->
             let dir = Path.GetDirectoryName manifestPath
-            let ctx = FSharpLib.ExtractCtx.empty ()
+            let ctx = VesperLib.ExtractCtx.empty ()
 
             for rel in manifest.Files do
-                let file: FSharpLib.LibFile =
+                let file: VesperLib.LibFile =
                     {
                         BucketName = manifest.Name
                         Relative = rel
                         Absolute = Path.Combine(dir, rel)
                     }
 
-                match FSharpLib.parseFileFull file with
+                match VesperLib.parseFileFull file with
                 | Error e -> ctx.Diagnostics.Add(file, e)
-                | Ok parsed -> FSharpLib.extractSymbols ctx parsed
+                | Ok parsed -> VesperLib.extractSymbols ctx parsed
 
             let origin =
                 {
@@ -149,20 +149,20 @@ module ReferencedProject =
                    else
                        [])
 
-            Ok(wrap origin ambient (FSharpLib.ExtractCtx.toProvider ctx), List.ofSeq ctx.Diagnostics)
+            Ok(wrap origin ambient (VesperLib.ExtractCtx.toProvider ctx), List.ofSeq ctx.Diagnostics)
 
     /// Lazy cache keyed by the (normalised) manifest path so repeated callers
-    /// parse a package's `.fsi` set at most once. Mirrors `FSharpLib.defaultProvider`.
+    /// parse a package's `.fsi` set at most once. Mirrors `VesperLib.defaultProvider`.
     let private cached =
         System.Collections.Concurrent.ConcurrentDictionary<
             string,
-            Lazy<Result<IExternalSymbolProvider * (FSharpLib.LibFile * string) list, string>>
+            Lazy<Result<IExternalSymbolProvider * (VesperLib.LibFile * string) list, string>>
          >(
             System.StringComparer.Ordinal
         )
 
     /// Production-path entry point: caches `buildProvider` per manifest path.
     /// Tests that need a fresh provider should call `buildProvider`.
-    let provider (manifestPath: string) : Result<IExternalSymbolProvider * (FSharpLib.LibFile * string) list, string> =
+    let provider (manifestPath: string) : Result<IExternalSymbolProvider * (VesperLib.LibFile * string) list, string> =
         let normalised = Path.GetFullPath manifestPath
         cached.GetOrAdd(normalised, (fun p -> lazy (buildProvider p))).Value

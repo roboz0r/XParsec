@@ -12,7 +12,10 @@
     <Compile Include="SemanticInfo.fs" />
     <Compile Include="PrintfSpec.fs" />
     <Compile Include="ExternalSymbols.fs" />
-    <Compile Include="FSharpLib.fs" />
+    <Compile Include="VesperLib\Manifest.fs" />
+    <Compile Include="VesperLib\TyparCapture.fs" />
+    <Compile Include="VesperLib\TypeTranslate.fs" />
+    <Compile Include="VesperLib.fs" />
     <Compile Include="ReferencedProject.fs" />
     <Compile Include="SideTables.fs" />
     <Compile Include="UnionFind.fs" />

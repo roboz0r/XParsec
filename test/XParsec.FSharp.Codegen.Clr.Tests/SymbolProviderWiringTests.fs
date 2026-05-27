@@ -38,7 +38,7 @@ let tests =
                 // With the Vesper.List manifest, `fold` resolves under its
                 // source-qualified name (`List.fold`, not the compiled
                 // `ListModule.fold`) — the ModuleSuffix source-name alias
-                // (`FSharpLib.extractValSig`) the front end probes through the ambient.
+                // (`VesperLib.extractValSig`) the front end probes through the ambient.
                 let contract = SymbolProviders.build [ vesperListManifest; vesperCoreManifest ]
 
                 match contract.TryLookup "Vesper.Collections.List.fold" with

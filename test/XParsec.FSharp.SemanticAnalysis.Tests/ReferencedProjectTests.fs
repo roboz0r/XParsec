@@ -13,7 +13,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 /// Locate `src/Vesper.Core/manifest.toml` by walking up from the test assembly.
 let private vesperCoreManifest =
-    let testDir = Path.GetDirectoryName(typeof<FSharpLib.LibFile>.Assembly.Location)
+    let testDir = Path.GetDirectoryName(typeof<VesperLib.LibFile>.Assembly.Location)
     let mutable dir = DirectoryInfo testDir
     let mutable found = None
 

@@ -252,7 +252,7 @@ module ExternalSymbols =
     /// `sources` plus an `IAmbientOpenScope` carrying `ambient`, optionally
     /// rewriting every resolved `ExternalSymbol` / `ExternalTypeShape` /
     /// `ExternalMember` to carry `stampOrigin`'s `SymbolOrigin`. `composite`,
-    /// `ReferencedProject.wrap`, and (formerly) `FSharpLib.chain` all live on
+    /// `ReferencedProject.wrap`, and (formerly) `VesperLib.chain` all live on
     /// top of this — one TryLookup* fall-through, one IAmbientOpenScope
     /// surface, one place to keep the shape switch in `TryLookupType` honest
     /// when a new `ExternalTypeShape` case learns to carry its `Origin`.

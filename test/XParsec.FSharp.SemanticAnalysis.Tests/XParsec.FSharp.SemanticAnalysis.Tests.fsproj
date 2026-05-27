@@ -29,7 +29,7 @@
     <Compile Include="OpenScopeTests.fs" />
     <Compile Include="OpenResolutionTests.fs" />
     <Compile Include="ReferencedProjectTests.fs" />
-    <Compile Include="FSharpLibTests.fs" />
+    <Compile Include="VesperLibTests.fs" />
     <Compile Include="InlineTests.fs" />
     <Compile Include="PrintfTests.fs" />
     <Compile Include="ConformanceTests.fs" />

@@ -32,7 +32,7 @@ module SymbolProviders =
     /// from `Vesper.Comparison`, the printf family from `Vesper.Printf`, and
     /// `List.fold` from `Vesper.List` — the last needed the `ModuleSuffix` module's
     /// members to be addressable by their *source* name (`List.fold`, not the
-    /// compiled `ListModule.fold`; `FSharpLib.extractValSig`) and codegen to accept
+    /// compiled `ListModule.fold`; `VesperLib.extractValSig`) and codegen to accept
     /// the contract's `'T list` abbreviation name alongside the union name
     /// (`ClrProvider.isVesperListName`).
     ///
@@ -106,14 +106,14 @@ module SymbolProviders =
                 let dir = Path.GetDirectoryName manifestPath
 
                 for rel in manifest.Impl do
-                    let file: FSharpLib.LibFile =
+                    let file: VesperLib.LibFile =
                         {
                             BucketName = manifest.Name
                             Relative = rel
                             Absolute = Path.Combine(dir, rel)
                         }
 
-                    match FSharpLib.parseFileFull file with
+                    match VesperLib.parseFileFull file with
                     | Result.Error _ -> ()
                     | Result.Ok parsed ->
                         let implFile =

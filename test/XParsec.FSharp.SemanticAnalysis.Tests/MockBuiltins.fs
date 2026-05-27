@@ -7,7 +7,7 @@ open XParsec.FSharp.SemanticAnalysis.BuiltinTypes
 /// codegen stack entirely (see `project_contract_demotion` /
 /// docs/symbol-resolution-handoff.md); it now lives in the test assembly so
 /// production code can no longer import it. Tests that need real-world
-/// behaviour should wire `FSharpLib.buildProvider` or
+/// behaviour should wire `VesperLib.buildProvider` or
 /// `ReferencedProject.buildProvider` directly.
 ///
 /// Divergence risk to be aware of: this provider declares some ops

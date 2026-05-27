@@ -1,4 +1,4 @@
-module XParsec.FSharp.SemanticAnalysis.Tests.FSharpLibTests
+module XParsec.FSharp.SemanticAnalysis.Tests.VesperLibTests
 
 open System.IO
 open Expecto
@@ -11,7 +11,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// Locate `src/XParsec.FSharp.Lib` by walking up from the test assembly.
 /// Layout: `<repo>/test/XParsec.FSharp.SemanticAnalysis.Tests/bin/...`.
 let private libRoot =
-    let testDir = Path.GetDirectoryName(typeof<FSharpLib.LibFile>.Assembly.Location)
+    let testDir = Path.GetDirectoryName(typeof<VesperLib.LibFile>.Assembly.Location)
     let mutable dir = DirectoryInfo testDir
     let mutable found = None
 
@@ -32,17 +32,17 @@ let private libRoot =
 /// it per-test would be wasteful.
 let private builtProvider =
     lazy
-        (match FSharpLib.buildProvider libRoot with
+        (match VesperLib.buildProvider libRoot with
          | Result.Error e -> failwithf "buildProvider failed: %s" e
          | Result.Ok r -> r)
 
 [<Tests>]
 let tests =
     testList
-        "FSharpLib"
+        "VesperLib"
         [
             test "root manifest loads with upstream + buckets" {
-                match FSharpLib.loadAll libRoot with
+                match VesperLib.loadAll libRoot with
                 | Result.Error e -> failtestf "loadAll failed: %s" e
                 | Result.Ok loaded ->
                     Expect.isNonEmpty loaded.Root.UpstreamCommit "commit SHA"
@@ -57,7 +57,7 @@ let tests =
             }
 
             test "files are sorted Clr first then Common" {
-                match FSharpLib.loadAll libRoot with
+                match VesperLib.loadAll libRoot with
                 | Result.Error e -> failtestf "loadAll failed: %s" e
                 | Result.Ok loaded ->
                     let bucketOrder = loaded.Files |> List.map (fun f -> f.BucketName) |> List.distinct
@@ -73,7 +73,7 @@ let tests =
             }
 
             test "every listed file exists on disk" {
-                match FSharpLib.loadAll libRoot with
+                match VesperLib.loadAll libRoot with
                 | Result.Error e -> failtestf "loadAll failed: %s" e
                 | Result.Ok loaded ->
                     let missing = loaded.Files |> List.filter (fun f -> not (File.Exists f.Absolute))
@@ -82,13 +82,13 @@ let tests =
             }
 
             test "every .fsi parses without errors" {
-                match FSharpLib.loadAll libRoot with
+                match VesperLib.loadAll libRoot with
                 | Result.Error e -> failtestf "loadAll failed: %s" e
                 | Result.Ok loaded ->
                     let mutable failures = []
 
                     for f in loaded.Files do
-                        match FSharpLib.parseFile f with
+                        match VesperLib.parseFile f with
                         | Result.Ok _ -> ()
                         | Result.Error e -> failures <- (f, e) :: failures
 
@@ -108,14 +108,14 @@ let tests =
                 let _ = builtProvider.Value
                 let optPath = Path.Combine(libRoot, "Common", "option.fsi")
 
-                let f: FSharpLib.LibFile =
+                let f: VesperLib.LibFile =
                     {
                         BucketName = "Common"
                         Relative = "option.fsi"
                         Absolute = optPath
                     }
 
-                match FSharpLib.parseFileFull f with
+                match VesperLib.parseFileFull f with
                 | Result.Error e -> failtestf "parse failed: %s" e
                 | Result.Ok parsed ->
                     let lexed = parsed.Lexed
@@ -635,8 +635,8 @@ let tests =
                 // Production-path helper: subsequent calls for the same
                 // libRoot must return the same provider object, proving
                 // the cache fires rather than re-parsing.
-                let r1 = FSharpLib.defaultProvider libRoot
-                let r2 = FSharpLib.defaultProvider libRoot
+                let r1 = VesperLib.defaultProvider libRoot
+                let r2 = VesperLib.defaultProvider libRoot
 
                 match r1, r2 with
                 | Result.Ok(p1, _), Result.Ok(p2, _) ->

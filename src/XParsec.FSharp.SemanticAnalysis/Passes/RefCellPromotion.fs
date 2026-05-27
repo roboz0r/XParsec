@@ -16,7 +16,7 @@ open XParsec.FSharp.SemanticAnalysis
 module RefCellPromotion =
 
     /// Canonical compiled name of the cell type as the contract layer surfaces
-    /// it (the qualified compiled name keyed by `FSharpLib.extractRecordBody`).
+    /// it (the qualified compiled name keyed by `VesperLib.extractRecordBody`).
     /// Codegen's `externalRecordRef` probes this name (and its arity-suffixed
     /// form) against the symbol provider stack.
     [<Literal>]
