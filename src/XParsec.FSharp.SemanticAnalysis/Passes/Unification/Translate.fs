@@ -550,7 +550,5 @@ module UnificationTranslate =
                 | Defer -> propagateToFreeArgs ctx c arg
 
         match info.Body with
-        | ValueSome body ->
-            let subst = mkNamedTypeSubst info.TypeParams args
-            substituteWith subst body
+        | ValueSome body -> instantiateMember (info.TypeParams, args) body
         | ValueNone -> TyVar(freshTyVar ctx)

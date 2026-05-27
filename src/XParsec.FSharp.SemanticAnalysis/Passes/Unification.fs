@@ -35,6 +35,7 @@ module Unification =
     let zonk = UnificationEngine.zonk
     let substituteWith = UnificationEngine.substituteWith
     let mkNamedTypeSubst = UnificationEngine.mkNamedTypeSubst
+    let instantiateMember = UnificationEngine.instantiateMember
 
     let private walkModuleElem (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
         match m with

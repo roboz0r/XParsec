@@ -693,8 +693,9 @@ module Freeze =
                                 | true, info ->
                                     match info.Fields |> Array.tryFind (fun f -> f.Name = segName) with
                                     | Some field ->
-                                        let subst = Unification.mkNamedTypeSubst info.TypeParams args
-                                        Unification.zonk (Unification.substituteWith subst field.Type)
+                                        Unification.zonk (
+                                            Unification.instantiateMember (info.TypeParams, args) field.Type
+                                        )
                                     | None -> currTy
                                 | false, _ -> currTy
                             | _ -> currTy
@@ -1026,11 +1027,7 @@ module Freeze =
                                 info.Fields
                                 |> Array.tryPick (fun f ->
                                     if f.Name = segName then
-                                        Some(
-                                            Unification.substituteWith
-                                                (Unification.mkNamedTypeSubst info.TypeParams args)
-                                                f.Type
-                                        )
+                                        Some(Unification.instantiateMember (info.TypeParams, args) f.Type)
                                     else
                                         None
                                 )
@@ -1041,11 +1038,7 @@ module Freeze =
                                 info.Members
                                 |> Array.tryPick (fun m ->
                                     if m.Name = segName && not m.IsStatic then
-                                        Some(
-                                            Unification.substituteWith
-                                                (Unification.mkNamedTypeSubst info.TypeParams args)
-                                                m.Type
-                                        )
+                                        Some(Unification.instantiateMember (info.TypeParams, args) m.Type)
                                     else
                                         None
                                 )
@@ -1056,11 +1049,7 @@ module Freeze =
                                 info.Members
                                 |> Array.tryPick (fun m ->
                                     if m.Name = segName && not m.IsStatic then
-                                        Some(
-                                            Unification.substituteWith
-                                                (Unification.mkNamedTypeSubst info.TypeParams args)
-                                                m.Type
-                                        )
+                                        Some(Unification.instantiateMember (info.TypeParams, args) m.Type)
                                     else
                                         None
                                 )

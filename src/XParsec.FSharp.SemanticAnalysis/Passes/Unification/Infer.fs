@@ -1798,9 +1798,7 @@ module UnificationInfer =
             match ctx.Types.Record.TryGetValue recName with
             | true, info ->
                 match info.Fields |> Array.tryFind (fun f -> f.Name = memberName) with
-                | Some field ->
-                    let subst = mkNamedTypeSubst info.TypeParams args
-                    substituteWith subst field.Type
+                | Some field -> instantiateMember (info.TypeParams, args) field.Type
                 | None ->
                     ctx.Diagnostics.Add
                         {
@@ -1823,9 +1821,7 @@ module UnificationInfer =
             match ctx.Types.Class.TryGetValue clsName with
             | true, info ->
                 match info.Members |> Array.tryFind (fun m -> m.Name = memberName && not m.IsStatic) with
-                | Some m ->
-                    let subst = mkNamedTypeSubst info.TypeParams args
-                    substituteWith subst m.Type
+                | Some m -> instantiateMember (info.TypeParams, args) m.Type
                 | None ->
                     // Distinguish "no such member" from "member is static —
                     // access via class name, not an instance".
@@ -1883,9 +1879,7 @@ module UnificationInfer =
             match ctx.Types.Union.TryGetValue unionName with
             | true, info ->
                 match info.Members |> Array.tryFind (fun m -> m.Name = memberName && not m.IsStatic) with
-                | Some m ->
-                    let subst = mkNamedTypeSubst info.TypeParams args
-                    substituteWith subst m.Type
+                | Some m -> instantiateMember (info.TypeParams, args) m.Type
                 | None ->
                     let isStaticHit =
                         info.Members |> Array.exists (fun m -> m.Name = memberName && m.IsStatic)

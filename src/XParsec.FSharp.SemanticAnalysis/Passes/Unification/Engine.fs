@@ -177,6 +177,17 @@ module UnificationEngine =
 
         subst
 
+    /// One-shot field / member instantiation: build the typar→arg subst from
+    /// the declaring type's `TypeParams` and the receiver's `args`, then
+    /// substitute it through `ty`. Hot single-substitution sites (record
+    /// field read, class- and union-member access, SRTP static-member
+    /// dispatch, abbreviation expansion) route through this helper. Sites
+    /// that reuse the same subst across a loop / Array.map keep the explicit
+    /// `mkNamedTypeSubst` + `substituteWith` pair so the dictionary is only
+    /// built once.
+    let instantiateMember (typeParams: (string * TypeVar) list, args: SemType list) (ty: SemType) : SemType =
+        substituteWith (mkNamedTypeSubst typeParams args) ty
+
     /// Walk a `SemType` through TyVar Links to surface a `TyRecord _`. The
     /// arg list rides along so `drainPendingDotAccess` can substitute the
     /// record's typars when resolving deferred field accesses.
@@ -765,8 +776,7 @@ module UnificationEngine =
                         | true, info ->
                             match info.Members |> Array.tryFind (fun m -> m.IsStatic && m.Name = b.MemberName) with
                             | Some m ->
-                                let subst = mkNamedTypeSubst info.TypeParams classArgs
-                                let candTy = substituteWith subst m.Type
+                                let candTy = instantiateMember (info.TypeParams, classArgs) m.Type
                                 b.Resolved <- true
                                 unifySrtpAgainst ctx key candTy b
                             | None ->
