@@ -294,8 +294,8 @@ module Emit =
         | TExpr.App(fn, a, t) -> TExpr.App(f fn, f a, t)
         | TExpr.Let(p, v, b, t) -> TExpr.Let(p, f v, f b, t)
         | TExpr.IfThenElse(c, th, el, t) -> TExpr.IfThenElse(f c, f th, f el, t)
-        | TExpr.Tuple(xs, t) -> TExpr.Tuple(List.map f xs, t)
-        | TExpr.Sequential(xs, t) -> TExpr.Sequential(List.map f xs, t)
+        | TExpr.Tuple(xs, t) -> TExpr.Tuple(EqArray.map f xs, t)
+        | TExpr.Sequential(xs, t) -> TExpr.Sequential(EqArray.map f xs, t)
         | TExpr.While(c, b, t) -> TExpr.While(f c, f b, t)
         | TExpr.ForTo(v, s, e2, b, t) -> TExpr.ForTo(v, f s, f e2, f b, t)
         | TExpr.ForIn(p, src, b, t) -> TExpr.ForIn(p, f src, f b, t)
@@ -303,7 +303,7 @@ module Emit =
             TExpr.Match(
                 f sc,
                 arms
-                |> List.map (fun a ->
+                |> EqArray.map (fun a ->
                     { a with
                         Guard = Option.map f a.Guard
                         Body = f a.Body
@@ -315,7 +315,7 @@ module Emit =
             TExpr.TryWith(
                 f b,
                 arms
-                |> List.map (fun a ->
+                |> EqArray.map (fun a ->
                     { a with
                         Guard = Option.map f a.Guard
                         Body = f a.Body
@@ -326,15 +326,15 @@ module Emit =
         | TExpr.TryFinally(b, c, t) -> TExpr.TryFinally(f b, f c, t)
         | TExpr.Assignment(l, r, t) -> TExpr.Assignment(f l, f r, t)
         | TExpr.Range(s, step, stop, t) -> TExpr.Range(f s, Option.map f step, f stop, t)
-        | TExpr.RecordCons(fields, t) -> TExpr.RecordCons([ for (n, v) in fields -> n, f v ], t)
-        | TExpr.RecordClone(src, ov, t) -> TExpr.RecordClone(f src, [ for (n, v) in ov -> n, f v ], t)
+        | TExpr.RecordCons(fields, t) -> TExpr.RecordCons(EqArray.map (fun (n, v) -> n, f v) fields, t)
+        | TExpr.RecordClone(src, ov, t) -> TExpr.RecordClone(f src, EqArray.map (fun (n, v) -> n, f v) ov, t)
         | TExpr.FieldGet(r, n, t) -> TExpr.FieldGet(f r, n, t)
         | TExpr.FieldSet(r, n, v, t) -> TExpr.FieldSet(f r, n, f v, t)
-        | TExpr.UnionCons(c, args, t) -> TExpr.UnionCons(c, List.map f args, t)
-        | TExpr.New(c, args, t) -> TExpr.New(c, List.map f args, t)
-        | TExpr.MethodCall(r, n, args, t) -> TExpr.MethodCall(f r, n, List.map f args, t)
+        | TExpr.UnionCons(c, args, t) -> TExpr.UnionCons(c, EqArray.map f args, t)
+        | TExpr.New(c, args, t) -> TExpr.New(c, EqArray.map f args, t)
+        | TExpr.MethodCall(r, n, args, t) -> TExpr.MethodCall(f r, n, EqArray.map f args, t)
         | TExpr.PropertyGet(r, n, t) -> TExpr.PropertyGet(f r, n, t)
-        | TExpr.StaticMethodCall(c, n, args, t) -> TExpr.StaticMethodCall(c, n, List.map f args, t)
+        | TExpr.StaticMethodCall(c, n, args, t) -> TExpr.StaticMethodCall(c, n, EqArray.map f args, t)
         | TExpr.ExternalMember(r, k, n, isProp, t) -> TExpr.ExternalMember(ValueOption.map f r, k, n, isProp, t)
         | TExpr.Format(sink, segs, t) ->
             let sink =
@@ -352,9 +352,9 @@ module Emit =
                 )
 
             TExpr.Format(sink, segs, t)
-        | TExpr.ILIntrinsic(op, args, t) -> TExpr.ILIntrinsic(op, List.map f args, t)
+        | TExpr.ILIntrinsic(op, args, t) -> TExpr.ILIntrinsic(op, EqArray.map f args, t)
         | TExpr.StaticOptimization(clauses, def, t) ->
-            TExpr.StaticOptimization(clauses |> List.map (fun cl -> { cl with Body = f cl.Body }), f def, t)
+            TExpr.StaticOptimization(clauses |> EqArray.map (fun cl -> { cl with Body = f cl.Body }), f def, t)
 
     /// Reuses `mapChildren`, discarding the rebuilt tree — only the one-shot
     /// discovery / free-variable pre-passes call this.
@@ -445,7 +445,7 @@ module Emit =
     module private BuiltinOps =
 
         /// `(# op operands : retTy #)` — the operator whose body is a single opcode.
-        let private ilBin (op: string) : TExpr list -> SemType -> TExpr =
+        let private ilBin (op: string) : EqArray<TExpr> -> SemType -> TExpr =
             fun operands retTy -> TExpr.ILIntrinsic(op, operands, retTy)
 
         /// `not (# op operands : retTy #)`, realised as `ceq (# op … #) false` — the
@@ -453,15 +453,15 @@ module Emit =
         /// `>=` = `not <`). `retTy` is `bool`, so the inner result and the `false`
         /// literal are both bool; the outer `ceq` against 0 negates it. Each operand
         /// still appears once, so the body needs no rebinding.
-        let private ilBinNot (op: string) : TExpr list -> SemType -> TExpr =
+        let private ilBinNot (op: string) : EqArray<TExpr> -> SemType -> TExpr =
             fun operands retTy ->
                 let inner = TExpr.ILIntrinsic(op, operands, retTy)
-                TExpr.ILIntrinsic("ceq", [ inner; TExpr.Const(TConstValue.Bool false, retTy) ], retTy)
+                TExpr.ILIntrinsic("ceq", EqArray.ofList [ inner; TExpr.Const(TConstValue.Bool false, retTy) ], retTy)
 
         /// compiled name → (arity, body builder over the operand expressions).
         /// `&&` / `||` are intentionally absent — they short-circuit and freeze to
         /// `IfThenElse`, not an opcode.
-        let private table: Map<string, int * (TExpr list -> SemType -> TExpr)> =
+        let private table: Map<string, int * (EqArray<TExpr> -> SemType -> TExpr)> =
             Map
                 [
                     // Equality family (C-Eq1) — `=` / `<>`.
@@ -501,7 +501,7 @@ module Emit =
 
         /// Build the operator's inline-IL body, splicing the (already-rewritten)
         /// operand expressions directly. `retTy` is the application's result type.
-        let buildApp (name: string) (opArgs: TExpr list) (retTy: SemType) : TExpr =
+        let buildApp (name: string) (opArgs: EqArray<TExpr>) (retTy: SemType) : TExpr =
             let _, makeInner = table.[name]
             makeInner opArgs retTy
 
@@ -524,7 +524,7 @@ module Emit =
                 // `collectSpine` pairs each arg with its `App` node's result type,
                 // so the last pair's type is the whole application's result.
                 let retTy = snd (List.last spine)
-                let opArgs = [ for (a, _) in spine -> expandBuiltinOps a ]
+                let opArgs = EqArray.ofSeq (seq { for (a, _) in spine -> expandBuiltinOps a })
                 BuiltinOps.buildApp name opArgs retTy
             | _ -> mapChildren expandBuiltinOps e
         | _ -> mapChildren expandBuiltinOps e
@@ -639,7 +639,7 @@ module Emit =
     /// found in that map is expanded in place exactly like a local `let inline`,
     /// so `hash 5` becomes the `EqualityComparer<int>.Default.GetHashCode 5`
     /// `ExternalMember` nodes the frozen body already carries (emitted by P4).
-    let lowerWith (externalInlines: Map<string, TDecl>) (decls: TDecl list) : TDecl list =
+    let lowerWith (externalInlines: Map<string, TDecl>) (decls: EqArray<TDecl>) : TDecl list =
         let inlines = Dictionary<NodeKey, TDecl>()
 
         for d in decls do
@@ -751,33 +751,44 @@ module Emit =
         // Inline / eta lowering surfaces operator applications (an inline body's
         // `+`, an eta-reified `(+)`); `expandBuiltinOps` then collapses every
         // saturated one to inline IL — a closing phase so it sees them all.
-        decls
-        |> List.choose (fun d ->
+        let result = ResizeArray<TDecl>()
+
+        for d in decls do
             match d with
-            | TDecl.Let(_, _, true, _) -> None
-            | TDecl.Let(p, value, false, t) -> Some(TDecl.Let(p, expandBuiltinOps (lowerExpr value), false, t))
-            | TDecl.Expression(e, t) -> Some(TDecl.Expression(expandBuiltinOps (lowerExpr e), t))
+            | TDecl.Let(_, _, true, _) -> ()
+            | TDecl.Let(p, value, false, t) -> result.Add(TDecl.Let(p, expandBuiltinOps (lowerExpr value), false, t))
+            | TDecl.Expression(e, t) -> result.Add(TDecl.Expression(expandBuiltinOps (lowerExpr e), t))
             // Type declarations are emitted as metadata, not through the expr stream.
-            | TDecl.Type _ -> None
-        )
+            | TDecl.Type _ -> ()
+
+        List.ofSeq result
 
     /// `lowerWith` with no cross-package inline bodies — the pure-local-inline
     /// path (every caller that does not reference a manifest with `impl` bodies).
-    let lower (decls: TDecl list) : TDecl list = lowerWith Map.empty decls
+    let lower (decls: EqArray<TDecl>) : TDecl list = lowerWith Map.empty decls
 
     // ---- Closure discovery + capture analysis ----
 
     let private patKeys (p: TPat) : NodeKey list =
+        let acc = ResizeArray<NodeKey>()
+
         let rec go p =
             match p with
-            | TPat.NamedSimple(k, _) -> [ k ]
+            | TPat.NamedSimple(k, _) -> acc.Add k
             | TPat.Wildcard _
-            | TPat.Const _ -> []
-            | TPat.Tuple(items, _) -> List.collect go items
-            | TPat.Record(fields, _) -> fields |> List.collect (fun (_, sub) -> go sub)
-            | TPat.Union(_, fields, _) -> List.collect go fields
+            | TPat.Const _ -> ()
+            | TPat.Tuple(items, _) ->
+                for sub in items do
+                    go sub
+            | TPat.Record(fields, _) ->
+                for (_, sub) in fields do
+                    go sub
+            | TPat.Union(_, fields, _) ->
+                for sub in fields do
+                    go sub
 
         go p
+        List.ofSeq acc
 
     /// The free variables of a closure body, in first-occurrence order — drives
     /// capture field order. `staticFnKeys` are excluded: a reference to a
@@ -1252,7 +1263,7 @@ module Emit =
                 // Extract each non-wildcard field into a fresh local, then test
                 // its sub-pattern (a named sub-pattern just aliases that local).
                 subPats
-                |> List.iteri (fun i subPat ->
+                |> EqArray.iteri (fun i subPat ->
                     match subPat with
                     | TPat.Wildcard _ -> ()
                     | _ ->
@@ -1444,10 +1455,10 @@ module Emit =
             // Every item but the last is a unit-typed statement: emit it and
             // discard whatever value it leaves (popping back to the pre-item
             // depth); the last item leaves the sequence's result.
-            let n = List.length items
+            let n = items.Length
 
             items
-            |> List.iteri (fun i it ->
+            |> EqArray.iteri (fun i it ->
                 if i = n - 1 then
                     buildExpr env b it
                 else
@@ -1659,7 +1670,7 @@ module Emit =
                     | ValueSome(argExpr, _) ->
                         if argCount >= 2 then
                             match argExpr with
-                            | TExpr.Tuple(elems, _) when List.length elems = argCount ->
+                            | TExpr.Tuple(elems, _) when elems.Length = argCount ->
                                 for el in elems do
                                     buildExpr env b el
 
@@ -1716,7 +1727,7 @@ module Emit =
 
             match env.Records.TryGetValue typeName with
             | true, r ->
-                let srcMap = Map.ofList srcFields
+                let srcMap = Map.ofSeq srcFields.Underlying
 
                 for (fieldName, _, _) in r.Fields do
                     match Map.tryFind fieldName srcMap with
@@ -1790,7 +1801,7 @@ module Emit =
 
             match env.Records.TryGetValue typeName with
             | true, r ->
-                let overrideMap = Map.ofList overrides
+                let overrideMap = Map.ofSeq overrides.Underlying
                 let srcSlot = b.Local ty
                 buildExpr env b source
                 b.Add(ILInstr.Stloc srcSlot)
@@ -1838,7 +1849,7 @@ module Emit =
                     else
                         env.Provider.GenericUnionMemberRef(typeName, tyArgs, UnionMember.Factory caseName)
 
-                b.Add(ILInstr.Call(factoryRef, List.length args, 1))
+                b.Add(ILInstr.Call(factoryRef, args.Length, 1))
             | false, _ ->
                 // The provider's special-case (FSharp.Core list) for `[]` / `::`.
                 match env.Provider.TryEmitUnionCons(typeName, caseName, tyArgs) with
@@ -1863,7 +1874,7 @@ module Emit =
             for a in args do
                 buildExpr env b a
 
-            b.Add(ILInstr.Call(handle, 1 + List.length args, 1))
+            b.Add(ILInstr.Call(handle, 1 + args.Length, 1))
 
         | TExpr.StaticPropertyGet(className, name, _) ->
             let handle = resolveStaticMember env className name
@@ -1875,7 +1886,7 @@ module Emit =
             for a in args do
                 buildExpr env b a
 
-            b.Add(ILInstr.Call(handle, List.length args, 1))
+            b.Add(ILInstr.Call(handle, args.Length, 1))
 
         | TExpr.ExternalMember(receiver, key, _, true, ty) ->
             // A standalone external *property* get (P4): a static one (`call
@@ -1909,7 +1920,7 @@ module Emit =
 
             match Cil.tryOpCodeOfMnemonic opCode with
             | ValueSome code ->
-                match List.length args with
+                match args.Length with
                 | 2 -> b.Add(ILInstr.Bin code)
                 | 1 -> b.Add(ILInstr.Un code)
                 | n -> failwithf "Emit: %d-ary inline-IL instruction '%s' is out of scope" n opCode
@@ -2200,7 +2211,7 @@ module Emit =
     let buildMember
         (ctx: EmitContext)
         (thisKey: NodeKey voption)
-        (prms: (NodeKey * SemType) list)
+        (prms: EqArray<NodeKey * SemType>)
         (body: TExpr)
         : ILBody =
         let b = IlBuilder()
@@ -2213,7 +2224,7 @@ module Emit =
                 1
             | ValueNone -> 0
 
-        prms |> List.iteri (fun i (k, _) -> args.[k] <- baseIdx + i)
+        prms |> EqArray.iteri (fun i (k, _) -> args.[k] <- baseIdx + i)
 
         let env =
             {

@@ -10,8 +10,8 @@ let private analyse (input: string) =
 
 let private declType (tast: TastFile) : SemType =
     match tast.Decls with
-    | [ TDecl.Let(_, _, _, ty) ] -> ty
-    | other -> failwithf "expected single TDecl.Let, got %A" other
+    | EqList [ TDecl.Let(_, _, _, ty) ] -> ty
+    | _ -> failwithf "expected single TDecl.Let, got %A" tast.Decls
 
 [<Tests>]
 let tests =
@@ -487,12 +487,12 @@ let tests =
                 let tast = analyse "let f (a, b) = a + b"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(TPat.Tuple([ TPat.NamedSimple(_, _); TPat.NamedSimple(_, _) ], _), _, _, _) ->
+                | TDecl.Let(TPat.Tuple(EqList [ TPat.NamedSimple(_, _); TPat.NamedSimple(_, _) ], _), _, _, _) ->
                     // For function-form let, `f`'s own pattern is NamedSimple and the
                     // tuple sits on the Lambda — not on the TDecl.Let.
                     failtest "did not expect TDecl.Let to be the tuple pattern itself"
                 | TDecl.Let(TPat.NamedSimple _,
-                            TExpr.Lambda(TPat.Tuple([ TPat.NamedSimple _; TPat.NamedSimple _ ], _), _, _),
+                            TExpr.Lambda(TPat.Tuple(EqList [ TPat.NamedSimple _; TPat.NamedSimple _ ], _), _, _),
                             _,
                             _) -> ()
                 | other -> failtestf "unexpected: %A" other

@@ -29,15 +29,15 @@ type TPat =
     /// `_` placeholder. Has a type (the matched value's type) but binds nothing.
     | Wildcard of ty: SemType
     /// `ty` is always a `TyTuple` of the elements' types.
-    | Tuple of items: TPat list * ty: SemType
+    | Tuple of items: EqArray<TPat> * ty: SemType
     | Const of value: TConstValue * ty: SemType
     /// `ty` is a `TyRecord`. May list a subset of the record's fields; unlisted
     /// fields are simply not bound.
-    | Record of fields: (string * TPat) list * ty: SemType
+    | Record of fields: EqArray<string * TPat> * ty: SemType
     /// `fields` is the per-field sub-pattern list, empty for nullary cases. `ty`
     /// is always a `TyUnion`. The declaring union is recoverable via
     /// `ctx.Types.CtorIndex[caseName]` at consumption time.
-    | Union of caseName: string * fields: TPat list * ty: SemType
+    | Union of caseName: string * fields: EqArray<TPat> * ty: SemType
 
 /// `Ty` is the static type (drives `AppendFormatted<T>`, no box). `Alignment` is
 /// the field width (negative ⇒ left-justify). `Kind`/`Format`/`Alignment` are
@@ -70,9 +70,9 @@ type TExpr =
     | Let of binding: TPat * value: TExpr * body: TExpr * ty: SemType
     | IfThenElse of cond: TExpr * thenExpr: TExpr * elseExpr: TExpr * ty: SemType
     /// `ty` is always a TyTuple of the elements' inferred types.
-    | Tuple of items: TExpr list * ty: SemType
+    | Tuple of items: EqArray<TExpr> * ty: SemType
     /// All items but the last must have unit type; `ty` is the last item's type.
-    | Sequential of items: TExpr list * ty: SemType
+    | Sequential of items: EqArray<TExpr> * ty: SemType
     /// `ty` is always unit; cond : bool, body : unit.
     | While of cond: TExpr * body: TExpr * ty: SemType
     /// `ty` is always unit; the loop variable is bound to `var` with type int.
@@ -85,11 +85,11 @@ type TExpr =
     /// `scrutinee` and each `arms.[i].Pat` share the same type; every
     /// `arms.[i].Body` shares `ty`. `function` desugars to a Match over a
     /// synthetic parameter — same TExpr shape.
-    | Match of scrutinee: TExpr * arms: TMatchArm list * ty: SemType
+    | Match of scrutinee: TExpr * arms: EqArray<TMatchArm> * ty: SemType
     /// `try body with | pat -> arm`. `body` and every `arms.[i].Body`
     /// share `ty`; arm patterns currently bind against a fresh TypeVar
     /// (no `exn` type yet).
-    | TryWith of body: TExpr * arms: TMatchArm list * ty: SemType
+    | TryWith of body: TExpr * arms: EqArray<TMatchArm> * ty: SemType
     /// `try body finally cleanup`. `body` carries `ty`; `cleanup` is unit.
     | TryFinally of body: TExpr * cleanup: TExpr * ty: SemType
     /// `lhs <- rhs`. Always types as unit.
@@ -104,12 +104,12 @@ type TExpr =
     /// `{ X = e1; Y = e2 }` record literal. `ty` is a `TyRecord`; field
     /// list is in source order (the unification pass already validated
     /// that the field set matches the record's declared set).
-    | RecordCons of fields: (string * TExpr) list * ty: SemType
+    | RecordCons of fields: EqArray<string * TExpr> * ty: SemType
     /// `{ r with X = v; … }`. `source` types as the same `TyRecord` as
     /// `ty`; `overrides` is the source-order list of `(name, replacement)`
     /// for the listed fields. Unlisted fields are copied from `source` at
     /// the runtime level — not represented in the TAST.
-    | RecordClone of source: TExpr * overrides: (string * TExpr) list * ty: SemType
+    | RecordClone of source: TExpr * overrides: EqArray<string * TExpr> * ty: SemType
     /// `r.X` — `ty` is the field's declared type. `receiver` types as a
     /// `TyRecord`.
     | FieldGet of receiver: TExpr * fieldName: string * ty: SemType
@@ -121,19 +121,19 @@ type TExpr =
     /// Nullary ctors (`Point`) and applied ctors (`Circle 1.0`,
     /// `Rectangle(2.0, 3.0)`) both fold to this node — the latter peels
     /// the `Expr.App` chain in Freeze.
-    | UnionCons of caseName: string * args: TExpr list * ty: SemType
+    | UnionCons of caseName: string * args: EqArray<TExpr> * ty: SemType
     /// Class primary-constructor invocation. `args` is the per-parameter
     /// list — the parser's tuple wrapper (`new Point(3, 4)` parses with
     /// a `Tuple` arg) is peeled in Freeze so consumers see the ctor's
     /// declared arity directly. `ty` is a `TyClass`.
-    | New of className: string * args: TExpr list * ty: SemType
+    | New of className: string * args: EqArray<TExpr> * ty: SemType
     /// Instance method invocation: `r.M(args)`. `args` is the
     /// per-parameter list (peeled the same way as `New`). `ty` is the
     /// method's declared return type.
-    | MethodCall of receiver: TExpr * methodName: string * args: TExpr list * ty: SemType
+    | MethodCall of receiver: TExpr * methodName: string * args: EqArray<TExpr> * ty: SemType
     | PropertyGet of receiver: TExpr * propertyName: string * ty: SemType
     /// Same arg-peeling as `MethodCall`; no receiver.
-    | StaticMethodCall of className: string * methodName: string * args: TExpr list * ty: SemType
+    | StaticMethodCall of className: string * methodName: string * args: EqArray<TExpr> * ty: SemType
     | StaticPropertyGet of className: string * propertyName: string * ty: SemType
     /// Member access on an *external* type resolved through `IExternalSymbolProvider`
     /// (symbol-resolution-plan §7.2). `key` interns the resolved `SymbolKey` so
@@ -161,7 +161,7 @@ type TExpr =
     /// in `TastFile.IntrinsicReprTypes`; operator `.fs` bodies (`(=)` → `ceq`,
     /// `(+)` → `add`, …) lower to this so codegen owns no per-operator dispatch.
     /// See docs/operators-plan.md.
-    | ILIntrinsic of opCode: string * args: TExpr list * ty: SemType
+    | ILIntrinsic of opCode: string * args: EqArray<TExpr> * ty: SemType
     /// F# library-only static optimization: a default expression plus a list of
     /// type-specialized clauses (`expr when ^T : int = … when ^T : ^T = …`).
     /// `clauses` are in source order; at `let inline` expansion the first clause
@@ -171,7 +171,7 @@ type TExpr =
     /// **not** emit this node directly — `Inline.inlineExpand` resolves it to the
     /// chosen branch once the call site pins the operand type (prereq 3). See
     /// docs/operators-plan.md.
-    | StaticOptimization of clauses: TStaticOptClause list * defaultExpr: TExpr * ty: SemType
+    | StaticOptimization of clauses: EqArray<TStaticOptClause> * defaultExpr: TExpr * ty: SemType
 
 and TMatchArm =
     {
@@ -199,7 +199,7 @@ and [<RequireQualifiedAccess>] FormatSeg =
 /// it); `Body` is the clause's optimized expression.
 and TStaticOptClause =
     {
-        Constraints: TStaticOptConstraint list
+        Constraints: EqArray<TStaticOptConstraint>
         Body: TExpr
     }
 
@@ -223,7 +223,7 @@ and TTypeDecl =
         /// `None` for a module-level type.
         Namespace: string option
         /// Declared type parameters in source order (e.g. `["'A"; "'B"]`).
-        TypeParams: string list
+        TypeParams: EqArray<string>
         Kind: TTypeKind
         /// Equality posture for this type (records / unions / interfaces).
         /// Defaults to `Structural` — interfaces ignore it (no triple is ever
@@ -244,16 +244,16 @@ and TTypeDecl =
 and [<RequireQualifiedAccess>] TTypeKind =
     /// A nominal type whose members are all abstract and which has no base type /
     /// field. Rung 1's only kind.
-    | Interface of methods: TAbstractMethod list
+    | Interface of methods: EqArray<TAbstractMethod>
     /// `cases` in declaration order (the index is the runtime tag), plus any
     /// augmentation members (`with member …` / `static member …`). See
     /// docs/self-host-rung2-plan.md.
-    | Union of cases: TUnionCase list * members: TTypeMember list
+    | Union of cases: EqArray<TUnionCase> * members: EqArray<TTypeMember>
     /// `fields` are the record's payload in declaration order, paired with their
     /// declared types and mutability. `members` carries augmentation members
     /// (`with member …` / `static member …`) — empty for v1, where records carry
     /// only their field shape. See docs/records-plan.md §B1.
-    | Record of fields: TRecordField list * members: TTypeMember list
+    | Record of fields: EqArray<TRecordField> * members: EqArray<TTypeMember>
 
 /// `Fields` are the case's payload in declaration order; a field's name is
 /// `ValueNone` when the source is positional (`Cons of 'T * list`). Empty
@@ -261,7 +261,7 @@ and [<RequireQualifiedAccess>] TTypeKind =
 and TUnionCase =
     {
         Name: string
-        Fields: (string voption * SemType) list
+        Fields: EqArray<string voption * SemType>
     }
 
 /// One field of a `TTypeKind.Record`. `Type` carries the field's declared
@@ -299,7 +299,7 @@ and TTypeMember =
         ThisTy: SemType
         /// Parameter binders in declaration order (each `ldarg` after `this` for
         /// an instance method); empty for a property or a nullary method.
-        Params: (NodeKey * SemType) list
+        Params: EqArray<NodeKey * SemType>
         Body: TExpr
         ReturnTy: SemType
     }
@@ -316,14 +316,14 @@ and TTypeMember =
 and TAbstractMethod =
     {
         Name: string
-        MethodTypeParams: string list
+        MethodTypeParams: EqArray<string>
         Signature: SemType
     }
 
 type TastFile =
     {
         /// Source order.
-        Decls: TDecl list
+        Decls: EqArray<TDecl>
         /// Non-empty Errors mean the TAST is best-effort and not safe to emit from.
         Diagnostics: Diagnostic list
         /// Vesper type name → target IL representation string (e.g. `"int"` →

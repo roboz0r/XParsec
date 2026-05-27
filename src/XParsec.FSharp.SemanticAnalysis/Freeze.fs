@@ -126,11 +126,11 @@ module Freeze =
             ->
             // Nullary ctor in pattern position. Must precede the plain
             // NamedSimple arm.
-            TPat.Union(ctx.NameOf t, [], ty)
+            TPat.Union(ctx.NameOf t, EqArray.empty, ty)
         | Pat.NamedSimple _ -> TPat.NamedSimple(key, ty)
         | Pat.Wildcard _ -> TPat.Wildcard ty
         | Pat.EnclosedBlock(pat = inner) -> translatePat ctx inner
-        | Pat.Tuple(patterns = pats) -> TPat.Tuple([ for sub in pats -> translatePat ctx sub ], ty)
+        | Pat.Tuple(patterns = pats) -> TPat.Tuple(EqArray.ofSeq (seq { for sub in pats -> translatePat ctx sub }), ty)
         | Pat.Const c -> TPat.Const(parseConst ctx c, ty)
         | Pat.As(pat = inner) ->
             // The `as`-name isn't surfaced in TPat yet — downstream Var lookups
@@ -146,11 +146,13 @@ module Freeze =
         | Pat.EmptyBlock _ -> TPat.Const(TConstValue.Unit, ty)
         | Pat.Record(fieldPats = fieldPats) ->
             let fields =
-                [
-                    for FieldPat(longIdent = li; pat = sub) in fieldPats ->
-                        let idents = li.Idents
-                        ctx.NameOf idents.[idents.Length - 1], translatePat ctx sub
-                ]
+                EqArray.ofSeq (
+                    seq {
+                        for FieldPat(longIdent = li; pat = sub) in fieldPats ->
+                            let idents = li.Idents
+                            ctx.NameOf idents.[idents.Length - 1], translatePat ctx sub
+                    }
+                )
 
             TPat.Record(fields, ty)
         | Pat.Named(longIdent = li; argumentPats = args) when
@@ -167,12 +169,13 @@ module Freeze =
             let subPats =
                 if args.Length = 1 then
                     match args.[0] with
-                    | Pat.EnclosedBlock(pat = Pat.Tuple(patterns = pats)) -> [ for sub in pats -> translatePat ctx sub ]
-                    | Pat.EnclosedBlock(pat = inner) -> [ translatePat ctx inner ]
-                    | Pat.Tuple(patterns = pats) -> [ for sub in pats -> translatePat ctx sub ]
-                    | sub -> [ translatePat ctx sub ]
+                    | Pat.EnclosedBlock(pat = Pat.Tuple(patterns = pats)) ->
+                        EqArray.ofSeq (seq { for sub in pats -> translatePat ctx sub })
+                    | Pat.EnclosedBlock(pat = inner) -> EqArray.singleton (translatePat ctx inner)
+                    | Pat.Tuple(patterns = pats) -> EqArray.ofSeq (seq { for sub in pats -> translatePat ctx sub })
+                    | sub -> EqArray.singleton (translatePat ctx sub)
                 else
-                    [ for sub in args -> translatePat ctx sub ]
+                    EqArray.ofSeq (seq { for sub in args -> translatePat ctx sub })
 
             TPat.Union(caseName, subPats, ty)
         | Pat.Op _ ->
@@ -221,27 +224,28 @@ module Freeze =
     let private peelCtorArgs
         (translate: Expr<SyntaxToken> -> TExpr)
         (args: ImmutableArray<Expr<SyntaxToken>>)
-        : TExpr list =
+        : EqArray<TExpr> =
         if args.Length = 1 then
             match args.[0] with
-            | Expr.EnclosedBlock(expr = Expr.Tuple(exprs = items)) -> [ for a in items -> translate a ]
-            | Expr.Tuple(exprs = items) -> [ for a in items -> translate a ]
-            | Expr.EnclosedBlock(expr = inner) -> [ translate inner ]
-            | Expr.EmptyBlock _ -> []
-            | a -> [ translate a ]
+            | Expr.EnclosedBlock(expr = Expr.Tuple(exprs = items)) ->
+                EqArray.ofSeq (seq { for a in items -> translate a })
+            | Expr.Tuple(exprs = items) -> EqArray.ofSeq (seq { for a in items -> translate a })
+            | Expr.EnclosedBlock(expr = inner) -> EqArray.singleton (translate inner)
+            | Expr.EmptyBlock _ -> EqArray.empty
+            | a -> EqArray.singleton (translate a)
         else
-            [ for a in args -> translate a ]
+            EqArray.ofSeq (seq { for a in args -> translate a })
 
     /// Same as `peelCtorArgs` but for a single argument expression
     /// (HighPrecedenceApp form / Expr.New).
-    let private peelOneArg (translate: Expr<SyntaxToken> -> TExpr) (arg: Expr<SyntaxToken>) : TExpr list =
+    let private peelOneArg (translate: Expr<SyntaxToken> -> TExpr) (arg: Expr<SyntaxToken>) : EqArray<TExpr> =
         match arg with
-        | Expr.EnclosedBlock(expr = Expr.Tuple(exprs = items)) -> [ for a in items -> translate a ]
-        | Expr.Tuple(exprs = items) -> [ for a in items -> translate a ]
-        | Expr.EnclosedBlock(expr = Expr.EmptyBlock _) -> []
-        | Expr.EnclosedBlock(expr = inner) -> [ translate inner ]
-        | Expr.EmptyBlock _ -> []
-        | a -> [ translate a ]
+        | Expr.EnclosedBlock(expr = Expr.Tuple(exprs = items)) -> EqArray.ofSeq (seq { for a in items -> translate a })
+        | Expr.Tuple(exprs = items) -> EqArray.ofSeq (seq { for a in items -> translate a })
+        | Expr.EnclosedBlock(expr = Expr.EmptyBlock _) -> EqArray.empty
+        | Expr.EnclosedBlock(expr = inner) -> EqArray.singleton (translate inner)
+        | Expr.EmptyBlock _ -> EqArray.empty
+        | a -> EqArray.singleton (translate a)
 
     /// Look up `memberName` on `typeName` — a class or (P3d.3) a union
     /// augmentation.
@@ -552,7 +556,7 @@ module Freeze =
             // nullary ctor (→ `UnionCons`) from ctor-as-value (`let f = Circle`,
             // typed `TyFun(_, TyUnion _)` → External) by the result type.
             match Unification.zonk ty with
-            | TyUnion(_, _) -> TExpr.UnionCons(caseName, [], ty)
+            | TyUnion(_, _) -> TExpr.UnionCons(caseName, EqArray.empty, ty)
             // Function-typed ctor-as-value; codegen can eta-expand to a
             // UnionCons lambda.
             | _ -> TExpr.External(caseName, ValueNone, ty)
@@ -565,19 +569,21 @@ module Freeze =
             let argsList =
                 if args.Length = 1 then
                     match args.[0] with
-                    | Expr.EnclosedBlock(expr = Expr.Tuple(exprs = items)) -> [ for a in items -> translateExpr ctx a ]
-                    | Expr.Tuple(exprs = items) -> [ for a in items -> translateExpr ctx a ]
-                    | a -> [ translateExpr ctx a ]
+                    | Expr.EnclosedBlock(expr = Expr.Tuple(exprs = items)) ->
+                        EqArray.ofSeq (seq { for a in items -> translateExpr ctx a })
+                    | Expr.Tuple(exprs = items) -> EqArray.ofSeq (seq { for a in items -> translateExpr ctx a })
+                    | a -> EqArray.singleton (translateExpr ctx a)
                 else
-                    [ for a in args -> translateExpr ctx a ]
+                    EqArray.ofSeq (seq { for a in args -> translateExpr ctx a })
 
             TExpr.UnionCons(caseName, argsList, ty)
         | Expr.HighPrecedenceApp(funcExpr = CtorRef ctx caseName; argExpr = arg) ->
             let argsList =
                 match arg with
-                | Expr.EnclosedBlock(expr = Expr.Tuple(exprs = items)) -> [ for a in items -> translateExpr ctx a ]
-                | Expr.Tuple(exprs = items) -> [ for a in items -> translateExpr ctx a ]
-                | a -> [ translateExpr ctx a ]
+                | Expr.EnclosedBlock(expr = Expr.Tuple(exprs = items)) ->
+                    EqArray.ofSeq (seq { for a in items -> translateExpr ctx a })
+                | Expr.Tuple(exprs = items) -> EqArray.ofSeq (seq { for a in items -> translateExpr ctx a })
+                | a -> EqArray.singleton (translateExpr ctx a)
 
             TExpr.UnionCons(caseName, argsList, ty)
         // Printf happy-path call, marked by `Unification.tryInferPrintfApp`. Must
@@ -598,8 +604,9 @@ module Freeze =
         | Expr.EnclosedBlock(expr = inner) -> translateExpr ctx inner
         | Expr.IfThenElse(condition = cond; thenExpr = thenE; elifBranches = elifs; elseBranch = elseB) ->
             translateIfThenElse ctx cond thenE elifs elseB ty
-        | Expr.Tuple(exprs = items) -> TExpr.Tuple([ for x in items -> translateExpr ctx x ], ty)
-        | Expr.Sequential(exprs = items) -> TExpr.Sequential([ for x in items -> translateExpr ctx x ], ty)
+        | Expr.Tuple(exprs = items) -> TExpr.Tuple(EqArray.ofSeq (seq { for x in items -> translateExpr ctx x }), ty)
+        | Expr.Sequential(exprs = items) ->
+            TExpr.Sequential(EqArray.ofSeq (seq { for x in items -> translateExpr ctx x }), ty)
         // The annotation has no runtime representation — it only constrained
         // types in Unification; the TAST carries the inferred type inline.
         | Expr.TypeAnnotation(expr = inner) -> translateExpr ctx inner
@@ -707,20 +714,24 @@ module Freeze =
             | _ -> TExpr.Assignment(translateExpr ctx left, translateExpr ctx right, ty)
         | Expr.Record(fieldInitializers = inits) ->
             let fields =
-                [
-                    for FieldInitializer(longIdent = li; expr = e) in inits ->
-                        let idents = li.Idents
-                        ctx.NameOf idents.[idents.Length - 1], translateExpr ctx e
-                ]
+                EqArray.ofSeq (
+                    seq {
+                        for FieldInitializer(longIdent = li; expr = e) in inits ->
+                            let idents = li.Idents
+                            ctx.NameOf idents.[idents.Length - 1], translateExpr ctx e
+                    }
+                )
 
             TExpr.RecordCons(fields, ty)
         | Expr.RecordClone(expr = src; fieldInitializers = inits) ->
             let overrides =
-                [
-                    for FieldInitializer(longIdent = li; expr = e) in inits ->
-                        let idents = li.Idents
-                        ctx.NameOf idents.[idents.Length - 1], translateExpr ctx e
-                ]
+                EqArray.ofSeq (
+                    seq {
+                        for FieldInitializer(longIdent = li; expr = e) in inits ->
+                            let idents = li.Idents
+                            ctx.NameOf idents.[idents.Length - 1], translateExpr ctx e
+                    }
+                )
 
             TExpr.RecordClone(translateExpr ctx src, overrides, ty)
         // Member access on an *external* type (static `Type.Member` or instance
@@ -764,7 +775,7 @@ module Freeze =
             TExpr.Range(translateExpr ctx a, Some(translateExpr ctx s), translateExpr ctx b, ty)
         | Expr.ILIntrinsic(instrParts = parts; args = args) ->
             let opCode = stitchIlInstruction ctx parts
-            TExpr.ILIntrinsic(opCode, [ for a in args -> translateExpr ctx a ], ty)
+            TExpr.ILIntrinsic(opCode, EqArray.ofSeq (seq { for a in args -> translateExpr ctx a }), ty)
         | Expr.LibraryOnlyStaticOptimization _ ->
             // The clause chain nests left-fold (outermost = the last `when` in
             // source order). Peel it into a flat source-ordered clause list plus
@@ -782,37 +793,39 @@ module Freeze =
                     peel
                         inner
                         ({
-                            Constraints = cs
+                            Constraints = EqArray.ofList cs
                             Body = translateExpr ctx optE
                          }
                          :: acc)
                 | other -> translateExpr ctx other, acc
 
             let defaultExpr, clauses = peel e []
-            TExpr.StaticOptimization(clauses, defaultExpr, ty)
+            TExpr.StaticOptimization(EqArray.ofList clauses, defaultExpr, ty)
         | _ ->
             // TODO: extend as the subset grows; surface the unhandled case
             // loudly rather than emitting a broken TExpr.
             failwithf "Freeze.translateExpr: TODO %A" e
 
-    and private translateRules (ctx: PassContext) (rules: ImmutableArray<Rule<SyntaxToken>>) : TMatchArm list =
-        [
-            for r in rules do
-                match r with
-                | Rule.Rule(pat = pat; guard = guard; expr = body) ->
-                    let guardT =
-                        match guard with
-                        | ValueSome(PatternGuard(expr = g)) -> Some(translateExpr ctx g)
-                        | ValueNone -> None
+    and private translateRules (ctx: PassContext) (rules: ImmutableArray<Rule<SyntaxToken>>) : EqArray<TMatchArm> =
+        EqArray.ofSeq (
+            seq {
+                for r in rules do
+                    match r with
+                    | Rule.Rule(pat = pat; guard = guard; expr = body) ->
+                        let guardT =
+                            match guard with
+                            | ValueSome(PatternGuard(expr = g)) -> Some(translateExpr ctx g)
+                            | ValueNone -> None
 
-                    yield
-                        {
-                            Pat = translatePat ctx pat
-                            Guard = guardT
-                            Body = translateExpr ctx body
-                        }
-                | _ -> ()
-        ]
+                        yield
+                            {
+                                Pat = translatePat ctx pat
+                                Guard = guardT
+                                Body = translateExpr ctx body
+                            }
+                    | _ -> ()
+            }
+        )
 
     and private translateString (ctx: PassContext) (e: Expr<SyntaxToken>) (ty: SemType) : TExpr =
         match e with
@@ -824,9 +837,9 @@ module Freeze =
                 // PrintfFormat<…>(text)` — the single `value: string` ctor.
                 TExpr.New(
                     name,
-                    [
+                    EqArray.singleton (
                         TExpr.Const(TConstValue.String(stitchLiteralString ctx parts), BuiltinTypes.tyString)
-                    ],
+                    ),
                     ty
                 )
             | _ ->
@@ -1290,10 +1303,12 @@ module Freeze =
             | _ -> TyRecord("Microsoft.FSharp.Collections.list", EqArray.singleton elemTy), "Cons", "Nil"
 
         let listExpr =
-            let nil = TExpr.UnionCons(nilName, [], listTy)
+            let nil = TExpr.UnionCons(nilName, EqArray.empty, listTy)
 
             items
-            |> List.foldBack (fun item acc -> TExpr.UnionCons(consName, [ translateExpr ctx item; acc ], listTy))
+            |> List.foldBack (fun item acc ->
+                TExpr.UnionCons(consName, EqArray.ofList [ translateExpr ctx item; acc ], listTy)
+            )
             <| nil
 
         if isArray then
@@ -1430,7 +1445,7 @@ module Freeze =
         (ctx: PassContext)
         (name: string)
         (body: ObjectModelBody<SyntaxToken>)
-        : (string list * TAbstractMethod list) option =
+        : (EqArray<string> * EqArray<TAbstractMethod>) option =
         let allAbstractMethods =
             not body.elements.IsEmpty
             && body.elements
@@ -1459,31 +1474,34 @@ module Freeze =
                     ]
 
                 let methods =
-                    [
-                        for m in info.Members do
-                            if m.Kind = ClassMemberKind.Method then
-                                // A generic method's own typars get markers too so
-                                // the backend routes them to `GenericMethodParameter`
-                                // (declaring typars stay `GenericTypeParameter`); the
-                                // `TyConst "name"` picks the table.
-                                let methodMarkers =
-                                    markers
-                                    @ [
-                                        for (n, ptv) in m.MethodTypeParams do
-                                            match Unification.zonk (TyVar ptv) with
-                                            | TyVar root -> yield (root, n)
-                                            | _ -> ()
-                                    ]
+                    EqArray.ofSeq (
+                        seq {
+                            for m in info.Members do
+                                if m.Kind = ClassMemberKind.Method then
+                                    // A generic method's own typars get markers too so
+                                    // the backend routes them to `GenericMethodParameter`
+                                    // (declaring typars stay `GenericTypeParameter`); the
+                                    // `TyConst "name"` picks the table.
+                                    let methodMarkers =
+                                        markers
+                                        @ [
+                                            for (n, ptv) in m.MethodTypeParams do
+                                                match Unification.zonk (TyVar ptv) with
+                                                | TyVar root -> yield (root, n)
+                                                | _ -> ()
+                                        ]
 
-                                yield
-                                    {
-                                        Name = m.Name
-                                        MethodTypeParams = [ for (n, _) in m.MethodTypeParams -> n ]
-                                        Signature = remapDeclTypars methodMarkers m.Type
-                                    }
-                    ]
+                                    yield
+                                        {
+                                            Name = m.Name
+                                            MethodTypeParams =
+                                                EqArray.ofSeq (seq { for (n, _) in m.MethodTypeParams -> n })
+                                            Signature = remapDeclTypars methodMarkers m.Type
+                                        }
+                        }
+                    )
 
-                Some([ for (n, _) in info.TypeParams -> n ], methods)
+                Some(EqArray.ofSeq (seq { for (n, _) in info.TypeParams -> n }), methods)
 
     /// Member name from a member binding's `headPat` (`member this.M …` parses
     /// the member name as the head pattern's ident).
@@ -1505,13 +1523,15 @@ module Freeze =
     /// (`this` is separate). The binding key is the same one `translatePat` mints,
     /// so a `Var` reference in the body resolves to it. Only simple parameters (a
     /// single ident per arg group) are surfaced (v1).
-    let private memberParams (ctx: PassContext) (b: Binding<SyntaxToken>) : (NodeKey * SemType) list =
-        [
-            for p in b.argumentPats do
-                match translatePat ctx p with
-                | TPat.NamedSimple(k, ty) -> yield (k, ty)
-                | _ -> ()
-        ]
+    let private memberParams (ctx: PassContext) (b: Binding<SyntaxToken>) : EqArray<NodeKey * SemType> =
+        EqArray.ofSeq (
+            seq {
+                for p in b.argumentPats do
+                    match translatePat ctx p with
+                    | TPat.NamedSimple(k, ty) -> yield (k, ty)
+                    | _ -> ()
+            }
+        )
 
     /// Translate one union augmentation member element into a `TTypeMember`.
     /// Instance members reference `this` via `info.ThisKey`.
@@ -1551,7 +1571,7 @@ module Freeze =
                         Kind = TMemberKind.Property
                         ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
                         ThisTy = TyUnion(info.Name, EqArray.empty)
-                        Params = []
+                        Params = EqArray.empty
                         Body = translateExpr ctx e
                         ReturnTy = typeOfKey ctx (CstKeys.ofExpr e)
                     }
@@ -1578,7 +1598,7 @@ module Freeze =
     let private mkTypeDecl
         (name: string)
         (ns: string option)
-        (typars: string list)
+        (typars: EqArray<string>)
         (kind: TTypeKind)
         (eq: EqualityVerdict)
         (cmp: ComparisonVerdict)
@@ -1609,22 +1629,26 @@ module Freeze =
             let markers = mkTypeMarkers info.TypeParams
 
             let cases =
-                [
-                    for c in info.Cases ->
-                        let fields =
-                            [
-                                for i in 0 .. c.Fields.Length - 1 ->
-                                    let nm =
-                                        if i < c.FieldNames.Length then
-                                            c.FieldNames.[i]
-                                        else
-                                            ValueNone
+                EqArray.ofSeq (
+                    seq {
+                        for c in info.Cases ->
+                            let fields =
+                                EqArray.ofSeq (
+                                    seq {
+                                        for i in 0 .. c.Fields.Length - 1 ->
+                                            let nm =
+                                                if i < c.FieldNames.Length then
+                                                    c.FieldNames.[i]
+                                                else
+                                                    ValueNone
 
-                                    nm, remapDeclTypars markers c.Fields.[i]
-                            ]
+                                            nm, remapDeclTypars markers c.Fields.[i]
+                                    }
+                                )
 
-                        { Name = c.Name; Fields = fields }
-                ]
+                            { Name = c.Name; Fields = fields }
+                    }
+                )
 
             // A generic union's members must carry the declaring-typar markers the
             // backend's generic-member encoder consumes (`!0`), exactly like the
@@ -1639,27 +1663,29 @@ module Freeze =
 
                 { m with
                     ThisTy = TyUnion(info.Name, EqArray.ofSeq (seq { for n in declTypars -> TyConst n }))
-                    Params = m.Params |> List.map (fun (k, ty) -> k, f ty)
+                    Params = m.Params |> EqArray.map (fun (k, ty) -> k, f ty)
                     Body = mapExprTypes f m.Body
                     ReturnTy = f m.ReturnTy
                 }
 
             let members =
                 match ext with
-                | ValueNone -> []
+                | ValueNone -> EqArray.empty
                 | ValueSome(TypeExtensionElements(elements = elems)) ->
-                    [
-                        for el in elems do
-                            match translateUnionMember ctx info el with
-                            | ValueSome m -> yield (if List.isEmpty declTypars then m else remapMember m)
-                            | ValueNone -> ()
-                    ]
+                    EqArray.ofSeq (
+                        seq {
+                            for el in elems do
+                                match translateUnionMember ctx info el with
+                                | ValueSome m -> yield (if List.isEmpty declTypars then m else remapMember m)
+                                | ValueNone -> ()
+                        }
+                    )
 
             Some(
                 mkTypeDecl
                     name
                     ns
-                    declTypars
+                    (EqArray.ofList declTypars)
                     (TTypeKind.Union(cases, members))
                     info.EqualitySupport
                     info.ComparisonSupport
@@ -1679,21 +1705,23 @@ module Freeze =
             let markers = mkTypeMarkers info.TypeParams
 
             let fields =
-                [
-                    for f in info.Fields ->
-                        {
-                            Name = f.Name
-                            Type = remapDeclTypars markers f.Type
-                            IsMutable = f.IsMutable
-                        }
-                ]
+                EqArray.ofSeq (
+                    seq {
+                        for f in info.Fields ->
+                            {
+                                Name = f.Name
+                                Type = remapDeclTypars markers f.Type
+                                IsMutable = f.IsMutable
+                            }
+                    }
+                )
 
             Some(
                 mkTypeDecl
                     name
                     ns
-                    [ for (n, _) in info.TypeParams -> n ]
-                    (TTypeKind.Record(fields, []))
+                    (EqArray.ofSeq (seq { for (n, _) in info.TypeParams -> n }))
+                    (TTypeKind.Record(fields, EqArray.empty))
                     info.EqualitySupport
                     info.ComparisonSupport
             )
@@ -1802,12 +1830,11 @@ module Freeze =
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : TastFile =
         let decls =
             match file with
-            | ImplementationFile.AnonymousModule elems ->
-                elems |> Seq.collect (translateModuleElem ctx None None) |> List.ofSeq
+            | ImplementationFile.AnonymousModule elems -> elems |> Seq.collect (translateModuleElem ctx None None)
             | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) ->
-                elems |> Seq.collect (translateModuleElem ctx None None) |> List.ofSeq
+                elems |> Seq.collect (translateModuleElem ctx None None)
             | ImplementationFile.Namespaces groups ->
-                [
+                seq {
                     for g in groups do
                         let nsName, elems =
                             match g with
@@ -1816,10 +1843,10 @@ module Freeze =
                             | NamespaceDeclGroup.Global(elements = elems) -> None, elems
 
                         yield! elems |> Seq.collect (translateModuleElem ctx nsName None)
-                ]
+                }
 
         {
-            Decls = decls
+            Decls = EqArray.ofSeq decls
             Diagnostics = List.ofSeq ctx.Diagnostics
             // Snapshot so the backend can key the emitted IL type off the
             // representation string (G7) without the PassContext.

@@ -41,7 +41,7 @@ let tests =
                               TExpr.Lambda(_,
                                            TExpr.Lambda(_,
                                                         TExpr.ILIntrinsic("ceq",
-                                                                          [ TExpr.Var _; TExpr.Var _ ],
+                                                                          EqList [ TExpr.Var _; TExpr.Var _ ],
                                                                           TyConst "bool"),
                                                         _),
                                            _),

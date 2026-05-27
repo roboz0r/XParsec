@@ -122,7 +122,7 @@ module Codegen =
     /// per-kind `List.choose` clones — every nominal kind sees one routing
     /// site, so adding `Class` (sprint B-1) is one field + one `match` arm
     /// here, not a fourth top-level clone.
-    let private partitionTypeDecls (decls: TDecl list) : PartitionedTypeDecls =
+    let private partitionTypeDecls (decls: EqArray<TDecl>) : PartitionedTypeDecls =
         let interfaces = ResizeArray()
         let unions = ResizeArray()
         let records = ResizeArray()
@@ -131,9 +131,9 @@ module Codegen =
             match d with
             | TDecl.Type td ->
                 match td.Kind with
-                | TTypeKind.Interface methods -> interfaces.Add(td, methods)
-                | TTypeKind.Union(cases, members) -> unions.Add(td, cases, members)
-                | TTypeKind.Record(fields, members) -> records.Add(td, fields, members)
+                | TTypeKind.Interface methods -> interfaces.Add(td, EqArray.toList methods)
+                | TTypeKind.Union(cases, members) -> unions.Add(td, EqArray.toList cases, EqArray.toList members)
+                | TTypeKind.Record(fields, members) -> records.Add(td, EqArray.toList fields, EqArray.toList members)
             | _ -> ()
 
         {
@@ -244,16 +244,24 @@ module Codegen =
     /// generic-parameter count is the method's own typar count.
     let private abstractMethodSignature
         (provider: ClrProvider)
-        (typeParams: string list)
+        (typeParams: EqArray<string>)
         (m: TAbstractMethod)
         : BlobBuilder =
-        let typeIx = typeParams |> List.mapi (fun i n -> n, i) |> Map.ofList
-        let methodIx = m.MethodTypeParams |> List.mapi (fun i n -> n, i) |> Map.ofList
+        let typeIx =
+            let mutable acc = Map.empty
+            typeParams |> EqArray.iteri (fun i n -> acc <- Map.add n i acc)
+            acc
+
+        let methodIx =
+            let mutable acc = Map.empty
+            m.MethodTypeParams |> EqArray.iteri (fun i n -> acc <- Map.add n i acc)
+            acc
+
         let paramTys, retTy = decurry m.Signature
         let blob = BlobBuilder()
 
         BlobEncoder(blob)
-            .MethodSignature(genericParameterCount = List.length m.MethodTypeParams, isInstanceMethod = true)
+            .MethodSignature(genericParameterCount = m.MethodTypeParams.Length, isInstanceMethod = true)
             .Parameters(
                 List.length paramTys,
                 (fun (ret: ReturnTypeEncoder) -> provider.EncodeAbstractType(typeIx, methodIx, ret.Type(), retTy)),
@@ -410,7 +418,7 @@ module Codegen =
         |> List.iteri (fun i (td, cases, _) ->
             provider.RegisterUserType(td.Name, toEntity (predictTypeDef typeCounts NominalKind.Union i))
 
-            if not (List.isEmpty td.TypeParams) then
+            if not td.TypeParams.IsEmpty then
                 let shape =
                     [
                         for c in cases ->
@@ -420,7 +428,7 @@ module Codegen =
                             ]
                     ]
 
-                provider.RegisterGenericUnion(td.Name, td.TypeParams, shape)
+                provider.RegisterGenericUnion(td.Name, EqArray.toList td.TypeParams, shape)
         )
 
         // Records sit immediately after unions in the `TypeDefinition` table
@@ -433,9 +441,9 @@ module Codegen =
         |> List.iteri (fun i (td, fields, _) ->
             provider.RegisterUserType(td.Name, toEntity (predictTypeDef typeCounts NominalKind.Record i))
 
-            if not (List.isEmpty td.TypeParams) then
+            if not td.TypeParams.IsEmpty then
                 let shape = [ for f in fields -> f.Name, f.Type ]
-                provider.RegisterGenericRecord(td.Name, td.TypeParams, shape)
+                provider.RegisterGenericRecord(td.Name, EqArray.toList td.TypeParams, shape)
         )
 
         // A *generic* closure (function-representation-plan §Generic closures, C3) is a real generic
@@ -681,7 +689,7 @@ module Codegen =
                 // The method's own typars are owned by this MethodDef (the metadata
                 // name drops the F# leading quote: `'C` ⇒ `C`).
                 m.MethodTypeParams
-                |> List.iteri (fun i n -> genericParams.Add(toEntity methodHandle, i, n.TrimStart('\'')))
+                |> EqArray.iteri (fun i n -> genericParams.Add(toEntity methodHandle, i, n.TrimStart('\'')))
 
                 methodCount <- methodCount + 1
 
@@ -727,7 +735,7 @@ module Codegen =
             // instantiated `TypeSpec` (P3d.4 / records-plan §B5). `typarMarkers`
             // is the instantiation a `MemberRef` *inside* this type uses — the
             // type's own typars.
-            let isGeneric = not (List.isEmpty td.TypeParams)
+            let isGeneric = not td.TypeParams.IsEmpty
             let typarMarkers = [ for n in td.TypeParams -> TyConst n ]
 
             // ---- Field + ctor + (union-only) per-case factories ----
@@ -756,10 +764,11 @@ module Codegen =
                             for c in cases ->
                                 let handles =
                                     c.Fields
+                                    |> EqArray.toList
                                     |> List.mapi (fun fi (_, fty) ->
                                         let sigBlob =
                                             if isGeneric then
-                                                provider.GenericFieldSignature(td.TypeParams, fty)
+                                                provider.GenericFieldSignature(EqArray.toList td.TypeParams, fty)
                                             else
                                                 provider.FieldSignature fty
 
@@ -822,12 +831,12 @@ module Codegen =
                                 bodyStream
                                 (IlIr.lower (Emit.buildUnionFactory ctorRef tag tagRef fieldRefs))
 
-                        let paramTys = c.Fields |> List.map snd
+                        let paramTys = [ for (_, t) in c.Fields -> t ]
 
                         let factorySig =
                             if isGeneric then
                                 provider.GenericStaticMethodSignature(
-                                    td.TypeParams,
+                                    EqArray.toList td.TypeParams,
                                     paramTys,
                                     TyUnion(td.Name, EqArray.ofList typarMarkers)
                                 )
@@ -861,7 +870,7 @@ module Codegen =
                         unions.[td.Name] <-
                             {
                                 Name = td.Name
-                                Typars = td.TypeParams
+                                Typars = EqArray.toList td.TypeParams
                                 TagField = tagField
                                 Cases = emittedCases
                                 Members = emittedMembers
@@ -880,7 +889,7 @@ module Codegen =
                         |> List.map (fun f ->
                             let sigBlob =
                                 if isGeneric then
-                                    provider.GenericFieldSignature(td.TypeParams, f.Type)
+                                    provider.GenericFieldSignature(EqArray.toList td.TypeParams, f.Type)
                                 else
                                     provider.FieldSignature f.Type
 
@@ -903,7 +912,10 @@ module Codegen =
 
                     let ctorSig =
                         if isGeneric then
-                            provider.GenericRecordCtorSignature(td.TypeParams, [ for f in fields -> f.Type ])
+                            provider.GenericRecordCtorSignature(
+                                EqArray.toList td.TypeParams,
+                                [ for f in fields -> f.Type ]
+                            )
                         else
                             provider.ClosureCtorSignature [ for f in fields -> f.Type ]
 
@@ -927,7 +939,7 @@ module Codegen =
                         records.[td.Name] <-
                             {
                                 Name = td.Name
-                                Typars = td.TypeParams
+                                Typars = EqArray.toList td.TypeParams
                                 Fields = fieldHandles
                                 Ctor = toEntity recordCtor
                             }
@@ -952,9 +964,9 @@ module Codegen =
                     {
                         Handle = toEntity handle
                         IsStatic = mem.IsStatic
-                        Arity = List.length mem.Params
+                        Arity = mem.Params.Length
                         MetaName = memberMetaName mem
-                        ParamTys = mem.Params |> List.map snd
+                        ParamTys = [ for (_, t) in mem.Params -> t ]
                         RetTy = mem.ReturnTy
                     }
             )
@@ -966,7 +978,7 @@ module Codegen =
             // body uses the executable local encoder.
             let memberEncodeLocals =
                 if isGeneric then
-                    fun locals -> provider.EncodeGenericLocalSignature(td.TypeParams, locals)
+                    fun locals -> provider.EncodeGenericLocalSignature(EqArray.toList td.TypeParams, locals)
                 else
                     encodeLocals
 
@@ -988,15 +1000,17 @@ module Codegen =
                         ))
 
                 let methodName = memberMetaName mem
-                let paramTys = mem.Params |> List.map snd
+                let paramTys = [ for (_, t) in mem.Params -> t ]
 
                 // A generic type's member signatures are written in its own
                 // typars (`instance !0 get_Head()`) (R2); a monomorphic type's
                 // are concrete.
                 let signature =
                     match isGeneric, mem.IsStatic with
-                    | true, true -> provider.GenericStaticMethodSignature(td.TypeParams, paramTys, mem.ReturnTy)
-                    | true, false -> provider.GenericInstanceMethodSignature(td.TypeParams, paramTys, mem.ReturnTy)
+                    | true, true ->
+                        provider.GenericStaticMethodSignature(EqArray.toList td.TypeParams, paramTys, mem.ReturnTy)
+                    | true, false ->
+                        provider.GenericInstanceMethodSignature(EqArray.toList td.TypeParams, paramTys, mem.ReturnTy)
                     | false, true -> provider.StaticMethodSignature(paramTys, mem.ReturnTy)
                     | false, false -> provider.InstanceMethodSignature(paramTys, mem.ReturnTy)
 
@@ -1011,7 +1025,7 @@ module Codegen =
                     methodName,
                     signature,
                     bodyOffset,
-                    addParams (argNames (List.length mem.Params))
+                    addParams (argNames mem.Params.Length)
                 )
                 |> ignore
 
@@ -1039,7 +1053,7 @@ module Codegen =
             let emitsEqualityTriple = td.EqualitySupport = EqualityVerdict.Structural
 
             if emitsEqualityTriple then
-                provider.SetTypeTypars td.TypeParams
+                provider.SetTypeTypars(EqArray.toList td.TypeParams)
 
                 match input with
                 | NominalEmissionInput.Union cases ->
@@ -1234,7 +1248,7 @@ module Codegen =
             let emitsComparisonPair = td.ComparisonSupport = ComparisonVerdict.Structural
 
             if emitsComparisonPair then
-                provider.SetTypeTypars td.TypeParams
+                provider.SetTypeTypars(EqArray.toList td.TypeParams)
 
                 match input with
                 | NominalEmissionInput.Union cases ->
@@ -1389,7 +1403,7 @@ module Codegen =
 
             let interfaces =
                 if emitsEqualityTriple || emitsComparisonPair then
-                    provider.SetTypeTypars td.TypeParams
+                    provider.SetTypeTypars(EqArray.toList td.TypeParams)
                     let selfMarkers = [ for t in td.TypeParams -> TyConst t ]
 
                     let acc =
@@ -1410,7 +1424,7 @@ module Codegen =
                 {
                     Name = td.Name
                     Namespace = defaultArg td.Namespace ""
-                    Typars = td.TypeParams
+                    Typars = EqArray.toList td.TypeParams
                     FirstField = firstField
                     FirstMethod = firstMember
                     Interfaces = interfaces
@@ -1664,10 +1678,10 @@ module Codegen =
                 | None -> ""
 
             let metaName =
-                if List.isEmpty td.TypeParams then
+                if td.TypeParams.IsEmpty then
                     td.Name
                 else
-                    sprintf "%s`%d" td.Name (List.length td.TypeParams)
+                    sprintf "%s`%d" td.Name td.TypeParams.Length
 
             let typeHandle =
                 ctx.AddInterfaceType(ns, metaName, emptyFirstField, firstIfaceMethod)
@@ -1675,7 +1689,7 @@ module Codegen =
             // The type's own typars are owned by this TypeDef (the metadata name
             // drops the F# leading quote: `'A` ⇒ `A`).
             td.TypeParams
-            |> List.iteri (fun i n -> genericParams.Add(toEntity typeHandle, i, n.TrimStart('\'')))
+            |> EqArray.iteri (fun i n -> genericParams.Add(toEntity typeHandle, i, n.TrimStart('\'')))
 
         // Union and record `TypeDefinition` rows share the same recipe (H1.4):
         // sealed reference class derived from `Object`, with pre-minted

@@ -112,9 +112,9 @@ module TastWalk =
             | TPat.NamedSimple(k, ty) -> TPat.NamedSimple(k, f ty)
             | TPat.Wildcard ty -> TPat.Wildcard(f ty)
             | TPat.Const(v, ty) -> TPat.Const(v, f ty)
-            | TPat.Tuple(items, ty) -> TPat.Tuple(List.map (mapPat m) items, f ty)
-            | TPat.Record(fields, ty) -> TPat.Record([ for (n, sub) in fields -> n, mapPat m sub ], f ty)
-            | TPat.Union(c, fields, ty) -> TPat.Union(c, List.map (mapPat m) fields, f ty)
+            | TPat.Tuple(items, ty) -> TPat.Tuple(EqArray.map (mapPat m) items, f ty)
+            | TPat.Record(fields, ty) -> TPat.Record(EqArray.map (fun (n, sub) -> n, mapPat m sub) fields, f ty)
+            | TPat.Union(c, fields, ty) -> TPat.Union(c, EqArray.map (mapPat m) fields, f ty)
 
     let rec mapExpr (m: Mapper) (e: TExpr) : TExpr =
         match m.OverrideExpr m e with
@@ -138,28 +138,28 @@ module TastWalk =
             | TExpr.App(fn, a, ty) -> TExpr.App(pe fn, pe a, f ty)
             | TExpr.Let(p, v, body, ty) -> TExpr.Let(pp p, pe v, pe body, f ty)
             | TExpr.IfThenElse(c, t, el, ty) -> TExpr.IfThenElse(pe c, pe t, pe el, f ty)
-            | TExpr.Tuple(items, ty) -> TExpr.Tuple(List.map pe items, f ty)
-            | TExpr.Sequential(items, ty) -> TExpr.Sequential(List.map pe items, f ty)
+            | TExpr.Tuple(items, ty) -> TExpr.Tuple(EqArray.map pe items, f ty)
+            | TExpr.Sequential(items, ty) -> TExpr.Sequential(EqArray.map pe items, f ty)
             | TExpr.While(c, b, ty) -> TExpr.While(pe c, pe b, f ty)
             // `var` is a `NodeKey`, not a `TPat`, so `OverridePat` cannot see
             // it — passes that rename binders (`Inline.freshen`) must override
             // `ForTo` at the expr level.
             | TExpr.ForTo(k, s, e2, b, ty) -> TExpr.ForTo(k, pe s, pe e2, pe b, f ty)
             | TExpr.ForIn(p, src, b, ty) -> TExpr.ForIn(pp p, pe src, pe b, f ty)
-            | TExpr.Match(sc, arms, ty) -> TExpr.Match(pe sc, List.map pa arms, f ty)
-            | TExpr.TryWith(b, arms, ty) -> TExpr.TryWith(pe b, List.map pa arms, f ty)
+            | TExpr.Match(sc, arms, ty) -> TExpr.Match(pe sc, EqArray.map pa arms, f ty)
+            | TExpr.TryWith(b, arms, ty) -> TExpr.TryWith(pe b, EqArray.map pa arms, f ty)
             | TExpr.TryFinally(b, c, ty) -> TExpr.TryFinally(pe b, pe c, f ty)
             | TExpr.Assignment(l, r, ty) -> TExpr.Assignment(pe l, pe r, f ty)
             | TExpr.Range(s, step, e2, ty) -> TExpr.Range(pe s, Option.map pe step, pe e2, f ty)
-            | TExpr.RecordCons(fields, ty) -> TExpr.RecordCons([ for (n, v) in fields -> n, pe v ], f ty)
-            | TExpr.RecordClone(src, ov, ty) -> TExpr.RecordClone(pe src, [ for (n, v) in ov -> n, pe v ], f ty)
+            | TExpr.RecordCons(fields, ty) -> TExpr.RecordCons(EqArray.map (fun (n, v) -> n, pe v) fields, f ty)
+            | TExpr.RecordClone(src, ov, ty) -> TExpr.RecordClone(pe src, EqArray.map (fun (n, v) -> n, pe v) ov, f ty)
             | TExpr.FieldGet(r, n, ty) -> TExpr.FieldGet(pe r, n, f ty)
             | TExpr.FieldSet(r, n, v, ty) -> TExpr.FieldSet(pe r, n, pe v, f ty)
-            | TExpr.UnionCons(c, args, ty) -> TExpr.UnionCons(c, List.map pe args, f ty)
-            | TExpr.New(c, args, ty) -> TExpr.New(c, List.map pe args, f ty)
-            | TExpr.MethodCall(r, n, args, ty) -> TExpr.MethodCall(pe r, n, List.map pe args, f ty)
+            | TExpr.UnionCons(c, args, ty) -> TExpr.UnionCons(c, EqArray.map pe args, f ty)
+            | TExpr.New(c, args, ty) -> TExpr.New(c, EqArray.map pe args, f ty)
+            | TExpr.MethodCall(r, n, args, ty) -> TExpr.MethodCall(pe r, n, EqArray.map pe args, f ty)
             | TExpr.PropertyGet(r, n, ty) -> TExpr.PropertyGet(pe r, n, f ty)
-            | TExpr.StaticMethodCall(c, n, args, ty) -> TExpr.StaticMethodCall(c, n, List.map pe args, f ty)
+            | TExpr.StaticMethodCall(c, n, args, ty) -> TExpr.StaticMethodCall(c, n, EqArray.map pe args, f ty)
             | TExpr.StaticPropertyGet(c, n, ty) -> TExpr.StaticPropertyGet(c, n, f ty)
             | TExpr.ExternalMember(r, k, n, isProp, ty) ->
                 TExpr.ExternalMember(ValueOption.map pe r, k, n, isProp, f ty)
@@ -181,7 +181,7 @@ module TastWalk =
                     )
 
                 TExpr.Format(sink, segs, f ty)
-            | TExpr.ILIntrinsic(op, args, ty) -> TExpr.ILIntrinsic(op, List.map pe args, f ty)
+            | TExpr.ILIntrinsic(op, args, ty) -> TExpr.ILIntrinsic(op, EqArray.map pe args, f ty)
             // The default rebuild substitutes typars inside constraints too —
             // `Freeze.mapExprTypes` (used to push a remap through generic
             // member bodies) needs this. Passes that resolve clauses to a
@@ -195,9 +195,9 @@ module TastWalk =
 
                 let clauses =
                     clauses
-                    |> List.map (fun cl ->
+                    |> EqArray.map (fun cl ->
                         {
-                            Constraints = List.map mapConstraint cl.Constraints
+                            Constraints = EqArray.map mapConstraint cl.Constraints
                             Body = pe cl.Body
                         }
                     )

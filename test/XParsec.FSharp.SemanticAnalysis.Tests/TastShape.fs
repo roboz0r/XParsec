@@ -155,7 +155,7 @@ type private Renderer() =
             push "("
 
             items
-            |> List.iteri (fun i x ->
+            |> EqArray.iteri (fun i x ->
                 if i > 0 then
                     push ", "
 
@@ -168,7 +168,7 @@ type private Renderer() =
             push "("
 
             items
-            |> List.iteri (fun i x ->
+            |> EqArray.iteri (fun i x ->
                 if i > 0 then
                     push "; "
 
@@ -268,7 +268,7 @@ type private Renderer() =
             push "{ "
 
             fields
-            |> List.iteri (fun i (n, v) ->
+            |> EqArray.iteri (fun i (n, v) ->
                 if i > 0 then
                     push "; "
 
@@ -285,7 +285,7 @@ type private Renderer() =
             push " with "
 
             overrides
-            |> List.iteri (fun i (n, v) ->
+            |> EqArray.iteri (fun i (n, v) ->
                 if i > 0 then
                     push "; "
 
@@ -311,16 +311,16 @@ type private Renderer() =
         | TExpr.UnionCons(caseName, args, _) ->
             push caseName
 
-            match args with
-            | [] -> ()
-            | [ single ] ->
+            if args.Length = 0 then
+                ()
+            elif args.Length = 1 then
                 push " "
-                this.Expr single
-            | many ->
+                this.Expr args.[0]
+            else
                 push "("
 
-                many
-                |> List.iteri (fun i a ->
+                args
+                |> EqArray.iteri (fun i a ->
                     if i > 0 then
                         push ", "
 
@@ -335,7 +335,7 @@ type private Renderer() =
             push "("
 
             args
-            |> List.iteri (fun i a ->
+            |> EqArray.iteri (fun i a ->
                 if i > 0 then
                     push ", "
 
@@ -351,7 +351,7 @@ type private Renderer() =
             push "("
 
             args
-            |> List.iteri (fun i a ->
+            |> EqArray.iteri (fun i a ->
                 if i > 0 then
                     push ", "
 
@@ -372,7 +372,7 @@ type private Renderer() =
             push "("
 
             args
-            |> List.iteri (fun i a ->
+            |> EqArray.iteri (fun i a ->
                 if i > 0 then
                     push ", "
 
@@ -442,7 +442,7 @@ type private Renderer() =
 
             for cl in clauses do
                 push "; when "
-                push (string (List.length cl.Constraints))
+                push (string cl.Constraints.Length)
                 push " -> "
                 this.Expr cl.Body
 
@@ -478,7 +478,7 @@ type private Renderer() =
             push "("
 
             items
-            |> List.iteri (fun i x ->
+            |> EqArray.iteri (fun i x ->
                 if i > 0 then
                     push ", "
 
@@ -491,7 +491,7 @@ type private Renderer() =
             push "{ "
 
             fields
-            |> List.iteri (fun i (n, p) ->
+            |> EqArray.iteri (fun i (n, p) ->
                 if i > 0 then
                     push "; "
 
@@ -505,16 +505,16 @@ type private Renderer() =
         | TPat.Union(caseName, fields, _) ->
             push caseName
 
-            match fields with
-            | [] -> ()
-            | [ single ] ->
+            if fields.Length = 0 then
+                ()
+            elif fields.Length = 1 then
                 push " "
-                this.Pat single
-            | many ->
+                this.Pat fields.[0]
+            else
                 push "("
 
-                many
-                |> List.iteri (fun i p ->
+                fields
+                |> EqArray.iteri (fun i p ->
                     if i > 0 then
                         push ", "
 
@@ -554,9 +554,9 @@ type private Renderer() =
 
             push td.Name
 
-            if not (List.isEmpty td.TypeParams) then
+            if not td.TypeParams.IsEmpty then
                 push "<"
-                push (String.concat ", " td.TypeParams)
+                push (String.concat ", " (EqArray.toList td.TypeParams))
                 push ">"
 
             match td.Kind with
@@ -577,11 +577,9 @@ type private Renderer() =
                     push " | "
                     push c.Name
 
-                    match c.Fields with
-                    | [] -> ()
-                    | fs ->
+                    if c.Fields.Length > 0 then
                         push " of "
-                        push (fs |> List.map (fun (_, t) -> tyStr t) |> String.concat " * ")
+                        push ([ for (_, t) in c.Fields -> tyStr t ] |> String.concat " * ")
 
                 for m in members do
                     push (if m.IsStatic then " static member " else " member ")
@@ -592,7 +590,7 @@ type private Renderer() =
                 push " = { "
 
                 fields
-                |> List.iteri (fun i f ->
+                |> EqArray.iteri (fun i f ->
                     if i > 0 then
                         push "; "
 

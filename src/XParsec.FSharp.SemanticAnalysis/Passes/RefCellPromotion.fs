@@ -34,7 +34,7 @@ module RefCellPromotion =
     /// Walk `decls` collecting binding-site `NodeKey`s for every `let mutable`
     /// whose `ctx.Bindings.Escape` is `HeapShared`. The value bound at each key is the
     /// *post-promotion* type of the local (`Ref<'origTy>`).
-    let private collectPromotions (ctx: PassContext) (decls: TDecl list) : Dictionary<NodeKey, SemType> =
+    let private collectPromotions (ctx: PassContext) (decls: EqArray<TDecl>) : Dictionary<NodeKey, SemType> =
         let promote = Dictionary<NodeKey, SemType>(HashIdentity.Structural)
 
         let consider (k: NodeKey) (origTy: SemType) =
@@ -81,7 +81,7 @@ module RefCellPromotion =
         let wrapValueIfPromoted (pat: TPat) (value: TExpr) : TExpr =
             match pat with
             | TPat.NamedSimple(k, _) when promote.ContainsKey k ->
-                TExpr.RecordCons([ ContentsField, value ], promote.[k])
+                TExpr.RecordCons(EqArray.singleton (ContentsField, value), promote.[k])
             | _ -> value
 
         // Three overrides:
@@ -148,7 +148,7 @@ module RefCellPromotion =
         if promote.Count = 0 then
             tast
         else
-            let decls' = tast.Decls |> List.map (rewriteDecl promote)
+            let decls' = tast.Decls |> EqArray.map (rewriteDecl promote)
             // Records-handoff Phase 2 follow-up: the cell type lives in
             // `Vesper.Core.dll`; the rewritten `TyRecord("Vesper.Ref", _)`
             // resolves through the codegen's external-record path. No

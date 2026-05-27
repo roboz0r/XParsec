@@ -10,8 +10,8 @@ let private analyse (input: string) =
 
 let private declType (tast: TastFile) : SemType =
     match tast.Decls with
-    | [ TDecl.Let(_, _, _, ty) ] -> ty
-    | other -> failwithf "expected single TDecl.Let, got %A" other
+    | EqList [ TDecl.Let(_, _, _, ty) ] -> ty
+    | _ -> failwithf "expected single TDecl.Let, got %A" tast.Decls
 
 [<Tests>]
 let tests =
@@ -93,7 +93,7 @@ let tests =
                 let xKey = NodeKey.ofSource 4 NodeKind.PatIdent
 
                 match tast.Decls with
-                | [ _; TDecl.Let(_, TExpr.Var(refKey, _), _, _) ] -> Expect.equal refKey xKey "y refs x"
+                | EqList [ _; TDecl.Let(_, TExpr.Var(refKey, _), _, _) ] -> Expect.equal refKey xKey "y refs x"
                 | _ -> failtestf "unexpected decls: %A" tast.Decls
             }
 
@@ -114,14 +114,17 @@ let tests =
                 match tast.Decls.[0] with
                 | TDecl.Let(_,
                             TExpr.UnionCons("Cons",
-                                            [ TExpr.Const(TConstValue.Int 1, _)
-                                              TExpr.UnionCons("Cons",
-                                                              [ TExpr.Const(TConstValue.Int 2, _)
-                                                                TExpr.UnionCons("Cons",
-                                                                                [ TExpr.Const(TConstValue.Int 3, _)
-                                                                                  TExpr.UnionCons("Nil", [], _) ],
-                                                                                _) ],
-                                                              _) ],
+                                            EqList [ TExpr.Const(TConstValue.Int 1, _)
+                                                     TExpr.UnionCons("Cons",
+                                                                     EqList [ TExpr.Const(TConstValue.Int 2, _)
+                                                                              TExpr.UnionCons("Cons",
+                                                                                              EqList [ TExpr.Const(TConstValue.Int 3,
+                                                                                                                   _)
+                                                                                                       TExpr.UnionCons("Nil",
+                                                                                                                       EqList [],
+                                                                                                                       _) ],
+                                                                                              _) ],
+                                                                     _) ],
                                             outerTy),
                             _,
                             _) -> Expect.equal outerTy listTy "outer UnionCons ty"
@@ -134,7 +137,7 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.UnionCons("Nil", [], ty), _, _) ->
+                | TDecl.Let(_, TExpr.UnionCons("Nil", EqList [], ty), _, _) ->
                     match ty with
                     | TyRecord("Microsoft.FSharp.Collections.list", args) when args.Length = 1 -> ()
                     | _ -> failtestf "expected list<_> Nil, got %A" ty
@@ -226,8 +229,8 @@ let namespaceTests =
                 Expect.isEmpty nsForm.Diagnostics "x resolves inside y — no unresolved-ident diagnostic"
 
                 Expect.equal
-                    (nsForm.Decls |> List.map TastShape.prettyDecl)
-                    (modForm.Decls |> List.map TastShape.prettyDecl)
+                    (nsForm.Decls |> EqArray.map TastShape.prettyDecl |> EqArray.toList)
+                    (modForm.Decls |> EqArray.map TastShape.prettyDecl |> EqArray.toList)
                     "cross-referencing namespace bindings freeze identically to the module form"
 
                 match nsForm.Decls.[1] with
@@ -319,15 +322,15 @@ let interfaceTests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics for an abstract member"
 
                 match tast.Decls with
-                | [ TDecl.Type td ] ->
+                | EqList [ TDecl.Type td ] ->
                     Expect.equal td.Name "Fun" "type name"
                     Expect.equal td.Namespace (Some "Vesper") "namespace"
-                    Expect.equal td.TypeParams [ "'A"; "'B" ] "declared typars"
+                    Expect.equal (EqArray.toList td.TypeParams) [ "'A"; "'B" ] "declared typars"
 
                     match td.Kind with
-                    | TTypeKind.Interface [ m ] ->
+                    | TTypeKind.Interface(EqList [ m ]) ->
                         Expect.equal m.Name "Invoke" "method name"
-                        Expect.isEmpty m.MethodTypeParams "Invoke has no method typars"
+                        Expect.isTrue m.MethodTypeParams.IsEmpty "Invoke has no method typars"
                         // 'A -> 'B, declaring typars as TyConst markers.
                         Expect.equal m.Signature (TyFun(TyConst "'A", TyConst "'B")) "Invoke signature"
                     | other -> failtestf "expected one interface method, got %A" other
@@ -346,14 +349,14 @@ let interfaceTests =
                 Expect.isEmpty tast.Diagnostics "the method typar 'B is declared, not free"
 
                 match tast.Decls with
-                | [ TDecl.Type td ] ->
+                | EqList [ TDecl.Type td ] ->
                     Expect.equal td.Name "Mapper" "type name"
-                    Expect.equal td.TypeParams [ "'A" ] "declaring typar 'A only"
+                    Expect.equal (EqArray.toList td.TypeParams) [ "'A" ] "declaring typar 'A only"
 
                     match td.Kind with
-                    | TTypeKind.Interface [ m ] ->
+                    | TTypeKind.Interface(EqList [ m ]) ->
                         Expect.equal m.Name "Map" "method name"
-                        Expect.equal m.MethodTypeParams [ "'B" ] "method's own typar 'B"
+                        Expect.equal (EqArray.toList m.MethodTypeParams) [ "'B" ] "method's own typar 'B"
                         // 'A is the declaring typar, 'B the method's own — both markers.
                         Expect.equal m.Signature (TyFun(TyConst "'A", TyConst "'B")) "Map signature 'A -> 'B"
                     | other -> failtestf "expected one interface method, got %A" other
@@ -369,15 +372,17 @@ let interfaceTests =
 // case was dropped) and `GadtNary`/`GadtNullary` were diagnosed "not supported".
 module private UnionCaseSyntaxHelpers =
     let union (tast: TastFile) =
-        tast.Decls
-        |> List.choose (fun d ->
+        let acc = ResizeArray<TTypeDecl * EqArray<TUnionCase>>()
+
+        for d in tast.Decls do
             match d with
             | TDecl.Type td ->
                 match td.Kind with
-                | TTypeKind.Union(cs, _) -> Some(td, cs)
-                | _ -> None
-            | _ -> None
-        )
+                | TTypeKind.Union(cs, _) -> acc.Add(td, cs)
+                | _ -> ()
+            | _ -> ()
+
+        List.ofSeq acc
 
 [<Tests>]
 let unionCaseSyntaxTests =
@@ -393,10 +398,10 @@ let unionCaseSyntaxTests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match union tast with
-                | [ (td, [ c0; c1 ]) ] ->
+                | [ (td, EqList [ c0; c1 ]) ] ->
                     Expect.equal td.Name "Ops" "type name"
                     Expect.equal c0.Name "Empty" "`([])` is named Empty"
-                    Expect.isEmpty c0.Fields "Empty is nullary"
+                    Expect.isTrue c0.Fields.IsEmpty "Empty is nullary"
                     Expect.equal c1.Name "Cons" "`(::)` is named Cons"
                     Expect.equal c1.Fields.Length 2 "Cons has two fields"
                 | other -> failtestf "unexpected unions: %A" other
@@ -412,17 +417,17 @@ let unionCaseSyntaxTests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics for the GADT-syntax cases"
 
                 match union tast with
-                | [ (td, [ empty; cons ]) ] ->
+                | [ (td, EqList [ empty; cons ]) ] ->
                     Expect.equal td.Name "List" "type name"
-                    Expect.equal td.TypeParams [ "'T" ] "one declared typar"
+                    Expect.equal (EqArray.toList td.TypeParams) [ "'T" ] "one declared typar"
 
                     Expect.equal empty.Name "Empty" "`([])` is named Empty"
-                    Expect.isEmpty empty.Fields "Empty is nullary"
+                    Expect.isTrue empty.Fields.IsEmpty "Empty is nullary"
 
                     Expect.equal cons.Name "Cons" "`(::)` is named Cons"
 
                     match cons.Fields with
-                    | [ (hn, ht); (tn, tt) ] ->
+                    | EqList [ (hn, ht); (tn, tt) ] ->
                         Expect.equal hn (ValueSome "Head") "first field named Head"
                         // The element typar surfaces as the backend marker.
                         Expect.equal ht (TyConst "'T") "Head : 'T"
@@ -474,12 +479,12 @@ let listAbbrevTests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics for the recursive abbrev + GADT cases"
 
                 match UnionCaseSyntaxHelpers.union tast with
-                | [ (td, [ empty; cons ]) ] ->
+                | [ (td, EqList [ empty; cons ]) ] ->
                     Expect.equal td.Name "List" "type name"
                     Expect.equal empty.Name "Empty" "`([])` is Empty"
 
                     match cons.Fields with
-                    | [ (_, ht); (_, tt) ] ->
+                    | EqList [ (_, ht); (_, tt) ] ->
                         Expect.equal ht (TyConst "'T") "Head : 'T"
                         // `'T list` resolved through the abbrev back to the union.
                         Expect.equal
@@ -500,14 +505,19 @@ let listAbbrevTests =
 
                 let xs =
                     tast.Decls
-                    |> List.tryPick (fun d ->
+                    |> EqArray.tryFind (fun d ->
                         match d with
-                        | TDecl.Let(TPat.NamedSimple _, v, _, ty) -> Some(v, ty)
-                        | _ -> None
+                        | TDecl.Let(TPat.NamedSimple _, _, _, _) -> true
+                        | _ -> false
+                    )
+                    |> ValueOption.map (fun d ->
+                        match d with
+                        | TDecl.Let(TPat.NamedSimple _, v, _, ty) -> v, ty
+                        | _ -> failwith "unreachable"
                     )
 
                 match xs with
-                | Some(value, ty) ->
+                | ValueSome(value, ty) ->
                     Expect.equal
                         ty
                         (TyUnion("List", EqArray.singleton (TyConst "int")))
@@ -517,7 +527,7 @@ let listAbbrevTests =
                         (TastShape.prettyExpr value)
                         "Cons(1, Cons(2, Cons(3, Empty)))"
                         "Cons chain terminated by the union's Empty case"
-                | None -> failtest "no `let xs` binding surfaced"
+                | ValueNone -> failtest "no `let xs` binding surfaced"
             }
 
             // The empty literal `[]` resolves to the union's nullary case too.
@@ -528,17 +538,22 @@ let listAbbrevTests =
 
                 let e =
                     tast.Decls
-                    |> List.tryPick (fun d ->
+                    |> EqArray.tryFind (fun d ->
                         match d with
-                        | TDecl.Let(TPat.NamedSimple _, v, _, ty) -> Some(v, ty)
-                        | _ -> None
+                        | TDecl.Let(TPat.NamedSimple _, _, _, _) -> true
+                        | _ -> false
+                    )
+                    |> ValueOption.map (fun d ->
+                        match d with
+                        | TDecl.Let(TPat.NamedSimple _, v, _, ty) -> v, ty
+                        | _ -> failwith "unreachable"
                     )
 
                 match e with
-                | Some(value, ty) ->
+                | ValueSome(value, ty) ->
                     Expect.equal ty (TyUnion("List", EqArray.singleton (TyConst "int"))) "e : List<int>"
                     Expect.equal (TastShape.prettyExpr value) "Empty" "the bare `[]` is the union's Empty case"
-                | None -> failtest "no `let e` binding surfaced"
+                | ValueNone -> failtest "no `let e` binding surfaced"
             }
 
             // Regression: with no `list` abbreviation in scope, a list literal
@@ -550,14 +565,19 @@ let listAbbrevTests =
 
                 let xs =
                     tast.Decls
-                    |> List.tryPick (fun d ->
+                    |> EqArray.tryFind (fun d ->
                         match d with
-                        | TDecl.Let(TPat.NamedSimple _, v, _, ty) -> Some(v, ty)
-                        | _ -> None
+                        | TDecl.Let(TPat.NamedSimple _, _, _, _) -> true
+                        | _ -> false
+                    )
+                    |> ValueOption.map (fun d ->
+                        match d with
+                        | TDecl.Let(TPat.NamedSimple _, v, _, ty) -> v, ty
+                        | _ -> failwith "unreachable"
                     )
 
                 match xs with
-                | Some(value, ty) ->
+                | ValueSome(value, ty) ->
                     Expect.equal
                         ty
                         (TyRecord("Microsoft.FSharp.Collections.list", EqArray.singleton (TyConst "int")))
@@ -567,7 +587,7 @@ let listAbbrevTests =
                         (TastShape.prettyExpr value)
                         "Cons(1, Cons(2, Cons(3, Nil)))"
                         "the default FSharp.Core Cons/Nil chain"
-                | None -> failtest "no `let xs` binding surfaced"
+                | ValueNone -> failtest "no `let xs` binding surfaced"
             }
         ]
 
@@ -607,18 +627,21 @@ let unionMemberTests =
 
                 let members =
                     tast.Decls
-                    |> List.tryPick (fun d ->
+                    |> EqArray.tryFind (fun d ->
                         match d with
-                        | TDecl.Type td ->
-                            match td.Kind with
-                            | TTypeKind.Union(_, ms) -> Some ms
-                            | _ -> None
-                        | _ -> None
+                        | TDecl.Type { Kind = TTypeKind.Union _ } -> true
+                        | _ -> false
+                    )
+                    |> ValueOption.bind (fun d ->
+                        match d with
+                        | TDecl.Type { Kind = TTypeKind.Union(_, ms) } -> ValueSome(EqArray.toList ms)
+                        | _ -> ValueNone
                     )
 
                 match members with
-                | Some ms ->
-                    let find n = ms |> List.find (fun m -> m.Name = n)
+                | ValueSome ms ->
+                    let find n =
+                        ms |> List.find (fun (m: TTypeMember) -> m.Name = n)
 
                     let isEmpty = find "IsEmpty"
                     Expect.isFalse isEmpty.IsStatic "IsEmpty is an instance member"
@@ -638,7 +661,7 @@ let unionMemberTests =
                     Expect.equal single.Kind TMemberKind.Method "Single is a method"
                     Expect.equal single.Params.Length 1 "Single takes one parameter"
                     Expect.equal single.ReturnTy (TyUnion("Lst", EqArray.empty)) "Single : int -> Lst"
-                | None -> failtest "no union surfaced"
+                | ValueNone -> failtest "no union surfaced"
             }
 
             test "instance + static member access type-checks against the union's members" {

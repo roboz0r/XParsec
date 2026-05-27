@@ -75,7 +75,7 @@ let tests =
 
                 let synth =
                     {
-                        Decls = synthDecls
+                        Decls = EqArray.ofList synthDecls
                         Diagnostics = []
                         IntrinsicReprTypes = Map.empty
                         ModuleMembers = Map.empty
@@ -105,8 +105,8 @@ let tests =
 
                 let idKey =
                     match tast.Decls with
-                    | [ TDecl.Let(TPat.NamedSimple(k, _), _, _, _) ] -> k
-                    | other -> failwithf "expected single NamedSimple decl, got %A" other
+                    | EqList [ TDecl.Let(TPat.NamedSimple(k, _), _, _, _) ] -> k
+                    | _ -> failwithf "expected single NamedSimple decl, got %A" tast.Decls
 
                 let scheme = ctx.Bindings.Scheme.TryGetValue idKey
 
@@ -120,9 +120,10 @@ let tests =
                 let synth =
                     {
                         Decls =
-                            [
-                                TDecl.Let(TPat.NamedSimple(idKey, ty), TExpr.Const(TConstValue.Unit, ty), false, ty)
-                            ]
+                            EqArray.ofList
+                                [
+                                    TDecl.Let(TPat.NamedSimple(idKey, ty), TExpr.Const(TConstValue.Unit, ty), false, ty)
+                                ]
                         Diagnostics = []
                         IntrinsicReprTypes = Map.empty
                         ModuleMembers = Map.empty

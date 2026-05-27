@@ -11,14 +11,15 @@ let private analyse (input: string) =
 let private declType (tast: TastFile) : SemType =
     // A surfaced `TDecl.Type` (rung 2: unions) is ignored here — these tests
     // assert the *value* binding's inferred type.
-    match
-        tast.Decls
+    let valueDecls =
+        EqArray.toList tast.Decls
         |> List.filter (fun d ->
             match d with
             | TDecl.Type _ -> false
             | _ -> true
         )
-    with
+
+    match valueDecls with
     | [ TDecl.Let(_, _, _, ty) ] -> ty
     | other -> failwithf "expected single TDecl.Let, got %A" other
 
@@ -32,8 +33,8 @@ let tests =
 
                 let resultDecl =
                     match tast.Decls with
-                    | [ _; d ] -> d
-                    | other -> failwithf "expected two decls, got %A" other
+                    | EqList [ _; d ] -> d
+                    | _ -> failwithf "expected two decls, got %A" tast.Decls
 
                 match resultDecl with
                 | TDecl.Let(_, _, _, ty) -> Expect.equal ty BuiltinTypes.tyInt "r : int"
@@ -47,8 +48,8 @@ let tests =
 
                 let resultDecl =
                     match tast.Decls with
-                    | [ _; d ] -> d
-                    | other -> failwithf "expected two decls, got %A" other
+                    | EqList [ _; d ] -> d
+                    | _ -> failwithf "expected two decls, got %A" tast.Decls
 
                 Expect.stringContains (TastShape.prettyDecl resultDecl) "1 |>" "pipe rendered symbolically"
             }
@@ -58,8 +59,8 @@ let tests =
 
                 let resultDecl =
                     match tast.Decls with
-                    | [ _; d ] -> d
-                    | other -> failwithf "expected two decls, got %A" other
+                    | EqList [ _; d ] -> d
+                    | _ -> failwithf "expected two decls, got %A" tast.Decls
 
                 match resultDecl with
                 | TDecl.Let(_, _, _, ty) -> Expect.equal ty BuiltinTypes.tyInt "r : int"
@@ -83,8 +84,8 @@ let tests =
 
                 let hDecl =
                     match tast.Decls with
-                    | [ _; _; d ] -> d
-                    | other -> failwithf "expected three decls, got %A" other
+                    | EqList [ _; _; d ] -> d
+                    | _ -> failwithf "expected three decls, got %A" tast.Decls
 
                 match hDecl with
                 | TDecl.Let(_, _, _, ty) ->
@@ -99,8 +100,8 @@ let tests =
 
                 let hDecl =
                     match tast.Decls with
-                    | [ _; _; d ] -> d
-                    | other -> failwithf "expected three decls, got %A" other
+                    | EqList [ _; _; d ] -> d
+                    | _ -> failwithf "expected three decls, got %A" tast.Decls
 
                 match hDecl with
                 | TDecl.Let(_, _, _, ty) ->
@@ -243,8 +244,8 @@ let tests =
 
                 let resultDecl =
                     match tast.Decls with
-                    | [ _; d ] -> d
-                    | other -> failwithf "expected two decls, got %A" other
+                    | EqList [ _; d ] -> d
+                    | _ -> failwithf "expected two decls, got %A" tast.Decls
 
                 match resultDecl with
                 | TDecl.Let(_, _, _, ty) -> Expect.equal ty BuiltinTypes.tyInt "r : int"
@@ -258,8 +259,8 @@ let tests =
 
                 let resultDecl =
                     match tast.Decls with
-                    | [ _; d ] -> d
-                    | other -> failwithf "expected two decls, got %A" other
+                    | EqList [ _; d ] -> d
+                    | _ -> failwithf "expected two decls, got %A" tast.Decls
 
                 Expect.equal (TastShape.prettyDecl resultDecl) "let v0 = (v1 3)" "f(3) renders as (f 3)"
             }
@@ -394,9 +395,9 @@ let tests =
                 | TDecl.Let(_,
                             TExpr.Lambda(_,
                                          TExpr.Match(_,
-                                                     [ {
-                                                           Pat = TPat.Const(TConstValue.Unit, _)
-                                                       } ],
+                                                     EqList [ {
+                                                                  Pat = TPat.Const(TConstValue.Unit, _)
+                                                              } ],
                                                      _),
                                          _),
                             _,
@@ -412,8 +413,8 @@ let tests =
                 // is the *second* decl.
                 let resultDecl =
                     match tast.Decls with
-                    | [ _; d ] -> d
-                    | other -> failwithf "expected [type; let], got %A" other
+                    | EqList [ _; d ] -> d
+                    | _ -> failwithf "expected [type; let], got %A" tast.Decls
 
                 Expect.equal (TastShape.prettyDecl resultDecl) "let v0 = { X = 1; Y = 2 }" "record cons shape"
 
@@ -425,8 +426,8 @@ let tests =
 
                 let resultDecl =
                     match tast.Decls with
-                    | [ _; d ] -> d
-                    | other -> failwithf "expected [type; let], got %A" other
+                    | EqList [ _; d ] -> d
+                    | _ -> failwithf "expected [type; let], got %A" tast.Decls
 
                 Expect.equal (TastShape.prettyDecl resultDecl) "let v0 = fun v1 -> v1.X" "field get shape"
 
@@ -438,8 +439,8 @@ let tests =
 
                 let resultDecl =
                     match tast.Decls with
-                    | [ _; d ] -> d
-                    | other -> failwithf "expected [type; let], got %A" other
+                    | EqList [ _; d ] -> d
+                    | _ -> failwithf "expected [type; let], got %A" tast.Decls
 
                 Expect.equal (TastShape.prettyDecl resultDecl) "let v0 = fun v1 -> v1.X <- 5" "field set shape"
 
@@ -453,8 +454,8 @@ let tests =
                 // The type decl now surfaces too (records-plan §B1) — [type; p; q].
                 let qDecl =
                     match tast.Decls with
-                    | [ _; _; d ] -> d
-                    | other -> failwithf "expected [type; p; q], got %A" other
+                    | EqList [ _; _; d ] -> d
+                    | _ -> failwithf "expected [type; p; q], got %A" tast.Decls
 
                 Expect.equal (TastShape.prettyDecl qDecl) "let v0 = { v1 with Y = 5 }" "record clone shape"
 
@@ -467,8 +468,8 @@ let tests =
 
                 let resultDecl =
                     match tast.Decls with
-                    | [ _; d ] -> d
-                    | other -> failwithf "expected [type; let], got %A" other
+                    | EqList [ _; d ] -> d
+                    | _ -> failwithf "expected [type; let], got %A" tast.Decls
 
                 Expect.stringContains (TastShape.prettyDecl resultDecl) "{ X = " "record pattern rendered"
 
@@ -481,8 +482,8 @@ let tests =
                 // The union surfaces as a `TDecl.Type` (rung 2); the value binding follows.
                 let resultDecl =
                     match tast.Decls with
-                    | [ _; d ] -> d
-                    | other -> failwithf "expected [type; let], got %A" other
+                    | EqList [ _; d ] -> d
+                    | _ -> failwithf "expected [type; let], got %A" tast.Decls
 
                 Expect.equal (TastShape.prettyDecl resultDecl) "let v0 = Point" "nullary ctor shape"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -493,8 +494,8 @@ let tests =
 
                 let resultDecl =
                     match tast.Decls with
-                    | [ _; d ] -> d
-                    | other -> failwithf "expected [type; let], got %A" other
+                    | EqList [ _; d ] -> d
+                    | _ -> failwithf "expected [type; let], got %A" tast.Decls
 
                 Expect.equal (TastShape.prettyDecl resultDecl) "let v0 = Circle 1" "single-arg ctor shape"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -505,8 +506,8 @@ let tests =
 
                 let resultDecl =
                     match tast.Decls with
-                    | [ _; d ] -> d
-                    | other -> failwithf "expected [type; let], got %A" other
+                    | EqList [ _; d ] -> d
+                    | _ -> failwithf "expected [type; let], got %A" tast.Decls
 
                 Expect.equal (TastShape.prettyDecl resultDecl) "let v0 = Rect(2, 3)" "multi-arg ctor shape"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -519,8 +520,8 @@ let tests =
 
                 let resultDecl =
                     match tast.Decls with
-                    | [ _; d ] -> d
-                    | other -> failwithf "expected [type; let], got %A" other
+                    | EqList [ _; d ] -> d
+                    | _ -> failwithf "expected [type; let], got %A" tast.Decls
 
                 let rendered = TastShape.prettyDecl resultDecl
                 Expect.stringContains rendered "Circle v" "Circle r arm rendered"
@@ -569,8 +570,8 @@ let tests =
 
                 let valExpr =
                     match tast.Decls with
-                    | [ TDecl.Let(_, v, _, _) ] -> v
-                    | other -> failwithf "expected one let, got %A" other
+                    | EqList [ TDecl.Let(_, v, _, _) ] -> v
+                    | _ -> failwithf "expected one let, got %A" tast.Decls
 
                 match valExpr with
                 | TExpr.New(name, args, ty) ->
@@ -588,8 +589,8 @@ let tests =
 
                 let valExpr =
                     match tast.Decls with
-                    | [ TDecl.Let(_, v, _, _) ] -> v
-                    | other -> failwithf "expected one let, got %A" other
+                    | EqList [ TDecl.Let(_, v, _, _) ] -> v
+                    | _ -> failwithf "expected one let, got %A" tast.Decls
 
                 let body =
                     match valExpr with
@@ -612,8 +613,8 @@ let tests =
 
                 let valExpr =
                     match tast.Decls with
-                    | [ TDecl.Let(_, v, _, _) ] -> v
-                    | other -> failwithf "expected one let, got %A" other
+                    | EqList [ TDecl.Let(_, v, _, _) ] -> v
+                    | _ -> failwithf "expected one let, got %A" tast.Decls
 
                 let body =
                     match valExpr with
@@ -635,8 +636,8 @@ let tests =
 
                 let valExpr =
                     match tast.Decls with
-                    | [ TDecl.Let(_, v, _, _) ] -> v
-                    | other -> failwithf "expected one let, got %A" other
+                    | EqList [ TDecl.Let(_, v, _, _) ] -> v
+                    | _ -> failwithf "expected one let, got %A" tast.Decls
 
                 match valExpr with
                 | TExpr.StaticPropertyGet(className, name, ty) ->
@@ -654,8 +655,8 @@ let tests =
 
                 let valExpr =
                     match tast.Decls with
-                    | [ TDecl.Let(_, v, _, _) ] -> v
-                    | other -> failwithf "expected one let, got %A" other
+                    | EqList [ TDecl.Let(_, v, _, _) ] -> v
+                    | _ -> failwithf "expected one let, got %A" tast.Decls
 
                 match valExpr with
                 | TExpr.StaticMethodCall(className, methodName, args, ty) ->

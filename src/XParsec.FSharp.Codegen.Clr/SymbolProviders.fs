@@ -69,8 +69,9 @@ module SymbolProviders =
     /// still blocks `=`/`+`/… (operators-plan.md). The arithmetic/equality
     /// operators have no `.fs` body yet and stay on the `Emit.BuiltinOps` stopgap.
     let private collectInlineBodies (tast: TastFile) : (string * TDecl) list =
-        tast.Decls
-        |> List.choose (fun d ->
+        let acc = ResizeArray<string * TDecl>()
+
+        for d in tast.Decls do
             match d with
             // A module-level `let inline` resolves its source name through
             // `ModuleMembers` (the same map `Emit.collectStaticFns` names static
@@ -78,10 +79,11 @@ module SymbolProviders =
             // unaddressable from a use site, so it is skipped.
             | TDecl.Let(TPat.NamedSimple(k, _), _, true, _) ->
                 match Map.tryFind k.Raw tast.ModuleMembers with
-                | Some info -> Some(info.Name, d)
-                | None -> None
-            | _ -> None
-        )
+                | Some info -> acc.Add(info.Name, d)
+                | None -> ()
+            | _ -> ()
+
+        List.ofSeq acc
 
     /// Load the cross-package inline bodies declared by the manifests' `impl`
     /// `.fs` files. Each body is type-checked + frozen ONCE here, against the same

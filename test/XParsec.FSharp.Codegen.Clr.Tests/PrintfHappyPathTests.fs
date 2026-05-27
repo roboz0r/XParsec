@@ -15,8 +15,8 @@ let private soleDecl (src: string) : TDecl =
     Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics for: %s" src)
 
     match tast.Decls with
-    | [ d ] -> d
-    | other -> failtestf "expected one decl for %s, got: %A" src other
+    | EqList [ d ] -> d
+    | _ -> failtestf "expected one decl for %s, got: %A" src tast.Decls
 
 let private runPrints (name: string) (src: string) (expected: string) =
     let _, artifact = compileSource name src

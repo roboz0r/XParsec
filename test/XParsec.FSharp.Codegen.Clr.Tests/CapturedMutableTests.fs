@@ -50,7 +50,7 @@ let tests =
 
                 let hasLocalRefDecl =
                     tast.Decls
-                    |> List.exists (fun d ->
+                    |> EqArray.exists (fun d ->
                         match d with
                         | TDecl.Type td when td.Name = "Ref" || td.Name = "Vesper.Ref" -> true
                         | _ -> false
@@ -70,7 +70,7 @@ let tests =
 
                 let hasRefDecl =
                     tast.Decls
-                    |> List.exists (fun d ->
+                    |> EqArray.exists (fun d ->
                         match d with
                         | TDecl.Type td when td.Name = "Ref" || td.Name = "Vesper.Ref" -> true
                         | _ -> false
@@ -101,15 +101,15 @@ let tests =
                         | TExpr.Lambda(_, b, _) -> scanExpr predicate b
                         | TExpr.Let(_, v, b, _) -> scanExpr predicate v || scanExpr predicate b
                         | TExpr.App(f, a, _) -> scanExpr predicate f || scanExpr predicate a
-                        | TExpr.Sequential(items, _) -> items |> List.exists (scanExpr predicate)
+                        | TExpr.Sequential(items, _) -> items |> EqArray.exists (scanExpr predicate)
                         | TExpr.IfThenElse(c, t, e, _) ->
                             scanExpr predicate c || scanExpr predicate t || scanExpr predicate e
                         | TExpr.FieldGet(r, _, _) -> scanExpr predicate r
                         | TExpr.FieldSet(r, _, v, _) -> scanExpr predicate r || scanExpr predicate v
-                        | TExpr.RecordCons(fields, _) -> fields |> List.exists (fun (_, v) -> scanExpr predicate v)
+                        | TExpr.RecordCons(fields, _) -> fields |> EqArray.exists (fun (_, v) -> scanExpr predicate v)
                         | TExpr.Match(sc, arms, _) ->
                             scanExpr predicate sc
-                            || arms |> List.exists (fun a -> scanExpr predicate a.Body)
+                            || arms |> EqArray.exists (fun a -> scanExpr predicate a.Body)
                         | _ -> false
 
                 let isContentsFieldSet =
@@ -129,7 +129,7 @@ let tests =
 
                 let scan p =
                     tast.Decls
-                    |> List.exists (fun d ->
+                    |> EqArray.exists (fun d ->
                         match d with
                         | TDecl.Let(_, v, _, _) -> scanExpr p v
                         | TDecl.Expression(e, _) -> scanExpr p e

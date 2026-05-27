@@ -42,8 +42,8 @@ let tests =
                 // GetHashCode access's receiver is the `Default` static access.
                 let value =
                     match tast.Decls with
-                    | [ TDecl.Let(value = v) ] -> v
-                    | other -> failtestf "expected a single let binding, got %A" other
+                    | EqList [ TDecl.Let(value = v) ] -> v
+                    | _ -> failtestf "expected a single let binding, got %A" tast.Decls
 
                 match value with
                 | TExpr.App(TExpr.ExternalMember(ValueSome inner, ghKey, "GetHashCode", false, ghTy),
@@ -113,8 +113,8 @@ let tests =
 
                 let frozen =
                     match tast.Decls with
-                    | [ TDecl.Let(value = TExpr.App(TExpr.ExternalMember(key = k), _, _)) ] -> k
-                    | other -> failtestf "expected App(ExternalMember …), got %A" other
+                    | EqList [ TDecl.Let(value = TExpr.App(TExpr.ExternalMember(key = k), _, _)) ] -> k
+                    | _ -> failtestf "expected App(ExternalMember …), got %A" tast.Decls
 
                 Expect.equal frozen expected "frozen key = provider's resolved key"
             }
@@ -135,16 +135,21 @@ let tests =
 
                 let value =
                     tast.Decls
-                    |> List.tryPick (
+                    |> EqArray.tryFind (
                         function
-                        | TDecl.Let(value = v) -> Some v
-                        | _ -> None
+                        | TDecl.Let _ -> true
+                        | _ -> false
+                    )
+                    |> ValueOption.map (
+                        function
+                        | TDecl.Let(value = v) -> v
+                        | _ -> failwith "unreachable"
                     )
 
                 match value with
-                | Some(TExpr.App(TExpr.ExternalMember(ValueSome inner, ghKey, "GetHashCode", false, ghTy),
-                                 TExpr.Const(TConstValue.Int 5, _),
-                                 resultTy)) ->
+                | ValueSome(TExpr.App(TExpr.ExternalMember(ValueSome inner, ghKey, "GetHashCode", false, ghTy),
+                                      TExpr.Const(TConstValue.Int 5, _),
+                                      resultTy)) ->
                     match Unification.zonk ghTy with
                     | TyFun(TyConst "int", TyConst "int") -> ()
                     | other -> failtestf "GetHashCode should be typed int -> int, got %A" other
@@ -182,13 +187,18 @@ let tests =
 
                 let frozen =
                     tast.Decls
-                    |> List.tryPick (
+                    |> EqArray.tryFind (
                         function
-                        | TDecl.Let(value = TExpr.App(TExpr.ExternalMember(key = k), _, _)) -> Some k
-                        | _ -> None
+                        | TDecl.Let(value = TExpr.App(TExpr.ExternalMember _, _, _)) -> true
+                        | _ -> false
+                    )
+                    |> ValueOption.map (
+                        function
+                        | TDecl.Let(value = TExpr.App(TExpr.ExternalMember(key = k), _, _)) -> k
+                        | _ -> failwith "unreachable"
                     )
 
-                Expect.equal frozen (Some expected) "frozen key (short name) = provider's resolved key"
+                Expect.equal frozen (ValueSome expected) "frozen key (short name) = provider's resolved key"
             }
 
             // P4 gate (symbol-resolution-plan §8 / handoff): the codegen identity
@@ -334,8 +344,8 @@ let tests =
 
                 let value =
                     match tast.Decls with
-                    | [ TDecl.Let(value = v) ] -> v
-                    | other -> failtestf "expected a single let binding, got %A" other
+                    | EqList [ TDecl.Let(value = v) ] -> v
+                    | _ -> failtestf "expected a single let binding, got %A" tast.Decls
 
                 match value with
                 | TExpr.ExternalMember(ValueNone, key, "Out", true, ty) ->
@@ -361,21 +371,26 @@ let tests =
 
                 let value =
                     tast.Decls
-                    |> List.tryPick (
+                    |> EqArray.tryFind (
                         function
-                        | TDecl.Let(value = v) -> Some v
-                        | _ -> None
+                        | TDecl.Let _ -> true
+                        | _ -> false
+                    )
+                    |> ValueOption.map (
+                        function
+                        | TDecl.Let(value = v) -> v
+                        | _ -> failwith "unreachable"
                     )
 
                 match value with
-                | Some(TExpr.ExternalMember(ValueNone,
-                                            SymbolKey.MemberKey(SymbolKey.TypeKey(_, "System", "Console"),
-                                                                "Out",
-                                                                [],
-                                                                MemberKind.Property),
-                                            "Out",
-                                            true,
-                                            _)) -> ()
+                | ValueSome(TExpr.ExternalMember(ValueNone,
+                                                 SymbolKey.MemberKey(SymbolKey.TypeKey(_, "System", "Console"),
+                                                                     "Out",
+                                                                     [],
+                                                                     MemberKind.Property),
+                                                 "Out",
+                                                 true,
+                                                 _)) -> ()
                 | other -> failtestf "expected the same keyed Console.Out ExternalMember, got %A" other
             }
 

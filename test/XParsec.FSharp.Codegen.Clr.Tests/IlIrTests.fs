@@ -42,10 +42,10 @@ let rec private buildExpr (b: IlBuilder) (e: TExpr) : unit =
 
         match Cil.tryOpCodeOfMnemonic op with
         | ValueSome code ->
-            match args with
-            | [ _; _ ] -> b.Add(ILInstr.Bin code)
-            | [ _ ] -> b.Add(ILInstr.Un code)
-            | _ -> failwithf "IlIrTests.buildExpr: %d-ary intrinsic '%s' unsupported in the demo" (List.length args) op
+            match args.Length with
+            | 2 -> b.Add(ILInstr.Bin code)
+            | 1 -> b.Add(ILInstr.Un code)
+            | n -> failwithf "IlIrTests.buildExpr: %d-ary intrinsic '%s' unsupported in the demo" n op
         | ValueNone -> failwithf "IlIrTests.buildExpr: unknown intrinsic '%s'" op
     | other -> failwithf "IlIrTests.buildExpr (demo subset): %A" other
 
@@ -84,7 +84,7 @@ let tests =
     let cInt n = TExpr.Const(TConstValue.Int n, tyInt)
 
     let ceq a b =
-        TExpr.ILIntrinsic("ceq", [ a; b ], tyBool)
+        TExpr.ILIntrinsic("ceq", EqArray.ofList [ a; b ], tyBool)
 
     // Lower into a standalone `Il` (no metadata context — the demo bodies carry no
     // tokens) to read the maxStack the live tracker computes, for cross-checking

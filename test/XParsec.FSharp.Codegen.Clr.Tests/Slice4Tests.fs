@@ -18,24 +18,25 @@ let tests =
                     TyRecord("Microsoft.FSharp.Collections.list", EqArray.singleton (TyConst "int"))
 
                 match tast.Decls with
-                | [ TDecl.Expression(TExpr.App(TExpr.App(TExpr.External("printfn", _, _), TExpr.New _, _),
-                                               TExpr.UnionCons("Cons",
-                                                               [ TExpr.Const(TConstValue.Int 1, _)
-                                                                 TExpr.UnionCons("Cons",
-                                                                                 [ TExpr.Const(TConstValue.Int 2, _)
-                                                                                   TExpr.UnionCons("Cons",
-                                                                                                   [ TExpr.Const(TConstValue.Int 3,
-                                                                                                                 _)
-                                                                                                     TExpr.UnionCons("Nil",
-                                                                                                                     [],
-                                                                                                                     _) ],
-                                                                                                   _) ],
-                                                                                 _) ],
-                                                               outerTy),
-                                               _),
-                                     _) ] ->
+                | EqList [ TDecl.Expression(TExpr.App(TExpr.App(TExpr.External("printfn", _, _), TExpr.New _, _),
+                                                      TExpr.UnionCons("Cons",
+                                                                      EqList [ TExpr.Const(TConstValue.Int 1, _)
+                                                                               TExpr.UnionCons("Cons",
+                                                                                               EqList [ TExpr.Const(TConstValue.Int 2,
+                                                                                                                    _)
+                                                                                                        TExpr.UnionCons("Cons",
+                                                                                                                        EqList [ TExpr.Const(TConstValue.Int 3,
+                                                                                                                                             _)
+                                                                                                                                 TExpr.UnionCons("Nil",
+                                                                                                                                                 EqList [],
+                                                                                                                                                 _) ],
+                                                                                                                        _) ],
+                                                                                               _) ],
+                                                                      outerTy),
+                                                      _),
+                                            _) ] ->
                     Expect.equal outerTy listTy "the trailing arg is the cons chain typed list<int>"
-                | other -> failtestf "unexpected slice-4 TAST: %A" other
+                | _ -> failtestf "unexpected slice-4 TAST: %A" tast.Decls
             }
 
             test "`printfn \"%A\" [1]` prints [1] (one Cons over Nil + list-typed Invoke)" {

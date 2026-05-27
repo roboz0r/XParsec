@@ -41,24 +41,24 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls with
-                | [ TDecl.Let(TPat.NamedSimple _,
-                              TExpr.Lambda(_,
-                                           TExpr.StaticOptimization(clauses,
-                                                                    TExpr.Const(TConstValue.Int -1, _),
-                                                                    TyConst "int"),
-                                           _),
-                              true,
-                              _) ] ->
-                    Expect.equal (List.length clauses) 3 "three when-clauses, in source order"
+                | EqList [ TDecl.Let(TPat.NamedSimple _,
+                                     TExpr.Lambda(_,
+                                                  TExpr.StaticOptimization(clauses,
+                                                                           TExpr.Const(TConstValue.Int -1, _),
+                                                                           TyConst "int"),
+                                                  _),
+                                     true,
+                                     _) ] ->
+                    Expect.equal clauses.Length 3 "three when-clauses, in source order"
 
                     // First clause is `when ^T : int = 1` — one constraint, body `1`.
-                    match clauses with
-                    | {
-                          Constraints = [ _ ]
-                          Body = TExpr.Const(TConstValue.Int 1, _)
-                      } :: _ -> ()
-                    | other -> failtestf "unexpected first clause: %A" other
-                | other -> failtestf "expected a static-opt inline binding, got %A" other
+                    if clauses.Length > 0 && clauses.[0].Constraints.Length = 1 then
+                        match clauses.[0].Body with
+                        | TExpr.Const(TConstValue.Int 1, _) -> ()
+                        | other -> failtestf "unexpected first clause body: %A" other
+                    else
+                        failtestf "unexpected first clause: %A" clauses.[0]
+                | _ -> failtestf "expected a static-opt inline binding, got %A" tast.Decls
             }
 
             test "the catch-all `when ^T : ^T` is a self-referential TyconEquals constraint" {
@@ -71,14 +71,14 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls with
-                | [ TDecl.Let(_, TExpr.Lambda(_, TExpr.StaticOptimization([ clause ], _, _), _), true, _) ] ->
+                | EqList [ TDecl.Let(_, TExpr.Lambda(_, TExpr.StaticOptimization(EqList [ clause ], _, _), _), true, _) ] ->
                     match clause.Constraints with
-                    | [ TStaticOptConstraint.TyconEquals(TyVar a, TyVar b) ] ->
+                    | EqList [ TStaticOptConstraint.TyconEquals(TyVar a, TyVar b) ] ->
                         Expect.isTrue
                             (System.Object.ReferenceEquals(UnionFind.find a, UnionFind.find b))
                             "both sides reference the same typar root"
                     | other -> failtestf "expected one self-referential TyconEquals, got %A" other
-                | other -> failtestf "expected a single-clause static-opt, got %A" other
+                | _ -> failtestf "expected a single-clause static-opt, got %A" tast.Decls
             }
 
             test "clause selection by call-site type: int→1, float→2, catch-all→0" {

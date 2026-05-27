@@ -9,6 +9,12 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 
+/// Project an `EqArray<'T>` as a plain `'T list` inside a pattern match — lets
+/// tests written against the pre-EqArray TAST keep their list-literal arms
+/// (`| [ TDecl.Let _ ] -> …`, `| [ x; y ] -> …`) verbatim across the flip
+/// (docs/tast-eqarray-list.md Stage 2).
+let inline (|EqList|) (xs: EqArray<'T>) : 'T list = EqArray.toList xs
+
 /// Lex + parse a source string; script fragments wrap as `AnonymousModule`.
 let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
     // `Result.Ok`/`Result.Error` are qualified because `open ...SemanticAnalysis`

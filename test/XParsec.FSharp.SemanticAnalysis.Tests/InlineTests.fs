@@ -12,14 +12,17 @@ let private analyse (input: string) =
     Pipeline.analyse MockBuiltins.provider input lexed file
 
 let private firstDecl (input: string) : TDecl =
-    match (analyse input).Decls with
-    | d :: _ -> d
-    | [] -> failwithf "no decls for %s" input
+    let tast = analyse input
+
+    if tast.Decls.IsEmpty then
+        failwithf "no decls for %s" input
+    else
+        tast.Decls.[0]
 
 let private declType (tast: TastFile) : SemType =
     match tast.Decls with
-    | [ TDecl.Let(_, _, _, ty) ] -> ty
-    | other -> failwithf "expected single TDecl.Let, got %A" other
+    | EqList [ TDecl.Let(_, _, _, ty) ] -> ty
+    | _ -> failwithf "expected single TDecl.Let, got %A" tast.Decls
 
 [<Tests>]
 let tests =
@@ -128,9 +131,9 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls with
-                | [ TDecl.Let(TPat.NamedSimple _, TExpr.Lambda _, true, TyFun(TyConst "int", TyConst "int"))
-                    TDecl.Expression(TExpr.App(TExpr.Var _, TExpr.Const(TConstValue.Int 41, _), _), _) ] -> ()
-                | other -> failtestf "unexpected shape: %A" other
+                | EqList [ TDecl.Let(TPat.NamedSimple _, TExpr.Lambda _, true, TyFun(TyConst "int", TyConst "int"))
+                           TDecl.Expression(TExpr.App(TExpr.Var _, TExpr.Const(TConstValue.Int 41, _), _), _) ] -> ()
+                | _ -> failtestf "unexpected shape: %A" tast.Decls
             }
 
             test "expanding the §C inline succ at its use site yields its int-typed body" {

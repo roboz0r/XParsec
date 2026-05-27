@@ -11,14 +11,20 @@ let private analyse (input: string) =
 
 /// Type of the last `let` declaration's binding.
 let private lastDeclType (tast: TastFile) : SemType =
-    match List.tryLast tast.Decls with
-    | Some(TDecl.Let(_, _, _, ty)) -> ty
-    | other -> failwithf "expected a trailing TDecl.Let, got %A" other
+    if tast.Decls.IsEmpty then
+        failwith "expected a trailing TDecl.Let, got no decls"
+    else
+        match tast.Decls.[tast.Decls.Length - 1] with
+        | TDecl.Let(_, _, _, ty) -> ty
+        | other -> failwithf "expected a trailing TDecl.Let, got %A" other
 
 let private lastDeclValue (tast: TastFile) : TExpr =
-    match List.tryLast tast.Decls with
-    | Some(TDecl.Let(_, v, _, _)) -> v
-    | other -> failwithf "expected a trailing TDecl.Let, got %A" other
+    if tast.Decls.IsEmpty then
+        failwith "expected a trailing TDecl.Let, got no decls"
+    else
+        match tast.Decls.[tast.Decls.Length - 1] with
+        | TDecl.Let(_, v, _, _) -> v
+        | other -> failwithf "expected a trailing TDecl.Let, got %A" other
 
 /// FormatType of a single specifier, via the canonical lexer parser.
 let private specType (s: string) : FormatType =

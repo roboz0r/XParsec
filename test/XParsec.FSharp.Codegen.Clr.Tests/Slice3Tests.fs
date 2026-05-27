@@ -23,8 +23,11 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls with
-                | [ TDecl.Let(TPat.NamedSimple(kSucc, _), TExpr.Lambda _, true, TyFun(TyConst "int", TyConst "int"))
-                    TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _), _) ] ->
+                | EqList [ TDecl.Let(TPat.NamedSimple(kSucc, _),
+                                     TExpr.Lambda _,
+                                     true,
+                                     TyFun(TyConst "int", TyConst "int"))
+                           TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _), _) ] ->
                     match EqArray.toList segs with
                     | [ FormatSeg.Hole(_, TExpr.App(TExpr.Var(kUse, _), TExpr.Const(TConstValue.Int 41, _), _)) ] ->
                         Expect.equal kUse kSucc "the call site `Var` references the inline binding's NodeKey"

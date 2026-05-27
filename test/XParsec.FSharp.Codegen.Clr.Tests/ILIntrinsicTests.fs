@@ -23,14 +23,16 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls with
-                | [ TDecl.Let(TPat.NamedSimple _,
-                              TExpr.Lambda(_, TExpr.Lambda(_, TExpr.ILIntrinsic("ceq", args, TyConst "bool"), _), _),
-                              true,
-                              _) ] ->
+                | EqList [ TDecl.Let(TPat.NamedSimple _,
+                                     TExpr.Lambda(_,
+                                                  TExpr.Lambda(_, TExpr.ILIntrinsic("ceq", args, TyConst "bool"), _),
+                                                  _),
+                                     true,
+                                     _) ] ->
                     match args with
-                    | [ TExpr.Var _; TExpr.Var _ ] -> ()
+                    | EqList [ TExpr.Var _; TExpr.Var _ ] -> ()
                     | other -> failtestf "expected two Var operands, got %A" other
-                | other -> failtestf "unexpected IL-intrinsic TAST: %A" other
+                | _ -> failtestf "unexpected IL-intrinsic TAST: %A" tast.Decls
             }
 
             test "`(# \"ceq\" x y : bool #)` emits CIL `ceq`: equal ints branch true, unequal branch false" {

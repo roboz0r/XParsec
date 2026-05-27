@@ -131,12 +131,12 @@ module Inline =
             | TStaticOptConstraint.TyconEquals(typar, required) -> staticOptTypesMatch (sub typar) (sub required)
             | TStaticOptConstraint.IsStruct typar -> isStructType (sub typar)
 
-        let resolveStaticOpt (clauses: TStaticOptClause list) (defaultExpr: TExpr) : TExpr =
+        let resolveStaticOpt (clauses: EqArray<TStaticOptClause>) (defaultExpr: TExpr) : TExpr =
             let m = substMapper subst
 
-            match clauses |> List.tryFind (fun cl -> cl.Constraints |> List.forall holds) with
-            | Some cl -> TastWalk.mapExpr m cl.Body
-            | None -> TastWalk.mapExpr m defaultExpr
+            match clauses |> EqArray.tryFind (fun cl -> cl.Constraints |> EqArray.forall holds) with
+            | ValueSome cl -> TastWalk.mapExpr m cl.Body
+            | ValueNone -> TastWalk.mapExpr m defaultExpr
 
         { TastWalk.identityMapper with
             MapType = sub

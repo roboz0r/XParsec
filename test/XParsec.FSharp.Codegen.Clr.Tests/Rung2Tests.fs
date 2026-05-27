@@ -68,21 +68,23 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 let unions =
-                    tast.Decls
-                    |> List.choose (fun d ->
+                    let acc = ResizeArray<string * EqArray<TUnionCase>>()
+
+                    for d in tast.Decls do
                         match d with
                         | TDecl.Type td ->
                             match td.Kind with
-                            | TTypeKind.Union(cs, _) -> Some(td.Name, cs)
-                            | _ -> None
-                        | _ -> None
-                    )
+                            | TTypeKind.Union(cs, _) -> acc.Add(td.Name, cs)
+                            | _ -> ()
+                        | _ -> ()
+
+                    List.ofSeq acc
 
                 match unions with
-                | [ ("Lst", [ c0; c1 ]) ] ->
-                    Expect.equal c0.Name "Nil" "first case is Nil"
-                    Expect.isEmpty c0.Fields "Nil is nullary"
-                    Expect.equal c1.Name "Cons" "second case is Cons"
+                | [ ("Lst", EqList [ c0; c1 ]) ] ->
+                    Expect.equal (c0: TUnionCase).Name "Nil" "first case is Nil"
+                    Expect.isTrue c0.Fields.IsEmpty "Nil is nullary"
+                    Expect.equal (c1: TUnionCase).Name "Cons" "second case is Cons"
                     Expect.equal c1.Fields.Length 2 "Cons has two fields"
                 | other -> failtestf "unexpected unions: %A" other
             }
@@ -113,13 +115,18 @@ let tests =
 
                 let fnKey =
                     tast.Decls
-                    |> List.tryPick (fun d ->
+                    |> EqArray.tryFind (fun d ->
                         match d with
-                        | TDecl.Let(TPat.NamedSimple(k, _), TExpr.Lambda _, _, _) -> Some k
-                        | _ -> None
+                        | TDecl.Let(TPat.NamedSimple _, TExpr.Lambda _, _, _) -> true
+                        | _ -> false
+                    )
+                    |> ValueOption.map (fun d ->
+                        match d with
+                        | TDecl.Let(TPat.NamedSimple(k, _), TExpr.Lambda _, _, _) -> k
+                        | _ -> failwith "unreachable"
                     )
 
-                Expect.isSome fnKey "sumList binds a lambda value"
+                Expect.isTrue fnKey.IsSome "sumList binds a lambda value"
             }
 
             test "recursive `sumList` folds a 3-element list (prints 6)" {
@@ -358,24 +365,26 @@ let tests =
 
                 let members =
                     tast.Decls
-                    |> List.tryPick (fun d ->
+                    |> EqArray.tryFind (fun d ->
                         match d with
-                        | TDecl.Type td ->
-                            match td.Kind with
-                            | TTypeKind.Union(_, ms) -> Some ms
-                            | _ -> None
-                        | _ -> None
+                        | TDecl.Type { Kind = TTypeKind.Union _ } -> true
+                        | _ -> false
+                    )
+                    |> ValueOption.bind (fun d ->
+                        match d with
+                        | TDecl.Type { Kind = TTypeKind.Union(_, ms) } -> ValueSome ms
+                        | _ -> ValueNone
                     )
 
                 match members with
-                | Some ms ->
-                    let byName = ms |> List.map (fun m -> m.Name, m.IsStatic, m.Kind)
+                | ValueSome ms ->
+                    let byName = [ for (m: TTypeMember) in ms -> m.Name, m.IsStatic, m.Kind ]
                     Expect.contains byName ("IsEmpty", false, TMemberKind.Property) "IsEmpty is an instance property"
                     Expect.contains byName ("Head", false, TMemberKind.Property) "Head is an instance property"
                     Expect.contains byName ("Length", false, TMemberKind.Property) "Length is an instance property"
                     Expect.contains byName ("Empty", true, TMemberKind.Property) "Empty is a static property"
                     Expect.contains byName ("Single", true, TMemberKind.Method) "Single is a static method"
-                | None -> failtest "no union surfaced"
+                | ValueNone -> failtest "no union surfaced"
             }
 
             test "consume union members at runtime: properties, recursion, statics (P3d.3)" {

@@ -15,8 +15,8 @@ let private analyseWithCtx (input: string) =
 
 let private declType (tast: TastFile) : SemType =
     match tast.Decls with
-    | [ TDecl.Let(_, _, _, ty) ] -> ty
-    | other -> failwithf "expected single TDecl.Let, got %A" other
+    | EqList [ TDecl.Let(_, _, _, ty) ] -> ty
+    | _ -> failwithf "expected single TDecl.Let, got %A" tast.Decls
 
 let private hasMismatch (tast: TastFile) =
     tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
@@ -152,8 +152,8 @@ let tests =
 
                 let pairDecl =
                     match tast.Decls with
-                    | [ _; d ] -> d
-                    | other -> failwithf "expected two decls, got %A" other
+                    | EqList [ _; d ] -> d
+                    | _ -> failwithf "expected two decls, got %A" tast.Decls
 
                 match pairDecl with
                 | TDecl.Let(_, _, _, TyFun(arg, TyTuple args)) when args.Length = 2 ->
@@ -170,7 +170,7 @@ let tests =
                 let tast = analyse "let id = fun x -> x\nlet a = id 1\nlet b = id true"
 
                 match tast.Decls with
-                | [ _; TDecl.Let(_, _, _, aTy); TDecl.Let(_, _, _, bTy) ] ->
+                | EqList [ _; TDecl.Let(_, _, _, aTy); TDecl.Let(_, _, _, bTy) ] ->
                     Expect.equal aTy BuiltinTypes.tyInt "a : int"
                     Expect.equal bTy BuiltinTypes.tyBool "b : bool"
                 | other -> failwithf "expected three decls, got %A" other

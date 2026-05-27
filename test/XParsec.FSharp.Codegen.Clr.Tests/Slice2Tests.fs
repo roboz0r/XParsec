@@ -23,15 +23,15 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls with
-                | [ TDecl.Let(TPat.NamedSimple(kx, _),
-                              TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _),
-                                                  TExpr.Const(TConstValue.Int 1, _),
-                                                  _),
-                                        TExpr.Const(TConstValue.Int 2, _),
-                                        _),
-                              false,
-                              _)
-                    TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _), _) ] ->
+                | EqList [ TDecl.Let(TPat.NamedSimple(kx, _),
+                                     TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _),
+                                                         TExpr.Const(TConstValue.Int 1, _),
+                                                         _),
+                                               TExpr.Const(TConstValue.Int 2, _),
+                                               _),
+                                     false,
+                                     _)
+                           TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _), _) ] ->
                     match EqArray.toList segs with
                     | [ FormatSeg.Hole(hole, TExpr.Var(kxUse, _)) ] ->
                         Expect.equal kxUse kx "the hole's `Var` references the let-bound NodeKey"

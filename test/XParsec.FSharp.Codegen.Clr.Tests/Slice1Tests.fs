@@ -15,13 +15,13 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls with
-                | [ TDecl.Expression(TExpr.Format(sink, segs, _), _) ] ->
+                | EqList [ TDecl.Expression(TExpr.Format(sink, segs, _), _) ] ->
                     Expect.equal sink (FormatSink.ToStdOut true) "printfn → stdout with newline"
 
                     match EqArray.toList segs with
                     | [ FormatSeg.Lit "hi" ] -> ()
                     | other -> failtestf "unexpected Format segments: %A" other
-                | other -> failtestf "unexpected slice-1 TAST: %A" other
+                | _ -> failtestf "unexpected slice-1 TAST: %A" tast.Decls
             }
 
             test "`printfn \"hi\"` compiles, runs, prints \"hi\", exits 0" {
