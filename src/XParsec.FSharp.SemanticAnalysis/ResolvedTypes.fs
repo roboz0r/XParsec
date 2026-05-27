@@ -33,10 +33,14 @@ module ResolvedTypes =
             | TyFun(a, r) ->
                 go a
                 go r
-            | TyTuple items -> items |> List.iter go
+            | TyTuple items ->
+                for x in items do
+                    go x
             | TyRecord(_, args)
             | TyUnion(_, args)
-            | TyClass(_, args) -> args |> List.iter go
+            | TyClass(_, args) ->
+                for a in args do
+                    go a
 
         go t
 

@@ -104,7 +104,7 @@ module MockBuiltins =
                 let state = freshAt level
                 let t = freshAt level
                 let folder = TyFun(state, TyFun(t, state))
-                let listOfT = TyRecord("Vesper.Collections.List", [ t ])
+                let listOfT = TyRecord("Vesper.Collections.List", EqArray.singleton t)
                 TyFun(folder, TyFun(state, TyFun(listOfT, state)))
         ]
         |> List.map (fun (n, build) -> n, ExternalSymbols.poly n build)

@@ -71,7 +71,7 @@ module private MetadataMapping =
                 None
             else
                 let builders = argBuilders |> Array.map Option.get
-                Some(fun args -> TyClass(name, [ for b in builders -> b args ]))
+                Some(fun args -> TyClass(name, EqArray.ofSeq (seq { for b in builders -> b args })))
         else
             match t.FullName with
             | null -> None // constructed/exotic type with no metadata full name
@@ -79,7 +79,7 @@ module private MetadataMapping =
             | fullName when reprToName.ContainsKey fullName ->
                 let name = reprToName.[fullName]
                 Some(fun _ -> TyConst name)
-            | fullName -> Some(fun _ -> TyClass(fullName, []))
+            | fullName -> Some(fun _ -> TyClass(fullName, EqArray.empty))
 
     /// **Tupled** member signature `(p1 * … * pN) → ret` over the declaring type's
     /// typars — the .NET calling convention (`m(a, b)` is one application to the
@@ -112,7 +112,7 @@ module private MetadataMapping =
                     match pbs.Length with
                     | 0 -> TyFun(TyConst "unit", ret)
                     | 1 -> TyFun(pbs.[0] args, ret)
-                    | _ -> TyFun(TyTuple [ for pb in pbs -> pb args ], ret)
+                    | _ -> TyFun(TyTuple(EqArray.ofSeq (seq { for pb in pbs -> pb args })), ret)
                 )
 
     /// A property reads as a value of its type (no leading arrow) — `Default` is a

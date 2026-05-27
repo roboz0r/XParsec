@@ -33,7 +33,12 @@ let tests =
                 // The headline case. `id` generalises to `∀'a. 'a -> 'a`,
                 // each use at a different type mints its own variable.
                 let tast = analyse "let r = let id = fun x -> x in id 1, id true"
-                Expect.equal (declType tast) (TyTuple [ BuiltinTypes.tyInt; BuiltinTypes.tyBool ]) "r : int * bool"
+
+                Expect.equal
+                    (declType tast)
+                    (TyTuple(EqArray.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyBool ]))
+                    "r : int * bool"
+
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
@@ -56,7 +61,12 @@ let tests =
             test "function-form let generalises" {
                 // `let id x = x` is sugar for `let id = fun x -> x`; same scheme.
                 let tast = analyse "let r = let id x = x in id 1, id true"
-                Expect.equal (declType tast) (TyTuple [ BuiltinTypes.tyInt; BuiltinTypes.tyBool ]) "r : int * bool"
+
+                Expect.equal
+                    (declType tast)
+                    (TyTuple(EqArray.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyBool ]))
+                    "r : int * bool"
+
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
@@ -80,7 +90,7 @@ let tests =
             test "nested let-poly: inner binding generalises inside outer body" {
                 let tast = analyse "let outer () = let inner x = x in inner 1, inner true"
                 let unitTy = BuiltinTypes.tyUnit
-                let bodyTy = TyTuple [ BuiltinTypes.tyInt; BuiltinTypes.tyBool ]
+                let bodyTy = TyTuple(EqArray.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyBool ])
                 Expect.equal (declType tast) (TyFun(unitTy, bodyTy)) "outer : unit -> int * bool"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -117,7 +127,11 @@ let tests =
                 let lexed, file = parseFile input
                 let tast = Pipeline.analyse provider input lexed file
 
-                Expect.equal (declType tast) (TyTuple [ BuiltinTypes.tyInt; BuiltinTypes.tyBool ]) "r : int * bool"
+                Expect.equal
+                    (declType tast)
+                    (TyTuple(EqArray.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyBool ]))
+                    "r : int * bool"
+
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
@@ -142,10 +156,10 @@ let tests =
                     | other -> failwithf "expected two decls, got %A" other
 
                 match pairDecl with
-                | TDecl.Let(_, _, _, TyFun(arg, TyTuple [ a; b ])) ->
+                | TDecl.Let(_, _, _, TyFun(arg, TyTuple args)) when args.Length = 2 ->
                     // pair : 'b -> ('b * 'b) — both tuple elements share 'b.
-                    Expect.equal a arg "first tuple element matches arg type"
-                    Expect.equal b arg "second tuple element matches arg type"
+                    Expect.equal args.[0] arg "first tuple element matches arg type"
+                    Expect.equal args.[1] arg "second tuple element matches arg type"
                 | other -> failtestf "expected `'b -> 'b * 'b`, got %A" other
             }
 

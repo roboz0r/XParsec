@@ -351,7 +351,7 @@ module PrintfSpec =
         | None -> ValueNone
 
     let formatType (printer: SemType) (fam: Family) : SemType =
-        TyClass(printfFormatName, [ printer; fam.State; fam.Residue; fam.Result ])
+        TyClass(printfFormatName, EqArray.ofList [ printer; fam.State; fam.Residue; fam.Result ])
 
     /// Curry resolved argument types onto the family's tail.
     let printerType (argTypes: SemType list) (fam: Family) : SemType =

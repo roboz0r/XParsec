@@ -271,17 +271,28 @@ let tests =
                     // Two TyVars share identity iff they're the same object — fresh
                     // instantiations must produce disjoint TyVars.
                     match inst1, inst2 with
-                    | TyFun(TyFun(TyVar a1, TyVar b1), TyFun(TyRecord(n1, [ TyVar a1' ]), TyRecord(n2, [ TyVar b1' ]))),
-                      TyFun(TyFun(TyVar a2, _), _) when n1 = optionName && n2 = optionName ->
-                        Expect.isTrue
-                            (System.Object.ReferenceEquals(a1, a1'))
-                            "first instantiation: a appears in arg and option-arg"
+                    | TyFun(TyFun(TyVar a1, TyVar b1), TyFun(TyRecord(n1, args1), TyRecord(n2, args2))),
+                      TyFun(TyFun(TyVar a2, _), _) when
+                        n1 = optionName && n2 = optionName && args1.Length = 1 && args2.Length = 1
+                        ->
+                        match args1.[0], args2.[0] with
+                        | TyVar a1', TyVar b1' ->
+                            Expect.isTrue
+                                (System.Object.ReferenceEquals(a1, a1'))
+                                "first instantiation: a appears in arg and option-arg"
 
-                        Expect.isTrue
-                            (System.Object.ReferenceEquals(b1, b1'))
-                            "first instantiation: b appears in lambda result and option result"
+                            Expect.isTrue
+                                (System.Object.ReferenceEquals(b1, b1'))
+                                "first instantiation: b appears in lambda result and option result"
 
-                        Expect.isFalse (System.Object.ReferenceEquals(a1, a2)) "two instantiations mint disjoint TyVars"
+                            Expect.isFalse
+                                (System.Object.ReferenceEquals(a1, a2))
+                                "two instantiations mint disjoint TyVars"
+                        | _ ->
+                            failtestf
+                                "Expected ('T -> 'U) -> option<'T> -> option<'U>; got\n  first:  %A\n  second: %A"
+                                inst1
+                                inst2
                     | _ ->
                         failtestf
                             "Expected ('T -> 'U) -> option<'T> -> option<'U>; got\n  first:  %A\n  second: %A"
@@ -300,13 +311,18 @@ let tests =
 
                     // val map: ('T -> 'U) -> Result<'T, 'TError> -> Result<'U, 'TError>
                     match inst with
-                    | TyFun(TyFun(TyVar t, TyVar u),
-                            TyFun(TyRecord(n1, [ TyVar t'; TyVar err1 ]), TyRecord(n2, [ TyVar u'; TyVar err2 ]))) when
-                        n1 = resultName && n2 = resultName
+                    | TyFun(TyFun(TyVar t, TyVar u), TyFun(TyRecord(n1, args1), TyRecord(n2, args2))) when
+                        n1 = resultName && n2 = resultName && args1.Length = 2 && args2.Length = 2
                         ->
-                        Expect.isTrue (System.Object.ReferenceEquals(t, t')) "T is shared"
-                        Expect.isTrue (System.Object.ReferenceEquals(u, u')) "U is shared"
-                        Expect.isTrue (System.Object.ReferenceEquals(err1, err2)) "TError is shared across both Results"
+                        match args1.[0], args1.[1], args2.[0], args2.[1] with
+                        | TyVar t', TyVar err1, TyVar u', TyVar err2 ->
+                            Expect.isTrue (System.Object.ReferenceEquals(t, t')) "T is shared"
+                            Expect.isTrue (System.Object.ReferenceEquals(u, u')) "U is shared"
+
+                            Expect.isTrue
+                                (System.Object.ReferenceEquals(err1, err2))
+                                "TError is shared across both Results"
+                        | _ -> failtestf "Result.Map shape unexpected: %A" inst
                     | _ -> failtestf "Result.Map shape unexpected: %A" inst
             }
 
@@ -413,7 +429,14 @@ let tests =
                     let body = build [| TyConst "int" |]
 
                     match body with
-                    | TyRecord(name, [ TyConst "int" ]) ->
+                    | TyRecord(name, args) when
+                        args.Length = 1
+                        && (
+                            match args.[0] with
+                            | TyConst "int" -> true
+                            | _ -> false
+                        )
+                        ->
                         Expect.stringContains name "Option" "abbreviation expands to Option"
                     | other -> failtestf "Expected TyRecord(...Option, [int]); got %A" other
                 | other -> failtestf "Expected Abbrev shape; got %A" other

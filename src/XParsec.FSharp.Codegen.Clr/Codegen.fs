@@ -829,10 +829,10 @@ module Codegen =
                                 provider.GenericStaticMethodSignature(
                                     td.TypeParams,
                                     paramTys,
-                                    TyUnion(td.Name, typarMarkers)
+                                    TyUnion(td.Name, EqArray.ofList typarMarkers)
                                 )
                             else
-                                provider.StaticMethodSignature(paramTys, TyUnion(td.Name, []))
+                                provider.StaticMethodSignature(paramTys, TyUnion(td.Name, EqArray.empty))
 
                         let factory =
                             ctx.AddMethodWithParamList(
@@ -1078,7 +1078,7 @@ module Codegen =
                                     provider.GenericUnionSelfSpec td.Name
                                 else
                                     provider.UserTypeHandle td.Name
-                            SelfSemType = TyUnion(td.Name, typarMarkers)
+                            SelfSemType = TyUnion(td.Name, EqArray.ofList typarMarkers)
                             TagField =
                                 if isGeneric then
                                     icodegen.GenericUnionMemberRef(td.Name, typarMarkers, UnionMember.Tag)
@@ -1140,7 +1140,7 @@ module Codegen =
                     ctx.AddMethodWithParamList(
                         ifaceEqualsAttrs,
                         "Equals",
-                        provider.EqualsTypedSignature(TyUnion(td.Name, typarMarkers)),
+                        provider.EqualsTypedSignature(TyUnion(td.Name, EqArray.ofList typarMarkers)),
                         equalsTypedBody,
                         addParams [ "other" ]
                     )
@@ -1170,7 +1170,7 @@ module Codegen =
                                     provider.GenericRecordSelfSpec td.Name
                                 else
                                     provider.UserTypeHandle td.Name
-                            SelfSemType = TyRecord(td.Name, typarMarkers)
+                            SelfSemType = TyRecord(td.Name, EqArray.ofList typarMarkers)
                             Fields = allFields
                             ComparerDefault = fun t -> provider.EqualityComparerDefault t
                             ComparerEquals = fun t -> provider.EqualityComparerEquals t
@@ -1213,7 +1213,7 @@ module Codegen =
                     ctx.AddMethodWithParamList(
                         ifaceEqualsAttrs,
                         "Equals",
-                        provider.EqualsTypedSignature(TyRecord(td.Name, typarMarkers)),
+                        provider.EqualsTypedSignature(TyRecord(td.Name, EqArray.ofList typarMarkers)),
                         equalsTypedBody,
                         addParams [ "other" ]
                     )
@@ -1267,7 +1267,7 @@ module Codegen =
                                     provider.GenericUnionSelfSpec td.Name
                                 else
                                     provider.UserTypeHandle td.Name
-                            SelfSemType = TyUnion(td.Name, typarMarkers)
+                            SelfSemType = TyUnion(td.Name, EqArray.ofList typarMarkers)
                             TagField =
                                 if isGeneric then
                                     icodegen.GenericUnionMemberRef(td.Name, typarMarkers, UnionMember.Tag)
@@ -1287,7 +1287,7 @@ module Codegen =
                         ctx.AddMethodWithParamList(
                             ifaceEqualsAttrs,
                             "CompareTo",
-                            provider.CompareToTypedSignature(TyUnion(td.Name, typarMarkers)),
+                            provider.CompareToTypedSignature(TyUnion(td.Name, EqArray.ofList typarMarkers)),
                             compareToTypedBody,
                             addParams [ "other" ]
                         )
@@ -1333,7 +1333,7 @@ module Codegen =
                                     provider.GenericRecordSelfSpec td.Name
                                 else
                                     provider.UserTypeHandle td.Name
-                            SelfSemType = TyRecord(td.Name, typarMarkers)
+                            SelfSemType = TyRecord(td.Name, EqArray.ofList typarMarkers)
                             Fields = allFieldsForCmp
                             ComparerDefault = fun t -> provider.ComparerDefault t
                             ComparerCompare = fun t -> provider.ComparerCompare t
@@ -1348,7 +1348,7 @@ module Codegen =
                         ctx.AddMethodWithParamList(
                             ifaceEqualsAttrs,
                             "CompareTo",
-                            provider.CompareToTypedSignature(TyRecord(td.Name, typarMarkers)),
+                            provider.CompareToTypedSignature(TyRecord(td.Name, EqArray.ofList typarMarkers)),
                             compareToTypedBody,
                             addParams [ "other" ]
                         )
@@ -1384,8 +1384,8 @@ module Codegen =
             // `Declares*` flag dispatch needed.
             let selfTy =
                 match input with
-                | NominalEmissionInput.Union _ -> fun ts -> TyUnion(td.Name, ts)
-                | NominalEmissionInput.Record _ -> fun ts -> TyRecord(td.Name, ts)
+                | NominalEmissionInput.Union _ -> fun (ts: SemType list) -> TyUnion(td.Name, EqArray.ofList ts)
+                | NominalEmissionInput.Record _ -> fun (ts: SemType list) -> TyRecord(td.Name, EqArray.ofList ts)
 
             let interfaces =
                 if emitsEqualityTriple || emitsComparisonPair then

@@ -37,10 +37,10 @@ module UnificationEngine =
             | _ -> TyVar root
         | TyConst _ -> t
         | TyFun(a, r) -> TyFun(zonk a, zonk r)
-        | TyTuple items -> TyTuple(List.map zonk items)
-        | TyRecord(n, args) -> TyRecord(n, List.map zonk args)
-        | TyUnion(n, args) -> TyUnion(n, List.map zonk args)
-        | TyClass(n, args) -> TyClass(n, List.map zonk args)
+        | TyTuple items -> TyTuple(EqArray.map zonk items)
+        | TyRecord(n, args) -> TyRecord(n, EqArray.map zonk args)
+        | TyUnion(n, args) -> TyUnion(n, EqArray.map zonk args)
+        | TyClass(n, args) -> TyClass(n, EqArray.map zonk args)
 
     /// Collapses any pair whose `Kind` already appears on the target: two
     /// constraints with the same `Kind` discharge to the same predicate, so
@@ -104,10 +104,10 @@ module UnificationEngine =
                 false
         | TyConst _ -> false
         | TyFun(a, r) -> occursAndAdjust target a || occursAndAdjust target r
-        | TyTuple items -> List.exists (occursAndAdjust target) items
-        | TyRecord(_, args) -> List.exists (occursAndAdjust target) args
-        | TyUnion(_, args) -> List.exists (occursAndAdjust target) args
-        | TyClass(_, args) -> List.exists (occursAndAdjust target) args
+        | TyTuple items -> EqArray.exists (occursAndAdjust target) items
+        | TyRecord(_, args) -> EqArray.exists (occursAndAdjust target) args
+        | TyUnion(_, args) -> EqArray.exists (occursAndAdjust target) args
+        | TyClass(_, args) -> EqArray.exists (occursAndAdjust target) args
 
     /// Two non-equal measures emit a diagnostic; one of them is kept on the
     /// survivor so further unifications against it stay coherent.
@@ -160,21 +160,25 @@ module UnificationEngine =
                 | _ -> TyVar root
         | TyConst _ -> t
         | TyFun(a, r) -> TyFun(substituteWith subst a, substituteWith subst r)
-        | TyTuple xs -> TyTuple [ for x in xs -> substituteWith subst x ]
-        | TyRecord(n, args) -> TyRecord(n, [ for a in args -> substituteWith subst a ])
-        | TyUnion(n, args) -> TyUnion(n, [ for a in args -> substituteWith subst a ])
-        | TyClass(n, args) -> TyClass(n, [ for a in args -> substituteWith subst a ])
+        | TyTuple xs -> TyTuple(EqArray.map (substituteWith subst) xs)
+        | TyRecord(n, args) -> TyRecord(n, EqArray.map (substituteWith subst) args)
+        | TyUnion(n, args) -> TyUnion(n, EqArray.map (substituteWith subst) args)
+        | TyClass(n, args) -> TyClass(n, EqArray.map (substituteWith subst) args)
 
     /// Empty when the lengths don't match — the caller has already (or
     /// should) emit an arity diagnostic, and an empty subst keeps the field
     /// types unsubstituted rather than silently mismatching. Public so
     /// Freeze can rebuild the same substitution when projecting fields off a
     /// generic receiver in a field-chain.
-    let mkNamedTypeSubst (typeParams: (string * TypeVar) list) (args: SemType list) : Dictionary<TypeVar, SemType> =
+    let mkNamedTypeSubst (typeParams: (string * TypeVar) list) (args: EqArray<SemType>) : Dictionary<TypeVar, SemType> =
         let subst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
 
-        if List.length typeParams = List.length args then
-            List.iter2 (fun (_, tp) arg -> subst.[UnionFind.find tp] <- arg) typeParams args
+        if List.length typeParams = args.Length then
+            let mutable i = 0
+
+            for (_, tp) in typeParams do
+                subst.[UnionFind.find tp] <- args.[i]
+                i <- i + 1
 
         subst
 
@@ -186,13 +190,13 @@ module UnificationEngine =
     /// that reuse the same subst across a loop / Array.map keep the explicit
     /// `mkNamedTypeSubst` + `substituteWith` pair so the dictionary is only
     /// built once.
-    let instantiateMember (typeParams: (string * TypeVar) list, args: SemType list) (ty: SemType) : SemType =
+    let instantiateMember (typeParams: (string * TypeVar) list, args: EqArray<SemType>) (ty: SemType) : SemType =
         substituteWith (mkNamedTypeSubst typeParams args) ty
 
     /// Walk a `SemType` through TyVar Links to surface a `TyRecord _`. The
     /// arg list rides along so `drainPendingDotAccess` can substitute the
     /// record's typars when resolving deferred field accesses.
-    let rec private tryResolveRecord (t: SemType) : (string * SemType list) voption =
+    let rec private tryResolveRecord (t: SemType) : (string * EqArray<SemType>) voption =
         match t with
         | TyRecord(n, args) -> ValueSome(n, args)
         | TyVar tv ->
@@ -204,7 +208,7 @@ module UnificationEngine =
         | _ -> ValueNone
 
     /// Mirror of `tryResolveRecord` for `TyClass`.
-    let rec private tryResolveClass (t: SemType) : (string * SemType list) voption =
+    let rec private tryResolveClass (t: SemType) : (string * EqArray<SemType>) voption =
         match t with
         | TyClass(n, args) -> ValueSome(n, args)
         | TyVar tv ->
@@ -216,7 +220,7 @@ module UnificationEngine =
         | _ -> ValueNone
 
     /// Mirror of `tryResolveClass` for `TyUnion` (P3d.3 augmentation members).
-    let rec private tryResolveUnion (t: SemType) : (string * SemType list) voption =
+    let rec private tryResolveUnion (t: SemType) : (string * EqArray<SemType>) voption =
         match t with
         | TyUnion(n, args) -> ValueSome(n, args)
         | TyVar tv ->
@@ -255,13 +259,21 @@ module UnificationEngine =
 
         match a, b with
         | TyConst n1, TyConst n2 when n1 = n2 -> ()
-        | TyRecord(n1, a1), TyRecord(n2, a2) when n1 = n2 && a1.Length = a2.Length -> List.iter2 (unify ctx key) a1 a2
-        | TyUnion(n1, a1), TyUnion(n2, a2) when n1 = n2 && a1.Length = a2.Length -> List.iter2 (unify ctx key) a1 a2
-        | TyClass(n1, a1), TyClass(n2, a2) when n1 = n2 && a1.Length = a2.Length -> List.iter2 (unify ctx key) a1 a2
+        | TyRecord(n1, a1), TyRecord(n2, a2) when n1 = n2 && a1.Length = a2.Length ->
+            for i in 0 .. a1.Length - 1 do
+                unify ctx key a1.[i] a2.[i]
+        | TyUnion(n1, a1), TyUnion(n2, a2) when n1 = n2 && a1.Length = a2.Length ->
+            for i in 0 .. a1.Length - 1 do
+                unify ctx key a1.[i] a2.[i]
+        | TyClass(n1, a1), TyClass(n2, a2) when n1 = n2 && a1.Length = a2.Length ->
+            for i in 0 .. a1.Length - 1 do
+                unify ctx key a1.[i] a2.[i]
         | TyFun(a1, r1), TyFun(a2, r2) ->
             unify ctx key a1 a2
             unify ctx key r1 r2
-        | TyTuple xs, TyTuple ys when xs.Length = ys.Length -> List.iter2 (unify ctx key) xs ys
+        | TyTuple xs, TyTuple ys when xs.Length = ys.Length ->
+            for i in 0 .. xs.Length - 1 do
+                unify ctx key xs.[i] ys.[i]
         | TyVar tv1, TyVar tv2 when System.Object.ReferenceEquals(tv1, tv2) -> ()
         | TyVar tv1, TyVar tv2 ->
             let r1 = UnionFind.find tv1
@@ -494,7 +506,7 @@ module UnificationEngine =
     /// `Violated` is sticky (once any element fails, the whole compound
     /// fails); `Defer` propagates only when no element has failed but at
     /// least one is still pending.
-    and private reduceOutcome (check: SemType -> ConstraintOutcome) (items: SemType list) : ConstraintOutcome =
+    and private reduceOutcome (check: SemType -> ConstraintOutcome) (items: EqArray<SemType>) : ConstraintOutcome =
         let mutable result = Satisfied
 
         for item in items do
@@ -542,7 +554,7 @@ module UnificationEngine =
 
                     info.Fields
                     |> Array.map (fun f -> substituteWith subst f.Type)
-                    |> Array.toList
+                    |> EqArray.ofArray
                     |> reduceOutcome (checkConstraint ctx c)
             | false, _ -> Defer
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyUnion(name, args) ->
@@ -555,11 +567,13 @@ module UnificationEngine =
                 | _ ->
                     let subst = mkNamedTypeSubst info.TypeParams args
 
-                    [
-                        for case in info.Cases do
-                            for field in case.Fields -> substituteWith subst field
-                    ]
-                    |> reduceOutcome (checkConstraint ctx c)
+                    let fields = ResizeArray<SemType>()
+
+                    for case in info.Cases do
+                        for field in case.Fields do
+                            fields.Add(substituteWith subst field)
+
+                    fields |> EqArray.ofResizeArray |> reduceOutcome (checkConstraint ctx c)
             | false, _ -> Defer
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyClass _ ->
             // Per docs/classes-plan.md §Open questions: F# classes are
@@ -629,10 +643,18 @@ module UnificationEngine =
             | TyFun(a, r) ->
                 walk a
                 walk r
-            | TyTuple xs -> List.iter walk xs
-            | TyRecord(_, args) -> List.iter walk args
-            | TyUnion(_, args) -> List.iter walk args
-            | TyClass(_, args) -> List.iter walk args
+            | TyTuple xs ->
+                for x in xs do
+                    walk x
+            | TyRecord(_, args) ->
+                for a in args do
+                    walk a
+            | TyUnion(_, args) ->
+                for a in args do
+                    walk a
+            | TyClass(_, args) ->
+                for a in args do
+                    walk a
 
         walk t
 
@@ -706,17 +728,17 @@ module UnificationEngine =
                 || Set.contains memberName bitwiseBinaryOps)
         then
             let t = TyConst primName
-            ValueSome(TyFun(TyTuple [ t; t ], t))
+            ValueSome(TyFun(TyTuple(EqArray.ofList [ t; t ]), t))
         elif argCount = 2 && Set.contains memberName shiftOps then
             // `value: ^T -> shift: int32 -> ^T` — the shift amount is always int32.
             let t = TyConst primName
-            ValueSome(TyFun(TyTuple [ t; TyConst "int" ], t))
+            ValueSome(TyFun(TyTuple(EqArray.ofList [ t; TyConst "int" ]), t))
         elif argCount = 1 && Set.contains memberName unaryPrimitiveOps then
             let t = TyConst primName
             ValueSome(TyFun(t, t))
         elif argCount = 2 && Set.contains memberName comparisonBinaryOps then
             let t = TyConst primName
-            ValueSome(TyFun(TyTuple [ t; t ], TyConst "bool"))
+            ValueSome(TyFun(TyTuple(EqArray.ofList [ t; t ]), TyConst "bool"))
         else
             ValueNone
 
@@ -734,7 +756,7 @@ module UnificationEngine =
             match bound.ArgTypes with
             | [] -> bound.ReturnType
             | [ a ] -> TyFun(a, bound.ReturnType)
-            | args -> TyFun(TyTuple args, bound.ReturnType)
+            | args -> TyFun(TyTuple(EqArray.ofList args), bound.ReturnType)
 
         match resolveStep candidate, bound.ArgTypes with
         | TyFun(TyTuple _, _), _ -> unify ctx key candidate tupled

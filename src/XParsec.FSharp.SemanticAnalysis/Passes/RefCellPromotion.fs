@@ -28,7 +28,8 @@ module RefCellPromotion =
     let private ContentsField = "contents"
 
     /// Wrap a value's underlying type in `Vesper.Ref<_>`.
-    let private refType (inner: SemType) : SemType = TyRecord(RefTypeName, [ inner ])
+    let private refType (inner: SemType) : SemType =
+        TyRecord(RefTypeName, EqArray.singleton inner)
 
     /// Walk `decls` collecting binding-site `NodeKey`s for every `let mutable`
     /// whose `ctx.Bindings.Escape` is `HeapShared`. The value bound at each key is the

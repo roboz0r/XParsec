@@ -218,7 +218,7 @@ module Unification =
         let groupTy (ArgsSpec(args = specs)) =
             match List.ofSeq specs with
             | [ ArgSpec(typ = t) ] -> translateType ctx t
-            | many -> TyTuple [ for ArgSpec(typ = t) in many -> translateType ctx t ]
+            | many -> TyTuple(EqArray.ofSeq (seq { for ArgSpec(typ = t) in many -> translateType ctx t }))
 
         let retTy = translateType ctx ret
         List.foldBack (fun struct (g, _arrow) acc -> TyFun(groupTy g, acc)) (List.ofSeq args) retTy
@@ -235,7 +235,7 @@ module Unification =
             TypeParams: (string * TypeVar) list
             Members: TypeMemberInfo[]
             ThisKey: NodeKey
-            MkSelfType: SemType list -> SemType
+            MkSelfType: EqArray<SemType> -> SemType
             PrelinkExtras: unit -> unit
             Elements: TypeDefnElements<SyntaxToken>
             AllowAbstractSig: bool
@@ -263,7 +263,7 @@ module Unification =
             // mentioning `'a` shares identity with them.
             let thisTv = TypeVar()
             thisTv.Level <- ctx.CurrentLevel
-            let selfArgs = [ for (_, ptv) in fc.TypeParams -> TyVar ptv ]
+            let selfArgs = EqArray.ofSeq (seq { for (_, ptv) in fc.TypeParams -> TyVar ptv })
             thisTv.Link <- ValueSome(fc.MkSelfType selfArgs)
             ctx.Bindings.TypeVar.Set(fc.ThisKey, thisTv)
 
@@ -509,11 +509,12 @@ module Unification =
             let root = UnionFind.find lv
 
             match root.Link with
-            | ValueNone -> unify ctx key (TyVar root) (TyRecord("Microsoft.FSharp.Collections.list", [ elemTy ]))
+            | ValueNone ->
+                unify ctx key (TyVar root) (TyRecord("Microsoft.FSharp.Collections.list", EqArray.singleton elemTy))
             | ValueSome target ->
                 match zonk target with
-                | TyRecord(_, [ a ])
-                | TyUnion(_, [ a ]) -> unify ctx key a elemTy
+                | TyRecord(_, args) when args.Length = 1 -> unify ctx key args.[0] elemTy
+                | TyUnion(_, args) when args.Length = 1 -> unify ctx key args.[0] elemTy
                 | _ -> ()
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =

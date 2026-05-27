@@ -137,19 +137,19 @@ type SemType =
     | TyFun of arg: SemType * result: SemType
     /// Flat n-ary tuple. Unifies pairwise with same-arity TyTuple; arity
     /// mismatch is a diagnostic in Unification.
-    | TyTuple of items: SemType list
+    | TyTuple of items: EqArray<SemType>
     /// Field types are not stored inline — look up `ctx.Types.Record[name]` for
     /// the field-shape (and the declared `TypeParams` used to substitute `args`
     /// into each field). Two TyRecords unify iff their names match AND their
     /// args unify pairwise. v1 single-segment names; qualified names land with
     /// namespaces.
-    | TyRecord of name: string * args: SemType list
+    | TyRecord of name: string * args: EqArray<SemType>
     /// Same shape as TyRecord. Cases / TypeParams live in `ctx.Types.Union[name]`.
-    | TyUnion of name: string * args: SemType list
+    | TyUnion of name: string * args: EqArray<SemType>
     /// Same shape as `TyRecord` / `TyUnion`; member lookup is a side-channel on
     /// `ctx.Types.Class`. Two `TyClass` unify iff their names match AND their
     /// args unify pairwise.
-    | TyClass of name: string * args: SemType list
+    | TyClass of name: string * args: EqArray<SemType>
 
 /// Abelian-group expression over named unit atoms. Always stored in a
 /// normalised form: each exponent is in canonical Rational form, zero

@@ -1258,8 +1258,8 @@ module Freeze =
 
         let elemTy =
             match zonked with
-            | TyRecord(_, [ elem ])
-            | TyUnion(_, [ elem ]) -> elem
+            | TyRecord(_, args) when args.Length = 1 -> args.[0]
+            | TyUnion(_, args) when args.Length = 1 -> args.[0]
             | _ -> TyVar(TypeVar())
 
         // A program-declared list union (resolved via the `'T list = List<'T>`
@@ -1277,7 +1277,7 @@ module Freeze =
 
                 match nilCase, consCase with
                 | Some n, Some c -> zonked, c.Name, n.Name
-                | _ -> TyRecord("Microsoft.FSharp.Collections.list", [ elemTy ]), "Cons", "Nil"
+                | _ -> TyRecord("Microsoft.FSharp.Collections.list", EqArray.singleton elemTy), "Cons", "Nil"
             // The external Vesper list (R3): a bare-program literal a consumer drove
             // onto the Vesper cons-list (`Unification.listLiteralTy` /
             // `resolveListLiterals`). Its `Cons` / `Nil` factories are minted by the
@@ -1287,7 +1287,7 @@ module Freeze =
             // same convention FSharp.Core's `…Collections.list` uses) denotes it.
             | TyRecord(("Vesper.Collections.List" | "Vesper.Collections.list"), _) when not isArray ->
                 zonked, "Cons", "Nil"
-            | _ -> TyRecord("Microsoft.FSharp.Collections.list", [ elemTy ]), "Cons", "Nil"
+            | _ -> TyRecord("Microsoft.FSharp.Collections.list", EqArray.singleton elemTy), "Cons", "Nil"
 
         let listExpr =
             let nil = TExpr.UnionCons(nilName, [], listTy)
@@ -1297,7 +1297,7 @@ module Freeze =
             <| nil
 
         if isArray then
-            let arrayTy = TyRecord("Microsoft.FSharp.Core.[]", [ elemTy ])
+            let arrayTy = TyRecord("Microsoft.FSharp.Core.[]", EqArray.singleton elemTy)
             // Codegen resolves `Array.ofList` against its target; alternate
             // targets are free to swap the wrapper.
             let opName = "Microsoft.FSharp.Collections.ArrayModule.OfList"
@@ -1402,10 +1402,10 @@ module Freeze =
                 | None -> t
             | TyConst _ -> t
             | TyFun(a, b) -> TyFun(go a, go b)
-            | TyTuple ts -> TyTuple(List.map go ts)
-            | TyRecord(n, args) -> TyRecord(n, List.map go args)
-            | TyUnion(n, args) -> TyUnion(n, List.map go args)
-            | TyClass(n, args) -> TyClass(n, List.map go args)
+            | TyTuple ts -> TyTuple(EqArray.map go ts)
+            | TyRecord(n, args) -> TyRecord(n, EqArray.map go args)
+            | TyUnion(n, args) -> TyUnion(n, EqArray.map go args)
+            | TyClass(n, args) -> TyClass(n, EqArray.map go args)
 
         go (Unification.zonk t)
 
@@ -1533,7 +1533,7 @@ module Freeze =
                             IsStatic = isStatic
                             Kind = kind
                             ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
-                            ThisTy = TyUnion(info.Name, [])
+                            ThisTy = TyUnion(info.Name, EqArray.empty)
                             Params = memberParams ctx b
                             Body = translateExpr ctx b.expr
                             ReturnTy = typeOfKey ctx (CstKeys.ofExpr b.expr)
@@ -1550,7 +1550,7 @@ module Freeze =
                         IsStatic = isStatic
                         Kind = TMemberKind.Property
                         ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
-                        ThisTy = TyUnion(info.Name, [])
+                        ThisTy = TyUnion(info.Name, EqArray.empty)
                         Params = []
                         Body = translateExpr ctx e
                         ReturnTy = typeOfKey ctx (CstKeys.ofExpr e)
@@ -1638,7 +1638,7 @@ module Freeze =
                 let f = remapDeclTypars markers
 
                 { m with
-                    ThisTy = TyUnion(info.Name, [ for n in declTypars -> TyConst n ])
+                    ThisTy = TyUnion(info.Name, EqArray.ofSeq (seq { for n in declTypars -> TyConst n }))
                     Params = m.Params |> List.map (fun (k, ty) -> k, f ty)
                     Body = mapExprTypes f m.Body
                     ReturnTy = f m.ReturnTy

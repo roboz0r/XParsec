@@ -387,10 +387,10 @@ type ClrProvider
             | ValueSome target -> zonk target
             | ValueNone -> t
         | TyFun(a, b) -> TyFun(zonk a, zonk b)
-        | TyTuple items -> TyTuple(List.map zonk items)
-        | TyRecord(n, args) -> TyRecord(n, List.map zonk args)
-        | TyUnion(n, args) -> TyUnion(n, List.map zonk args)
-        | TyClass(n, args) -> TyClass(n, List.map zonk args)
+        | TyTuple items -> TyTuple(EqArray.map zonk items)
+        | TyRecord(n, args) -> TyRecord(n, EqArray.map zonk args)
+        | TyUnion(n, args) -> TyUnion(n, EqArray.map zonk args)
+        | TyClass(n, args) -> TyClass(n, EqArray.map zonk args)
         | TyConst _ -> t
 
     // ---- External (referenced-assembly) reference minting (P4) ----
@@ -678,22 +678,24 @@ type ClrProvider
                 encodeTypeCore tryLeaf (g.AddArgument()) b
             | TyClass(name, args) when name = PrintfSpec.printfFormatName ->
                 markFSharpCoreDep "Microsoft.FSharp.Core.PrintfFormat`4"
-                let g = te.GenericInstantiation(ePrintfFormat4.Value, List.length args, false)
+                let g = te.GenericInstantiation(ePrintfFormat4.Value, args.Length, false)
 
                 for a in args do
                     encodeTypeCore tryLeaf (g.AddArgument()) a
-            | TyRecord(name, [ elem ]) when name = listTypeName ->
+            | TyRecord(name, args) when name = listTypeName && args.Length = 1 ->
                 // `list<elem>` ≡ `FSharpList\`1<elem>`. Serves every list-typed
                 // slot: the `%A` printer's `FSharpFunc` arg, the `PrintfFormat`
                 // ctor / `PrintFormatLine` / `Invoke` instantiations, and any
                 // list-typed local signature.
+                let elem = args.[0]
                 encodeListOf te (fun arg -> encodeTypeCore tryLeaf arg elem)
-            | TyRecord(name, [ elem ]) when isVesperListName name ->
+            | TyRecord(name, args) when isVesperListName name && args.Length = 1 ->
                 // The Vesper cons-list (R3) ≡ `Vesper.Collections.List\`1<elem>` in
                 // the compiled `Vesper.Core.dll`. No FSharp.Core dep — it lives next
                 // to `Fun`. The abbreviation name (`…list`) reaches here from the
                 // contract-typed literal, the union name (`…List`) from the self-host
                 // path; both map to the same `List\`1`.
+                let elem = args.[0]
                 let g = te.GenericInstantiation(eVesperList1.Value, 1, false)
                 encodeTypeCore tryLeaf (g.AddArgument()) elem
             | TyUnion(name, args) when userTypes.ContainsKey name ->
@@ -704,10 +706,10 @@ type ClrProvider
                 // argument encoded recursively (a typar argument is intercepted by
                 // `tryLeaf` — `'T` ⇒ `!0` — so this serves both a concrete `[int]`
                 // use site and the type's own `[!0]` self-reference) (P3d.4).
-                match args with
-                | [] -> te.Type(userTypes.[name], false)
-                | _ ->
-                    let g = te.GenericInstantiation(userTypes.[name], List.length args, false)
+                if args.IsEmpty then
+                    te.Type(userTypes.[name], false)
+                else
+                    let g = te.GenericInstantiation(userTypes.[name], args.Length, false)
 
                     for a in args do
                         encodeTypeCore tryLeaf (g.AddArgument()) a
@@ -717,10 +719,10 @@ type ClrProvider
                 // special-cases above (`isVesperListName` / `listTypeName`) win
                 // by precedence so a `list<elem>` slot still maps to `FSharpList\`1`
                 // / `Vesper.Collections.List\`1`; only *user* records reach here.
-                match args with
-                | [] -> te.Type(userTypes.[name], false)
-                | _ ->
-                    let g = te.GenericInstantiation(userTypes.[name], List.length args, false)
+                if args.IsEmpty then
+                    te.Type(userTypes.[name], false)
+                else
+                    let g = te.GenericInstantiation(userTypes.[name], args.Length, false)
 
                     for a in args do
                         encodeTypeCore tryLeaf (g.AddArgument()) a
@@ -733,24 +735,24 @@ type ClrProvider
                 // union arm above.
                 let tref = (externalClassRef name).Value
 
-                match args with
-                | [] -> te.Type(tref, false)
-                | _ ->
-                    let g = te.GenericInstantiation(tref, List.length args, false)
+                if args.IsEmpty then
+                    te.Type(tref, false)
+                else
+                    let g = te.GenericInstantiation(tref, args.Length, false)
 
                     for a in args do
                         encodeTypeCore tryLeaf (g.AddArgument()) a
-            | TyRecord(name, args) when (externalRecordRef name (List.length args)).IsSome ->
+            | TyRecord(name, args) when (externalRecordRef name args.Length).IsSome ->
                 // A referenced-assembly *record* (records-plan §B7): its
                 // `TypeRef`, instantiated over each argument when generic.
                 // Lower priority than the user-record arm above (`userTypes` is
                 // checked first), so a same-named user record still wins.
-                let tref, _ = (externalRecordRef name (List.length args)).Value
+                let tref, _ = (externalRecordRef name args.Length).Value
 
-                match args with
-                | [] -> te.Type(tref, false)
-                | _ ->
-                    let g = te.GenericInstantiation(tref, List.length args, false)
+                if args.IsEmpty then
+                    te.Type(tref, false)
+                else
+                    let g = te.GenericInstantiation(tref, args.Length, false)
 
                     for a in args do
                         encodeTypeCore tryLeaf (g.AddArgument()) a
@@ -840,10 +842,18 @@ type ClrProvider
             | TyFun(a1, r1), TyFun(a2, r2) ->
                 go a1 a2
                 go r1 r2
-            | TyTuple xs, TyTuple ys when xs.Length = ys.Length -> List.iter2 go xs ys
-            | TyRecord(_, xs), TyRecord(_, ys) when xs.Length = ys.Length -> List.iter2 go xs ys
-            | TyUnion(_, xs), TyUnion(_, ys) when xs.Length = ys.Length -> List.iter2 go xs ys
-            | TyClass(_, xs), TyClass(_, ys) when xs.Length = ys.Length -> List.iter2 go xs ys
+            | TyTuple xs, TyTuple ys when xs.Length = ys.Length ->
+                for i in 0 .. xs.Length - 1 do
+                    go xs.[i] ys.[i]
+            | TyRecord(_, xs), TyRecord(_, ys) when xs.Length = ys.Length ->
+                for i in 0 .. xs.Length - 1 do
+                    go xs.[i] ys.[i]
+            | TyUnion(_, xs), TyUnion(_, ys) when xs.Length = ys.Length ->
+                for i in 0 .. xs.Length - 1 do
+                    go xs.[i] ys.[i]
+            | TyClass(_, xs), TyClass(_, ys) when xs.Length = ys.Length ->
+                for i in 0 .. xs.Length - 1 do
+                    go xs.[i] ys.[i]
             | _ -> ()
 
         go openT instT
@@ -957,7 +967,8 @@ type ClrProvider
                 let paramTys =
                     match rawParams with
                     | [ TyConst "unit" ] -> []
-                    | [ TyTuple elems ] when List.length argSig >= 2 && List.length elems = List.length argSig -> elems
+                    | [ TyTuple elems ] when List.length argSig >= 2 && elems.Length = List.length argSig ->
+                        EqArray.toList elems
                     | ps -> ps
 
                 BlobEncoder(s)
@@ -1048,7 +1059,7 @@ type ClrProvider
             toEntity (ctx.MemberRef(parent, metaName, s))
         | UnionMember.Factory caseName ->
             let paramTys = caseFields caseName |> List.map snd
-            let retTy = TyUnion(name, [ for t in typars -> TyConst t ])
+            let retTy = TyUnion(name, EqArray.ofSeq (seq { for t in typars -> TyConst t }))
             let s = BlobBuilder()
 
             BlobEncoder(s)
@@ -1720,7 +1731,7 @@ type ClrProvider
         let sT = TyVar stateTv
         let eT = TyVar tTv
         let folderT = TyFun(sT, TyFun(eT, sT))
-        let listT = TyRecord(vesperListName, [ eT ])
+        let listT = TyRecord(vesperListName, EqArray.singleton eT)
 
         let foldSig =
             let saved = methodTyparRoots

@@ -14,7 +14,8 @@ let tests =
                 let tast = analyse "printfn \"%A\" [1; 2; 3]"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
-                let listTy = TyRecord("Microsoft.FSharp.Collections.list", [ TyConst "int" ])
+                let listTy =
+                    TyRecord("Microsoft.FSharp.Collections.list", EqArray.singleton (TyConst "int"))
 
                 match tast.Decls with
                 | [ TDecl.Expression(TExpr.App(TExpr.App(TExpr.External("printfn", _, _), TExpr.New _, _),

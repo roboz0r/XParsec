@@ -208,7 +208,7 @@ module Emit =
         match ty with
         | TyUnion(n, args)
         | TyRecord(n, args)
-        | TyClass(n, args) -> ValueSome(n, args)
+        | TyClass(n, args) -> ValueSome(n, EqArray.toList args)
         | _ -> ValueNone
 
     /// Resolve a `SemType`'s `TypeVar` links to their representatives (the codegen
@@ -224,10 +224,10 @@ module Emit =
             | ValueSome target -> zonk target
             | ValueNone -> TyVar r
         | TyFun(a, b) -> TyFun(zonk a, zonk b)
-        | TyTuple xs -> TyTuple(List.map zonk xs)
-        | TyRecord(n, xs) -> TyRecord(n, List.map zonk xs)
-        | TyUnion(n, xs) -> TyUnion(n, List.map zonk xs)
-        | TyClass(n, xs) -> TyClass(n, List.map zonk xs)
+        | TyTuple xs -> TyTuple(EqArray.map zonk xs)
+        | TyRecord(n, xs) -> TyRecord(n, EqArray.map zonk xs)
+        | TyUnion(n, xs) -> TyUnion(n, EqArray.map zonk xs)
+        | TyClass(n, xs) -> TyClass(n, EqArray.map zonk xs)
         | TyConst _ -> t
 
     /// Recover a generic static method's per-typar instantiation at a call site
@@ -258,10 +258,18 @@ module Emit =
             | TyFun(a1, r1), TyFun(a2, r2) ->
                 go a1 a2
                 go r1 r2
-            | TyTuple xs, TyTuple ys when xs.Length = ys.Length -> List.iter2 go xs ys
-            | TyRecord(_, xs), TyRecord(_, ys) when xs.Length = ys.Length -> List.iter2 go xs ys
-            | TyUnion(_, xs), TyUnion(_, ys) when xs.Length = ys.Length -> List.iter2 go xs ys
-            | TyClass(_, xs), TyClass(_, ys) when xs.Length = ys.Length -> List.iter2 go xs ys
+            | TyTuple xs, TyTuple ys when xs.Length = ys.Length ->
+                for i in 0 .. xs.Length - 1 do
+                    go xs.[i] ys.[i]
+            | TyRecord(_, xs), TyRecord(_, ys) when xs.Length = ys.Length ->
+                for i in 0 .. xs.Length - 1 do
+                    go xs.[i] ys.[i]
+            | TyUnion(_, xs), TyUnion(_, ys) when xs.Length = ys.Length ->
+                for i in 0 .. xs.Length - 1 do
+                    go xs.[i] ys.[i]
+            | TyClass(_, xs), TyClass(_, ys) when xs.Length = ys.Length ->
+                for i in 0 .. xs.Length - 1 do
+                    go xs.[i] ys.[i]
             | _ -> ()
 
         List.iter2 go defTys actualTys
@@ -556,10 +564,10 @@ module Emit =
         | TyVar _ -> false
         | TyConst _ -> true
         | TyFun(a, b) -> isGroundType a && isGroundType b
-        | TyTuple xs -> List.forall isGroundType xs
+        | TyTuple xs -> EqArray.forall isGroundType xs
         | TyRecord(_, xs)
         | TyUnion(_, xs)
-        | TyClass(_, xs) -> List.forall isGroundType xs
+        | TyClass(_, xs) -> EqArray.forall isGroundType xs
 
     let private deriveInlineTypeArgs (declTy: SemType) (spineArgs: (TExpr * SemType) list) : SemType[] =
         match Inline.quantifiedTypars declTy with
@@ -581,10 +589,18 @@ module Emit =
                 | TyFun(a1, r1), TyFun(a2, r2) ->
                     go a1 a2
                     go r1 r2
-                | TyTuple xs, TyTuple ys when xs.Length = ys.Length -> List.iter2 go xs ys
-                | TyRecord(_, xs), TyRecord(_, ys) when xs.Length = ys.Length -> List.iter2 go xs ys
-                | TyUnion(_, xs), TyUnion(_, ys) when xs.Length = ys.Length -> List.iter2 go xs ys
-                | TyClass(_, xs), TyClass(_, ys) when xs.Length = ys.Length -> List.iter2 go xs ys
+                | TyTuple xs, TyTuple ys when xs.Length = ys.Length ->
+                    for i in 0 .. xs.Length - 1 do
+                        go xs.[i] ys.[i]
+                | TyRecord(_, xs), TyRecord(_, ys) when xs.Length = ys.Length ->
+                    for i in 0 .. xs.Length - 1 do
+                        go xs.[i] ys.[i]
+                | TyUnion(_, xs), TyUnion(_, ys) when xs.Length = ys.Length ->
+                    for i in 0 .. xs.Length - 1 do
+                        go xs.[i] ys.[i]
+                | TyClass(_, xs), TyClass(_, ys) when xs.Length = ys.Length ->
+                    for i in 0 .. xs.Length - 1 do
+                        go xs.[i] ys.[i]
                 | _ -> ()
 
             let rec peelParams n t =
@@ -1025,7 +1041,9 @@ module Emit =
             | TyTuple xs
             | TyRecord(_, xs)
             | TyUnion(_, xs)
-            | TyClass(_, xs) -> List.iter go xs
+            | TyClass(_, xs) ->
+                for x in xs do
+                    go x
             | TyConst _ -> ()
 
         for (_, pty) in fn.Params do
@@ -1528,7 +1546,7 @@ module Emit =
 
             let tyArgs =
                 match ty with
-                | TyClass(_, xs) -> xs
+                | TyClass(_, xs) -> EqArray.toList xs
                 | _ -> []
 
             match env.Provider.TryEmitCtor(className, tyArgs) with

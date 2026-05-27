@@ -206,7 +206,7 @@ let tests =
             test "typed pattern in tuple: `let f ((x: int), b) = b`" {
                 let tast = analyse "let f ((x: int), b) = x + b"
                 let intTy = BuiltinTypes.tyInt
-                let expected = TyFun(TyTuple [ intTy; intTy ], intTy)
+                let expected = TyFun(TyTuple(EqArray.ofList [ intTy; intTy ]), intTy)
                 Expect.equal (declType tast) expected "f : int * int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -530,20 +530,22 @@ let tests =
 
             test "generic record literal carries arg-bearing type" {
                 let tast = analyse "type Box<'a> = { Value: 'a }\nlet b = { Value = 1 }"
-                Expect.equal (declType tast) (TyRecord("Box", [ BuiltinTypes.tyInt ])) "b : Box<int>"
+                Expect.equal (declType tast) (TyRecord("Box", EqArray.singleton BuiltinTypes.tyInt)) "b : Box<int>"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
             test "generic ctor application carries arg-bearing type" {
                 let tast = analyse "type Option<'a> = | Some of 'a | None\nlet s = Some 1"
-                Expect.equal (declType tast) (TyUnion("Option", [ BuiltinTypes.tyInt ])) "s : Option<int>"
+                Expect.equal (declType tast) (TyUnion("Option", EqArray.singleton BuiltinTypes.tyInt)) "s : Option<int>"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
             test "generic record-field access resolves via substitution" {
                 let tast = analyse "type Box<'a> = { Value: 'a }\nlet f (b : Box<int>) = b.Value"
 
-                let expected = TyFun(TyRecord("Box", [ BuiltinTypes.tyInt ]), BuiltinTypes.tyInt)
+                let expected =
+                    TyFun(TyRecord("Box", EqArray.singleton BuiltinTypes.tyInt), BuiltinTypes.tyInt)
+
                 Expect.equal (declType tast) expected "f : Box<int> -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -556,7 +558,7 @@ let tests =
 
             test "TAST: generic abbreviation literal expands to tuple" {
                 let tast = analyse "type Pair<'a> = 'a * 'a\nlet p : Pair<int> = (1, 2)"
-                let expected = TyTuple [ BuiltinTypes.tyInt; BuiltinTypes.tyInt ]
+                let expected = TyTuple(EqArray.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyInt ])
                 Expect.equal (declType tast) expected "declType is int * int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -574,7 +576,7 @@ let tests =
                 | TExpr.New(name, args, ty) ->
                     Expect.equal name "Point" "class name"
                     Expect.equal args.Length 2 "two ctor args"
-                    Expect.equal ty (TyClass("Point", [])) "ty is TyClass Point"
+                    Expect.equal ty (TyClass("Point", EqArray.empty)) "ty is TyClass Point"
                 | _ -> failtestf "expected TExpr.New, got %A" valExpr
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"

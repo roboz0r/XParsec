@@ -62,10 +62,10 @@ module UnificationInfer =
                 | ValueNone -> false
         | TyConst _ -> false
         | TyFun(a, r) -> hasPendingDotAccess a || hasPendingDotAccess r
-        | TyTuple xs -> List.exists hasPendingDotAccess xs
-        | TyRecord(_, args) -> List.exists hasPendingDotAccess args
-        | TyUnion(_, args) -> List.exists hasPendingDotAccess args
-        | TyClass(_, args) -> List.exists hasPendingDotAccess args
+        | TyTuple xs -> EqArray.exists hasPendingDotAccess xs
+        | TyRecord(_, args) -> EqArray.exists hasPendingDotAccess args
+        | TyUnion(_, args) -> EqArray.exists hasPendingDotAccess args
+        | TyClass(_, args) -> EqArray.exists hasPendingDotAccess args
 
     /// Apply `Defaults` entries on free TyVars whose level exceeds
     /// `outerLevel`. A default fires when its target resolves to a concrete
@@ -99,10 +99,18 @@ module UnificationInfer =
                 | TyFun(a, r) ->
                     go a
                     go r
-                | TyTuple xs -> List.iter go xs
-                | TyRecord(_, args) -> List.iter go args
-                | TyUnion(_, args) -> List.iter go args
-                | TyClass(_, args) -> List.iter go args
+                | TyTuple xs ->
+                    for x in xs do
+                        go x
+                | TyRecord(_, args) ->
+                    for a in args do
+                        go a
+                | TyUnion(_, args) ->
+                    for a in args do
+                        go a
+                | TyClass(_, args) ->
+                    for a in args do
+                        go a
 
             go t
             acc
@@ -189,7 +197,10 @@ module UnificationInfer =
                             | ValueSome elemTy when root.Level > outerLevel ->
                                 match zonk elemTy with
                                 | TyVar _ ->
-                                    root.Link <- ValueSome(TyRecord("Microsoft.FSharp.Collections.list", [ elemTy ]))
+                                    root.Link <-
+                                        ValueSome(
+                                            TyRecord("Microsoft.FSharp.Collections.list", EqArray.singleton elemTy)
+                                        )
                                 | _ -> root.Level <- outerLevel
                             | _ -> ()
                 | TyFun(a, b) ->
@@ -198,7 +209,9 @@ module UnificationInfer =
                 | TyTuple xs
                 | TyRecord(_, xs)
                 | TyUnion(_, xs)
-                | TyClass(_, xs) -> List.iter walk xs
+                | TyClass(_, xs) ->
+                    for x in xs do
+                        walk x
                 | TyConst _ -> ()
 
             walk ty
@@ -224,10 +237,18 @@ module UnificationInfer =
             | TyFun(a, r) ->
                 walk a
                 walk r
-            | TyTuple xs -> List.iter walk xs
-            | TyRecord(_, args) -> List.iter walk args
-            | TyUnion(_, args) -> List.iter walk args
-            | TyClass(_, args) -> List.iter walk args
+            | TyTuple xs ->
+                for x in xs do
+                    walk x
+            | TyRecord(_, args) ->
+                for a in args do
+                    walk a
+            | TyUnion(_, args) ->
+                for a in args do
+                    walk a
+            | TyClass(_, args) ->
+                for a in args do
+                    walk a
 
         walk zonkedTy
 
@@ -441,26 +462,24 @@ module UnificationInfer =
     let private freshNamedInstance
         (ctx: PassContext)
         (typeParams: (string * TypeVar) list)
-        : SemType list * Dictionary<TypeVar, SemType> =
+        : EqArray<SemType> * Dictionary<TypeVar, SemType> =
         let subst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
+        let acc = ResizeArray<SemType>(List.length typeParams)
 
-        let args =
-            [
-                for (_, tp) in typeParams ->
-                    let fresh = TypeVar()
-                    fresh.Level <- ctx.CurrentLevel
-                    let protoRoot = UnionFind.find tp
-                    // Copy prototype constraints onto the fresh instance so
-                    // every use site re-evaluates satisfaction independently
-                    // (a `Set<int>` and a `Set<int -> int>` each get their own
-                    // copy of `'a : comparison`).
-                    fresh.Constraints <- protoRoot.Constraints
-                    let asTy = TyVar fresh
-                    subst.[protoRoot] <- asTy
-                    asTy
-            ]
+        for (_, tp) in typeParams do
+            let fresh = TypeVar()
+            fresh.Level <- ctx.CurrentLevel
+            let protoRoot = UnionFind.find tp
+            // Copy prototype constraints onto the fresh instance so
+            // every use site re-evaluates satisfaction independently
+            // (a `Set<int>` and a `Set<int -> int>` each get their own
+            // copy of `'a : comparison`).
+            fresh.Constraints <- protoRoot.Constraints
+            let asTy = TyVar fresh
+            subst.[protoRoot] <- asTy
+            acc.Add asTy
 
-        args, subst
+        EqArray.ofResizeArray acc, subst
 
     /// Function value whose argument shape matches the primary constructor
     /// and whose result is the constructed `TyClass`. Routes bare
@@ -481,7 +500,7 @@ module UnificationInfer =
                 match paramTys with
                 | [] -> BuiltinTypes.tyUnit
                 | [ t ] -> t
-                | many -> TyTuple many
+                | many -> TyTuple(EqArray.ofList many)
 
             ValueSome(TyFun(arg, receiverTy))
         | false, _ -> ValueNone
@@ -505,7 +524,7 @@ module UnificationInfer =
         match walkedFields.Length with
         | 0 -> unionTy
         | 1 -> TyFun(walkedFields.[0], unionTy)
-        | _ -> TyFun(TyTuple(List.ofArray walkedFields), unionTy)
+        | _ -> TyFun(TyTuple(EqArray.ofArray walkedFields), unionTy)
 
     /// ValueNone with `count = 0` means "no such ctor"; `count >= 2` means
     /// ambiguous — the caller emits the appropriate diagnostic.
@@ -718,7 +737,7 @@ module UnificationInfer =
             nodeTv.Link <- ValueSome innerTy
             innerTy
         | Pat.Tuple(patterns = pats) ->
-            let elemTys = [ for p in pats -> inferPat ctx p ]
+            let elemTys = EqArray.ofSeq (seq { for p in pats -> inferPat ctx p })
             let tupleTy = TyTuple elemTys
             let nodeTv = freshTv ctx key
             nodeTv.Link <- ValueSome tupleTy
@@ -1402,7 +1421,7 @@ module UnificationInfer =
         List.foldBack (fun a r -> TyFun(a, r)) argTypes bodyTy
 
     and private inferTuple (ctx: PassContext) (items: ImmutableArray<Expr<SyntaxToken>>) : SemType =
-        TyTuple [ for e in items -> infer ctx e ]
+        TyTuple(EqArray.ofSeq (seq { for e in items -> infer ctx e }))
 
     and private inferSequential (ctx: PassContext) (key: NodeKey) (items: ImmutableArray<Expr<SyntaxToken>>) : SemType =
         // All but the last must be unit; result is the last's type.
@@ -1466,7 +1485,7 @@ module UnificationInfer =
         match ctx.Types.Abbreviation.TryGetValue "list" with
         | true, info ->
             forceFill ctx info
-            expandAbbreviation ctx key info [ elemTy ]
+            expandAbbreviation ctx key info (EqArray.singleton elemTy)
         | false, _ ->
             let tv = freshTyVar ctx
             ctx.ListLiterals.Add(UnionFind.find tv, elemTy)
@@ -1490,7 +1509,7 @@ module UnificationInfer =
             unify ctx key itemTy elemTy
 
         if isArray then
-            TyRecord("Microsoft.FSharp.Core.[]", [ elemTy ])
+            TyRecord("Microsoft.FSharp.Core.[]", EqArray.singleton elemTy)
         else
             listLiteralTy ctx key elemTy
 
@@ -1499,7 +1518,7 @@ module UnificationInfer =
         let elemTy = TyVar(freshTyVar ctx)
 
         if isArray then
-            TyRecord("Microsoft.FSharp.Core.[]", [ elemTy ])
+            TyRecord("Microsoft.FSharp.Core.[]", EqArray.singleton elemTy)
         else
             listLiteralTy ctx key elemTy
 
@@ -1883,7 +1902,7 @@ module UnificationInfer =
                         }
                     )
 
-                    m.BuildSignature(List.toArray args)
+                    m.BuildSignature(args.AsSpan().ToArray())
                 | _ ->
                     ctx.Diagnostics.Add
                         {
@@ -2060,10 +2079,10 @@ module UnificationInfer =
         | TyConst x, TyConst y -> x = y
         | TyVar x, TyVar y -> System.Object.ReferenceEquals(UnionFind.find x, UnionFind.find y)
         | TyFun(a1, r1), TyFun(a2, r2) -> semTypeEq a1 a2 && semTypeEq r1 r2
-        | TyTuple xs, TyTuple ys -> xs.Length = ys.Length && List.forall2 semTypeEq xs ys
+        | TyTuple xs, TyTuple ys -> EqArray.forall2 semTypeEq xs ys
         | TyRecord(n1, xs), TyRecord(n2, ys)
         | TyUnion(n1, xs), TyUnion(n2, ys)
-        | TyClass(n1, xs), TyClass(n2, ys) -> n1 = n2 && xs.Length = ys.Length && List.forall2 semTypeEq xs ys
+        | TyClass(n1, xs), TyClass(n2, ys) -> n1 = n2 && EqArray.forall2 semTypeEq xs ys
         | _ -> false
 
     /// `System.Object` / `obj` — the universal supertype in our conservative
@@ -2071,7 +2090,7 @@ module UnificationInfer =
     /// hierarchy, so a non-`object` param only matches an arg it equals).
     and private isObjectTy (t: SemType) : bool =
         match zonk t with
-        | TyClass("System.Object", []) -> true
+        | TyClass("System.Object", args) when args.IsEmpty -> true
         | TyConst "obj" -> true
         | _ -> false
 
@@ -2098,7 +2117,7 @@ module UnificationInfer =
         let n = memberParamCount m
 
         match zonk (m.BuildSignature typeArgs) with
-        | TyFun(TyTuple elems, _) when n >= 2 && List.length elems = n -> elems
+        | TyFun(TyTuple elems, _) when n >= 2 && elems.Length = n -> EqArray.toList elems
         | TyFun(TyConst "unit", _) when n = 0 -> []
         | TyFun(p, _) -> [ p ]
         | _ -> []
@@ -2203,7 +2222,7 @@ module UnificationInfer =
 
                 let argElems =
                     match zonk argTy with
-                    | TyTuple xs -> xs
+                    | TyTuple xs -> EqArray.toList xs
                     | TyConst "unit" -> []
                     | single -> [ single ]
 
@@ -2313,7 +2332,7 @@ module UnificationInfer =
                     match paramTys with
                     | [] -> BuiltinTypes.tyUnit
                     | [ t ] -> t
-                    | many -> TyTuple many
+                    | many -> TyTuple(EqArray.ofList many)
 
                 let argTy = infer ctx argExpr
                 unify ctx (CstKeys.ofExpr argExpr) argTy expected

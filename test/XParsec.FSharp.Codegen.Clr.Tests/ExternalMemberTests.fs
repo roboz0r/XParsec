@@ -74,7 +74,14 @@ let tests =
                     match inner with
                     | TExpr.ExternalMember(ValueNone, defKey, "Default", true, defTy) ->
                         match Unification.zonk defTy with
-                        | TyClass(name, [ TyConst "int" ]) ->
+                        | TyClass(name, args) when
+                            args.Length = 1
+                            && (
+                                match args.[0] with
+                                | TyConst "int" -> true
+                                | _ -> false
+                            )
+                            ->
                             Expect.equal name eqComparer "Default : EqualityComparer<int>"
                         | other -> failtestf "Default should be typed EqualityComparer<int>, got %A" other
 
@@ -333,7 +340,7 @@ let tests =
                 match value with
                 | TExpr.ExternalMember(ValueNone, key, "Out", true, ty) ->
                     match Unification.zonk ty with
-                    | TyClass("System.IO.TextWriter", []) -> ()
+                    | TyClass("System.IO.TextWriter", args) when args.IsEmpty -> ()
                     | other -> failtestf "Out should be typed System.IO.TextWriter, got %A" other
 
                     match key with

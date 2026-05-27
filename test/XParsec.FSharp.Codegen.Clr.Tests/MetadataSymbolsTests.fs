@@ -78,7 +78,7 @@ let tests =
                     match info.BaseType with
                     | ValueSome build ->
                         match build [||] with
-                        | TyClass("System.IO.TextWriter", []) -> ()
+                        | TyClass("System.IO.TextWriter", args) when args.IsEmpty -> ()
                         | other -> failtestf "expected StringWriter base = TextWriter, got %A" other
                     | ValueNone -> failtest "expected StringWriter to record a base type"
                 | other -> failtestf "expected StringWriter as a Class shape, got %A" other
@@ -113,7 +113,15 @@ let tests =
                     // Instantiated at `'T = int`, the property type is
                     // `EqualityComparer<int>` (the §7.3 per-use substitution).
                     match m.BuildSignature [| TyConst "int" |] with
-                    | TyClass(name, [ TyConst "int" ]) -> Expect.equal name eqComparer "Default : EqualityComparer<int>"
+                    | TyClass(name, args) when
+                        args.Length = 1
+                        && (
+                            match args.[0] with
+                            | TyConst "int" -> true
+                            | _ -> false
+                        )
+                        ->
+                        Expect.equal name eqComparer "Default : EqualityComparer<int>"
                     | other -> failtestf "unexpected Default signature %A" other
                 | ValueNone -> failtest "Default did not resolve"
             }

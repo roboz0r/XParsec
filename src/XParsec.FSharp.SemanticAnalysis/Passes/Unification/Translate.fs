@@ -155,7 +155,10 @@ module UnificationTranslate =
                     // Eager expansion: force the body, then substitute fresh
                     // TyVars for every declared typar.
                     forceFill ctx info
-                    let args = [ for _ in info.TypeParams -> TyVar(freshTyVar ctx) ]
+
+                    let args =
+                        EqArray.init (List.length info.TypeParams) (fun _ -> TyVar(freshTyVar ctx))
+
                     let diagKey = NodeKey.ofToken li.Idents.[0] NodeKind.TypeNamed
                     expandAbbreviation ctx diagKey info args
                 | false, _ ->
@@ -165,23 +168,29 @@ module UnificationTranslate =
                         // current level — unpinned at the declaration site,
                         // fixed by surrounding unification (e.g. `r : Box`
                         // unifies the args with whatever `r`'s usage pins).
-                        let args = [ for _ in info.TypeParams -> TyVar(freshTyVar ctx) ]
+                        let args =
+                            EqArray.init (List.length info.TypeParams) (fun _ -> TyVar(freshTyVar ctx))
+
                         TyRecord(name, args)
                     | false, _ ->
                         match ctx.Types.Union.TryGetValue name with
                         | true, info ->
-                            let args = [ for _ in info.TypeParams -> TyVar(freshTyVar ctx) ]
+                            let args =
+                                EqArray.init (List.length info.TypeParams) (fun _ -> TyVar(freshTyVar ctx))
+
                             TyUnion(name, args)
                         | false, _ ->
                             match ctx.Types.Class.TryGetValue name with
                             | true, info ->
-                                let args = [ for _ in info.TypeParams -> TyVar(freshTyVar ctx) ]
+                                let args =
+                                    EqArray.init (List.length info.TypeParams) (fun _ -> TyVar(freshTyVar ctx))
+
                                 TyClass(name, args)
                             | false, _ ->
                                 // Not project-local: probe the external provider
                                 // (a short BCL name under its `open`) before the
                                 // opaque fallback. See `tryResolveExternalType`.
-                                match tryResolveExternalType ctx name [] with
+                                match tryResolveExternalType ctx name EqArray.empty with
                                 | ValueSome ty -> ty
                                 | ValueNone -> TyConst name
         | Type.NamedType li ->
@@ -190,7 +199,7 @@ module UnificationTranslate =
             // unknown; probe the provider before the catch-all TyVar.
             let qualName = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
 
-            match tryResolveExternalType ctx qualName [] with
+            match tryResolveExternalType ctx qualName EqArray.empty with
             | ValueSome ty -> ty
             | ValueNone -> TyVar(freshTyVar ctx)
         | Type.GenericType(longIdent = li; typeArgs = args) when
@@ -235,15 +244,17 @@ module UnificationTranslate =
             let diagKey = NodeKey.ofToken nameTok NodeKind.TypeGeneric
 
             let translatedArgs =
-                [
-                    for a in args ->
-                        match a with
-                        | TypeArg.Type t -> translateType ctx t
-                        // A measure-shaped arg landing on a non-numeric
-                        // carrier shouldn't happen in well-formed code,
-                        // but stay total — emit a free TyVar.
-                        | TypeArg.Measure _ -> TyVar(freshTyVar ctx)
-                ]
+                EqArray.ofSeq (
+                    seq {
+                        for a in args ->
+                            match a with
+                            | TypeArg.Type t -> translateType ctx t
+                            // A measure-shaped arg landing on a non-numeric
+                            // carrier shouldn't happen in well-formed code,
+                            // but stay total — emit a free TyVar.
+                            | TypeArg.Measure _ -> TyVar(freshTyVar ctx)
+                    }
+                )
 
             resolveNamedGeneric ctx diagKey name translatedArgs
         | Type.GenericType(longIdent = li; typeArgs = args) ->
@@ -253,12 +264,14 @@ module UnificationTranslate =
             let qualName = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
 
             let translatedArgs =
-                [
-                    for a in args ->
-                        match a with
-                        | TypeArg.Type t -> translateType ctx t
-                        | TypeArg.Measure _ -> TyVar(freshTyVar ctx)
-                ]
+                EqArray.ofSeq (
+                    seq {
+                        for a in args ->
+                            match a with
+                            | TypeArg.Type t -> translateType ctx t
+                            | TypeArg.Measure _ -> TyVar(freshTyVar ctx)
+                    }
+                )
 
             match tryResolveExternalType ctx qualName translatedArgs with
             | ValueSome ty -> ty
@@ -270,9 +283,9 @@ module UnificationTranslate =
             let nameTok = li.Idents.[0]
             let name = ctx.NameOf nameTok
             let diagKey = NodeKey.ofToken nameTok NodeKind.TypeGeneric
-            resolveNamedGeneric ctx diagKey name [ translateType ctx baseTy ]
+            resolveNamedGeneric ctx diagKey name (EqArray.singleton (translateType ctx baseTy))
         | Type.FunctionType(fromType = from; toType = into) -> TyFun(translateType ctx from, translateType ctx into)
-        | Type.TupleType(types = types) -> TyTuple [ for t in types -> translateType ctx t ]
+        | Type.TupleType(types = types) -> TyTuple(EqArray.ofSeq (seq { for t in types -> translateType ctx t }))
         | Type.WhenConstrainedType(typ = inner; constraints = cs) ->
             let inner = translateType ctx inner
             translateConstraints ctx cs
@@ -292,9 +305,9 @@ module UnificationTranslate =
         (ctx: PassContext)
         (diagKey: NodeKey)
         (name: string)
-        (translatedArgs: SemType list)
+        (translatedArgs: EqArray<SemType>)
         : SemType =
-        let argCount = List.length translatedArgs
+        let argCount = translatedArgs.Length
 
         let diagnoseArity (expected: int) : unit =
             ctx.Diagnostics.Add
@@ -361,9 +374,9 @@ module UnificationTranslate =
     and private tryResolveExternalType
         (ctx: PassContext)
         (qualName: string)
-        (translatedArgs: SemType list)
+        (translatedArgs: EqArray<SemType>)
         : SemType voption =
-        let arity = List.length translatedArgs
+        let arity = translatedArgs.Length
 
         // Metadata keys generic types `Name`arity`; the contract layer keys them
         // bare. Probe the suffixed form first so it wins when both could match.
@@ -394,7 +407,7 @@ module UnificationTranslate =
                         // "int32"` the IL encoder doesn't key. Mirrors the *local*
                         // abbrev expansion (`expandAbbreviation`); the `build` closure
                         // substitutes the type args into the (already-translated) RHS.
-                        | ExternalTypeShape.Abbrev(_, build) -> Some(build (List.toArray translatedArgs))
+                        | ExternalTypeShape.Abbrev(_, build) -> Some(build (translatedArgs.AsSpan().ToArray()))
                     | _ -> None
                 )
 
@@ -529,9 +542,9 @@ module UnificationTranslate =
         (ctx: PassContext)
         (diagKey: NodeKey)
         (info: AbbreviationInfo)
-        (args: SemType list)
+        (args: EqArray<SemType>)
         : SemType =
-        let n = min (List.length info.TypeParams) (List.length args)
+        let n = min (List.length info.TypeParams) args.Length
 
         for i = 0 to n - 1 do
             let (_, protoTv) = info.TypeParams.[i]

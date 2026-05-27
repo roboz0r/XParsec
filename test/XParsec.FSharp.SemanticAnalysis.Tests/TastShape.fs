@@ -539,7 +539,7 @@ type private Renderer() =
                 | TyConst n -> n
                 | TyVar _ -> "_"
                 | TyFun(a, b) -> tyStr a + " -> " + tyStr b
-                | TyTuple ts -> ts |> List.map tyStr |> String.concat " * "
+                | TyTuple ts -> [ for t in ts -> tyStr t ] |> String.concat " * "
                 | TyRecord(n, _)
                 | TyUnion(n, _)
                 | TyClass(n, _) -> n

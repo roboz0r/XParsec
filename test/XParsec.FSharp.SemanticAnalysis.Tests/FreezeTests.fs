@@ -106,7 +106,7 @@ let tests =
             test "`let xs = [1; 2; 3]` freezes as nested Cons / Nil over `list<int>`" {
                 let tast = analyse "let xs = [1; 2; 3]"
                 let intTy = BuiltinTypes.tyInt
-                let listTy = TyRecord("Microsoft.FSharp.Collections.list", [ intTy ])
+                let listTy = TyRecord("Microsoft.FSharp.Collections.list", EqArray.singleton intTy)
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
                 Expect.equal (declType tast) listTy "xs : list<int>"
@@ -136,7 +136,7 @@ let tests =
                 match tast.Decls.[0] with
                 | TDecl.Let(_, TExpr.UnionCons("Nil", [], ty), _, _) ->
                     match ty with
-                    | TyRecord("Microsoft.FSharp.Collections.list", [ _ ]) -> ()
+                    | TyRecord("Microsoft.FSharp.Collections.list", args) when args.Length = 1 -> ()
                     | _ -> failtestf "expected list<_> Nil, got %A" ty
                 | other -> failtestf "unexpected TAST shape: %A" other
             }
@@ -144,8 +144,8 @@ let tests =
             test "`let xs = [|1; 2|]` wraps the Cons chain in Array.ofList" {
                 let tast = analyse "let xs = [|1; 2|]"
                 let intTy = BuiltinTypes.tyInt
-                let listTy = TyRecord("Microsoft.FSharp.Collections.list", [ intTy ])
-                let arrayTy = TyRecord("Microsoft.FSharp.Core.[]", [ intTy ])
+                let listTy = TyRecord("Microsoft.FSharp.Collections.list", EqArray.singleton intTy)
+                let arrayTy = TyRecord("Microsoft.FSharp.Core.[]", EqArray.singleton intTy)
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
                 Expect.equal (declType tast) arrayTy "xs : int[]"
@@ -428,7 +428,7 @@ let unionCaseSyntaxTests =
                         Expect.equal ht (TyConst "'T") "Head : 'T"
                         Expect.equal tn (ValueSome "Tail") "second field named Tail"
                         // Tail refers back to the declaring union, applied to 'T.
-                        Expect.equal tt (TyUnion("List", [ TyConst "'T" ])) "Tail : List<'T>"
+                        Expect.equal tt (TyUnion("List", EqArray.singleton (TyConst "'T"))) "Tail : List<'T>"
                     | other -> failtestf "expected two named Cons fields, got %A" other
                 | other -> failtestf "unexpected unions: %A" other
             }
@@ -482,7 +482,10 @@ let listAbbrevTests =
                     | [ (_, ht); (_, tt) ] ->
                         Expect.equal ht (TyConst "'T") "Head : 'T"
                         // `'T list` resolved through the abbrev back to the union.
-                        Expect.equal tt (TyUnion("List", [ TyConst "'T" ])) "Tail : List<'T> via the abbrev"
+                        Expect.equal
+                            tt
+                            (TyUnion("List", EqArray.singleton (TyConst "'T")))
+                            "Tail : List<'T> via the abbrev"
                     | other -> failtestf "expected two Cons fields, got %A" other
                 | other -> failtestf "unexpected unions: %A" other
             }
@@ -505,7 +508,10 @@ let listAbbrevTests =
 
                 match xs with
                 | Some(value, ty) ->
-                    Expect.equal ty (TyUnion("List", [ TyConst "int" ])) "xs : List<int> (the declared union)"
+                    Expect.equal
+                        ty
+                        (TyUnion("List", EqArray.singleton (TyConst "int")))
+                        "xs : List<int> (the declared union)"
 
                     Expect.equal
                         (TastShape.prettyExpr value)
@@ -530,7 +536,7 @@ let listAbbrevTests =
 
                 match e with
                 | Some(value, ty) ->
-                    Expect.equal ty (TyUnion("List", [ TyConst "int" ])) "e : List<int>"
+                    Expect.equal ty (TyUnion("List", EqArray.singleton (TyConst "int"))) "e : List<int>"
                     Expect.equal (TastShape.prettyExpr value) "Empty" "the bare `[]` is the union's Empty case"
                 | None -> failtest "no `let e` binding surfaced"
             }
@@ -554,7 +560,7 @@ let listAbbrevTests =
                 | Some(value, ty) ->
                     Expect.equal
                         ty
-                        (TyRecord("Microsoft.FSharp.Collections.list", [ TyConst "int" ]))
+                        (TyRecord("Microsoft.FSharp.Collections.list", EqArray.singleton (TyConst "int")))
                         "xs : Microsoft.FSharp.Collections.list<int> (the FSharp.Core default)"
 
                     Expect.equal
@@ -624,14 +630,14 @@ let unionMemberTests =
 
                     let empty = find "Empty"
                     Expect.isTrue empty.IsStatic "Empty is static"
-                    Expect.equal empty.ReturnTy (TyUnion("Lst", [])) "Empty : Lst"
+                    Expect.equal empty.ReturnTy (TyUnion("Lst", EqArray.empty)) "Empty : Lst"
                     Expect.isTrue (ValueOption.isNone empty.ThisKey) "a static member has no `this` binder"
 
                     let single = find "Single"
                     Expect.isTrue single.IsStatic "Single is static"
                     Expect.equal single.Kind TMemberKind.Method "Single is a method"
                     Expect.equal single.Params.Length 1 "Single takes one parameter"
-                    Expect.equal single.ReturnTy (TyUnion("Lst", [])) "Single : int -> Lst"
+                    Expect.equal single.ReturnTy (TyUnion("Lst", EqArray.empty)) "Single : int -> Lst"
                 | None -> failtest "no union surfaced"
             }
 

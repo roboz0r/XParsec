@@ -44,10 +44,14 @@ module Inline =
             | TyFun(a, r) ->
                 go a
                 go r
-            | TyTuple xs -> List.iter go xs
+            | TyTuple xs ->
+                for x in xs do
+                    go x
             | TyRecord(_, args)
             | TyUnion(_, args)
-            | TyClass(_, args) -> List.iter go args
+            | TyClass(_, args) ->
+                for a in args do
+                    go a
 
         go declTy
         List.ofSeq acc
@@ -65,10 +69,10 @@ module Inline =
             | _ -> TyVar root
         | TyConst _ -> t
         | TyFun(a, r) -> TyFun(substType subst a, substType subst r)
-        | TyTuple xs -> TyTuple(List.map (substType subst) xs)
-        | TyRecord(n, args) -> TyRecord(n, List.map (substType subst) args)
-        | TyUnion(n, args) -> TyUnion(n, List.map (substType subst) args)
-        | TyClass(n, args) -> TyClass(n, List.map (substType subst) args)
+        | TyTuple xs -> TyTuple(EqArray.map (substType subst) xs)
+        | TyRecord(n, args) -> TyRecord(n, EqArray.map (substType subst) args)
+        | TyUnion(n, args) -> TyUnion(n, EqArray.map (substType subst) args)
+        | TyClass(n, args) -> TyClass(n, EqArray.map (substType subst) args)
 
     /// Canonicalise the primitive type-name aliases a static-optimization clause
     /// might use (`int32`/`int`, `double`/`float64`/`float`, `uint8`/`byte`) so a
@@ -98,10 +102,10 @@ module Inline =
         | TyVar x, TyVar y -> System.Object.ReferenceEquals(UnionFind.find x, UnionFind.find y)
         | TyConst n1, TyConst n2 -> canonPrimName n1 = canonPrimName n2
         | TyFun(a1, r1), TyFun(a2, r2) -> staticOptTypesMatch a1 a2 && staticOptTypesMatch r1 r2
-        | TyTuple xs, TyTuple ys -> xs.Length = ys.Length && List.forall2 staticOptTypesMatch xs ys
+        | TyTuple xs, TyTuple ys -> EqArray.forall2 staticOptTypesMatch xs ys
         | TyRecord(n1, xs), TyRecord(n2, ys)
         | TyUnion(n1, xs), TyUnion(n2, ys)
-        | TyClass(n1, xs), TyClass(n2, ys) -> n1 = n2 && xs.Length = ys.Length && List.forall2 staticOptTypesMatch xs ys
+        | TyClass(n1, xs), TyClass(n2, ys) -> n1 = n2 && EqArray.forall2 staticOptTypesMatch xs ys
         | _ -> false
 
     /// Approximate `when ^T : struct` for the value-type primitives the operator

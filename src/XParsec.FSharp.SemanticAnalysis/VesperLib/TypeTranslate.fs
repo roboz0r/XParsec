@@ -429,7 +429,7 @@ module VesperLibTypeTranslate =
             | Some e -> Error e
             | None ->
                 let bs = builders.ToArray()
-                Ok(fun ts -> TyTuple [ for b in bs -> b ts ])
+                Ok(fun ts -> TyTuple(EqArray.ofSeq (seq { for b in bs -> b ts })))
 
         | Type.VarType(Typar.Named(_, identTok)) ->
             let name = nameOfTok lexed input identTok
@@ -481,7 +481,7 @@ module VesperLibTypeTranslate =
 
                 match resolveTypeName ctx opens name bs.Length with
                 | Error e -> Error e
-                | Ok compiled -> Ok(fun ts -> TyRecord(compiled, [ for b in bs -> b ts ]))
+                | Ok compiled -> Ok(fun ts -> TyRecord(compiled, EqArray.ofSeq (seq { for b in bs -> b ts })))
 
         | Type.SuffixedType(baseTy, li) ->
             // `'T list` ≡ `List<'T>`.
@@ -492,7 +492,7 @@ module VesperLibTypeTranslate =
             | Ok fb ->
                 match resolveTypeName ctx opens name 1 with
                 | Error e -> Error e
-                | Ok compiled -> Ok(fun ts -> TyRecord(compiled, [ fb ts ]))
+                | Ok compiled -> Ok(fun ts -> TyRecord(compiled, EqArray.singleton (fb ts)))
 
         | Type.ArrayType(baseTy, _, commas, _) ->
             // rank = commas + 1; key by `array<rank>` so unification stays simple.
@@ -502,7 +502,7 @@ module VesperLibTypeTranslate =
             | Error e -> Error e
             | Ok fb ->
                 let name = if rank = 1 then "array" else sprintf "array%d" rank
-                Ok(fun ts -> TyRecord(name, [ fb ts ]))
+                Ok(fun ts -> TyRecord(name, EqArray.singleton (fb ts)))
 
         | Type.WhenConstrainedType(inner, clauses) ->
             // Capture clauses now; the collector is resolved (name -> index)
@@ -559,7 +559,7 @@ module VesperLibTypeTranslate =
             | Some e -> Error e
             | None ->
                 let bs = builders.ToArray()
-                Ok(fun ts -> TyTuple [ for b in bs -> b ts ])
+                Ok(fun ts -> TyTuple(EqArray.ofSeq (seq { for b in bs -> b ts })))
 
     let translateCurriedSig
         (ctx: ExtractCtx)
