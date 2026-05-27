@@ -199,6 +199,18 @@ module Emit =
         | TPat.Record(_, ty)
         | TPat.Union(_, _, ty) -> ty
 
+    /// Resolve a nominal receiver type to its (declared-name, type-args) pair.
+    /// Returns `ValueNone` if the type isn't a user-defined or external nominal
+    /// type (e.g., a `TyVar` that should have been zonked away by now). The
+    /// `TyClass` arm passes through so future class receivers reach the right
+    /// downstream lookup without revisiting every call site (H6).
+    let inline private receiverShape (ty: SemType) : (string * SemType list) voption =
+        match ty with
+        | TyUnion(n, args)
+        | TyRecord(n, args)
+        | TyClass(n, args) -> ValueSome(n, args)
+        | _ -> ValueNone
+
     /// Resolve a `SemType`'s `TypeVar` links to their representatives (the codegen
     /// project keeps its own copy rather than depend on the `Passes` namespace —
     /// the `ClrProvider` has the same private helper). A free `TypeVar` stays a
@@ -1196,10 +1208,9 @@ module Emit =
             b.Add(ILInstr.BneUn nextLabel)
         | TPat.Union(caseName, subPats, ty) ->
             let typeName, tyArgs =
-                match ty with
-                | TyUnion(n, xs)
-                | TyRecord(n, xs) -> n, xs
-                | other -> failwithf "Emit: union pattern with non-union type %A" other
+                match receiverShape ty with
+                | ValueSome(n, xs) -> n, xs
+                | ValueNone -> failwithf "Emit: union pattern with non-nominal type %A" ty
 
             match env.Unions.TryGetValue typeName with
             | true, u ->
@@ -1247,9 +1258,9 @@ module Emit =
             // wildcard sub-pattern is skipped (it would always match), exactly
             // like the union arm above.
             let typeName, tyArgs =
-                match ty with
-                | TyRecord(n, xs) -> n, xs
-                | other -> failwithf "Emit: record pattern with non-record type %A" other
+                match receiverShape ty with
+                | ValueSome(n, xs) -> n, xs
+                | ValueNone -> failwithf "Emit: record pattern with non-nominal type %A" ty
 
             match env.Records.TryGetValue typeName with
             | true, r ->
@@ -1291,10 +1302,9 @@ module Emit =
     /// a non-union receiver is a gap.
     let private resolveInstanceMember (env: EmitEnv) (receiverTy: SemType) (name: string) : EntityHandle =
         let typeName, tyArgs =
-            match receiverTy with
-            | TyUnion(n, xs)
-            | TyRecord(n, xs) -> n, xs
-            | other -> failwithf "Emit: member '%s' access on non-union receiver %A" name other
+            match receiverShape receiverTy with
+            | ValueSome(n, xs) -> n, xs
+            | ValueNone -> failwithf "Emit: member '%s' access on non-nominal receiver %A" name receiverTy
 
         match env.Unions.TryGetValue typeName with
         | true, u ->
@@ -1341,9 +1351,9 @@ module Emit =
     /// front end has already routed non-record field access elsewhere).
     let private resolveRecordField (env: EmitEnv) (receiverTy: SemType) (fieldName: string) : EntityHandle * SemType =
         let typeName, tyArgs =
-            match receiverTy with
-            | TyRecord(n, xs) -> n, xs
-            | other -> failwithf "Emit: field '%s' access on non-record receiver %A" fieldName other
+            match receiverShape receiverTy with
+            | ValueSome(n, xs) -> n, xs
+            | ValueNone -> failwithf "Emit: field '%s' access on non-nominal receiver %A" fieldName receiverTy
 
         match env.Records.TryGetValue typeName with
         | true, r ->
@@ -1682,9 +1692,9 @@ module Emit =
             // `TypeSpec` (`Box\`1<!0>::.ctor`), exactly like a generic union's
             // factory.
             let typeName, tyArgs =
-                match ty with
-                | TyRecord(n, xs) -> n, xs
-                | other -> failwithf "Emit: RecordCons with non-record type %A" other
+                match receiverShape ty with
+                | ValueSome(n, xs) -> n, xs
+                | ValueNone -> failwithf "Emit: RecordCons with non-nominal type %A" ty
 
             match env.Records.TryGetValue typeName with
             | true, r ->
@@ -1756,9 +1766,9 @@ module Emit =
             // `newobj` the ctor. Direct field reads (no `MemberwiseClone`) keeps
             // it BCL-only and works identically for a generic record.
             let typeName, tyArgs =
-                match ty with
-                | TyRecord(n, xs) -> n, xs
-                | other -> failwithf "Emit: RecordClone with non-record type %A" other
+                match receiverShape ty with
+                | ValueSome(n, xs) -> n, xs
+                | ValueNone -> failwithf "Emit: RecordClone with non-nominal type %A" ty
 
             match env.Records.TryGetValue typeName with
             | true, r ->
@@ -1791,10 +1801,9 @@ module Emit =
 
         | TExpr.UnionCons(caseName, args, ty) ->
             let typeName, tyArgs =
-                match ty with
-                | TyRecord(n, xs)
-                | TyUnion(n, xs) -> n, xs
-                | other -> failwithf "Emit: UnionCons with non-union type %A" other
+                match receiverShape ty with
+                | ValueSome(n, xs) -> n, xs
+                | ValueNone -> failwithf "Emit: UnionCons with non-nominal type %A" ty
 
             for a in args do
                 buildExpr env b a
