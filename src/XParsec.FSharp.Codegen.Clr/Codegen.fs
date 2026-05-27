@@ -13,12 +13,15 @@ open XParsec.FSharp.SemanticAnalysis
 // is the only side effect.
 
 /// One row in `Codegen`'s deferred `TypeDefinition` lists (`unionTypes` /
-/// `recordTypes`). The actual `TypeDefinition` / `InterfaceImpl` /
-/// `GenericParam` rows aren't added until every method/field row exists, so
-/// the per-type loop accumulates this shape and the trailing pass walks it.
-/// `DeclaresIEquatable` (records-plan §B4) and `DeclaresIComparable`
-/// (records-plan §B6) decide which `InterfaceImpl` rows pair with the
-/// type — see the comment on `unionTypes` for the per-flag detail.
+/// `recordTypes` / `closureTypes`). The actual `TypeDefinition` /
+/// `InterfaceImpl` / `GenericParam` rows aren't added until every
+/// method/field row exists, so the per-type loop accumulates this shape and
+/// the trailing pass walks it. `Interfaces` carries the pre-minted
+/// `InterfaceImpl` entity handles (typed `IEquatable<Self>` /
+/// `IComparable<Self>` / `IComparable` for unions and records;
+/// `Vesper.Fun\`2<param,result>` for closures) — pre-minted because the
+/// `TypeSpec` encoding needs the type-typars / closure-typars ambient that
+/// is only live during this type's emit window.
 type internal EmittedTypeRow =
     {
         Name: string
@@ -26,8 +29,42 @@ type internal EmittedTypeRow =
         Typars: string list
         FirstField: FieldDefinitionHandle
         FirstMethod: MethodDefinitionHandle
-        DeclaresIEquatable: bool
-        DeclaresIComparable: bool
+        Interfaces: EntityHandle list
+    }
+
+/// The kind of nominal `TypeDefinition` whose row is being predicted. Drives
+/// the offset arithmetic in `predictTypeDef` — every prior-kind count adds to
+/// the row offset, so the order here matches the trailing TypeDefinition
+/// emission order (interfaces → unions → records → closures → holders).
+[<RequireQualifiedAccess>]
+type internal NominalKind =
+    | Interface
+    | Union
+    | Record
+    | Closure
+
+/// One row per declared user kind: the count of `TypeDefinition`s that will
+/// land in the trailing emission loop, grouped by `NominalKind`. Built once
+/// from the disjoint `tast.Decls` walks (plus the discovered closure list)
+/// and consulted by `predictTypeDef` at every forward-handle site.
+type internal TypeDefCounts =
+    {
+        Interfaces: int
+        Unions: int
+        Records: int
+    }
+
+/// The result of one disjoint walk over `tast.Decls`: every `TDecl.Type` is
+/// routed to exactly one list by its `TTypeKind`. Built once at the top of
+/// `assemble` and consumed by the forward-handle prediction, the per-kind body
+/// loops, and the trailing TypeDefinition pass. Adding a new nominal kind
+/// (`Class`, object expressions) is one field + one `match` arm in
+/// `partitionTypeDecls`, not a fourth `List.choose` clone.
+type internal PartitionedTypeDecls =
+    {
+        Interfaces: (TTypeDecl * TAbstractMethod list) list
+        Unions: (TTypeDecl * TUnionCase list * TTypeMember list) list
+        Records: (TTypeDecl * TRecordField list * TTypeMember list) list
     }
 
 /// The in-memory assembled PE plus enough to inspect / write it.
@@ -51,6 +88,47 @@ type ClrArtifact =
     }
 
 module Codegen =
+
+    /// Forward-handle prediction for the deferred `TypeDefinition` rows.
+    /// `<Module>` occupies row 1; the trailing emission loop then walks
+    /// interfaces → unions → records → closures (holders trail and never
+    /// need prediction). The i-th type of `kind` lands at
+    /// `2 + (sum of prior-kind counts in `counts`) + i`. Centralising the
+    /// offsets here keeps the per-site arithmetic from fanning out as new
+    /// kinds (classes, object expressions) land.
+    let private predictTypeDef (counts: TypeDefCounts) (kind: NominalKind) (i: int) : TypeDefinitionHandle =
+        let priorRows =
+            match kind with
+            | NominalKind.Interface -> 0
+            | NominalKind.Union -> counts.Interfaces
+            | NominalKind.Record -> counts.Interfaces + counts.Unions
+            | NominalKind.Closure -> counts.Interfaces + counts.Unions + counts.Records
+
+        MetadataTokens.TypeDefinitionHandle(2 + priorRows + i)
+
+    /// Single-walk partition of `tast.Decls` by `TTypeKind`. Replaces the
+    /// per-kind `List.choose` clones — every nominal kind sees one routing
+    /// site, so adding `Class` (sprint B-1) is one field + one `match` arm
+    /// here, not a fourth top-level clone.
+    let private partitionTypeDecls (decls: TDecl list) : PartitionedTypeDecls =
+        let interfaces = ResizeArray()
+        let unions = ResizeArray()
+        let records = ResizeArray()
+
+        for d in decls do
+            match d with
+            | TDecl.Type td ->
+                match td.Kind with
+                | TTypeKind.Interface methods -> interfaces.Add(td, methods)
+                | TTypeKind.Union(cases, members) -> unions.Add(td, cases, members)
+                | TTypeKind.Record(fields, members) -> records.Add(td, fields, members)
+            | _ -> ()
+
+        {
+            Interfaces = List.ofSeq interfaces
+            Unions = List.ofSeq unions
+            Records = List.ofSeq records
+        }
 
     /// `int Main(string[])` — the synthesised entry point's signature.
     let private mainSignature () : BlobBuilder =
@@ -283,61 +361,42 @@ module Codegen =
 
         let ctorHandleByNode = Dictionary<TExpr, EntityHandle>(HashIdentity.Reference)
 
-        // Declared types split by kind (two disjoint `tast.Decls` walks). Both
-        // kinds now flow through this one assembler on both paths: the library
-        // used to drop unions (G9), and an executable still declares no interfaces
-        // in today's sources (so `interfaceDecls` is empty there and the interface
-        // block below is a no-op that shifts no prediction).
-        let interfaceDecls =
-            tast.Decls
-            |> List.choose (fun d ->
-                match d with
-                | TDecl.Type td ->
-                    match td.Kind with
-                    | TTypeKind.Interface methods -> Some(td, methods)
-                    | _ -> None
-                | _ -> None
-            )
-
-        let unionDecls =
-            tast.Decls
-            |> List.choose (fun d ->
-                match d with
-                | TDecl.Type td ->
-                    match td.Kind with
-                    | TTypeKind.Union(cases, members) -> Some(td, cases, members)
-                    | _ -> None
-                | _ -> None
-            )
-
-        let recordDecls =
-            tast.Decls
-            |> List.choose (fun d ->
-                match d with
-                | TDecl.Type td ->
-                    match td.Kind with
-                    | TTypeKind.Record(fields, members) -> Some(td, fields, members)
-                    | _ -> None
-                | _ -> None
-            )
+        // Declared types split by kind via one disjoint `tast.Decls` walk
+        // (`partitionTypeDecls`). All three kinds flow through this one
+        // assembler on both paths: the library used to drop unions (G9), and an
+        // executable still declares no interfaces in today's sources (so
+        // `interfaceDecls` is empty there and the interface block below is a
+        // no-op that shifts no prediction).
+        let partitionedDecls = partitionTypeDecls tast.Decls
+        let interfaceDecls = partitionedDecls.Interfaces
+        let unionDecls = partitionedDecls.Unions
+        let recordDecls = partitionedDecls.Records
 
         // ---- Forward-reference prediction ----
 
-        let interfaceCount = List.length interfaceDecls
-        let unionCount = List.length unionDecls
+        // Per-kind row counts for the trailing TypeDefinition emission order
+        // (`<Module>` → interfaces → unions → records → closures → holders).
+        // Threaded through `predictTypeDef` at every forward-handle site so
+        // the offset arithmetic lives in exactly one place.
+        let typeCounts: TypeDefCounts =
+            {
+                Interfaces = List.length interfaceDecls
+                Unions = List.length unionDecls
+                Records = List.length recordDecls
+            }
 
         let interfaceMethodTotal =
             interfaceDecls |> List.sumBy (fun (_, methods) -> List.length methods)
 
-        // A union's `TypeDefinition` lands at row `2 + interfaceCount + i` (after
-        // `<Module>` and the interface types). Register it up front so a field /
-        // factory / local signature can `encodeType` a `TyUnion name` before the
-        // row itself is added. A *generic* union also registers its shape (typars +
-        // cases) so the provider can mint `MemberRef`s on its `TypeSpec` — for both
-        // its own factory bodies and any external construction / match site (P3d.4).
+        // Predict each union's `TypeDefinition` handle (after `<Module>` and any
+        // interface rows) so a field / factory / local signature can `encodeType`
+        // a `TyUnion name` before the row itself is added. A *generic* union also
+        // registers its shape (typars + cases) so the provider can mint
+        // `MemberRef`s on its `TypeSpec` — for both its own factory bodies and any
+        // external construction / match site (P3d.4).
         unionDecls
         |> List.iteri (fun i (td, cases, _) ->
-            provider.RegisterUserType(td.Name, toEntity (MetadataTokens.TypeDefinitionHandle(2 + interfaceCount + i)))
+            provider.RegisterUserType(td.Name, toEntity (predictTypeDef typeCounts NominalKind.Union i))
 
             if not (List.isEmpty td.TypeParams) then
                 let shape =
@@ -360,17 +419,12 @@ module Codegen =
         // can mint `MemberRef`s on its `TypeSpec` (`Box\`1<int>::Value`).
         recordDecls
         |> List.iteri (fun i (td, fields, _) ->
-            provider.RegisterUserType(
-                td.Name,
-                toEntity (MetadataTokens.TypeDefinitionHandle(2 + interfaceCount + unionCount + i))
-            )
+            provider.RegisterUserType(td.Name, toEntity (predictTypeDef typeCounts NominalKind.Record i))
 
             if not (List.isEmpty td.TypeParams) then
                 let shape = [ for f in fields -> f.Name, f.Type ]
                 provider.RegisterGenericRecord(td.Name, td.TypeParams, shape)
         )
-
-        let recordCount = List.length recordDecls
 
         // A *generic* closure (function-representation-plan §Generic closures, C3) is a real generic
         // `TypeDefinition`, sitting immediately after interfaces/unions/records
@@ -382,8 +436,7 @@ module Codegen =
         closures
         |> List.iteri (fun i c ->
             if not (List.isEmpty c.Typars) then
-                let handle =
-                    toEntity (MetadataTokens.TypeDefinitionHandle(2 + interfaceCount + unionCount + recordCount + i))
+                let handle = toEntity (predictTypeDef typeCounts NominalKind.Closure i)
 
                 provider.RegisterClosure(c.Name, c.Typars, c.Captures |> List.map snd, c.ParamTy, c.ResultTy, handle)
         )
@@ -394,15 +447,14 @@ module Codegen =
         // One row per emitted union/record `TypeDefinition`, claimed after
         // every method/field row exists. `Typars` drives the metadata arity
         // suffix (`List\`1`) + `GenericParam` rows for a generic union (empty
-        // ⇒ monomorphic). The two flags decide which `InterfaceImpl` rows
-        // pair with the type's `TypeDefinition` below:
-        //   * `DeclaresIEquatable` (records-plan §B4) pairs with the emitted
-        //     `Equals(Self)` — `IEquatable<Self>`.
-        //   * `DeclaresIComparable` (records-plan §B6) pairs with the
-        //     emitted `CompareTo(Self)` + `CompareTo(object)` —
-        //     `IComparable<Self>` and the non-generic `IComparable`.
-        // Both default to `false` when the corresponding C-Attr verdict is
-        // anything other than `Structural`.
+        // ⇒ monomorphic). `Interfaces` is the pre-minted `InterfaceImpl`
+        // entity-handle list the trailing `TypeDefinition` loop walks:
+        //   * `IEquatable<Self>` (records-plan §B4) pairs with the emitted
+        //     `Equals(Self)` triple.
+        //   * `IComparable<Self>` + the non-generic `IComparable`
+        //     (records-plan §B6) pair with the emitted `CompareTo` pair.
+        // The list is empty when the C-Attr verdict is anything other than
+        // `Structural`.
         let unionTypes = ResizeArray<EmittedTypeRow>()
 
         // Per union: the parameterless `.ctor`, one factory per case, one method
@@ -1033,6 +1085,32 @@ module Codegen =
 
                 provider.ClearTypeTypars()
 
+            // Pre-mint the `InterfaceImpl` entity handles while the type-typars
+            // ambient can still be installed cheaply: `EquatableInterfaceSpec` /
+            // `ComparableInterfaceSpec` encode a `TypeSpec` over `Self` whose
+            // typar args (`TyConst t`) resolve to `!0` only under
+            // `SetTypeTypars`. The trailing `TypeDefinition` loop then just
+            // iterates this list — no per-row ambient set/clear and no
+            // `Declares*` flag dispatch needed.
+            let interfaces =
+                if emitsUnionTriple || emitsUnionComparison then
+                    provider.SetTypeTypars td.TypeParams
+                    let selfMarkers = [ for t in td.TypeParams -> TyConst t ]
+
+                    let acc =
+                        [
+                            if emitsUnionTriple then
+                                provider.EquatableInterfaceSpec(TyUnion(td.Name, selfMarkers))
+                            if emitsUnionComparison then
+                                provider.ComparableInterfaceSpec(TyUnion(td.Name, selfMarkers))
+                                provider.IComparableType
+                        ]
+
+                    provider.ClearTypeTypars()
+                    acc
+                else
+                    []
+
             unionTypes.Add(
                 {
                     Name = td.Name
@@ -1040,19 +1118,16 @@ module Codegen =
                     Typars = td.TypeParams
                     FirstField = firstField
                     FirstMethod = unionCtor
-                    DeclaresIEquatable = emitsUnionTriple
-                    DeclaresIComparable = emitsUnionComparison
+                    Interfaces = interfaces
                 }
             )
 
         // ---- Records (records-plan §B2/B4) ----
         //
         // Per record: one ctor + the structural-equality triple (when the record
-        // is all-immutable). `recordTypes` carries the (name, namespace, typars,
-        // firstField, ctor-handle, declares-IEquatable) tuple used to add the
-        // `TypeDefinition` row + `InterfaceImpl` row + `GenericParam` rows below,
-        // exactly mirroring the union path's `unionTypes`.
-        // Mirrors `unionTypes` — see its comment.
+        // is all-immutable). `recordTypes` walks the same `EmittedTypeRow` shape
+        // as `unionTypes` (see that comment) — used to add the `TypeDefinition`
+        // + `InterfaceImpl` + `GenericParam` rows below.
         let recordTypes = ResizeArray<EmittedTypeRow>()
 
         for (td, fields, members) in recordDecls do
@@ -1294,6 +1369,28 @@ module Codegen =
 
                 provider.ClearTypeTypars()
 
+            // Pre-mint the `InterfaceImpl` entity handles. See the matching
+            // comment on the union path above; mirror of that logic for
+            // `TyRecord` self.
+            let interfaces =
+                if emitsEqualityTriple || emitsRecordComparison then
+                    provider.SetTypeTypars td.TypeParams
+                    let selfMarkers = [ for t in td.TypeParams -> TyConst t ]
+
+                    let acc =
+                        [
+                            if emitsEqualityTriple then
+                                provider.EquatableInterfaceSpec(TyRecord(td.Name, selfMarkers))
+                            if emitsRecordComparison then
+                                provider.ComparableInterfaceSpec(TyRecord(td.Name, selfMarkers))
+                                provider.IComparableType
+                        ]
+
+                    provider.ClearTypeTypars()
+                    acc
+                else
+                    []
+
             recordTypes.Add(
                 {
                     Name = td.Name
@@ -1301,8 +1398,7 @@ module Codegen =
                     Typars = td.TypeParams
                     FirstField = firstField
                     FirstMethod = recordCtor
-                    DeclaresIEquatable = emitsEqualityTriple
-                    DeclaresIComparable = emitsRecordComparison
+                    Interfaces = interfaces
                 }
             )
 
@@ -1320,8 +1416,7 @@ module Codegen =
         // loads inside its own `Invoke` use `MemberRef`s on its self-`TypeSpec`
         // (`<closure>$n<!0, !1, …>::capture_i`), the same shape generic unions
         // use for their own factory bodies (P3d.4).
-        let closureTypes =
-            ResizeArray<string * TypeVar list * EntityHandle * FieldDefinitionHandle * MethodDefinitionHandle>()
+        let closureTypes = ResizeArray<EmittedTypeRow>()
 
         for c in closures do
             let firstField = MetadataTokens.FieldDefinitionHandle(fieldCount + 1)
@@ -1429,18 +1524,30 @@ module Codegen =
             // ambient now that every signature/spec encoding is done.
             if isGenericClosure then
                 let closureHandle =
-                    toEntity (
-                        MetadataTokens.TypeDefinitionHandle(
-                            2 + interfaceCount + unionCount + recordCount + closureTypes.Count
-                        )
-                    )
+                    toEntity (predictTypeDef typeCounts NominalKind.Closure closureTypes.Count)
 
                 c.Typars
                 |> List.iteri (fun i _ -> genericParams.Add(closureHandle, i, sprintf "T%d" i))
 
                 provider.ClearClosureTypars()
 
-            closureTypes.Add(c.Name, c.Typars, ifaceSpec, firstField, ctorHandle)
+            // Closures synthesise their typar names (`T0`, `T1`, …) since their
+            // `Closure.Typars` are `TypeVar` roots, not source typar strings.
+            // The trailing loop only reads `Typars` for the arity suffix
+            // (`isEmpty` / `length`); the `GenericParam` rows are added above
+            // with these same synthesised names.
+            let typarNames = c.Typars |> List.mapi (fun i _ -> sprintf "T%d" i)
+
+            closureTypes.Add(
+                {
+                    Name = c.Name
+                    Namespace = ""
+                    Typars = typarNames
+                    FirstField = firstField
+                    FirstMethod = ctorHandle
+                    Interfaces = [ ifaceSpec ]
+                }
+            )
 
         // ---- Static methods (P3b) ----
         //
@@ -1591,41 +1698,17 @@ module Codegen =
             let typeHandle =
                 ctx.AddClass(unionAttrs, row.Namespace, metaName, provider.ObjectType, row.FirstField, row.FirstMethod)
 
-            // A union whose C-Attr verdict is `Structural` (default) declares
-            // `IEquatable<Self>` — the typed `Equals` emitted above implements
-            // it. For a generic union the arg is its own `TypeSpec` self
-            // (`List<!0>`); the ambient `!0` mapping makes
-            // `EquatableInterfaceSpec` write it. The `InterfaceImpl` table is
-            // sorted by `Class`: union `TypeDefinition`s are added here in
-            // ascending row order, *before* the closure loop adds its own
-            // `InterfaceImpl` rows (closures sort after unions), so the table
-            // stays ordered. `[<ReferenceEquality>]` / `[<NoEquality>]` unions
-            // skip the row (records-plan §B4). A `[<StructuralComparison>]`
-            // union additionally declares `IComparable<Self>` + `IComparable`
-            // for its emitted `CompareTo` pair (records-plan §B6); the
-            // SRM `InterfaceImpl` writer sorts ties on Interface coded index
-            // internally, so the order of these `Add` calls on a single class
-            // does not need to match the final row order.
-            if row.DeclaresIEquatable || row.DeclaresIComparable then
-                provider.SetTypeTypars row.Typars
-
-                let selfMarkers = [ for t in row.Typars -> TyConst t ]
-
-                if row.DeclaresIEquatable then
-                    ctx.AddInterfaceImplementation(
-                        typeHandle,
-                        provider.EquatableInterfaceSpec(TyUnion(row.Name, selfMarkers))
-                    )
-
-                if row.DeclaresIComparable then
-                    ctx.AddInterfaceImplementation(
-                        typeHandle,
-                        provider.ComparableInterfaceSpec(TyUnion(row.Name, selfMarkers))
-                    )
-
-                    ctx.AddInterfaceImplementation(typeHandle, provider.IComparableType)
-
-                provider.ClearTypeTypars()
+            // `row.Interfaces` was pre-minted during the union's emit window
+            // (where the type-typars ambient is set up): typed `IEquatable<Self>`
+            // when the C-Attr verdict is `Structural`, plus `IComparable<Self>` +
+            // non-generic `IComparable` when `StructuralComparison`. The
+            // `InterfaceImpl` table is sorted by `Class`: union
+            // `TypeDefinition`s land here in ascending row order, *before* the
+            // closure loop adds its own; the SRM `InterfaceImpl` writer sorts
+            // ties on Interface coded index internally, so the order within a
+            // single class's adds does not need to match the final row order.
+            for iface in row.Interfaces do
+                ctx.AddInterfaceImplementation(typeHandle, iface)
 
             // A generic union's typars are owned by this TypeDef (collected here,
             // emitted sorted with the rest — the metadata name drops the F# quote).
@@ -1647,31 +1730,11 @@ module Codegen =
             let typeHandle =
                 ctx.AddClass(unionAttrs, row.Namespace, metaName, provider.ObjectType, row.FirstField, row.FirstMethod)
 
-            // Skip the `IEquatable<Self>` declaration for a mutable record (its
-            // triple was skipped above, so there's nothing to bind here). A
-            // `[<StructuralComparison>]` record additionally declares
-            // `IComparable<Self>` + `IComparable` for its emitted `CompareTo`
-            // pair (records-plan §B6).
-            if row.DeclaresIEquatable || row.DeclaresIComparable then
-                provider.SetTypeTypars row.Typars
-
-                let selfMarkers = [ for t in row.Typars -> TyConst t ]
-
-                if row.DeclaresIEquatable then
-                    ctx.AddInterfaceImplementation(
-                        typeHandle,
-                        provider.EquatableInterfaceSpec(TyRecord(row.Name, selfMarkers))
-                    )
-
-                if row.DeclaresIComparable then
-                    ctx.AddInterfaceImplementation(
-                        typeHandle,
-                        provider.ComparableInterfaceSpec(TyRecord(row.Name, selfMarkers))
-                    )
-
-                    ctx.AddInterfaceImplementation(typeHandle, provider.IComparableType)
-
-                provider.ClearTypeTypars()
+            // `row.Interfaces` was pre-minted in the record's emit window —
+            // see the matching comment on the union path above. Skipped for a
+            // `Reference` / `NoEquality` record (no entries in the list).
+            for iface in row.Interfaces do
+                ctx.AddInterfaceImplementation(typeHandle, iface)
 
             row.Typars
             |> List.iteri (fun i n -> genericParams.Add(toEntity typeHandle, i, n.TrimStart('\'')))
@@ -1683,17 +1746,25 @@ module Codegen =
         // *generic* closure (function-representation-plan §Generic closures, C3) wears the arity suffix
         // (`<closure>$n\`N`) on its metadata name, matching how generic unions
         // and records mint their suffixed metaName.
-        for (name, typars, ifaceSpec, firstField, ctorHandle) in closureTypes do
+        for row in closureTypes do
             let metaName =
-                if List.isEmpty typars then
-                    name
+                if List.isEmpty row.Typars then
+                    row.Name
                 else
-                    sprintf "%s`%d" name (List.length typars)
+                    sprintf "%s`%d" row.Name (List.length row.Typars)
 
             let closureHandle =
-                ctx.AddClass(closureAttrs, "", metaName, provider.ObjectType, firstField, ctorHandle)
+                ctx.AddClass(
+                    closureAttrs,
+                    row.Namespace,
+                    metaName,
+                    provider.ObjectType,
+                    row.FirstField,
+                    row.FirstMethod
+                )
 
-            ctx.AddInterfaceImplementation(closureHandle, ifaceSpec)
+            for iface in row.Interfaces do
+                ctx.AddInterfaceImplementation(closureHandle, iface)
 
         // A holder owns no fields, so every holder's field range is empty and
         // starts past the last (closure/union) field.
