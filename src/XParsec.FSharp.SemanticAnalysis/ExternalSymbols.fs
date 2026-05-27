@@ -141,6 +141,75 @@ type ExternalMember =
         Key: SymbolKey
     }
 
+/// Capability flags on an external class or interface (pre-sprint-recommendations
+/// H2). The metadata layer reads them off the .NET `TypeAttributes` plus
+/// `[<AllowNullLiteral>]` attribute decoding; the contract layer leaves them at
+/// `Default` until a `.fsi` learns to publish them. B-1 (class emission) reads
+/// `IsSealed` on the declared base type; B-8 (`[<AllowNullLiteral>]`) reads
+/// `AllowNullLiteral` off both user-declared and external classes.
+type ExternalClassFlags =
+    {
+        IsSealed: bool
+        IsAbstract: bool
+        AllowNullLiteral: bool
+    }
+
+    /// The conservative default the contract layer stamps when a `.fsi` only
+    /// commits the type's name + arity + interface-ness.
+    static member Default =
+        {
+            IsSealed = false
+            IsAbstract = false
+            AllowNullLiteral = false
+        }
+
+/// The shape of an external class or interface (pre-sprint-recommendations H2).
+/// Lifted out of `ExternalTypeShape.Class` so the DU header stays narrow and the
+/// member set is reachable to consumers (B-2's `interface … with member …`
+/// conformance check, B-1's base-type lookup, etc.) without having to round-trip
+/// through `TryLookupMember` per name.
+///
+/// `Interfaces`, `BaseType`, and each member's `BuildSignature` are written over
+/// the *declaring type's* typars, exactly like `ExternalFieldShape.BuildType`:
+/// callers pass a `SemType[]` (one entry per declared typar, in declaration
+/// order) and the builders substitute them through.
+type ExternalClassShape =
+    {
+        Arity: int
+        IsInterface: bool
+        /// All public declared methods + properties whose signature maps via
+        /// the §6.1 `tryBuildType`. Sibling members the metadata layer can't
+        /// map (e.g. a member with its own generic params, or a by-ref
+        /// parameter) are filtered out, not faked. Contract-layer providers
+        /// leave this empty until the `.fsi` extractor learns to publish
+        /// member sigs.
+        Members: ExternalMember[]
+        /// The directly-implemented interfaces as `(compiled-name, type-args)`
+        /// pairs. Substitutes the declaring type's typars through the recorded
+        /// arg builders.
+        Interfaces: SemType[] -> (string * SemType[])[]
+        /// The declared base type, if any (`ValueNone` for interfaces and for
+        /// `System.Object` itself). Substitutes the declaring type's typars.
+        BaseType: (SemType[] -> SemType) voption
+        Flags: ExternalClassFlags
+        Origin: SymbolOrigin
+    }
+
+    /// A minimally-populated class shape — the form contract-layer providers
+    /// (`VesperLib`, `ReferencedProject`) record when the `.fsi` only commits
+    /// to the type's name + arity + interface-ness. Metadata-layer providers
+    /// (`MetadataSymbols`) build the rich form directly.
+    static member basic(arity: int, isInterface: bool, origin: SymbolOrigin) : ExternalClassShape =
+        {
+            Arity = arity
+            IsInterface = isInterface
+            Members = [||]
+            Interfaces = fun _ -> [||]
+            BaseType = ValueNone
+            Flags = ExternalClassFlags.Default
+            Origin = origin
+        }
+
 /// Type-declaration shape carried by `IExternalSymbolProvider.TryLookupType`.
 /// `arity` is the number of declared typars (same length the builder
 /// arrays expect at instantiation). enum/delegate types are deferred and
@@ -157,8 +226,12 @@ type ExternalTypeShape =
     /// Case order matches source.
     | Union of arity: int * cases: ExternalCaseShape[]
     /// A class or interface (the gap that makes `EqualityComparer<_>` resolve to
-    /// `ValueNone` today). Members are resolved separately via `TryLookupMember`.
-    | Class of arity: int * isInterface: bool * origin: SymbolOrigin
+    /// `ValueNone` today). The members / interfaces / base-type / flags ride
+    /// inside `ExternalClassShape`, lifted out of the DU header so the sprint's
+    /// B-2 (interface conformance) and B-1 (base-type lookup) can reach them
+    /// directly. Contract-layer providers stamp `ExternalClassShape.basic`; the
+    /// metadata layer fills the rich form.
+    | Class of shape: ExternalClassShape
 
 /// **Thread-safety:** `TryLookup` and `TryLookupType` must be safe to call
 /// concurrently from multiple threads. Implementations that cache lazily must
@@ -285,7 +358,7 @@ module ExternalSymbols =
             | ValueSome o ->
                 fun shape ->
                     match shape with
-                    | ExternalTypeShape.Class(arity, isInterface, _) -> ExternalTypeShape.Class(arity, isInterface, o)
+                    | ExternalTypeShape.Class info -> ExternalTypeShape.Class { info with Origin = o }
                     | ExternalTypeShape.Record(arity, fields, _) -> ExternalTypeShape.Record(arity, fields, o)
                     | ExternalTypeShape.Abbrev _
                     | ExternalTypeShape.Union _ -> shape

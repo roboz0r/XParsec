@@ -27,7 +27,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
 
         member _.TryLookupType n =
             if n = name then
-                ValueSome(ExternalTypeShape.Class(0, false, origin))
+                ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (0, false, origin)))
             else
                 ValueNone
 
@@ -103,7 +103,7 @@ let tests =
                 let composed = ExternalSymbols.composite [ a; b ]
 
                 match composed.TryLookupType "shared" with
-                | ValueSome(ExternalTypeShape.Class(_, _, origin)) -> Expect.equal origin.Namespace "a" "type: a wins"
+                | ValueSome(ExternalTypeShape.Class info) -> Expect.equal info.Origin.Namespace "a" "type: a wins"
                 | other -> failtestf "expected Class shape from a, got %A" other
 
                 match composed.TryLookupMember("shared", "shared") with

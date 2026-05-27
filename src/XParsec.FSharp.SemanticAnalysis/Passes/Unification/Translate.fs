@@ -372,7 +372,7 @@ module UnificationTranslate =
 
         let shapeArity (shape: ExternalTypeShape) : int =
             match shape with
-            | ExternalTypeShape.Class(arity = a)
+            | ExternalTypeShape.Class info -> info.Arity
             | ExternalTypeShape.Record(arity = a)
             | ExternalTypeShape.Union(arity = a)
             | ExternalTypeShape.Abbrev(arity = a) -> a

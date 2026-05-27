@@ -431,8 +431,8 @@ type ClrProvider
     /// provider doesn't resolve it as a class/interface.
     let externalClassRef (fullName: string) : EntityHandle voption =
         match symbols.TryLookupType fullName with
-        | ValueSome(ExternalTypeShape.Class(_, _, origin)) ->
-            let ns = origin.Namespace
+        | ValueSome(ExternalTypeShape.Class info) ->
+            let ns = info.Origin.Namespace
 
             let simple =
                 if ns <> "" && fullName.StartsWith(ns + ".") then
@@ -440,7 +440,7 @@ type ClrProvider
                 else
                     fullName
 
-            ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, ns, simple)))
+            ValueSome(toEntity (ctx.TypeRef(externalAsmRef info.Origin.Assembly, ns, simple)))
         | _ -> ValueNone
 
     /// Look up a *referenced-assembly* record's shape by `TyRecord`-carried name

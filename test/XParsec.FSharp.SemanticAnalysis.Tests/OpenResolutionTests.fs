@@ -22,7 +22,7 @@ let private provider: IExternalSymbolProvider =
 
         member _.TryLookupType n =
             if n = "Some.Where.Foo`1" then
-                ValueSome(ExternalTypeShape.Class(1, false, SymbolOrigin.Empty))
+                ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (1, false, SymbolOrigin.Empty)))
             else
                 ValueNone
 

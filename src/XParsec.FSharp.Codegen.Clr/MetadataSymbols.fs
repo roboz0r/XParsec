@@ -236,6 +236,115 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
             DeclaringType = declaring
         }
 
+    /// Enumerate the public declared methods + properties of `t` whose signatures
+    /// the §6.1 mapping can represent. Property accessors (`get_X` / `set_X`) are
+    /// modelled through the `IsProperty = true` member and filtered out of the
+    /// method walk — without this, a property `Default` would surface twice (once
+    /// as `Default` and once as `get_Default`). Members the mapping can't model
+    /// (open generic-method definitions, by-ref parameters, …) are skipped, not
+    /// faked. Must hold `gate`.
+    let enumerateClassMembers (t: Type) : ExternalMember[] =
+        let origin = originOf t (Some(MetadataMapping.metadataName t))
+        let declKey = MetadataMapping.declTypeKey t
+
+        let properties =
+            t.GetProperties declaredFlags
+            |> Array.choose (fun p ->
+                match MetadataMapping.tryPropertySignature p with
+                | Some build ->
+                    Some
+                        {
+                            Name = p.Name
+                            IsStatic = (not (isNull p.GetMethod) && p.GetMethod.IsStatic)
+                            IsProperty = true
+                            BuildSignature = build
+                            Origin = origin
+                            Key = SymbolKey.MemberKey(declKey, p.Name, [])
+                        }
+                | None -> None
+            )
+
+        let methods =
+            t.GetMethods declaredFlags
+            // `IsSpecialName` covers property getters/setters and event add/remove —
+            // their first-class form is the property itself, already in `properties`.
+            |> Array.filter (fun m -> not m.IsSpecialName)
+            |> Array.choose (fun m ->
+                MetadataMapping.tryMethodSignature m
+                |> Option.map (fun build ->
+                    let argSig =
+                        m.GetParameters()
+                        |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
+                        |> Array.toList
+
+                    {
+                        Name = m.Name
+                        IsStatic = m.IsStatic
+                        IsProperty = false
+                        BuildSignature = build
+                        Origin = origin
+                        Key = SymbolKey.MemberKey(declKey, m.Name, argSig)
+                    }
+                )
+            )
+
+        Array.append properties methods
+
+    /// Build the type's interface set as `(compiled-name, type-args)` pairs over
+    /// the declaring type's typars. Each interface arg goes through
+    /// `tryBuildType` (it may reference the enclosing typars by position), and an
+    /// interface whose args don't all map is skipped — same posture as
+    /// `tryMethodSignature`. Must hold `gate`.
+    let buildClassInterfaces (t: Type) : SemType[] -> (string * SemType[])[] =
+        let entries =
+            t.GetInterfaces()
+            |> Array.choose (fun i ->
+                let name = MetadataMapping.metadataName i
+
+                let argBuilders =
+                    if i.IsGenericType then
+                        i.GetGenericArguments() |> Array.map MetadataMapping.tryBuildType
+                    else
+                        [||]
+
+                if Array.exists Option.isNone argBuilders then
+                    None
+                else
+                    let bs = argBuilders |> Array.map Option.get
+                    Some(name, bs)
+            )
+
+        fun typeArgs -> entries |> Array.map (fun (name, bs) -> name, [| for b in bs -> b typeArgs |])
+
+    /// Decode the type's declared base type as a builder over the declaring
+    /// type's typars. Interfaces and `System.Object` itself read as `ValueNone`
+    /// (an interface has no real base; `Object`'s base is the implicit root).
+    /// Must hold `gate`.
+    let buildClassBaseType (t: Type) : (SemType[] -> SemType) voption =
+        if t.IsInterface || isNull t.BaseType then
+            ValueNone
+        else
+            match MetadataMapping.tryBuildType t.BaseType with
+            | Some build -> ValueSome build
+            | None -> ValueNone
+
+    /// `[<AllowNullLiteral>]` is F# `Microsoft.FSharp.Core.AllowNullLiteralAttribute`
+    /// (emitted into metadata so reflection-only code can see it without an FSharp.Core load).
+    let hasAllowNullLiteral (t: Type) : bool =
+        t.CustomAttributes
+        |> Seq.exists (fun a ->
+            match a.AttributeType.FullName with
+            | "Microsoft.FSharp.Core.AllowNullLiteralAttribute" -> true
+            | _ -> false
+        )
+
+    let decodeClassFlags (t: Type) : ExternalClassFlags =
+        {
+            IsSealed = t.IsSealed
+            IsAbstract = t.IsAbstract
+            AllowNullLiteral = hasAllowNullLiteral t
+        }
+
     let computeType (name: string) : ExternalTypeShape voption =
         lock
             gate
@@ -248,7 +357,18 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                         else
                             0
 
-                    ValueSome(ExternalTypeShape.Class(arity, t.IsInterface, originOf t None))
+                    let shape: ExternalClassShape =
+                        {
+                            Arity = arity
+                            IsInterface = t.IsInterface
+                            Members = enumerateClassMembers t
+                            Interfaces = buildClassInterfaces t
+                            BaseType = buildClassBaseType t
+                            Flags = decodeClassFlags t
+                            Origin = originOf t None
+                        }
+
+                    ValueSome(ExternalTypeShape.Class shape)
                 | None -> ValueNone
             )
 

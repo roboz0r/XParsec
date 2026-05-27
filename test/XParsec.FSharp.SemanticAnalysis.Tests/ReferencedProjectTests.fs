@@ -66,11 +66,11 @@ let tests =
                 // set. The provider answers the qualified name directly, stamping
                 // the package `Origin`.
                 match provider.TryLookupType "Vesper.int" with
-                | ValueSome(ExternalTypeShape.Class(arity, isInterface, origin)) ->
-                    Expect.equal arity 0 "int is non-generic"
-                    Expect.isFalse isInterface "int is not an interface"
-                    Expect.equal origin.Assembly (Some "Vesper.Core") "origin assembly = Vesper.Core"
-                    Expect.equal origin.Namespace "Vesper" "origin namespace = Vesper"
+                | ValueSome(ExternalTypeShape.Class info) ->
+                    Expect.equal info.Arity 0 "int is non-generic"
+                    Expect.isFalse info.IsInterface "int is not an interface"
+                    Expect.equal info.Origin.Assembly (Some "Vesper.Core") "origin assembly = Vesper.Core"
+                    Expect.equal info.Origin.Namespace "Vesper" "origin namespace = Vesper"
                 | other -> failtestf "expected Vesper.int as Class shape, got %A" other
             }
 
@@ -83,10 +83,10 @@ let tests =
                 // all-abstract body is a downstream (Freeze/codegen) concern. P1
                 // only needs it to resolve with the package `Origin`.
                 match provider.TryLookupType "Vesper.Fun" with
-                | ValueSome(ExternalTypeShape.Class(arity, _, origin)) ->
-                    Expect.equal arity 2 "Fun has two typars"
-                    Expect.equal origin.Assembly (Some "Vesper.Core") "origin assembly = Vesper.Core"
-                    Expect.equal origin.Namespace "Vesper" "origin namespace = Vesper"
+                | ValueSome(ExternalTypeShape.Class info) ->
+                    Expect.equal info.Arity 2 "Fun has two typars"
+                    Expect.equal info.Origin.Assembly (Some "Vesper.Core") "origin assembly = Vesper.Core"
+                    Expect.equal info.Origin.Namespace "Vesper" "origin namespace = Vesper"
                 | other -> failtestf "expected Vesper.Fun as Class shape, got %A" other
             }
 

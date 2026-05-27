@@ -573,7 +573,8 @@ module VesperLib =
                 // `EqualityComparer<_>` — resolve through `TryLookupType` instead
                 // of `ValueNone` (symbol-resolution-plan §4). `Origin` is stamped
                 // by the resolving source (e.g. `ReferencedProject`), not here.
-                ctx.TypeShapes.[compiled] <- ExternalTypeShape.Class(arity, true, SymbolOrigin.Empty)
+                ctx.TypeShapes.[compiled] <-
+                    ExternalTypeShape.Class(ExternalClassShape.basic (arity, true, SymbolOrigin.Empty))
 
         | TypeSignature.Anon(typeName = typeName)
         | TypeSignature.Class(typeName = typeName)
@@ -586,7 +587,8 @@ module VesperLib =
             match registerTypeDecl ctx lexed input path typeName with
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) ->
-                ctx.TypeShapes.[compiled] <- ExternalTypeShape.Class(arity, false, SymbolOrigin.Empty)
+                ctx.TypeShapes.[compiled] <-
+                    ExternalTypeShape.Class(ExternalClassShape.basic (arity, false, SymbolOrigin.Empty))
 
         | TypeSignature.Enum(typeName = typeName)
         | TypeSignature.Delegate(typeName = typeName)

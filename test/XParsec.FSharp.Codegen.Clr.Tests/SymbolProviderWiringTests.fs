@@ -53,8 +53,8 @@ let tests =
                 // Short-name resolution moved out of the provider into the ambient
                 // open scope (O3), so the provider answers the qualified name.
                 match provider.TryLookupType "Vesper.int" with
-                | ValueSome(ExternalTypeShape.Class(_, _, origin)) ->
-                    Expect.equal origin.Assembly (Some "Vesper.Core") "int resolves through the manifest layer"
+                | ValueSome(ExternalTypeShape.Class info) ->
+                    Expect.equal info.Origin.Assembly (Some "Vesper.Core") "int resolves through the manifest layer"
                 | other -> failtestf "expected Vesper.int as a Class shape from the manifest layer, got %A" other
 
                 // Operators now resolve from the contract — but only under their
