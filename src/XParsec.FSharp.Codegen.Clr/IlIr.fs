@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.Codegen.Clr
 
 open System.Reflection.Metadata
+open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 
 // A reified IL instruction buffer that both the dynamic TAST walker and the
@@ -58,6 +59,30 @@ type ILInstr =
     /// falls through.
     | Throw
     | Ret
+    /// Pseudo-mark: open a try region. `lower` defines + marks an internal
+    /// `tryStart` label; the matching `BeginFinally`/`BeginCatch` records the
+    /// region's `tryEnd`/`handlerStart`, and `EndFinally`/`EndCatch` its
+    /// `handlerEnd`. Pseudo-marks emit no IL; `analyze` skips them.
+    | Try
+    /// Pseudo-mark: close the try body and start a catch handler for `exn`. CLI
+    /// pushes the exception object at handler entry, so `analyze` resets the
+    /// depth to 1 here and `lower` bumps `maxStack` to match.
+    | BeginCatch of exn: EntityHandle
+    /// Pseudo-mark: close the try body and start a finally handler. CLI runs the
+    /// handler with an empty evaluation stack, so `analyze` resets the depth to 0.
+    | BeginFinally
+    /// Pseudo-mark: close a catch handler region. Paired with the most recent
+    /// `BeginCatch`; emits no IL. (Finally is closed by `EndFinally`, which is
+    /// both a terminator and a region-close.)
+    | EndCatch
+    /// `leave <label>` — the only legal exit from a protected region. The runtime
+    /// clears the evaluation stack as a side effect, so the target sees depth 0
+    /// regardless of the depth at the source position. Like `Br`, the
+    /// fall-through path is unreachable.
+    | Leave of int
+    /// `endfinally` — the terminator that closes a finally handler. Emits the
+    /// `endfinally` opcode and (in `lower`) marks the region's `handlerEnd`.
+    | EndFinally
 
 // A method body is built by sequential appends, then scanned twice (`analyze`,
 // then `lower`) and discarded — no random access, no mid-stream splicing. So the
@@ -119,6 +144,15 @@ module private InstrDelta =
         | ILInstr.Mark _
         | ILInstr.Br _
         | ILInstr.Ret -> 0
+        // Exception-region pseudo-marks emit no IL; `Leave`/`EndFinally` are
+        // terminators whose stack effect (clear-on-leave, depth-must-be-0 at
+        // endfinally) is modelled by `analyze` and the caller's `SetDepth`.
+        | ILInstr.Try
+        | ILInstr.BeginCatch _
+        | ILInstr.BeginFinally
+        | ILInstr.EndCatch
+        | ILInstr.Leave _
+        | ILInstr.EndFinally -> 0
 
 /// Mutable builder: mints label ids + local slots and accumulates instructions —
 /// the equivalent of appending to the body during a structural walk. It also
@@ -193,7 +227,13 @@ module IlIr =
         | ILInstr.BneUn _
         | ILInstr.Beq _
         | ILInstr.Throw
-        | ILInstr.Ret -> 0
+        | ILInstr.Ret
+        | ILInstr.Try
+        | ILInstr.BeginCatch _
+        | ILInstr.BeginFinally
+        | ILInstr.EndCatch
+        | ILInstr.Leave _
+        | ILInstr.EndFinally -> 0
 
     type Analysis =
         {
@@ -271,6 +311,41 @@ module IlIr =
                         cur <- ValueSome(d - 2)
                     | ValueSome _ -> err <- Some "stack underflow at compare-branch"
                     | ValueNone -> err <- Some "unreachable compare-branch"
+                | ILInstr.Leave l ->
+                    // `leave` clears the evaluation stack as a side effect, so
+                    // the target label sees depth 0 regardless of the depth at
+                    // the source. Like `Br`, the fall-through path is unreachable
+                    // and a dead `Leave` (already `ValueNone`) does not note.
+                    (match cur with
+                     | ValueSome _ -> note l 0
+                     | ValueNone -> ())
+
+                    cur <- ValueNone
+                | ILInstr.EndFinally ->
+                    // Terminator inside a finally handler (no fall-through).
+                    cur <- ValueNone
+                | ILInstr.Try
+                | ILInstr.EndCatch ->
+                    // Pure structural pseudo-marks. Try opens a region at the
+                    // current depth (typically 0 at statement position); EndCatch
+                    // closes one — the handler body itself terminated via `leave`
+                    // or `throw`, so `cur` is already `ValueNone` here.
+                    ()
+                | ILInstr.BeginFinally ->
+                    // CLI: a finally handler is entered with an empty evaluation
+                    // stack. The matching try body must have ended with `leave`,
+                    // so fall-through into the handler is illegal — but we don't
+                    // enforce that here; we simply reset the abstract depth.
+                    cur <- ValueSome 0
+                | ILInstr.BeginCatch _ ->
+                    // CLI: a catch handler is entered with the exception object
+                    // already pushed by the runtime. Bump `maxStack` since this
+                    // depth=1 entry isn't otherwise reached by a `straightDelta`
+                    // adjustment.
+                    cur <- ValueSome 1
+
+                    if maxStack < 1 then
+                        maxStack <- 1
                 | _ ->
                     match cur with
                     | ValueSome d ->
@@ -323,6 +398,21 @@ module IlIr =
         // `markLabel`; every minted label is marked by construction).
         let labels = Array.init body.LabelCount (fun _ -> Cil.defineLabel il)
 
+        // Exception regions are encoded by mating four `LabelHandle`s (tryStart,
+        // tryEnd, handlerStart, handlerEnd) and recording the region on the
+        // encoder's `ControlFlowBuilder`. The IR-level pseudo-marks
+        // (`Try`/`BeginFinally`/`BeginCatch`/`EndFinally`/`EndCatch`) carry no
+        // user label of their own; `lower` mints fresh internal labels and marks
+        // them in-place. A LIFO stack handles nested regions: `Try` pushes,
+        // `BeginFinally`/`BeginCatch` fills in the handler kind + start, and
+        // `EndFinally`/`EndCatch` pops + commits the region.
+        let cfb =
+            match il.Encoder.ControlFlowBuilder with
+            | null -> failwith "IlIr.lower: InstructionEncoder has no ControlFlowBuilder"
+            | b -> b
+
+        let regionStack = ResizeArray<LabelHandle * LabelHandle * ILInstr>()
+
         for i in body.Instrs do
             match i with
             | ILInstr.Ldarg n -> Cil.emitLdarg il n
@@ -356,3 +446,64 @@ module IlIr =
             | ILInstr.Beq l -> Cil.emitBeq il labels.[l]
             | ILInstr.Throw -> Cil.emitThrow il
             | ILInstr.Ret -> Cil.emitRet il
+            | ILInstr.Try ->
+                let tryStart = Cil.defineLabel il
+                Cil.markLabel il tryStart
+                // HandlerStart is filled in at `BeginFinally`/`BeginCatch`; we
+                // push a placeholder kind (`Try` itself) and let the matching
+                // begin-handler instruction overwrite it.
+                regionStack.Add(tryStart, Unchecked.defaultof<LabelHandle>, ILInstr.Try)
+            | ILInstr.BeginFinally ->
+                if regionStack.Count = 0 then
+                    failwith "IlIr.lower: BeginFinally without a matching Try"
+
+                let top = regionStack.Count - 1
+                let tryStart, _, _ = regionStack.[top]
+                let handlerStart = Cil.defineLabel il
+                Cil.markLabel il handlerStart
+                il.SetDepth 0 // CLI: finally handler entered with empty stack.
+                regionStack.[top] <- (tryStart, handlerStart, ILInstr.BeginFinally)
+            | ILInstr.BeginCatch h ->
+                if regionStack.Count = 0 then
+                    failwith "IlIr.lower: BeginCatch without a matching Try"
+
+                let top = regionStack.Count - 1
+                let tryStart, _, _ = regionStack.[top]
+                let handlerStart = Cil.defineLabel il
+                Cil.markLabel il handlerStart
+                // CLI: runtime pushes the exception object at handler entry.
+                // SetDepth then Adjust(+1) so `Il.MaxStack` includes it.
+                il.SetDepth 0
+                il.Adjust 1
+                regionStack.[top] <- (tryStart, handlerStart, ILInstr.BeginCatch h)
+            | ILInstr.EndFinally ->
+                if regionStack.Count = 0 then
+                    failwith "IlIr.lower: EndFinally without a matching Try/BeginFinally"
+
+                Cil.emitEndFinally il
+                let handlerEnd = Cil.defineLabel il
+                Cil.markLabel il handlerEnd
+                let top = regionStack.Count - 1
+                let tryStart, handlerStart, kind = regionStack.[top]
+                regionStack.RemoveAt top
+
+                match kind with
+                | ILInstr.BeginFinally -> cfb.AddFinallyRegion(tryStart, handlerStart, handlerStart, handlerEnd)
+                | _ -> failwithf "IlIr.lower: EndFinally closing a non-finally region (%A)" kind
+            | ILInstr.EndCatch ->
+                if regionStack.Count = 0 then
+                    failwith "IlIr.lower: EndCatch without a matching Try/BeginCatch"
+
+                let handlerEnd = Cil.defineLabel il
+                Cil.markLabel il handlerEnd
+                let top = regionStack.Count - 1
+                let tryStart, handlerStart, kind = regionStack.[top]
+                regionStack.RemoveAt top
+
+                match kind with
+                | ILInstr.BeginCatch exn -> cfb.AddCatchRegion(tryStart, handlerStart, handlerStart, handlerEnd, exn)
+                | _ -> failwithf "IlIr.lower: EndCatch closing a non-catch region (%A)" kind
+            | ILInstr.Leave l -> Cil.emitLeave il labels.[l]
+
+        if regionStack.Count <> 0 then
+            failwithf "IlIr.lower: %d exception region(s) left open at end of body" regionStack.Count

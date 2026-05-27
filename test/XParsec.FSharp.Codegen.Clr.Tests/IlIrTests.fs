@@ -180,4 +180,149 @@ let tests =
                 | Result.Error _ -> ()
                 | Result.Ok ms -> failtestf "expected underflow error, got maxStack %d" ms
             }
+
+            // ---- Exception regions (H5) -------------------------------------
+            // The IR's `Try`/`BeginFinally`/`BeginCatch`/`EndFinally`/`EndCatch`/
+            // `Leave` pseudo-marks bracket protected regions; `lower` mints internal
+            // labels at each pseudo-mark and records the region on the encoder's
+            // `ControlFlowBuilder`. `analyze` models the CLI handler-entry depth
+            // (0 for finally, 1 for catch) and treats `leave` as clearing the
+            // evaluation stack.
+
+            test "try/finally with no thrown exception runs both halves" {
+                // result = 0; try { result = 42 } finally { result += 100 }; return result
+                let b = IlBuilder()
+                let result = b.Local(TyConst "int")
+                let exitL = b.Label()
+                b.Add(ILInstr.LdcI4 0)
+                b.Add(ILInstr.Stloc result)
+                b.Add ILInstr.Try
+                b.Add(ILInstr.LdcI4 42)
+                b.Add(ILInstr.Stloc result)
+                b.Add(ILInstr.Leave exitL)
+                b.Add ILInstr.BeginFinally
+                b.Add(ILInstr.Ldloc result)
+                b.Add(ILInstr.LdcI4 100)
+                b.Add(ILInstr.Bin ILOpCode.Add)
+                b.Add(ILInstr.Stloc result)
+                b.Add ILInstr.EndFinally
+                b.Add(ILInstr.Mark exitL)
+                b.Add(ILInstr.Ldloc result)
+                b.Add ILInstr.Ret
+
+                Expect.equal (runBody "IrTryFin" b.Body) 142 "42 (try) + 100 (finally) = 142"
+            }
+
+            test "verify accepts a try/finally body" {
+                // Same shape as above; just confirms analyze's region rules.
+                let b = IlBuilder()
+                let r = b.Local(TyConst "int")
+                let exitL = b.Label()
+                b.Add(ILInstr.LdcI4 0)
+                b.Add(ILInstr.Stloc r)
+                b.Add ILInstr.Try
+                b.Add(ILInstr.LdcI4 1)
+                b.Add(ILInstr.Stloc r)
+                b.Add(ILInstr.Leave exitL)
+                b.Add ILInstr.BeginFinally
+                b.Add(ILInstr.LdcI4 2)
+                b.Add(ILInstr.Stloc r)
+                b.Add ILInstr.EndFinally
+                b.Add(ILInstr.Mark exitL)
+                b.Add(ILInstr.Ldloc r)
+                b.Add ILInstr.Ret
+
+                match IlIr.verify b.Body with
+                | Result.Ok _ -> ()
+                | Result.Error e -> failtestf "verify rejected a valid try/finally: %s" e
+            }
+
+            test "BeginCatch entry pushes the exception object (depth = 1)" {
+                // `pop` immediately after BeginCatch should not underflow — the
+                // runtime pushes the exception, giving the handler entry depth 1.
+                let b = IlBuilder()
+                let r = b.Local(TyConst "int")
+                let exitL = b.Label()
+                b.Add(ILInstr.LdcI4 0)
+                b.Add(ILInstr.Stloc r)
+                b.Add ILInstr.Try
+                b.Add ILInstr.Ldnull
+                b.Add ILInstr.Throw
+                b.Add(ILInstr.BeginCatch(System.Reflection.Metadata.EntityHandle()))
+                b.Add ILInstr.Pop // pops the exception object
+                b.Add(ILInstr.LdcI4 7)
+                b.Add(ILInstr.Stloc r)
+                b.Add(ILInstr.Leave exitL)
+                b.Add ILInstr.EndCatch
+                b.Add(ILInstr.Mark exitL)
+                b.Add(ILInstr.Ldloc r)
+                b.Add ILInstr.Ret
+
+                match IlIr.verify b.Body with
+                | Result.Ok ms -> Expect.isGreaterThanOrEqual ms 1 "maxStack includes the catch exception"
+                | Result.Error e -> failtestf "verify rejected a valid try/catch: %s" e
+            }
+
+            test "lower fails fast on an unclosed exception region" {
+                // `Try` with no matching `BeginFinally`/`BeginCatch` — `lower`
+                // surfaces this as a hard error rather than emitting malformed IL.
+                let b = IlBuilder()
+                b.Add ILInstr.Try
+                b.Add(ILInstr.LdcI4 0)
+                b.Add ILInstr.Ret
+
+                let il = Il(InstructionEncoder(BlobBuilder(), ControlFlowBuilder()))
+
+                Expect.throws (fun () -> IlIr.lower b.Body il) "lower must reject an unclosed region"
+            }
+
+            // The end-to-end try/catch test (a thrown exception caught by a real
+            // `catch (System.Object)`) needs a `System.Object` `EntityHandle`,
+            // which only the wired `ClrProvider` mints. Drive it through the
+            // provider-aware seam.
+            test "try/finally that throws — finally runs, outer catch sees it" {
+                // result = 0
+                // try {
+                //   try { ldnull; throw }
+                //   finally { result = 100 }
+                // }
+                // catch (object) { pop; }
+                // return result
+                let buildBody (provider: ICodegenProvider) (il: Il) : unit =
+                    let b = IlBuilder()
+                    let r = b.Local(TyConst "int")
+                    let outerExit = b.Label()
+                    let innerExit = b.Label()
+                    b.Add(ILInstr.LdcI4 0)
+                    b.Add(ILInstr.Stloc r)
+                    // outer try
+                    b.Add ILInstr.Try
+                    // inner try
+                    b.Add ILInstr.Try
+                    b.Add ILInstr.Ldnull
+                    b.Add ILInstr.Throw
+                    b.Add(ILInstr.Leave innerExit) // dead, but a try body cannot fall through
+                    b.Add ILInstr.BeginFinally
+                    b.Add(ILInstr.LdcI4 100)
+                    b.Add(ILInstr.Stloc r)
+                    b.Add ILInstr.EndFinally
+                    b.Add(ILInstr.Mark innerExit)
+                    // outer try body's exit (also dead under exception path)
+                    b.Add(ILInstr.Leave outerExit)
+                    b.Add(ILInstr.BeginCatch provider.ObjectType)
+                    b.Add ILInstr.Pop
+                    b.Add(ILInstr.Leave outerExit)
+                    b.Add ILInstr.EndCatch
+                    b.Add(ILInstr.Mark outerExit)
+                    b.Add(ILInstr.Ldloc r)
+                    b.Add ILInstr.Ret
+                    IlIr.lower b.Body il
+
+                let bytes =
+                    Codegen.assembleMainEmitWithProvider (ProjectInfo.defaults "IrTryCatch") buildBody
+                    |> Codegen.toBytes
+
+                let code, _ = runEntryPoint bytes
+                Expect.equal code 100 "finally ran (set 100), catch swallowed the exception, return value = 100"
+            }
         ]

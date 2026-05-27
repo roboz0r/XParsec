@@ -1827,6 +1827,13 @@ module Codegen =
     let assembleMainEmit (project: ProjectInfo) (build: Il -> unit) : ClrArtifact =
         assembleWith project (fun _ _ -> build)
 
+    /// Provider-aware variant: the build callback sees the wired
+    /// `ICodegenProvider` so the test seam can reference BCL primitives
+    /// (`ExceptionCtor`, `ObjectType`, …) without setting up a TAST. Used by
+    /// `IlIr`'s exception-region tests to throw + catch real `System.Exception`s.
+    let assembleMainEmitWithProvider (project: ProjectInfo) (build: ICodegenProvider -> Il -> unit) : ClrArtifact =
+        assembleWith project (fun _ provider il -> build (provider :> ICodegenProvider) il)
+
     /// The serialised PE bytes.
     let toBytes (artifact: ClrArtifact) : byte[] = artifact.Pe.ToArray()
 

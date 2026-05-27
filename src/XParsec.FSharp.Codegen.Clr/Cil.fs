@@ -194,6 +194,17 @@ module Cil =
         il.Encoder.OpCode(ILOpCode.Throw)
         il.Adjust -1
 
+    /// `leave <label>` — the only legal exit from a protected region. The runtime
+    /// clears the entire evaluation stack as a side effect; from the linear
+    /// emitter's POV the path terminates, so the depth tracker isn't adjusted
+    /// (the next reachable Mark resets it from `analyze`'s LabelDepths).
+    let emitLeave (il: Il) (label: LabelHandle) : unit =
+        il.Encoder.Branch(ILOpCode.Leave, label)
+
+    /// `endfinally` — terminator inside a finally handler. Depth at this point
+    /// is 0 (CLI requirement); no adjustment needed.
+    let emitEndFinally (il: Il) : unit = il.Encoder.OpCode(ILOpCode.Endfinally)
+
     // ---- Finalisation ----
 
     /// `maxStack` comes from the tracked peak depth — no separate pass.
