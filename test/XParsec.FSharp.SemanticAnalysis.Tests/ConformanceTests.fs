@@ -26,20 +26,20 @@ let private conform (sigSrc: string) (implSrc: string) : Conformance.Conformance
     let implLexed, implFile = parseFile implSrc
     Conformance.checkPair sigLexed sigSrc sigFile implLexed implSrc implFile
 
-let private externNames (decls: (string * Conformance.SigShape) list) =
+let private externNames (decls: Conformance.SigDecl list) =
     decls
-    |> List.choose (fun (n, s) ->
-        match s with
-        | Conformance.SigShape.Extern -> Some n
+    |> List.choose (fun d ->
+        match d.Shape with
+        | Conformance.SigShape.Extern -> Some d.Name
         | _ -> None
     )
     |> Set.ofList
 
-let private intrinsicNames (decls: (string * Conformance.ImplShape) list) =
+let private intrinsicNames (decls: Conformance.ImplDecl list) =
     decls
-    |> List.choose (fun (n, s) ->
-        match s with
-        | Conformance.ImplShape.Intrinsic _ -> Some n
+    |> List.choose (fun d ->
+        match d.Shape with
+        | Conformance.ImplShape.Intrinsic _ -> Some d.Name
         | _ -> None
     )
     |> Set.ofList

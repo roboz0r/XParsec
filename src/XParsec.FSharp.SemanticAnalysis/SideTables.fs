@@ -78,13 +78,17 @@ type ClassMemberKind =
     | Method
     | Property
 
+/// Per-member metadata for a class augmentation, union augmentation, or
+/// (post-sprint) interface impl — the union-vs-class split is owned only by
+/// which side table holds the array (`ClassTypeInfo.Members` vs
+/// `UnionTypeInfo.Members`), not by the record itself.
+///
 /// Member types start as placeholder TyVars and get linked by Unification's
-/// `fillClassMembers` / `fillUnionMembers` after the registry is populated.
-/// Forward references between members in the same type therefore resolve
-/// against the placeholder.
+/// `fillTypeMembers` after the registry is populated. Forward references
+/// between members in the same type therefore resolve against the placeholder.
 [<Sealed>]
-type ClassMemberInfo(name: string, kind: ClassMemberKind, isStatic: bool, ty: SemType, declKey: NodeKey) =
-    new(name, kind, ty, declKey) = ClassMemberInfo(name, kind, false, ty, declKey)
+type TypeMemberInfo(name: string, kind: ClassMemberKind, isStatic: bool, ty: SemType, declKey: NodeKey) =
+    new(name, kind, ty, declKey) = TypeMemberInfo(name, kind, false, ty, declKey)
     member val Name = name
     member val Kind = kind
     /// `true` for `static member`s. Instance members are looked up via
@@ -132,7 +136,7 @@ type UnionTypeInfo
     /// Augmentation members (`with member …` / `static member …`). Member types
     /// start as placeholder TyVars and are linked by Unification's
     /// `fillUnionMembers`. Empty for a plain union.
-    member val Members: ClassMemberInfo[] = [||] with get, set
+    member val Members: TypeMemberInfo[] = [||] with get, set
     /// `this`-binding source name (default `"this"`; honours `as self`).
     member val ThisName = "this" with get, set
     /// Synthetic NodeKey for the `this` binder shared across every instance
@@ -200,7 +204,7 @@ type ClassTypeInfo
         name: string,
         typeParams: (string * TypeVar) list,
         ctorParams: ClassCtorParamInfo[],
-        members: ClassMemberInfo[],
+        members: TypeMemberInfo[],
         declKey: NodeKey,
         thisName: string,
         thisKey: NodeKey
@@ -215,6 +219,18 @@ type ClassTypeInfo
     /// Synthetic NodeKey for the `this` binder shared across every
     /// member body in this class.
     member val ThisKey = thisKey
+
+/// One entry in `PassContextTypes.ClassMemberIndex` — the declaring class
+/// paired with the matching `TypeMemberInfo`. Promoted from a 2-tuple ahead of
+/// the interface-impl sprint so a third field (e.g. the interface the impl
+/// satisfies) lands by extending the record rather than churning every caller.
+/// See [`docs/pre-sprint-cleanup.md`](docs/pre-sprint-cleanup.md) P2.12.
+[<Struct; NoEquality; NoComparison>]
+type ClassMemberIndexEntry =
+    {
+        Class: ClassTypeInfo
+        Member: TypeMemberInfo
+    }
 
 /// A member access on an *external* type that resolved through the provider
 /// (symbol-resolution-plan §7.2). Recorded by `Unification` keyed by the
@@ -271,10 +287,10 @@ type PassContextTypes =
         CtorIndex: Dictionary<string, UnionCaseInfo list>
         /// Reverse index: field name → list of record types that declare it.
         FieldIndex: Dictionary<string, RecordTypeInfo list>
-        /// Reverse index: member name → list of (class, member) pairs. Used only for
-        /// ambiguity diagnostics when a receiver's type is free and the member name
-        /// occurs in multiple classes.
-        ClassMemberIndex: Dictionary<string, (ClassTypeInfo * ClassMemberInfo) list>
+        /// Reverse index: member name → list of declaring (class, member) entries.
+        /// Used only for ambiguity diagnostics when a receiver's type is free and
+        /// the member name occurs in multiple classes.
+        ClassMemberIndex: Dictionary<string, ClassMemberIndexEntry list>
         /// Maps the Vesper type name to its target representation (the inline-IL
         /// string), from an intrinsic-binding abbrev (`type int = (# "System.Int32" #)`).
         /// Unlike `Abbreviation`, these are NOT transparent: a use site resolves to
@@ -458,10 +474,13 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
         | TokenIndex.Regular iT -> this.Lexed.GetTokenReadable(iT, this.Input)
         | TokenIndex.Virtual -> ReadableString.Empty
 
-/// TODO: flesh out (range, code, sub-severities) once passes need to differentiate.
+/// TODO: range + sub-severities still pending. `Code` lets the sprint group
+/// related diagnostics (e.g. for tooling); existing call sites pass `""` —
+/// new ones should mint a short identifier (e.g. `"V001"`).
 and [<Struct>] Diagnostic =
     {
         Key: NodeKey
+        Code: string
         Message: string
         Severity: Severity
     }

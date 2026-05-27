@@ -9,15 +9,6 @@ open XParsec.FSharp.SemanticAnalysis
 //       from its surface form.
 //
 // Annotation-only: NEVER rewrites the CST.
-//
-// TODO — constructs that will need desugaring:
-//   - `x |> f`, `x ||> f y`             -> Application
-//   - List / array / seq comprehensions -> yield + CE method chain
-//   - `for x in xs do …`                -> IEnumerator pattern
-//   - Computation expressions           -> Builder method chain
-//   - Active pattern uses               -> Match + discriminator calls
-//   - Range expressions                 -> Seq.initInfinite + take, or fast path
-//   - Object expressions                -> Type instantiation + interface impl
 
 module Desugar =
 

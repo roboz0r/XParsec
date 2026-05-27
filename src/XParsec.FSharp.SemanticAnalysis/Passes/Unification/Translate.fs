@@ -66,6 +66,7 @@ module UnificationTranslate =
                 {
                     Key = diagKey
                     Message = "Measure typars / wildcards / qualified unit names not yet supported"
+                    Code = ""
                     Severity = Error
                 }
 
@@ -111,6 +112,7 @@ module UnificationTranslate =
                                 sprintf
                                     "Free type parameter %s is not declared in the enclosing type's type-parameter list"
                                     name
+                            Code = ""
                             Severity = Error
                         }
 
@@ -299,6 +301,7 @@ module UnificationTranslate =
                 {
                     Key = diagKey
                     Message = sprintf "Type '%s' expects %d type argument(s) but got %d" name expected argCount
+                    Code = ""
                     Severity = Error
                 }
 
@@ -437,6 +440,7 @@ module UnificationTranslate =
                                 sprintf
                                     "Type parameter '%s' in constraint clause is not declared in the enclosing scope"
                                     name
+                            Code = ""
                             Severity = Error
                         }
 
@@ -481,6 +485,7 @@ module UnificationTranslate =
                 {
                     Key = info.DeclKey
                     Message = sprintf "Type abbreviation '%s' is cyclic" info.Name
+                    Code = ""
                     Severity = Error
                 }
 
@@ -545,6 +550,7 @@ module UnificationTranslate =
                                     "The type '%A' does not support the '%s' constraint"
                                     (zonk arg)
                                     (constraintKindName c.Kind)
+                            Code = ""
                             Severity = Error
                         }
                 | Defer -> propagateToFreeArgs ctx c arg

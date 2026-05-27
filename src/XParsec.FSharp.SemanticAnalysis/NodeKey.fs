@@ -141,6 +141,4 @@ module NodeKey =
         let k = (uint64 (LanguagePrimitives.EnumToValue kind)) <<< 32
         NodeKey(off ||| k ||| synBit)
 
-    // TODO: per-CST-DU-case helpers (ofExpr, ofPat, ofDecl) live next to the
-    // passes that walk those DUs.
     let ofToken (firstToken: SyntaxToken) (kind: NodeKind) : NodeKey = ofSource firstToken.StartIndex kind

@@ -8,8 +8,7 @@ open XParsec.Toml
 /// table names the namespace and lists its contract `.fsi` files in compile
 /// order; this module parses each into one accumulating `ExtractCtx` (reusing
 /// `VesperLib`'s extractor) and exposes the result as an `IExternalSymbolProvider`
-/// whose symbols carry the package `Origin` (assembly simple name + namespace) —
-/// the first real consumer of the P0 identity surface.
+/// whose symbols carry the package `Origin` (assembly simple name + namespace).
 ///
 /// The `.fsi` is the *target-agnostic contract* (`type int = extern`); the
 /// matching `.fs` is the *per-target binding* (`type int = (# "System.Int32" #)`).

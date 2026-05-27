@@ -371,6 +371,7 @@ module UnificationInfer =
                     {
                         Key = key
                         Message = sprintf "Measure mismatch: <%O> vs <%O>" m1 m2
+                        Code = ""
                         Severity = Error
                     }
 
@@ -381,6 +382,7 @@ module UnificationInfer =
                     {
                         Key = key
                         Message = sprintf "Measure mismatch: dimensionless vs <%O>" m
+                        Code = ""
                         Severity = Error
                     }
 
@@ -400,6 +402,7 @@ module UnificationInfer =
                     {
                         Key = key
                         Message = sprintf "Measure mismatch: <%O> vs <%O>" m1 m2
+                        Code = ""
                         Severity = Error
                     }
 
@@ -410,6 +413,7 @@ module UnificationInfer =
                     {
                         Key = key
                         Message = sprintf "Measure mismatch: dimensionless vs <%O>" m
+                        Code = ""
                         Severity = Error
                     }
 
@@ -590,6 +594,7 @@ module UnificationInfer =
                                 "Constructor '%s' takes %d argument(s) but is used nullary in pattern position"
                                 n
                                 i.Fields.Length
+                        Code = ""
                         Severity = Error
                     }
 
@@ -605,6 +610,7 @@ module UnificationInfer =
                         Key = key
                         Message =
                             sprintf "Ambiguous constructor '%s'; declared in %d union types — add a qualifier" n count
+                        Code = ""
                         Severity = Error
                     }
 
@@ -648,6 +654,7 @@ module UnificationInfer =
                                         "Ambiguous constructor '%s'; declared in %d union types — add a qualifier"
                                         name
                                         count
+                                Code = ""
                                 Severity = Error
                             }
 
@@ -683,6 +690,7 @@ module UnificationInfer =
                                     i.Name
                                     i.Fields.Length
                                     subPats.Length
+                            Code = ""
                             Severity = Error
                         }
 
@@ -773,6 +781,7 @@ module UnificationInfer =
                             {
                                 Key = key
                                 Message = sprintf "Unknown record type qualifier: %s" typeName
+                                Code = ""
                                 Severity = Error
                             }
 
@@ -789,6 +798,7 @@ module UnificationInfer =
                                     Key = key
                                     Message =
                                         sprintf "No record type matches the field set: %s" (String.concat ", " names)
+                                    Code = ""
                                     Severity = Error
                                 }
                         else
@@ -799,6 +809,7 @@ module UnificationInfer =
                                         sprintf
                                             "Field set is ambiguous (%d candidate record types); add a qualifier or annotation"
                                             count
+                                    Code = ""
                                     Severity = Error
                                 }
 
@@ -825,6 +836,7 @@ module UnificationInfer =
                             {
                                 Key = CstKeys.ofPat sub
                                 Message = sprintf "Type '%s' has no field '%s'" info.Name fieldName
+                                Code = ""
                                 Severity = Error
                             }
 
@@ -966,8 +978,11 @@ module UnificationInfer =
             | Expr.LibraryOnlyStaticOptimization(expr = baseE; constraints = cs; optimizedExpr = optE) ->
                 inferLibraryOnlyStaticOptimization ctx key baseE cs optE
             | _ ->
-                // TODO: other expression kinds.
-                TyVar(freshTyVar ctx)
+                // Surface the unhandled case loudly rather than fabricating a
+                // free TyVar and silently producing a broken type for every
+                // use site. Matches the precedent in
+                // `Freeze.translateExpr` (file: Freeze.fs).
+                failwithf "infer: TODO %A" e
 
         nodeTv.Link <- ValueSome inferredTy
         inferredTy
@@ -994,6 +1009,7 @@ module UnificationInfer =
                         {
                             Key = key
                             Message = sprintf "Operator '%s' is not available from the symbol provider" name
+                            Code = ""
                             Severity = Error
                         }
 
@@ -1004,129 +1020,117 @@ module UnificationInfer =
             && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
             ->
             inferLongIdentFieldChain ctx key li
-        // Qualified static member: `Math.Pi`, `Box.Empty`. Typars are
-        // instantiated fresh per use site so two `Box.Empty ()` calls don't
-        // share a `'a`.
+        // Two-segment qualified reference whose head is *not* a local binding:
+        // `Math.Pi` / `Lst.Empty` / `Result2.Ok`. Dispatches on whether the head
+        // names a class or a union (static-member vs union-case lookup).
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
-            li.Idents.Length = 2
-            && not (ctx.Bindings.Binding.ContainsKey key)
-            && (
-                match ctx.Types.Class.TryGetValue(ctx.NameOf li.Idents.[0]) with
-                | true, info ->
-                    let n = ctx.NameOf li.Idents.[1]
-                    info.Members |> Array.exists (fun m -> m.IsStatic && m.Name = n)
-                | false, _ -> false
-            )
+            li.Idents.Length = 2 && not (ctx.Bindings.Binding.ContainsKey key)
             ->
-            let className = ctx.NameOf li.Idents.[0]
-            let memberName = ctx.NameOf li.Idents.[1]
-            let info = ctx.Types.Class.[className]
+            let headName = ctx.NameOf li.Idents.[0]
+            let tailName = ctx.NameOf li.Idents.[1]
 
-            let m = info.Members |> Array.find (fun m -> m.IsStatic && m.Name = memberName)
+            let tryStaticMember (typeParams: (string * TypeVar) list) (members: TypeMemberInfo[]) =
+                match members |> Array.tryFind (fun m -> m.IsStatic && m.Name = tailName) with
+                | Some m ->
+                    let _, subst = freshNamedInstance ctx typeParams
+                    ValueSome(substituteWith subst m.Type)
+                | None -> ValueNone
 
-            let _, subst = freshNamedInstance ctx info.TypeParams
-            substituteWith subst m.Type
-        // Qualified static member on a *union*: `Lst.Empty` (P3d.3). Checked
-        // before the ctor arm so a static member shadows the not-a-case
-        // diagnostic; a name that is a case (not a static member) fails this
-        // guard and falls through to the ctor arm.
-        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
-            li.Idents.Length = 2
-            && not (ctx.Bindings.Binding.ContainsKey key)
-            && (
-                match ctx.Types.Union.TryGetValue(ctx.NameOf li.Idents.[0]) with
-                | true, info ->
-                    let n = ctx.NameOf li.Idents.[1]
-                    info.Members |> Array.exists (fun m -> m.IsStatic && m.Name = n)
-                | false, _ -> false
-            )
-            ->
-            let unionName = ctx.NameOf li.Idents.[0]
-            let memberName = ctx.NameOf li.Idents.[1]
-            let info = ctx.Types.Union.[unionName]
+            // Class static member takes priority over union static member which
+            // takes priority over a union ctor — preserves the original cascade
+            // order so a static member shadows the not-a-case diagnostic.
+            let classHit =
+                match ctx.Types.Class.TryGetValue headName with
+                | true, info -> tryStaticMember info.TypeParams info.Members
+                | false, _ -> ValueNone
 
-            let m = info.Members |> Array.find (fun m -> m.IsStatic && m.Name = memberName)
-
-            let _, subst = freshNamedInstance ctx info.TypeParams
-            substituteWith subst m.Type
-        // Qualified ctor reference `Result2.Ok` — via the union registry,
-        // bypassing the CtorIndex ambiguity check.
-        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
-            li.Idents.Length = 2
-            && not (ctx.Bindings.Binding.ContainsKey key)
-            && ctx.Types.Union.ContainsKey(ctx.NameOf li.Idents.[0])
-            ->
-            let typeName = ctx.NameOf li.Idents.[0]
-            let caseName = ctx.NameOf li.Idents.[1]
-
-            match resolveQualifiedCtor ctx typeName caseName with
-            | ValueSome info -> ctorType ctx info
+            match classHit with
+            | ValueSome ty -> ty
             | ValueNone ->
-                ctx.Diagnostics.Add
-                    {
-                        Key = key
-                        Message = sprintf "Union '%s' has no case '%s'" typeName caseName
-                        Severity = Error
-                    }
-
-                TyVar(freshTyVar ctx)
-        | _ ->
-            match ctx.Bindings.Binding.TryGetValue key with
-            | ValueSome rb ->
-                // Already-generalised binding: instantiate its scheme for
-                // independent use-sites. Otherwise the monomorphic TyVar from
-                // inferPat — including uses inside a sibling's RHS in the same
-                // `let rec` group, which is what forbids polymorphic recursion.
-                match ctx.Bindings.Scheme.TryGetValue rb.BindingSite with
-                | ValueSome scheme -> instantiate ctx scheme
-                | ValueNone -> TyVar(tvOf ctx rb.BindingSite)
-            | ValueNone ->
-                // Provider first — provider hits beat ctor-name resolution
-                // when both exist (a let-bound `Ok` would have a Binding entry
-                // and never reach here). Bare single-segment idents absent
-                // from the provider fall to the ctor registry.
-                let name = qualifiedNameOf ctx e
-
-                match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
-                | ValueSome sym -> sym.Instantiate ctx.CurrentLevel
-                | ValueNone ->
-
-                    match tryExternalStaticLongIdent ctx key e with
+                match ctx.Types.Union.TryGetValue headName with
+                | true, info ->
+                    match tryStaticMember info.TypeParams info.Members with
                     | ValueSome ty -> ty
                     | ValueNone ->
-                        let singleSegName =
-                            match e with
-                            | Expr.Ident t -> ValueSome(ctx.NameOf t)
-                            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
-                                ValueSome(ctx.NameOf li.Idents.[0])
-                            | _ -> ValueNone
+                        // Qualified ctor reference `Result2.Ok` — via the union
+                        // registry, bypassing the CtorIndex ambiguity check.
+                        match resolveQualifiedCtor ctx headName tailName with
+                        | ValueSome info -> ctorType ctx info
+                        | ValueNone ->
+                            ctx.Diagnostics.Add
+                                {
+                                    Key = key
+                                    Message = sprintf "Union '%s' has no case '%s'" headName tailName
+                                    Code = ""
+                                    Severity = Error
+                                }
 
-                        match singleSegName with
-                        | ValueSome n ->
-                            let info, count = resolveCtorName ctx n
+                            TyVar(freshTyVar ctx)
+                | false, _ -> inferIdentDefault ctx e key
+        | _ -> inferIdentDefault ctx e key
 
-                            match info with
-                            | ValueSome i -> ctorType ctx i
-                            | ValueNone when count >= 2 ->
-                                ctx.Diagnostics.Add
-                                    {
-                                        Key = key
-                                        Message =
-                                            sprintf
-                                                "Ambiguous constructor '%s'; declared in %d union types — add a qualifier or annotation"
-                                                n
-                                                count
-                                        Severity = Error
-                                    }
+    /// Fallback for `inferIdent`: identifiers that aren't recognised as a
+    /// field-access chain or a qualified class/union reference. Resolves
+    /// through the local binding map, then the provider, then `Class`-name and
+    /// `Union`-case registries (the latter two only for single-segment names).
+    and private inferIdentDefault (ctx: PassContext) (e: Expr<SyntaxToken>) (key: NodeKey) : SemType =
+        match ctx.Bindings.Binding.TryGetValue key with
+        | ValueSome rb ->
+            // Already-generalised binding: instantiate its scheme for
+            // independent use-sites. Otherwise the monomorphic TyVar from
+            // inferPat — including uses inside a sibling's RHS in the same
+            // `let rec` group, which is what forbids polymorphic recursion.
+            match ctx.Bindings.Scheme.TryGetValue rb.BindingSite with
+            | ValueSome scheme -> instantiate ctx scheme
+            | ValueNone -> TyVar(tvOf ctx rb.BindingSite)
+        | ValueNone ->
+            // Provider first — provider hits beat ctor-name resolution
+            // when both exist (a let-bound `Ok` would have a Binding entry
+            // and never reach here). Bare single-segment idents absent
+            // from the provider fall to the ctor registry.
+            let name = qualifiedNameOf ctx e
 
-                                TyVar(freshTyVar ctx)
-                            | ValueNone ->
-                                // Class-name-as-function: `Point(3, 4)` parses as
-                                // `Expr.App (Expr.Ident "Point", ...)`. Return the
-                                // ctor as a function value so `inferApp` types the
-                                // call through the normal function arm.
-                                classCtorAsFunction ctx n
-                        | ValueNone -> TyVar(freshTyVar ctx)
+            match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
+            | ValueSome sym -> sym.Instantiate ctx.CurrentLevel
+            | ValueNone ->
+
+                match tryExternalStaticLongIdent ctx key e with
+                | ValueSome ty -> ty
+                | ValueNone ->
+                    let singleSegName =
+                        match e with
+                        | Expr.Ident t -> ValueSome(ctx.NameOf t)
+                        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
+                            ValueSome(ctx.NameOf li.Idents.[0])
+                        | _ -> ValueNone
+
+                    match singleSegName with
+                    | ValueSome n ->
+                        let info, count = resolveCtorName ctx n
+
+                        match info with
+                        | ValueSome i -> ctorType ctx i
+                        | ValueNone when count >= 2 ->
+                            ctx.Diagnostics.Add
+                                {
+                                    Key = key
+                                    Message =
+                                        sprintf
+                                            "Ambiguous constructor '%s'; declared in %d union types — add a qualifier or annotation"
+                                            n
+                                            count
+                                    Code = ""
+                                    Severity = Error
+                                }
+
+                            TyVar(freshTyVar ctx)
+                        | ValueNone ->
+                            // Class-name-as-function: `Point(3, 4)` parses as
+                            // `Expr.App (Expr.Ident "Point", ...)`. Return the
+                            // ctor as a function value so `inferApp` types the
+                            // call through the normal function arm.
+                            classCtorAsFunction ctx n
+                    | ValueNone -> TyVar(freshTyVar ctx)
 
     /// Joins multi-segment names with `.` so the provider can look up dotted
     /// names like `Math.PI` directly.
@@ -1313,6 +1317,7 @@ module UnificationInfer =
                         {
                             Key = key
                             Message = sprintf "Unknown operator symbol: %s" name
+                            Code = ""
                             Severity = Error
                         }
 
@@ -1338,6 +1343,7 @@ module UnificationInfer =
                     {
                         Key = key
                         Message = sprintf "Unknown prefix operator: %s" name
+                        Code = ""
                         Severity = Error
                     }
 
@@ -1380,6 +1386,7 @@ module UnificationInfer =
                 {
                     Key = key
                     Message = "if-then without else not yet supported"
+                    Code = ""
                     Severity = Error
                 }
 
@@ -1427,6 +1434,7 @@ module UnificationInfer =
                 {
                     Key = key
                     Message = sprintf "Mismatched or missing closing delimiter: expected '%s'" display
+                    Code = ""
                     Severity = Error
                 }
         | TokenIndex.Regular _ when rTok.Token <> expected ->
@@ -1437,6 +1445,7 @@ module UnificationInfer =
                 {
                     Key = key
                     Message = sprintf "Mismatched closing delimiter: expected '%s'" display
+                    Code = ""
                     Severity = Error
                 }
         | TokenIndex.Regular _ -> ()
@@ -1553,7 +1562,8 @@ module UnificationInfer =
                 {
                     Key = key
                     Message = "for-in: enumerable / element-type checking not yet implemented"
-                    Severity = Info
+                    Code = ""
+                    Severity = Error
                 }
 
         let bodyTy = infer ctx body
@@ -1673,6 +1683,7 @@ module UnificationInfer =
                         {
                             Key = key
                             Message = sprintf "Unknown record type qualifier: %s" typeName
+                            Code = ""
                             Severity = Error
                         }
 
@@ -1688,6 +1699,7 @@ module UnificationInfer =
                             {
                                 Key = key
                                 Message = sprintf "No record type matches the field set: %s" (String.concat ", " names)
+                                Code = ""
                                 Severity = Error
                             }
                     else
@@ -1698,6 +1710,7 @@ module UnificationInfer =
                                     sprintf
                                         "Field set is ambiguous (%d candidate record types); add a qualifier or annotation"
                                         count
+                                Code = ""
                                 Severity = Error
                             }
 
@@ -1725,6 +1738,7 @@ module UnificationInfer =
                         {
                             Key = CstKeys.ofExpr e
                             Message = sprintf "Type '%s' has no field '%s'" info.Name fieldName
+                            Code = ""
                             Severity = Error
                         }
 
@@ -1757,6 +1771,7 @@ module UnificationInfer =
                             {
                                 Key = CstKeys.ofExpr e
                                 Message = sprintf "Type '%s' has no field '%s'" recName fieldName
+                                Code = ""
                                 Severity = Error
                             }
 
@@ -1766,6 +1781,7 @@ module UnificationInfer =
                     {
                         Key = key
                         Message = sprintf "Unknown record type '%s'" recName
+                        Code = ""
                         Severity = Error
                     }
 
@@ -1778,6 +1794,7 @@ module UnificationInfer =
                 {
                     Key = key
                     Message = "Record clone requires the source expression to be a record"
+                    Code = ""
                     Severity = Error
                 }
 
@@ -1804,6 +1821,7 @@ module UnificationInfer =
                         {
                             Key = diagKey
                             Message = sprintf "Type '%s' has no field '%s'" recName memberName
+                            Code = ""
                             Severity = Error
                         }
 
@@ -1813,6 +1831,7 @@ module UnificationInfer =
                     {
                         Key = diagKey
                         Message = sprintf "Unknown record type '%s'" recName
+                        Code = ""
                         Severity = Error
                     }
 
@@ -1843,6 +1862,7 @@ module UnificationInfer =
                         {
                             Key = diagKey
                             Message = msg
+                            Code = ""
                             Severity = Error
                         }
 
@@ -1869,6 +1889,7 @@ module UnificationInfer =
                         {
                             Key = diagKey
                             Message = sprintf "Unknown class type '%s'" clsName
+                            Code = ""
                             Severity = Error
                         }
 
@@ -1899,6 +1920,7 @@ module UnificationInfer =
                         {
                             Key = diagKey
                             Message = msg
+                            Code = ""
                             Severity = Error
                         }
 
@@ -1908,6 +1930,7 @@ module UnificationInfer =
                     {
                         Key = diagKey
                         Message = sprintf "Unknown union type '%s'" unionName
+                        Code = ""
                         Severity = Error
                     }
 
@@ -1930,6 +1953,7 @@ module UnificationInfer =
                 {
                     Key = diagKey
                     Message = sprintf "Cannot read member '%s' from non-record non-class type" memberName
+                    Code = ""
                     Severity = Error
                 }
 
@@ -2210,6 +2234,7 @@ module UnificationInfer =
                                     "No applicable (or no unique best) overload of '%s' on type '%s' for the given arguments"
                                     memberName
                                     metaName
+                            Code = ""
                             Severity = Error
                         }
 
@@ -2246,6 +2271,7 @@ module UnificationInfer =
                 {
                     Key = key
                     Message = sprintf "Type '%s' has no accessible member '%s'" metaName memberName
+                    Code = ""
                     Severity = Error
                 }
 
@@ -2297,6 +2323,7 @@ module UnificationInfer =
                     {
                         Key = key
                         Message = sprintf "Unknown class type '%s'" name
+                        Code = ""
                         Severity = Error
                     }
 
@@ -2307,6 +2334,7 @@ module UnificationInfer =
                 {
                     Key = key
                     Message = "'new' requires a class type"
+                    Code = ""
                     Severity = Error
                 }
 
@@ -2452,13 +2480,7 @@ module UnificationInfer =
         (body: Expr<SyntaxToken> voption)
         : SemType =
         inferBindingGroup ctx bindings
-
-        match body with
-        | ValueSome bodyExpr -> infer ctx bodyExpr
-        | ValueNone ->
-            // `body = ValueNone` is `use fixed` — pinning unsupported; fail
-            // loudly rather than hand Freeze a best-effort type.
-            failwith "Unification: Expr.LetOrUse with no body (UseFixed) not supported"
+        infer ctx (CstWalk.requireLetBody body)
 
     and inferBinding (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =
         // One typar scope per binding signature: explicit `<'a>` typars seed

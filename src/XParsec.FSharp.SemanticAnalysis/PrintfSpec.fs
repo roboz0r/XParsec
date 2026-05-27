@@ -386,8 +386,8 @@ module PrintfSpec =
             ValueSome(fnTy, fmt, printer)
 
     /// The entry point's *generic* signature `leading… -> PrintfFormat<'T,…>
-    /// -> 'T`. Used by `MockBuiltins` so the non-literal fallback (and plain name
-    /// resolution) sees a coherent type.
+    /// -> 'T`. Used by the test `MockBuiltins` so the non-literal fallback
+    /// (and plain name resolution) sees a coherent type.
     let genericSignature (fresh: unit -> SemType) (fam: Family) : SemType =
         let printer = fresh ()
         let fmt = formatType printer fam

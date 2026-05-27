@@ -99,6 +99,7 @@ module NameResolution =
                         {
                             Key = useKey
                             Message = sprintf "Unresolved identifier: %s" name
+                            Code = ""
                             Severity = Error
                         }
 
@@ -251,7 +252,7 @@ module NameResolution =
                         && (let typeName = ctx.NameOf li.Idents.[0]
                             let memberName = ctx.NameOf li.Idents.[1]
 
-                            let staticIn (members: ClassMemberInfo[]) =
+                            let staticIn (members: TypeMemberInfo[]) =
                                 members |> Array.exists (fun m -> m.IsStatic && m.Name = memberName)
 
                             (ctx.Types.Class.ContainsKey typeName
@@ -290,6 +291,7 @@ module NameResolution =
                             {
                                 Key = CstKeys.ofExpr e
                                 Message = sprintf "Unresolved qualified name: %s" qualName
+                                Code = ""
                                 Severity = Error
                             }
         | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) when
@@ -308,6 +310,7 @@ module NameResolution =
                 {
                     Key = CstKeys.ofExpr e
                     Message = sprintf "Operator-form qualified names not yet resolved (starting at '%s')" displayName
+                    Code = ""
                     Severity = Error
                 }
         | _ -> ()
@@ -440,6 +443,7 @@ module NameResolution =
                         {
                             Key = NodeKey.ofToken nameTok NodeKind.DeclType
                             Message = sprintf "Duplicate type definition: %s" name
+                            Code = ""
                             Severity = Error
                         }
                 else
@@ -591,6 +595,7 @@ module NameResolution =
                         {
                             Key = declKey
                             Message = sprintf "Duplicate type definition: %s" name
+                            Code = ""
                             Severity = Error
                         }
                 else
@@ -706,6 +711,7 @@ module NameResolution =
                         {
                             Key = declKey
                             Message = sprintf "Duplicate type definition: %s" name
+                            Code = ""
                             Severity = Error
                         }
                 else
@@ -779,6 +785,7 @@ module NameResolution =
                             Key = patKey
                             Message =
                                 "Constructor argument patterns must be simple identifiers (with optional type annotation) in v1"
+                            Code = ""
                             Severity = Error
                         }
 
@@ -818,7 +825,7 @@ module NameResolution =
                     | ValueNone -> ()
             ]
 
-    /// Extract `ClassMemberInfo` placeholders for a type body's /
+    /// Extract `TypeMemberInfo` placeholders for a type body's /
     /// augmentation's member elements. Shared by class registration
     /// (`body.elements`) and union augmentation registration
     /// (`extensions.elements`) — same `TypeDefnElement` shape. Member
@@ -830,22 +837,23 @@ module NameResolution =
         (ctx: PassContext)
         (declKey: NodeKey)
         (elements: TypeDefnElement<SyntaxToken> seq)
-        : ClassMemberInfo[] =
-        let memberInfos = ResizeArray<ClassMemberInfo>()
+        : TypeMemberInfo[] =
+        let memberInfos = ResizeArray<TypeMemberInfo>()
 
         let diagnose msg =
             ctx.Diagnostics.Add
                 {
                     Key = declKey
                     Message = msg
+                    Code = ""
                     Severity = Error
                 }
 
-        let addMember mName kind isStatic mTok : ClassMemberInfo =
+        let addMember mName kind isStatic mTok : TypeMemberInfo =
             let tv = TypeVar()
             tv.Level <- 0
             let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
-            let cmi = ClassMemberInfo(mName, kind, isStatic, TyVar tv, mKey)
+            let cmi = TypeMemberInfo(mName, kind, isStatic, TyVar tv, mKey)
             memberInfos.Add cmi
             cmi
 
@@ -924,6 +932,7 @@ module NameResolution =
                         {
                             Key = declKey
                             Message = sprintf "Duplicate type definition: %s" name
+                            Code = ""
                             Severity = Error
                         }
                 else
@@ -931,7 +940,7 @@ module NameResolution =
                     let ctorParams = extractCtorParams ctx declKey pc
 
                     let memberInfos =
-                        ResizeArray<ClassMemberInfo>(extractMembers ctx declKey body.elements)
+                        ResizeArray<TypeMemberInfo>(extractMembers ctx declKey body.elements)
 
                     let thisName =
                         match asD with
@@ -948,9 +957,11 @@ module NameResolution =
                     ctx.Types.Class.[name] <- info
 
                     for m in members do
+                        let entry = { Class = info; Member = m }
+
                         match ctx.Types.ClassMemberIndex.TryGetValue m.Name with
-                        | true, lst -> ctx.Types.ClassMemberIndex.[m.Name] <- (info, m) :: lst
-                        | false, _ -> ctx.Types.ClassMemberIndex.[m.Name] <- [ (info, m) ]
+                        | true, lst -> ctx.Types.ClassMemberIndex.[m.Name] <- entry :: lst
+                        | false, _ -> ctx.Types.ClassMemberIndex.[m.Name] <- [ entry ]
 
     let private registerClassTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
         match m with

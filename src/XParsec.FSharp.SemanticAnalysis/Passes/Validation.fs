@@ -88,6 +88,7 @@ module Validation =
                                         {
                                             Key = CstKeys.ofExpr core
                                             Message = sprintf "Cannot assign to immutable field '%s'" fieldName
+                                            Code = ""
                                             Severity = Error
                                         }
                                 | _ -> ()
@@ -105,6 +106,7 @@ module Validation =
                     {
                         Key = lhsKey
                         Message = "assignment to immutable binding"
+                        Code = ""
                         Severity = Error
                     }
             | _ -> ()
@@ -127,6 +129,7 @@ module Validation =
                                 {
                                     Key = CstKeys.ofExpr core
                                     Message = sprintf "Cannot assign to immutable field '%s'" fieldName
+                                    Code = ""
                                     Severity = Error
                                 }
                         | _ -> ()
@@ -150,6 +153,7 @@ module Validation =
                                 sprintf
                                     "Cannot resolve member '%s': receiver type was never constrained to a record or class type"
                                     d.MemberName
+                            Code = ""
                             Severity = Error
                         }
 
@@ -178,6 +182,7 @@ module Validation =
                             Message =
                                 "value restriction: mutable binding has unresolved type variable(s); \
                                  add a type annotation or constrain via a use site"
+                            Code = ""
                             Severity = Error
                         }
                 | _ -> ()
@@ -191,12 +196,13 @@ module Validation =
     /// silently get whole-scope (position-insensitive) semantics that fsc
     /// rejects (symbol-resolution-handoff.md, open-resolution).
     ///
-    /// `walkModuleTree` flattens module wrappers and erases boundaries, so this
-    /// re-walks the structural CST. The rec context propagates into nested
-    /// modules: each module under a rec group is independently an opens-first
-    /// scope (§3.2 — confirmed for `namespace rec` nested modules; §9 flags the
-    /// `module rec`-nested case as not separately repro'd, so propagating is the
-    /// documented-design choice rather than an independently-verified one).
+    /// Rides on `CstWalk.walkModuleTreeWith`'s per-scope hook so the rec-flag
+    /// propagation lives in one place. The hook receives the *propagated*
+    /// `inRec` (true for the rec scope itself and every module nested under it
+    /// — each is an independent opens-first scope per §3.2/§9), which is the
+    /// flag FS3200 fires on. The separate per-scope rec flag (whether *this*
+    /// scope was declared `rec`) drives open-resolution's constant-prelude
+    /// shape and stays inside `walkModuleTree`'s `processElems`.
     let private checkRecOpenPlacement (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
         let checkScope (elems: ModuleElems<SyntaxToken>) =
             let mutable seenNonImport = false
@@ -211,31 +217,16 @@ module Validation =
                                 Key = NodeKey.ofToken openTok NodeKind.DeclOpen
                                 Message =
                                     "In a recursive declaration group, 'open' declarations must come first in each module."
+                                Code = ""
                                 Severity = Error
                             }
                 | _ -> seenNonImport <- true
 
-        let rec processElems (elems: ModuleElems<SyntaxToken>) (inRec: bool) : unit =
-            if inRec then
+        let onScope (elems: ModuleElems<SyntaxToken>) (isRec: bool) : unit =
+            if isRec then
                 checkScope elems
 
-            for e in elems do
-                match e with
-                | ModuleElem.Module(ModuleDefn.ModuleDefn(isRec = innerRec; body = ModuleDefnBody(elements = inner))) ->
-                    match inner with
-                    | ValueSome innerElems -> processElems innerElems (inRec || innerRec.IsSome)
-                    | ValueNone -> ()
-                | _ -> ()
-
-        match file with
-        | ImplementationFile.AnonymousModule elems -> processElems elems false
-        | ImplementationFile.NamedModule(NamedModule.NamedModule(isRec = isRec; elements = elems)) ->
-            processElems elems isRec.IsSome
-        | ImplementationFile.Namespaces groups ->
-            for g in groups do
-                match g with
-                | NamespaceDeclGroup.Named(isRec = isRec; elements = elems) -> processElems elems isRec.IsSome
-                | NamespaceDeclGroup.Global(elements = elems) -> processElems elems false
+        CstWalk.walkModuleTreeWith ctx.NameOf OpenScope.empty onScope file |> ignore
 
     let private mkWalker (ctx: PassContext) : CstWalk.ExprWalker<unit> =
         {
@@ -262,6 +253,7 @@ module Validation =
                 {
                     Key = NodeKey.ofSynthetic spawningOffset NodeKind.SynthUnsupportedDecl
                     Message = msg
+                    Code = ""
                     Severity = Error
                 }
 
@@ -299,9 +291,15 @@ module Validation =
 
             notYetSupported tok.StartIndex "`exception` declarations are not yet validated"
         // `CstWalk.implFileElems` flattens a nested module's body into the
-        // element list before `walkElems` runs, so a `ModuleElem.Module` never
-        // reaches here — its contents are walked as ordinary top-level elements.
-        | ModuleElem.Module _ -> ()
+        // element list before `walkElems` runs, so a `ModuleElem.Module` should
+        // never reach here. If one does, the flattening invariant has drifted
+        // (e.g. a new module-level construct slipped past `implFileElems`); fire
+        // a diagnostic so the regression surfaces instead of vanishing into a
+        // silent skip.
+        | ModuleElem.Module(ModuleDefn.ModuleDefn(moduleToken = tok)) ->
+            notYetSupported
+                tok.StartIndex
+                "Nested `module` reached Validation; `implFileElems` flattening invariant drifted"
         // `open` / `module R = …` are declaration-level nodes consumed by
         // open-resolution (NameResolution/Unification build the `OpenScope` from
         // them, symbol-resolution-handoff.md, open-resolution); they carry no expression to validate.

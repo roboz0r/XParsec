@@ -300,14 +300,14 @@ module Regions =
         | Expr.TypeAnnotation(expr = inner) -> inferRegion s ctx inner
         | Expr.Sequential(exprs = items) -> seqRegion s ctx items
         | Expr.Fun(argumentPats = argPats; expr = body) -> lambdaRegion s ctx argPats body
-        | Expr.Function(rules = Rules(rules = rules)) -> functionLikeLambda s ctx e rules
+        | Expr.Function(rules = Rules(rules = rules)) -> functionLikeLambda s ctx rules
         | Expr.LetOrUse(bindings = bindings; body = body) -> letRegion s ctx bindings body
         | Expr.Tuple(exprs = items) -> tupleRegion s ctx e items
         | Expr.IfThenElse(condition = cond; thenExpr = thenE; elifBranches = elifs; elseBranch = elseB) ->
             ifThenElseRegion s ctx e cond thenE elifs elseB
         | Expr.Match(matchExpr = scrutinee; rules = Rules(rules = rules)) -> matchRegion s ctx e scrutinee rules
         | Expr.TryWith(expr = body; rules = Rules(rules = rules)) -> tryWithRegion s ctx e body rules
-        | Expr.TryFinally(tryExpr = body; finallyExpr = finallyE) -> tryFinallyRegion s ctx e body finallyE
+        | Expr.TryFinally(tryExpr = body; finallyExpr = finallyE) -> tryFinallyRegion s ctx body finallyE
         | Expr.App(funcExpr = fn; argExprs = args) -> appRegion s ctx e fn args
         | Expr.HighPrecedenceApp(funcExpr = fn; argExpr = arg) -> appRegion s ctx e fn (ImmutableArray.Create(arg))
         | Expr.InfixApp(leftExpr = l; rightExpr = r) ->
@@ -530,12 +530,7 @@ module Regions =
             let r = s.Graph.Fresh(s.LetLevel, functionStackTop s, false, false, ValueNone)
             recordBindingRegion s ctx p r
 
-    and private functionLikeLambda
-        (s: State)
-        (ctx: PassContext)
-        (e: Expr<SyntaxToken>)
-        (rules: ImmutableArray<Rule<SyntaxToken>>)
-        : RegionId =
+    and private functionLikeLambda (s: State) (ctx: PassContext) (rules: ImmutableArray<Rule<SyntaxToken>>) : RegionId =
         // `function p1 -> e1 | …` ~ `fun x -> match x with …` — a closure with
         // one synthetic parameter. No real param NodeKey to register, so we
         // walk the arms via the body region path.
@@ -586,8 +581,6 @@ module Regions =
             | _ -> ()
 
         exitFun s
-
-        ignore e
         r
 
     and private letRegion
@@ -865,13 +858,11 @@ module Regions =
     and private tryFinallyRegion
         (s: State)
         (ctx: PassContext)
-        (e: Expr<SyntaxToken>)
         (body: Expr<SyntaxToken>)
         (finallyE: Expr<SyntaxToken>)
         : RegionId =
         let bodyR = inferRegion s ctx body
         inferRegion s ctx finallyE |> ignore
-        ignore e
         bodyR
 
     and private appRegion

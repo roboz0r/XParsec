@@ -39,6 +39,20 @@ type TPat =
     /// `ctx.Types.CtorIndex[caseName]` at consumption time.
     | Union of caseName: string * fields: TPat list * ty: SemType
 
+/// `Ty` is the static type (drives `AppendFormatted<T>`, no box). `Alignment` is
+/// the field width (negative ⇒ left-justify). `Kind`/`Format`/`Alignment` are
+/// produced by `PrintfSpec.tryHoleFormat`.
+///
+/// Lifted out of the `TExpr` `and`-cluster (P2.13) — references only
+/// `SemType`/`PrintfSpec.HoleKind`, so it doesn't need mutual recursion.
+type HoleSpec =
+    {
+        Ty: SemType
+        Kind: PrintfSpec.HoleKind
+        Format: string option
+        Alignment: int option
+    }
+
 [<RequireQualifiedAccess>]
 type TExpr =
     | Const of value: TConstValue * ty: SemType
@@ -175,17 +189,6 @@ and [<RequireQualifiedAccess>] FormatSink =
     | ToWriter of TExpr
     | ToBuilder of TExpr
     | ToString
-
-/// `Ty` is the static type (drives `AppendFormatted<T>`, no box). `Alignment` is
-/// the field width (negative ⇒ left-justify). `Kind`/`Format`/`Alignment` are
-/// produced by `PrintfSpec.tryHoleFormat`.
-and HoleSpec =
-    {
-        Ty: SemType
-        Kind: PrintfSpec.HoleKind
-        Format: string option
-        Alignment: int option
-    }
 
 and [<RequireQualifiedAccess>] FormatSeg =
     | Lit of string

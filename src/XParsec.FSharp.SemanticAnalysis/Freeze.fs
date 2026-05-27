@@ -219,12 +219,9 @@ module Freeze =
     /// wrapping a `Tuple` (the F# parser shape for `Point(3, 4)`) so
     /// downstream consumers see the constructor's declared arity directly.
     let private peelCtorArgs
-        (ctx: PassContext)
         (translate: Expr<SyntaxToken> -> TExpr)
         (args: ImmutableArray<Expr<SyntaxToken>>)
         : TExpr list =
-        ignore ctx
-
         if args.Length = 1 then
             match args.[0] with
             | Expr.EnclosedBlock(expr = Expr.Tuple(exprs = items)) -> [ for a in items -> translate a ]
@@ -248,8 +245,8 @@ module Freeze =
 
     /// Look up `memberName` on `typeName` — a class or (P3d.3) a union
     /// augmentation.
-    let private tryClassMember (ctx: PassContext) (typeName: string) (memberName: string) : ClassMemberInfo voption =
-        let pick (members: ClassMemberInfo[]) =
+    let private tryClassMember (ctx: PassContext) (typeName: string) (memberName: string) : TypeMemberInfo voption =
+        let pick (members: TypeMemberInfo[]) =
             match members |> Array.tryFind (fun m -> m.Name = memberName) with
             | Some m -> ValueSome m
             | None -> ValueNone
@@ -267,7 +264,7 @@ module Freeze =
     let private tryLongIdentClassTail
         (ctx: PassContext)
         (li: LongIdent<SyntaxToken>)
-        : (NodeKey * SemType * ClassMemberInfo) voption =
+        : (NodeKey * SemType * TypeMemberInfo) voption =
         if li.Idents.Length <> 2 then
             ValueNone
         else
@@ -296,14 +293,14 @@ module Freeze =
     let private tryLongIdentStaticMember
         (ctx: PassContext)
         (li: LongIdent<SyntaxToken>)
-        : (string * ClassMemberInfo) voption =
+        : (string * TypeMemberInfo) voption =
         if li.Idents.Length <> 2 then
             ValueNone
         else
             let className = ctx.NameOf li.Idents.[0]
             let memberName = ctx.NameOf li.Idents.[1]
 
-            let pick (members: ClassMemberInfo[]) =
+            let pick (members: TypeMemberInfo[]) =
                 match members |> Array.tryFind (fun m -> m.IsStatic && m.Name = memberName) with
                 | Some m -> ValueSome(className, m)
                 | None -> ValueNone
@@ -473,7 +470,7 @@ module Freeze =
         // Class-name-as-function application: `Point(3, 4)` parses as
         // `Expr.App (Ident Point, [EnclosedBlock(Tuple)])`.
         | Expr.App(ClassRef ctx className, args) ->
-            let argsList = peelCtorArgs ctx (translateExpr ctx) args
+            let argsList = peelCtorArgs (translateExpr ctx) args
             TExpr.New(className, argsList, ty)
         | Expr.HighPrecedenceApp(funcExpr = ClassRef ctx className; argExpr = arg) ->
             let argsList = peelOneArg (translateExpr ctx) arg
@@ -493,7 +490,7 @@ module Freeze =
             )
             ->
             let memberName = ctx.NameOf li.Idents.[0]
-            let argsList = peelCtorArgs ctx (translateExpr ctx) args
+            let argsList = peelCtorArgs (translateExpr ctx) args
             TExpr.MethodCall(translateExpr ctx r, memberName, argsList, ty)
         | Expr.HighPrecedenceApp(
             funcExpr = Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li); argExpr = arg) when
@@ -521,7 +518,7 @@ module Freeze =
                                                                                        memberName)))
             argExprs = args) ->
             let receiver = TExpr.Var(bindingSite, receiverTy)
-            let argsList = peelCtorArgs ctx (translateExpr ctx) args
+            let argsList = peelCtorArgs (translateExpr ctx) args
             TExpr.MethodCall(receiver, memberName, argsList, ty)
         | Expr.HighPrecedenceApp(
             funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailMethod ctx (bindingSite,
@@ -540,7 +537,7 @@ module Freeze =
         | Expr.App(
             funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMethod ctx (className, memberName)))
             argExprs = args) ->
-            let argsList = peelCtorArgs ctx (translateExpr ctx) args
+            let argsList = peelCtorArgs (translateExpr ctx) args
             TExpr.StaticMethodCall(className, memberName, argsList, ty)
         | Expr.HighPrecedenceApp(
             funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMethod ctx (className, memberName)))
@@ -1358,21 +1355,17 @@ module Freeze =
         (bindings: ImmutableArray<Binding<SyntaxToken>>)
         (body: Expr<SyntaxToken> voption)
         : TExpr =
-        match body with
-        | ValueSome bodyExpr ->
-            let mutable result = translateExpr ctx bodyExpr
-            let mutable resultTy = typeOfKey ctx (CstKeys.ofExpr bodyExpr)
+        let bodyExpr = CstWalk.requireLetBody body
+        let mutable result = translateExpr ctx bodyExpr
+        let mutable resultTy = typeOfKey ctx (CstKeys.ofExpr bodyExpr)
 
-            for i = bindings.Length - 1 downto 0 do
-                let b = bindings.[i]
-                let tpat = translatePat ctx b.headPat
-                let valT = translateBinding ctx b
-                result <- TExpr.Let(tpat, valT, result, resultTy)
+        for i = bindings.Length - 1 downto 0 do
+            let b = bindings.[i]
+            let tpat = translatePat ctx b.headPat
+            let valT = translateBinding ctx b
+            result <- TExpr.Let(tpat, valT, result, resultTy)
 
-            result
-        | ValueNone ->
-            // `Expr.LetOrUse(body = ValueNone)` is `use fixed`, not yet supported.
-            failwith "Freeze: Expr.LetOrUse with no body (UseFixed) not supported"
+        result
 
     and private translateBinding (ctx: PassContext) (b: Binding<SyntaxToken>) : TExpr =
         if b.argumentPats.IsEmpty then
@@ -1381,12 +1374,9 @@ module Freeze =
             // `let f x y = body` is `let f = fun x y -> body`.
             translateFun ctx b.argumentPats b.expr
 
-    // Interface-shaped type declarations (self-host rung 1).
-    // Rung 1 surfaces exactly one emittable type shape: an interface (an
-    // object-model body of all-abstract members, no base, no preamble). A
-    // declaring-type typar becomes a `TyConst "'A"` marker the backend maps to a
-    // generic-parameter index. Abbrevs (incl. Part-A primitive bindings), records,
-    // unions, and concrete classes surface nothing. See docs/self-host-rung1-plan.md.
+    // Type-declaration freezing.
+    // A declaring-type typar becomes a `TyConst "'A"` marker the backend's
+    // typar encoder maps to a generic-parameter index.
 
     let private typeNameSimple (ctx: PassContext) (tn: TypeName<SyntaxToken>) : string =
         let (TypeName(ident = li)) = tn
@@ -1399,7 +1389,7 @@ module Freeze =
     /// Rewrite declaring-type typars (free `TyVar`s, by zonked root) to the
     /// `TyConst "'A"` markers the backend's typar encoder consumes. Anything else
     /// passes through unchanged — a leftover inference var stays a `TyVar`, which
-    /// the backend rejects loudly (out of scope for rung 1).
+    /// the backend rejects loudly.
     let private remapDeclTypars (markers: (TypeVar * string) list) (t: SemType) : SemType =
         let rec go t =
             match t with
@@ -1523,8 +1513,8 @@ module Freeze =
                 | _ -> ()
         ]
 
-    /// Translate one union augmentation member element into a `TTypeMember`
-    /// (P3d.3). Instance members reference `this` via `info.ThisKey`.
+    /// Translate one union augmentation member element into a `TTypeMember`.
+    /// Instance members reference `this` via `info.ThisKey`.
     let private translateUnionMember
         (ctx: PassContext)
         (info: UnionTypeInfo)
@@ -1568,11 +1558,45 @@ module Freeze =
             | _ -> ValueNone
         | _ -> ValueNone
 
+    /// Pair each declared typar's *zonked* root TyVar with its marker name, so
+    /// `remapDeclTypars` can rewrite free occurrences back to `TyConst "'A"`.
+    /// Pinned typars (anything that's already collapsed to a non-`TyVar`) are
+    /// dropped — there's nothing left to remap. Shared between record / union
+    /// (and the upcoming class) `try*Type` surfacers.
+    let private mkTypeMarkers (typeParams: (string * TypeVar) list) : (TypeVar * string) list =
+        [
+            for (n, ptv) in typeParams do
+                match Unification.zonk (TyVar ptv) with
+                | TyVar root -> yield (root, n)
+                | _ -> ()
+        ]
+
+    /// Build the `TDecl.Type` wrapper shared by record / union / interface
+    /// (and the upcoming class) surfacers — same five-field shape, only `Kind`
+    /// differs. `typars` is the already-projected typar-name list (`info` /
+    /// `tryInterfaceMethods` projections both flow through here unchanged).
+    let private mkTypeDecl
+        (name: string)
+        (ns: string option)
+        (typars: string list)
+        (kind: TTypeKind)
+        (eq: EqualityVerdict)
+        (cmp: ComparisonVerdict)
+        : TDecl =
+        TDecl.Type
+            {
+                Name = name
+                Namespace = ns
+                TypeParams = typars
+                Kind = kind
+                EqualitySupport = eq
+                ComparisonSupport = cmp
+            }
+
     /// Surface a `TypeDefn.Union` as a `TDecl.Type` from the resolved
     /// `UnionTypeInfo`. Any declaring-type typar is remapped to a `TyConst "'A"`
-    /// marker (a no-op for a monomorphic union — `TypeParams` empty — but the
-    /// right shape for the generic union rung). Augmentation members (`ext`) are
-    /// surfaced as `TTypeMember`s (P3d.3).
+    /// marker (a no-op for a monomorphic union — `TypeParams` empty). Augmentation
+    /// members (`ext`) are surfaced as `TTypeMember`s.
     let private tryUnionType
         (ctx: PassContext)
         (ns: string option)
@@ -1582,13 +1606,7 @@ module Freeze =
         match ctx.Types.Union.TryGetValue name with
         | false, _ -> None
         | true, info ->
-            let markers =
-                [
-                    for (n, ptv) in info.TypeParams do
-                        match Unification.zonk (TyVar ptv) with
-                        | TyVar root -> yield (root, n)
-                        | _ -> ()
-                ]
+            let markers = mkTypeMarkers info.TypeParams
 
             let cases =
                 [
@@ -1638,15 +1656,13 @@ module Freeze =
                     ]
 
             Some(
-                TDecl.Type
-                    {
-                        Name = name
-                        Namespace = ns
-                        TypeParams = [ for (n, _) in info.TypeParams -> n ]
-                        Kind = TTypeKind.Union(cases, members)
-                        EqualitySupport = info.EqualitySupport
-                        ComparisonSupport = info.ComparisonSupport
-                    }
+                mkTypeDecl
+                    name
+                    ns
+                    declTypars
+                    (TTypeKind.Union(cases, members))
+                    info.EqualitySupport
+                    info.ComparisonSupport
             )
 
     /// Surface a `TypeDefn.Record` as a `TDecl.Type` from the resolved
@@ -1660,13 +1676,7 @@ module Freeze =
         match ctx.Types.Record.TryGetValue name with
         | false, _ -> None
         | true, info ->
-            let markers =
-                [
-                    for (n, ptv) in info.TypeParams do
-                        match Unification.zonk (TyVar ptv) with
-                        | TyVar root -> yield (root, n)
-                        | _ -> ()
-                ]
+            let markers = mkTypeMarkers info.TypeParams
 
             let fields =
                 [
@@ -1679,15 +1689,13 @@ module Freeze =
                 ]
 
             Some(
-                TDecl.Type
-                    {
-                        Name = name
-                        Namespace = ns
-                        TypeParams = [ for (n, _) in info.TypeParams -> n ]
-                        Kind = TTypeKind.Record(fields, [])
-                        EqualitySupport = info.EqualitySupport
-                        ComparisonSupport = info.ComparisonSupport
-                    }
+                mkTypeDecl
+                    name
+                    ns
+                    [ for (n, _) in info.TypeParams -> n ]
+                    (TTypeKind.Record(fields, []))
+                    info.EqualitySupport
+                    info.ComparisonSupport
             )
 
     /// Surface an interface-shaped, union, or record `TypeDefn` as a
@@ -1699,21 +1707,17 @@ module Freeze =
             match tryInterfaceMethods ctx name body with
             | Some(typars, methods) ->
                 Some(
-                    TDecl.Type
-                        {
-                            Name = name
-                            Namespace = ns
-                            TypeParams = typars
-                            Kind = TTypeKind.Interface methods
-                            // Interfaces never synthesise an equality triple;
-                            // the field is filled to keep the record shape
-                            // total and the value is unread for this kind.
-                            EqualitySupport = EqualityVerdict.Structural
-                            // Interfaces never synthesise a comparison pair
-                            // either — same reasoning. Default to
-                            // `NoComparison` so the field is present.
-                            ComparisonSupport = ComparisonVerdict.NoComparison
-                        }
+                    mkTypeDecl
+                        name
+                        ns
+                        typars
+                        (TTypeKind.Interface methods)
+                        // Interfaces never synthesise an equality triple or
+                        // comparison pair — the verdict fields are filled to
+                        // keep the record shape total and the values are
+                        // unread for this kind.
+                        EqualityVerdict.Structural
+                        ComparisonVerdict.NoComparison
                 )
             | None -> None
 
@@ -1767,15 +1771,13 @@ module Freeze =
             let eT = translateExpr ctx e
             [ TDecl.Expression(eT, typeOfKey ctx (CstKeys.ofExpr e)) ]
         | ModuleElem.Type defs -> defs |> Seq.choose (tryTypeDecl ctx ns) |> List.ofSeq
-        // A nested `module Foo = …` still surfaces its body flat at the enclosing
+        // A nested `module Foo = …` surfaces its body flat at the enclosing
         // namespace (v1 has no module-scoped *types*), mirroring the analysis
-        // passes' `CstWalk.implFileElems` flattening — but its *functions* now
-        // carry the holder name `Foo`, suffixed `FooModule` when a type of the same
-        // name shares the namespace (the exact F# rule that mandates
+        // passes' `CstWalk.implFileElems` flattening — but its *functions* carry
+        // the holder name `Foo`, suffixed `FooModule` when a type of the same name
+        // shares the namespace (the F# rule that mandates
         // `[<CompilationRepresentation(ModuleSuffix)>]`), so they emit onto a real
-        // holder type. Deeper nesting takes the innermost module's name (matching
-        // the existing flatten; proper module qualification is a later rung —
-        // docs/selfhost-handoff.md G10/R8).
+        // holder type. Deeper nesting takes the innermost module's name.
         | ModuleElem.Module(ModuleDefn.ModuleDefn(ident = ident; body = ModuleDefnBody(elements = inner))) ->
             match inner with
             | ValueSome innerElems ->

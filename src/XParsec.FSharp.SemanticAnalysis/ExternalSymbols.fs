@@ -251,11 +251,11 @@ module ExternalSymbols =
     /// The single provider-shim primitive: first-hit-wins composition over
     /// `sources` plus an `IAmbientOpenScope` carrying `ambient`, optionally
     /// rewriting every resolved `ExternalSymbol` / `ExternalTypeShape` /
-    /// `ExternalMember` to carry `stampOrigin`'s `SymbolOrigin`. `composite`,
-    /// `ReferencedProject.wrap`, and (formerly) `VesperLib.chain` all live on
-    /// top of this — one TryLookup* fall-through, one IAmbientOpenScope
-    /// surface, one place to keep the shape switch in `TryLookupType` honest
-    /// when a new `ExternalTypeShape` case learns to carry its `Origin`.
+    /// `ExternalMember` to carry `stampOrigin`'s `SymbolOrigin`. `composite`
+    /// and `ReferencedProject.wrap` both layer on top of this — one TryLookup*
+    /// fall-through, one IAmbientOpenScope surface, one place to keep the shape
+    /// switch in `TryLookupType` honest when a new `ExternalTypeShape` case
+    /// learns to carry its `Origin`.
     let stack
         (stampOrigin: SymbolOrigin voption)
         (ambient: string list)
@@ -374,11 +374,8 @@ module ExternalSymbols =
         | _ -> stack ValueNone (collectAmbient sources) sources
 
 /// The primitive `SemType` anchors the type-checker pins literals and built-in
-/// constructs to (`Unification` / `Freeze`). These are **production
-/// infrastructure**, not part of any mock — they were hoisted out of
-/// `MockBuiltins` (which is marked for deletion) so the real passes no longer
-/// import their primitive types from a module named "Mock". Codegen maps each
-/// `TyConst` name to its target IL type via `IntrinsicRepr`.
+/// constructs to (`Unification` / `Freeze`). Codegen maps each `TyConst` name to
+/// its target IL type via `IntrinsicRepr`.
 module BuiltinTypes =
 
     let tyInt: SemType = TyConst "int"

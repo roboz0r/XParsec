@@ -219,9 +219,14 @@ module VesperLibManifest =
     /// may never touch.
     do ObjectConstruction.init ()
 
-    /// Parse one `.fsi` file via XParsec.FSharp's signature-file parser.
-    /// `.fs` files (rare — only when no signature exists, e.g. `SI.fs`)
-    /// are routed through the implementation parser.
+    /// Parse one `.fsi` file via XParsec.FSharp's signature-file parser, or
+    /// `.fs` file via the implementation parser. Both paths are live: most
+    /// modules ship `.fsi` (extracted as signature contract), but operator
+    /// bodies (`ops-platform.fs`), list internals (`list-min.fs`), record /
+    /// option / set / result / comparison `.fs` definitions, and the
+    /// `XParsec.FSharp.Lib/Common/SI.fs` interop file have no companion
+    /// signature and route through `FSharpAst.parse` so their bodies feed
+    /// the cross-package inline-expansion pipeline.
     let parseFileFull (file: LibFile) : Result<ParsedFile, string> =
         let raw = File.ReadAllText file.Absolute
         let input = raw.Replace("\r\n", "\n")

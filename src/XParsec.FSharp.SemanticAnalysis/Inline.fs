@@ -73,8 +73,12 @@ module Inline =
     /// Canonicalise the primitive type-name aliases a static-optimization clause
     /// might use (`int32`/`int`, `double`/`float64`/`float`, `uint8`/`byte`) so a
     /// clause written against the BCL name matches an operand carrying the F#
-    /// alias. Scoped to static-opt resolution — the rest of the pipeline keeps the
-    /// names distinct (a nominal `type int32 = (# … #)` is its own `TyConst`).
+    /// alias. Deliberately a pure (no-`ctx`) copy: static-opt resolution runs
+    /// inside the inline expansion walker, which is called from the type-erased
+    /// `TastWalk.Mapper` surface where `PassContext` is no longer in scope.
+    /// `ctx.Types.IntrinsicReprTypes` (name → IL repr) carries the same alias
+    /// equivalence at extract-time; the table here mirrors that data for the
+    /// post-extract walker. Keep the two in sync when new primitives land.
     let private canonPrimName (name: string) : string =
         match name with
         | "int32" -> "int"

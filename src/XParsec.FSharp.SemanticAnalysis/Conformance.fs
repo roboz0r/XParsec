@@ -7,8 +7,7 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
 // Sig/impl conformance for a Vesper.Core contract (`.fsi`) and implementation
-// (`.fs`) pair — selfhost-handoff P4 / minimal-core-lib-plan "Contract/impl
-// drift".
+// (`.fs`) pair.
 //
 // The contract declares each target primitive `type X = extern` — "the target
 // provides this; there is no Vesper representation here." That set of `extern`
@@ -20,9 +19,9 @@ open XParsec.FSharp.Parser
 //
 // This is a source-level check (it compares the parsed CSTs of the `.fsi` and
 // `.fs`), so — unlike a reflection round-trip over a compiled `Vesper.Core.dll`
-// — it is *not* gated on the self-hosting rungs: it runs the moment both files
-// parse. v1 compares declaration *presence* and the extern↔intrinsic pairing; it
-// does not deep-compare member signatures of nominal types.
+// — it runs the moment both files parse. v1 compares declaration *presence* and
+// the extern↔intrinsic pairing; it does not deep-compare member signatures of
+// nominal types.
 
 module Conformance =
 
@@ -43,6 +42,28 @@ module Conformance =
         | Intrinsic of repr: string
         /// Any other implementation type (abbrev, union, record, …).
         | Other of label: string
+
+    /// One declaration extracted from a signature (`.fsi`) file.
+    ///
+    /// `NameKey` points at the type's name token so future class-equivalence
+    /// drift can range-attach a diagnostic; v1 only consumes `Name` + `Shape`.
+    [<Struct; NoEquality; NoComparison>]
+    type SigDecl =
+        {
+            Name: string
+            Shape: SigShape
+            NameKey: NodeKey
+        }
+
+    /// One declaration extracted from an implementation (`.fs`) file. See
+    /// [`SigDecl`](#SigDecl).
+    [<Struct; NoEquality; NoComparison>]
+    type ImplDecl =
+        {
+            Name: string
+            Shape: ImplShape
+            NameKey: NodeKey
+        }
 
     [<RequireQualifiedAccess>]
     type ConformanceError =
@@ -177,17 +198,34 @@ module Conformance =
         | TypeDefn.Missing
         | TypeDefn.SkipsTokens _ -> ImplShape.Other "invalid"
 
+    /// `NodeKey` of a type's last-segment name token; the zero key when the
+    /// `TypeName` has no idents (parse failure — caller filters empty names
+    /// from the summary, so this branch is unreachable in well-formed input).
+    let private nameKeyOf (tn: TypeName<SyntaxToken>) : NodeKey =
+        let (TypeName(ident = li)) = tn
+
+        if li.Idents.Length = 0 then
+            NodeKey(0UL)
+        else
+            NodeKey.ofToken li.Idents.[li.Idents.Length - 1] NodeKind.DeclType
+
     /// Summarise a parsed signature (`.fsi`) file as its declared types, in
     /// source order. Namespace groups and nested modules are flattened (v1 has no
     /// namespace-/module-scoped types).
-    let summariseSig (lexed: Lexed) (input: string) (file: SignatureFile<SyntaxToken>) : (string * SigShape) list =
-        let acc = ResizeArray<string * SigShape>()
+    let summariseSig (lexed: Lexed) (input: string) (file: SignatureFile<SyntaxToken>) : SigDecl list =
+        let acc = ResizeArray<SigDecl>()
 
         let addSig (ts: TypeSignature<SyntaxToken>) =
-            let name = typeNameText lexed input (sigTypeName ts)
+            let tn = sigTypeName ts
+            let name = typeNameText lexed input tn
 
             if name <> "" then
-                acc.Add(name, sigShape ts)
+                acc.Add
+                    {
+                        Name = name
+                        Shape = sigShape ts
+                        NameKey = nameKeyOf tn
+                    }
 
         for e in CstWalk.sigFileElems file do
             match e with
@@ -202,12 +240,8 @@ module Conformance =
 
     /// Summarise a parsed implementation (`.fs`) file as its defined types, in
     /// source order. Namespace groups and nested modules are flattened.
-    let summariseImpl
-        (lexed: Lexed)
-        (input: string)
-        (file: ImplementationFile<SyntaxToken>)
-        : (string * ImplShape) list =
-        let acc = ResizeArray<string * ImplShape>()
+    let summariseImpl (lexed: Lexed) (input: string) (file: ImplementationFile<SyntaxToken>) : ImplDecl list =
+        let acc = ResizeArray<ImplDecl>()
 
         for e in CstWalk.implFileElems file do
             match e with
@@ -218,7 +252,12 @@ module Conformance =
                         let name = typeNameText lexed input tn
 
                         if name <> "" then
-                            acc.Add(name, implShape lexed input td)
+                            acc.Add
+                                {
+                                    Name = name
+                                    Shape = implShape lexed input td
+                                    NameKey = nameKeyOf tn
+                                }
                     | ValueNone -> ()
             | _ -> ()
 
@@ -228,42 +267,42 @@ module Conformance =
     /// conformance errors in a deterministic order: sig-side findings (missing
     /// impl, extern/intrinsic mismatch) in signature source order, then
     /// impl-only types in implementation source order.
-    let check (sigDecls: (string * SigShape) list) (implDecls: (string * ImplShape) list) : ConformanceError list =
+    let check (sigDecls: SigDecl list) (implDecls: ImplDecl list) : ConformanceError list =
         // First declaration of a name wins; a duplicate within a file is its own
         // (separately diagnosed) error and must not mask the conformance result.
         let sigMap = Dictionary<string, SigShape>()
 
-        for (n, s) in sigDecls do
-            if not (sigMap.ContainsKey n) then
-                sigMap.[n] <- s
+        for d in sigDecls do
+            if not (sigMap.ContainsKey d.Name) then
+                sigMap.[d.Name] <- d.Shape
 
         let implMap = Dictionary<string, ImplShape>()
 
-        for (n, s) in implDecls do
-            if not (implMap.ContainsKey n) then
-                implMap.[n] <- s
+        for d in implDecls do
+            if not (implMap.ContainsKey d.Name) then
+                implMap.[d.Name] <- d.Shape
 
         let errors = ResizeArray<ConformanceError>()
         let seenSig = HashSet<string>()
 
-        for (name, sShape) in sigDecls do
-            if seenSig.Add name then
-                match implMap.TryGetValue name with
-                | false, _ -> errors.Add(ConformanceError.MissingInImpl name)
+        for d in sigDecls do
+            if seenSig.Add d.Name then
+                match implMap.TryGetValue d.Name with
+                | false, _ -> errors.Add(ConformanceError.MissingInImpl d.Name)
                 | true, iShape ->
-                    match sShape, iShape with
+                    match d.Shape, iShape with
                     | SigShape.Extern, ImplShape.Intrinsic _ -> ()
-                    | SigShape.Extern, ImplShape.Other _ -> errors.Add(ConformanceError.ExternWithoutIntrinsic name)
+                    | SigShape.Extern, ImplShape.Other _ -> errors.Add(ConformanceError.ExternWithoutIntrinsic d.Name)
                     | SigShape.Other _, ImplShape.Intrinsic _ ->
-                        errors.Add(ConformanceError.IntrinsicWithoutExtern name)
+                        errors.Add(ConformanceError.IntrinsicWithoutExtern d.Name)
                     | SigShape.Other _, ImplShape.Other _ -> ()
 
         let seenImpl = HashSet<string>()
 
-        for (name, _) in implDecls do
-            if seenImpl.Add name then
-                if not (sigMap.ContainsKey name) then
-                    errors.Add(ConformanceError.MissingInSig name)
+        for d in implDecls do
+            if seenImpl.Add d.Name then
+                if not (sigMap.ContainsKey d.Name) then
+                    errors.Add(ConformanceError.MissingInSig d.Name)
 
         List.ofSeq errors
 

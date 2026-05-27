@@ -130,6 +130,7 @@ module UnificationEngine =
                 {
                     Key = key
                     Message = sprintf "Measure mismatch: <%O> vs <%O>" m1 m2
+                    Code = ""
                     Severity = Error
                 }
 
@@ -325,6 +326,7 @@ module UnificationEngine =
                                 "Occurs check: cannot construct infinite type %A = %A"
                                 (zonk (TyVar root))
                                 (zonk other)
+                        Code = ""
                         Severity = Error
                     }
             else
@@ -337,6 +339,7 @@ module UnificationEngine =
                         {
                             Key = key
                             Message = sprintf "Dimensionless %A used where <%O> expected" other m
+                            Code = ""
                             Severity = Error
                         }
                 | _ -> ()
@@ -350,6 +353,7 @@ module UnificationEngine =
                 {
                     Key = key
                     Message = sprintf "Type mismatch: %A vs %A" (zonk a) (zonk b)
+                    Code = ""
                     Severity = Error
                 }
 
@@ -378,6 +382,7 @@ module UnificationEngine =
                                 {
                                     Key = d.UseKey
                                     Message = sprintf "Type '%s' has no field '%s'" recName d.MemberName
+                                    Code = ""
                                     Severity = Error
                                 }
                 | false, _ ->
@@ -386,6 +391,7 @@ module UnificationEngine =
                             {
                                 Key = d.UseKey
                                 Message = sprintf "Unknown record type '%s'" recName
+                                Code = ""
                                 Severity = Error
                             }
             | ValueNone ->
@@ -406,6 +412,7 @@ module UnificationEngine =
                                     {
                                         Key = d.UseKey
                                         Message = sprintf "Type '%s' has no instance member '%s'" clsName d.MemberName
+                                        Code = ""
                                         Severity = Error
                                     }
                     | false, _ ->
@@ -414,6 +421,7 @@ module UnificationEngine =
                                 {
                                     Key = d.UseKey
                                     Message = sprintf "Unknown class type '%s'" clsName
+                                    Code = ""
                                     Severity = Error
                                 }
                 | ValueNone ->
@@ -439,6 +447,7 @@ module UnificationEngine =
                                             Key = d.UseKey
                                             Message =
                                                 sprintf "Type '%s' has no instance member '%s'" unionName d.MemberName
+                                            Code = ""
                                             Severity = Error
                                         }
                         | false, _ ->
@@ -447,6 +456,7 @@ module UnificationEngine =
                                     {
                                         Key = d.UseKey
                                         Message = sprintf "Unknown union type '%s'" unionName
+                                        Code = ""
                                         Severity = Error
                                     }
 
@@ -595,6 +605,7 @@ module UnificationEngine =
                                     "The type '%A' does not support the '%s' constraint"
                                     (zonk linkTarget)
                                     (constraintKindName c.Kind)
+                            Code = ""
                             Severity = Error
                         }
                 | Defer ->
@@ -767,6 +778,7 @@ module UnificationEngine =
                                     Key = key
                                     Message =
                                         sprintf "Type '%s' has no built-in static member '%s'" primName b.MemberName
+                                    Code = ""
                                     Severity = Error
                                 }
 
@@ -784,6 +796,7 @@ module UnificationEngine =
                                     {
                                         Key = key
                                         Message = sprintf "Type '%s' has no static member '%s'" className b.MemberName
+                                        Code = ""
                                         Severity = Error
                                     }
 

@@ -9,25 +9,17 @@ open UnificationEngine
 open UnificationTranslate
 open UnificationInfer
 
+// Algorithm J + Rémy's levels.
+//
 // Pre:  ctx.Desugared and ctx.Bindings.Binding populated.
 // Post: ctx.Bindings.TypeVar populated; every TypeVar's Link reaches its solved type
 //       via UnionFind.find. ctx.Bindings.Scheme populated for every generalisable
 //       `let`-bound name (single-name headPats — see `shouldGeneralise`).
 //
-// Algorithm J + Rémy's levels.
-//
-// Tiny-subset omissions (TODO):
-//   - Value restriction is split: the *generalisation gate* on
-//     `mutableToken` lives here (`shouldGeneralise`), but the *diagnostic*
-//     for a mutable binding whose resolved type still has free TyVars at
-//     end of analysis lives in Validation — by then every use site has
-//     had a chance to pin them via unification. See docs/mutable-plan.md.
-//   - `ref` cells / refs-as-values still generalise without a check; lands
-//     when the `Ref<'a>` provider entry does (see mutable-plan §Open questions).
-//   - SRTP / IWSAM bound resolution. The on-unified callbacks per
-//     docs/typevar.md aren't wired yet.
-//   - Binding-level return-type annotations (`let f x : int = ...`). Only
-//     Expr.TypeAnnotation (`(e : t)`) is handled today.
+// Value restriction is split: the *generalisation gate* on `mutableToken` lives
+// here (`shouldGeneralise`); the *diagnostic* for a mutable binding whose
+// resolved type still has free TyVars at end of analysis lives in Validation —
+// by then every use site has had a chance to pin them via unification.
 
 module Unification =
 
@@ -241,7 +233,7 @@ module Unification =
     type private TypeMembersFill =
         {
             TypeParams: (string * TypeVar) list
-            Members: ClassMemberInfo[]
+            Members: TypeMemberInfo[]
             ThisKey: NodeKey
             MkSelfType: SemType list -> SemType
             PrelinkExtras: unit -> unit
