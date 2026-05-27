@@ -40,7 +40,13 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
                         IsProperty = false
                         BuildSignature = fun _ -> TyConst tag
                         Origin = origin
-                        Key = SymbolKey.MemberKey(SymbolKey.TypeKey(origin.Assembly, origin.Namespace, name), name, [])
+                        Key =
+                            SymbolKey.MemberKey(
+                                SymbolKey.TypeKey(origin.Assembly, origin.Namespace, name),
+                                name,
+                                [],
+                                MemberKind.Method
+                            )
                     }
             else
                 ValueNone

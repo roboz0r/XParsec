@@ -40,8 +40,32 @@ type SymbolKey =
     | ValueKey of asm: string option * ns: string * name: string
     /// A member on a type. `argSig` is written in the declaring type's OPEN
     /// typars (`!0`, …) and disambiguates overloads (`GetHashCode()` vs
-    /// `GetHashCode(!0)`).
-    | MemberKey of decl: SymbolKey * memberName: string * argSig: string list
+    /// `GetHashCode(!0)`). `kind` distinguishes a plain method from a property
+    /// or an interface-method / explicit interface implementation (the latter
+    /// two carry the interface's own `SymbolKey` so codegen can write the
+    /// matching `.override` row — pre-sprint-recommendations H3).
+    | MemberKey of decl: SymbolKey * memberName: string * argSig: string list * kind: MemberKind
+
+/// What kind of member a `SymbolKey.MemberKey` denotes (pre-sprint-recommendations
+/// H3). `Method` and `Property` are the today-resolvable shapes; `InterfaceMethod`
+/// and `ExplicitInterfaceImpl` land their consumers with B-2 (interface conformance
+/// + `(this :> iface).M()` syntax) — until then both are unused, but the field
+/// is wide enough to carry the interface's `SymbolKey` so B-2 doesn't have to
+/// re-shape the key.
+and [<RequireQualifiedAccess>] MemberKind =
+    | Method
+    | Property
+    /// An abstract method on an interface; `iface` is the declaring interface's
+    /// `SymbolKey.TypeKey`. Distinct from `Method` so a call site can resolve
+    /// the right vtable slot when several interfaces inherit a like-named
+    /// method (`IEnumerable<'T>::GetEnumerator()` vs
+    /// `IEnumerable::GetEnumerator()`).
+    | InterfaceMethod of iface: SymbolKey
+    /// An explicit interface implementation on a class (B-2):
+    /// `Set<'T>::System.Collections.IEnumerable.GetEnumerator`. `iface` pins
+    /// which interface's slot is being overridden, the token codegen needs to
+    /// emit the `.override` row.
+    | ExplicitInterfaceImpl of iface: SymbolKey
 
 /// SRTP / trait / default constraint captured on an external symbol's typar
 /// list. Member-trait clauses are recorded as opaque markers; default clauses

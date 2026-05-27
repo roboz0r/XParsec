@@ -885,7 +885,7 @@ type ClrProvider
     let externalMemberRef (key: SymbolKey) (isProperty: bool) (isStatic: bool) (memberTy: SemType) : EntityHandle =
         let declKey, memberName, argSig =
             match key with
-            | SymbolKey.MemberKey(d, m, a) -> d, m, a
+            | SymbolKey.MemberKey(d, m, a, _) -> d, m, a
             | other -> failwithf "ClrProvider: ExternalMember key is not a MemberKey: %A" other
 
         let asm, ns, name =

@@ -1593,7 +1593,7 @@ module Emit =
 
                 let argCount =
                     match key with
-                    | SymbolKey.MemberKey(_, _, argSig) -> List.length argSig
+                    | SymbolKey.MemberKey(_, _, argSig, _) -> List.length argSig
                     | other -> failwithf "Emit: ExternalMember key is not a MemberKey: %A" other
 
                 // The method consumes one spine element (its argument list); any

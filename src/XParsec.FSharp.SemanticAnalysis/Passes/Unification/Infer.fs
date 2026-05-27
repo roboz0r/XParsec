@@ -2089,7 +2089,7 @@ module UnificationInfer =
     /// genuine single tuple param).
     and private memberParamCount (m: ExternalMember) : int =
         match m.Key with
-        | SymbolKey.MemberKey(_, _, argSig) -> List.length argSig
+        | SymbolKey.MemberKey(_, _, argSig, _) -> List.length argSig
         | _ -> 0
 
     /// The member's parameter types (instantiated at `typeArgs`), flattening the

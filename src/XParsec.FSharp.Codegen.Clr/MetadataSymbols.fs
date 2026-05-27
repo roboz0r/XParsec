@@ -259,7 +259,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                             IsProperty = true
                             BuildSignature = build
                             Origin = origin
-                            Key = SymbolKey.MemberKey(declKey, p.Name, [])
+                            Key = SymbolKey.MemberKey(declKey, p.Name, [], MemberKind.Property)
                         }
                 | None -> None
             )
@@ -283,7 +283,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                         IsProperty = false
                         BuildSignature = build
                         Origin = origin
-                        Key = SymbolKey.MemberKey(declKey, m.Name, argSig)
+                        Key = SymbolKey.MemberKey(declKey, m.Name, argSig, MemberKind.Method)
                     }
                 )
             )
@@ -408,7 +408,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                                     IsProperty = false
                                     BuildSignature = build
                                     Origin = origin
-                                    Key = SymbolKey.MemberKey(declKey, memberName, argSig)
+                                    Key = SymbolKey.MemberKey(declKey, memberName, argSig, MemberKind.Method)
                                 }
                             )
                         )
@@ -423,7 +423,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                                     BuildSignature = build
                                     Origin = origin
                                     // A property carries no parameters → empty argSig.
-                                    Key = SymbolKey.MemberKey(declKey, memberName, [])
+                                    Key = SymbolKey.MemberKey(declKey, memberName, [], MemberKind.Property)
                                 }
                             |]
                         | None -> [||]

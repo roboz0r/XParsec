@@ -62,7 +62,7 @@ let tests =
                     // GetHashCode(T) — an instance method on the open type, its
                     // argSig the declaring typar `!0` (symbol-resolution-plan §7.3).
                     match ghKey with
-                    | SymbolKey.MemberKey(SymbolKey.TypeKey(asm, ns, name), "GetHashCode", argSig) ->
+                    | SymbolKey.MemberKey(SymbolKey.TypeKey(asm, ns, name), "GetHashCode", argSig, MemberKind.Method) ->
                         Expect.isTrue asm.IsSome "GetHashCode decl carries the defining assembly"
                         Expect.equal ns "System.Collections.Generic" "GetHashCode decl namespace"
                         Expect.equal name "EqualityComparer`1" "GetHashCode decl type name (arity-suffixed)"
@@ -79,7 +79,7 @@ let tests =
                         | other -> failtestf "Default should be typed EqualityComparer<int>, got %A" other
 
                         match defKey with
-                        | SymbolKey.MemberKey(SymbolKey.TypeKey(_, ns, name), "Default", argSig) ->
+                        | SymbolKey.MemberKey(SymbolKey.TypeKey(_, ns, name), "Default", argSig, MemberKind.Property) ->
                             Expect.equal ns "System.Collections.Generic" "Default decl namespace"
                             Expect.equal name "EqualityComparer`1" "Default decl type name"
                             Expect.equal argSig [] "Default is a property: empty argSig"
@@ -147,7 +147,7 @@ let tests =
                     | other -> failtestf "the application should be typed int, got %A" other
 
                     match ghKey with
-                    | SymbolKey.MemberKey(SymbolKey.TypeKey(asm, ns, name), "GetHashCode", argSig) ->
+                    | SymbolKey.MemberKey(SymbolKey.TypeKey(asm, ns, name), "GetHashCode", argSig, MemberKind.Method) ->
                         Expect.isTrue asm.IsSome "GetHashCode decl carries the defining assembly"
                         Expect.equal ns "System.Collections.Generic" "GetHashCode decl namespace"
                         Expect.equal name "EqualityComparer`1" "GetHashCode decl type name (arity-suffixed)"
@@ -337,7 +337,7 @@ let tests =
                     | other -> failtestf "Out should be typed System.IO.TextWriter, got %A" other
 
                     match key with
-                    | SymbolKey.MemberKey(SymbolKey.TypeKey(asm, ns, name), "Out", argSig) ->
+                    | SymbolKey.MemberKey(SymbolKey.TypeKey(asm, ns, name), "Out", argSig, MemberKind.Property) ->
                         Expect.isTrue asm.IsSome "Out decl carries the defining assembly"
                         Expect.equal ns "System" "Out decl namespace"
                         Expect.equal name "Console" "Out decl type name (non-generic, no arity suffix)"
@@ -362,7 +362,10 @@ let tests =
 
                 match value with
                 | Some(TExpr.ExternalMember(ValueNone,
-                                            SymbolKey.MemberKey(SymbolKey.TypeKey(_, "System", "Console"), "Out", []),
+                                            SymbolKey.MemberKey(SymbolKey.TypeKey(_, "System", "Console"),
+                                                                "Out",
+                                                                [],
+                                                                MemberKind.Property),
                                             "Out",
                                             true,
                                             _)) -> ()
