@@ -35,12 +35,13 @@ type internal EmittedTypeRow =
 /// The kind of nominal `TypeDefinition` whose row is being predicted. Drives
 /// the offset arithmetic in `predictTypeDef` — every prior-kind count adds to
 /// the row offset, so the order here matches the trailing TypeDefinition
-/// emission order (interfaces → unions → records → closures → holders).
+/// emission order (interfaces → unions → records → classes → closures → holders).
 [<RequireQualifiedAccess>]
 type internal NominalKind =
     | Interface
     | Union
     | Record
+    | Class
     | Closure
 
 /// One row per declared user kind: the count of `TypeDefinition`s that will
@@ -52,32 +53,45 @@ type internal TypeDefCounts =
         Interfaces: int
         Unions: int
         Records: int
+        Classes: int
     }
 
 /// The result of one disjoint walk over `tast.Decls`: every `TDecl.Type` is
 /// routed to exactly one list by its `TTypeKind`. Built once at the top of
 /// `assemble` and consumed by the forward-handle prediction, the per-kind body
 /// loops, and the trailing TypeDefinition pass. Adding a new nominal kind
-/// (`Class`, object expressions) is one field + one `match` arm in
+/// (object expressions) is one field + one `match` arm in
 /// `partitionTypeDecls`, not a fourth `List.choose` clone.
 type internal PartitionedTypeDecls =
     {
         Interfaces: (TTypeDecl * TAbstractMethod list) list
         Unions: (TTypeDecl * TUnionCase list * TTypeMember list) list
         Records: (TTypeDecl * TRecordField list * TTypeMember list) list
+        /// Classes (vesper-set-sprint-plan Phase 1 / B-1). Each entry carries
+        /// the type-decl, the (currently empty) instance-field list, the
+        /// primary-ctor parameter list, the augmentation members, and the
+        /// declared `baseType` (`ValueNone` in B-1 — codegen defaults to
+        /// `Object`; Phase 2 / B-4 wires the non-Object case).
+        Classes: (TTypeDecl * TRecordField list * TRecordField list * TTypeMember list * SemType voption) list
     }
 
-/// Variance between the union and record paths through `emitNominalType` (H1.4):
-/// the payload that differs in field/ctor/factory emission and in the kind of
-/// `Self` the structural-equality/comparison support records carry. Everything
-/// downstream (augmentation members, the `IEquatable`/`IComparable` interface
-/// pre-mint, the trailing `EmittedTypeRow` push) is shared between the two arms,
-/// so each new nominal kind (`Class`, B-1) becomes a third variant here rather
-/// than a third body loop.
+/// Variance between the union, record, and class paths through
+/// `emitNominalType` (H1.4): the payload that differs in field/ctor/factory
+/// emission and in the kind of `Self` the structural-equality/comparison
+/// support records carry. Everything downstream (augmentation members, the
+/// `IEquatable`/`IComparable` interface pre-mint, the trailing `EmittedTypeRow`
+/// push) is shared between the arms.
 [<RequireQualifiedAccess>]
 type internal NominalEmissionInput =
     | Union of cases: TUnionCase list
+    /// Records: one ctor taking the fields, no `BaseType` to override (always
+    /// `Object`), optional structural-equality triple based on `[<…>]` C-Attr.
     | Record of fields: TRecordField list
+    /// Classes (vesper-set-sprint-plan Phase 1 / B-1): `ctorParams` become
+    /// backing fields, `baseType` defaults to `Object` (`ValueNone`). The
+    /// `fields` slot is reserved for future mutable instance fields (B-1 has
+    /// none).
+    | Class of fields: TRecordField list * ctorParams: TRecordField list * baseType: SemType voption
 
 /// The in-memory assembled PE plus enough to inspect / write it.
 type ClrArtifact =
@@ -103,29 +117,31 @@ module Codegen =
 
     /// Forward-handle prediction for the deferred `TypeDefinition` rows.
     /// `<Module>` occupies row 1; the trailing emission loop then walks
-    /// interfaces → unions → records → closures (holders trail and never
-    /// need prediction). The i-th type of `kind` lands at
+    /// interfaces → unions → records → classes → closures (holders trail
+    /// and never need prediction). The i-th type of `kind` lands at
     /// `2 + (sum of prior-kind counts in `counts`) + i`. Centralising the
     /// offsets here keeps the per-site arithmetic from fanning out as new
-    /// kinds (classes, object expressions) land.
+    /// kinds (object expressions) land.
     let private predictTypeDef (counts: TypeDefCounts) (kind: NominalKind) (i: int) : TypeDefinitionHandle =
         let priorRows =
             match kind with
             | NominalKind.Interface -> 0
             | NominalKind.Union -> counts.Interfaces
             | NominalKind.Record -> counts.Interfaces + counts.Unions
-            | NominalKind.Closure -> counts.Interfaces + counts.Unions + counts.Records
+            | NominalKind.Class -> counts.Interfaces + counts.Unions + counts.Records
+            | NominalKind.Closure -> counts.Interfaces + counts.Unions + counts.Records + counts.Classes
 
         MetadataTokens.TypeDefinitionHandle(2 + priorRows + i)
 
     /// Single-walk partition of `tast.Decls` by `TTypeKind`. Replaces the
     /// per-kind `List.choose` clones — every nominal kind sees one routing
-    /// site, so adding `Class` (sprint B-1) is one field + one `match` arm
-    /// here, not a fourth top-level clone.
+    /// site, so adding a new kind (object expressions) is one field + one
+    /// `match` arm here, not a fourth top-level clone.
     let private partitionTypeDecls (decls: EqArray<TDecl>) : PartitionedTypeDecls =
         let interfaces = ResizeArray()
         let unions = ResizeArray()
         let records = ResizeArray()
+        let classes = ResizeArray()
 
         for d in decls do
             match d with
@@ -134,14 +150,16 @@ module Codegen =
                 | TTypeKind.Interface methods -> interfaces.Add(td, EqArray.toList methods)
                 | TTypeKind.Union(cases, members) -> unions.Add(td, EqArray.toList cases, EqArray.toList members)
                 | TTypeKind.Record(fields, members) -> records.Add(td, EqArray.toList fields, EqArray.toList members)
-                // B-1 backend (Step 1.5) lights this arm up; Step 1.3 only widens TAST.
-                | TTypeKind.Class _ -> ()
+                | TTypeKind.Class(fields, ctorParams, members, baseType, _ifaces) ->
+                    // `interfaces` stays empty in B-1 (Phase 5 / B-2 fills it).
+                    classes.Add(td, EqArray.toList fields, EqArray.toList ctorParams, EqArray.toList members, baseType)
             | _ -> ()
 
         {
             Interfaces = List.ofSeq interfaces
             Unions = List.ofSeq unions
             Records = List.ofSeq records
+            Classes = List.ofSeq classes
         }
 
     /// `int Main(string[])` — the synthesised entry point's signature.
@@ -393,18 +411,20 @@ module Codegen =
         let interfaceDecls = partitionedDecls.Interfaces
         let unionDecls = partitionedDecls.Unions
         let recordDecls = partitionedDecls.Records
+        let classDecls = partitionedDecls.Classes
 
         // ---- Forward-reference prediction ----
 
         // Per-kind row counts for the trailing TypeDefinition emission order
-        // (`<Module>` → interfaces → unions → records → closures → holders).
-        // Threaded through `predictTypeDef` at every forward-handle site so
-        // the offset arithmetic lives in exactly one place.
+        // (`<Module>` → interfaces → unions → records → classes → closures
+        // → holders). Threaded through `predictTypeDef` at every forward-
+        // handle site so the offset arithmetic lives in exactly one place.
         let typeCounts: TypeDefCounts =
             {
                 Interfaces = List.length interfaceDecls
                 Unions = List.length unionDecls
                 Records = List.length recordDecls
+                Classes = List.length classDecls
             }
 
         let interfaceMethodTotal =
@@ -448,13 +468,30 @@ module Codegen =
                 provider.RegisterGenericRecord(td.Name, EqArray.toList td.TypeParams, shape)
         )
 
+        // Classes sit immediately after records (vesper-set-sprint-plan
+        // Phase 1 / B-1). Same up-front registration shape as records: predict
+        // the `TypeDefinition` handle so a class-typed local / `TExpr.New` /
+        // member-ref signature can reach the type before its row exists, and
+        // register a generic class's backing-field shape so
+        // `UserGenericMemberRef(_, _, ClassMember _)` can mint `MemberRef`s on
+        // its `TypeSpec`. The backing fields *are* the primary-ctor parameters
+        // (B-1 has no separate mutable instance fields).
+        classDecls
+        |> List.iteri (fun i (td, _fields, ctorParams, _members, _baseType) ->
+            provider.RegisterUserType(td.Name, toEntity (predictTypeDef typeCounts NominalKind.Class i))
+
+            if not td.TypeParams.IsEmpty then
+                let shape = [ for p in ctorParams -> p.Name, p.Type ]
+                provider.RegisterGenericClass(td.Name, EqArray.toList td.TypeParams, shape)
+        )
+
         // A *generic* closure (function-representation-plan §Generic closures, C3) is a real generic
-        // `TypeDefinition`, sitting immediately after interfaces/unions/records
+        // `TypeDefinition`, sitting immediately after interfaces/unions/records/classes
         // and before the holders. Predict its handle here so any reference inside
         // the closure's own emission (capture-field `MemberRef`s built before the
         // type row exists) and the construction-site `Newobj` both reach it.
         // Monomorphic closures are skipped — their `Def` tokens are used directly
-        // (matching the union / record split).
+        // (matching the union / record / class split).
         closures
         |> List.iteri (fun i c ->
             if not (List.isEmpty c.Typars) then
@@ -465,6 +502,7 @@ module Codegen =
 
         let unions = Dictionary<string, Emit.EmittedUnion>()
         let records = Dictionary<string, Emit.EmittedRecord>()
+        let classes = Dictionary<string, Emit.EmittedClass>()
 
         // One row per emitted union/record `TypeDefinition`, claimed after
         // every method/field row exists. `Typars` drives the metadata arity
@@ -530,12 +568,25 @@ module Codegen =
                 1 + List.length members + triple + pair
             )
 
+        // Per class (vesper-set-sprint-plan Phase 1 / B-1): one `.ctor`
+        // taking the primary-ctor parameters + one method per augmentation
+        // member. B-1 emits no synthesised equality/comparison surface
+        // (`EqualityVerdict.Reference` / `ComparisonVerdict.NoComparison`
+        // defaults).
+        let classMethodTotal =
+            classDecls |> List.sumBy (fun (_, _, _, members, _) -> 1 + List.length members)
+
         let closureMethodTotal = 2 * List.length closures
 
-        // Static methods follow the interface, union, record, and closure methods,
-        // so a static method's `MethodDefinition` is `staticBase + 1 + i`.
+        // Static methods follow the interface, union, record, class, and
+        // closure methods, so a static method's `MethodDefinition` is
+        // `staticBase + 1 + i`.
         let staticBase =
-            interfaceMethodTotal + unionMethodTotal + recordMethodTotal + closureMethodTotal
+            interfaceMethodTotal
+            + unionMethodTotal
+            + recordMethodTotal
+            + classMethodTotal
+            + closureMethodTotal
 
         let staticMethods = Dictionary<NodeKey, Emit.StaticMethodRef>()
 
@@ -563,6 +614,7 @@ module Codegen =
                 CtorHandleByNode = ctorHandleByNode
                 Unions = unions
                 Records = records
+                Classes = classes
                 StaticMethods = staticMethods
             }
 
@@ -699,6 +751,7 @@ module Codegen =
             interfacePending.Add(td, firstIfaceMethod)
 
         let recordTypes = ResizeArray<EmittedTypeRow>()
+        let classTypes = ResizeArray<EmittedTypeRow>()
 
         // ---- Unions / records (one body loop via `emitNominalType`, H1.4) ----
         //
@@ -955,6 +1008,79 @@ module Codegen =
                             }
 
                     recordCtor, registerRecord
+
+                | NominalEmissionInput.Class(_instanceFields, ctorParams, _baseType) ->
+                    // A class's emission shape mirrors a record's at the
+                    // metadata level (vesper-set-sprint-plan Phase 1 / B-1):
+                    // one public backing field per primary-ctor parameter, one
+                    // `.ctor` taking those fields in declaration order. B-1
+                    // has no mutable *instance* fields (the `_instanceFields`
+                    // slot is reserved for a later sprint) and defaults
+                    // `BaseType` to `Object` (`_baseType = ValueNone` is the
+                    // only Phase 1 shape; Phase 2 / B-4 wires the non-Object
+                    // case via `info.BaseType`).
+                    let fieldHandles =
+                        ctorParams
+                        |> List.map (fun p ->
+                            let sigBlob =
+                                if isGeneric then
+                                    provider.GenericFieldSignature(EqArray.toList td.TypeParams, p.Type)
+                                else
+                                    provider.FieldSignature p.Type
+
+                            let h = ctx.AddField(FieldAttributes.Public, p.Name, sigBlob)
+                            fieldCount <- fieldCount + 1
+                            p.Name, toEntity h, p.Type
+                        )
+
+                    // The ctor body is structurally identical to a record's
+                    // (records-plan §B3): chain to `Object::.ctor()`, then
+                    // store each `ldarg.(i+1)` into its backing field.
+                    let ctorBodyOffset =
+                        Cil.buildBody
+                            encodeLocals
+                            bodyStream
+                            (IlIr.lower (
+                                Emit.buildRecordCtor provider.ObjectCtorRef [ for (_, h, _) in fieldHandles -> h ]
+                            ))
+
+                    let ctorSig =
+                        if isGeneric then
+                            provider.GenericRecordCtorSignature(
+                                EqArray.toList td.TypeParams,
+                                [ for p in ctorParams -> p.Type ]
+                            )
+                        else
+                            provider.ClosureCtorSignature [ for p in ctorParams -> p.Type ]
+
+                    let classCtor =
+                        ctx.AddMethodWithParamList(
+                            ctorAttrs,
+                            ".ctor",
+                            ctorSig,
+                            ctorBodyOffset,
+                            addParams [ for p in ctorParams -> p.Name ]
+                        )
+
+                    claimFirstMethod classCtor
+                    methodCount <- methodCount + 1
+
+                    // Bake the class registration once member-handle prediction
+                    // has populated `emittedMembers`: a sibling member call
+                    // (`this.OtherMember`) or a primary-ctor-param field access
+                    // (`this.X`, after Freeze's ctor-param→FieldGet rewrite) in
+                    // any member body then resolves through `env.Classes`.
+                    let registerClass (emittedMembers: Dictionary<string, Emit.EmittedMember>) =
+                        classes.[td.Name] <-
+                            {
+                                Name = td.Name
+                                Typars = EqArray.toList td.TypeParams
+                                Fields = fieldHandles
+                                Ctor = toEntity classCtor
+                                Members = emittedMembers
+                            }
+
+                    classCtor, registerClass
 
             // ---- Augmentation members (P3d.3) ----
             //
@@ -1256,6 +1382,14 @@ module Codegen =
 
                     methodCount <- methodCount + 1
 
+                // Classes default to `EqualityVerdict.Reference` in Phase 1
+                // (B-1), so the outer `if emitsEqualityTriple` is false and
+                // this arm is never reached. Listed for exhaustiveness; a later
+                // [<CustomEquality>] class would route through the record-side
+                // recipe (its `members.Equals`/`GetHashCode` overrides are
+                // user-authored, not synthesised here).
+                | NominalEmissionInput.Class _ -> ()
+
                 provider.ClearTypeTypars()
 
             // ---- Structural-comparison pair (records-plan §B6) ----
@@ -1415,6 +1549,11 @@ module Codegen =
 
                     methodCount <- methodCount + 1
 
+                // Classes default to `ComparisonVerdict.NoComparison`, so the
+                // outer `if emitsComparisonPair` is false and this arm is
+                // never reached in Phase 1 (B-1). Listed for exhaustiveness.
+                | NominalEmissionInput.Class _ -> ()
+
                 provider.ClearTypeTypars()
 
             // ---- Pre-mint `InterfaceImpl` entity handles ----
@@ -1429,6 +1568,12 @@ module Codegen =
                 match input with
                 | NominalEmissionInput.Union _ -> fun (ts: SemType list) -> TyUnion(td.Name, EqArray.ofList ts)
                 | NominalEmissionInput.Record _ -> fun (ts: SemType list) -> TyRecord(td.Name, EqArray.ofList ts)
+                // B-1 classes default to `EqualityVerdict.Reference` /
+                // `ComparisonVerdict.NoComparison`, so the equality / comparison
+                // blocks never enter — `selfTy` is unreachable here, but the
+                // match stays exhaustive (a later [<CustomEquality>] class
+                // would route through this arm exactly like records do).
+                | NominalEmissionInput.Class _ -> fun (ts: SemType list) -> TyClass(td.Name, EqArray.ofList ts)
 
             let interfaces =
                 if emitsEqualityTriple || emitsComparisonPair then
@@ -1473,6 +1618,17 @@ module Codegen =
         // rows below.
         for (td, fields, members) in recordDecls do
             emitNominalType (NominalEmissionInput.Record fields) td members recordTypes
+
+        // ---- Classes (vesper-set-sprint-plan Phase 1 / B-1) ----
+        //
+        // Per class: one `.ctor` taking the primary-ctor parameters as
+        // backing-field initialisers (no per-case factories, no structural
+        // equality/comparison triple/pair — classes default to
+        // `EqualityVerdict.Reference` / `ComparisonVerdict.NoComparison`).
+        // `classTypes` walks the same `EmittedTypeRow` shape so the trailing
+        // `TypeDefinition` pass emits them alongside unions/records.
+        for (td, fields, ctorParams, members, baseType) in classDecls do
+            emitNominalType (NominalEmissionInput.Class(fields, ctorParams, baseType)) td members classTypes
 
         // ---- Closures (leaves-first) ----
         //
@@ -1724,13 +1880,16 @@ module Codegen =
             td.TypeParams
             |> EqArray.iteri (fun i n -> genericParams.Add(toEntity typeHandle, i, n.TrimStart('\'')))
 
-        // Union and record `TypeDefinition` rows share the same recipe (H1.4):
-        // sealed reference class derived from `Object`, with pre-minted
-        // `InterfaceImpl` entries for `IEquatable<Self>` and (opt-in)
-        // `IComparable<Self>` + non-generic `IComparable`. Unions land first
-        // to keep the `InterfaceImpl` / `GenericParam` rows ascending (sorted
-        // by `Class` / `TypeOrMethodDef`); records follow them.
-        for row in Seq.append unionTypes recordTypes do
+        // Union, record, and class `TypeDefinition` rows share the same recipe
+        // (H1.4): sealed reference class derived from `Object`, with
+        // pre-minted `InterfaceImpl` entries for `IEquatable<Self>` and
+        // (opt-in) `IComparable<Self>` + non-generic `IComparable`. Unions
+        // land first to keep the `InterfaceImpl` / `GenericParam` rows
+        // ascending (sorted by `Class` / `TypeOrMethodDef`); records follow,
+        // then classes (vesper-set-sprint-plan Phase 1 / B-1). B-1 emits no
+        // `InterfaceImpl`s for classes (Phase 5 / B-2 fills the
+        // `interfaces` slot).
+        for row in Seq.append unionTypes (Seq.append recordTypes classTypes) do
             let metaName =
                 if List.isEmpty row.Typars then
                     row.Name

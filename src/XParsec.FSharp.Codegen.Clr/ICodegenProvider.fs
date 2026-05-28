@@ -79,19 +79,42 @@ type RecordMember =
     /// names — no positional encoding).
     | Field of fieldName: string
 
+/// Which member of an emitted *generic* class a `UserGenericMemberRef`
+/// resolves to (vesper-set-sprint-plan Phase 1 / B-1). A class is shaped
+/// like a record at the metadata level — one ctor taking the primary-ctor
+/// parameters in declaration order, one backing field per ctor parameter
+/// (keyed by source name) — plus the augmentation `members` (B-1 adds the
+/// instance / static method/property surface unions already carry). A
+/// monomorphic class skips this entirely (its `Def` tokens suffice).
+[<RequireQualifiedAccess>]
+type ClassMember =
+    /// The primary `instance void .ctor(p0, p1, …)` — parameter types are
+    /// the ctor params in declaration order.
+    | Ctor
+    /// The backing field named `fieldName` for a primary-ctor parameter.
+    | Field of fieldName: string
+    /// An augmentation member (`get_X` instance property, `M` instance method,
+    /// or static counterpart). `metaName` is the emitted method name (a
+    /// property is `get_<name>`); the signature (`paramTys` / `retTy`) is in
+    /// the type's declaring-typar markers, written into the member ref as
+    /// `!0` with the parent `TypeSpec` supplying the instantiation — same
+    /// shape as `UnionMember.Member`.
+    | Member of metaName: string * isStatic: bool * paramTys: SemType list * retTy: SemType
+
 /// Discriminator across the user-emitted generic-type-member families
 /// (`UserGenericMemberRef`). Each variant wraps the family's specific
 /// member info, preserving the case data (a record's field name, a union
-/// case's payload index, …) that a pure ordinal couldn't carry. Adding
-/// classes in Phase 1 is one new arm here (`ClassMember of ClassMember`)
-/// plus one arm in `ClrProvider.userGenericMemberRef`'s dispatch — no fourth
-/// `Abstract` sibling on `ICodegenProvider`
+/// case's payload index, …) that a pure ordinal couldn't carry. Phase 1
+/// adds `ClassMember` (vesper-set-sprint-plan §1.5) alongside the existing
+/// three families; `ClrProvider.userGenericMemberRef`'s dispatch grows one
+/// arm — no fourth `Abstract` sibling on `ICodegenProvider`
 /// (vesper-set-sprint-plan §0.3 / M3).
 [<RequireQualifiedAccess>]
 type UserMemberKind =
     | UnionMember of UnionMember
     | RecordMember of RecordMember
     | ClosureMember of ClosureMember
+    | ClassMember of ClassMember
 
 /// Resolved metadata handles for lowering a `TExpr.Format` to the write-through
 /// handler (`Vesper.Formatter`). A `Format` can't be a `CallRecipe` — it

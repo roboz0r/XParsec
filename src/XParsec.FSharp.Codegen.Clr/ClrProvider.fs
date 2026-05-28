@@ -364,6 +364,15 @@ type ClrProvider
     /// instance). Monomorphic records are *not* registered here.
     let genericRecords = Dictionary<string, string list * (string * SemType) list>()
 
+    /// Generic user classes emitted into this assembly (vesper-set-sprint-plan
+    /// Phase 1 / B-1), by simple name → (typar names, fields). A class's
+    /// fields mirror a record's at the metadata level (one public field per
+    /// primary-ctor parameter, keyed by source name; the `Member` arm of
+    /// `ClassMember` carries augmentation-member signatures explicitly). The
+    /// `genericRecords` analogue, sharing the same `encodeUnionType` encoder.
+    /// Monomorphic classes are *not* registered here.
+    let genericClasses = Dictionary<string, string list * (string * SemType) list>()
+
     /// Generic closures emitted into this assembly (function-representation-plan §Generic closures, C2), by
     /// closure name → its shape. Unlike generic unions / records, the typars
     /// here are not source-level names but the *enclosing static method's*
@@ -708,6 +717,18 @@ type ClrProvider
                 // special-cases above (`isVesperListName` / `listTypeName`) win
                 // by precedence so a `list<elem>` slot still maps to `FSharpList\`1`
                 // / `Vesper.Collections.List\`1`; only *user* records reach here.
+                if args.IsEmpty then
+                    te.Type(userTypes.[name], false)
+                else
+                    let g = te.GenericInstantiation(userTypes.[name], args.Length, false)
+
+                    for a in args do
+                        encodeTypeCore tryLeaf (g.AddArgument()) a
+            | TyClass(name, args) when userTypes.ContainsKey name ->
+                // A user *class* emitted into this assembly (vesper-set-sprint-plan
+                // Phase 1 / B-1) — same encoding as a user union/record, keyed by
+                // `TyClass`. Checked *before* the external-class arm so a project-
+                // local class wins over an accidental same-named external one.
                 if args.IsEmpty then
                     te.Type(userTypes.[name], false)
                 else
@@ -1139,6 +1160,85 @@ type ClrProvider
                 encodeUnionType typeIx (BlobEncoder(s).FieldSignature()) declTy
                 toEntity (ctx.MemberRef(parent, fieldName, s))
             | None -> failwithf "ClrProvider: generic record '%s' has no field '%s'" name fieldName
+
+    // ---- Generic class emission (vesper-set-sprint-plan Phase 1 / B-1) ----
+    //
+    // A generic class is shaped like a generic record at the metadata level:
+    // one public field per primary-ctor parameter (keyed by source name), one
+    // `.ctor` taking those fields in declaration order. Augmentation members
+    // (instance / static methods + properties) ride the same `Member` arm
+    // `UnionMember` uses for union augmentation members, but no tag / case /
+    // factory machinery is involved.
+
+    /// `name\`n<args>` as a member-ref parent `TypeSpec` for a generic class.
+    /// Mirror of `genericRecordTypeSpec` / `genericUnionTypeSpec`: the same
+    /// `encodeUnionType` encoder is reused for the instantiation arguments
+    /// (typar markers map to `!i`, concrete leaves to their IL types).
+    let genericClassTypeSpec (name: string) (args: SemType list) : EntityHandle =
+        let typars, _ = genericClasses.[name]
+        let typeIx = typarIx typars
+        let tsB = BlobBuilder()
+        let te = BlobEncoder(tsB).TypeSpecificationSignature()
+        let g = te.GenericInstantiation(userTypes.[name], List.length typars, false)
+
+        for a in args do
+            encodeUnionType typeIx (g.AddArgument()) a
+
+        toEntity (ctx.TypeSpec tsB)
+
+    /// A `MemberRef` to one member of generic class `name` instantiated at
+    /// `args`. The parent is `genericClassTypeSpec`; the signature is in the
+    /// type's own typars (`!0`). The `Ctor` / `Field` arms mirror the
+    /// `RecordMember` shape; `Member` mirrors `UnionMember.Member` (a method
+    /// / property emitted as a `MemberDef` on the class, reached at a use
+    /// site through a `MemberRef` on the instantiated `TypeSpec`).
+    let genericClassMemberRef (name: string) (args: SemType list) (which: ClassMember) : EntityHandle =
+        let typars, fields = genericClasses.[name]
+        let typeIx = typarIx typars
+        let parent = genericClassTypeSpec name args
+
+        match which with
+        | ClassMember.Ctor ->
+            // `instance void .ctor(field0, field1, …)` — parameter types are
+            // the backing-field types in declaration order, written in the
+            // class's own typars.
+            let paramTys = fields |> List.map snd
+            let s = BlobBuilder()
+
+            BlobEncoder(s)
+                .MethodSignature(isInstanceMethod = true)
+                .Parameters(
+                    List.length paramTys,
+                    (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                    (fun (pars: ParametersEncoder) ->
+                        for p in paramTys do
+                            encodeUnionType typeIx (pars.AddParameter().Type()) p
+                    )
+                )
+
+            toEntity (ctx.MemberRef(parent, ".ctor", s))
+        | ClassMember.Field fieldName ->
+            match fields |> List.tryFind (fun (n, _) -> n = fieldName) with
+            | Some(_, declTy) ->
+                let s = BlobBuilder()
+                encodeUnionType typeIx (BlobEncoder(s).FieldSignature()) declTy
+                toEntity (ctx.MemberRef(parent, fieldName, s))
+            | None -> failwithf "ClrProvider: generic class '%s' has no field '%s'" name fieldName
+        | ClassMember.Member(metaName, isStatic, paramTys, retTy) ->
+            let s = BlobBuilder()
+
+            BlobEncoder(s)
+                .MethodSignature(isInstanceMethod = not isStatic)
+                .Parameters(
+                    List.length paramTys,
+                    (fun (ret: ReturnTypeEncoder) -> encodeUnionType typeIx (ret.Type()) retTy),
+                    (fun (pars: ParametersEncoder) ->
+                        for p in paramTys do
+                            encodeUnionType typeIx (pars.AddParameter().Type()) p
+                    )
+                )
+
+            toEntity (ctx.MemberRef(parent, metaName, s))
 
     // ---- Generic closure emission (function-representation-plan §Generic closures, C2) ----
     //
@@ -2215,6 +2315,14 @@ type ClrProvider
     member _.RegisterGenericRecord(name: string, typars: string list, fields: (string * SemType) list) : unit =
         genericRecords.[name] <- (typars, fields)
 
+    /// Register a *generic* class's shape (typar names + backing fields per
+    /// primary-ctor parameter) so `UserGenericMemberRef(_, _, ClassMember _)`
+    /// can mint `MemberRef`s on its `TypeSpec` (vesper-set-sprint-plan
+    /// Phase 1 / B-1). `fields` is `(name, declTy)` in declaration order;
+    /// call after `RegisterUserType`. A no-op for a monomorphic class.
+    member _.RegisterGenericClass(name: string, typars: string list, fields: (string * SemType) list) : unit =
+        genericClasses.[name] <- (typars, fields)
+
     /// `<field-type>` field signature for a generic union's case field, encoded
     /// in terms of the type's own generic parameters (`Head : 'T` ⇒ `!0`).
     member _.GenericFieldSignature(typars: string list, declTy: SemType) : BlobBuilder =
@@ -2724,7 +2832,9 @@ type ClrProvider
 
         // Single seam over the per-family helpers (vesper-set-sprint-plan
         // §0.3 / M3): dispatch by `kind`, hand off to the existing functions.
-        // Phase 1 will add a `UserMemberKind.ClassMember _ -> …` arm here.
+        // Phase 1 (B-1) added the `ClassMember` arm; the per-family helpers
+        // (`genericClassMemberRef`) keep records, unions, closures and classes
+        // independent.
         member _.UserGenericMemberRef(name, args, kind) =
             let zonkedArgs = List.map zonk args
 
@@ -2732,6 +2842,7 @@ type ClrProvider
             | UserMemberKind.UnionMember which -> genericUnionMemberRef name zonkedArgs which
             | UserMemberKind.RecordMember which -> genericRecordMemberRef name zonkedArgs which
             | UserMemberKind.ClosureMember which -> genericClosureMemberRef name zonkedArgs which
+            | UserMemberKind.ClassMember which -> genericClassMemberRef name zonkedArgs which
 
         member _.TryEmitRecordCons(typeName, tyArgs, _fieldNames) =
             let zonkedArgs = List.map zonk tyArgs

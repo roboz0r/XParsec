@@ -114,6 +114,28 @@ module Emit =
             Ctor: EntityHandle
         }
 
+    /// A class emitted into this assembly (vesper-set-sprint-plan Phase 1 /
+    /// B-1): a sealed class with one public backing field per primary-ctor
+    /// parameter (keyed by source name), one `.ctor` taking those fields in
+    /// declaration order, and the augmentation members (instance / static
+    /// method+property) keyed by source name. Same shape as `EmittedUnion`'s
+    /// `Members` dictionary, so the existing instance / static member
+    /// resolvers (`resolveInstanceMember`, `resolveStaticMember`) extend
+    /// to classes without new ones.
+    ///
+    /// `Typars` ⇒ empty for a monomorphic class (the `Field` / `Ctor` /
+    /// member handles are `Def` tokens used directly). A *generic* class
+    /// reaches each member through `ICodegenProvider.UserGenericMemberRef
+    /// (ClassMember _)`.
+    type EmittedClass =
+        {
+            Name: string
+            Typars: string list
+            Fields: (string * EntityHandle * SemType) list
+            Ctor: EntityHandle
+            Members: Dictionary<string, EmittedMember>
+        }
+
     /// A top-level function binding lowered to a **static method**:
     /// `let [rec] f p0 p1 … = body` becomes `static <ResultTy> f(p0, p1, …)`,
     /// the curried parameters flattened to method parameters. Eligible only when
@@ -1253,6 +1275,7 @@ module Emit =
             CtorHandleByNode: Dictionary<TExpr, EntityHandle>
             Unions: Dictionary<string, EmittedUnion>
             Records: Dictionary<string, EmittedRecord>
+            Classes: Dictionary<string, EmittedClass>
             StaticMethods: Dictionary<NodeKey, StaticMethodRef>
         }
 
@@ -1271,6 +1294,7 @@ module Emit =
             CaptureFields: Dictionary<NodeKey, EntityHandle>
             Unions: Dictionary<string, EmittedUnion>
             Records: Dictionary<string, EmittedRecord>
+            Classes: Dictionary<string, EmittedClass>
             StaticMethods: Dictionary<NodeKey, StaticMethodRef>
         }
 
@@ -1412,11 +1436,10 @@ module Emit =
         b.Add ILInstr.Throw
 
     /// Resolve the member-call handle for an instance access on `receiverTy`
-    /// (P3d.3, generalised to generic unions in R2). A monomorphic union uses the
-    /// member's `Def` token directly; a *generic* union goes through a `MemberRef`
-    /// on the receiver's instantiated `TypeSpec` (`List<int>::get_Head`). Only
-    /// emitted unions carry members today (records / concrete classes are P3e), so
-    /// a non-union receiver is a gap.
+    /// (P3d.3, generalised to generic unions in R2 and to classes in Phase 1 /
+    /// B-1). A monomorphic union/class uses the member's `Def` token directly;
+    /// a *generic* one goes through a `MemberRef` on the receiver's
+    /// instantiated `TypeSpec` (`List<int>::get_Head`, `Box<int>::get_Value`).
     let private resolveInstanceMember (env: EmitEnv) (receiverTy: SemType) (name: string) : EntityHandle =
         let typeName, tyArgs =
             match receiverShape receiverTy with
@@ -1436,13 +1459,29 @@ module Emit =
                         UserMemberKind.UnionMember(UnionMember.Member(m.MetaName, false, m.ParamTys, m.RetTy))
                     )
             | false, _ -> failwithf "Emit: union '%s' has no emitted member '%s'" typeName name
-        | false, _ -> failwithf "Emit: no emitted union for member access on '%s'" typeName
+        | false, _ ->
+            match env.Classes.TryGetValue typeName with
+            | true, c ->
+                match c.Members.TryGetValue name with
+                | true, m ->
+                    if List.isEmpty c.Typars then
+                        m.Handle
+                    else
+                        env.Provider.UserGenericMemberRef(
+                            typeName,
+                            tyArgs,
+                            UserMemberKind.ClassMember(ClassMember.Member(m.MetaName, false, m.ParamTys, m.RetTy))
+                        )
+                | false, _ -> failwithf "Emit: class '%s' has no emitted member '%s'" typeName name
+            | false, _ -> failwithf "Emit: no emitted type carrying members for receiver '%s'" typeName
 
     /// The static-member equivalent. Generic-union *static* augmentation members
     /// are out of scope in R2 (a static member's typars aren't tied to the type's
     /// via `this`, so the front-end leaves them un-remapped — the type's generic
     /// `Cons` / `Empty` come from its case factories instead), so a generic union
-    /// fails here loudly rather than minting a malformed `Def` call.
+    /// fails here loudly rather than minting a malformed `Def` call. Classes
+    /// route through the same `Member` arm as instances; a generic class's
+    /// static member uses the class `MemberRef` instead of the union one.
     let private resolveStaticMember (env: EmitEnv) (typeName: string) (name: string) : EntityHandle =
         match env.Unions.TryGetValue typeName with
         | true, u ->
@@ -1456,16 +1495,31 @@ module Emit =
                         typeName
                         name
             | false, _ -> failwithf "Emit: union '%s' has no emitted static member '%s'" typeName name
-        | false, _ -> failwithf "Emit: no emitted union for static member access on '%s'" typeName
+        | false, _ ->
+            match env.Classes.TryGetValue typeName with
+            | true, c ->
+                match c.Members.TryGetValue name with
+                | true, m ->
+                    if List.isEmpty c.Typars then
+                        m.Handle
+                    else
+                        env.Provider.UserGenericMemberRef(
+                            typeName,
+                            [ for t in c.Typars -> TyConst t ],
+                            UserMemberKind.ClassMember(ClassMember.Member(m.MetaName, true, m.ParamTys, m.RetTy))
+                        )
+                | false, _ -> failwithf "Emit: class '%s' has no emitted static member '%s'" typeName name
+            | false, _ -> failwithf "Emit: no emitted type carrying static members for '%s'" typeName
 
-    /// Resolve a record field by name on a `TyRecord` receiver to its emit
-    /// handle and declared type. A monomorphic record returns the field's `Def`
-    /// token; a *generic* record returns a `MemberRef` on the receiver's
-    /// instantiated `TypeSpec` (`Box<int>::Value`) — the records-plan §B3 mirror
-    /// of `resolveInstanceMember` for unions. A referenced-assembly record
+    /// Resolve a field by name on a record / class receiver to its emit
+    /// handle and declared type. A monomorphic type returns the field's
+    /// `Def` token; a *generic* one returns a `MemberRef` on the receiver's
+    /// instantiated `TypeSpec` (`Box<int>::Value`) — the records-plan §B3
+    /// mirror of `resolveInstanceMember`. A referenced-assembly record
     /// (records-plan §B7) goes through the provider's
-    /// `TryResolveExternalRecordField`. The receiver must be a record (the
-    /// front end has already routed non-record field access elsewhere).
+    /// `TryResolveExternalRecordField`. Classes reach here for primary-
+    /// ctor parameter accesses rewritten to `FieldGet(this, name)` by
+    /// `Freeze.translateClassMember` (vesper-set-sprint-plan Phase 1 / B-1).
     let private resolveRecordField (env: EmitEnv) (receiverTy: SemType) (fieldName: string) : EntityHandle * SemType =
         let typeName, tyArgs =
             match receiverShape receiverTy with
@@ -1489,9 +1543,26 @@ module Emit =
                 handle, ty
             | None -> failwithf "Emit: record '%s' has no field '%s'" typeName fieldName
         | false, _ ->
-            match env.Provider.TryResolveExternalRecordField(typeName, tyArgs, fieldName) with
-            | ValueSome(handle, ty) -> handle, ty
-            | ValueNone -> failwithf "Emit: no emitted record for field access on '%s'" typeName
+            match env.Classes.TryGetValue typeName with
+            | true, c ->
+                match c.Fields |> List.tryFind (fun (n, _, _) -> n = fieldName) with
+                | Some(_, h, ty) ->
+                    let handle =
+                        if List.isEmpty c.Typars then
+                            h
+                        else
+                            env.Provider.UserGenericMemberRef(
+                                typeName,
+                                tyArgs,
+                                UserMemberKind.ClassMember(ClassMember.Field fieldName)
+                            )
+
+                    handle, ty
+                | None -> failwithf "Emit: class '%s' has no field '%s'" typeName fieldName
+            | false, _ ->
+                match env.Provider.TryResolveExternalRecordField(typeName, tyArgs, fieldName) with
+                | ValueSome(handle, ty) -> handle, ty
+                | ValueNone -> failwithf "Emit: no emitted type for field access on '%s'" typeName
 
     /// The cold printf path (`printfn "%A"` …). Its `PrintFormatLine` recipe leaves
     /// an FSharp.Core `FSharpFunc` printer on the stack, so the printer is applied
@@ -1662,9 +1733,28 @@ module Emit =
             // overloads (v1 picker is arity-only — see `ClrProvider.externalCtor`).
             let argTypes = [ for a in args -> typeOfExpr a ]
 
-            match env.Provider.TryEmitCtor(className, tyArgs, argTypes) with
-            | ValueSome recipe -> b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))
-            | ValueNone -> failwithf "Emit: no constructor recipe for '%s'" className
+            match env.Classes.TryGetValue className with
+            | true, c ->
+                // A user class emitted into this assembly (vesper-set-sprint-plan
+                // Phase 1 / B-1). Monomorphic: use the ctor's `Def` token directly.
+                // Generic: mint a `MemberRef` on the receiver's instantiated
+                // `TypeSpec` (`Box<int>::.ctor`), mirroring the generic-record
+                // ctor path.
+                let ctorRef =
+                    if List.isEmpty c.Typars then
+                        c.Ctor
+                    else
+                        env.Provider.UserGenericMemberRef(
+                            className,
+                            tyArgs,
+                            UserMemberKind.ClassMember ClassMember.Ctor
+                        )
+
+                b.Add(ILInstr.Newobj(ctorRef, List.length c.Fields))
+            | false, _ ->
+                match env.Provider.TryEmitCtor(className, tyArgs, argTypes) with
+                | ValueSome recipe -> b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))
+                | ValueNone -> failwithf "Emit: no constructor recipe for '%s'" className
 
         | TExpr.App _ -> buildAppCall env b e
 
@@ -2265,6 +2355,7 @@ module Emit =
                 CaptureFields = Dictionary<NodeKey, EntityHandle>()
                 Unions = ctx.Unions
                 Records = ctx.Records
+                Classes = ctx.Classes
                 StaticMethods = ctx.StaticMethods
             }
 
@@ -2309,6 +2400,7 @@ module Emit =
                 CaptureFields = captureFields
                 Unions = ctx.Unions
                 Records = ctx.Records
+                Classes = ctx.Classes
                 StaticMethods = ctx.StaticMethods
             }
 
@@ -2338,6 +2430,7 @@ module Emit =
                 CaptureFields = Dictionary<NodeKey, EntityHandle>()
                 Unions = ctx.Unions
                 Records = ctx.Records
+                Classes = ctx.Classes
                 StaticMethods = ctx.StaticMethods
             }
 
@@ -2381,6 +2474,7 @@ module Emit =
                 CaptureFields = Dictionary<NodeKey, EntityHandle>()
                 Unions = ctx.Unions
                 Records = ctx.Records
+                Classes = ctx.Classes
                 StaticMethods = ctx.StaticMethods
             }
 

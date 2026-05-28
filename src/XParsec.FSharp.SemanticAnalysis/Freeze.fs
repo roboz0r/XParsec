@@ -1585,16 +1585,53 @@ module Freeze =
 
     /// Translate one class member element into a `TTypeMember`. Parallel to
     /// `translateUnionMember` — only differs in the `ThisTy` shape
-    /// (`TyClass(info.Name, …)` vs `TyUnion`). Phase 2 (B-4) will extend the
-    /// dispatch path to consult `info.BaseType` for `base.M` resolution.
+    /// (`TyClass(info.Name, …)` vs `TyUnion`) and in one extra rewrite step:
+    /// each `TExpr.Var(ctorParamKey)` in an *instance* member body becomes
+    /// `TExpr.FieldGet(this, paramName)`, so the back end resolves a primary-
+    /// ctor argument through the same field-access mechanism every other
+    /// nominal type uses (codegen never sees the ctor-param NodeKey). Static
+    /// members don't see ctor params (front-end's `staticScope` is empty), so
+    /// the rewrite is a no-op there. Phase 2 (B-4) will extend the dispatch
+    /// path to consult `info.BaseType` for `base.M` resolution.
     let private translateClassMember
         (ctx: PassContext)
         (info: ClassTypeInfo)
         (el: TypeDefnElement<SyntaxToken>)
         : TTypeMember voption =
+        // The instantiated self-type the synthesised `this` Var carries. Empty
+        // typar list for a monomorphic class; the `tryClassType` remap leaves
+        // the markers in place (it rewrites prototype `TyVar` roots, not
+        // `TyConst` markers — see `remapDeclTypars`).
+        let classTy =
+            TyClass(info.Name, EqArray.ofSeq (seq { for (n, _) in info.TypeParams -> TyConst n }))
+
+        let ctorParamByKey =
+            info.CtorParams |> Array.map (fun p -> p.DeclKey, p.Name) |> Map.ofArray
+
+        let rewriteCtorParamRefs (body: TExpr) : TExpr =
+            if Map.isEmpty ctorParamByKey then
+                body
+            else
+                TastWalk.mapExpr
+                    { TastWalk.identityMapper with
+                        OverrideExpr =
+                            fun _ e ->
+                                match e with
+                                | TExpr.Var(k, ty) ->
+                                    match Map.tryFind k ctorParamByKey with
+                                    | Some name -> ValueSome(TExpr.FieldGet(TExpr.Var(info.ThisKey, classTy), name, ty))
+                                    | None -> ValueNone
+                                | _ -> ValueNone
+                    }
+                    body
+
         match el with
         | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; defn = d)) ->
             let isStatic = s.IsSome
+
+            let lowerBody (e: Expr<SyntaxToken>) : TExpr =
+                let body = translateExpr ctx e
+                if isStatic then body else rewriteCtorParamRefs body
 
             let build (kind: TMemberKind) (b: Binding<SyntaxToken>) : TTypeMember voption =
                 match memberNameOfBinding ctx b with
@@ -1607,7 +1644,7 @@ module Freeze =
                             ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
                             ThisTy = TyClass(info.Name, EqArray.empty)
                             Params = memberParams ctx b
-                            Body = translateExpr ctx b.expr
+                            Body = lowerBody b.expr
                             ReturnTy = typeOfKey ctx (CstKeys.ofExpr b.expr)
                         }
                 | ValueNone -> ValueNone
@@ -1624,7 +1661,7 @@ module Freeze =
                         ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
                         ThisTy = TyClass(info.Name, EqArray.empty)
                         Params = EqArray.empty
-                        Body = translateExpr ctx e
+                        Body = lowerBody e
                         ReturnTy = typeOfKey ctx (CstKeys.ofExpr e)
                     }
             | _ -> ValueNone

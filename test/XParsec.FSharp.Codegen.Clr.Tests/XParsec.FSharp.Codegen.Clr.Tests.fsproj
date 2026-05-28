@@ -37,6 +37,7 @@
     <Compile Include="EqualityAttributeTests.fs" />
     <Compile Include="StructuralComparisonTests.fs" />
     <Compile Include="CapturedMutableTests.fs" />
+    <Compile Include="ClassTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
