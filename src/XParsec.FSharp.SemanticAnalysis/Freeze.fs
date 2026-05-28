@@ -1583,6 +1583,53 @@ module Freeze =
             | _ -> ValueNone
         | _ -> ValueNone
 
+    /// Translate one class member element into a `TTypeMember`. Parallel to
+    /// `translateUnionMember` — only differs in the `ThisTy` shape
+    /// (`TyClass(info.Name, …)` vs `TyUnion`). Phase 2 (B-4) will extend the
+    /// dispatch path to consult `info.BaseType` for `base.M` resolution.
+    let private translateClassMember
+        (ctx: PassContext)
+        (info: ClassTypeInfo)
+        (el: TypeDefnElement<SyntaxToken>)
+        : TTypeMember voption =
+        match el with
+        | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; defn = d)) ->
+            let isStatic = s.IsSome
+
+            let build (kind: TMemberKind) (b: Binding<SyntaxToken>) : TTypeMember voption =
+                match memberNameOfBinding ctx b with
+                | ValueSome n ->
+                    ValueSome
+                        {
+                            Name = n
+                            IsStatic = isStatic
+                            Kind = kind
+                            ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
+                            ThisTy = TyClass(info.Name, EqArray.empty)
+                            Params = memberParams ctx b
+                            Body = translateExpr ctx b.expr
+                            ReturnTy = typeOfKey ctx (CstKeys.ofExpr b.expr)
+                        }
+                | ValueNone -> ValueNone
+
+            match d with
+            | MethodOrPropDefn.Method(defn = b) -> build TMemberKind.Method b
+            | MethodOrPropDefn.Property(defn = b) -> build TMemberKind.Property b
+            | MethodOrPropDefn.AutoProperty(ident = id; expr = e) ->
+                ValueSome
+                    {
+                        Name = ctx.NameOf id
+                        IsStatic = isStatic
+                        Kind = TMemberKind.Property
+                        ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
+                        ThisTy = TyClass(info.Name, EqArray.empty)
+                        Params = EqArray.empty
+                        Body = translateExpr ctx e
+                        ReturnTy = typeOfKey ctx (CstKeys.ofExpr e)
+                    }
+            | _ -> ValueNone
+        | _ -> ValueNone
+
     /// Pair each declared typar's *zonked* root TyVar with its marker name, so
     /// `remapDeclTypars` can rewrite free occurrences back to `TyConst "'A"`.
     /// Pinned typars (anything that's already collapsed to a non-`TyVar`) are
@@ -1731,10 +1778,74 @@ module Freeze =
                     info.ComparisonSupport
             )
 
-    /// Surface an interface-shaped, union, or record `TypeDefn` as a
-    /// `TDecl.Type`. Anything else (abbrevs, concrete classes) surfaces nothing.
+    /// Surface a `TypeDefn.Class` (or class-shaped `TypeDefn.Anon`) as a
+    /// `TDecl.Type` from the resolved `ClassTypeInfo`. Ctor params and member
+    /// signatures are remapped through the declaring-type typars (the same
+    /// `mkTypeMarkers` + `remapDeclTypars` pipeline records / unions use).
+    /// Phase 1 (B-1) leaves `fields` empty (no mutable instance fields yet),
+    /// `baseType` `ValueNone` (codegen defaults to `Object`), and `interfaces`
+    /// empty — Phases 2 and 5 fill those slots.
+    let private tryClassType
+        (ctx: PassContext)
+        (ns: string option)
+        (name: string)
+        (elements: TypeDefnElements<SyntaxToken>)
+        : TDecl option =
+        match ctx.Types.Class.TryGetValue name with
+        | false, _ -> None
+        | true, info ->
+            let markers = mkTypeMarkers info.TypeParams
+
+            let ctorParams =
+                EqArray.ofSeq (
+                    seq {
+                        for p in info.CtorParams ->
+                            {
+                                Name = p.Name
+                                Type = remapDeclTypars markers p.Type
+                                IsMutable = false
+                            }
+                    }
+                )
+
+            let declTypars = [ for (n, _) in info.TypeParams -> n ]
+
+            let remapMember (m: TTypeMember) : TTypeMember =
+                let f = remapDeclTypars markers
+
+                { m with
+                    ThisTy = TyClass(info.Name, EqArray.ofSeq (seq { for n in declTypars -> TyConst n }))
+                    Params = m.Params |> EqArray.map (fun (k, ty) -> k, f ty)
+                    Body = mapExprTypes f m.Body
+                    ReturnTy = f m.ReturnTy
+                }
+
+            let members =
+                EqArray.ofSeq (
+                    seq {
+                        for el in elements do
+                            match translateClassMember ctx info el with
+                            | ValueSome m -> yield (if List.isEmpty declTypars then m else remapMember m)
+                            | ValueNone -> ()
+                    }
+                )
+
+            Some(
+                mkTypeDecl
+                    name
+                    ns
+                    (EqArray.ofList declTypars)
+                    (TTypeKind.Class(EqArray.empty, ctorParams, members, ValueNone, EqArray.empty))
+                    // Classes are reference-equal by default ([[project_c_attr_pr_a]]);
+                    // [<CustomEquality>] / [<NoEquality>] lift this in a later sprint.
+                    EqualityVerdict.Reference
+                    ComparisonVerdict.NoComparison
+            )
+
+    /// Surface an interface-shaped, union, record, or class `TypeDefn` as a
+    /// `TDecl.Type`. Abbreviations surface nothing.
     let private tryTypeDecl (ctx: PassContext) (ns: string option) (td: TypeDefn<SyntaxToken>) : TDecl option =
-        let classify tn body =
+        let classify tn (body: ObjectModelBody<SyntaxToken>) =
             let name = typeNameSimple ctx tn
 
             match tryInterfaceMethods ctx name body with
@@ -1752,11 +1863,13 @@ module Freeze =
                         EqualityVerdict.Structural
                         ComparisonVerdict.NoComparison
                 )
-            | None -> None
+            // Not all-abstract ⇒ class shape (`type C(x) = member …`).
+            | None -> tryClassType ctx ns name body.elements
 
         match td with
         | TypeDefn.Anon(typeName = tn; body = body) -> classify tn body
         | TypeDefn.Interface(typeName = tn; body = body) -> classify tn body
+        | TypeDefn.Class(typeName = tn; body = body) -> tryClassType ctx ns (typeNameSimple ctx tn) body.elements
         | TypeDefn.Union(typeName = tn; extensions = ext) -> tryUnionType ctx ns (typeNameSimple ctx tn) ext
         | TypeDefn.Record(typeName = tn) -> tryRecordType ctx ns (typeNameSimple ctx tn)
         | _ -> None

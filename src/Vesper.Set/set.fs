@@ -11,7 +11,6 @@ namespace Vesper.Collections
 open System
 open System.Collections
 open System.Collections.Generic
-open System.Diagnostics
 open System.Text
 
 // A functional language implementation of binary trees
@@ -53,49 +52,6 @@ module internal SetTree =
 
     let count s =
         countAux s 0
-
-#if TRACE_SETS_AND_MAPS
-    let mutable traceCount = 0
-    let mutable numOnes = 0
-    let mutable numNodes = 0
-    let mutable numAdds = 0
-    let mutable numRemoves = 0
-    let mutable numLookups = 0
-    let mutable numUnions = 0
-    let mutable totalSizeOnNodeCreation = 0.0
-    let mutable totalSizeOnSetAdd = 0.0
-    let mutable totalSizeOnSetLookup = 0.0
-
-    let report () =
-        traceCount <- traceCount + 1
-
-        if traceCount % 10000 = 0 then
-            System.Console.WriteLine(
-                "#SetOne = {0}, #SetNode = {1}, #Add = {2}, #Remove = {3}, #Unions = {4}, #Lookups = {5}, avSetSizeOnNodeCreation = {6}, avSetSizeOnSetCreation = {7}, avSetSizeOnSetLookup = {8}",
-                numOnes,
-                numNodes,
-                numAdds,
-                numRemoves,
-                numUnions,
-                numLookups,
-                (totalSizeOnNodeCreation / float (numNodes + numOnes)),
-                (totalSizeOnSetAdd / float numAdds),
-                (totalSizeOnSetLookup / float numLookups)
-            )
-
-    let SetTree n =
-        report ()
-        numOnes <- numOnes + 1
-        totalSizeOnNodeCreation <- totalSizeOnNodeCreation + 1.0
-        SetTree n
-
-    let SetTreeNode (x, l, r, h) =
-        report ()
-        numNodes <- numNodes + 1
-        let n = SetTreeNode(x, l, r, h)
-        totalSizeOnNodeCreation <- totalSizeOnNodeCreation + float (count n)
-        n
-#endif
 
     let inline height (t: SetTree<'T>) =
         if isEmpty t then 0 else t.Height
@@ -771,27 +727,9 @@ module internal SetTree =
     let ofArray comparer l =
         Array.fold (fun acc k -> add comparer k acc) empty l
 
-#if NETSTANDARD2_1_OR_GREATER
-[<System.Runtime.CompilerServices.CollectionBuilder(typeof<Set>, "Create")>]
-#endif
 [<Sealed>]
 [<CompiledName("FSharpSet`1")>]
-[<DebuggerTypeProxy(typedefof<SetDebugView<_>>)>]
-[<DebuggerDisplay("Count = {Count}")>]
 type Set<[<EqualityConditionalOn>] 'T when 'T: comparison>(comparer: IComparer<'T>, tree: SetTree<'T>) =
-
-    [<NonSerialized>]
-    // NOTE: This type is logically immutable. This field is only mutated during deserialization.
-    let mutable comparer = comparer
-
-    [<NonSerialized>]
-    // NOTE: This type is logically immutable. This field is only mutated during deserialization.
-    let mutable tree = tree
-
-    // NOTE: This type is logically immutable. This field is only mutated during serialization and deserialization.
-    // WARNING: The compiled name of this field may never be changed because it is part of the logical
-    // WARNING: permanent serialization format for this type.
-    let mutable serializedData = null
 
     // We use .NET generics per-instantiation static fields to avoid allocating a new object for each empty
     // set (it is just a lookup into a .NET table of type-instantiation-indexed static fields).
@@ -800,54 +738,21 @@ type Set<[<EqualityConditionalOn>] 'T when 'T: comparison>(comparer: IComparer<'
         let comparer = LanguagePrimitives.FastGenericComparer<'T>
         Set<'T>(comparer, SetTree.empty)
 
-    [<System.Runtime.Serialization.OnSerializingAttribute>]
-    member _.OnSerializing(context: System.Runtime.Serialization.StreamingContext) =
-        ignore context
-        serializedData <- SetTree.toArray tree
-
-    // Do not set this to null, since concurrent threads may also be serializing the data
-    //[<System.Runtime.Serialization.OnSerializedAttribute>]
-    //member _.OnSerialized(context: System.Runtime.Serialization.StreamingContext) =
-    //    serializedData <- null
-
-    [<System.Runtime.Serialization.OnDeserializedAttribute>]
-    member _.OnDeserialized(context: System.Runtime.Serialization.StreamingContext) =
-        ignore context
-        comparer <- LanguagePrimitives.FastGenericComparer<'T>
-        tree <- SetTree.ofArray comparer serializedData
-        serializedData <- null
-
-    [<DebuggerBrowsable(DebuggerBrowsableState.Never)>]
     member internal set.Comparer = comparer
 
     member internal set.Tree: SetTree<'T> = tree
 
-    [<DebuggerBrowsable(DebuggerBrowsableState.Never)>]
     static member Empty: Set<'T> = empty
 
     member s.Add value : Set<'T> =
-#if TRACE_SETS_AND_MAPS
-        SetTree.report ()
-        SetTree.numAdds <- SetTree.numAdds + 1
-        SetTree.totalSizeOnSetAdd <- SetTree.totalSizeOnSetAdd + float (SetTree.count s.Tree)
-#endif
         Set<'T>(s.Comparer, SetTree.add s.Comparer value s.Tree)
 
     member s.Remove value : Set<'T> =
-#if TRACE_SETS_AND_MAPS
-        SetTree.report ()
-        SetTree.numRemoves <- SetTree.numRemoves + 1
-#endif
         Set<'T>(s.Comparer, SetTree.remove s.Comparer value s.Tree)
 
     member s.Count = SetTree.count s.Tree
 
     member s.Contains value =
-#if TRACE_SETS_AND_MAPS
-        SetTree.report ()
-        SetTree.numLookups <- SetTree.numLookups + 1
-        SetTree.totalSizeOnSetLookup <- SetTree.totalSizeOnSetLookup + float (SetTree.count s.Tree)
-#endif
         SetTree.mem s.Comparer value s.Tree
 
     member s.Iterate x =
@@ -857,7 +762,6 @@ type Set<[<EqualityConditionalOn>] 'T when 'T: comparison>(comparer: IComparer<'
         let f = OptimizedClosures.FSharpFunc<_, _, _>.Adapt f
         SetTree.fold (fun x z -> f.Invoke(z, x)) z s.Tree
 
-    [<DebuggerBrowsable(DebuggerBrowsableState.Never)>]
     member s.IsEmpty = SetTree.isEmpty s.Tree
 
     member s.Partition f : Set<'T> * Set<'T> =
@@ -897,10 +801,6 @@ type Set<[<EqualityConditionalOn>] 'T when 'T: comparison>(comparer: IComparer<'
             Set(set1.Comparer, SetTree.diff set1.Comparer set1.Tree set2.Tree)
 
     static member (+)(set1: Set<'T>, set2: Set<'T>) =
-#if TRACE_SETS_AND_MAPS
-        SetTree.report ()
-        SetTree.numUnions <- SetTree.numUnions + 1
-#endif
         if SetTree.isEmpty set2.Tree then
             set1 (* A U 0 = A *)
         else if SetTree.isEmpty set1.Tree then
@@ -928,13 +828,10 @@ type Set<[<EqualityConditionalOn>] 'T when 'T: comparison>(comparer: IComparer<'
     static member Compare(a: Set<'T>, b: Set<'T>) =
         SetTree.compare a.Comparer a.Tree b.Tree
 
-    [<DebuggerBrowsable(DebuggerBrowsableState.Never)>]
     member x.Choose = SetTree.choose x.Tree
 
-    [<DebuggerBrowsable(DebuggerBrowsableState.Never)>]
     member x.MinimumElement = SetTree.minimumElement x.Tree
 
-    [<DebuggerBrowsable(DebuggerBrowsableState.Never)>]
     member x.MaximumElement = SetTree.maximumElement x.Tree
 
     member x.IsSubsetOf(otherSet: Set<'T>) =
@@ -1099,27 +996,6 @@ type Set<[<EqualityConditionalOn>] 'T when 'T: comparison>(comparer: IComparer<'
                 .Append(txt3)
                 .Append("; ... ]")
                 .ToString()
-
-#if NETSTANDARD2_1_OR_GREATER
-and [<CompilerMessage("This type is for compiler use and should not be used directly", 1204, IsHidden = true);
-      Sealed;
-      AbstractClass;
-      CompiledName("FSharpSet")>] Set =
-    [<CompilerMessage("This method is for compiler use and should not be used directly", 1204, IsHidden = true)>]
-    static member Create([<System.Runtime.CompilerServices.ScopedRef>] items: ReadOnlySpan<'T>) =
-        let comparer = LanguagePrimitives.FastGenericComparer<'T>
-        let mutable acc = SetTree.empty
-
-        for item in items do
-            acc <- SetTree.add comparer item acc
-
-        Set(comparer, acc)
-#endif
-
-and [<Sealed>] SetDebugView<'T when 'T: comparison>(v: Set<'T>) =
-
-    [<DebuggerBrowsable(DebuggerBrowsableState.RootHidden)>]
-    member x.Items = v |> Seq.truncate 1000 |> Seq.toArray
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 [<RequireQualifiedAccess>]

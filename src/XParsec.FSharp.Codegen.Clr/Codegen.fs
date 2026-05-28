@@ -134,6 +134,8 @@ module Codegen =
                 | TTypeKind.Interface methods -> interfaces.Add(td, EqArray.toList methods)
                 | TTypeKind.Union(cases, members) -> unions.Add(td, EqArray.toList cases, EqArray.toList members)
                 | TTypeKind.Record(fields, members) -> records.Add(td, EqArray.toList fields, EqArray.toList members)
+                // B-1 backend (Step 1.5) lights this arm up; Step 1.3 only widens TAST.
+                | TTypeKind.Class _ -> ()
             | _ -> ()
 
         {

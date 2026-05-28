@@ -961,11 +961,12 @@ module NameResolution =
                         | ValueNone -> "this"
 
                     let thisKey = NodeKey.ofSynthetic declKey.Offset NodeKind.SynthThisBinding
+                    let baseKey = NodeKey.ofSynthetic declKey.Offset NodeKind.SynthBaseBinding
 
                     let members = memberInfos.ToArray()
 
                     let info =
-                        ClassTypeInfo(name, typeParams, ctorParams, members, declKey, thisName, thisKey)
+                        ClassTypeInfo(name, typeParams, ctorParams, members, declKey, thisName, thisKey, baseKey)
 
                     ctx.Types.Class.[name] <- info
 

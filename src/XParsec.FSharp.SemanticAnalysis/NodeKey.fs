@@ -105,6 +105,11 @@ type NodeKind =
     /// distinct kind keeps these placeholder keys from colliding with real
     /// source keys at the same offset.
     | SynthUnsupportedDecl = 1005us
+    /// Synthetic binder for `base` inside a derived class's member bodies.
+    /// One per class with `inherit Base(...)`; shared across every member.
+    /// Mirrors `SynthThisBinding`. Inert in Phase 1 (B-1) — Phase 2 (B-4)
+    /// wires it into Unification / Freeze.
+    | SynthBaseBinding = 1006us
 
 [<Struct>]
 type NodeKey =

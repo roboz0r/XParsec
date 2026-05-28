@@ -254,6 +254,22 @@ and [<RequireQualifiedAccess>] TTypeKind =
     /// (`with member …` / `static member …`) — empty for v1, where records carry
     /// only their field shape. See docs/records-plan.md §B1.
     | Record of fields: EqArray<TRecordField> * members: EqArray<TTypeMember>
+    /// Class type emission (vesper-set-sprint-plan Phase 1 / B-1).
+    /// `fields` are mutable instance fields — empty in B-1 (the classes-plan v1
+    /// cut); `ctorParams` borrows the `TRecordField` shape for the primary
+    /// constructor's parameter list (name / type / mutability=false).
+    /// `members` carries every instance / static method / property (the
+    /// instance-vs-static split is the member's own `IsStatic`).
+    /// `baseType` is `ValueNone` in B-1 (codegen defaults the IL
+    /// `TypeDefinition.BaseType` to `Object`); Phase 2 (B-4) fills it from
+    /// `ClassTypeInfo.BaseType`. `interfaces` is empty in B-1; Phase 5 (B-2)
+    /// fills it from the interface-impl registry.
+    | Class of
+        fields: EqArray<TRecordField> *
+        ctorParams: EqArray<TRecordField> *
+        members: EqArray<TTypeMember> *
+        baseType: SemType voption *
+        interfaces: EqArray<string * EqArray<TTypeMember>>
 
 /// `Fields` are the case's payload in declaration order; a field's name is
 /// `ValueNone` when the source is positional (`Cons of 'T * list`). Empty

@@ -609,6 +609,28 @@ type private Renderer() =
                     push m.Name
                     push " : "
                     push (tyStr m.ReturnTy)
+            | TTypeKind.Class(_, ctorParams, members, _, _) ->
+                push "("
+
+                ctorParams
+                |> EqArray.iteri (fun i p ->
+                    if i > 0 then
+                        push ", "
+
+                    push p.Name
+                    push " : "
+                    push (tyStr p.Type)
+                )
+
+                push ") = class"
+
+                for m in members do
+                    push (if m.IsStatic then " static member " else " member ")
+                    push m.Name
+                    push " : "
+                    push (tyStr m.ReturnTy)
+
+                push " end"
 
 let prettyExpr (e: TExpr) : string =
     let r = Renderer()

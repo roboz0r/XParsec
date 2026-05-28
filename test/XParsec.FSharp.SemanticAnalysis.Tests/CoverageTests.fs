@@ -569,9 +569,14 @@ let tests =
                     analyse "type Point(x: int, y: int) =\n    member this.X = x\nlet p = new Point(3, 4)"
 
                 let valExpr =
-                    match tast.Decls with
-                    | EqList [ TDecl.Let(_, v, _, _) ] -> v
-                    | _ -> failwithf "expected one let, got %A" tast.Decls
+                    tast.Decls
+                    |> EqArray.toList
+                    |> List.tryPick (
+                        function
+                        | TDecl.Let(_, v, _, _) -> Some v
+                        | _ -> None
+                    )
+                    |> Option.defaultWith (fun () -> failwithf "expected a let, got %A" tast.Decls)
 
                 match valExpr with
                 | TExpr.New(name, args, ty) ->
@@ -588,9 +593,14 @@ let tests =
                     analyse "type Point(x: int, y: int) =\n    member this.X = x\nlet f (p : Point) = p.X"
 
                 let valExpr =
-                    match tast.Decls with
-                    | EqList [ TDecl.Let(_, v, _, _) ] -> v
-                    | _ -> failwithf "expected one let, got %A" tast.Decls
+                    tast.Decls
+                    |> EqArray.toList
+                    |> List.tryPick (
+                        function
+                        | TDecl.Let(_, v, _, _) -> Some v
+                        | _ -> None
+                    )
+                    |> Option.defaultWith (fun () -> failwithf "expected a let, got %A" tast.Decls)
 
                 let body =
                     match valExpr with
@@ -612,9 +622,14 @@ let tests =
                         "type Point(x: int, y: int) =\n    member this.Magnitude () = x * x + y * y\nlet m (p : Point) = p.Magnitude()"
 
                 let valExpr =
-                    match tast.Decls with
-                    | EqList [ TDecl.Let(_, v, _, _) ] -> v
-                    | _ -> failwithf "expected one let, got %A" tast.Decls
+                    tast.Decls
+                    |> EqArray.toList
+                    |> List.tryPick (
+                        function
+                        | TDecl.Let(_, v, _, _) -> Some v
+                        | _ -> None
+                    )
+                    |> Option.defaultWith (fun () -> failwithf "expected a let, got %A" tast.Decls)
 
                 let body =
                     match valExpr with
@@ -635,9 +650,14 @@ let tests =
                 let tast = analyse "type C() =\n    static member Origin = 42\nlet o = C.Origin"
 
                 let valExpr =
-                    match tast.Decls with
-                    | EqList [ TDecl.Let(_, v, _, _) ] -> v
-                    | _ -> failwithf "expected one let, got %A" tast.Decls
+                    tast.Decls
+                    |> EqArray.toList
+                    |> List.tryPick (
+                        function
+                        | TDecl.Let(_, v, _, _) -> Some v
+                        | _ -> None
+                    )
+                    |> Option.defaultWith (fun () -> failwithf "expected a let, got %A" tast.Decls)
 
                 match valExpr with
                 | TExpr.StaticPropertyGet(className, name, ty) ->
@@ -654,9 +674,14 @@ let tests =
                     analyse "type C() =\n    static member M (x: int) = x + 1\nlet r = C.M(1)"
 
                 let valExpr =
-                    match tast.Decls with
-                    | EqList [ TDecl.Let(_, v, _, _) ] -> v
-                    | _ -> failwithf "expected one let, got %A" tast.Decls
+                    tast.Decls
+                    |> EqArray.toList
+                    |> List.tryPick (
+                        function
+                        | TDecl.Let(_, v, _, _) -> Some v
+                        | _ -> None
+                    )
+                    |> Option.defaultWith (fun () -> failwithf "expected a let, got %A" tast.Decls)
 
                 match valExpr with
                 | TExpr.StaticMethodCall(className, methodName, args, ty) ->
@@ -665,6 +690,79 @@ let tests =
                     Expect.equal args.Length 1 "one arg"
                     Expect.equal ty BuiltinTypes.tyInt "method return"
                 | _ -> failtestf "expected StaticMethodCall, got %A" valExpr
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            // Step 1.4 of vesper-set-sprint-plan: `TypeDefn.Class` surfaces as
+            // `TDecl.Type` with `TTypeKind.Class` carrying the ctor params and
+            // member list. `fields`/`baseType`/`interfaces` slots stay empty in B-1.
+            test "TAST: class surfaces as TTypeKind.Class" {
+                let tast =
+                    analyse "type Point(x: int, y: int) =\n    member this.Magnitude () = x * x + y * y"
+
+                let typeDecl =
+                    tast.Decls
+                    |> EqArray.toList
+                    |> List.tryPick (
+                        function
+                        | TDecl.Type t -> Some t
+                        | _ -> None
+                    )
+                    |> Option.defaultWith (fun () -> failwithf "expected a TDecl.Type, got %A" tast.Decls)
+
+                Expect.equal typeDecl.Name "Point" "type name"
+                Expect.equal typeDecl.TypeParams.Length 0 "no generic typars"
+
+                match typeDecl.Kind with
+                | TTypeKind.Class(fields, ctorParams, members, baseType, interfaces) ->
+                    Expect.equal fields.Length 0 "B-1 has no instance fields"
+                    Expect.equal ctorParams.Length 2 "two ctor params"
+                    Expect.equal (ctorParams.[0].Name) "x" "first param name"
+                    Expect.equal (ctorParams.[0].Type) BuiltinTypes.tyInt "first param type"
+                    Expect.equal (ctorParams.[1].Name) "y" "second param name"
+                    Expect.equal (ctorParams.[1].Type) BuiltinTypes.tyInt "second param type"
+                    Expect.equal members.Length 1 "one member"
+                    Expect.equal (members.[0].Name) "Magnitude" "member name"
+                    Expect.isFalse (members.[0].IsStatic) "instance member"
+                    Expect.equal (members.[0].Kind) TMemberKind.Method "method kind"
+                    Expect.equal (members.[0].ReturnTy) BuiltinTypes.tyInt "method returns int"
+                    Expect.equal baseType ValueNone "B-1 leaves baseType ValueNone"
+                    Expect.equal interfaces.Length 0 "B-1 has no interface impls"
+                | other -> failtestf "expected TTypeKind.Class, got %A" other
+
+                Expect.equal typeDecl.EqualitySupport EqualityVerdict.Reference "classes default to reference equality"
+                Expect.equal typeDecl.ComparisonSupport ComparisonVerdict.NoComparison "no comparison"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "TAST: generic class surfaces with declaring typars" {
+                let tast = analyse "type Box<'a>(value: 'a) =\n    member this.Value = value"
+
+                let typeDecl =
+                    tast.Decls
+                    |> EqArray.toList
+                    |> List.tryPick (
+                        function
+                        | TDecl.Type t -> Some t
+                        | _ -> None
+                    )
+                    |> Option.defaultWith (fun () -> failwithf "expected a TDecl.Type, got %A" tast.Decls)
+
+                Expect.equal typeDecl.Name "Box" "type name"
+                Expect.equal (EqArray.toList typeDecl.TypeParams) [ "'a" ] "one declared typar"
+
+                match typeDecl.Kind with
+                | TTypeKind.Class(_, ctorParams, members, _, _) ->
+                    Expect.equal ctorParams.Length 1 "one ctor param"
+                    Expect.equal (ctorParams.[0].Name) "value" "ctor param name"
+                    // The declaring typar is remapped to the `TyConst "'a"` marker
+                    // the backend reads as a `GenericTypeParameter` index.
+                    Expect.equal (ctorParams.[0].Type) (TyConst "'a") "ctor param type marker"
+                    Expect.equal members.Length 1 "one member"
+                    Expect.equal (members.[0].Name) "Value" "member name"
+                    Expect.equal (members.[0].ReturnTy) (TyConst "'a") "member returns the typar"
+                | other -> failtestf "expected TTypeKind.Class, got %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }

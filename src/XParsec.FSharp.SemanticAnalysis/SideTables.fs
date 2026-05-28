@@ -100,6 +100,11 @@ type TypeMemberInfo(name: string, kind: ClassMemberKind, isStatic: bool, ty: Sem
     /// The member's *own* generic parameters (e.g. `abstract Map<'C> : ...`),
     /// as prototype TyVars keyed by source name. Empty for a non-generic member.
     member val MethodTypeParams: EqArray<string * TypeVar> = EqArray.empty with get, set
+    /// `true` when the source declares the member with `MemberKeyword.Override`
+    /// or `MemberKeyword.Default` (the inheritance-plan §Registration flag).
+    /// Inert in Phase 1 (B-1) — stamped by Phase 2's `registerInheritedSlots`
+    /// post-pass; consumed by Freeze/Codegen to choose `call` vs `callvirt`.
+    member val IsOverride: bool = false with get, set
 
 /// Field types start as fresh TyVar placeholders stamped by NameResolution and
 /// are linked by Unification's field-fill-in pass before any expression is
@@ -207,7 +212,8 @@ type ClassTypeInfo
         members: TypeMemberInfo[],
         declKey: NodeKey,
         thisName: string,
-        thisKey: NodeKey
+        thisKey: NodeKey,
+        baseKey: NodeKey
     ) =
     member val Name = name
     member val TypeParams = typeParams
@@ -219,6 +225,20 @@ type ClassTypeInfo
     /// Synthetic NodeKey for the `this` binder shared across every
     /// member body in this class.
     member val ThisKey = thisKey
+    /// Synthetic NodeKey for the `base` binder, mirroring `ThisKey`. Used by
+    /// Phase 2's inheritance plumbing (`base.M()` non-virtual dispatch +
+    /// `inherit Base(args)` ctor lowering); always allocated, only read when
+    /// `BaseType` is `ValueSome`.
+    member val BaseKey = baseKey
+    /// Parent type from `inherit Base(args)` once resolved. Stays `ValueNone`
+    /// in Phase 1 (B-1) — Phase 2's `registerInheritedSlots` walk fills it.
+    /// `ValueNone` ⇒ codegen emits `TypeDefinition.BaseType = Object`.
+    member val BaseType: SemType voption = ValueNone with get, set
+    /// CST expression for the constructor arguments to the base type
+    /// (`inherit Base(arg1, arg2)`'s `(arg1, arg2)` shape). `ValueNone` for
+    /// classes without an `inherit` clause and Phase 1 placeholders; Phase 2
+    /// stamps it from `ClassInheritsDecl.expr`.
+    member val BaseCtorArgs: Expr<SyntaxToken> voption = ValueNone with get, set
 
 /// One entry in `PassContextTypes.ClassMemberIndex` — the declaring class
 /// paired with the matching `TypeMemberInfo`. Promoted from a 2-tuple ahead of
