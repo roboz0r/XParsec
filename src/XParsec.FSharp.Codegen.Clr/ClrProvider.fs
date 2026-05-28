@@ -1302,6 +1302,78 @@ type ClrProvider
 
             ValueSome(toEntity (ctx.MemberRef(parent, ".ctor", s)))
 
+    /// Mint the `MemberRef` for one of a referenced-assembly class's
+    /// constructors, instantiated at `tyArgs` and picked by call-site arity
+    /// (`argTypes.Length`). Parameter types are read off the chosen ctor's
+    /// `BuildSignature(markerTys)` so the signature is written in the type's
+    /// own open typars (`!0`), with the instantiation riding the parent
+    /// `TypeSpec` — same convention `externalMemberRef` uses for instance methods.
+    ///
+    /// Overload disambiguation is **arity only** in v1: a multi-overload class
+    /// where two ctors share an arity (rare in the BCL but legal) picks the
+    /// first one. The front end has already narrowed the candidate set via
+    /// `pickStaticOverload`, but the chosen `SymbolKey` isn't carried on
+    /// `TExpr.New` today, so codegen re-picks by arity here.
+    let externalCtor (fullName: string) (tyArgs: SemType list) (argTypes: SemType list) : CtorRecipe voption =
+        let candidates = symbols.TryLookupMembers(fullName, ".ctor")
+        let arity = List.length argTypes
+
+        let applicable =
+            candidates
+            |> Array.filter (fun m ->
+                match m.Key with
+                | SymbolKey.MemberKey(_, _, argSig, _) -> argSig.Length = arity
+                | _ -> false
+            )
+
+        match applicable with
+        | [||] -> ValueNone
+        | _ ->
+            let chosen = applicable.[0]
+
+            let argSigLen =
+                match chosen.Key with
+                | SymbolKey.MemberKey(_, _, argSig, _) -> argSig.Length
+                | _ -> 0
+
+            match externalClassRef fullName with
+            | ValueNone -> ValueNone
+            | ValueSome tref ->
+                let parent = externalTypeSpec tref (List.map zonk tyArgs)
+                let typeArity = arityOfMetaName fullName
+                let markers = [ for _ in 1..typeArity -> TypeVar() ]
+                let markerRoots = markers |> List.map UnionFind.find
+                let markerTys = markers |> List.map TyVar |> List.toArray
+                let openSig = chosen.BuildSignature markerTys
+                let rawParams, _ = decurryTy openSig
+
+                let paramTys =
+                    match rawParams with
+                    | [ TyConst "unit" ] -> []
+                    | [ TyTuple elems ] when argSigLen >= 2 && elems.Length = argSigLen -> EqArray.toList elems
+                    | ps -> ps
+
+                let s = BlobBuilder()
+
+                BlobEncoder(s)
+                    .MethodSignature(isInstanceMethod = true)
+                    .Parameters(
+                        List.length paramTys,
+                        (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                        (fun (pars: ParametersEncoder) ->
+                            for p in paramTys do
+                                encodeOpen markerRoots (pars.AddParameter().Type()) p
+                        )
+                    )
+
+                let handle = toEntity (ctx.MemberRef(parent, ".ctor", s))
+
+                ValueSome
+                    {
+                        Handle = handle
+                        ArgCount = List.length paramTys
+                    }
+
     /// Mint the `MemberRef` for one named field on a referenced-assembly
     /// record, instantiated at `args`. Returns the field handle plus its
     /// *substituted* declared type — `'T` substituted to the matching `args.[i]`
@@ -2612,11 +2684,15 @@ type ClrProvider
                 // bodies before emission (docs/operators-plan.md, C-Eq1).
                 | _ -> ValueNone
 
-        member _.TryEmitCtor(className, tyArgs) =
+        member _.TryEmitCtor(className, tyArgs, argTypes) =
             if className = PrintfSpec.printfFormatName then
                 ValueSome(emitPrintfFormatCtor (List.map zonk tyArgs))
             else
-                ValueNone
+                // External class ctor (`new System.Exception(msg)` from the
+                // `failwith` inline body, …). The MetadataSymbols provider surfaces
+                // `.ctor` overloads under that name; `externalCtor` picks one by
+                // call-site arity and mints the `newobj` MemberRef.
+                externalCtor className (List.map zonk tyArgs) (List.map zonk argTypes)
 
         member _.TryEmitUnionCons(typeName, caseName, tyArgs) =
             let elem () =

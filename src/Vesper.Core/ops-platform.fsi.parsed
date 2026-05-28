@@ -1199,15 +1199,31 @@ namespace                 'namespace'       KWNamespace         tok=   0  pos=  
             :             ':'               OpColon             tok=1973  pos=10985
             equality      'equality'        Identifier          tok=1975  pos=10987
       Val:
-        val               'val'             KWVal               tok=2033  pos=11937
-        Ident             'failwith'        Identifier          tok=2035  pos=11941
-        :                 ':'               OpColon             tok=2036  pos=11949
-        arg               'message'         Identifier          tok=2038  pos=11951
-        :                 ':'               OpColon             tok=2039  pos=11958
+        val               'val'             KWVal               tok=2033  pos=11851
+        inline            'inline'          KWInline            tok=2035  pos=11855
+        Ident             'raise'           Identifier          tok=2037  pos=11862
+        :                 ':'               OpColon             tok=2038  pos=11867
+        arg               'exn'             Identifier          tok=2040  pos=11869
+        :                 ':'               OpColon             tok=2041  pos=11872
         NamedType:
-          Ident           'string'          Identifier          tok=2041  pos=11960
-        ->                '->'              OpArrowRight        tok=2043  pos=11967
+          LongIdent:
+                          'System'          Identifier          tok=2043  pos=11874
+                          'Exception'       Identifier          tok=2045  pos=11881
+        ->                '->'              OpArrowRight        tok=2047  pos=11891
         VarType:
           Typar.Named:
-                          ''T'              TypeParameter       tok=2045  pos=11970
-    end                   <virt>            KWEnd               tok=virt  pos=11973
+                          ''T'              TypeParameter       tok=2049  pos=11894
+      Val:
+        val               'val'             KWVal               tok=2113  pos=12878
+        inline            'inline'          KWInline            tok=2115  pos=12882
+        Ident             'failwith'        Identifier          tok=2117  pos=12889
+        :                 ':'               OpColon             tok=2118  pos=12897
+        arg               'message'         Identifier          tok=2120  pos=12899
+        :                 ':'               OpColon             tok=2121  pos=12906
+        NamedType:
+          Ident           'string'          Identifier          tok=2123  pos=12908
+        ->                '->'              OpArrowRight        tok=2125  pos=12915
+        VarType:
+          Typar.Named:
+                          ''T'              TypeParameter       tok=2127  pos=12918
+    end                   <virt>            KWEnd               tok=virt  pos=12921

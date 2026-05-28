@@ -259,17 +259,39 @@ module Operators =
         ///
         val inline hash: obj: 'T -> int when 'T: equality
 
+        /// <summary>Raise the given exception.</summary>
+        ///
+        /// <param name="exn">The exception to raise.</param>
+        ///
+        /// <returns>Never returns normally; the result type unifies with any context.</returns>
+        ///
+        /// <remarks>Inline IL — lowers to <c>throw</c>. Same shape as
+        /// FSharp.Core's <c>raise</c> (<c>prim-types.fs:547</c>); the inline-body
+        /// splice machinery (<c>SymbolProviders.inlineBodies</c>) reads the body
+        /// from <c>ops-platform.fs</c> and emits it at each use site, so this
+        /// pins no Vesper runtime dependency.</remarks>
+        ///
+        /// <example id="raise-example">
+        /// <code lang="fsharp">
+        /// raise (System.Exception "boom")   // throws System.Exception "boom"
+        /// </code>
+        /// </example>
+        ///
+        val inline raise: exn: System.Exception -> 'T
+
         /// <summary>Throw a <see cref="T:System.Exception"/> with the given message.</summary>
         ///
         /// <param name="message">The exception message.</param>
         ///
         /// <returns>Never returns normally; the result type unifies with any context.</returns>
         ///
-        /// <remarks>No runtime member of its own — codegen lowers it BCL-only to
-        /// <c>throw new System.Exception(message)</c> (`Emit.isFailwith`), so it pins
-        /// no FSharp.Core / Vesper runtime dependency. Declared here (not inline) so
-        /// it resolves from the contract rather than the demoted `MockBuiltins`
-        /// backstop (symbol-resolution-handoff.md, contract-as-provider demotion).</remarks>
+        /// <remarks>Inline — desugars to <c>raise (new System.Exception(message))</c>;
+        /// the cross-package inline-body splice
+        /// (<c>SymbolProviders.inlineBodies</c>) delivers the body to each use
+        /// site, where it lowers through the standard
+        /// <c>TExpr.New</c> + <c>TExpr.ILIntrinsic "throw"</c> paths. No
+        /// dedicated codegen recipe — the previous <c>Emit.isFailwith</c>
+        /// name-suffix probe is gone.</remarks>
         ///
         /// <example id="failwith-example">
         /// <code lang="fsharp">
@@ -277,4 +299,4 @@ module Operators =
         /// </code>
         /// </example>
         ///
-        val failwith: message: string -> 'T
+        val inline failwith: message: string -> 'T

@@ -116,8 +116,12 @@ type ICodegenProvider =
     /// `List.fold` reads `'T` / `'State` from the folder parameter).
     abstract TryEmitCall: compiledName: string * fnTy: SemType -> CallRecipe voption
 
-    /// `tyArgs` are the constructed type's instantiation arguments.
-    abstract TryEmitCtor: className: string * tyArgs: SemType list -> CtorRecipe voption
+    /// `tyArgs` are the constructed type's instantiation arguments. `argTypes` are
+    /// the call-site argument types (in source order), used by the external-ctor
+    /// path to disambiguate overloads — a v1 picker matches arity only, future
+    /// pickers can match by parameter type. The internal `PrintfFormat` recipe
+    /// ignores them.
+    abstract TryEmitCtor: className: string * tyArgs: SemType list * argTypes: SemType list -> CtorRecipe voption
 
     /// `tyArgs` are the union type's instantiation arguments; the field values
     /// are already on the stack in declaration order beneath the call. The list

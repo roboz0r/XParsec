@@ -120,6 +120,35 @@ module private MetadataMapping =
     /// to expect a `TyFun`.
     let tryPropertySignature (p: PropertyInfo) : (SemType[] -> SemType) option = tryBuildType p.PropertyType
 
+    /// A constructor reads as `(p1 * … * pN) → declType` — the .NET calling
+    /// convention, same tupling as `tryMethodSignature`. The return type is the
+    /// declaring type instantiated to the caller's `args` (`tryBuildType`'s
+    /// generic-parameter arm makes the typars resolve positionally). `None` if
+    /// any parameter or the declaring type doesn't map. A zero-parameter ctor
+    /// reads as `unit → declType`. Surfaced through `extractMembers` as a
+    /// member named `".ctor"`, picked up by `inferNew` / `TryEmitCtor`'s
+    /// overload resolution to lower `new ExternalType(args)`.
+    let tryCtorSignature (c: ConstructorInfo) : (SemType[] -> SemType) option =
+        let paramBuilders =
+            c.GetParameters() |> Array.map (fun p -> tryBuildType p.ParameterType)
+
+        let retBuilder = tryBuildType c.DeclaringType
+
+        if retBuilder.IsNone || Array.exists Option.isNone paramBuilders then
+            None
+        else
+            let pbs = paramBuilders |> Array.map Option.get
+            let rb = retBuilder.Value
+
+            Some(fun args ->
+                let ret = rb args
+
+                match pbs.Length with
+                | 0 -> TyFun(TyConst "unit", ret)
+                | 1 -> TyFun(pbs.[0] args, ret)
+                | _ -> TyFun(TyTuple(EqArray.ofSeq (seq { for pb in pbs -> pb args })), ret)
+            )
+
     /// A type rendered in OPEN typars for a `SymbolKey.MemberKey.argSig`
     /// (symbol-resolution-plan §7.3): the declaring type's i-th typar is `!i`, a
     /// method-owned typar `!!i`, a constructed generic recurses, everything else is
@@ -288,7 +317,34 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                 )
             )
 
-        Array.append properties methods
+        // Constructors surface under the canonical name `".ctor"` — the same
+        // name CIL uses, and the lookup key `inferNew` / `TryEmitCtor` probe
+        // when lowering `new ExternalType(args)`. `t.GetMethods` excludes them
+        // (an instance ctor isn't a `MethodInfo`), so a separate `GetConstructors`
+        // pass is required. `IsStatic = false` always — a static `.cctor`
+        // never resolves through `new`.
+        let ctors =
+            t.GetConstructors declaredFlags
+            |> Array.choose (fun c ->
+                MetadataMapping.tryCtorSignature c
+                |> Option.map (fun build ->
+                    let argSig =
+                        c.GetParameters()
+                        |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
+                        |> EqArray.ofArray
+
+                    {
+                        Name = ".ctor"
+                        IsStatic = false
+                        IsProperty = false
+                        BuildSignature = build
+                        Origin = origin
+                        Key = SymbolKey.MemberKey(declKey, ".ctor", argSig, MemberKind.Method)
+                    }
+                )
+            )
+
+        Array.concat [| properties; methods; ctors |]
 
     /// Build the type's interface set as `(compiled-name, type-args)` pairs over
     /// the declaring type's typars. Each interface arg goes through
@@ -389,7 +445,31 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                     let declKey = MetadataMapping.declTypeKey t
 
                     // A property wins over a like-named method (`Default` is a property).
+                    // `.ctor` is asked of `GetConstructors`, not `GetMethods` — an
+                    // instance ctor isn't a `MethodInfo`, so it never appears in the
+                    // method walk. Most-params-wins ordering still applies.
                     match t.GetProperty(memberName, declaredFlags) with
+                    | (null: PropertyInfo) when memberName = ".ctor" ->
+                        t.GetConstructors declaredFlags
+                        |> Array.sortByDescending (fun c -> c.GetParameters().Length)
+                        |> Array.choose (fun c ->
+                            MetadataMapping.tryCtorSignature c
+                            |> Option.map (fun build ->
+                                let argSig =
+                                    c.GetParameters()
+                                    |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
+                                    |> EqArray.ofArray
+
+                                {
+                                    Name = ".ctor"
+                                    IsStatic = false
+                                    IsProperty = false
+                                    BuildSignature = build
+                                    Origin = origin
+                                    Key = SymbolKey.MemberKey(declKey, ".ctor", argSig, MemberKind.Method)
+                                }
+                            )
+                        )
                     | (null: PropertyInfo) ->
                         t.GetMethods declaredFlags
                         |> Array.filter (fun m -> m.Name = memberName)

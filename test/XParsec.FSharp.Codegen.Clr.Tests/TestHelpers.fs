@@ -59,6 +59,12 @@ let vesperCoreSource (fileName: string) : string =
 let vesperListSource (fileName: string) : string =
     IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", "Vesper.List", fileName)
 
+/// `src/Vesper.Core/manifest.toml` — the Vesper.Core layer-1 referenced-project
+/// manifest (symbol-resolution-plan §5.1). Declared up here (above the
+/// `vesperListDll` fixture, which references it) rather than in the
+/// downstream manifest block.
+let vesperCoreManifest: string = vesperCoreSource "manifest.toml"
+
 /// Compile `Vesper.Core.dll` from `prim-types-min.fs` + `core-types.fs` (the
 /// `Vesper.Fun\`2` interface, the primitive intrinsics, and the `Vesper.Ref\`1`
 /// captured-mutable cell), load it into the *Default* `AssemblyLoadContext`, and
@@ -119,9 +125,15 @@ let vesperListDll: Lazy<string> =
              }
 
          let src = IO.File.ReadAllText(vesperListSource "list-min.fs")
+         // Vesper.List uses `failwith` (now a real inline operator in
+         // `Vesper.Core/ops-platform.fs`, not a name-suffix probe), so the
+         // build must run through the Vesper.Core contract — `MockBuiltins`
+         // alone leaves the call head un-inlined. Self-manifest (`Vesper.List`'s
+         // own) is excluded; the package is *defining* its types here.
+         let provider, inlines = SymbolProviders.buildContract [ vesperCoreManifest ]
          let lexed, file = parseFile src
-         let tast = Pipeline.analyse MockBuiltins.provider src lexed file
-         let artifact = Codegen.compile MockBuiltins.provider project tast
+         let tast = Pipeline.analyse provider src lexed file
+         let artifact = Codegen.compileWithInlines inlines provider project tast
          Codegen.materialise artifact
          AssemblyLoadContext.Default.LoadFromAssemblyPath listPath |> ignore
          listPath)
@@ -149,10 +161,6 @@ let withCore (project: ProjectInfo) : ProjectInfo =
             |> ensure "Vesper.Core" vesperCoreDll
             |> ensure "Vesper.List" vesperListDll
     }
-
-/// `src/Vesper.Core/manifest.toml` — the Vesper.Core layer-1 referenced-project
-/// manifest (symbol-resolution-plan §5.1).
-let vesperCoreManifest: string = vesperCoreSource "manifest.toml"
 
 /// The other contract packages that round out the default resolution stack.
 let vesperListManifest: string = vesperListSource "manifest.toml"

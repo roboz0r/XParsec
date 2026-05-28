@@ -2342,16 +2342,71 @@ module UnificationInfer =
                 unify ctx (CstKeys.ofExpr argExpr) argTy expected
                 receiverTy
             | false, _ ->
-                ctx.Diagnostics.Add
-                    {
-                        Key = key
-                        Message = sprintf "Unknown class type '%s'" name
-                        Code = ""
-                        Severity = Error
-                    }
+                // Fall through to the external-class path: `new System.Exception(msg)`
+                // inside an inline body (the `failwith` body, `raise (System.Exception
+                // message)`) — the type was named through `tryResolveExternalType` so
+                // `name` is the metadata full name, and the symbol provider already
+                // owns the ctor catalogue (`MetadataSymbols.extractMembers` /
+                // `computeMembers` surfaces them under `.ctor`).
+                match ctx.Provider.TryLookupType name with
+                | ValueSome(ExternalTypeShape.Class _) ->
+                    let ctors = ctx.Provider.TryLookupMembers(name, ".ctor")
 
-                infer ctx argExpr |> ignore
-                TyVar(freshTyVar ctx)
+                    if ctors.Length = 0 then
+                        ctx.Diagnostics.Add
+                            {
+                                Key = key
+                                Message = sprintf "External type '%s' has no accessible constructor" name
+                                Code = ""
+                                Severity = Error
+                            }
+
+                        infer ctx argExpr |> ignore
+                        receiverTy
+                    else
+                        let argTy = infer ctx argExpr
+
+                        let argElems =
+                            match zonk argTy with
+                            | TyTuple xs -> EqArray.toList xs
+                            | TyConst "unit" -> []
+                            | single -> [ single ]
+
+                        let typeArgs = args |> EqArray.toList |> List.toArray
+
+                        match pickStaticOverload typeArgs ctors argElems with
+                        | ValueSome chosen ->
+                            // The chosen ctor's signature is `(p1 * … * pN) → declTy`;
+                            // unifying `TyFun(argTy, resultTy)` recovers each param's
+                            // unification against the call's argument types (same
+                            // pattern as `tryInferExternalStaticMethodCall`), and the
+                            // result type unifies with the receiver shape.
+                            let ctorSig = chosen.BuildSignature typeArgs
+                            let resultTy = TyVar(freshTyVar ctx)
+                            unify ctx key ctorSig (TyFun(argTy, resultTy))
+                            unify ctx key resultTy receiverTy
+                            receiverTy
+                        | ValueNone ->
+                            ctx.Diagnostics.Add
+                                {
+                                    Key = key
+                                    Message = sprintf "No applicable constructor on '%s' for the given arguments" name
+                                    Code = ""
+                                    Severity = Error
+                                }
+
+                            receiverTy
+                | _ ->
+                    ctx.Diagnostics.Add
+                        {
+                            Key = key
+                            Message = sprintf "Unknown class type '%s'" name
+                            Code = ""
+                            Severity = Error
+                        }
+
+                    infer ctx argExpr |> ignore
+                    TyVar(freshTyVar ctx)
         | _ ->
             ctx.Diagnostics.Add
                 {

@@ -71,6 +71,46 @@ module SymbolProviders =
     let private collectInlineBodies (tast: TastFile) : (string * TDecl) list =
         let acc = ResizeArray<string * TDecl>()
 
+        // Pre-pass: every module-level inline binding's binder NodeKey → its
+        // source name. One inline body may reference *another* (failwith calls
+        // raise; both are sibling top-level `let inline` in `module Operators`),
+        // and the frozen body carries that reference as a plain `TExpr.Var`
+        // bound to the binder's source key. Spliced at a cross-package use site
+        // those keys aren't in scope; rewriting them to `TExpr.External(name,
+        // …)` here lets `Emit.spliceExternalInlinesInExpr` / `lowerWith` route
+        // the inner call through the same per-name splice path as the outer
+        // one. `hash` is the only inline that pre-dates this case and has no
+        // sibling-inline calls, so it round-trips unchanged.
+        let inlineNames = System.Collections.Generic.Dictionary<uint64, string>()
+
+        for d in tast.Decls do
+            match d with
+            | TDecl.Let(TPat.NamedSimple(k, _), _, true, _) ->
+                match Map.tryFind k.Raw tast.ModuleMembers with
+                | Some info -> inlineNames.[k.Raw] <- info.Name
+                | None -> ()
+            | _ -> ()
+
+        let rewriteInlineVars (e: TExpr) : TExpr =
+            let mapper: TastWalk.Mapper =
+                { TastWalk.identityMapper with
+                    OverrideExpr =
+                        fun _ e ->
+                            match e with
+                            | TExpr.Var(k, ty) ->
+                                match inlineNames.TryGetValue k.Raw with
+                                | true, name -> ValueSome(TExpr.External(name, ValueNone, ty))
+                                | _ -> ValueNone
+                            | _ -> ValueNone
+                }
+
+            TastWalk.mapExpr mapper e
+
+        let rewriteDecl (d: TDecl) : TDecl =
+            match d with
+            | TDecl.Let(pat, value, isInline, ty) -> TDecl.Let(pat, rewriteInlineVars value, isInline, ty)
+            | other -> other
+
         for d in tast.Decls do
             match d with
             // A module-level `let inline` resolves its source name through
@@ -79,7 +119,7 @@ module SymbolProviders =
             // unaddressable from a use site, so it is skipped.
             | TDecl.Let(TPat.NamedSimple(k, _), _, true, _) ->
                 match Map.tryFind k.Raw tast.ModuleMembers with
-                | Some info -> acc.Add(info.Name, d)
+                | Some info -> acc.Add(info.Name, rewriteDecl d)
                 | None -> ()
             | _ -> ()
 

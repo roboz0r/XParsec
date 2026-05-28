@@ -993,10 +993,13 @@ module Codegen =
                                 mem.ThisKey
                                 mem.Params
                                 // Member bodies emit straight from `tast.Decls`,
-                                // never through `Emit.lower`, so the operator →
-                                // inline-IL rewrite is applied here
-                                // (operators-plan.md, C-Eq1).
-                                (Emit.expandBuiltinOps mem.Body)
+                                // never through `Emit.lower`, so the cross-package
+                                // inline-body splice (`failwith` / `raise` /
+                                // `hash`) and the operator → inline-IL rewrite
+                                // are applied here (operators-plan.md, C-Eq1).
+                                (mem.Body
+                                 |> Emit.spliceExternalInlinesInExpr externalInlines
+                                 |> Emit.expandBuiltinOps)
                         ))
 
                 let methodName = memberMetaName mem

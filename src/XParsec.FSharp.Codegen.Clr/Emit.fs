@@ -620,7 +620,28 @@ module Emit =
                     pairGo ps' acts'
                 | _ -> ()
 
-            pairGo (peelParams (List.length spineArgs) declTy) [ for (a, _) in spineArgs -> typeOfExpr a ]
+            let nArgs = List.length spineArgs
+
+            pairGo (peelParams nArgs declTy) [ for (a, _) in spineArgs -> typeOfExpr a ]
+
+            // Pair the result position too: `failwith`'s only typar `'T` sits in
+            // the *return* (`string -> 'T`), so the param walk above leaves it
+            // unbound. The last spine arg's recorded type is the whole
+            // application's result (`collectSpine` pairs each arg with its
+            // `App` node's result), so unifying it against `declTy`'s return
+            // position grounds the result typars.
+            let rec returnAfter n t =
+                if n <= 0 then
+                    t
+                else
+                    match zonk t with
+                    | TyFun(_, b) -> returnAfter (n - 1) b
+                    | _ -> t
+
+            if nArgs > 0 then
+                let declRetTy = returnAfter nArgs declTy
+                let actualRetTy = spineArgs |> List.last |> snd
+                go declRetTy actualRetTy
 
             Array.mapi
                 (fun i v ->
@@ -629,6 +650,55 @@ module Emit =
                     | ValueNone -> TyVar roots.[i]
                 )
                 result
+
+    /// Splice cross-package inline bodies into a single expression — the subset
+    /// of `lowerWith` that **type-member bodies** need. A member body is emitted
+    /// straight from `tast.Decls` and never passes through `Emit.lower`, so a
+    /// `failwith` / `raise` call inside `member this.Head = match … | Nil ->
+    /// failwith "..."` would otherwise reach codegen un-spliced (an `External`
+    /// head with no recipe). No local-inline expansion, no eta-reification, no
+    /// closure discovery — just the External-head splice. Composes with
+    /// `expandBuiltinOps`: callers run this first, then the operator → IL
+    /// intrinsic rewrite.
+    let spliceExternalInlinesInExpr (externalInlines: Map<string, TDecl>) (e: TExpr) : TExpr =
+        if Map.isEmpty externalInlines then
+            e
+        else
+            let mutable counter = 0
+
+            let mint () =
+                let k = NodeKey.ofSynthetic counter NodeKind.SynthInlineExpansion
+                counter <- counter + 1
+                k
+
+            let expandAt (decl: TDecl) (spineArgs: (TExpr * SemType) list) : TExpr =
+                match decl with
+                | TDecl.Let(_, _, _, declTy) ->
+                    Inline.inlineExpand decl (deriveInlineTypeArgs declTy spineArgs)
+                    |> Inline.freshen mint
+                | _ -> failwith "Emit: external inline body must be a TDecl.Let"
+
+            let argsGround (decl: TDecl) (spineArgs: (TExpr * SemType) list) : bool =
+                match decl with
+                | TDecl.Let(_, _, _, declTy) -> deriveInlineTypeArgs declTy spineArgs |> Array.forall isGroundType
+                | _ -> false
+
+            let rec walk (e: TExpr) : TExpr =
+                match e with
+                | TExpr.App _ ->
+                    let head, spineArgs = collectSpine [] e
+
+                    match head with
+                    | TExpr.External(name, _, _) when
+                        externalInlines.ContainsKey name
+                        && (argsGround externalInlines.[name] spineArgs
+                            || not (BuiltinOps.isSaturated name (List.length spineArgs)))
+                        ->
+                        walk (betaReduce (expandAt externalInlines.[name] spineArgs) spineArgs)
+                    | _ -> mapChildren walk e
+                | _ -> mapChildren walk e
+
+            walk e
 
     /// Lower a decl list into a closure-bearing, inline-free, External-value-free
     /// tree. After this, every `TExpr.Lambda` is a function value and every
@@ -734,8 +804,16 @@ module Emit =
                     lowerExpr (betaReduce (expandInlineAt k spineArgs) spineArgs)
                 | TExpr.External(name, _, _) when
                     externalInlines.ContainsKey name
-                    && externalInlineArgsGround externalInlines.[name] spineArgs
+                    && (externalInlineArgsGround externalInlines.[name] spineArgs
+                        || not (BuiltinOps.isSaturated name (List.length spineArgs)))
                     ->
+                    // Splice the inline body unless an *un-ground* operand could
+                    // still benefit from the `BuiltinOps` fallback (the
+                    // `EqualityComparer<^T>` encoding issue — type-args-bug.md
+                    // DoD §3). An inline with no `BuiltinOps` recipe (`failwith`,
+                    // `raise`) splices unconditionally: its body lowers to an
+                    // `ILIntrinsic "throw"` whose IL doesn't reference the
+                    // result typar, so an unground call-site type is fine.
                     lowerExpr (betaReduce (expandExternalInlineAt externalInlines.[name] spineArgs) spineArgs)
                 | _ ->
                     // An `External` head is a recipe call, so it stays in call
@@ -1403,12 +1481,6 @@ module Emit =
             | ValueSome(handle, ty) -> handle, ty
             | ValueNone -> failwithf "Emit: no emitted record for field access on '%s'" typeName
 
-    /// `failwith "msg"` resolves through the symbol provider to this name; the
-    /// backend lowers it to a BCL-only `throw new System.Exception(msg)` (P3d.3),
-    /// rather than the FSharp.Core `Operators.FailWith` recipe.
-    let private isFailwith (name: string) : bool =
-        name = "failwith" || name.EndsWith ".failwith" || name.EndsWith "FailWith"
-
     /// The cold printf path (`printfn "%A"` …). Its `PrintFormatLine` recipe leaves
     /// an FSharp.Core `FSharpFunc` printer on the stack, so the printer is applied
     /// via `FSharpFunc::Invoke`, not `Vesper.Fun::Invoke` (R1 leaves this FSharp.Core
@@ -1562,7 +1634,11 @@ module Emit =
                 | TyClass(_, xs) -> EqArray.toList xs
                 | _ -> []
 
-            match env.Provider.TryEmitCtor(className, tyArgs) with
+            // Call-site arg types let the external-ctor path disambiguate ctor
+            // overloads (v1 picker is arity-only — see `ClrProvider.externalCtor`).
+            let argTypes = [ for a in args -> typeOfExpr a ]
+
+            match env.Provider.TryEmitCtor(className, tyArgs, argTypes) with
             | ValueSome recipe -> b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))
             | ValueNone -> failwithf "Emit: no constructor recipe for '%s'" className
 
@@ -1570,17 +1646,6 @@ module Emit =
             let head, spineArgs = collectSpine [] e
 
             match head with
-            | TExpr.External(name, _, _) when isFailwith name ->
-                // `failwith "msg"` → `ldstr msg; newobj System.Exception(string);
-                // throw`. BCL-only (the provider's `ExceptionCtor`), and terminal
-                // — `throw` ends the path, so it tolerates a value position the
-                // way a non-exhaustive `match` fallthrough does (P3d.3).
-                match spineArgs with
-                | (arg, _) :: _ ->
-                    buildExpr env b arg
-                    b.Add(ILInstr.Newobj(env.Provider.ExceptionCtor, 1))
-                    b.Add ILInstr.Throw
-                | [] -> failwith "Emit: failwith with no argument"
             | TExpr.External(name, _, _) ->
                 // The recipe reads its generic instantiation from the head's
                 // full curried type (`fnTy`).
@@ -1920,13 +1985,24 @@ module Emit =
             for a in args do
                 buildExpr env b a
 
-            match Cil.tryOpCodeOfMnemonic opCode with
-            | ValueSome code ->
-                match args.Length with
-                | 2 -> b.Add(ILInstr.Bin code)
-                | 1 -> b.Add(ILInstr.Un code)
-                | n -> failwithf "Emit: %d-ary inline-IL instruction '%s' is out of scope" n opCode
-            | ValueNone -> failwithf "Emit: unsupported inline-IL instruction '%s'" opCode
+            // `throw` is terminal — it pops the exception and ends the path,
+            // so it doesn't fit `tryOpCodeOfMnemonic`'s balanced-result shape.
+            // Tolerated in value position the same way a non-exhaustive `match`
+            // fallthrough is (`buildMatchFailure`): `Throw` never returns, so
+            // no result is left on the stack.
+            if opCode = "throw" then
+                if args.Length <> 1 then
+                    failwithf "Emit: %d-ary inline-IL instruction 'throw' is out of scope" args.Length
+
+                b.Add ILInstr.Throw
+            else
+                match Cil.tryOpCodeOfMnemonic opCode with
+                | ValueSome code ->
+                    match args.Length with
+                    | 2 -> b.Add(ILInstr.Bin code)
+                    | 1 -> b.Add(ILInstr.Un code)
+                    | n -> failwithf "Emit: %d-ary inline-IL instruction '%s' is out of scope" n opCode
+                | ValueNone -> failwithf "Emit: unsupported inline-IL instruction '%s'" opCode
 
         | TExpr.StaticOptimization(_, def, _) ->
             // Reaching codegen unresolved means the function was never
