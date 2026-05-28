@@ -74,13 +74,12 @@ module NameResolution =
                 }
             )
         | ValueNone ->
-            match
-                OpenScope.tryQualify
-                    ctx.Resolution.OpenScope
-                    (fun n -> ctx.Provider.TryLookup n |> ValueOption.isSome)
-                    name
-            with
-            | ValueSome _ -> ()
+            // `tryResolve` returns the `ExternalSymbol` itself (not just its
+            // qualified name like `tryQualify`), so the resolved
+            // `SymbolKey.ValueKey` is captured for Freeze to stamp onto
+            // `TExpr.External` (vesper-set-sprint-plan §0.1 / M1).
+            match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
+            | ValueSome sym -> ctx.Resolution.ExternalValue.Set(useKey, sym.Key)
             | ValueNone ->
                 // DU ctor references resolve through `ctx.Types.CtorIndex` in
                 // Unification, not `ctx.Bindings.Binding`; class names used as
@@ -225,13 +224,11 @@ module NameResolution =
             | ValueNone ->
                 let qualName = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
 
-                match
-                    OpenScope.tryQualify
-                        ctx.Resolution.OpenScope
-                        (fun n -> ctx.Provider.TryLookup n |> ValueOption.isSome)
-                        qualName
-                with
-                | ValueSome _ -> ()
+                // `tryResolve` returns the `ExternalSymbol`, so the resolved
+                // `SymbolKey.ValueKey` is captured for Freeze to stamp onto
+                // `TExpr.External` (vesper-set-sprint-plan §0.1 / M1).
+                match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup qualName with
+                | ValueSome sym -> ctx.Resolution.ExternalValue.Set(CstKeys.ofExpr e, sym.Key)
                 | ValueNone ->
                     // `Result2.Ok` — two-segment qualified ctor reference,
                     // resolves through `ctx.Types.Union`; suppress so

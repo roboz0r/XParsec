@@ -1332,7 +1332,7 @@ module Emit =
                     if List.isEmpty u.Typars then
                         u.TagField
                     else
-                        env.Provider.GenericUnionMemberRef(typeName, tyArgs, UnionMember.Tag)
+                        env.Provider.UserGenericMemberRef(typeName, tyArgs, UserMemberKind.UnionMember UnionMember.Tag)
 
                 // Skip the arm unless `scrut._tag = case.Tag`.
                 b.Add(ILInstr.Ldloc scrutSlot)
@@ -1351,7 +1351,11 @@ module Emit =
                             if List.isEmpty u.Typars then
                                 c.Fields.[i]
                             else
-                                env.Provider.GenericUnionMemberRef(typeName, tyArgs, UnionMember.Field(caseName, i))
+                                env.Provider.UserGenericMemberRef(
+                                    typeName,
+                                    tyArgs,
+                                    UserMemberKind.UnionMember(UnionMember.Field(caseName, i))
+                                )
 
                         let fldSlot = b.Local(typeOfPat subPat)
                         b.Add(ILInstr.Ldloc scrutSlot)
@@ -1383,7 +1387,11 @@ module Emit =
                                 if List.isEmpty r.Typars then
                                     handle
                                 else
-                                    env.Provider.GenericRecordMemberRef(typeName, tyArgs, RecordMember.Field fieldName)
+                                    env.Provider.UserGenericMemberRef(
+                                        typeName,
+                                        tyArgs,
+                                        UserMemberKind.RecordMember(RecordMember.Field fieldName)
+                                    )
 
                             let fldSlot = b.Local(typeOfPat subPat)
                             b.Add(ILInstr.Ldloc scrutSlot)
@@ -1422,10 +1430,10 @@ module Emit =
                 if List.isEmpty u.Typars then
                     m.Handle
                 else
-                    env.Provider.GenericUnionMemberRef(
+                    env.Provider.UserGenericMemberRef(
                         typeName,
                         tyArgs,
-                        UnionMember.Member(m.MetaName, false, m.ParamTys, m.RetTy)
+                        UserMemberKind.UnionMember(UnionMember.Member(m.MetaName, false, m.ParamTys, m.RetTy))
                     )
             | false, _ -> failwithf "Emit: union '%s' has no emitted member '%s'" typeName name
         | false, _ -> failwithf "Emit: no emitted union for member access on '%s'" typeName
@@ -1472,7 +1480,11 @@ module Emit =
                     if List.isEmpty r.Typars then
                         h
                     else
-                        env.Provider.GenericRecordMemberRef(typeName, tyArgs, RecordMember.Field fieldName)
+                        env.Provider.UserGenericMemberRef(
+                            typeName,
+                            tyArgs,
+                            UserMemberKind.RecordMember(RecordMember.Field fieldName)
+                        )
 
                 handle, ty
             | None -> failwithf "Emit: record '%s' has no field '%s'" typeName fieldName
@@ -1485,8 +1497,20 @@ module Emit =
     /// an FSharp.Core `FSharpFunc` printer on the stack, so the printer is applied
     /// via `FSharpFunc::Invoke`, not `Vesper.Fun::Invoke` (R1 leaves this FSharp.Core
     /// island alone until the printf engine — handoff §R9).
-    let private isColdPrintf (name: string) : bool =
-        name = "printfn" || name.EndsWith ".printfn"
+    ///
+    /// Identity is keyed primarily on the resolved `SymbolKey` (the front-end
+    /// stamps `TExpr.External` with the provider-resolved key — see
+    /// `Resolution.ExternalValue`). A user `module MyMod = let printfn x = x`
+    /// resolves with name `"MyMod.printfn"` (project-local key, no Vesper.Printf
+    /// asm), so the canonical check misses AND the name fallback misses, fixing
+    /// the bug the old `name.EndsWith ".printfn"` suffix-match accepted. The
+    /// name-based fallback only fires for bare `"printfn"` from unkeyed call
+    /// sites (test mocks / pre-key-pipeline paths)
+    /// (vesper-set-sprint-plan §0.1 / M1).
+    let private isColdPrintf (key: SymbolKey voption) (name: string) : bool =
+        match key with
+        | ValueSome k when PrintfSpec.isCanonicalPrintfn k -> true
+        | _ -> name = "printfn"
 
     let rec private buildExpr (env: EmitEnv) (b: IlBuilder) (e: TExpr) : unit =
         match e with
@@ -1616,10 +1640,10 @@ module Emit =
                         | false, _ ->
                             failwith "Emit: closure constructor not yet emitted (leaves-first ordering broken)"
                     else
-                        env.Provider.GenericClosureMemberRef(
+                        env.Provider.UserGenericMemberRef(
                             closure.Name,
                             closure.Typars |> List.map TyVar,
-                            ClosureMember.Ctor
+                            UserMemberKind.ClosureMember ClosureMember.Ctor
                         )
 
                 b.Add(ILInstr.Newobj(ctorHandle, List.length closure.Captures))
@@ -1642,142 +1666,7 @@ module Emit =
             | ValueSome recipe -> b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))
             | ValueNone -> failwithf "Emit: no constructor recipe for '%s'" className
 
-        | TExpr.App _ ->
-            let head, spineArgs = collectSpine [] e
-
-            match head with
-            | TExpr.External(name, _, _) ->
-                // The recipe reads its generic instantiation from the head's
-                // full curried type (`fnTy`).
-                match env.Provider.TryEmitCall(name, typeOfExpr head) with
-                | ValueSome recipe ->
-                    let leading, rest = List.splitAt recipe.ArgCount spineArgs
-
-                    for (a, _) in leading do
-                        buildExpr env b a
-
-                    b.Add(ILInstr.Recipe recipe)
-
-                    // Whatever the recipe left on the stack — a function value
-                    // the rest of the spine is applied to.
-                    let funcTy =
-                        match List.tryLast leading with
-                        | Some(_, ty) -> ty
-                        | None -> typeOfExpr head
-
-                    // The cold printf printer is an FSharp.Core `FSharpFunc`, so it
-                    // is applied via `FSharpFunc::Invoke`; every other recipe result
-                    // is a native `Vesper.Fun` (R1).
-                    if isColdPrintf name then
-                        foldInvokeFSharpFunc env b funcTy rest
-                    else
-                        foldInvoke env b funcTy rest
-                | ValueNone -> failwithf "Emit: no call recipe for external '%s'" name
-
-            | TExpr.Var(k, _) when env.StaticMethods.ContainsKey k ->
-                // A top-level function emitted as a static method (P3b): `call`
-                // it with the first `Arity` args (always present — a non-saturated
-                // use would have escaped to a closure, see `collectStaticFns`),
-                // then `Invoke` the result with any remainder. A *generic* static
-                // method (R3) `call`s a `MethodSpec` instantiating it — recovered
-                // by matching its declared parameter types against the actual
-                // argument types (recursion yields the method's own typars ⇒ `!!i`).
-                let sm = env.StaticMethods.[k]
-                let leading, rest = List.splitAt sm.Arity spineArgs
-
-                for (a, _) in leading do
-                    buildExpr env b a
-
-                let callHandle =
-                    if List.isEmpty sm.Typars then
-                        sm.Handle
-                    else
-                        // Each spine arg's *own* type (`collectSpine` pairs it with
-                        // the application's *result* type instead), matched against
-                        // the declared parameter types to recover the instantiation.
-                        let actualTys = leading |> List.map (fun (a, _) -> typeOfExpr a)
-                        let inst = matchInstantiation sm.Typars sm.ParamTys actualTys
-                        env.Provider.StaticFnMethodSpec(sm.Handle, inst)
-
-                b.Add(ILInstr.Call(callHandle, sm.Arity, 1))
-                foldInvoke env b sm.ResultTy rest
-
-            | TExpr.ExternalMember(receiver, key, name, false, memberTy) ->
-                // An external instance/static *method* call (P4): push the receiver
-                // (instance only) beneath the arguments, then `call` (static) /
-                // `callvirt` (instance) the keyed member ref. A .NET method is
-                // **tupled** (`m(a, b)` = one application to `(a, b)`), so the call
-                // consumes a single spine element — the argument list — and the
-                // parameter count comes from the chosen key's `argSig` length
-                // (authoritative: `memberTy` alone can't tell a flattened 2-param
-                // method from a genuine single `(int*int)` param — type-args-bug.md
-                // Layer 3). A literal `TExpr.Tuple` argument is pushed element-wise
-                // (no tuple object is constructed).
-                let isStatic = ValueOption.isNone receiver
-
-                let argCount =
-                    match key with
-                    | SymbolKey.MemberKey(_, _, argSig, _) -> argSig.Length
-                    | other -> failwithf "Emit: ExternalMember key is not a MemberKey: %A" other
-
-                // The method consumes one spine element (its argument list); any
-                // remainder is further application of the result (rare).
-                let argList, rest =
-                    match spineArgs with
-                    | first :: more -> ValueSome first, more
-                    | [] -> ValueNone, []
-
-                match receiver with
-                | ValueSome r -> buildExpr env b r
-                | ValueNone -> ()
-
-                let pushedArgs =
-                    match argList with
-                    | ValueNone -> 0 // no argument supplied (a 0-param method)
-                    | ValueSome(argExpr, _) ->
-                        if argCount >= 2 then
-                            match argExpr with
-                            | TExpr.Tuple(elems, _) when elems.Length = argCount ->
-                                for el in elems do
-                                    buildExpr env b el
-
-                                argCount
-                            | _ ->
-                                failwithf
-                                    "Emit: external member '%s' expects %d tupled arguments but the argument is not a literal %d-tuple"
-                                    name
-                                    argCount
-                                    argCount
-                        elif argCount = 1 then
-                            buildExpr env b argExpr
-                            1
-                        else
-                            // argCount = 0: a `unit → ret` method; the lone arg is
-                            // `()`, which has no IL value to push.
-                            0
-
-                let handle = env.Provider.ExternalMemberRef(key, false, isStatic, zonk memberTy)
-                let total = (if isStatic then 0 else 1) + pushedArgs
-
-                if isStatic then
-                    b.Add(ILInstr.Call(handle, total, 1))
-                else
-                    b.Add(ILInstr.Callvirt(handle, total, 1))
-
-                // A method returning a function value applied further (rare): the
-                // result type is the consumed `App` node's type.
-                let resultTy =
-                    match argList with
-                    | ValueSome(_, ty) -> ty
-                    | ValueNone -> typeOfExpr head
-
-                foldInvoke env b resultTy rest
-
-            | _ ->
-                // The head is itself a function value (a closure local or a
-                // partially applied result): emit it, then `Invoke` each arg.
-                buildExpr env b head
-                foldInvoke env b (typeOfExpr head) spineArgs
+        | TExpr.App _ -> buildAppCall env b e
 
         | TExpr.RecordCons(srcFields, ty) ->
             // The source-order initialiser list (`{ Y = …; X = … }`) is reordered
@@ -1809,7 +1698,11 @@ module Emit =
                     if List.isEmpty r.Typars then
                         r.Ctor
                     else
-                        env.Provider.GenericRecordMemberRef(typeName, tyArgs, RecordMember.Ctor)
+                        env.Provider.UserGenericMemberRef(
+                            typeName,
+                            tyArgs,
+                            UserMemberKind.RecordMember RecordMember.Ctor
+                        )
 
                 b.Add(ILInstr.Newobj(ctor, List.length r.Fields))
             | false, _ ->
@@ -1881,7 +1774,11 @@ module Emit =
                             if List.isEmpty r.Typars then
                                 handle
                             else
-                                env.Provider.GenericRecordMemberRef(typeName, tyArgs, RecordMember.Field fieldName)
+                                env.Provider.UserGenericMemberRef(
+                                    typeName,
+                                    tyArgs,
+                                    UserMemberKind.RecordMember(RecordMember.Field fieldName)
+                                )
 
                         b.Add(ILInstr.Ldloc srcSlot)
                         b.Add(ILInstr.Ldfld fieldRef)
@@ -1890,7 +1787,11 @@ module Emit =
                     if List.isEmpty r.Typars then
                         r.Ctor
                     else
-                        env.Provider.GenericRecordMemberRef(typeName, tyArgs, RecordMember.Ctor)
+                        env.Provider.UserGenericMemberRef(
+                            typeName,
+                            tyArgs,
+                            UserMemberKind.RecordMember RecordMember.Ctor
+                        )
 
                 b.Add(ILInstr.Newobj(ctor, List.length r.Fields))
             | false, _ -> failwithf "Emit: no emitted record for '%s'" typeName
@@ -1914,7 +1815,11 @@ module Emit =
                     if List.isEmpty u.Typars then
                         u.Cases.[caseName].Factory
                     else
-                        env.Provider.GenericUnionMemberRef(typeName, tyArgs, UnionMember.Factory caseName)
+                        env.Provider.UserGenericMemberRef(
+                            typeName,
+                            tyArgs,
+                            UserMemberKind.UnionMember(UnionMember.Factory caseName)
+                        )
 
                 b.Add(ILInstr.Call(factoryRef, args.Length, 1))
             | false, _ ->
@@ -2012,6 +1917,166 @@ module Emit =
             buildExpr env b def
 
         | other -> failwithf "Emit: unsupported expression: %A" other
+
+    /// Lower a `TExpr.App` chain. Split out of `buildExpr` so the upcoming
+    /// class-spine work (B-1 `New(className, args)`, B-9 `Raise`, B-4
+    /// `:>`/`:?`/`:?>`) can grow App-head shapes near here instead of inside a
+    /// 600-line `buildExpr` match (vesper-set-sprint-plan §0.2 / M2). The head
+    /// dispatch is shape-by-shape:
+    /// - `TExpr.External(name, key, _)` — a provider-resolved call. The
+    ///   recipe's generic instantiation is read from the head's full curried
+    ///   type. `key` (the Freeze-stamped `SymbolKey.ValueKey`) lets codegen
+    ///   route by identity, not name (Phase 0 §0.1).
+    /// - `TExpr.Var k` where `env.StaticMethods.ContainsKey k` — a top-level
+    ///   function emitted as a static method (P3b); generic instantiations are
+    ///   recovered by matching declared param types against the actual arg
+    ///   types (R3).
+    /// - `TExpr.ExternalMember(receiver, key, name, false, memberTy)` — an
+    ///   external method call (P4); tupled per .NET convention, so the call
+    ///   consumes one spine element (the arg list) and the param count comes
+    ///   from the key's `argSig` length.
+    /// - otherwise — the head is itself a function value (a closure local or a
+    ///   partially applied result); emit it, then `Invoke` each arg.
+    and private buildAppCall (env: EmitEnv) (b: IlBuilder) (e: TExpr) : unit =
+        let head, spineArgs = collectSpine [] e
+
+        match head with
+        | TExpr.External(name, key, _) ->
+            // The recipe reads its generic instantiation from the head's
+            // full curried type (`fnTy`). `key` is the resolved
+            // `SymbolKey.ValueKey` stamped by Freeze when the front-end
+            // resolved the name through the symbol provider — codegen
+            // routes by identity, not name suffix
+            // (vesper-set-sprint-plan §0.1 / M1).
+            match env.Provider.TryEmitCall(name, key, typeOfExpr head) with
+            | ValueSome recipe ->
+                let leading, rest = List.splitAt recipe.ArgCount spineArgs
+
+                for (a, _) in leading do
+                    buildExpr env b a
+
+                b.Add(ILInstr.Recipe recipe)
+
+                // Whatever the recipe left on the stack — a function value
+                // the rest of the spine is applied to.
+                let funcTy =
+                    match List.tryLast leading with
+                    | Some(_, ty) -> ty
+                    | None -> typeOfExpr head
+
+                // The cold printf printer is an FSharp.Core `FSharpFunc`, so it
+                // is applied via `FSharpFunc::Invoke`; every other recipe result
+                // is a native `Vesper.Fun` (R1).
+                if isColdPrintf key name then
+                    foldInvokeFSharpFunc env b funcTy rest
+                else
+                    foldInvoke env b funcTy rest
+            | ValueNone -> failwithf "Emit: no call recipe for external '%s'" name
+
+        | TExpr.Var(k, _) when env.StaticMethods.ContainsKey k ->
+            // A top-level function emitted as a static method (P3b): `call`
+            // it with the first `Arity` args (always present — a non-saturated
+            // use would have escaped to a closure, see `collectStaticFns`),
+            // then `Invoke` the result with any remainder. A *generic* static
+            // method (R3) `call`s a `MethodSpec` instantiating it — recovered
+            // by matching its declared parameter types against the actual
+            // argument types (recursion yields the method's own typars ⇒ `!!i`).
+            let sm = env.StaticMethods.[k]
+            let leading, rest = List.splitAt sm.Arity spineArgs
+
+            for (a, _) in leading do
+                buildExpr env b a
+
+            let callHandle =
+                if List.isEmpty sm.Typars then
+                    sm.Handle
+                else
+                    // Each spine arg's *own* type (`collectSpine` pairs it with
+                    // the application's *result* type instead), matched against
+                    // the declared parameter types to recover the instantiation.
+                    let actualTys = leading |> List.map (fun (a, _) -> typeOfExpr a)
+                    let inst = matchInstantiation sm.Typars sm.ParamTys actualTys
+                    env.Provider.StaticFnMethodSpec(sm.Handle, inst)
+
+            b.Add(ILInstr.Call(callHandle, sm.Arity, 1))
+            foldInvoke env b sm.ResultTy rest
+
+        | TExpr.ExternalMember(receiver, key, name, false, memberTy) ->
+            // An external instance/static *method* call (P4): push the receiver
+            // (instance only) beneath the arguments, then `call` (static) /
+            // `callvirt` (instance) the keyed member ref. A .NET method is
+            // **tupled** (`m(a, b)` = one application to `(a, b)`), so the call
+            // consumes a single spine element — the argument list — and the
+            // parameter count comes from the chosen key's `argSig` length
+            // (authoritative: `memberTy` alone can't tell a flattened 2-param
+            // method from a genuine single `(int*int)` param — type-args-bug.md
+            // Layer 3). A literal `TExpr.Tuple` argument is pushed element-wise
+            // (no tuple object is constructed).
+            let isStatic = ValueOption.isNone receiver
+
+            let argCount =
+                match key with
+                | SymbolKey.MemberKey(_, _, argSig, _) -> argSig.Length
+                | other -> failwithf "Emit: ExternalMember key is not a MemberKey: %A" other
+
+            // The method consumes one spine element (its argument list); any
+            // remainder is further application of the result (rare).
+            let argList, rest =
+                match spineArgs with
+                | first :: more -> ValueSome first, more
+                | [] -> ValueNone, []
+
+            match receiver with
+            | ValueSome r -> buildExpr env b r
+            | ValueNone -> ()
+
+            let pushedArgs =
+                match argList with
+                | ValueNone -> 0 // no argument supplied (a 0-param method)
+                | ValueSome(argExpr, _) ->
+                    if argCount >= 2 then
+                        match argExpr with
+                        | TExpr.Tuple(elems, _) when elems.Length = argCount ->
+                            for el in elems do
+                                buildExpr env b el
+
+                            argCount
+                        | _ ->
+                            failwithf
+                                "Emit: external member '%s' expects %d tupled arguments but the argument is not a literal %d-tuple"
+                                name
+                                argCount
+                                argCount
+                    elif argCount = 1 then
+                        buildExpr env b argExpr
+                        1
+                    else
+                        // argCount = 0: a `unit → ret` method; the lone arg is
+                        // `()`, which has no IL value to push.
+                        0
+
+            let handle = env.Provider.ExternalMemberRef(key, false, isStatic, zonk memberTy)
+            let total = (if isStatic then 0 else 1) + pushedArgs
+
+            if isStatic then
+                b.Add(ILInstr.Call(handle, total, 1))
+            else
+                b.Add(ILInstr.Callvirt(handle, total, 1))
+
+            // A method returning a function value applied further (rare): the
+            // result type is the consumed `App` node's type.
+            let resultTy =
+                match argList with
+                | ValueSome(_, ty) -> ty
+                | ValueNone -> typeOfExpr head
+
+            foldInvoke env b resultTy rest
+
+        | _ ->
+            // The head is itself a function value (a closure local or a
+            // partially applied result): emit it, then `Invoke` each arg.
+            buildExpr env b head
+            foldInvoke env b (typeOfExpr head) spineArgs
 
     /// Lower a `TExpr.Format` to the `Vesper.Formatter` write-through handler: a
     /// ref-struct local constructed in place, then each segment folded

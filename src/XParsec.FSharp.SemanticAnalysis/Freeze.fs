@@ -989,7 +989,12 @@ module Freeze =
                     | ValueNone -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
                 | _ -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
 
-            TExpr.External(name, ValueNone, ty)
+            // Stamp the resolved `SymbolKey.ValueKey` when NameResolution recorded
+            // one (provider hit). Lets codegen distinguish a canonical
+            // `Vesper.Printf.printfn` from a user shadow `MyMod.printfn` by
+            // identity rather than name suffix (vesper-set-sprint-plan §0.1 / M1).
+            let symKey = ctx.Resolution.ExternalValue.TryGetValue key
+            TExpr.External(name, symKey, ty)
 
     /// Fold a multi-segment `r.X.Y…` LongIdent into nested `FieldGet` nodes. The
     /// head segment's TAST node is a `Var` pointing back at the local binding.

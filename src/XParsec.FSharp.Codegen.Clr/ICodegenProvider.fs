@@ -79,6 +79,20 @@ type RecordMember =
     /// names — no positional encoding).
     | Field of fieldName: string
 
+/// Discriminator across the user-emitted generic-type-member families
+/// (`UserGenericMemberRef`). Each variant wraps the family's specific
+/// member info, preserving the case data (a record's field name, a union
+/// case's payload index, …) that a pure ordinal couldn't carry. Adding
+/// classes in Phase 1 is one new arm here (`ClassMember of ClassMember`)
+/// plus one arm in `ClrProvider.userGenericMemberRef`'s dispatch — no fourth
+/// `Abstract` sibling on `ICodegenProvider`
+/// (vesper-set-sprint-plan §0.3 / M3).
+[<RequireQualifiedAccess>]
+type UserMemberKind =
+    | UnionMember of UnionMember
+    | RecordMember of RecordMember
+    | ClosureMember of ClosureMember
+
 /// Resolved metadata handles for lowering a `TExpr.Format` to the write-through
 /// handler (`Vesper.Formatter`). A `Format` can't be a `CallRecipe` — it
 /// interleaves literals and lazily-evaluated args around a ref-struct local — so
@@ -113,8 +127,15 @@ type ICodegenProvider =
     /// `fnTy` is the head's full declared (curried) type — passed whole because a
     /// multi-typar generic call can't recover its type arguments from the
     /// application's result alone (`printfn` reads the printer = result of `fnTy`;
-    /// `List.fold` reads `'T` / `'State` from the folder parameter).
-    abstract TryEmitCall: compiledName: string * fnTy: SemType -> CallRecipe voption
+    /// `List.fold` reads `'T` / `'State` from the folder parameter). `key` is
+    /// the resolved `SymbolKey.ValueKey` Freeze stamped onto the head
+    /// (`Resolution.ExternalValue`); the provider dispatches by *identity*
+    /// when available — e.g. only the canonical `Vesper.Printf.printfn`
+    /// trips the cold-printf recipe, never a project-local
+    /// `MyMod.printfn` (vesper-set-sprint-plan §0.1 / M1). Unkeyed call
+    /// sites (test mocks / pre-key-pipeline paths) pass `ValueNone` and the
+    /// provider falls back to name-based matching for backwards compat.
+    abstract TryEmitCall: compiledName: string * key: SymbolKey voption * fnTy: SemType -> CallRecipe voption
 
     /// `tyArgs` are the constructed type's instantiation arguments. `argTypes` are
     /// the call-site argument types (in source order), used by the external-ctor
@@ -128,23 +149,17 @@ type ICodegenProvider =
     /// constructors are static `call`s, so a `CallRecipe` fits — no new shape.
     abstract TryEmitUnionCons: typeName: string * caseName: string * tyArgs: SemType list -> CallRecipe voption
 
-    /// A `MemberRef` to one member of an emitted *generic* union `name`,
-    /// instantiated at `args`. The union must have been registered with
-    /// `ClrProvider.RegisterGenericUnion`. A monomorphic union never reaches
-    /// here — its `Def` tokens are used directly.
-    abstract GenericUnionMemberRef: name: string * args: SemType list * which: UnionMember -> EntityHandle
-
-    /// A `MemberRef` to one member of an emitted *generic* record `name`,
-    /// instantiated at `args`. The record must have been registered with
-    /// `ClrProvider.RegisterGenericRecord`. A monomorphic record never reaches
-    /// here — its `Def` tokens are used directly (records-plan §B2).
-    abstract GenericRecordMemberRef: name: string * args: SemType list * which: RecordMember -> EntityHandle
-
-    /// A `MemberRef` to one member of an emitted *generic* closure `name`,
-    /// instantiated at `args`. The closure must have been registered with
-    /// `ClrProvider.RegisterClosure`. A monomorphic closure never reaches here —
-    /// its `Def` tokens are used directly (function-representation-plan §Generic closures, C2/C3).
-    abstract GenericClosureMemberRef: name: string * args: SemType list * which: ClosureMember -> EntityHandle
+    /// A `MemberRef` to one member of an emitted *generic* user-defined type
+    /// (union / record / closure, with classes joining in Phase 1) `name`,
+    /// instantiated at `args`. The type must have been registered with the
+    /// matching `ClrProvider.RegisterGeneric*` call. A monomorphic instance
+    /// never reaches here — its `Def` tokens are used directly. `kind`
+    /// picks the family + the specific member (union case factory,
+    /// record field, closure capture, …); internal `ClrProvider` dispatches
+    /// it to the existing per-family helpers, so the seam narrows but the
+    /// implementations don't (vesper-set-sprint-plan §0.3 / M3,
+    /// records-plan §B2, function-representation-plan §Generic closures C2/C3).
+    abstract UserGenericMemberRef: name: string * args: SemType list * kind: UserMemberKind -> EntityHandle
 
     /// A `MemberRef` to a *referenced-assembly* record's `.ctor`, instantiated
     /// at `tyArgs`. The mirror of `TryEmitUnionCons` for records: when

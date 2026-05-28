@@ -433,13 +433,7 @@ type ClrProvider
         match symbols.TryLookupType fullName with
         | ValueSome(ExternalTypeShape.Class info) ->
             let ns = info.Origin.Namespace
-
-            let simple =
-                if ns <> "" && fullName.StartsWith(ns + ".") then
-                    fullName.Substring(ns.Length + 1)
-                else
-                    fullName
-
+            let simple = SymbolOrigin.StripNamespace ns fullName
             ValueSome(toEntity (ctx.TypeRef(externalAsmRef info.Origin.Assembly, ns, simple)))
         | _ -> ValueNone
 
@@ -479,12 +473,7 @@ type ClrProvider
         | ValueNone -> ValueNone
         | ValueSome(fields, origin) ->
             let ns = origin.Namespace
-
-            let bareSimple =
-                if ns <> "" && fullName.StartsWith(ns + ".") then
-                    fullName.Substring(ns.Length + 1)
-                else
-                    fullName
+            let bareSimple = SymbolOrigin.StripNamespace ns fullName
 
             // Metadata `TypeRef` simple names carry the `` `n `` arity suffix for
             // a generic type. The contract-layer key (`Vesper.Ref`) lacks it; the
@@ -2673,16 +2662,32 @@ type ClrProvider
         member _.FSharpCoreDependencies() =
             fsharpCoreDeps |> List.ofSeq |> List.sort
 
-        member _.TryEmitCall(compiledName, fnTy) =
+        member _.TryEmitCall(compiledName, key, fnTy) =
             if compiledName = "List.fold" then
                 ValueSome(emitFold (zonk fnTy))
             else
-                match lastSegment compiledName with
-                | "printfn" -> ValueSome(emitPrintfn (zonk fnTy))
-                // Arithmetic / equality / comparison operators no longer reach here:
-                // `Emit.lower` expands them to `TExpr.ILIntrinsic` from their inline-IL
-                // bodies before emission (docs/operators-plan.md, C-Eq1).
-                | _ -> ValueNone
+                // Dispatch by SymbolKey identity when Freeze stamped one
+                // (vesper-set-sprint-plan §0.1 / M1): only the canonical
+                // `Vesper.Printf.printfn` trips the cold-printf recipe, so a
+                // user `module MyMod = let printfn x = x` followed by
+                // `MyMod.printfn 1` falls through to the normal external-call
+                // path (which then resolves `MyMod.printfn` as a regular
+                // project-local function). The name-based fallback only fires
+                // on bare `"printfn"` from unkeyed call sites (test mocks
+                // resolving against `MockBuiltins`); a *qualified*
+                // `MyMod.printfn` doesn't match it.
+                let isCanonicalPrintfn =
+                    match key with
+                    | ValueSome k when PrintfSpec.isCanonicalPrintfn k -> true
+                    | _ -> compiledName = "printfn"
+
+                if isCanonicalPrintfn then
+                    ValueSome(emitPrintfn (zonk fnTy))
+                else
+                    // Arithmetic / equality / comparison operators no longer reach here:
+                    // `Emit.lower` expands them to `TExpr.ILIntrinsic` from their inline-IL
+                    // bodies before emission (docs/operators-plan.md, C-Eq1).
+                    ValueNone
 
         member _.TryEmitCtor(className, tyArgs, argTypes) =
             if className = PrintfSpec.printfFormatName then
@@ -2717,14 +2722,16 @@ type ClrProvider
                 // their types + ctors from the provider is a later slice.
                 ValueNone
 
-        member _.GenericUnionMemberRef(name, args, which) =
-            genericUnionMemberRef name (List.map zonk args) which
+        // Single seam over the per-family helpers (vesper-set-sprint-plan
+        // §0.3 / M3): dispatch by `kind`, hand off to the existing functions.
+        // Phase 1 will add a `UserMemberKind.ClassMember _ -> …` arm here.
+        member _.UserGenericMemberRef(name, args, kind) =
+            let zonkedArgs = List.map zonk args
 
-        member _.GenericRecordMemberRef(name, args, which) =
-            genericRecordMemberRef name (List.map zonk args) which
-
-        member _.GenericClosureMemberRef(name, args, which) =
-            genericClosureMemberRef name (List.map zonk args) which
+            match kind with
+            | UserMemberKind.UnionMember which -> genericUnionMemberRef name zonkedArgs which
+            | UserMemberKind.RecordMember which -> genericRecordMemberRef name zonkedArgs which
+            | UserMemberKind.ClosureMember which -> genericClosureMemberRef name zonkedArgs which
 
         member _.TryEmitRecordCons(typeName, tyArgs, _fieldNames) =
             let zonkedArgs = List.map zonk tyArgs

@@ -812,14 +812,22 @@ module Codegen =
                         // `emitUnionFactory` shape, different tokens (P3d.4).
                         let ctorRef, tagRef, fieldRefs =
                             if isGeneric then
-                                icodegen.GenericUnionMemberRef(td.Name, typarMarkers, UnionMember.Ctor),
-                                icodegen.GenericUnionMemberRef(td.Name, typarMarkers, UnionMember.Tag),
+                                icodegen.UserGenericMemberRef(
+                                    td.Name,
+                                    typarMarkers,
+                                    UserMemberKind.UnionMember UnionMember.Ctor
+                                ),
+                                icodegen.UserGenericMemberRef(
+                                    td.Name,
+                                    typarMarkers,
+                                    UserMemberKind.UnionMember UnionMember.Tag
+                                ),
                                 [
                                     for fi in 0 .. List.length fieldHandles - 1 ->
-                                        icodegen.GenericUnionMemberRef(
+                                        icodegen.UserGenericMemberRef(
                                             td.Name,
                                             typarMarkers,
-                                            UnionMember.Field(c.Name, fi)
+                                            UserMemberKind.UnionMember(UnionMember.Field(c.Name, fi))
                                         )
                                 ]
                             else
@@ -1077,10 +1085,10 @@ module Codegen =
                                 for fi in 0 .. c.Fields.Length - 1 ->
                                     let fieldHandle =
                                         if isGeneric then
-                                            icodegen.GenericUnionMemberRef(
+                                            icodegen.UserGenericMemberRef(
                                                 td.Name,
                                                 typarMarkers,
-                                                UnionMember.Field(c.Name, fi)
+                                                UserMemberKind.UnionMember(UnionMember.Field(c.Name, fi))
                                             )
                                         else
                                             caseFields.[fi]
@@ -1098,7 +1106,11 @@ module Codegen =
                             SelfSemType = TyUnion(td.Name, EqArray.ofList typarMarkers)
                             TagField =
                                 if isGeneric then
-                                    icodegen.GenericUnionMemberRef(td.Name, typarMarkers, UnionMember.Tag)
+                                    icodegen.UserGenericMemberRef(
+                                        td.Name,
+                                        typarMarkers,
+                                        UserMemberKind.UnionMember UnionMember.Tag
+                                    )
                                 else
                                     tagField
                             Fields = allFields
@@ -1173,7 +1185,11 @@ module Codegen =
                             for (name, h, fty) in emitted.Fields ->
                                 let fieldHandle =
                                     if isGeneric then
-                                        icodegen.GenericRecordMemberRef(td.Name, typarMarkers, RecordMember.Field name)
+                                        icodegen.UserGenericMemberRef(
+                                            td.Name,
+                                            typarMarkers,
+                                            UserMemberKind.RecordMember(RecordMember.Field name)
+                                        )
                                     else
                                         h
 
@@ -1266,10 +1282,10 @@ module Codegen =
                                 for fi in 0 .. c.Fields.Length - 1 ->
                                     let fieldHandle =
                                         if isGeneric then
-                                            icodegen.GenericUnionMemberRef(
+                                            icodegen.UserGenericMemberRef(
                                                 td.Name,
                                                 typarMarkers,
-                                                UnionMember.Field(c.Name, fi)
+                                                UserMemberKind.UnionMember(UnionMember.Field(c.Name, fi))
                                             )
                                         else
                                             caseFields.[fi]
@@ -1287,7 +1303,11 @@ module Codegen =
                             SelfSemType = TyUnion(td.Name, EqArray.ofList typarMarkers)
                             TagField =
                                 if isGeneric then
-                                    icodegen.GenericUnionMemberRef(td.Name, typarMarkers, UnionMember.Tag)
+                                    icodegen.UserGenericMemberRef(
+                                        td.Name,
+                                        typarMarkers,
+                                        UserMemberKind.UnionMember UnionMember.Tag
+                                    )
                                 else
                                     tagField
                             Fields = allFieldsForCmp
@@ -1336,7 +1356,11 @@ module Codegen =
                             for (name, h, fty) in emitted.Fields ->
                                 let fieldHandle =
                                     if isGeneric then
-                                        icodegen.GenericRecordMemberRef(td.Name, typarMarkers, RecordMember.Field name)
+                                        icodegen.UserGenericMemberRef(
+                                            td.Name,
+                                            typarMarkers,
+                                            UserMemberKind.RecordMember(RecordMember.Field name)
+                                        )
                                     else
                                         h
 
@@ -1494,7 +1518,11 @@ module Codegen =
                     // keeps the `Def` token.
                     let handleForUse =
                         if isGenericClosure then
-                            icodegen.GenericClosureMemberRef(c.Name, selfArgs, ClosureMember.CaptureField i)
+                            icodegen.UserGenericMemberRef(
+                                c.Name,
+                                selfArgs,
+                                UserMemberKind.ClosureMember(ClosureMember.CaptureField i)
+                            )
                         else
                             toEntity h
 

@@ -25,6 +25,24 @@ type SymbolOrigin =
             DeclaringType = None
         }
 
+    /// Strip the namespace prefix off a fully-qualified compiled name to
+    /// produce the simple type/value name the metadata layer keys on. Given
+    /// the symbol's declared namespace `ns` (from manifest / `Type.Namespace`)
+    /// and its full compiled name (`Foo.Bar.Baz`), returns `Baz` when
+    /// `Foo.Bar` is the recorded namespace and the prefix matches; otherwise
+    /// returns `fullName` unchanged. Treats `null`/empty `ns` as "no prefix
+    /// to strip" — the metadata `declTypeKey` path passes a possibly-null
+    /// `Type.Namespace`, so this hides the null check at the seam. Used by
+    /// codegen `TypeRef` minting (`externalClassRef` / `externalRecordRef`)
+    /// and metadata `SymbolKey.TypeKey` decomposition (`declTypeKey`) —
+    /// vesper-set-sprint-plan §0.4 / M5. Phase 1's user-class emit needs
+    /// the same split for its `TypeDefinition` row construction.
+    static member StripNamespace (ns: string) (fullName: string) : string =
+        if not (System.String.IsNullOrEmpty ns) && fullName.StartsWith(ns + ".") then
+            fullName.Substring(ns.Length + 1)
+        else
+            fullName
+
 /// Platform-agnostic, scope-unambiguous symbol identity (symbol-resolution-plan
 /// §7.3). All strings/ints — never a CLR `EntityHandle` or `System.Type` (those
 /// are per-context and target-specific). The discriminator is the *origin*
@@ -122,6 +140,13 @@ type ExternalSymbol =
         /// Where the symbol lives — the bridge to codegen (symbol-resolution-plan
         /// §4). `SymbolOrigin.Empty` until a resolving source fills it.
         Origin: SymbolOrigin
+        /// Interned identity: a `SymbolKey.ValueKey` over the symbol's resolved
+        /// origin + simple name (vesper-set-sprint-plan §0.1 / M1). Front-end
+        /// passes write it into `Resolution.ExternalValue`; Freeze stamps it
+        /// onto `TExpr.External` so codegen can do robust identity checks
+        /// (e.g. "is this exactly `Vesper.Printf.printfn`?") instead of
+        /// suffix-matching the source-written name.
+        Key: SymbolKey
     }
 
 /// Per-field shape inside an `ExternalTypeShape.Record`. Field types are
@@ -309,12 +334,28 @@ type IAmbientOpenScope =
 
 module ExternalSymbols =
 
+    /// Mint a `SymbolKey.ValueKey` from an assembly + fully-qualified compiled
+    /// name by splitting at the last `.`: everything before becomes the
+    /// `ns` (module path), the last segment the simple `name`. For a bare
+    /// `printfn` (no `.`) the `ns` is empty. Used by `mono`/`poly`/`polyWith`
+    /// to default the symbol's `Key`; `stack`'s `stampSymbol` re-mints the
+    /// key with the wrapping package's assembly once it stamps the origin
+    /// (vesper-set-sprint-plan §0.1 / M1).
+    let valueKeyOf (asm: string option) (compiled: string) : SymbolKey =
+        let i = compiled.LastIndexOf '.'
+
+        if i < 0 then
+            SymbolKey.ValueKey(asm, "", compiled)
+        else
+            SymbolKey.ValueKey(asm, compiled.Substring(0, i), compiled.Substring(i + 1))
+
     let mono (name: string) (ty: SemType) : ExternalSymbol =
         {
             Name = name
             Instantiate = fun _ -> ty
             Constraints = []
             Origin = SymbolOrigin.Empty
+            Key = valueKeyOf None name
         }
 
     /// `build level` is invoked per lookup so any `TypeVar` it allocates is
@@ -325,6 +366,7 @@ module ExternalSymbols =
             Instantiate = build
             Constraints = []
             Origin = SymbolOrigin.Empty
+            Key = valueKeyOf None name
         }
 
     /// Like `poly` but carries constraints. The `build` closure is responsible
@@ -336,6 +378,7 @@ module ExternalSymbols =
             Instantiate = build
             Constraints = constraints
             Origin = SymbolOrigin.Empty
+            Key = valueKeyOf None name
         }
 
     /// For tests that want to isolate behavior from external-symbol noise.
@@ -367,7 +410,25 @@ module ExternalSymbols =
         let stampSymbol =
             match stampOrigin with
             | ValueNone -> id
-            | ValueSome o -> fun (s: ExternalSymbol) -> { s with Origin = o }
+            | ValueSome o ->
+                // Re-stamp the asm slot on the existing key: the inner provider
+                // mints `Key = valueKeyOf None compiledName` (no asm yet); the
+                // wrapper knows the asm from the package manifest. Preserve the
+                // inner's `(ns, name)` decomposition — a source/compiled alias
+                // pair (e.g. `List.fold` + `ListModule.fold`) carries the SAME
+                // key (both registered with the compiled-name decomposition by
+                // VesperLib), so this asm-only re-stamp keeps the aliases
+                // pointing at one identity (vesper-set-sprint-plan §0.1 / M1).
+                let restampKey (k: SymbolKey) : SymbolKey =
+                    match k with
+                    | SymbolKey.ValueKey(_, ns, name) -> SymbolKey.ValueKey(o.Assembly, ns, name)
+                    | _ -> k
+
+                fun (s: ExternalSymbol) ->
+                    { s with
+                        Origin = o
+                        Key = restampKey s.Key
+                    }
 
         let stampMember =
             match stampOrigin with

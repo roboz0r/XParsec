@@ -175,13 +175,8 @@ module private MetadataMapping =
     let declTypeKey (t: Type) : SymbolKey =
         let asm = t.Assembly.GetName().Name |> Option.ofObj
         let full = metadataName t
-
-        let ns, simple =
-            match t.Namespace with
-            | null -> "", full
-            | nsv when full.StartsWith(nsv + ".") -> nsv, full.Substring(nsv.Length + 1)
-            | nsv -> nsv, full
-
+        let ns = if isNull t.Namespace then "" else t.Namespace
+        let simple = SymbolOrigin.StripNamespace ns full
         SymbolKey.TypeKey(asm, ns, simple)
 
 /// `IExternalSymbolProvider` over a set of reference assembly paths, read through a

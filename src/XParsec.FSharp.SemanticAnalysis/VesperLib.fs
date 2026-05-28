@@ -290,6 +290,7 @@ module VesperLib =
                             Instantiate = instantiate
                             Constraints = resolved
                             Origin = SymbolOrigin.Empty
+                            Key = ExternalSymbols.valueKeyOf None compiled
                         }
 
                     ctx.Symbols.[compiled] <- sym
@@ -301,7 +302,16 @@ module VesperLib =
                     // claims it (first registration wins, like the type index).
                     match compiledNameForVal lexed input sourcePath attrs ident with
                     | ValueSome source when source <> compiled && not (ctx.Symbols.ContainsKey source) ->
-                        ctx.Symbols.[source] <- { sym with Name = source }
+                        // The alias keeps pointing at the SAME compiled-name key:
+                        // both source and compiled forms (e.g. `List.fold` and
+                        // `ListModule.fold`) denote one symbol identity. `stack`'s
+                        // stampSymbol re-mints the key with the wrapping package's
+                        // assembly, so this default never leaks past `wrap`.
+                        ctx.Symbols.[source] <-
+                            { sym with
+                                Name = source
+                                Key = ExternalSymbols.valueKeyOf None compiled
+                            }
                     | _ -> ()
 
     let private registerPrefixTypars

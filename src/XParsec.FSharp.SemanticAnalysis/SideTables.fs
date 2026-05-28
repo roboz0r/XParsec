@@ -385,6 +385,14 @@ type PassContextResolution =
         /// stamping the resolved `SymbolKey` (symbol-resolution-plan §7.2, P3). Absent
         /// for project-local member access (resolved via `Types.Class` / `Types.Union`).
         ExternalAccess: SideTable<ResolvedExternalMember>
+        /// Keyed by an external-value use-site's `NodeKey` (the `Expr.Ident` /
+        /// `Expr.LongIdentOrOp` that resolved through `IExternalSymbolProvider.TryLookup`):
+        /// the resolved value's `SymbolKey.ValueKey`. Freeze stamps it onto
+        /// `TExpr.External` so codegen can do robust identity checks
+        /// (e.g. "is this exactly `Vesper.Printf.printfn`?") instead of
+        /// suffix-matching the source-written name
+        /// (vesper-set-sprint-plan §0.1 / M1).
+        ExternalValue: SideTable<SymbolKey>
     }
 
 module PassContextResolution =
@@ -395,6 +403,7 @@ module PassContextResolution =
             TyparScope = Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
             TyparScopeStrict = false
             ExternalAccess = SideTable<_>()
+            ExternalValue = SideTable<_>()
         }
 
 /// **Thread-safety:** a `PassContext` is single-threaded — its side tables,
