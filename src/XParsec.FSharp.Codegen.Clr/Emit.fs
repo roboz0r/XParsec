@@ -1919,24 +1919,36 @@ module Emit =
                 | ValueNone -> failwithf "Emit: no union-cons recipe for %s.%s" typeName caseName
 
         | TExpr.PropertyGet(receiver, name, _) ->
-            // Instance property read (P3d.3): load the receiver, `call` the
-            // union's `get_<name>` (the receiver is its sole argument). On a
-            // generic union the call goes through a `MemberRef` on the receiver's
-            // `TypeSpec` (`List<int>::get_Head`) (R2).
-            let handle = resolveInstanceMember env (typeOfExpr receiver) name
+            // Instance property read: load the receiver, then dispatch.
+            // Unions/records are sealed (rung 2) so `call` is safe and avoids
+            // the null check. User classes (vesper-set-sprint-plan §1.7 /
+            // B-1) emit `callvirt` uniformly — non-`override` members would
+            // accept `call`, but `callvirt` is the safer default per the
+            // plan, and Phase 2's `CallVia.Base` will switch the
+            // base-dispatch case to `call`.
+            let receiverTy = typeOfExpr receiver
+            let handle = resolveInstanceMember env receiverTy name
             buildExpr env b receiver
-            b.Add(ILInstr.Call(handle, 1, 1))
+
+            match receiverTy with
+            | TyClass _ -> b.Add(ILInstr.Callvirt(handle, 1, 1))
+            | _ -> b.Add(ILInstr.Call(handle, 1, 1))
 
         | TExpr.MethodCall(receiver, name, args, _) ->
-            // Instance method call (P3d.3): receiver then args, `call` the
-            // member (non-virtual — the union is sealed).
-            let handle = resolveInstanceMember env (typeOfExpr receiver) name
+            // Instance method call: receiver then args. Unions/records use
+            // `call` (sealed, no virtual dispatch needed). User classes
+            // (vesper-set-sprint-plan §1.7 / B-1) emit `callvirt` uniformly
+            // for safety; Phase 2's base-dispatch switches to `call`.
+            let receiverTy = typeOfExpr receiver
+            let handle = resolveInstanceMember env receiverTy name
             buildExpr env b receiver
 
             for a in args do
                 buildExpr env b a
 
-            b.Add(ILInstr.Call(handle, 1 + args.Length, 1))
+            match receiverTy with
+            | TyClass _ -> b.Add(ILInstr.Callvirt(handle, 1 + args.Length, 1))
+            | _ -> b.Add(ILInstr.Call(handle, 1 + args.Length, 1))
 
         | TExpr.StaticPropertyGet(className, name, _) ->
             let handle = resolveStaticMember env className name

@@ -239,6 +239,16 @@ type ClassTypeInfo
     /// classes without an `inherit` clause and Phase 1 placeholders; Phase 2
     /// stamps it from `ClassInheritsDecl.expr`.
     member val BaseCtorArgs: Expr<SyntaxToken> voption = ValueNone with get, set
+    /// `[<Sealed>]` (vesper-set-sprint-plan §1.6 / B-8). Stamped by
+    /// `NameResolution.registerClassTypeDefn` from the type's attributes;
+    /// `Freeze` projects it onto `TTypeKind.Class.isSealed` so codegen flips
+    /// `TypeAttributes.Sealed` on the emitted `TypeDefinition`.
+    member val IsSealed: bool = false with get, set
+    /// `[<AllowNullLiteral>]` (vesper-set-sprint-plan §1.6 / B-8). Stamped
+    /// by `NameResolution.registerClassTypeDefn` from the type's attributes;
+    /// read only by Unification's `Expr.Null` arm so `null` unifies with the
+    /// class. Never reaches codegen (no IL flag for it).
+    member val AllowNullLiteral: bool = false with get, set
 
 /// One entry in `PassContextTypes.ClassMemberIndex` — the declaring class
 /// paired with the matching `TypeMemberInfo`. Promoted from a 2-tuple ahead of

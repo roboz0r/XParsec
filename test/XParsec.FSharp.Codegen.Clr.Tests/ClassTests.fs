@@ -167,6 +167,41 @@ let monoTests =
                     artifact.FSharpCoreDependencies
                     (sprintf "class emission only references the BCL (%A)" artifact.FSharpCoreDependencies)
             }
+
+            // vesper-set-sprint-plan §1.6 / B-8: a class without `[<Sealed>]`
+            // emits an *open* `TypeDefinition` (no `TypeAttributes.Sealed`)
+            // so Phase 2's inheritance can derive from it; `[<Sealed>]` flips
+            // the flag.
+            test "a class without [<Sealed>] is not sealed" {
+                let _, artifact =
+                    compileSource
+                        "ClsOpen"
+                        (String.concat "\n" [ "type C() ="; "    member this.M () = 1"; "let c = C()" ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "C"
+
+                Expect.isFalse ty.IsSealed "C is not sealed without [<Sealed>]"
+            }
+
+            test "a class with [<Sealed>] has TypeAttributes.Sealed set" {
+                let _, artifact =
+                    compileSource
+                        "ClsSealed"
+                        (String.concat "\n" [ "[<Sealed>]"; "type C() ="; "    member this.M () = 1"; "let c = C()" ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "C"
+
+                Expect.isTrue ty.IsSealed "[<Sealed>] sets the sealed IL flag"
+
+                let m = ty.GetMethod("M", declaredInstance, null, [||], null)
+                Expect.isNotNull m "M is still emitted on a sealed class"
+
+                let instance = Activator.CreateInstance(ty, [||])
+                let result = m.Invoke(instance, [||]) :?> int
+                Expect.equal result 1 "sealed C().M() still returns 1"
+            }
         ]
 
 [<Tests>]

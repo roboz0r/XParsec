@@ -378,4 +378,48 @@ let tests =
                     Expect.equal info.Members.[0].Name "M" "member named M"
                 | false, _ -> failtest "class type C not registered"
             }
+
+            // vesper-set-sprint-plan §1.6 / B-8: `[<Sealed>]` and
+            // `[<AllowNullLiteral>]` decode through `Attributes.decodeClassAttributes`
+            // onto `ClassTypeInfo`.
+            test "[<Sealed>] stamps ClassTypeInfo.IsSealed" {
+                let ctx = analyse "[<Sealed>]\ntype C() = member this.M () = 1"
+
+                match ctx.Types.Class.TryGetValue "C" with
+                | true, info ->
+                    Expect.isTrue info.IsSealed "[<Sealed>] sets IsSealed"
+                    Expect.isFalse info.AllowNullLiteral "AllowNullLiteral not stamped"
+                | false, _ -> failtest "class type C not registered"
+            }
+
+            test "[<AllowNullLiteral>] stamps ClassTypeInfo.AllowNullLiteral" {
+                let ctx = analyse "[<AllowNullLiteral>]\ntype C() = member this.M () = 1"
+
+                match ctx.Types.Class.TryGetValue "C" with
+                | true, info ->
+                    Expect.isTrue info.AllowNullLiteral "[<AllowNullLiteral>] sets AllowNullLiteral"
+                    Expect.isFalse info.IsSealed "IsSealed not stamped"
+                | false, _ -> failtest "class type C not registered"
+            }
+
+            test "fully-qualified [<Microsoft.FSharp.Core.Sealed>] still stamps IsSealed" {
+                // Attribute resolution is by short name (with the `Attribute`
+                // suffix optional) — mirrors `decodeEqualityAttributes`.
+                let ctx =
+                    analyse "[<Microsoft.FSharp.Core.SealedAttribute>]\ntype C() = member this.M () = 1"
+
+                match ctx.Types.Class.TryGetValue "C" with
+                | true, info -> Expect.isTrue info.IsSealed "long-ident [<...Sealed>] is decoded"
+                | false, _ -> failtest "class type C not registered"
+            }
+
+            test "no class-shaping attribute leaves IsSealed=false, AllowNullLiteral=false" {
+                let ctx = analyse "type C() = member this.M () = 1"
+
+                match ctx.Types.Class.TryGetValue "C" with
+                | true, info ->
+                    Expect.isFalse info.IsSealed "default: not sealed"
+                    Expect.isFalse info.AllowNullLiteral "default: no null literal"
+                | false, _ -> failtest "class type C not registered"
+            }
         ]

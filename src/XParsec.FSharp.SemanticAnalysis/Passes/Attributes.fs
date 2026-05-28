@@ -128,3 +128,56 @@ module Attributes =
     let attributesOfTypeName (tn: TypeName<SyntaxToken>) : Attributes<SyntaxToken> voption =
         let (TypeName(attributes = a)) = tn
         a
+
+    /// Canonical class-relevant short names. `[<Sealed>]` opts a class INTO
+    /// sealed emission (`TypeAttributes.Sealed`); `[<AllowNullLiteral>]` lets
+    /// `null` unify with the class type. See vesper-set-sprint-plan §1.6 / B-8.
+    let private sealedNames = [ "Sealed"; "SealedAttribute" ]
+
+    let private allowNullLiteralNames =
+        [ "AllowNullLiteral"; "AllowNullLiteralAttribute" ]
+
+    /// Decoded class-shaping attributes. `IsSealed` flips
+    /// `TypeAttributes.Sealed` on the emitted `TypeDefinition`;
+    /// `AllowNullLiteral` is consumed only by the front end (Unification's
+    /// `Expr.Null` arm). Both default to `false` — silently ignored attributes
+    /// (`[<Struct>]`, `[<DefaultValue>]`, etc.) leave them unchanged.
+    [<Struct>]
+    type ClassAttributeVerdict =
+        {
+            IsSealed: bool
+            AllowNullLiteral: bool
+        }
+
+        static member Default =
+            {
+                IsSealed = false
+                AllowNullLiteral = false
+            }
+
+    /// Decode an attribute set list into a `ClassAttributeVerdict`. Mirrors
+    /// `decodeEqualityAttributes` — a recognised short name flips its flag;
+    /// everything else is silently ignored. The two flags are independent.
+    let decodeClassAttributes (ctx: PassContext) (attrs: Attributes<SyntaxToken> voption) : ClassAttributeVerdict =
+        match attrs with
+        | ValueNone -> ClassAttributeVerdict.Default
+        | ValueSome sets ->
+            let mutable isSealed = false
+            let mutable allowNullLiteral = false
+
+            for AttributeSet(attributes = entries) in sets do
+                for Attribute(construction = construction), _sep in entries do
+                    let attrTy =
+                        match construction with
+                        | ObjectConstruction(typ = t) -> t
+                        | InterfaceConstruction(typ = t) -> t
+
+                    match attributeShortName ctx attrTy with
+                    | ValueSome n when List.contains n sealedNames -> isSealed <- true
+                    | ValueSome n when List.contains n allowNullLiteralNames -> allowNullLiteral <- true
+                    | _ -> ()
+
+            {
+                IsSealed = isSealed
+                AllowNullLiteral = allowNullLiteral
+            }

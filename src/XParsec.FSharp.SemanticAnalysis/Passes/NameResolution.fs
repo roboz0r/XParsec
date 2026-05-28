@@ -968,6 +968,15 @@ module NameResolution =
                     let info =
                         ClassTypeInfo(name, typeParams, ctorParams, members, declKey, thisName, thisKey, baseKey)
 
+                    // B-8: `[<Sealed>]` flips `TypeAttributes.Sealed` on the
+                    // emitted `TypeDefinition`; `[<AllowNullLiteral>]` lets
+                    // Unification's `Expr.Null` arm unify against this class.
+                    let classAttrs =
+                        Attributes.decodeClassAttributes ctx (Attributes.attributesOfTypeName tn)
+
+                    info.IsSealed <- classAttrs.IsSealed
+                    info.AllowNullLiteral <- classAttrs.AllowNullLiteral
+
                     ctx.Types.Class.[name] <- info
 
                     for m in members do

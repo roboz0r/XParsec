@@ -30,6 +30,12 @@ type internal EmittedTypeRow =
         FirstField: FieldDefinitionHandle
         FirstMethod: MethodDefinitionHandle
         Interfaces: EntityHandle list
+        /// `TypeAttributes.Sealed` on the emitted `TypeDefinition`. Unions /
+        /// records / closures are always sealed (rung 2 forbids inheritance);
+        /// classes opt in via `[<Sealed>]` (vesper-set-sprint-plan §1.6 / B-8)
+        /// — `false` by default, the user-class arm flips it from
+        /// `TTypeKind.Class.isSealed`.
+        IsSealed: bool
     }
 
 /// The kind of nominal `TypeDefinition` whose row is being predicted. Drives
@@ -69,10 +75,12 @@ type internal PartitionedTypeDecls =
         Records: (TTypeDecl * TRecordField list * TTypeMember list) list
         /// Classes (vesper-set-sprint-plan Phase 1 / B-1). Each entry carries
         /// the type-decl, the (currently empty) instance-field list, the
-        /// primary-ctor parameter list, the augmentation members, and the
+        /// primary-ctor parameter list, the augmentation members, the
         /// declared `baseType` (`ValueNone` in B-1 — codegen defaults to
-        /// `Object`; Phase 2 / B-4 wires the non-Object case).
-        Classes: (TTypeDecl * TRecordField list * TRecordField list * TTypeMember list * SemType voption) list
+        /// `Object`; Phase 2 / B-4 wires the non-Object case), and the
+        /// `[<Sealed>]` flag (vesper-set-sprint-plan §1.6 / B-8) — opts the
+        /// emitted `TypeDefinition` into `TypeAttributes.Sealed`.
+        Classes: (TTypeDecl * TRecordField list * TRecordField list * TTypeMember list * SemType voption * bool) list
     }
 
 /// Variance between the union, record, and class paths through
@@ -90,8 +98,10 @@ type internal NominalEmissionInput =
     /// Classes (vesper-set-sprint-plan Phase 1 / B-1): `ctorParams` become
     /// backing fields, `baseType` defaults to `Object` (`ValueNone`). The
     /// `fields` slot is reserved for future mutable instance fields (B-1 has
-    /// none).
-    | Class of fields: TRecordField list * ctorParams: TRecordField list * baseType: SemType voption
+    /// none). `isSealed` reflects `[<Sealed>]` (B-8) — flipped onto
+    /// `EmittedTypeRow.IsSealed` so the trailing `AddClass` loop picks the
+    /// `Sealed`-bearing attribute set.
+    | Class of fields: TRecordField list * ctorParams: TRecordField list * baseType: SemType voption * isSealed: bool
 
 /// The in-memory assembled PE plus enough to inspect / write it.
 type ClrArtifact =
@@ -150,9 +160,16 @@ module Codegen =
                 | TTypeKind.Interface methods -> interfaces.Add(td, EqArray.toList methods)
                 | TTypeKind.Union(cases, members) -> unions.Add(td, EqArray.toList cases, EqArray.toList members)
                 | TTypeKind.Record(fields, members) -> records.Add(td, EqArray.toList fields, EqArray.toList members)
-                | TTypeKind.Class(fields, ctorParams, members, baseType, _ifaces) ->
+                | TTypeKind.Class(fields, ctorParams, members, baseType, _ifaces, isSealed) ->
                     // `interfaces` stays empty in B-1 (Phase 5 / B-2 fills it).
-                    classes.Add(td, EqArray.toList fields, EqArray.toList ctorParams, EqArray.toList members, baseType)
+                    classes.Add(
+                        td,
+                        EqArray.toList fields,
+                        EqArray.toList ctorParams,
+                        EqArray.toList members,
+                        baseType,
+                        isSealed
+                    )
             | _ -> ()
 
         {
@@ -477,7 +494,7 @@ module Codegen =
         // its `TypeSpec`. The backing fields *are* the primary-ctor parameters
         // (B-1 has no separate mutable instance fields).
         classDecls
-        |> List.iteri (fun i (td, _fields, ctorParams, _members, _baseType) ->
+        |> List.iteri (fun i (td, _fields, ctorParams, _members, _baseType, _isSealed) ->
             provider.RegisterUserType(td.Name, toEntity (predictTypeDef typeCounts NominalKind.Class i))
 
             if not td.TypeParams.IsEmpty then
@@ -574,7 +591,8 @@ module Codegen =
         // (`EqualityVerdict.Reference` / `ComparisonVerdict.NoComparison`
         // defaults).
         let classMethodTotal =
-            classDecls |> List.sumBy (fun (_, _, _, members, _) -> 1 + List.length members)
+            classDecls
+            |> List.sumBy (fun (_, _, _, members, _, _) -> 1 + List.length members)
 
         let closureMethodTotal = 2 * List.length closures
 
@@ -631,6 +649,22 @@ module Codegen =
         // A monomorphic union is a single sealed reference class (same shape as a
         // closure type — no inheritance in rung 2).
         let unionAttrs = closureAttrs
+
+        // A user class's `TypeDefinition` attribute set (vesper-set-sprint-plan
+        // Phase 1 / B-1). `[<Sealed>]` (B-8) opts in to `TypeAttributes.Sealed`;
+        // without it the class is open (Phase 2 / B-4 wires inheritance).
+        let classAttrs (isSealed: bool) =
+            let baseAttrs =
+                TypeAttributes.Class
+                ||| TypeAttributes.Public
+                ||| TypeAttributes.AutoLayout
+                ||| TypeAttributes.AnsiClass
+                ||| TypeAttributes.BeforeFieldInit
+
+            if isSealed then
+                baseAttrs ||| TypeAttributes.Sealed
+            else
+                baseAttrs
 
         // A union case's static factory and a module-level static method (P3b)
         // share attributes (`public static hidebysig`).
@@ -1009,7 +1043,7 @@ module Codegen =
 
                     recordCtor, registerRecord
 
-                | NominalEmissionInput.Class(_instanceFields, ctorParams, _baseType) ->
+                | NominalEmissionInput.Class(_instanceFields, ctorParams, _baseType, _isSealed) ->
                     // A class's emission shape mirrors a record's at the
                     // metadata level (vesper-set-sprint-plan Phase 1 / B-1):
                     // one public backing field per primary-ctor parameter, one
@@ -1594,6 +1628,16 @@ module Codegen =
                 else
                     []
 
+            let rowIsSealed =
+                match input with
+                // Unions and records are always sealed reference classes
+                // (rung 2 forbids inheritance).
+                | NominalEmissionInput.Union _
+                | NominalEmissionInput.Record _ -> true
+                // Classes opt in via `[<Sealed>]` (B-8); the flag is plumbed
+                // through from `TTypeKind.Class.isSealed` at the call site.
+                | NominalEmissionInput.Class(_, _, _, isSealed) -> isSealed
+
             rows.Add(
                 {
                     Name = td.Name
@@ -1602,6 +1646,7 @@ module Codegen =
                     FirstField = firstField
                     FirstMethod = firstMember
                     Interfaces = interfaces
+                    IsSealed = rowIsSealed
                 }
             )
 
@@ -1627,8 +1672,8 @@ module Codegen =
         // `EqualityVerdict.Reference` / `ComparisonVerdict.NoComparison`).
         // `classTypes` walks the same `EmittedTypeRow` shape so the trailing
         // `TypeDefinition` pass emits them alongside unions/records.
-        for (td, fields, ctorParams, members, baseType) in classDecls do
-            emitNominalType (NominalEmissionInput.Class(fields, ctorParams, baseType)) td members classTypes
+        for (td, fields, ctorParams, members, baseType, isSealed) in classDecls do
+            emitNominalType (NominalEmissionInput.Class(fields, ctorParams, baseType, isSealed)) td members classTypes
 
         // ---- Closures (leaves-first) ----
         //
@@ -1764,6 +1809,7 @@ module Codegen =
                     FirstField = firstField
                     FirstMethod = ctorHandle
                     Interfaces = [ ifaceSpec ]
+                    IsSealed = true
                 }
             )
 
@@ -1896,8 +1942,12 @@ module Codegen =
                 else
                     sprintf "%s`%d" row.Name (List.length row.Typars)
 
+            // Unions / records inherit `unionAttrs` (always sealed); user
+            // classes pick attrs from `row.IsSealed` (`[<Sealed>]` / B-8).
+            let attrs = classAttrs row.IsSealed
+
             let typeHandle =
-                ctx.AddClass(unionAttrs, row.Namespace, metaName, provider.ObjectType, row.FirstField, row.FirstMethod)
+                ctx.AddClass(attrs, row.Namespace, metaName, provider.ObjectType, row.FirstField, row.FirstMethod)
 
             for iface in row.Interfaces do
                 ctx.AddInterfaceImplementation(typeHandle, iface)

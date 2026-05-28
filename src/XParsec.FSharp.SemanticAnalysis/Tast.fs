@@ -264,12 +264,17 @@ and [<RequireQualifiedAccess>] TTypeKind =
     /// `TypeDefinition.BaseType` to `Object`); Phase 2 (B-4) fills it from
     /// `ClassTypeInfo.BaseType`. `interfaces` is empty in B-1; Phase 5 (B-2)
     /// fills it from the interface-impl registry.
+    /// `isSealed` reflects `[<Sealed>]` (B-8): when `true`, codegen flips
+    /// `TypeAttributes.Sealed` on the emitted `TypeDefinition` — derivation
+    /// is rejected at use sites (Phase 2's `subsumes` already excludes
+    /// `Sealed`).
     | Class of
         fields: EqArray<TRecordField> *
         ctorParams: EqArray<TRecordField> *
         members: EqArray<TTypeMember> *
         baseType: SemType voption *
-        interfaces: EqArray<string * EqArray<TTypeMember>>
+        interfaces: EqArray<string * EqArray<TTypeMember>> *
+        isSealed: bool
 
 /// `Fields` are the case's payload in declaration order; a field's name is
 /// `ValueNone` when the source is positional (`Cons of 'T * list`). Empty

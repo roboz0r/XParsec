@@ -715,7 +715,7 @@ let tests =
                 Expect.equal typeDecl.TypeParams.Length 0 "no generic typars"
 
                 match typeDecl.Kind with
-                | TTypeKind.Class(fields, ctorParams, members, baseType, interfaces) ->
+                | TTypeKind.Class(fields, ctorParams, members, baseType, interfaces, isSealed) ->
                     Expect.equal fields.Length 0 "B-1 has no instance fields"
                     Expect.equal ctorParams.Length 2 "two ctor params"
                     Expect.equal (ctorParams.[0].Name) "x" "first param name"
@@ -729,6 +729,7 @@ let tests =
                     Expect.equal (members.[0].ReturnTy) BuiltinTypes.tyInt "method returns int"
                     Expect.equal baseType ValueNone "B-1 leaves baseType ValueNone"
                     Expect.equal interfaces.Length 0 "B-1 has no interface impls"
+                    Expect.isFalse isSealed "no [<Sealed>] ⇒ not sealed"
                 | other -> failtestf "expected TTypeKind.Class, got %A" other
 
                 Expect.equal typeDecl.EqualitySupport EqualityVerdict.Reference "classes default to reference equality"
@@ -753,7 +754,7 @@ let tests =
                 Expect.equal (EqArray.toList typeDecl.TypeParams) [ "'a" ] "one declared typar"
 
                 match typeDecl.Kind with
-                | TTypeKind.Class(_, ctorParams, members, _, _) ->
+                | TTypeKind.Class(_, ctorParams, members, _, _, _) ->
                     Expect.equal ctorParams.Length 1 "one ctor param"
                     Expect.equal (ctorParams.[0].Name) "value" "ctor param name"
                     // The declaring typar is remapped to the `TyConst "'a"` marker

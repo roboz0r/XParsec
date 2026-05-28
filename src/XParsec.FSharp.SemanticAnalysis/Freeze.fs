@@ -1872,7 +1872,7 @@ module Freeze =
                     name
                     ns
                     (EqArray.ofList declTypars)
-                    (TTypeKind.Class(EqArray.empty, ctorParams, members, ValueNone, EqArray.empty))
+                    (TTypeKind.Class(EqArray.empty, ctorParams, members, ValueNone, EqArray.empty, info.IsSealed))
                     // Classes are reference-equal by default ([[project_c_attr_pr_a]]);
                     // [<CustomEquality>] / [<NoEquality>] lift this in a later sprint.
                     EqualityVerdict.Reference
