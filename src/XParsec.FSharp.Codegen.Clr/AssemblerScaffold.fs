@@ -39,7 +39,15 @@ module internal AssemblerScaffold =
                 | TTypeKind.Interface methods -> interfaces.Add(td, EqArray.toList methods)
                 | TTypeKind.Union(cases, members) -> unions.Add(td, EqArray.toList cases, EqArray.toList members)
                 | TTypeKind.Record(fields, members) -> records.Add(td, EqArray.toList fields, EqArray.toList members)
-                | TTypeKind.Class(fields, ctorParams, members, baseType, _ifaces, isSealed, staticLets, secondaryCtors) ->
+                | TTypeKind.Class(fields,
+                                  ctorParams,
+                                  members,
+                                  baseType,
+                                  _ifaces,
+                                  isSealed,
+                                  staticLets,
+                                  secondaryCtors,
+                                  baseCtorCall) ->
                     classes.Add(
                         td,
                         EqArray.toList fields,
@@ -48,7 +56,8 @@ module internal AssemblerScaffold =
                         baseType,
                         isSealed,
                         EqArray.toList staticLets,
-                        EqArray.toList secondaryCtors
+                        EqArray.toList secondaryCtors,
+                        baseCtorCall
                     )
             | _ -> ()
 

@@ -294,6 +294,11 @@ and [<RequireQualifiedAccess>] TTypeKind =
     /// `secondaryCtors` are `new(args) = SelfType(primaryArgs)` overloads (B-11):
     /// codegen emits each as a `.ctor` overload whose body runs the let-preamble
     /// then chains to the primary `.ctor`. Empty unless the class declares any.
+    /// `baseCtorCall` is the `inherit Base(args)` invocation (Phase 2 / B-4 Step
+    /// 2.5): codegen makes the primary `.ctor` chain to the parent's `.ctor` with
+    /// these args before storing fields. `ValueNone` for a parent-less class (the
+    /// primary `.ctor` then chains to `System.Object::.ctor`). Always present
+    /// together with a `ValueSome baseType`.
     | Class of
         fields: EqArray<TRecordField> *
         ctorParams: EqArray<TRecordField> *
@@ -302,7 +307,8 @@ and [<RequireQualifiedAccess>] TTypeKind =
         interfaces: EqArray<string * EqArray<TTypeMember>> *
         isSealed: bool *
         staticLets: EqArray<TStaticLet> *
-        secondaryCtors: EqArray<TSecondaryCtor>
+        secondaryCtors: EqArray<TSecondaryCtor> *
+        baseCtorCall: TBaseCtorCall voption
 
 /// `Fields` are the case's payload in declaration order; a field's name is
 /// `ValueNone` when the source is positional (`Cons of 'T * list`). Empty
@@ -400,6 +406,20 @@ and TSecondaryCtor =
         Params: EqArray<NodeKey * SemType>
         Lets: EqArray<TCtorLet>
         PrimaryArgs: EqArray<TExpr>
+    }
+
+/// An `inherit Base(args)` base-constructor invocation (vesper-set-sprint-plan
+/// Phase 2 / B-4 Step 2.5). Codegen wires the primary `.ctor` to chain to the
+/// parent's `.ctor`: `ldarg.0; <Args>; call instance void Base::.ctor(…)` before
+/// storing the derived class's own fields. `CtorParams` are the *derived* class's
+/// primary-ctor parameters (the `ldarg` mapping the base-ctor `Args` reference —
+/// `this` isn't constructed yet, so an arg can only name a primary-ctor param or
+/// a `static let`). The parent type itself rides the `Class` kind's `baseType`
+/// slot, which also supplies the IL `TypeDefinition.BaseType`.
+and TBaseCtorCall =
+    {
+        CtorParams: EqArray<NodeKey * SemType>
+        Args: EqArray<TExpr>
     }
 
 /// `Signature` is the curried function type; a type parameter of the *declaring

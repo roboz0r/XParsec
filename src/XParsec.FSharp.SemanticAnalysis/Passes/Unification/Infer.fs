@@ -84,6 +84,7 @@ module UnificationInfer =
             | Expr.ILIntrinsic(args = args; returnType = rt) -> inferILIntrinsic ctx args rt
             | Expr.LibraryOnlyStaticOptimization(expr = baseE; constraints = cs; optimizedExpr = optE) ->
                 inferLibraryOnlyStaticOptimization ctx key baseE cs optE
+            | Expr.TypeApp(expr = inner; types = typeArgs) -> inferTypeApp ctx key inner typeArgs
             | _ ->
                 // Surface the unhandled case loudly rather than fabricating a
                 // free TyVar and silently producing a broken type for every
@@ -1002,6 +1003,43 @@ module UnificationInfer =
             ctx.Error(key, "'new' requires a class type")
             infer ctx argExpr |> ignore
             TyVar(freshTyVar ctx)
+
+    /// Explicit type application on a value/constructor head: `Set<'T>(args)`
+    /// (`set.fs` construction sites), `Box<int>(x)`, etc. The CST shape is
+    /// `HighPrecedenceApp(TypeApp(head, [tyArgs]), valueArgs)`, so this types the
+    /// `TypeApp` node to the head's curried ctor / function type — the enclosing
+    /// App then unifies the value args as usual. The supplied type arguments are
+    /// unified pairwise against the head's *nominal result* type arguments so the
+    /// instantiation is pinned even when the value args alone wouldn't determine
+    /// it (e.g. `ResizeArray<int>()`). A non-nominal result (a bare generic
+    /// *function*, `id<int>`) carries its typars scattered through the function
+    /// type rather than in a single nominal result; v1 leaves those to value-arg
+    /// inference — the explicit args are a no-op there, matching eliding `<…>`.
+    /// External generic-static *member* receivers (`EqualityComparer<int>.Default`)
+    /// never reach here — they are a `DotLookup` over the `TypeApp`, handled by
+    /// `tryExternalTypeReceiver` upstream.
+    and private inferTypeApp
+        (ctx: PassContext)
+        (key: NodeKey)
+        (inner: Expr<SyntaxToken>)
+        (typeArgs: ImmutableArray<Type<SyntaxToken>>)
+        : SemType =
+        let innerTy = infer ctx inner
+        let explicit = [ for t in typeArgs -> translateType ctx t ]
+
+        let rec resultOf t =
+            match resolveStep t with
+            | TyFun(_, r) -> resultOf r
+            | other -> other
+
+        match resultOf innerTy with
+        | TyClass(_, freshArgs)
+        | TyUnion(_, freshArgs)
+        | TyRecord(_, freshArgs) when freshArgs.Length = List.length explicit ->
+            List.iter2 (fun fresh ex -> unify ctx key fresh ex) (EqArray.toList freshArgs) explicit
+        | _ -> ()
+
+        innerTy
 
     /// Value-level inline IL `(# "op" args : retTy #)`. The instruction string is
     /// opaque to the type-checker (the IL contract is the platform author's

@@ -194,8 +194,11 @@ module Freeze =
         TExpr.Const(TConstValue.Unit, typeOfKey ctx key)
 
     /// Class-name reference only when there's no local `Binding` entry — i.e. it
-    /// really is a class name, not a shadowing local.
-    let private tryClassRef (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption =
+    /// really is a class name, not a shadowing local. An explicit type application
+    /// (`Set<'T>(args)`) wraps the name in `Expr.TypeApp`; peel it so the
+    /// construction lowers to `TExpr.New` exactly like the inference-pinned
+    /// `Set(args)` form (the node's inferred type already carries the instantiation).
+    let rec private tryClassRef (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption =
         let key = CstKeys.ofExpr e
 
         if ctx.Bindings.Binding.ContainsKey key then
@@ -216,6 +219,7 @@ module Freeze =
                     ValueSome n
                 else
                     ValueNone
+            | Expr.TypeApp(expr = inner) -> tryClassRef ctx inner
             | _ -> ValueNone
 
     /// Peel an `Expr.App` argument that may be a single `EnclosedBlock`
@@ -2042,6 +2046,41 @@ module Freeze =
             let secondaryCtors =
                 EqArray.ofSeq (seq { for sc in info.SecondaryCtors -> translateSecondaryCtor ctx markers sc })
 
+            // Inheritance (B-4 Step 2.5). `baseType` is the parent's resolved
+            // `TyClass`, remapped onto the declaring-type typar markers so codegen
+            // encodes a generic parent (`SetTree\`1<!0>`) against this class's own
+            // generic parameters; codegen reads it for the IL `TypeDefinition.BaseType`.
+            // `baseCtorCall` carries the `inherit Base(args)` invocation: the derived
+            // class's primary-ctor params (the `ldarg` mapping the args reference,
+            // since `this` isn't constructed yet) and the translated arg expressions.
+            let baseType = info.BaseType |> ValueOption.map (remapDeclTypars markers)
+
+            let baseCtorCall =
+                match info.BaseType, info.BaseCtorArgs with
+                | ValueSome _, ValueSome argExpr ->
+                    let remapBody (e: TExpr) =
+                        if List.isEmpty markers then
+                            e
+                        else
+                            mapExprTypes (remapDeclTypars markers) e
+
+                    let ctorParamKeys =
+                        EqArray.ofSeq (
+                            seq {
+                                for p in info.CtorParams ->
+                                    (p.DeclKey, remapDeclTypars markers (Unification.zonk p.Type))
+                            }
+                        )
+
+                    let args = peelOneArg (translateExpr ctx) argExpr |> EqArray.map remapBody
+
+                    ValueSome
+                        {
+                            CtorParams = ctorParamKeys
+                            Args = args
+                        }
+                | _ -> ValueNone
+
             Some(
                 mkTypeDecl
                     name
@@ -2051,11 +2090,12 @@ module Freeze =
                         EqArray.empty,
                         ctorParams,
                         members,
-                        ValueNone,
+                        baseType,
                         EqArray.empty,
                         info.IsSealed,
                         staticLets,
-                        secondaryCtors
+                        secondaryCtors,
+                        baseCtorCall
                     ))
                     // Classes are reference-equal by default ([[project_c_attr_pr_a]]);
                     // [<CustomEquality>] / [<NoEquality>] lift this in a later sprint.

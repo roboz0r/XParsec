@@ -20,6 +20,12 @@ type internal EmittedTypeRow =
         /// Unions / records / closures are always sealed (rung 2 forbids
         /// inheritance); classes opt in via `[<Sealed>]`.
         IsSealed: bool
+        /// The IL `TypeDefinition.BaseType` handle. `System.Object` for unions /
+        /// records / closures and for a parent-less class; a class with an
+        /// `inherit` clause (B-4 Step 2.5) resolves its parent's `TypeSpec` here
+        /// while the declaring-type typars are ambient. Pre-resolved during emit
+        /// because a generic parent's encoding needs that ambient context.
+        BaseType: EntityHandle
     }
 
 /// Drives the offset arithmetic in `predictTypeDef`; the order here matches the
@@ -60,7 +66,8 @@ type internal PartitionedTypeDecls =
             SemType voption *
             bool *
             TStaticLet list *
-            TSecondaryCtor list) list
+            TSecondaryCtor list *
+            TBaseCtorCall voption) list
     }
 
 /// Per-arm payload for `emitNominalType`: the part that differs in
@@ -80,7 +87,8 @@ type internal NominalEmissionInput =
         baseType: SemType voption *
         isSealed: bool *
         staticLets: TStaticLet list *
-        secondaryCtors: TSecondaryCtor list
+        secondaryCtors: TSecondaryCtor list *
+        baseCtorCall: TBaseCtorCall voption
 
 /// The in-memory assembled PE plus enough to inspect / write it.
 type ClrArtifact =

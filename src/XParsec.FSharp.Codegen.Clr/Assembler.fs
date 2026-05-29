@@ -139,7 +139,17 @@ type internal Assembler
 
     do
         classDecls
-        |> List.iteri (fun i (td, _fields, ctorParams, _members, _baseType, _isSealed, _staticLets, _secondaryCtors) ->
+        |> List.iteri (fun
+                           i
+                           (td,
+                            _fields,
+                            ctorParams,
+                            _members,
+                            _baseType,
+                            _isSealed,
+                            _staticLets,
+                            _secondaryCtors,
+                            _baseCtorCall) ->
             provider.RegisterUserType(td.Name, toEntity (predictTypeDef typeCounts NominalKind.Class i))
 
             if not td.TypeParams.IsEmpty then
@@ -202,7 +212,7 @@ type internal Assembler
     // Static-let *fields* add to the field table, not here.
     let classMethodTotal =
         classDecls
-        |> List.sumBy (fun (_, _, _, members, _, _, staticLets, secondaryCtors) ->
+        |> List.sumBy (fun (_, _, _, members, _, _, staticLets, secondaryCtors, _) ->
             1
             + List.length members
             + (if List.isEmpty staticLets then 0 else 1)
@@ -537,6 +547,7 @@ type internal Assembler
                     FirstMethod = ctorHandle
                     Interfaces = [ ifaceSpec ]
                     IsSealed = true
+                    BaseType = provider.ObjectType
                 }
             )
 
@@ -638,8 +649,10 @@ type internal Assembler
             td.TypeParams
             |> EqArray.iteri (fun i n -> genericParams.Add(toEntity typeHandle, i, n.TrimStart('\'')))
 
-        // Union, record, and class `TypeDefinition` rows share one recipe: a
-        // class derived from `Object`, with pre-minted `InterfaceImpl` entries.
+        // Union, record, and class `TypeDefinition` rows share one recipe, with
+        // pre-minted `InterfaceImpl` entries. The base type is `row.BaseType`:
+        // `Object` for unions / records and parent-less classes, the parent's
+        // resolved `TypeSpec` for a class with an `inherit` clause (B-4 Step 2.5).
         // Unions first, then records, then classes — keeps the `InterfaceImpl` /
         // `GenericParam` rows ascending (sorted by `Class` / `TypeOrMethodDef`).
         for row in Seq.append unionTypes (Seq.append recordTypes classTypes) do
@@ -652,7 +665,7 @@ type internal Assembler
             let attrs = classAttrsOf row.IsSealed
 
             let typeHandle =
-                ctx.AddClass(attrs, row.Namespace, metaName, provider.ObjectType, row.FirstField, row.FirstMethod)
+                ctx.AddClass(attrs, row.Namespace, metaName, row.BaseType, row.FirstField, row.FirstMethod)
 
             for iface in row.Interfaces do
                 ctx.AddInterfaceImplementation(typeHandle, iface)

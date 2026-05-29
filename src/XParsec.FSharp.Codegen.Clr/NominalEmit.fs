@@ -58,6 +58,12 @@ module internal NominalEmit =
             else
                 encodeLocals
 
+        // The IL base type for this `TypeDefinition`. Defaults to `Object`; the
+        // class arm overwrites it with the parent's `TypeSpec` for an `inherit`
+        // clause (B-4 Step 2.5). Resolved here (not in `Finalise`) so a generic
+        // parent encodes against this class's typars while they are ambient.
+        let mutable baseTypeHandle = provider.ObjectType
+
         let firstMember, postCtorInit =
             match input with
             | NominalEmissionInput.Union cases ->
@@ -250,7 +256,33 @@ module internal NominalEmit =
 
                 recordCtor, registerRecord
 
-            | NominalEmissionInput.Class(_instanceFields, ctorParams, _baseType, _isSealed, staticLets, secondaryCtors) ->
+            | NominalEmissionInput.Class(_instanceFields,
+                                         ctorParams,
+                                         baseType,
+                                         _isSealed,
+                                         staticLets,
+                                         secondaryCtors,
+                                         baseCtorCall) ->
+                // Resolve the parent handle for the IL `TypeDefinition.BaseType`
+                // (B-4 Step 2.5). A non-generic parent (`Shape`) is the parent's
+                // `TypeDefinition` token directly — the base-type column rejects a
+                // `TypeSpec` that merely wraps a plain class. An instantiated generic
+                // parent (`Box<int>` / `SetTree\`1<!0>`) needs a `GENERICINST`
+                // `TypeSpec`, encoded with this class's typars ambient so an open
+                // parent arg resolves to `!i`. Parent-less ⇒ `Object` (the default).
+                match baseType with
+                | ValueSome(TyClass(baseName, baseArgs)) when baseArgs.IsEmpty ->
+                    baseTypeHandle <- provider.UserTypeHandle baseName
+                | ValueSome bt ->
+                    if isGeneric then
+                        provider.SetTypeTypars(EqArray.toList td.TypeParams)
+
+                    baseTypeHandle <- icodegen.TypeToken bt
+
+                    if isGeneric then
+                        provider.ClearTypeTypars()
+                | ValueNone -> ()
+
                 let fieldHandles =
                     ctorParams
                     |> List.map (fun p ->
@@ -307,11 +339,55 @@ module internal NominalEmit =
                     else
                         [ for (_, h, _) in fieldHandles -> h ]
 
+                // The primary `.ctor` body. Without an `inherit` clause it chains to
+                // `Object` (the record/closure recipe). With one (B-4 Step 2.5) it
+                // chains to the parent's `.ctor` with the `inherit Base(args)` args
+                // before the field stores; the parent's primary `.ctor` is its `Def`
+                // token (mono parent) or a `MemberRef` on the parent's `TypeSpec`
+                // (generic parent). v1 inherits only from a project-local class, so
+                // the parent must already be registered (declaration order, base first).
+                let ctorBody =
+                    match baseCtorCall with
+                    | ValueSome bcc ->
+                        let baseName, baseArgs =
+                            match baseType with
+                            | ValueSome(TyClass(n, xs)) -> n, EqArray.toList xs
+                            | _ -> failwithf "Emit: class '%s' has a base-ctor call but no class base type" td.Name
+
+                        let baseCtorHandle =
+                            match classes.TryGetValue baseName with
+                            | true, bc when List.isEmpty bc.Typars -> bc.Ctor
+                            | true, _ ->
+                                if isGeneric then
+                                    provider.SetTypeTypars(EqArray.toList td.TypeParams)
+
+                                let h =
+                                    icodegen.UserGenericMemberRef(
+                                        baseName,
+                                        baseArgs,
+                                        UserMemberKind.ClassMember ClassMember.Ctor
+                                    )
+
+                                if isGeneric then
+                                    provider.ClearTypeTypars()
+
+                                h
+                            | false, _ ->
+                                failwithf
+                                    "Emit: base class '%s' of '%s' is not an emitted project-local class"
+                                    baseName
+                                    td.Name
+
+                        Emit.buildClassBaseCtor
+                            emitCtx
+                            baseCtorHandle
+                            (EqArray.toList bcc.Args)
+                            (EqArray.toList bcc.CtorParams)
+                            ctorFieldRefs
+                    | ValueNone -> Emit.buildRecordCtor provider.ObjectCtorRef ctorFieldRefs
+
                 let ctorBodyOffset =
-                    Cil.buildBody
-                        encodeLocals
-                        bodyStream
-                        (IlIr.lower (Emit.buildRecordCtor provider.ObjectCtorRef ctorFieldRefs))
+                    Cil.buildBody memberEncodeLocals bodyStream (IlIr.lower ctorBody)
 
                 let ctorSig =
                     if isGeneric then
@@ -901,7 +977,7 @@ module internal NominalEmit =
             match input with
             | NominalEmissionInput.Union _
             | NominalEmissionInput.Record _ -> true
-            | NominalEmissionInput.Class(_, _, _, isSealed, _, _) -> isSealed
+            | NominalEmissionInput.Class(_, _, _, isSealed, _, _, _) -> isSealed
 
         rows.Add(
             {
@@ -912,5 +988,6 @@ module internal NominalEmit =
                 FirstMethod = firstMember
                 Interfaces = interfaces
                 IsSealed = rowIsSealed
+                BaseType = baseTypeHandle
             }
         )

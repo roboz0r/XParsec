@@ -244,6 +244,58 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
+    /// Build a class primary `.ctor` body that chains to a *base* constructor
+    /// (vesper-set-sprint-plan §2.5 / B-4 `inherit Base(args)`): `ldarg.0;
+    /// <baseArgs>; call instance void Base::.ctor(…)`, then store each ctor param
+    /// into its backing field. The base args reference the derived class's
+    /// primary-ctor params (`ctorParams` → `ldarg.1…`); `this` is unusable until
+    /// the base call returns, so the field stores follow it. Parallels
+    /// `buildClosureCtor`'s field-store tail and `buildSecondaryCtor`'s env, except
+    /// the chain target is the parent's `.ctor` rather than `Object`/the primary.
+    let buildClassBaseCtor
+        (ctx: EmitContext)
+        (baseCtor: EntityHandle)
+        (baseArgs: TExpr list)
+        (ctorParams: (NodeKey * SemType) list)
+        (fields: EntityHandle list)
+        : ILBody =
+        let b = IlBuilder()
+        let args = Dictionary<NodeKey, int>()
+        ctorParams |> List.iteri (fun i (k, _) -> args.[k] <- 1 + i)
+
+        let env =
+            {
+                Provider = ctx.Provider
+                Ctx = ctx.Ctx
+                Slots = Dictionary<NodeKey, int>()
+                ClosureByNode = ctx.ClosureByNode
+                CtorHandleByNode = ctx.CtorHandleByNode
+                Args = args
+                SelfKey = ValueNone
+                CaptureFields = Dictionary<NodeKey, EntityHandle>()
+                Unions = ctx.Unions
+                Records = ctx.Records
+                Classes = ctx.Classes
+                StaticMethods = ctx.StaticMethods
+            }
+
+        b.Add(ILInstr.Ldarg 0)
+
+        for a in baseArgs do
+            buildExpr env b a
+
+        b.Add(ILInstr.Call(baseCtor, List.length baseArgs + 1, 0))
+
+        fields
+        |> List.iteri (fun i field ->
+            b.Add(ILInstr.Ldarg 0)
+            b.Add(ILInstr.Ldarg(i + 1))
+            b.Add(ILInstr.Stfld field)
+        )
+
+        b.Add ILInstr.Ret
+        b.Body
+
     /// Build a class `.cctor` body for its `static let`s (vesper-set-sprint-plan
     /// §1.8 / B-10): evaluate each initialiser in declaration order and `stsfld`
     /// it into its backing field, then `ret`. The body sees no `this` / params

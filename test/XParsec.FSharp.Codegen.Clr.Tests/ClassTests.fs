@@ -407,6 +407,71 @@ let secondaryCtorTests =
         ]
 
 [<Tests>]
+let typeAppTests =
+    let publicInstance = BindingFlags.Public ||| BindingFlags.Instance
+
+    let declaredInstance =
+        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
+
+    // Explicit type application at a construction site — `Box<int>(v)` /
+    // `Holder<'T>(v)` — was an `infer: TODO TypeApp` front-end gap. `set.fs`'s
+    // `Set<'T>(...)` calls (a Phase 9 prerequisite, not inheritance) need it.
+    // The type args unify against the head's nominal result, and `tryClassRef`
+    // peels the `Expr.TypeApp` so the call still lowers to `TExpr.New`.
+    testList
+        "ClassTypeApp"
+        [
+            test "module-level explicit type-app construction (Box<int>(5)) round-trips" {
+                let _, artifact =
+                    compileSource
+                        "TyAppMod"
+                        (String.concat "\n" [ "type Box<'a>(v: 'a) ="; "    member this.V = v"; "let b = Box<int>(5)" ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let boxInt = (asm.GetType "Box`1").MakeGenericType typeof<int>
+                let instance = Activator.CreateInstance(boxInt, [| box 5 |])
+                let getV = boxInt.GetMethod("get_V", declaredInstance, null, [||], null)
+                Expect.equal (getV.Invoke(instance, [||]) :?> int) 5 "Box<int>(5).V = 5"
+            }
+
+            // The `set.fs` shape: explicit `<'T>` at a construction site inside a
+            // member where `'T` is the enclosing type's typar (in scope).
+            test "explicit type-app construction at the declaring typar inside a member (Holder<'T>(v)) round-trips" {
+                let _, artifact =
+                    compileSource
+                        "TyAppMember"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Holder<'T>(v: 'T) ="
+                                "    member this.V = v"
+                                "    member this.Rebuild () = Holder<'T>(v)"
+                                "let h = Holder(0)"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let holderInt = (asm.GetType "Holder`1").MakeGenericType typeof<int>
+                let instance = Activator.CreateInstance(holderInt, [| box 7 |])
+
+                let rebuild = holderInt.GetMethod("Rebuild", declaredInstance, null, [||], null)
+                Expect.isNotNull rebuild "Rebuild emitted"
+                let rebuilt = rebuild.Invoke(instance, [||])
+
+                Expect.equal
+                    (rebuilt.GetType())
+                    holderInt
+                    "Rebuild () returns a Holder<int> (the explicit <'T> instantiation)"
+
+                let getV = holderInt.GetMethod("get_V", publicInstance, null, [||], null)
+
+                Expect.equal
+                    (getV.Invoke(rebuilt, [||]) :?> int)
+                    7
+                    "Holder<'T>(v).V threads the field through the rebuilt instance"
+            }
+        ]
+
+[<Tests>]
 let genericTests =
     let declaredInstance =
         BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
@@ -603,11 +668,10 @@ let castTests =
 
     // vesper-set-sprint Phase 2 / B-4 Step 2.4 backend gate: `:?` and `:?>`
     // emit `isinst` / `castclass` against a `TypeToken` for the target type.
-    // A full base→derived inheritance round-trip waits on Step 2.5 (base-ctor
-    // IL wiring), and `obj`-subsumption isn't wired in v1, so these exercise
-    // the cast IL on the only runnable shape available now: a same-type cast on
-    // `this` (`this :? C` / `this :?> C`), which still emits the real `isinst` /
-    // `castclass` and runs them against a live instance.
+    // `obj`-subsumption isn't wired in v1, so these exercise the cast IL on a
+    // same-type cast on `this` (`this :? C` / `this :?> C`), which still emits
+    // the real `isinst` / `castclass` and runs them against a live instance.
+    // (Base→derived construction now round-trips — see `ClassInheritance`.)
     testList
         "ClassCast"
         [
@@ -646,5 +710,186 @@ let castTests =
 
                 let instance = Activator.CreateInstance(ty, [||])
                 Expect.equal (asC.Invoke(instance, [||]) :?> int) 42 "(c :?> C).M() = 42"
+            }
+        ]
+
+[<Tests>]
+let inheritanceTests =
+    let publicInstance = BindingFlags.Public ||| BindingFlags.Instance
+
+    let declaredInstance =
+        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
+
+    // vesper-set-sprint Phase 2 / B-4 Step 2.5 backend gate: `inherit Base(args)`
+    // wires the IL `TypeDefinition.BaseType` to the parent and the primary `.ctor`
+    // to chain `ldarg.0; <args>; call Base::.ctor` before storing the derived
+    // fields. Construction is itself the proof the chain is sound — a `.ctor` that
+    // never calls a base / sibling ctor fails PE verification — and an inherited
+    // member read confirms the base ctor stored its arg.
+    testList
+        "ClassInheritance"
+        [
+            test "a derived class's IL base type is its declared parent" {
+                let _, artifact =
+                    compileSource
+                        "InhBaseType"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Shape(x: int) ="
+                                "    member this.Raw = x"
+                                "type Circle(r: int, t: int) ="
+                                "    inherit Shape(t)"
+                                "    member this.Radius = r"
+                                "let c = Circle(0, 0)"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let circle = asm.GetType "Circle"
+                let shape = asm.GetType "Shape"
+                Expect.isNotNull circle "Circle emitted"
+                Expect.equal circle.BaseType shape "Circle's IL base type is Shape, not Object"
+            }
+
+            test "constructing a derived instance chains to the base ctor (inherited member reads the base-ctor arg)" {
+                let _, artifact =
+                    compileSource
+                        "InhBaseCtor"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Shape(x: int) ="
+                                "    member this.Raw = x"
+                                "type Circle(r: int, t: int) ="
+                                "    inherit Shape(t)"
+                                "    member this.Radius = r"
+                                "let c = Circle(0, 0)"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let circle = asm.GetType "Circle"
+
+                // Construction succeeds ⇒ the primary ctor chained to Shape::.ctor.
+                let instance = Activator.CreateInstance(circle, [| box 5; box 9 |])
+
+                // `Raw` is inherited from Shape; reading it proves `inherit Shape(t)`
+                // passed `t = 9` to the base ctor (which stored it in Shape's field).
+                let getRaw = circle.GetMethod("get_Raw", publicInstance, null, [||], null)
+                Expect.isNotNull getRaw "get_Raw reachable through the inheritance chain"
+                Expect.equal (getRaw.Invoke(instance, [||]) :?> int) 9 "inherited Raw returns the base-ctor arg t = 9"
+
+                // `Radius` is declared on Circle and reads Circle's own field.
+                let getRadius = circle.GetMethod("get_Radius", declaredInstance, null, [||], null)
+                Expect.equal (getRadius.Invoke(instance, [||]) :?> int) 5 "Circle.Radius reads its own field r = 5"
+            }
+
+            test "a two-level chain (Loud : Shape : Object) constructs and the override is selected on the derived type" {
+                let _, artifact =
+                    compileSource
+                        "InhOverride"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Shape(x: int) ="
+                                "    member this.Raw = x"
+                                "    member this.Describe () = x"
+                                "type Loud(n: int) ="
+                                "    inherit Shape(n)"
+                                "    override this.Describe () = 99"
+                                "let l = Loud(0)"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let loud = asm.GetType "Loud"
+                let shape = asm.GetType "Shape"
+                Expect.equal loud.BaseType shape "Loud derives from Shape"
+
+                let instance = Activator.CreateInstance(loud, [| box 7 |])
+
+                // The base ctor ran: inherited Raw reads the value `inherit Shape(n)`
+                // forwarded.
+                let getRaw = loud.GetMethod("get_Raw", publicInstance, null, [||], null)
+                Expect.equal (getRaw.Invoke(instance, [||]) :?> int) 7 "inherited Raw = 7 (base ctor chained with n)"
+
+                // Loud's own `Describe` override is the one declared on Loud.
+                let describe = loud.GetMethod("Describe", declaredInstance, null, [||], null)
+                Expect.isNotNull describe "Loud declares its own Describe override"
+                Expect.equal (describe.Invoke(instance, [||]) :?> int) 99 "Loud.Describe () returns the override's 99"
+            }
+
+            // The Phase 2 exit condition's `set.fs` shape is a generic class deriving
+            // from a generic-base *instantiation*: the base type is a `GENERICINST`
+            // `TypeSpec` and the base `.ctor` a `MemberRef` on it. Here a monomorphic
+            // class inherits an instantiated generic base (`IntBox : Box<int>`).
+            test
+                "a mono class inheriting an instantiated generic base (Box<int>) constructs and reads through the chain" {
+                let _, artifact =
+                    compileSource
+                        "InhGenericBase"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Box<'a>(v: 'a) ="
+                                "    member this.V = v"
+                                "type IntBox(n: int) ="
+                                "    inherit Box<int>(n)"
+                                "    member this.Twice = n + n"
+                                "let b = IntBox(0)"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let intBox = asm.GetType "IntBox"
+                Expect.isNotNull intBox "IntBox emitted"
+
+                Expect.equal
+                    (intBox.BaseType.GetGenericTypeDefinition())
+                    (asm.GetType "Box`1")
+                    "IntBox derives from Box<_>"
+
+                let instance = Activator.CreateInstance(intBox, [| box 21 |])
+                let getV = intBox.GetMethod("get_V", publicInstance, null, [||], null)
+
+                Expect.equal
+                    (getV.Invoke(instance, [||]) :?> int)
+                    21
+                    "inherited Box<int>.V returns the base-ctor arg 21"
+            }
+
+            // The fully generic `SetTree<'T>` / `SetTreeNode<'T>` pair from `set.fs`:
+            // a generic class inheriting a generic base instantiated at its *own*
+            // typar (`inherit SetTree<'T>(h)`), so the base `TypeSpec` carries `!0`.
+            test
+                "a generic class inheriting a generic base at its own typar (SetTreeNode<'T> : SetTree<'T>) round-trips" {
+                let _, artifact =
+                    compileSource
+                        "InhGenericChain"
+                        (String.concat
+                            "\n"
+                            [
+                                "type SetTree<'T>(h: int) ="
+                                "    member this.Height = h"
+                                "type SetTreeNode<'T>(v: 'T, h: int) ="
+                                "    inherit SetTree<'T>(h)"
+                                "    member this.Value = v"
+                                "let n = SetTreeNode(0, 0)"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let node = (asm.GetType "SetTreeNode`1").MakeGenericType(typeof<int>)
+                let instance = Activator.CreateInstance(node, [| box 42; box 3 |])
+
+                let getHeight = node.GetMethod("get_Height", publicInstance, null, [||], null)
+
+                Expect.equal
+                    (getHeight.Invoke(instance, [||]) :?> int)
+                    3
+                    "inherited SetTree<'T>.Height returns base-ctor arg 3"
+
+                let getValue = node.GetMethod("get_Value", declaredInstance, null, [||], null)
+
+                Expect.equal
+                    (getValue.Invoke(instance, [||]) :?> int)
+                    42
+                    "SetTreeNode<int>.Value returns its own field 42"
             }
         ]
