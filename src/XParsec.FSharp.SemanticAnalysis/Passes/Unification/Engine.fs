@@ -145,13 +145,7 @@ module UnificationEngine =
         | ValueSome m1, ValueSome m2 ->
             newRoot.Units <- ValueSome m1
 
-            ctx.Diagnostics.Add
-                {
-                    Key = key
-                    Message = sprintf "Measure mismatch: <%O> vs <%O>" m1 m2
-                    Code = ""
-                    Severity = Error
-                }
+            ctx.Error(key, sprintf "Measure mismatch: <%O> vs <%O>" m1 m2)
 
     /// Substitute TyVar roots that appear as keys in `subst` with their
     /// target `SemType`, recursing into compound shapes. Other TyVars are
@@ -215,43 +209,82 @@ module UnificationEngine =
     let instantiateMember (typeParams: EqArray<string * TypeVar>, args: EqArray<SemType>) (ty: SemType) : SemType =
         substituteWith (mkNamedTypeSubst typeParams args) ty
 
-    /// Walk a `SemType` through TyVar Links to surface a `TyRecord _`. The
+    [<RequireQualifiedAccess>]
+    type private NominalKind =
+        | Record
+        | Class
+        | Union
+
+    /// Walk a `SemType` through TyVar Links to surface a nominal shape
+    /// (`TyRecord` / `TyClass` / `TyUnion`) and report which kind it is. The
     /// arg list rides along so `drainPendingDotAccess` can substitute the
-    /// record's typars when resolving deferred field accesses.
-    let rec private tryResolveRecord (t: SemType) : (string * EqArray<SemType>) voption =
+    /// type's typars when resolving deferred field / member accesses.
+    let rec private tryResolveNominal (t: SemType) : (NominalKind * string * EqArray<SemType>) voption =
         match t with
-        | TyRecord(n, args) -> ValueSome(n, args)
+        | TyRecord(n, args) -> ValueSome(NominalKind.Record, n, args)
+        | TyClass(n, args) -> ValueSome(NominalKind.Class, n, args)
+        | TyUnion(n, args) -> ValueSome(NominalKind.Union, n, args)
         | TyVar tv ->
-            let root = UnionFind.find tv
-
-            match root.Link with
-            | ValueSome target -> tryResolveRecord target
+            match (UnionFind.find tv).Link with
+            | ValueSome target -> tryResolveNominal target
             | ValueNone -> ValueNone
         | _ -> ValueNone
 
-    /// Mirror of `tryResolveRecord` for `TyClass`.
-    let rec private tryResolveClass (t: SemType) : (string * EqArray<SemType>) voption =
-        match t with
-        | TyClass(n, args) -> ValueSome(n, args)
-        | TyVar tv ->
-            let root = UnionFind.find tv
+    let private fieldLookup (fields: RecordFieldInfo[]) (name: string) : SemType voption =
+        match fields |> Array.tryFind (fun f -> f.Name = name) with
+        | Some f -> ValueSome f.Type
+        | None -> ValueNone
 
-            match root.Link with
-            | ValueSome target -> tryResolveClass target
-            | ValueNone -> ValueNone
-        | _ -> ValueNone
+    /// Instance-member lookup, shared by the class and union arms (their
+    /// `Members` arrays are the same `TypeMemberInfo[]`).
+    let private memberLookup (members: TypeMemberInfo[]) (name: string) : SemType voption =
+        match members |> Array.tryFind (fun m -> m.Name = name && not m.IsStatic) with
+        | Some m -> ValueSome m.Type
+        | None -> ValueNone
 
-    /// Mirror of `tryResolveClass` for `TyUnion` (P3d.3 augmentation members).
-    let rec private tryResolveUnion (t: SemType) : (string * EqArray<SemType>) voption =
-        match t with
-        | TyUnion(n, args) -> ValueSome(n, args)
-        | TyVar tv ->
-            let root = UnionFind.find tv
+    /// The outcome of resolving a TyVar's link target to a dot-access source.
+    /// `NotNominal` — not a record/class/union, nothing to drain.
+    /// `UnknownType` — named a nominal type the registry doesn't know.
+    /// `Resolved` — carries the member-noun used in diagnostics, the
+    /// typar→arg substitution, and a name→type lookup over the members.
+    [<RequireQualifiedAccess>]
+    type private DotSource =
+        | NotNominal
+        | UnknownType of name: string * kind: string
+        | Resolved of
+            name: string *
+            memberNoun: string *
+            subst: Dictionary<TypeVar, SemType> *
+            lookup: (string -> SemType voption)
 
-            match root.Link with
-            | ValueSome target -> tryResolveUnion target
-            | ValueNone -> ValueNone
-        | _ -> ValueNone
+    let private resolveDotSource (ctx: PassContext) (linkTarget: SemType) : DotSource =
+        match tryResolveNominal linkTarget with
+        | ValueNone -> DotSource.NotNominal
+        | ValueSome(NominalKind.Record, name, args) ->
+            match ctx.Types.Record.TryGetValue name with
+            | true, info ->
+                DotSource.Resolved(name, "field", mkNamedTypeSubst info.TypeParams args, fieldLookup info.Fields)
+            | false, _ -> DotSource.UnknownType(name, "record")
+        | ValueSome(NominalKind.Class, name, args) ->
+            match ctx.Types.Class.TryGetValue name with
+            | true, info ->
+                DotSource.Resolved(
+                    name,
+                    "instance member",
+                    mkNamedTypeSubst info.TypeParams args,
+                    memberLookup info.Members
+                )
+            | false, _ -> DotSource.UnknownType(name, "class")
+        | ValueSome(NominalKind.Union, name, args) ->
+            match ctx.Types.Union.TryGetValue name with
+            | true, info ->
+                DotSource.Resolved(
+                    name,
+                    "instance member",
+                    mkNamedTypeSubst info.TypeParams args,
+                    memberLookup info.Members
+                )
+            | false, _ -> DotSource.UnknownType(name, "union")
 
     /// `Defer` is the "I don't know yet" answer: the target is still free
     /// (or compound-with-free-args) and a future unification might pin it.
@@ -319,180 +352,66 @@ module UnificationEngine =
             // If both sides carried links, unify them so the carriers agree.
             match linkA, linkB with
             | ValueNone, ValueNone -> ()
-            | ValueSome _, ValueNone ->
-                newRoot.Link <- linkA
-
-                match linkA with
-                | ValueSome t ->
-                    drainPendingDotAccess ctx newRoot t
-                    drainConstraints ctx key newRoot t
-                    drainSrtpBounds ctx key newRoot t
-                | ValueNone -> ()
-            | ValueNone, ValueSome _ ->
-                newRoot.Link <- linkB
-
-                match linkB with
-                | ValueSome t ->
-                    drainPendingDotAccess ctx newRoot t
-                    drainConstraints ctx key newRoot t
-                    drainSrtpBounds ctx key newRoot t
-                | ValueNone -> ()
+            | ValueSome t, ValueNone
+            | ValueNone, ValueSome t ->
+                newRoot.Link <- ValueSome t
+                drainAll ctx key newRoot t
             | ValueSome a, ValueSome b ->
                 newRoot.Link <- linkA
                 unify ctx key a b
-
-                match linkA with
-                | ValueSome t ->
-                    drainPendingDotAccess ctx newRoot t
-                    drainConstraints ctx key newRoot t
-                    drainSrtpBounds ctx key newRoot t
-                | ValueNone -> ()
+                drainAll ctx key newRoot a
         | TyVar tv, other
         | other, TyVar tv ->
             let root = UnionFind.find tv
 
             if occursAndAdjust root other then
-                ctx.Diagnostics.Add
-                    {
-                        Key = key
-                        Message =
-                            sprintf
-                                "Occurs check: cannot construct infinite type %A = %A"
-                                (zonk (TyVar root))
-                                (zonk other)
-                        Code = ""
-                        Severity = Error
-                    }
+                ctx.Error(
+                    key,
+                    sprintf "Occurs check: cannot construct infinite type %A = %A" (zonk (TyVar root)) (zonk other)
+                )
             else
                 // Linking to a plain TyConst (a dimensionless carrier) when
                 // the variable is already known to be measured is a
                 // dimensionless-vs-measured mismatch.
                 match root.Units, other with
                 | ValueSome m, TyConst _ when not m.IsDimensionless ->
-                    ctx.Diagnostics.Add
-                        {
-                            Key = key
-                            Message = sprintf "Dimensionless %A used where <%O> expected" other m
-                            Code = ""
-                            Severity = Error
-                        }
+                    ctx.Error(key, sprintf "Dimensionless %A used where <%O> expected" other m)
                 | _ -> ()
 
                 root.Link <- ValueSome other
-                drainPendingDotAccess ctx root other
-                drainConstraints ctx key root other
-                drainSrtpBounds ctx key root other
-        | _ ->
-            ctx.Diagnostics.Add
-                {
-                    Key = key
-                    Message = sprintf "Type mismatch: %A vs %A" (zonk a) (zonk b)
-                    Code = ""
-                    Severity = Error
-                }
+                drainAll ctx key root other
+        | _ -> ctx.Error(key, sprintf "Type mismatch: %A vs %A" (zonk a) (zonk b))
 
     /// When a TyVar's Link resolves to a `TyRecord`/`TyClass`/`TyUnion`,
     /// resolve any dot-access constraints parked on it. When `T` is generic,
     /// the receiver's arg list substitutes for the type's declared typars so
     /// `(b : Box<int>).Value` resolves to `int`, not `Box`'s prototype `'a`.
+    /// Fire all three on-link callbacks for a root whose `Link` just resolved
+    /// to `t`: deferred dot-accesses, type-parameter constraints, and SRTP
+    /// member-trait bounds.
+    and private drainAll (ctx: PassContext) (key: NodeKey) (root: TypeVar) (t: SemType) : unit =
+        drainPendingDotAccess ctx root t
+        drainConstraints ctx key root t
+        drainSrtpBounds ctx key root t
+
     and private drainPendingDotAccess (ctx: PassContext) (root: TypeVar) (linkTarget: SemType) : unit =
-        if List.isEmpty root.PendingDotAccess then
-            ()
-        else
-            match tryResolveRecord linkTarget with
-            | ValueSome(recName, args) ->
+        if not (List.isEmpty root.PendingDotAccess) then
+            match resolveDotSource ctx linkTarget with
+            | DotSource.NotNominal -> ()
+            | DotSource.UnknownType(name, kind) ->
                 let pending = root.PendingDotAccess
                 root.PendingDotAccess <- []
 
-                match ctx.Types.Record.TryGetValue recName with
-                | true, info ->
-                    let subst = mkNamedTypeSubst info.TypeParams args
+                for d in pending do
+                    ctx.Error(d.UseKey, sprintf "Unknown %s type '%s'" kind name)
+            | DotSource.Resolved(name, memberNoun, subst, lookup) ->
+                let pending = root.PendingDotAccess
+                root.PendingDotAccess <- []
 
-                    for d in pending do
-                        match info.Fields |> Array.tryFind (fun f -> f.Name = d.MemberName) with
-                        | Some field -> unify ctx d.UseKey (TyVar d.ResultTv) (substituteWith subst field.Type)
-                        | None ->
-                            ctx.Diagnostics.Add
-                                {
-                                    Key = d.UseKey
-                                    Message = sprintf "Type '%s' has no field '%s'" recName d.MemberName
-                                    Code = ""
-                                    Severity = Error
-                                }
-                | false, _ ->
-                    for d in pending do
-                        ctx.Diagnostics.Add
-                            {
-                                Key = d.UseKey
-                                Message = sprintf "Unknown record type '%s'" recName
-                                Code = ""
-                                Severity = Error
-                            }
-            | ValueNone ->
-                match tryResolveClass linkTarget with
-                | ValueSome(clsName, args) ->
-                    let pending = root.PendingDotAccess
-                    root.PendingDotAccess <- []
-
-                    match ctx.Types.Class.TryGetValue clsName with
-                    | true, info ->
-                        let subst = mkNamedTypeSubst info.TypeParams args
-
-                        for d in pending do
-                            match info.Members |> Array.tryFind (fun m -> m.Name = d.MemberName && not m.IsStatic) with
-                            | Some m -> unify ctx d.UseKey (TyVar d.ResultTv) (substituteWith subst m.Type)
-                            | None ->
-                                ctx.Diagnostics.Add
-                                    {
-                                        Key = d.UseKey
-                                        Message = sprintf "Type '%s' has no instance member '%s'" clsName d.MemberName
-                                        Code = ""
-                                        Severity = Error
-                                    }
-                    | false, _ ->
-                        for d in pending do
-                            ctx.Diagnostics.Add
-                                {
-                                    Key = d.UseKey
-                                    Message = sprintf "Unknown class type '%s'" clsName
-                                    Code = ""
-                                    Severity = Error
-                                }
-                | ValueNone ->
-                    // Union augmentation members (P3d.3).
-                    match tryResolveUnion linkTarget with
-                    | ValueNone -> ()
-                    | ValueSome(unionName, args) ->
-                        let pending = root.PendingDotAccess
-                        root.PendingDotAccess <- []
-
-                        match ctx.Types.Union.TryGetValue unionName with
-                        | true, info ->
-                            let subst = mkNamedTypeSubst info.TypeParams args
-
-                            for d in pending do
-                                match
-                                    info.Members |> Array.tryFind (fun m -> m.Name = d.MemberName && not m.IsStatic)
-                                with
-                                | Some m -> unify ctx d.UseKey (TyVar d.ResultTv) (substituteWith subst m.Type)
-                                | None ->
-                                    ctx.Diagnostics.Add
-                                        {
-                                            Key = d.UseKey
-                                            Message =
-                                                sprintf "Type '%s' has no instance member '%s'" unionName d.MemberName
-                                            Code = ""
-                                            Severity = Error
-                                        }
-                        | false, _ ->
-                            for d in pending do
-                                ctx.Diagnostics.Add
-                                    {
-                                        Key = d.UseKey
-                                        Message = sprintf "Unknown union type '%s'" unionName
-                                        Code = ""
-                                        Severity = Error
-                                    }
+                for d in pending do
+                    match lookup d.MemberName with
+                    | ValueSome ty -> unify ctx d.UseKey (TyVar d.ResultTv) (substituteWith subst ty)
+                    | ValueNone -> ctx.Error(d.UseKey, sprintf "Type '%s' has no %s '%s'" name memberNoun d.MemberName)
 
     /// `ValueSome true` = constraint holds; `ValueSome false` = violation;
     /// `ValueNone` = not in the table, fall through to structural / deferred
@@ -633,17 +552,13 @@ module UnificationEngine =
                 match checkConstraint ctx c linkTarget with
                 | Satisfied -> ()
                 | Violated ->
-                    ctx.Diagnostics.Add
-                        {
-                            Key = key
-                            Message =
-                                sprintf
-                                    "The type '%A' does not support the '%s' constraint"
-                                    (zonk linkTarget)
-                                    (constraintKindName c.Kind)
-                            Code = ""
-                            Severity = Error
-                        }
+                    ctx.Error(
+                        key,
+                        sprintf
+                            "The type '%A' does not support the '%s' constraint"
+                            (zonk linkTarget)
+                            (constraintKindName c.Kind)
+                    )
                 | Defer ->
                     remaining <- c :: remaining
                     propagateToFreeArgs ctx c linkTarget
@@ -819,15 +734,7 @@ module UnificationEngine =
                             b.Resolved <- true
                             unifySrtpAgainst ctx key candTy b
                         | ValueNone ->
-                            ctx.Diagnostics.Add
-                                {
-                                    Key = key
-                                    Message =
-                                        sprintf "Type '%s' has no built-in static member '%s'" primName b.MemberName
-                                    Code = ""
-                                    Severity = Error
-                                }
-
+                            ctx.Error(key, sprintf "Type '%s' has no built-in static member '%s'" primName b.MemberName)
                             b.Resolved <- true
                     | TyClass(className, classArgs) ->
                         match ctx.Types.Class.TryGetValue className with
@@ -838,14 +745,7 @@ module UnificationEngine =
                                 b.Resolved <- true
                                 unifySrtpAgainst ctx key candTy b
                             | None ->
-                                ctx.Diagnostics.Add
-                                    {
-                                        Key = key
-                                        Message = sprintf "Type '%s' has no static member '%s'" className b.MemberName
-                                        Code = ""
-                                        Severity = Error
-                                    }
-
+                                ctx.Error(key, sprintf "Type '%s' has no static member '%s'" className b.MemberName)
                                 b.Resolved <- true
                         | false, _ ->
                             // Unknown class — keep the bound so a later
