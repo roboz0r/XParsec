@@ -46,6 +46,18 @@ let private opSym =
 
 let private prefixSym = Map.ofList [ "op_UnaryNegation", "-" ]
 
+/// Minimal `SemType` → readable name, for rendering cast targets (`:>` / `:?` /
+/// `:?>`). Nominal types render as their name; structural ones approximate.
+let rec private tyName (t: SemType) : string =
+    match t with
+    | TyConst n -> n
+    | TyVar _ -> "_"
+    | TyFun(a, b) -> tyName a + " -> " + tyName b
+    | TyTuple ts -> [ for t in ts -> tyName t ] |> String.concat " * "
+    | TyRecord(n, _)
+    | TyUnion(n, _)
+    | TyClass(n, _) -> n
+
 let private (|InfixOp|_|) (e: TExpr) =
     match e with
     | TExpr.App(TExpr.App(TExpr.External(name, _, _), left, _), right, _) ->
@@ -452,6 +464,25 @@ type private Renderer() =
                 this.Expr cl.Body
 
             push "]"
+
+        | TExpr.Upcast(source, ty) ->
+            push "("
+            this.Expr source
+            push " :> "
+            push (tyName ty)
+            push ")"
+        | TExpr.Downcast(source, ty) ->
+            push "("
+            this.Expr source
+            push " :?> "
+            push (tyName ty)
+            push ")"
+        | TExpr.TypeTest(source, testTy, _) ->
+            push "("
+            this.Expr source
+            push " :? "
+            push (tyName testTy)
+            push ")"
 
     member this.Pat(p: TPat) : unit =
         match p with

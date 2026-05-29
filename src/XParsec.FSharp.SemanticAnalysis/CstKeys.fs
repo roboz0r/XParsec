@@ -68,6 +68,12 @@ module CstKeys =
         | Expr.Tuple(exprs = exprs) when exprs.Length > 0 -> firstTokenOfExpr exprs.[0]
         | Expr.Sequential(exprs = exprs) when exprs.Length > 0 -> firstTokenOfExpr exprs.[0]
         | Expr.TypeAnnotation(expr = inner) -> firstTokenOfExpr inner
+        // Key off the cast operator token (not the inner expr's first token) so
+        // chained casts (`x :> A :> B`) and the inner expr never collide on
+        // NodeKey — same rationale as the `InfixApp` operator-token choice.
+        | Expr.StaticUpcast(colonGreaterThan = t) -> t
+        | Expr.DynamicTypeTest(colonQuestionMark = t) -> t
+        | Expr.DynamicDowncast(colonQuestionMarkGreaterThan = t) -> t
         | Expr.While(whileToken = t) -> t
         | Expr.ForTo(forToken = t) -> t
         | Expr.ForIn(forToken = t) -> t
@@ -141,6 +147,9 @@ module CstKeys =
                 | Expr.Tuple _ -> NodeKind.ExprTuple
                 | Expr.Sequential _ -> NodeKind.ExprSequential
                 | Expr.TypeAnnotation _ -> NodeKind.ExprTypeAnnotation
+                | Expr.StaticUpcast _ -> NodeKind.ExprStaticUpcast
+                | Expr.DynamicTypeTest _ -> NodeKind.ExprDynamicTypeTest
+                | Expr.DynamicDowncast _ -> NodeKind.ExprDynamicDowncast
                 | Expr.EmptyBlock _ -> NodeKind.ExprEmptyBlock
                 | Expr.While _ -> NodeKind.ExprWhile
                 | Expr.ForTo _ -> NodeKind.ExprForTo

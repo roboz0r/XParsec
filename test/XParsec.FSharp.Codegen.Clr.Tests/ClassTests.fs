@@ -595,3 +595,56 @@ let genericMethodTests =
                     "Box<int>(7).First<string>(_) returns the 'a-typed field v = 7"
             }
         ]
+
+[<Tests>]
+let castTests =
+    let declaredInstance =
+        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
+
+    // vesper-set-sprint Phase 2 / B-4 Step 2.4 backend gate: `:?` and `:?>`
+    // emit `isinst` / `castclass` against a `TypeToken` for the target type.
+    // A full base→derived inheritance round-trip waits on Step 2.5 (base-ctor
+    // IL wiring), and `obj`-subsumption isn't wired in v1, so these exercise
+    // the cast IL on the only runnable shape available now: a same-type cast on
+    // `this` (`this :? C` / `this :?> C`), which still emits the real `isinst` /
+    // `castclass` and runs them against a live instance.
+    testList
+        "ClassCast"
+        [
+            test "`this :? C` emits isinst and returns true for the instance itself" {
+                let _, artifact =
+                    compileSource
+                        "ClsTypeTest"
+                        (String.concat "\n" [ "type C() ="; "    member this.IsC () = this :? C"; "let c = C()" ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "C"
+                let isC = ty.GetMethod("IsC", declaredInstance, null, [||], null)
+                Expect.isNotNull isC "IsC emitted"
+
+                let instance = Activator.CreateInstance(ty, [||])
+                Expect.isTrue (isC.Invoke(instance, [||]) :?> bool) "(c :? C) is true"
+            }
+
+            test "`(this :?> C).M ()` emits castclass then dispatches the member" {
+                let _, artifact =
+                    compileSource
+                        "ClsDowncast"
+                        (String.concat
+                            "\n"
+                            [
+                                "type C() ="
+                                "    member this.M () = 42"
+                                "    member this.AsC () = (this :?> C).M ()"
+                                "let c = C()"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "C"
+                let asC = ty.GetMethod("AsC", declaredInstance, null, [||], null)
+                Expect.isNotNull asC "AsC emitted"
+
+                let instance = Activator.CreateInstance(ty, [||])
+                Expect.equal (asC.Invoke(instance, [||]) :?> int) 42 "(c :?> C).M() = 42"
+            }
+        ]

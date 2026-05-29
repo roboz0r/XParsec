@@ -63,7 +63,10 @@ module TastWalk =
         | TExpr.ExternalMember(ty = ty)
         | TExpr.Format(ty = ty)
         | TExpr.ILIntrinsic(ty = ty)
-        | TExpr.StaticOptimization(ty = ty) -> ty
+        | TExpr.StaticOptimization(ty = ty)
+        | TExpr.Upcast(ty = ty)
+        | TExpr.Downcast(ty = ty)
+        | TExpr.TypeTest(ty = ty) -> ty
 
     /// Project the `ty` field embedded in any `TPat`.
     let patTy (p: TPat) : SemType =
@@ -205,6 +208,9 @@ module TastWalk =
                     )
 
                 TExpr.StaticOptimization(clauses, pe def, f ty)
+            | TExpr.Upcast(src, ty) -> TExpr.Upcast(pe src, f ty)
+            | TExpr.Downcast(src, ty) -> TExpr.Downcast(pe src, f ty)
+            | TExpr.TypeTest(src, testTy, ty) -> TExpr.TypeTest(pe src, f testTy, f ty)
 
     and mapArm (m: Mapper) (arm: TMatchArm) : TMatchArm =
         match m.OverrideArm m arm with
@@ -363,6 +369,9 @@ module TastWalk =
 
                 for c in clauses do
                     walk c.Body
+            | TExpr.Upcast(src, _)
+            | TExpr.Downcast(src, _)
+            | TExpr.TypeTest(src, _, _) -> walk src
 
     and iterArm (it: Iter) (arm: TMatchArm) : unit =
         if it.VisitArm it arm then

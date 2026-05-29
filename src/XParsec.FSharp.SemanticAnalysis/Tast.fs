@@ -179,6 +179,19 @@ type TExpr =
     /// chosen branch once the call site pins the operand type (prereq 3). See
     /// docs/operators-plan.md.
     | StaticOptimization of clauses: EqArray<TStaticOptClause> * defaultExpr: TExpr * ty: SemType
+    /// `e :> T` static upcast (inheritance-plan §`:>`). `source`'s runtime type
+    /// is a subtype of `ty` (validated by Unification's `subsumes`). Codegen
+    /// erases it for ref types (the JIT treats a derived reference as the base)
+    /// and emits `box` for a value-type source.
+    | Upcast of source: TExpr * ty: SemType
+    /// `e :?> T` checked downcast. `ty` is the (more-specific) target type;
+    /// codegen emits `castclass` for ref types / `unbox.any` for value types,
+    /// so a runtime mismatch throws `InvalidCastException`.
+    | Downcast of source: TExpr * ty: SemType
+    /// `e :? T` type test. `testTy` is the tested-against type `T` (the
+    /// `isinst` operand); `ty` is always `TyConst "bool"` (the result). Codegen
+    /// emits `isinst <testTy>; ldnull; cgt.un`.
+    | TypeTest of source: TExpr * testTy: SemType * ty: SemType
 
 and TMatchArm =
     {

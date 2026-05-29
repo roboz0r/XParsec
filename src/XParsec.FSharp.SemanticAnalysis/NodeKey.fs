@@ -54,6 +54,9 @@ type NodeKind =
     | ExprNew = 34us
     | ExprILIntrinsic = 35us
     | ExprStaticOptimization = 36us
+    | ExprStaticUpcast = 37us
+    | ExprDynamicTypeTest = 38us
+    | ExprDynamicDowncast = 39us
 
     | PatConst = 100us
     | PatIdent = 101us

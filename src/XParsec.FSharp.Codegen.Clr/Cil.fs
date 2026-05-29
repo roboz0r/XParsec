@@ -97,6 +97,28 @@ module Cil =
         il.Encoder.Token(t)
         il.Adjust 0
 
+    /// `castclass <type>` — checked reference downcast: throws
+    /// `InvalidCastException` when the object isn't a `t`, else retypes the
+    /// reference. Net stack-neutral.
+    let emitCastclass (il: Il) (t: EntityHandle) : unit =
+        il.Encoder.OpCode(ILOpCode.Castclass)
+        il.Encoder.Token(t)
+        il.Adjust 0
+
+    /// `box <type>` — boxes the value type `t` on the stack into an object
+    /// reference. Net stack-neutral (pops the value, pushes the boxed ref).
+    let emitBox (il: Il) (t: EntityHandle) : unit =
+        il.Encoder.OpCode(ILOpCode.Box)
+        il.Encoder.Token(t)
+        il.Adjust 0
+
+    /// `unbox.any <type>` — the value-type analogue of `castclass`: unboxes a
+    /// boxed `t` (or, for a ref type, behaves as `castclass`). Net stack-neutral.
+    let emitUnboxAny (il: Il) (t: EntityHandle) : unit =
+        il.Encoder.OpCode(ILOpCode.Unbox_any)
+        il.Encoder.Token(t)
+        il.Adjust 0
+
     /// `callvirt` against a metadata handle with the receiver + args already on
     /// the stack. SRM has no `Callvirt` helper, so the opcode + token are emitted
     /// by hand; depth adjusts by `pushes - argc` (`argc` includes the receiver).

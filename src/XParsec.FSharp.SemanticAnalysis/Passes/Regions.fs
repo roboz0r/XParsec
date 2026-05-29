@@ -363,6 +363,15 @@ module Regions =
         | Expr.LongIdentOrOp _ -> identRegion s ctx e
         | Expr.EnclosedBlock(expr = inner) -> inferRegion s ctx inner
         | Expr.TypeAnnotation(expr = inner) -> inferRegion s ctx inner
+        // `:>` / `:?>` / `:?` are static-type adjustments over the same runtime
+        // value — non-allocating, so the result rides the source's region. A
+        // type test produces a `bool` (Unknown), but walking the source still
+        // registers any captures inside it.
+        | Expr.StaticUpcast(expr = inner) -> inferRegion s ctx inner
+        | Expr.DynamicDowncast(expr = inner) -> inferRegion s ctx inner
+        | Expr.DynamicTypeTest(expr = inner) ->
+            inferRegion s ctx inner |> ignore
+            RegionId.Unknown
         | Expr.Sequential(exprs = items) -> seqRegion s ctx items
         | Expr.Fun(argumentPats = argPats; expr = body) -> lambdaRegion s ctx argPats body
         | Expr.Function(rules = Rules(rules = rules)) -> functionLikeLambda s ctx rules

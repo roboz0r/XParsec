@@ -650,6 +650,18 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         encodeType (g.AddArgument()) (zonk selfTy)
         toEntity (ctx.TypeSpec tsB)
 
+    /// A `TypeSpec` token for an arbitrary `SemType`, for the type operand of
+    /// `isinst` / `castclass` / `box` / `unbox.any` (inheritance-plan §`:>` /
+    /// `:?` / `:?>`). `encodeType` maps user types to their `TypeDefinition`,
+    /// generic instances to instantiated specs, and externals through the
+    /// provider — a `TypeSpec` token is a legal `TypeDefOrRefOrSpec` operand for
+    /// all of them, so one path serves mono and generic targets alike.
+    let typeToken (ty: SemType) : EntityHandle =
+        let tsB = BlobBuilder()
+        let te = BlobEncoder(tsB).TypeSpecificationSignature()
+        encodeType te (zonk ty)
+        toEntity (ctx.TypeSpec tsB)
+
     member _.EmitPrintfn fnTy = emitPrintfn fnTy
     member _.EmitInvoke funcTy = emitInvoke funcTy
     member _.EmitFSharpFuncInvoke funcTy = emitFSharpFuncInvoke funcTy
@@ -670,3 +682,4 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     member _.ComparerDefault elem = comparerDefault elem
     member _.ComparerCompare elem = comparerCompare elem
     member _.ComparableInterfaceSpec selfTy = comparableInterfaceSpec selfTy
+    member _.TypeToken ty = typeToken ty

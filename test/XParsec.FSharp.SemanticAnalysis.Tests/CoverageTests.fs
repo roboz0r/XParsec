@@ -876,4 +876,32 @@ let tests =
                 Expect.equal (declType tast) BuiltinTypes.tyFloat "r : float"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
+
+            // --- Phase 2 / B-4: cast TAST shapes (Step 2.4) ---
+
+            test "TAST: `:>` shapes as Upcast" {
+                let tast =
+                    analyse "type B() =\n    member this.X = 1\ntype D() =\n    inherit B()\nlet s = (new D()) :> B"
+
+                let last = EqArray.toList tast.Decls |> List.last
+                Expect.stringContains (TastShape.prettyDecl last) ":> B" "upcast rendered"
+            }
+
+            test "TAST: `:?>` shapes as Downcast" {
+                let tast =
+                    analyse
+                        "type B() =\n    member this.X = 1\ntype D() =\n    inherit B()\nlet d = ((new D()) :> B) :?> D"
+
+                let last = EqArray.toList tast.Decls |> List.last
+                Expect.stringContains (TastShape.prettyDecl last) ":?> D" "downcast rendered"
+            }
+
+            test "TAST: `:?` shapes as TypeTest" {
+                let tast =
+                    analyse
+                        "type B() =\n    member this.X = 1\ntype D() =\n    inherit B()\nlet t = ((new D()) :> B) :? D"
+
+                let last = EqArray.toList tast.Decls |> List.last
+                Expect.stringContains (TastShape.prettyDecl last) ":? D" "type test rendered"
+            }
         ]

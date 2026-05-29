@@ -42,6 +42,9 @@ module UnificationInfer =
             | Expr.Tuple(exprs = items) -> inferTuple ctx items
             | Expr.Sequential(exprs = items) -> inferSequential ctx key items
             | Expr.TypeAnnotation(expr = inner; typ = t) -> inferTypeAnnotation ctx key inner t
+            | Expr.StaticUpcast(expr = inner; typ = t) -> inferStaticUpcast ctx key inner t
+            | Expr.DynamicTypeTest(expr = inner; typ = t) -> inferDynamicTypeTest ctx key inner t
+            | Expr.DynamicDowncast(expr = inner; typ = t) -> inferDynamicDowncast ctx key inner t
             | Expr.EmptyBlock(lParen = ParenKind.List _; rParen = rTok) ->
                 checkLiteralClose ctx key rTok Token.KWRBracket "]"
                 emptyListLikeLiteral ctx key false
@@ -1126,6 +1129,89 @@ module UnificationInfer =
         let annTy = translateType ctx t
         unify ctx key innerTy annTy
         annTy
+
+    /// `obj` is the top of every reference hierarchy. `subsumes` doesn't model
+    /// it (the BCL `System.Object` class isn't in `ctx.Types.Class`), so the
+    /// coercion arms special-case it: a downcast / type-test from `obj` to any
+    /// known type is statically admissible and resolved at runtime. The
+    /// `set.fs:988` `(that :?> Set<'T>).Tree` site relies on this.
+    and private isObjTy (t: SemType) : bool =
+        match resolveStep t with
+        | TyConst "obj" -> true
+        | _ -> false
+
+    /// `e :> T` — explicit upcast. `subsumes src tgt` must be `Equal`
+    /// (redundant but legal) or `Subtype`; the result type is the target.
+    and private inferStaticUpcast
+        (ctx: PassContext)
+        (key: NodeKey)
+        (inner: Expr<SyntaxToken>)
+        (t: Type<SyntaxToken>)
+        : SemType =
+        let srcTy = infer ctx inner
+        let tgtTy = translateType ctx t
+
+        match subsumes ctx srcTy tgtTy with
+        | SubsumeOutcome.Equal
+        | SubsumeOutcome.Subtype -> ()
+        | SubsumeOutcome.Unrelated ->
+            ctx.Error(
+                key,
+                sprintf "Cannot upcast type '%A' to '%A' — no inheritance relationship" (zonk srcTy) (zonk tgtTy)
+            )
+
+        tgtTy
+
+    /// `e :? T` — type test. v1 requires the static types to be related in
+    /// either direction (an unrelated test is statically always-false); the
+    /// result is always `bool`.
+    and private inferDynamicTypeTest
+        (ctx: PassContext)
+        (key: NodeKey)
+        (inner: Expr<SyntaxToken>)
+        (t: Type<SyntaxToken>)
+        : SemType =
+        let srcTy = infer ctx inner
+        let tgtTy = translateType ctx t
+        // The node's own type is `bool`; stash the tested-against type so Freeze
+        // can carry it into `TExpr.TypeTest.testTy` for the `isinst` operand.
+        ctx.Resolution.TypeTestTargets.Set(key, tgtTy)
+
+        let related =
+            isObjTy srcTy
+            || subsumes ctx srcTy tgtTy <> SubsumeOutcome.Unrelated
+            || subsumes ctx tgtTy srcTy <> SubsumeOutcome.Unrelated
+
+        if not related then
+            ctx.Warn(
+                key,
+                sprintf "Type test of '%A' against unrelated type '%A' is always false" (zonk srcTy) (zonk tgtTy)
+            )
+
+        BuiltinTypes.tyBool
+
+    /// `e :?> T` — explicit downcast. The target must be a strict descendant of
+    /// the source (`subsumes tgt src = Subtype`); an equal static type warns
+    /// (redundant), an unrelated one errors. A downcast from `obj` is always
+    /// admissible (checked at runtime).
+    and private inferDynamicDowncast
+        (ctx: PassContext)
+        (key: NodeKey)
+        (inner: Expr<SyntaxToken>)
+        (t: Type<SyntaxToken>)
+        : SemType =
+        let srcTy = infer ctx inner
+        let tgtTy = translateType ctx t
+
+        if not (isObjTy srcTy) then
+            match subsumes ctx tgtTy srcTy with
+            | SubsumeOutcome.Subtype -> ()
+            | SubsumeOutcome.Equal ->
+                ctx.Warn(key, sprintf "Downcast is redundant — the static type '%A' already matches" (zonk srcTy))
+            | SubsumeOutcome.Unrelated ->
+                ctx.Error(key, sprintf "Cannot downcast type '%A' to unrelated type '%A'" (zonk srcTy) (zonk tgtTy))
+
+        tgtTy
 
     and private inferLet
         (ctx: PassContext)

@@ -480,6 +480,13 @@ type PassContextResolution =
         /// suffix-matching the source-written name
         /// (vesper-set-sprint-plan §0.1 / M1).
         ExternalValue: SideTable<SymbolKey>
+        /// Keyed by a `:?` type-test expression's `NodeKey`: the resolved
+        /// tested-against type (`Expr.DynamicTypeTest`'s target). The node's own
+        /// inferred type is `bool` (the result), so the target type — which
+        /// codegen needs for the `isinst` operand — is stashed here by
+        /// Unification and read by Freeze to populate `TExpr.TypeTest.testTy`
+        /// (inheritance-plan §`:?`).
+        TypeTestTargets: SideTable<SemType>
     }
 
 module PassContextResolution =
@@ -492,6 +499,7 @@ module PassContextResolution =
             TyparScopeStrict = false
             ExternalAccess = SideTable<_>()
             ExternalValue = SideTable<_>()
+            TypeTestTargets = SideTable<_>()
         }
 
 /// **Thread-safety:** a `PassContext` is single-threaded — its side tables,

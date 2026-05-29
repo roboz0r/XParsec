@@ -39,6 +39,9 @@ module EmitLower =
         | TExpr.Format(_, _, ty) -> ty
         | TExpr.ILIntrinsic(_, _, ty) -> ty
         | TExpr.StaticOptimization(_, _, ty) -> ty
+        | TExpr.Upcast(_, ty) -> ty
+        | TExpr.Downcast(_, ty) -> ty
+        | TExpr.TypeTest(_, _, ty) -> ty
 
     let typeOfPat (p: TPat) : SemType =
         match p with
@@ -198,6 +201,9 @@ module EmitLower =
         | TExpr.ILIntrinsic(op, args, t) -> TExpr.ILIntrinsic(op, EqArray.map f args, t)
         | TExpr.StaticOptimization(clauses, def, t) ->
             TExpr.StaticOptimization(clauses |> EqArray.map (fun cl -> { cl with Body = f cl.Body }), f def, t)
+        | TExpr.Upcast(src, t) -> TExpr.Upcast(f src, t)
+        | TExpr.Downcast(src, t) -> TExpr.Downcast(f src, t)
+        | TExpr.TypeTest(src, testTy, t) -> TExpr.TypeTest(f src, testTy, t)
 
     /// Reuses `mapChildren`, discarding the rebuilt tree — only the one-shot
     /// discovery / free-variable pre-passes call this.

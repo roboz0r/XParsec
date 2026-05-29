@@ -707,4 +707,70 @@ let tests =
                 Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "r : int — Box<int>.V's 'a bound to int"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
+
+            // --- Phase 2 / B-4: `:>` / `:?` / `:?>` arms (Step 2.4) ---
+
+            test "`:>` upcast to declared base types as the base" {
+                let input =
+                    "type B() =\n    member this.X = 1\ntype D() =\n    inherit B()\nlet s = (new D()) :> B"
+
+                let ctx = analyse input
+                let patKey = NodeKey.ofSource (input.IndexOf "s = ") NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyClass("B", EqArray.empty)) "s : B"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics — D <: B"
+            }
+
+            test "`:>` upcast between unrelated types diagnoses" {
+                let ctx =
+                    analyse
+                        "type A() =\n    member this.X = 1\ntype B() =\n    member this.Y = 2\nlet s = (new A()) :> B"
+
+                let hasUpcastErr =
+                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "upcast")
+
+                Expect.isTrue hasUpcastErr "unrelated upcast diagnosed"
+            }
+
+            test "`:?>` downcast types as the target type" {
+                let input =
+                    "type B() =\n    member this.X = 1\ntype D() =\n    inherit B()\nlet d = ((new D()) :> B) :?> D"
+
+                let ctx = analyse input
+                let patKey = NodeKey.ofSource (input.IndexOf "d = ") NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyClass("D", EqArray.empty)) "d : D"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics — D <: B downcast is valid"
+            }
+
+            test "`:?>` downcast to unrelated type diagnoses" {
+                let ctx =
+                    analyse
+                        "type A() =\n    member this.X = 1\ntype B() =\n    member this.Y = 2\nlet d = (new B()) :?> A"
+
+                let hasDowncastErr =
+                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "downcast")
+
+                Expect.isTrue hasDowncastErr "unrelated downcast diagnosed"
+            }
+
+            test "`:?` type test types as bool" {
+                let input =
+                    "type B() =\n    member this.X = 1\ntype D() =\n    inherit B()\nlet t = ((new D()) :> B) :? D"
+
+                let ctx = analyse input
+                let patKey = NodeKey.ofSource (input.IndexOf "t = ") NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyBool "t : bool"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics — B and D are related"
+            }
+
+            test "`:?` type test on unrelated types warns" {
+                let ctx =
+                    analyse
+                        "type A() =\n    member this.X = 1\ntype B() =\n    member this.Y = 2\nlet t = (new A()) :? B"
+
+                let hasWarning =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Severity = Severity.Warning && d.Message.Contains "always false")
+
+                Expect.isTrue hasWarning "unrelated type test warns (not errors)"
+            }
         ]

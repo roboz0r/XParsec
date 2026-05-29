@@ -256,6 +256,12 @@ type ICodegenProvider =
 
     abstract ObjectType: EntityHandle
 
+    /// A `TypeDefOrRefOrSpec` token for an arbitrary `SemType`, for the operand
+    /// of `isinst` / `castclass` / `box` / `unbox.any` (inheritance-plan
+    /// §casting). One `TypeSpec`-based path covers mono, generic, and external
+    /// targets alike.
+    abstract TypeToken: ty: SemType -> EntityHandle
+
     /// `System.Decimal::.ctor(int32, int32, int32, bool, uint8)` — emits a
     /// `decimal` constant the way F# / Roslyn do, from `Decimal.GetBits`.
     abstract DecimalCtor: EntityHandle

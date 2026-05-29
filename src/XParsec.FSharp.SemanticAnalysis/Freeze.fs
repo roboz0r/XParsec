@@ -610,6 +610,20 @@ module Freeze =
         // The annotation has no runtime representation — it only constrained
         // types in Unification; the TAST carries the inferred type inline.
         | Expr.TypeAnnotation(expr = inner) -> translateExpr ctx inner
+        // Casts carry the resolved node type (`ty`): the target type for
+        // `:>` / `:?>`, and `bool` for `:?` — Unification validated the
+        // coercion via `subsumes`, codegen emits the box / castclass / isinst.
+        | Expr.StaticUpcast(expr = inner) -> TExpr.Upcast(translateExpr ctx inner, ty)
+        | Expr.DynamicDowncast(expr = inner) -> TExpr.Downcast(translateExpr ctx inner, ty)
+        | Expr.DynamicTypeTest(expr = inner) ->
+            // `ty` is the `bool` result; the tested-against type was stashed by
+            // Unification (`inferDynamicTypeTest`) keyed by this node.
+            let testTy =
+                match ctx.Resolution.TypeTestTargets.TryGetValue key with
+                | ValueSome t -> t
+                | ValueNone -> failwithf "Freeze: no recorded type-test target for %O" key
+
+            TExpr.TypeTest(translateExpr ctx inner, testTy, ty)
         | Expr.EmptyBlock(lParen = ParenKind.List _) -> translateListLikeLiteral ctx ty false []
         | Expr.EmptyBlock(lParen = ParenKind.Array _) -> translateListLikeLiteral ctx ty true []
         | Expr.EmptyBlock _ -> unitConst ctx e

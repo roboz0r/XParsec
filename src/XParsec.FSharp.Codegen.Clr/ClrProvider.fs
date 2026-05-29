@@ -195,6 +195,7 @@ type ClrProvider
 
     interface ICodegenProvider with
         member _.ObjectType = env.EObject.Value
+        member _.TypeToken(ty) = recipes.TypeToken(env.Zonk ty)
         member _.DecimalCtor = env.EDecimalCtor.Value
         member _.ExceptionCtor = env.EExceptionCtor.Value
 

@@ -146,6 +146,35 @@ module EmitExpr =
         | ValueSome k when PrintfSpec.isCanonicalPrintfn k -> true
         | _ -> name = "printfn"
 
+    /// Whether a (zonked) `SemType` is a CLR value type — drives the box vs
+    /// no-op choice on `:>` and the `unbox.any` vs `castclass` choice on `:?>`.
+    /// User records / unions / classes are reference types (rung 2); the BCL
+    /// primitives bound as `TyConst` are value types. `string` / `obj` are
+    /// reference types despite being `TyConst`.
+    let private isValueType (ty: SemType) : bool =
+        match zonk ty with
+        | TyConst n ->
+            match n with
+            | "int"
+            | "int64"
+            | "int16"
+            | "byte"
+            | "sbyte"
+            | "uint16"
+            | "uint32"
+            | "uint64"
+            | "nativeint"
+            | "unativeint"
+            | "float"
+            | "float32"
+            | "single"
+            | "double"
+            | "bool"
+            | "char"
+            | "decimal" -> true
+            | _ -> false
+        | _ -> false
+
     let rec buildExpr (env: EmitEnv) (b: IlBuilder) (e: TExpr) : unit =
         match e with
         | TExpr.Const(TConstValue.String s, _) -> b.Add(ILInstr.Ldstr(env.Ctx.UserString s))
@@ -567,6 +596,36 @@ module EmitExpr =
             // first-class value, or declared without `inline`). F#'s semantics
             // fall back to the leading (dynamic) expression in that case.
             buildExpr env b def
+
+        | TExpr.Upcast(source, _) ->
+            // `e :> T`: a reference-type source is already usable as its base —
+            // the JIT erases the cast, so emit nothing. A value-type source must
+            // be boxed to reach `obj` / an interface.
+            buildExpr env b source
+            let srcTy = typeOfExpr source
+
+            if isValueType srcTy then
+                b.Add(ILInstr.Box(env.Provider.TypeToken srcTy))
+
+        | TExpr.Downcast(source, ty) ->
+            // `e :?> T`: `unbox.any` for a value-type target, `castclass` for a
+            // reference-type one. Both throw `InvalidCastException` at runtime on
+            // a real mismatch.
+            buildExpr env b source
+            let token = env.Provider.TypeToken ty
+
+            if isValueType ty then
+                b.Add(ILInstr.UnboxAny token)
+            else
+                b.Add(ILInstr.Castclass token)
+
+        | TExpr.TypeTest(source, testTy, _) ->
+            // `e :? T` → `isinst T; ldnull; cgt.un` — a non-null `isinst` result
+            // (the value really is a `T`) compares greater-than null, yielding 1.
+            buildExpr env b source
+            b.Add(ILInstr.Isinst(env.Provider.TypeToken testTy))
+            b.Add ILInstr.Ldnull
+            b.Add(ILInstr.Bin ILOpCode.Cgt_un)
 
         | other -> failwithf "Emit: unsupported expression: %A" other
 
