@@ -205,6 +205,94 @@ let monoTests =
         ]
 
 [<Tests>]
+let staticTests =
+    let declaredStatic =
+        BindingFlags.Public ||| BindingFlags.Static ||| BindingFlags.DeclaredOnly
+
+    testList
+        "ClassStatic"
+        [
+            // vesper-set-sprint-plan §1.8 / B-10 test gate:
+            //   `type C() = static member M () = 1` — C.M() = 1
+            test "a class static method emits with the Static flag and returns 1" {
+                let _, artifact =
+                    compileSource
+                        "ClsStaticM"
+                        (String.concat "\n" [ "type C() ="; "    static member M () = 1"; "let c = C()" ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "C"
+                Expect.isNotNull ty "the assembly contains the class type C"
+
+                let m = ty.GetMethod("M", declaredStatic, null, [||], null)
+                Expect.isNotNull m "M emitted as a static method"
+                Expect.isTrue m.IsStatic "M is static"
+
+                let result = m.Invoke(null, [||]) :?> int
+                Expect.equal result 1 "C.M() returns 1"
+            }
+
+            // static field via `static let`:
+            //   `type C() = static let x = 42; static member Get() = x` — C.Get() = 42
+            test "a class `static let` becomes a static field initialised by the cctor (Get() = 42)" {
+                let _, artifact =
+                    compileSource
+                        "ClsStaticLet"
+                        (String.concat
+                            "\n"
+                            [
+                                "type C() ="
+                                "    static let x = 42"
+                                "    static member Get () = x"
+                                "let c = C()"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "C"
+                Expect.isNotNull ty "the assembly contains the class type C"
+
+                let m = ty.GetMethod("Get", declaredStatic, null, [||], null)
+                Expect.isNotNull m "Get emitted as a static method"
+
+                let result = m.Invoke(null, [||]) :?> int
+                Expect.equal result 42 "C.Get() reads the static-let field x = 42"
+            }
+
+            // A `static let` is in scope for instance members too (F# §8.7), so an
+            // instance method reads the same static field via `ldsfld`.
+            test "an instance member reads a `static let` field (this.Get() = 7)" {
+                let _, artifact =
+                    compileSource
+                        "ClsStaticLetInst"
+                        (String.concat
+                            "\n"
+                            [
+                                "type C() ="
+                                "    static let k = 7"
+                                "    member this.Get () = k"
+                                "let c = C()"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "C"
+
+                let m =
+                    ty.GetMethod(
+                        "Get",
+                        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly,
+                        null,
+                        [||],
+                        null
+                    )
+
+                Expect.isNotNull m "Get emitted as an instance method"
+
+                let instance = Activator.CreateInstance(ty, [||])
+                Expect.equal (m.Invoke(instance, [||]) :?> int) 7 "instance Get() reads the static-let field k = 7"
+            }
+        ]
+
+[<Tests>]
 let genericTests =
     let declaredInstance =
         BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly

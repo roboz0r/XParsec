@@ -407,6 +407,28 @@ module Unification =
                                 | TyVar tv -> ctx.Bindings.TypeVar.Set(p.DeclKey, tv)
                                 | _ -> ()
 
+                            // `static let` initialisers (B-10): infer each in
+                            // declaration order (an earlier static-let binder is
+                            // already seeded, so a later initialiser can reference
+                            // it), link the placeholder TyVar to the inferred type,
+                            // and seed `ctx.Bindings.TypeVar` so a `static let`-bound
+                            // name reference in a member body types through it.
+                            for sl in info.StaticLets do
+                                match sl.Type with
+                                | TyVar tv -> ctx.Bindings.TypeVar.Set(sl.DeclKey, tv)
+                                | _ -> ()
+
+                                enterLevel ctx
+
+                                try
+                                    let initTy = infer ctx sl.Init
+
+                                    match sl.Type with
+                                    | TyVar tv -> (UnionFind.find tv).Link <- ValueSome initTy
+                                    | _ -> ()
+                                finally
+                                    exitLevel ctx
+
                         fillTypeMembers
                             ctx
                             {

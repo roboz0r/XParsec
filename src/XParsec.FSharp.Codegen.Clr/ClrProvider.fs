@@ -2418,6 +2418,18 @@ type ClrProvider
 
         s
 
+    /// `static void .cctor()` — the type-initialiser signature (no `this`, no
+    /// params, void return). Used for a class's synthesised `static let` seeder
+    /// (vesper-set-sprint-plan §1.8 / B-10).
+    member _.CctorSignature() : BlobBuilder =
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(isInstanceMethod = false)
+            .Parameters(0, (fun (ret: ReturnTypeEncoder) -> ret.Void()), (fun (_: ParametersEncoder) -> ()))
+
+        s
+
     /// Install the ambient generic-method-typar set (by union-find root) for the
     /// generic static method about to be emitted (R3), so `encodeType` / the
     /// generic-union arg encoder map those `TypeVar`s to `!!i`. `ClearMethodTypars`

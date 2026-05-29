@@ -386,6 +386,11 @@ type private Renderer() =
             push "."
             push name
 
+        | TExpr.StaticFieldGet(className, name, _) ->
+            push className
+            push "."
+            push name
+
         | TExpr.Format(sink, segments, _) ->
             let sinkStr =
                 match sink with
@@ -609,7 +614,7 @@ type private Renderer() =
                     push m.Name
                     push " : "
                     push (tyStr m.ReturnTy)
-            | TTypeKind.Class(_, ctorParams, members, _, _, isSealed) ->
+            | TTypeKind.Class(_, ctorParams, members, _, _, isSealed, staticLets) ->
                 if isSealed then
                     push "[<Sealed>] "
 
@@ -626,6 +631,12 @@ type private Renderer() =
                 )
 
                 push ") = class"
+
+                for sl in staticLets do
+                    push " static let "
+                    push sl.Name
+                    push " : "
+                    push (tyStr sl.Type)
 
                 for m in members do
                     push (if m.IsStatic then " static member " else " member ")

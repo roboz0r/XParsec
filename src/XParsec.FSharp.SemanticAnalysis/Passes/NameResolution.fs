@@ -915,6 +915,48 @@ module NameResolution =
 
         memberInfos.ToArray()
 
+    /// Extract `ClassStaticLetInfo` placeholders for a class body's
+    /// `static let` preamble bindings (vesper-set-sprint-plan §1.8 / B-10).
+    /// Only simple `static let x = …` (single named binder) is supported; the
+    /// per-instantiation cache lowering for a generic class is deferred, so a
+    /// `static let` on a generic class is diagnosed and dropped. Instance `let`
+    /// and `[static] do` preamble entries are not yet modelled (silently skipped,
+    /// as before this step). Member types are placeholder TyVars; Unification's
+    /// `fillClassMembers` infers each `Init` and links them.
+    let private extractStaticLets
+        (ctx: PassContext)
+        (declKey: NodeKey)
+        (isGeneric: bool)
+        (preamble: ImmutableArray<ClassFunctionOrValueDefn<SyntaxToken>>)
+        : ClassStaticLetInfo[] =
+        let acc = ResizeArray<ClassStaticLetInfo>()
+
+        let diagnose msg =
+            ctx.Diagnostics.Add
+                {
+                    Key = declKey
+                    Message = msg
+                    Code = ""
+                    Severity = Error
+                }
+
+        for d in preamble do
+            match d with
+            | ClassFunctionOrValueDefn.LetBindings(staticToken = ValueSome _; bindings = bindings) ->
+                for b in bindings do
+                    match bindingsOfPat ctx b.headPat with
+                    | [ (name, key) ] ->
+                        if isGeneric then
+                            diagnose "`static let` on a generic class is not yet supported"
+                        else
+                            let tv = TypeVar()
+                            tv.Level <- 0
+                            acc.Add(ClassStaticLetInfo(name, TyVar tv, key, b.expr))
+                    | _ -> diagnose "Only simple `static let x = …` bindings are supported"
+            | _ -> ()
+
+        acc.ToArray()
+
     /// Stamp `ClassTypeInfo` entries for every `TypeDefn.Class` (or
     /// `TypeDefn.Anon` — the parser emits `Anon` for the bare
     /// `type C(...) = member ...` form without an explicit `class`/`end`).
@@ -965,8 +1007,13 @@ module NameResolution =
 
                     let members = memberInfos.ToArray()
 
+                    let staticLets =
+                        extractStaticLets ctx declKey (not typeParams.IsEmpty) body.classPreamble
+
                     let info =
                         ClassTypeInfo(name, typeParams, ctorParams, members, declKey, thisName, thisKey, baseKey)
+
+                    info.StaticLets <- staticLets
 
                     // B-8: `[<Sealed>]` flips `TypeAttributes.Sealed` on the
                     // emitted `TypeDefinition`; `[<AllowNullLiteral>]` lets
@@ -1033,6 +1080,10 @@ module NameResolution =
             ThisName: string
             ThisKey: NodeKey
             CtorParams: ClassCtorParamInfo[]
+            /// Class-level `static let` bindings (B-10). Their names enter both the
+            /// instance and static member scopes; their initialisers are walked
+            /// under the static scope (no `this` / ctor params). `[||]` for unions.
+            StaticLets: ClassStaticLetInfo[]
             Elements: TypeDefnElements<SyntaxToken>
         }
 
@@ -1068,8 +1119,33 @@ module NameResolution =
                 }
             )
 
-        let instanceScope = [ scopeMap ]
-        let staticScope: Scope list = [ Map.empty ]
+        // `static let` names enter scope for every member body (instance and
+        // static alike — F# class members spec §8.7) and resolve to the static
+        // field's binder key. Each initialiser is walked under the static lets
+        // declared *before* it (no `this` / ctor params), so the binder map is
+        // built incrementally. The binding-site self-entry mirrors `bindingsToScope`
+        // so Validation's per-binding loop finds one entry.
+        let mutable staticLetScope: Scope = Map.empty
+
+        for sl in w.StaticLets do
+            CstWalk.iterExpr walker [ staticLetScope ] sl.Init
+
+            staticLetScope <- Map.add sl.Name (sl.DeclKey, false) staticLetScope
+
+            ctx.Bindings.Binding.Set(
+                sl.DeclKey,
+                {
+                    BindingSite = sl.DeclKey
+                    IsInline = false
+                    IsMutable = false
+                }
+            )
+
+        let mergeStaticLets (m: Scope) =
+            (m, staticLetScope) ||> Map.fold (fun acc k v -> Map.add k v acc)
+
+        let instanceScope = [ mergeStaticLets scopeMap ]
+        let staticScope: Scope list = [ staticLetScope ]
 
         for el in w.Elements do
             match el with
@@ -1123,6 +1199,7 @@ module NameResolution =
                                 ThisName = info.ThisName
                                 ThisKey = info.ThisKey
                                 CtorParams = info.CtorParams
+                                StaticLets = info.StaticLets
                                 Elements = body.elements
                             }
                     | false, _ -> ()
@@ -1153,6 +1230,7 @@ module NameResolution =
                                 ThisName = info.ThisName
                                 ThisKey = info.ThisKey
                                 CtorParams = [||]
+                                StaticLets = [||]
                                 Elements = elems
                             }
                     | _ -> ()

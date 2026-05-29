@@ -203,6 +203,20 @@ type ClassCtorParamInfo(name: string, ty: SemType, declKey: NodeKey) =
     member val Type = ty
     member val DeclKey = declKey
 
+/// A class-level `static let x = <init>` (vesper-set-sprint-plan §1.8 / B-10).
+/// `Type` starts as a placeholder TyVar stamped by `NameResolution` and is linked
+/// by Unification's `fillClassMembers` once the `Init` expression is inferred.
+/// `Init` is the CST initialiser, re-read by Unification (to infer) and Freeze (to
+/// translate into the synthesised `.cctor`). `DeclKey` is the binder's `NodeKey`
+/// (the same one `bindingsOfPat` mints for the head pattern), so a `static let`-bound
+/// name reference resolves to it and shares the placeholder TyVar.
+[<Sealed>]
+type ClassStaticLetInfo(name: string, ty: SemType, declKey: NodeKey, init: Expr<SyntaxToken>) =
+    member val Name = name
+    member val Type = ty
+    member val DeclKey = declKey
+    member val Init = init
+
 [<Sealed>]
 type ClassTypeInfo
     (
@@ -244,6 +258,14 @@ type ClassTypeInfo
     /// `Freeze` projects it onto `TTypeKind.Class.isSealed` so codegen flips
     /// `TypeAttributes.Sealed` on the emitted `TypeDefinition`.
     member val IsSealed: bool = false with get, set
+    /// Class-level `static let` bindings (vesper-set-sprint-plan §1.8 / B-10) in
+    /// declaration order. Stamped by `NameResolution.registerClassTypeDefn` from
+    /// the class's `classPreamble`; types are linked by Unification's
+    /// `fillClassMembers`; `Freeze` projects each onto a `TStaticLet`. Empty unless
+    /// the class declares `static let`s. Generic classes reject `static let` (the
+    /// per-instantiation cache lowering is deferred), so this is only populated for
+    /// monomorphic classes.
+    member val StaticLets: ClassStaticLetInfo[] = [||] with get, set
     /// `[<AllowNullLiteral>]` (vesper-set-sprint-plan §1.6 / B-8). Stamped
     /// by `NameResolution.registerClassTypeDefn` from the type's attributes;
     /// read only by Unification's `Expr.Null` arm so `null` unifies with the

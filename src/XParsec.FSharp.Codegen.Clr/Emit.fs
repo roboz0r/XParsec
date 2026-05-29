@@ -134,6 +134,11 @@ module Emit =
             Fields: (string * EntityHandle * SemType) list
             Ctor: EntityHandle
             Members: Dictionary<string, EmittedMember>
+            /// `static let` backing fields keyed by source name (B-10). A
+            /// `TExpr.StaticFieldGet` resolves its `ldsfld` handle here. Empty
+            /// unless the class declares `static let`s (only monomorphic classes
+            /// do — generic `static let` is deferred).
+            StaticFields: Dictionary<string, EntityHandle>
         }
 
     /// A top-level function binding lowered to a **static method**:
@@ -207,6 +212,7 @@ module Emit =
         | TExpr.PropertyGet(_, _, ty) -> ty
         | TExpr.StaticMethodCall(_, _, _, ty) -> ty
         | TExpr.StaticPropertyGet(_, _, ty) -> ty
+        | TExpr.StaticFieldGet(_, _, ty) -> ty
         | TExpr.ExternalMember(_, _, _, _, ty) -> ty
         | TExpr.Format(_, _, ty) -> ty
         | TExpr.ILIntrinsic(_, _, ty) -> ty
@@ -311,7 +317,8 @@ module Emit =
         | TExpr.Var _
         | TExpr.External _
         | TExpr.Null _
-        | TExpr.StaticPropertyGet _ -> e
+        | TExpr.StaticPropertyGet _
+        | TExpr.StaticFieldGet _ -> e
         | TExpr.Lambda(p, b, t) -> TExpr.Lambda(p, f b, t)
         | TExpr.App(fn, a, t) -> TExpr.App(f fn, f a, t)
         | TExpr.Let(p, v, b, t) -> TExpr.Let(p, f v, f b, t)
@@ -1511,6 +1518,18 @@ module Emit =
                 | false, _ -> failwithf "Emit: class '%s' has no emitted static member '%s'" typeName name
             | false, _ -> failwithf "Emit: no emitted type carrying static members for '%s'" typeName
 
+    /// Resolve a class `static let` backing field to its `ldsfld`/`stsfld` handle
+    /// (vesper-set-sprint-plan §1.8 / B-10). Only monomorphic classes declare
+    /// `static let`s (generic `static let` is deferred), so the field handle is
+    /// always a `Def` token — no `MemberRef`-on-`TypeSpec` path.
+    let private resolveStaticField (env: EmitEnv) (typeName: string) (name: string) : EntityHandle =
+        match env.Classes.TryGetValue typeName with
+        | true, c ->
+            match c.StaticFields.TryGetValue name with
+            | true, h -> h
+            | false, _ -> failwithf "Emit: class '%s' has no emitted static field '%s'" typeName name
+        | false, _ -> failwithf "Emit: no emitted class carrying static fields for '%s'" typeName
+
     /// Resolve a field by name on a record / class receiver to its emit
     /// handle and declared type. A monomorphic type returns the field's
     /// `Def` token; a *generic* one returns a `MemberRef` on the receiver's
@@ -1953,6 +1972,10 @@ module Emit =
         | TExpr.StaticPropertyGet(className, name, _) ->
             let handle = resolveStaticMember env className name
             b.Add(ILInstr.Call(handle, 0, 1))
+
+        | TExpr.StaticFieldGet(className, name, _) ->
+            let handle = resolveStaticField env className name
+            b.Add(ILInstr.Ldsfld handle)
 
         | TExpr.StaticMethodCall(className, name, args, _) ->
             let handle = resolveStaticMember env className name
@@ -2491,6 +2514,37 @@ module Emit =
             }
 
         buildExpr env b body
+        b.Add ILInstr.Ret
+        b.Body
+
+    /// Build a class `.cctor` body for its `static let`s (vesper-set-sprint-plan
+    /// §1.8 / B-10): evaluate each initialiser in declaration order and `stsfld`
+    /// it into its backing field, then `ret`. The body sees no `this` / params
+    /// (a `.cctor` is parameterless), so the env mirrors `buildMember`'s static
+    /// path with empty arg/slot maps.
+    let buildStaticCctor (ctx: EmitContext) (lets: (EntityHandle * TExpr) list) : ILBody =
+        let b = IlBuilder()
+
+        let env =
+            {
+                Provider = ctx.Provider
+                Ctx = ctx.Ctx
+                Slots = Dictionary<NodeKey, int>()
+                ClosureByNode = ctx.ClosureByNode
+                CtorHandleByNode = ctx.CtorHandleByNode
+                Args = Dictionary<NodeKey, int>()
+                SelfKey = ValueNone
+                CaptureFields = Dictionary<NodeKey, EntityHandle>()
+                Unions = ctx.Unions
+                Records = ctx.Records
+                Classes = ctx.Classes
+                StaticMethods = ctx.StaticMethods
+            }
+
+        for (field, init) in lets do
+            buildExpr env b init
+            b.Add(ILInstr.Stsfld field)
+
         b.Add ILInstr.Ret
         b.Body
 

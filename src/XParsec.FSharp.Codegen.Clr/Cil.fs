@@ -72,6 +72,16 @@ module Cil =
         il.Encoder.Token(field)
         il.Adjust -2
 
+    let emitLdsfld (il: Il) (field: EntityHandle) : unit =
+        il.Encoder.OpCode(ILOpCode.Ldsfld)
+        il.Encoder.Token(field)
+        il.Adjust 1
+
+    let emitStsfld (il: Il) (field: EntityHandle) : unit =
+        il.Encoder.OpCode(ILOpCode.Stsfld)
+        il.Encoder.Token(field)
+        il.Adjust -1
+
     let emitPop (il: Il) : unit =
         il.Encoder.OpCode(ILOpCode.Pop)
         il.Adjust -1

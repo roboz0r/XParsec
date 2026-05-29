@@ -80,7 +80,14 @@ type internal PartitionedTypeDecls =
         /// `Object`; Phase 2 / B-4 wires the non-Object case), and the
         /// `[<Sealed>]` flag (vesper-set-sprint-plan §1.6 / B-8) — opts the
         /// emitted `TypeDefinition` into `TypeAttributes.Sealed`.
-        Classes: (TTypeDecl * TRecordField list * TRecordField list * TTypeMember list * SemType voption * bool) list
+        Classes:
+            (TTypeDecl *
+            TRecordField list *
+            TRecordField list *
+            TTypeMember list *
+            SemType voption *
+            bool *
+            TStaticLet list) list
     }
 
 /// Variance between the union, record, and class paths through
@@ -101,7 +108,14 @@ type internal NominalEmissionInput =
     /// none). `isSealed` reflects `[<Sealed>]` (B-8) — flipped onto
     /// `EmittedTypeRow.IsSealed` so the trailing `AddClass` loop picks the
     /// `Sealed`-bearing attribute set.
-    | Class of fields: TRecordField list * ctorParams: TRecordField list * baseType: SemType voption * isSealed: bool
+    /// `staticLets` (B-10): each becomes a private static field + an entry in
+    /// the synthesised `.cctor`.
+    | Class of
+        fields: TRecordField list *
+        ctorParams: TRecordField list *
+        baseType: SemType voption *
+        isSealed: bool *
+        staticLets: TStaticLet list
 
 /// The in-memory assembled PE plus enough to inspect / write it.
 type ClrArtifact =
@@ -160,7 +174,7 @@ module Codegen =
                 | TTypeKind.Interface methods -> interfaces.Add(td, EqArray.toList methods)
                 | TTypeKind.Union(cases, members) -> unions.Add(td, EqArray.toList cases, EqArray.toList members)
                 | TTypeKind.Record(fields, members) -> records.Add(td, EqArray.toList fields, EqArray.toList members)
-                | TTypeKind.Class(fields, ctorParams, members, baseType, _ifaces, isSealed) ->
+                | TTypeKind.Class(fields, ctorParams, members, baseType, _ifaces, isSealed, staticLets) ->
                     // `interfaces` stays empty in B-1 (Phase 5 / B-2 fills it).
                     classes.Add(
                         td,
@@ -168,7 +182,8 @@ module Codegen =
                         EqArray.toList ctorParams,
                         EqArray.toList members,
                         baseType,
-                        isSealed
+                        isSealed,
+                        EqArray.toList staticLets
                     )
             | _ -> ()
 
@@ -494,7 +509,7 @@ module Codegen =
         // its `TypeSpec`. The backing fields *are* the primary-ctor parameters
         // (B-1 has no separate mutable instance fields).
         classDecls
-        |> List.iteri (fun i (td, _fields, ctorParams, _members, _baseType, _isSealed) ->
+        |> List.iteri (fun i (td, _fields, ctorParams, _members, _baseType, _isSealed, _staticLets) ->
             provider.RegisterUserType(td.Name, toEntity (predictTypeDef typeCounts NominalKind.Class i))
 
             if not td.TypeParams.IsEmpty then
@@ -590,9 +605,15 @@ module Codegen =
         // member. B-1 emits no synthesised equality/comparison surface
         // (`EqualityVerdict.Reference` / `ComparisonVerdict.NoComparison`
         // defaults).
+        // Per class (vesper-set-sprint-plan Phase 1 / B-1): one `.ctor` + one
+        // method per member + (B-10) one synthesised `.cctor` when the class has
+        // `static let`s. Static-let *fields* add to the field table, not the
+        // method count.
         let classMethodTotal =
             classDecls
-            |> List.sumBy (fun (_, _, _, members, _, _) -> 1 + List.length members)
+            |> List.sumBy (fun (_, _, _, members, _, _, staticLets) ->
+                1 + List.length members + (if List.isEmpty staticLets then 0 else 1)
+            )
 
         let closureMethodTotal = 2 * List.length closures
 
@@ -702,6 +723,16 @@ module Codegen =
 
         let ctorAttrs =
             MethodAttributes.Public
+            ||| MethodAttributes.HideBySig
+            ||| MethodAttributes.SpecialName
+            ||| MethodAttributes.RTSpecialName
+
+        // A class type-initialiser `.cctor` (vesper-set-sprint-plan §1.8 / B-10):
+        // private static, with the special-name flags the runtime keys the
+        // type-initialiser off.
+        let cctorAttrs =
+            MethodAttributes.Private
+            ||| MethodAttributes.Static
             ||| MethodAttributes.HideBySig
             ||| MethodAttributes.SpecialName
             ||| MethodAttributes.RTSpecialName
@@ -1043,7 +1074,7 @@ module Codegen =
 
                     recordCtor, registerRecord
 
-                | NominalEmissionInput.Class(_instanceFields, ctorParams, _baseType, _isSealed) ->
+                | NominalEmissionInput.Class(_instanceFields, ctorParams, _baseType, _isSealed, staticLets) ->
                     // A class's emission shape mirrors a record's at the
                     // metadata level (vesper-set-sprint-plan Phase 1 / B-1):
                     // one public backing field per primary-ctor parameter, one
@@ -1066,6 +1097,29 @@ module Codegen =
                             fieldCount <- fieldCount + 1
                             p.Name, toEntity h, p.Type
                         )
+
+                    // B-10: one private static field per `static let`, after the
+                    // backing fields (so they fall in this type's field range).
+                    // The front-end rejects `static let` on a generic class, so
+                    // these are always monomorphic `Def`-token fields.
+                    let staticFieldHandles =
+                        staticLets
+                        |> List.map (fun sl ->
+                            let h =
+                                ctx.AddField(
+                                    FieldAttributes.Private ||| FieldAttributes.Static,
+                                    sl.Name,
+                                    provider.FieldSignature sl.Type
+                                )
+
+                            fieldCount <- fieldCount + 1
+                            sl.Name, toEntity h
+                        )
+
+                    let staticFieldsDict = Dictionary<string, EntityHandle>()
+
+                    for (n, h) in staticFieldHandles do
+                        staticFieldsDict.[n] <- h
 
                     // The ctor body is structurally identical to a record's
                     // (records-plan §B3): chain to `Object::.ctor()`, then
@@ -1099,6 +1153,52 @@ module Codegen =
                     claimFirstMethod classCtor
                     methodCount <- methodCount + 1
 
+                    // B-10: the synthesised `.cctor` that seeds the `static let`
+                    // fields. Emitted right after the `.ctor` (its row precedes the
+                    // member methods, predicted below at `methodCount + 1 + i`).
+                    // The class is registered into `classes` with its static-field
+                    // handles *before* the body is built so an initialiser
+                    // referencing an earlier `static let` (lowered to
+                    // `StaticFieldGet`) resolves through `resolveStaticField`.
+                    if not (List.isEmpty staticLets) then
+                        classes.[td.Name] <-
+                            {
+                                Name = td.Name
+                                Typars = EqArray.toList td.TypeParams
+                                Fields = fieldHandles
+                                Ctor = toEntity classCtor
+                                Members = Dictionary()
+                                StaticFields = staticFieldsDict
+                            }
+
+                        let cctorInits =
+                            List.map2
+                                (fun (_, h) (sl: TStaticLet) ->
+                                    h,
+                                    (sl.Init
+                                     |> Emit.spliceExternalInlinesInExpr externalInlines
+                                     |> Emit.expandBuiltinOps)
+                                )
+                                staticFieldHandles
+                                staticLets
+
+                        let cctorBody =
+                            Cil.buildBody
+                                encodeLocals
+                                bodyStream
+                                (IlIr.lower (Emit.buildStaticCctor emitCtx cctorInits))
+
+                        ctx.AddMethodWithParamList(
+                            cctorAttrs,
+                            ".cctor",
+                            provider.CctorSignature(),
+                            cctorBody,
+                            addParams []
+                        )
+                        |> ignore
+
+                        methodCount <- methodCount + 1
+
                     // Bake the class registration once member-handle prediction
                     // has populated `emittedMembers`: a sibling member call
                     // (`this.OtherMember`) or a primary-ctor-param field access
@@ -1112,6 +1212,7 @@ module Codegen =
                                 Fields = fieldHandles
                                 Ctor = toEntity classCtor
                                 Members = emittedMembers
+                                StaticFields = staticFieldsDict
                             }
 
                     classCtor, registerClass
@@ -1636,7 +1737,7 @@ module Codegen =
                 | NominalEmissionInput.Record _ -> true
                 // Classes opt in via `[<Sealed>]` (B-8); the flag is plumbed
                 // through from `TTypeKind.Class.isSealed` at the call site.
-                | NominalEmissionInput.Class(_, _, _, isSealed) -> isSealed
+                | NominalEmissionInput.Class(_, _, _, isSealed, _) -> isSealed
 
             rows.Add(
                 {
@@ -1672,8 +1773,12 @@ module Codegen =
         // `EqualityVerdict.Reference` / `ComparisonVerdict.NoComparison`).
         // `classTypes` walks the same `EmittedTypeRow` shape so the trailing
         // `TypeDefinition` pass emits them alongside unions/records.
-        for (td, fields, ctorParams, members, baseType, isSealed) in classDecls do
-            emitNominalType (NominalEmissionInput.Class(fields, ctorParams, baseType, isSealed)) td members classTypes
+        for (td, fields, ctorParams, members, baseType, isSealed, staticLets) in classDecls do
+            emitNominalType
+                (NominalEmissionInput.Class(fields, ctorParams, baseType, isSealed, staticLets))
+                td
+                members
+                classTypes
 
         // ---- Closures (leaves-first) ----
         //

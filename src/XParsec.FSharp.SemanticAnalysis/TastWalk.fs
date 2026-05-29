@@ -59,6 +59,7 @@ module TastWalk =
         | TExpr.PropertyGet(ty = ty)
         | TExpr.StaticMethodCall(ty = ty)
         | TExpr.StaticPropertyGet(ty = ty)
+        | TExpr.StaticFieldGet(ty = ty)
         | TExpr.ExternalMember(ty = ty)
         | TExpr.Format(ty = ty)
         | TExpr.ILIntrinsic(ty = ty)
@@ -161,6 +162,7 @@ module TastWalk =
             | TExpr.PropertyGet(r, n, ty) -> TExpr.PropertyGet(pe r, n, f ty)
             | TExpr.StaticMethodCall(c, n, args, ty) -> TExpr.StaticMethodCall(c, n, EqArray.map pe args, f ty)
             | TExpr.StaticPropertyGet(c, n, ty) -> TExpr.StaticPropertyGet(c, n, f ty)
+            | TExpr.StaticFieldGet(c, n, ty) -> TExpr.StaticFieldGet(c, n, f ty)
             | TExpr.ExternalMember(r, k, n, isProp, ty) ->
                 TExpr.ExternalMember(ValueOption.map pe r, k, n, isProp, f ty)
             | TExpr.Format(sink, segs, ty) ->
@@ -263,7 +265,8 @@ module TastWalk =
             | TExpr.Var _
             | TExpr.External _
             | TExpr.Null _
-            | TExpr.StaticPropertyGet _ -> ()
+            | TExpr.StaticPropertyGet _
+            | TExpr.StaticFieldGet _ -> ()
             | TExpr.Lambda(p, b, _) ->
                 walkPat p
                 walk b

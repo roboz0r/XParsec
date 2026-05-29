@@ -36,6 +36,12 @@ type ILInstr =
     | Pop
     | Ldfld of EntityHandle
     | Stfld of EntityHandle
+    /// `ldsfld` — load a static field (net +1). Used for class `static let`
+    /// backing fields (vesper-set-sprint-plan §1.8 / B-10).
+    | Ldsfld of EntityHandle
+    /// `stsfld` — store a static field (net −1). Emitted in a synthesised
+    /// `.cctor` to seed each `static let` field.
+    | Stsfld of EntityHandle
     | Isinst of EntityHandle
     | Newobj of EntityHandle * argc: int
     | Call of EntityHandle * argc: int * pushes: int
@@ -130,6 +136,8 @@ module private InstrDelta =
         | ILInstr.Ldfld _
         | ILInstr.Isinst _
         | ILInstr.Un _ -> 0
+        | ILInstr.Ldsfld _ -> 1
+        | ILInstr.Stsfld _ -> -1
         | ILInstr.Stfld _ -> -2
         | ILInstr.Newobj(_, argc) -> 1 - argc
         | ILInstr.Call(_, argc, pushes)
@@ -214,6 +222,8 @@ module IlIr =
         | ILInstr.Ldfld _
         | ILInstr.Isinst _
         | ILInstr.Un _ -> 0
+        | ILInstr.Ldsfld _ -> 1
+        | ILInstr.Stsfld _ -> -1
         | ILInstr.Stfld _ -> -2
         | ILInstr.Newobj(_, argc) -> 1 - argc
         | ILInstr.Call(_, argc, pushes)
@@ -427,6 +437,8 @@ module IlIr =
             | ILInstr.Pop -> Cil.emitPop il
             | ILInstr.Ldfld f -> Cil.emitLdfld il f
             | ILInstr.Stfld f -> Cil.emitStfld il f
+            | ILInstr.Ldsfld f -> Cil.emitLdsfld il f
+            | ILInstr.Stsfld f -> Cil.emitStsfld il f
             | ILInstr.Isinst t -> Cil.emitIsinst il t
             | ILInstr.Newobj(c, argc) -> Cil.emitNewobj il c argc
             | ILInstr.Call(m, argc, pushes) -> Cil.emitCall il m argc pushes

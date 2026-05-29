@@ -1583,6 +1583,28 @@ module Freeze =
             | _ -> ValueNone
         | _ -> ValueNone
 
+    /// Rewrite each `static let`-bound name reference (`TExpr.Var(staticLetKey)`)
+    /// in a member body or a `.cctor` initialiser to `TExpr.StaticFieldGet(class,
+    /// name)` (vesper-set-sprint-plan §1.8 / B-10) — the static analogue of the
+    /// primary-ctor-param → `FieldGet` rewrite. Applies to instance and static
+    /// member bodies alike (a `static let` is in scope for both).
+    let private rewriteStaticLetRefs (staticLetByKey: Map<NodeKey, string>) (className: string) (body: TExpr) : TExpr =
+        if Map.isEmpty staticLetByKey then
+            body
+        else
+            TastWalk.mapExpr
+                { TastWalk.identityMapper with
+                    OverrideExpr =
+                        fun _ e ->
+                            match e with
+                            | TExpr.Var(k, ty) ->
+                                match Map.tryFind k staticLetByKey with
+                                | Some name -> ValueSome(TExpr.StaticFieldGet(className, name, ty))
+                                | None -> ValueNone
+                            | _ -> ValueNone
+                }
+                body
+
     /// Translate one class member element into a `TTypeMember`. Parallel to
     /// `translateUnionMember` — only differs in the `ThisTy` shape
     /// (`TyClass(info.Name, …)` vs `TyUnion`) and in one extra rewrite step:
@@ -1608,6 +1630,9 @@ module Freeze =
         let ctorParamByKey =
             info.CtorParams |> Array.map (fun p -> p.DeclKey, p.Name) |> Map.ofArray
 
+        let staticLetByKey =
+            info.StaticLets |> Array.map (fun sl -> sl.DeclKey, sl.Name) |> Map.ofArray
+
         let rewriteCtorParamRefs (body: TExpr) : TExpr =
             if Map.isEmpty ctorParamByKey then
                 body
@@ -1630,7 +1655,7 @@ module Freeze =
             let isStatic = s.IsSome
 
             let lowerBody (e: Expr<SyntaxToken>) : TExpr =
-                let body = translateExpr ctx e
+                let body = translateExpr ctx e |> rewriteStaticLetRefs staticLetByKey info.Name
                 if isStatic then body else rewriteCtorParamRefs body
 
             let build (kind: TMemberKind) (b: Binding<SyntaxToken>) : TTypeMember voption =
@@ -1867,12 +1892,40 @@ module Freeze =
                     }
                 )
 
+            // `static let` fields + `.cctor` initialisers (B-10). The front-end
+            // rejects `static let` on a generic class, so `info.StaticLets` is
+            // only ever non-empty for a monomorphic class — no typar remap needed.
+            // A later static-let initialiser referencing an earlier one is rewritten
+            // through `rewriteStaticLetRefs`, matching the member-body lowering.
+            let staticLetByKey =
+                info.StaticLets |> Array.map (fun sl -> sl.DeclKey, sl.Name) |> Map.ofArray
+
+            let staticLets =
+                EqArray.ofSeq (
+                    seq {
+                        for sl in info.StaticLets ->
+                            {
+                                Name = sl.Name
+                                Type = Unification.zonk sl.Type
+                                Init = translateExpr ctx sl.Init |> rewriteStaticLetRefs staticLetByKey info.Name
+                            }
+                    }
+                )
+
             Some(
                 mkTypeDecl
                     name
                     ns
                     (EqArray.ofList declTypars)
-                    (TTypeKind.Class(EqArray.empty, ctorParams, members, ValueNone, EqArray.empty, info.IsSealed))
+                    (TTypeKind.Class(
+                        EqArray.empty,
+                        ctorParams,
+                        members,
+                        ValueNone,
+                        EqArray.empty,
+                        info.IsSealed,
+                        staticLets
+                    ))
                     // Classes are reference-equal by default ([[project_c_attr_pr_a]]);
                     // [<CustomEquality>] / [<NoEquality>] lift this in a later sprint.
                     EqualityVerdict.Reference

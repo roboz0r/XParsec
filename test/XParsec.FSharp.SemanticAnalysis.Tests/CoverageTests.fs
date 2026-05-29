@@ -715,8 +715,9 @@ let tests =
                 Expect.equal typeDecl.TypeParams.Length 0 "no generic typars"
 
                 match typeDecl.Kind with
-                | TTypeKind.Class(fields, ctorParams, members, baseType, interfaces, isSealed) ->
+                | TTypeKind.Class(fields, ctorParams, members, baseType, interfaces, isSealed, staticLets) ->
                     Expect.equal fields.Length 0 "B-1 has no instance fields"
+                    Expect.equal staticLets.Length 0 "no static lets on this class"
                     Expect.equal ctorParams.Length 2 "two ctor params"
                     Expect.equal (ctorParams.[0].Name) "x" "first param name"
                     Expect.equal (ctorParams.[0].Type) BuiltinTypes.tyInt "first param type"
@@ -754,7 +755,7 @@ let tests =
                 Expect.equal (EqArray.toList typeDecl.TypeParams) [ "'a" ] "one declared typar"
 
                 match typeDecl.Kind with
-                | TTypeKind.Class(_, ctorParams, members, _, _, _) ->
+                | TTypeKind.Class(_, ctorParams, members, _, _, _, _) ->
                     Expect.equal ctorParams.Length 1 "one ctor param"
                     Expect.equal (ctorParams.[0].Name) "value" "ctor param name"
                     // The declaring typar is remapped to the `TyConst "'a"` marker
@@ -766,6 +767,56 @@ let tests =
                 | other -> failtestf "expected TTypeKind.Class, got %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            // vesper-set-sprint-plan §1.8 / B-10: a `static let` surfaces in
+            // `TTypeKind.Class.staticLets` with its inferred type, and a member
+            // reference to it lowers to `TExpr.StaticFieldGet`.
+            test "TAST: `static let` surfaces in TTypeKind.Class.staticLets" {
+                let tast = analyse "type C() =\n    static let x = 42\n    static member Get () = x"
+
+                let typeDecl =
+                    tast.Decls
+                    |> EqArray.toList
+                    |> List.tryPick (
+                        function
+                        | TDecl.Type t -> Some t
+                        | _ -> None
+                    )
+                    |> Option.defaultWith (fun () -> failwithf "expected a TDecl.Type, got %A" tast.Decls)
+
+                match typeDecl.Kind with
+                | TTypeKind.Class(_, _, members, _, _, _, staticLets) ->
+                    Expect.equal staticLets.Length 1 "one static let"
+                    Expect.equal (staticLets.[0].Name) "x" "static-let name"
+                    Expect.equal (staticLets.[0].Type) BuiltinTypes.tyInt "static-let type inferred to int"
+
+                    // The `Get` member body reads the static field.
+                    let getBody = members.[0].Body
+
+                    match getBody with
+                    | TExpr.StaticFieldGet(className, name, _) ->
+                        Expect.equal className "C" "static-field class"
+                        Expect.equal name "x" "static-field name"
+                    | other -> failtestf "expected StaticFieldGet body, got %A" other
+                | other -> failtestf "expected TTypeKind.Class, got %A" other
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            // The per-instantiation generic-static-let lowering is deferred
+            // (vesper-set-sprint-plan §1.8 risk register): a `static let` on a
+            // generic class is diagnosed and dropped.
+            test "TAST: `static let` on a generic class is diagnosed (deferred)" {
+                let tast =
+                    analyse "type Box<'a>() =\n    static let x = 42\n    static member Get () = x"
+
+                Expect.isNonEmpty tast.Diagnostics "generic static let is rejected"
+
+                Expect.isTrue
+                    (tast.Diagnostics
+                     |> List.exists (fun d -> d.Message.Contains "static let" && d.Message.Contains "generic"))
+                    "diagnostic mentions the deferred generic static let"
             }
 
             test "qualified name resolves through provider" {

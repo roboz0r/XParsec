@@ -135,6 +135,13 @@ type TExpr =
     /// Same arg-peeling as `MethodCall`; no receiver.
     | StaticMethodCall of className: string * methodName: string * args: EqArray<TExpr> * ty: SemType
     | StaticPropertyGet of className: string * propertyName: string * ty: SemType
+    /// Read of a class-level `static let` backing field (vesper-set-sprint-plan
+    /// §1.8 / B-10). Lowered from a `static let`-bound name reference in a member
+    /// body (Freeze rewrites the resolved `Var` exactly as a primary-ctor param
+    /// becomes a `FieldGet`). Codegen emits `ldsfld` against the class's private
+    /// static field — there is no method call (a static *property* would be a
+    /// `StaticPropertyGet`). `ty` is the field's declared/inferred type.
+    | StaticFieldGet of className: string * fieldName: string * ty: SemType
     /// Member access on an *external* type resolved through `IExternalSymbolProvider`
     /// (symbol-resolution-plan §7.2). `key` interns the resolved `SymbolKey` so
     /// codegen (P4) mints the ref off the node's identity instead of re-resolving by
@@ -268,13 +275,17 @@ and [<RequireQualifiedAccess>] TTypeKind =
     /// `TypeAttributes.Sealed` on the emitted `TypeDefinition` — derivation
     /// is rejected at use sites (Phase 2's `subsumes` already excludes
     /// `Sealed`).
+    /// `staticLets` are class-level `static let` bindings (B-10): codegen emits
+    /// one private static field each and a synthesised `.cctor` running the
+    /// initialisers in declaration order. Empty unless the class has `static let`s.
     | Class of
         fields: EqArray<TRecordField> *
         ctorParams: EqArray<TRecordField> *
         members: EqArray<TTypeMember> *
         baseType: SemType voption *
         interfaces: EqArray<string * EqArray<TTypeMember>> *
-        isSealed: bool
+        isSealed: bool *
+        staticLets: EqArray<TStaticLet>
 
 /// `Fields` are the case's payload in declaration order; a field's name is
 /// `ValueNone` when the source is positional (`Cons of 'T * list`). Empty
@@ -323,6 +334,19 @@ and TTypeMember =
         Params: EqArray<NodeKey * SemType>
         Body: TExpr
         ReturnTy: SemType
+    }
+
+/// A class-level `static let x = <init>` (vesper-set-sprint-plan §1.8 / B-10).
+/// Codegen emits one private static field per entry and concatenates the
+/// `Init` expressions into a synthesised `.cctor`; a `static let`-bound name
+/// referenced in a member body lowers to `TExpr.StaticFieldGet`. Per-instantiation
+/// generic-static-let is deferred (the front-end rejects `static let` on a generic
+/// class), so `Init` is always emitted in a monomorphic class context.
+and TStaticLet =
+    {
+        Name: string
+        Type: SemType
+        Init: TExpr
     }
 
 /// `Signature` is the curried function type; a type parameter of the *declaring
