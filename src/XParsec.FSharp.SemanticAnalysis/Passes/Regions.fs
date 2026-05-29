@@ -97,6 +97,31 @@ module Regions =
     let private exitFun (s: State) : unit =
         s.FunctionStack.RemoveAt(s.FunctionStack.Count - 1)
 
+    // Region minting helpers. `level`/`mintFn` always come from State, so they
+    // are folded in here; each variant names the kind of region being minted
+    // instead of forcing the reader to diff a wall of named arguments.
+
+    let private freshValue (s: State) : RegionId =
+        s.Graph.Fresh(s.EnclosingLet, functionStackTop s, false, false, ValueNone)
+
+    let private freshLambda (s: State) : RegionId =
+        s.Graph.Fresh(s.EnclosingLet, functionStackTop s, true, false, ValueNone)
+
+    let private freshCell (s: State) : RegionId =
+        s.Graph.Fresh(s.EnclosingLet, functionStackTop s, false, true, ValueNone)
+
+    /// Parameter regions live in the callee frame, one level below the binding's
+    /// RHS — hence `LetLevel`, not `EnclosingLet`. The ONLY mint that uses
+    /// `LetLevel`; do not fold it into `freshValue`.
+    let private freshParam (s: State) : RegionId =
+        s.Graph.Fresh(s.LetLevel, functionStackTop s, false, false, ValueNone)
+
+    /// Conservative fallback for nodes with no precise rule: a region pre-seeded
+    /// HeapShared, minted at module top (no escape frame). Safe but pessimistic.
+    /// See docs/regions-plan.md §Conservative fallback.
+    let private freshHeapShared (s: State) : RegionId =
+        s.Graph.Fresh(0, 0, false, false, ValueSome HeapShared)
+
     /// Resolve a `SemType` through its UnionFind root's Link chain (no walk
     /// into compound shapes). Same as `Unification.resolveStep` but inlined so
     /// Regions doesn't depend on Unification's private surface.
@@ -145,6 +170,46 @@ module Regions =
         match ctx.Bindings.TypeVar.TryGetValue key with
         | ValueSome tv -> isAllocation (TyVar tv)
         | ValueNone -> false
+
+    /// Mint a value region that outlives every child region. Tuples, records,
+    /// `new`, and clones all allocate a composite that holds its elements.
+    let private holds (s: State) (children: RegionId seq) : RegionId =
+        let r = freshValue s
+
+        for c in children do
+            s.Graph.AddEdge(r, c)
+
+        r
+
+    /// Shared tail of the branch-joining nodes (if / match / try-with / app):
+    /// if `e` allocates, mint a value region that outlives every arm region;
+    /// otherwise return `fallback`. The `arms.Count > 0` guard is load-bearing
+    /// only for `match` (a match with no rules allocates nothing) and harmless
+    /// elsewhere.
+    let private joinArms
+        (s: State)
+        (ctx: PassContext)
+        (e: Expr<SyntaxToken>)
+        (arms: ResizeArray<RegionId>)
+        (fallback: RegionId)
+        : RegionId =
+        if exprIsAllocation ctx e && arms.Count > 0 then
+            let r = freshValue s
+
+            for a in arms do
+                s.Graph.AddEdge(r, a)
+
+            r
+        else
+            fallback
+
+    /// Add an outlives edge from each captured binding's region to the closure
+    /// region `r`. (AddEdge drops self-edges, so no `captured <> r` guard needed.)
+    let private addCaptureEdges (s: State) (freeVars: HashSet<NodeKey>) (r: RegionId) : unit =
+        for bs in freeVars do
+            match s.BindingRegions.TryGetValue bs with
+            | true, captured -> s.Graph.AddEdge(captured, r)
+            | _ -> ()
 
     /// Collect every binding-site NodeKey introduced by `p` (mirrors
     /// `NameResolution.bindingsOfPat` but keeps only the keys).
@@ -302,7 +367,7 @@ module Regions =
         | Expr.Fun(argumentPats = argPats; expr = body) -> lambdaRegion s ctx argPats body
         | Expr.Function(rules = Rules(rules = rules)) -> functionLikeLambda s ctx rules
         | Expr.LetOrUse(bindings = bindings; body = body) -> letRegion s ctx bindings body
-        | Expr.Tuple(exprs = items) -> tupleRegion s ctx e items
+        | Expr.Tuple(exprs = items) -> tupleRegion s ctx items
         | Expr.IfThenElse(condition = cond; thenExpr = thenE; elifBranches = elifs; elseBranch = elseB) ->
             ifThenElseRegion s ctx e cond thenE elifs elseB
         | Expr.Match(matchExpr = scrutinee; rules = Rules(rules = rules)) -> matchRegion s ctx e scrutinee rules
@@ -327,11 +392,9 @@ module Regions =
             inferRegion s ctx b |> ignore
             RegionId.Unknown
         | _ ->
-            // Conservative fallback for nodes with no precise rule: mint a
-            // region pre-seeded HeapShared. Safe but pessimistic — extend the
-            // precise cases above as the subset grows. See
-            // docs/regions-plan.md §Conservative fallback.
-            s.Graph.Fresh(level = 0, mintFn = 0, isLambda = false, isMutableCell = false, seed = ValueSome HeapShared)
+            // No precise rule — fall back to a HeapShared-seeded region. Extend
+            // the precise cases above as the subset grows.
+            freshHeapShared s
 
     and private walkUnitBody (s: State) (ctx: PassContext) (e: Expr<SyntaxToken>) : RegionId =
         // While / ForTo / ForIn — type unit, no allocation. Walk sub-expressions
@@ -374,43 +437,14 @@ module Regions =
 
             inferRegion s ctx items.[n - 1]
 
-    and private tupleRegion
-        (s: State)
-        (ctx: PassContext)
-        (e: Expr<SyntaxToken>)
-        (items: ImmutableArray<Expr<SyntaxToken>>)
-        : RegionId =
-        let r =
-            s.Graph.Fresh(
-                level = s.EnclosingLet,
-                mintFn = functionStackTop s,
-                isLambda = false,
-                isMutableCell = false,
-                seed = ValueNone
-            )
-
-        for it in items do
-            let ri = inferRegion s ctx it
-            s.Graph.AddEdge(r, ri)
-
-        r
+    and private tupleRegion (s: State) (ctx: PassContext) (items: ImmutableArray<Expr<SyntaxToken>>) : RegionId =
+        holds s [ for it in items -> inferRegion s ctx it ]
 
     and private newRegion (s: State) (ctx: PassContext) (argExpr: Expr<SyntaxToken>) : RegionId =
         // `new T(args)` — like a tuple/record allocation: a region at the
         // enclosing let-level, one outgoing edge per constructor argument so
         // the object's lifetime upper-bounds its arguments' lifetimes.
-        let r =
-            s.Graph.Fresh(
-                level = s.EnclosingLet,
-                mintFn = functionStackTop s,
-                isLambda = false,
-                isMutableCell = false,
-                seed = ValueNone
-            )
-
-        let argR = inferRegion s ctx argExpr
-        s.Graph.AddEdge(r, argR)
-        r
+        holds s [ inferRegion s ctx argExpr ]
 
     and private recordRegion
         (s: State)
@@ -424,20 +458,7 @@ module Regions =
         // record field then routes the RHS through the receiver's region rather
         // than a separate cell region — classifying that as too escape-wide is
         // the safe direction.
-        let r =
-            s.Graph.Fresh(
-                level = s.EnclosingLet,
-                mintFn = functionStackTop s,
-                isLambda = false,
-                isMutableCell = false,
-                seed = ValueNone
-            )
-
-        for FieldInitializer(expr = e) in inits do
-            let ri = inferRegion s ctx e
-            s.Graph.AddEdge(r, ri)
-
-        r
+        holds s [ for FieldInitializer(expr = e) in inits -> inferRegion s ctx e ]
 
     and private recordCloneRegion
         (s: State)
@@ -448,24 +469,12 @@ module Regions =
         // Conservative v1: the clone is a new allocation that outlives both the
         // source record and every override RHS. Sharing regions with the
         // source's individual fields lands when the precise field-cell model does.
-        let srcR = inferRegion s ctx src
-
-        let r =
-            s.Graph.Fresh(
-                level = s.EnclosingLet,
-                mintFn = functionStackTop s,
-                isLambda = false,
-                isMutableCell = false,
-                seed = ValueNone
-            )
-
-        s.Graph.AddEdge(r, srcR)
-
-        for FieldInitializer(expr = e) in inits do
-            let ri = inferRegion s ctx e
-            s.Graph.AddEdge(r, ri)
-
-        r
+        holds
+            s
+            [
+                yield inferRegion s ctx src
+                for FieldInitializer(expr = e) in inits -> inferRegion s ctx e
+            ]
 
     and private lambdaRegion
         (s: State)
@@ -476,14 +485,7 @@ module Regions =
         // Mint the closure's region BEFORE entering the body, so the seed rule
         // sees the outer function-stack top (the function this lambda is
         // constructed inside of).
-        let r =
-            s.Graph.Fresh(
-                level = s.EnclosingLet,
-                mintFn = functionStackTop s,
-                isLambda = true,
-                isMutableCell = false,
-                seed = ValueNone
-            )
+        let r = freshLambda s
 
         let paramBinders =
             [
@@ -493,12 +495,7 @@ module Regions =
 
         // Capture edges first, before any body recursion, so the walker's
         // `locals` set sees the right scope shape.
-        let freeVars = collectFreeVarBindingSites ctx paramBinders body
-
-        for bs in freeVars do
-            match s.BindingRegions.TryGetValue bs with
-            | true, captured -> s.Graph.AddEdge(captured, r)
-            | false, _ -> ()
+        addCaptureEdges s (collectFreeVarBindingSites ctx paramBinders body) r
 
         enterFun s
 
@@ -526,22 +523,13 @@ module Regions =
         // Wildcard) skip the mint.
         match bindersOfPat ctx p with
         | [] -> ()
-        | _ ->
-            let r = s.Graph.Fresh(s.LetLevel, functionStackTop s, false, false, ValueNone)
-            recordBindingRegion s ctx p r
+        | _ -> recordBindingRegion s ctx p (freshParam s)
 
     and private functionLikeLambda (s: State) (ctx: PassContext) (rules: ImmutableArray<Rule<SyntaxToken>>) : RegionId =
         // `function p1 -> e1 | …` ~ `fun x -> match x with …` — a closure with
         // one synthetic parameter. No real param NodeKey to register, so we
         // walk the arms via the body region path.
-        let r =
-            s.Graph.Fresh(
-                level = s.EnclosingLet,
-                mintFn = functionStackTop s,
-                isLambda = true,
-                isMutableCell = false,
-                seed = ValueNone
-            )
+        let r = freshLambda s
 
         // Pattern binders within each arm are local to that arm: treat each
         // arm's pattern as the local binder set for its body/guard.
@@ -551,12 +539,7 @@ module Regions =
                 let armBinders = bindersOfPat ctx pat
 
                 let collect e' =
-                    let fv = collectFreeVarBindingSites ctx armBinders e'
-
-                    for bs in fv do
-                        match s.BindingRegions.TryGetValue bs with
-                        | true, captured -> s.Graph.AddEdge(captured, r)
-                        | false, _ -> ()
+                    addCaptureEdges s (collectFreeVarBindingSites ctx armBinders e') r
 
                 collect body
 
@@ -612,16 +595,7 @@ module Regions =
         // region, only known after walking the RHS.
         for b in bindings do
             if not b.argumentPats.IsEmpty then
-                let r =
-                    s.Graph.Fresh(
-                        level = s.EnclosingLet,
-                        mintFn = functionStackTop s,
-                        isLambda = true,
-                        isMutableCell = false,
-                        seed = ValueNone
-                    )
-
-                recordBindingRegion s ctx b.headPat r
+                recordBindingRegion s ctx b.headPat (freshLambda s)
 
         for b in bindings do
             processBinding s ctx b
@@ -640,15 +614,7 @@ module Regions =
                 // The cell outlives every value stored into it; the rhs lubs up
                 // to match if the cell is later classified wider. See
                 // docs/mutable-plan.md §Why mutable cells need a separate region.
-                let cell =
-                    s.Graph.Fresh(
-                        level = s.EnclosingLet,
-                        mintFn = functionStackTop s,
-                        isLambda = false,
-                        isMutableCell = true,
-                        seed = ValueNone
-                    )
-
+                let cell = freshCell s
                 s.Graph.AddEdge(rhsR, cell)
                 recordBindingRegion s ctx b.headPat cell
             else
@@ -664,15 +630,7 @@ module Regions =
                 | false, _ ->
                     // Defensive: processBindingGroup pre-mints, but mint on
                     // demand so the pass stays total against future callers.
-                    let r =
-                        s.Graph.Fresh(
-                            level = s.EnclosingLet,
-                            mintFn = functionStackTop s,
-                            isLambda = true,
-                            isMutableCell = false,
-                            seed = ValueNone
-                        )
-
+                    let r = freshLambda s
                     recordBindingRegion s ctx b.headPat r
                     r
 
@@ -682,12 +640,7 @@ module Regions =
                         yield! bindersOfPat ctx p
                 ]
 
-            let freeVars = collectFreeVarBindingSites ctx paramBinders b.expr
-
-            for bs in freeVars do
-                match s.BindingRegions.TryGetValue bs with
-                | true, captured when captured.Raw <> r.Raw -> s.Graph.AddEdge(captured, r)
-                | _ -> ()
+            addCaptureEdges s (collectFreeVarBindingSites ctx paramBinders b.expr) r
 
             enterFun s
 
@@ -759,22 +712,7 @@ module Regions =
         | ValueSome(ElseBranch(expr = elExpr)) -> armRegions.Add(inferRegion s ctx elExpr)
         | ValueNone -> ()
 
-        if exprIsAllocation ctx e then
-            let r =
-                s.Graph.Fresh(
-                    level = s.EnclosingLet,
-                    mintFn = functionStackTop s,
-                    isLambda = false,
-                    isMutableCell = false,
-                    seed = ValueNone
-                )
-
-            for armR in armRegions do
-                s.Graph.AddEdge(r, armR)
-
-            r
-        else
-            RegionId.Unknown
+        joinArms s ctx e armRegions RegionId.Unknown
 
     and private matchRegion
         (s: State)
@@ -798,22 +736,7 @@ module Regions =
                 armRegions.Add(inferRegion s ctx body)
             | _ -> ()
 
-        if exprIsAllocation ctx e && armRegions.Count > 0 then
-            let r =
-                s.Graph.Fresh(
-                    level = s.EnclosingLet,
-                    mintFn = functionStackTop s,
-                    isLambda = false,
-                    isMutableCell = false,
-                    seed = ValueNone
-                )
-
-            for armR in armRegions do
-                s.Graph.AddEdge(r, armR)
-
-            r
-        else
-            RegionId.Unknown
+        joinArms s ctx e armRegions RegionId.Unknown
 
     and private tryWithRegion
         (s: State)
@@ -838,22 +761,7 @@ module Regions =
                 armRegions.Add(inferRegion s ctx armBody)
             | _ -> ()
 
-        if exprIsAllocation ctx e then
-            let r =
-                s.Graph.Fresh(
-                    level = s.EnclosingLet,
-                    mintFn = functionStackTop s,
-                    isLambda = false,
-                    isMutableCell = false,
-                    seed = ValueNone
-                )
-
-            for armR in armRegions do
-                s.Graph.AddEdge(r, armR)
-
-            r
-        else
-            bodyR
+        joinArms s ctx e armRegions bodyR
 
     and private tryFinallyRegion
         (s: State)
@@ -872,40 +780,18 @@ module Regions =
         (fn: Expr<SyntaxToken>)
         (args: ImmutableArray<Expr<SyntaxToken>>)
         : RegionId =
-        let fnR = inferRegion s ctx fn
-        let argRegions = ResizeArray<RegionId>()
+        // The result region (if any) outlives the callee and every argument.
+        let childRegions = ResizeArray<RegionId>()
+        childRegions.Add(inferRegion s ctx fn)
 
         for a in args do
-            argRegions.Add(inferRegion s ctx a)
+            childRegions.Add(inferRegion s ctx a)
 
-        if exprIsAllocation ctx e then
-            let r =
-                s.Graph.Fresh(
-                    level = s.EnclosingLet,
-                    mintFn = functionStackTop s,
-                    isLambda = false,
-                    isMutableCell = false,
-                    seed = ValueNone
-                )
-
-            s.Graph.AddEdge(r, fnR)
-
-            for ar in argRegions do
-                s.Graph.AddEdge(r, ar)
-
-            r
-        else
-            RegionId.Unknown
+        joinArms s ctx e childRegions RegionId.Unknown
 
     and private primitiveOrFreshResult (s: State) (ctx: PassContext) (e: Expr<SyntaxToken>) : RegionId =
         if exprIsAllocation ctx e then
-            s.Graph.Fresh(
-                level = s.EnclosingLet,
-                mintFn = functionStackTop s,
-                isLambda = false,
-                isMutableCell = false,
-                seed = ValueNone
-            )
+            freshValue s
         else
             RegionId.Unknown
 
