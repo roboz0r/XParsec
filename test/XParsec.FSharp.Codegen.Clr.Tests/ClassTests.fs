@@ -366,12 +366,12 @@ let secondaryCtorTests =
 
             // Generic class secondary ctor (the `set.fs:23` `new(k) = SetTree(k, 1)`
             // shape): the chain target is a `MemberRef` on the open self-`TypeSpec`.
-            // The secondary forwards its `'a` param to the primary's first field, so
-            // `Box(7).V = 7` proves the generic chain ran. (The constant flowing to
-            // the *second* field is not asserted here: reading a non-first field of a
-            // generic class is a separate, pre-existing B-1 gap — multi-field generic
-            // field access — that mono classes don't share; tracked apart from B-11.)
-            test "a generic class secondary ctor chains through the open self-TypeSpec (Box(7).V = 7)" {
+            // The secondary forwards its `'a` param to the primary's first field and a
+            // constant `1` to the second, so `Box(7).V = 7` and `Box(7).N = 1` prove
+            // both the generic chain ran and that the non-first field round-trips
+            // (vesper-set-sprint-plan §1.11 / B-1 fix — the ctor `stfld` now routes
+            // through the open self-`TypeSpec` `MemberRef`).
+            test "a generic class secondary ctor chains through the open self-TypeSpec (Box(7).V = 7, .N = 1)" {
                 let _, artifact =
                     compileSource
                         "ClsSecCtorGen"
@@ -381,6 +381,7 @@ let secondaryCtorTests =
                                 "type Box<'a>(v: 'a, n: int) ="
                                 "    new(v: 'a) = Box(v, 1)"
                                 "    member this.V = v"
+                                "    member this.N = n"
                                 "let b = Box(0, 0)"
                             ])
 
@@ -394,8 +395,14 @@ let secondaryCtorTests =
                 Expect.equal arities (Set.ofList [ 1; 2 ]) "the secondary (1-arg) and primary (2-arg) ctors"
 
                 let getV = boxInt.GetMethod("get_V", declaredInstance, null, [||], null)
+                let getN = boxInt.GetMethod("get_N", declaredInstance, null, [||], null)
                 let instance = Activator.CreateInstance(boxInt, [| box 7 |])
                 Expect.equal (getV.Invoke(instance, [||]) :?> int) 7 "Box(7) chains to Box(7, 1): V = 7"
+
+                Expect.equal
+                    (getN.Invoke(instance, [||]) :?> int)
+                    1
+                    "Box(7) chains to Box(7, 1): N = 1 (non-first field)"
             }
         ]
 
@@ -455,6 +462,38 @@ let genericTests =
                 let instance = Activator.CreateInstance(boxStr, [| box "hi" |])
                 let result = getV.Invoke(instance, [||]) :?> string
                 Expect.equal result "hi" "Box(\"hi\").V = \"hi\""
+            }
+
+            // vesper-set-sprint-plan §1.11 / B-1 bug fix: a *generic* class with
+            // more than one instance field must round-trip *every* field, not just
+            // the first. The single-field `Box<'a>(v: 'a)` tests above never
+            // exercised a field at index >= 1, so the generic non-first-field gap
+            // (ctor `stfld` / member-body `ldfld` resolving the wrong slot at
+            // runtime for a generic type) stayed latent. `SetTree<'T>(k, h)` reads
+            // its second ctor param `h` for AVL height, so this must work before
+            // any `Vesper.Set` runtime test is trusted.
+            test "Box<int>(7, 3).N returns 3 — a generic class round-trips its non-first field" {
+                let _, artifact =
+                    compileSource
+                        "ClsGenTwoField"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Box<'a>(v: 'a, n: int) ="
+                                "    member this.V = v"
+                                "    member this.N = n"
+                                "let b = Box(0, 0)"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let boxInt = (asm.GetType "Box`1").MakeGenericType typeof<int>
+
+                let getV = boxInt.GetMethod("get_V", declaredInstance, null, [||], null)
+                let getN = boxInt.GetMethod("get_N", declaredInstance, null, [||], null)
+                let instance = Activator.CreateInstance(boxInt, [| box 7; box 3 |])
+
+                Expect.equal (getV.Invoke(instance, [||]) :?> int) 7 "Box<int>(7, 3).V = 7 (first field)"
+                Expect.equal (getN.Invoke(instance, [||]) :?> int) 3 "Box<int>(7, 3).N = 3 (non-first field)"
             }
         ]
 

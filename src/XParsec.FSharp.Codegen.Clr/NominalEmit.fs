@@ -196,11 +196,30 @@ module internal NominalEmit =
                         f.Name, toEntity h, f.Type
                     )
 
+                // Generic records share the §1.11 / B-1 ctor-store hazard with
+                // classes: a raw `FieldDefinition` token in `stfld` resolves to the
+                // wrong slot for a field at index >= 1 of a generic type. Route each
+                // generic store through the field's `MemberRef` on the open self-
+                // `TypeSpec` (`R\`1<!0>::Y`), mirroring the equality-triple field
+                // handles below; monomorphic records keep the `Def` token.
+                let ctorFieldRefs =
+                    if isGeneric then
+                        [
+                            for (name, _, _) in fieldHandles ->
+                                icodegen.UserGenericMemberRef(
+                                    td.Name,
+                                    typarMarkers,
+                                    UserMemberKind.RecordMember(RecordMember.Field name)
+                                )
+                        ]
+                    else
+                        [ for (_, h, _) in fieldHandles -> h ]
+
                 let ctorBodyOffset =
                     Cil.buildBody
                         encodeLocals
                         bodyStream
-                        (IlIr.lower (Emit.buildRecordCtor provider.ObjectCtorRef [ for (_, h, _) in fieldHandles -> h ]))
+                        (IlIr.lower (Emit.buildRecordCtor provider.ObjectCtorRef ctorFieldRefs))
 
                 let ctorSig =
                     if isGeneric then
@@ -265,11 +284,34 @@ module internal NominalEmit =
                 for (n, h) in staticFieldHandles do
                     staticFieldsDict.[n] <- h
 
+                // A *generic* class's ctor `stfld` sequence must reference each
+                // field through a `MemberRef` on the open self-`TypeSpec`
+                // (`Box\`1<!0>::n`), not the raw `FieldDefinition` token — the
+                // generic-union/record field paths already do this. The single-
+                // field case happened to work with the raw `Def` token because
+                // field 0 aliases the type's first slot, but a field at index >= 1
+                // resolves to the wrong slot at runtime (vesper-set-sprint-plan
+                // §1.11 / B-1). Member-body `FieldGet`/`FieldSet` already route
+                // through `EmitResolve.resolveRecordField`'s `MemberRef`; this
+                // closes the matching gap on the ctor stores.
+                let ctorFieldRefs =
+                    if isGeneric then
+                        [
+                            for (name, _, _) in fieldHandles ->
+                                icodegen.UserGenericMemberRef(
+                                    td.Name,
+                                    typarMarkers,
+                                    UserMemberKind.ClassMember(ClassMember.Field name)
+                                )
+                        ]
+                    else
+                        [ for (_, h, _) in fieldHandles -> h ]
+
                 let ctorBodyOffset =
                     Cil.buildBody
                         encodeLocals
                         bodyStream
-                        (IlIr.lower (Emit.buildRecordCtor provider.ObjectCtorRef [ for (_, h, _) in fieldHandles -> h ]))
+                        (IlIr.lower (Emit.buildRecordCtor provider.ObjectCtorRef ctorFieldRefs))
 
                 let ctorSig =
                     if isGeneric then

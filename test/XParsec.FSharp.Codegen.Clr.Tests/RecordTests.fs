@@ -320,4 +320,33 @@ let genericTests =
                     (equalsObj.Invoke(bi3, [| bs3 |]) :?> bool)
                     "Box<int> 3 <> Box<string> \"3\" (isinst Box<int> fails)"
             }
+
+            // vesper-set-sprint-plan §1.11 / B-1 ctor-store fix, record mirror: a
+            // *multi-field* generic record must round-trip *every* field, not just
+            // the first. The existing single-field `Box<'T> = { Value: 'T }` tests
+            // never exercised a field at index >= 1, so the raw-`FieldDef` `stfld`
+            // miscompilation on non-first generic fields stayed latent here too.
+            test "a multi-field generic record round-trips its non-first field (Pair<int>.Second = 3)" {
+                let _, artifact =
+                    compileSource
+                        "RecGenTwoField"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Pair<'a> = { First: 'a; Second: int }"
+                                "let p = { First = 0; Second = 0 }"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let pairInt = (asm.GetType "Pair`1").MakeGenericType typeof<int>
+
+                let instance = Activator.CreateInstance(pairInt, [| box 7; box 3 |])
+
+                Expect.equal (pairInt.GetField("First").GetValue instance :?> int) 7 "Pair.First = 7 (first field)"
+
+                Expect.equal
+                    (pairInt.GetField("Second").GetValue instance :?> int)
+                    3
+                    "Pair.Second = 3 (non-first field)"
+            }
         ]
