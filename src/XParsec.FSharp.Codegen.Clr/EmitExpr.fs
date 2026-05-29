@@ -6,6 +6,7 @@ open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 open EmitTypes
 open EmitLower
+open EmitResolve
 
 module EmitExpr =
     /// Load a variable for the current method: a method parameter (`ldarg.i`),
@@ -35,6 +36,15 @@ module EmitExpr =
     /// `emitVarLoad` resolves it to the same local — no copy). Union / tuple /
     /// record patterns land in later rung-2 slices.
     let rec private buildMatchTest (env: EmitEnv) (b: IlBuilder) (scrutSlot: int) (nextLabel: int) (pat: TPat) : unit =
+        // `ldfld` a field of the scrutinee into a fresh local, then test its
+        // sub-pattern against that local (a named sub-pattern just aliases it).
+        let extractField (fieldRef: EntityHandle) (subPat: TPat) =
+            let fldSlot = b.Local(typeOfPat subPat)
+            b.Add(ILInstr.Ldloc scrutSlot)
+            b.Add(ILInstr.Ldfld fieldRef)
+            b.Add(ILInstr.Stloc fldSlot)
+            buildMatchTest env b fldSlot nextLabel subPat
+
         match pat with
         | TPat.Wildcard _ -> ()
         | TPat.NamedSimple(binding, _) -> env.Slots.[binding] <- scrutSlot
@@ -50,10 +60,7 @@ module EmitExpr =
 
             b.Add(ILInstr.BneUn nextLabel)
         | TPat.Union(caseName, subPats, ty) ->
-            let typeName, tyArgs =
-                match receiverShape ty with
-                | ValueSome(n, xs) -> n, xs
-                | ValueNone -> failwithf "Emit: union pattern with non-nominal type %A" ty
+            let typeName, tyArgs = nominalShape "union pattern" ty
 
             match env.Unions.TryGetValue typeName with
             | true, u ->
@@ -63,10 +70,7 @@ module EmitExpr =
                 // a `MemberRef` on the instantiated `TypeSpec` for a generic one
                 // (`List<int>::_tag` etc.) — see `EmittedUnion.Typars` (P3d.4).
                 let tagRef =
-                    if List.isEmpty u.Typars then
-                        u.TagField
-                    else
-                        env.Provider.UserGenericMemberRef(typeName, tyArgs, UserMemberKind.UnionMember UnionMember.Tag)
+                    memberRef env u.Typars typeName tyArgs (UserMemberKind.UnionMember UnionMember.Tag) u.TagField
 
                 // Skip the arm unless `scrut._tag = case.Tag`.
                 b.Add(ILInstr.Ldloc scrutSlot)
@@ -74,28 +78,21 @@ module EmitExpr =
                 b.Add(ILInstr.LdcI4 c.Tag)
                 b.Add(ILInstr.BneUn nextLabel)
 
-                // Extract each non-wildcard field into a fresh local, then test
-                // its sub-pattern (a named sub-pattern just aliases that local).
                 subPats
                 |> EqArray.iteri (fun i subPat ->
                     match subPat with
                     | TPat.Wildcard _ -> ()
                     | _ ->
                         let fieldRef =
-                            if List.isEmpty u.Typars then
+                            memberRef
+                                env
+                                u.Typars
+                                typeName
+                                tyArgs
+                                (UserMemberKind.UnionMember(UnionMember.Field(caseName, i)))
                                 c.Fields.[i]
-                            else
-                                env.Provider.UserGenericMemberRef(
-                                    typeName,
-                                    tyArgs,
-                                    UserMemberKind.UnionMember(UnionMember.Field(caseName, i))
-                                )
 
-                        let fldSlot = b.Local(typeOfPat subPat)
-                        b.Add(ILInstr.Ldloc scrutSlot)
-                        b.Add(ILInstr.Ldfld fieldRef)
-                        b.Add(ILInstr.Stloc fldSlot)
-                        buildMatchTest env b fldSlot nextLabel subPat
+                        extractField fieldRef subPat
                 )
             | false, _ -> failwithf "Emit: no emitted union for match on '%s'" typeName
         | TPat.Record(fields, ty) ->
@@ -104,10 +101,7 @@ module EmitExpr =
             // — only the sub-patterns themselves can branch to `nextLabel`. A
             // wildcard sub-pattern is skipped (it would always match), exactly
             // like the union arm above.
-            let typeName, tyArgs =
-                match receiverShape ty with
-                | ValueSome(n, xs) -> n, xs
-                | ValueNone -> failwithf "Emit: record pattern with non-nominal type %A" ty
+            let typeName, tyArgs = nominalShape "record pattern" ty
 
             match env.Records.TryGetValue typeName with
             | true, r ->
@@ -118,20 +112,15 @@ module EmitExpr =
                         match r.Fields |> List.tryFind (fun (n, _, _) -> n = fieldName) with
                         | Some(_, handle, _) ->
                             let fieldRef =
-                                if List.isEmpty r.Typars then
+                                memberRef
+                                    env
+                                    r.Typars
+                                    typeName
+                                    tyArgs
+                                    (UserMemberKind.RecordMember(RecordMember.Field fieldName))
                                     handle
-                                else
-                                    env.Provider.UserGenericMemberRef(
-                                        typeName,
-                                        tyArgs,
-                                        UserMemberKind.RecordMember(RecordMember.Field fieldName)
-                                    )
 
-                            let fldSlot = b.Local(typeOfPat subPat)
-                            b.Add(ILInstr.Ldloc scrutSlot)
-                            b.Add(ILInstr.Ldfld fieldRef)
-                            b.Add(ILInstr.Stloc fldSlot)
-                            buildMatchTest env b fldSlot nextLabel subPat
+                            extractField fieldRef subPat
                         | None -> failwithf "Emit: record '%s' has no field '%s'" typeName fieldName
             | false, _ -> failwithf "Emit: no emitted record for pattern on '%s'" typeName
         | other -> failwithf "Emit: match pattern is out of scope: %A" other
@@ -144,147 +133,6 @@ module EmitExpr =
         b.Add(ILInstr.Ldstr(env.Ctx.UserString "The match cases were incomplete"))
         b.Add(ILInstr.Newobj(env.Provider.ExceptionCtor, 1))
         b.Add ILInstr.Throw
-
-    /// Resolve the member-call handle for an instance access on `receiverTy`
-    /// (P3d.3, generalised to generic unions in R2 and to classes in Phase 1 /
-    /// B-1). A monomorphic union/class uses the member's `Def` token directly;
-    /// a *generic* one goes through a `MemberRef` on the receiver's
-    /// instantiated `TypeSpec` (`List<int>::get_Head`, `Box<int>::get_Value`).
-    let private resolveInstanceMember (env: EmitEnv) (receiverTy: SemType) (name: string) : EntityHandle =
-        let typeName, tyArgs =
-            match receiverShape receiverTy with
-            | ValueSome(n, xs) -> n, xs
-            | ValueNone -> failwithf "Emit: member '%s' access on non-nominal receiver %A" name receiverTy
-
-        match env.Unions.TryGetValue typeName with
-        | true, u ->
-            match u.Members.TryGetValue name with
-            | true, m ->
-                if List.isEmpty u.Typars then
-                    m.Handle
-                else
-                    env.Provider.UserGenericMemberRef(
-                        typeName,
-                        tyArgs,
-                        UserMemberKind.UnionMember(UnionMember.Member(m.MetaName, false, m.ParamTys, m.RetTy))
-                    )
-            | false, _ -> failwithf "Emit: union '%s' has no emitted member '%s'" typeName name
-        | false, _ ->
-            match env.Classes.TryGetValue typeName with
-            | true, c ->
-                match c.Members.TryGetValue name with
-                | true, m ->
-                    if List.isEmpty c.Typars then
-                        m.Handle
-                    else
-                        env.Provider.UserGenericMemberRef(
-                            typeName,
-                            tyArgs,
-                            UserMemberKind.ClassMember(ClassMember.Member(m.MetaName, false, m.ParamTys, m.RetTy))
-                        )
-                | false, _ -> failwithf "Emit: class '%s' has no emitted member '%s'" typeName name
-            | false, _ -> failwithf "Emit: no emitted type carrying members for receiver '%s'" typeName
-
-    /// The static-member equivalent. Generic-union *static* augmentation members
-    /// are out of scope in R2 (a static member's typars aren't tied to the type's
-    /// via `this`, so the front-end leaves them un-remapped — the type's generic
-    /// `Cons` / `Empty` come from its case factories instead), so a generic union
-    /// fails here loudly rather than minting a malformed `Def` call. Classes
-    /// route through the same `Member` arm as instances; a generic class's
-    /// static member uses the class `MemberRef` instead of the union one.
-    let private resolveStaticMember (env: EmitEnv) (typeName: string) (name: string) : EntityHandle =
-        match env.Unions.TryGetValue typeName with
-        | true, u ->
-            match u.Members.TryGetValue name with
-            | true, m ->
-                if List.isEmpty u.Typars then
-                    m.Handle
-                else
-                    failwithf
-                        "Emit: generic-union static augmentation member '%s.%s' is out of scope (R2)"
-                        typeName
-                        name
-            | false, _ -> failwithf "Emit: union '%s' has no emitted static member '%s'" typeName name
-        | false, _ ->
-            match env.Classes.TryGetValue typeName with
-            | true, c ->
-                match c.Members.TryGetValue name with
-                | true, m ->
-                    if List.isEmpty c.Typars then
-                        m.Handle
-                    else
-                        env.Provider.UserGenericMemberRef(
-                            typeName,
-                            [ for t in c.Typars -> TyConst t ],
-                            UserMemberKind.ClassMember(ClassMember.Member(m.MetaName, true, m.ParamTys, m.RetTy))
-                        )
-                | false, _ -> failwithf "Emit: class '%s' has no emitted static member '%s'" typeName name
-            | false, _ -> failwithf "Emit: no emitted type carrying static members for '%s'" typeName
-
-    /// Resolve a class `static let` backing field to its `ldsfld`/`stsfld` handle
-    /// (vesper-set-sprint-plan §1.8 / B-10). Only monomorphic classes declare
-    /// `static let`s (generic `static let` is deferred), so the field handle is
-    /// always a `Def` token — no `MemberRef`-on-`TypeSpec` path.
-    let private resolveStaticField (env: EmitEnv) (typeName: string) (name: string) : EntityHandle =
-        match env.Classes.TryGetValue typeName with
-        | true, c ->
-            match c.StaticFields.TryGetValue name with
-            | true, h -> h
-            | false, _ -> failwithf "Emit: class '%s' has no emitted static field '%s'" typeName name
-        | false, _ -> failwithf "Emit: no emitted class carrying static fields for '%s'" typeName
-
-    /// Resolve a field by name on a record / class receiver to its emit
-    /// handle and declared type. A monomorphic type returns the field's
-    /// `Def` token; a *generic* one returns a `MemberRef` on the receiver's
-    /// instantiated `TypeSpec` (`Box<int>::Value`) — the records-plan §B3
-    /// mirror of `resolveInstanceMember`. A referenced-assembly record
-    /// (records-plan §B7) goes through the provider's
-    /// `TryResolveExternalRecordField`. Classes reach here for primary-
-    /// ctor parameter accesses rewritten to `FieldGet(this, name)` by
-    /// `Freeze.translateClassMember` (vesper-set-sprint-plan Phase 1 / B-1).
-    let private resolveRecordField (env: EmitEnv) (receiverTy: SemType) (fieldName: string) : EntityHandle * SemType =
-        let typeName, tyArgs =
-            match receiverShape receiverTy with
-            | ValueSome(n, xs) -> n, xs
-            | ValueNone -> failwithf "Emit: field '%s' access on non-nominal receiver %A" fieldName receiverTy
-
-        match env.Records.TryGetValue typeName with
-        | true, r ->
-            match r.Fields |> List.tryFind (fun (n, _, _) -> n = fieldName) with
-            | Some(_, h, ty) ->
-                let handle =
-                    if List.isEmpty r.Typars then
-                        h
-                    else
-                        env.Provider.UserGenericMemberRef(
-                            typeName,
-                            tyArgs,
-                            UserMemberKind.RecordMember(RecordMember.Field fieldName)
-                        )
-
-                handle, ty
-            | None -> failwithf "Emit: record '%s' has no field '%s'" typeName fieldName
-        | false, _ ->
-            match env.Classes.TryGetValue typeName with
-            | true, c ->
-                match c.Fields |> List.tryFind (fun (n, _, _) -> n = fieldName) with
-                | Some(_, h, ty) ->
-                    let handle =
-                        if List.isEmpty c.Typars then
-                            h
-                        else
-                            env.Provider.UserGenericMemberRef(
-                                typeName,
-                                tyArgs,
-                                UserMemberKind.ClassMember(ClassMember.Field fieldName)
-                            )
-
-                    handle, ty
-                | None -> failwithf "Emit: class '%s' has no field '%s'" typeName fieldName
-            | false, _ ->
-                match env.Provider.TryResolveExternalRecordField(typeName, tyArgs, fieldName) with
-                | ValueSome(handle, ty) -> handle, ty
-                | ValueNone -> failwithf "Emit: no emitted type for field access on '%s'" typeName
 
     /// The cold printf path (`printfn "%A"` …). Its `PrintFormatLine` recipe leaves
     /// an FSharp.Core `FSharpFunc` printer on the stack, applied via
@@ -456,14 +304,7 @@ module EmitExpr =
                 // `TypeSpec` (`Box<int>::.ctor`), mirroring the generic-record
                 // ctor path.
                 let ctorRef =
-                    if List.isEmpty c.Typars then
-                        c.Ctor
-                    else
-                        env.Provider.UserGenericMemberRef(
-                            className,
-                            tyArgs,
-                            UserMemberKind.ClassMember ClassMember.Ctor
-                        )
+                    memberRef env c.Typars className tyArgs (UserMemberKind.ClassMember ClassMember.Ctor) c.Ctor
 
                 b.Add(ILInstr.Newobj(ctorRef, List.length c.Fields))
             | false, _ ->
@@ -481,10 +322,7 @@ module EmitExpr =
             // lines up. A generic record's `.ctor` is a `MemberRef` on its own
             // `TypeSpec` (`Box\`1<!0>::.ctor`), exactly like a generic union's
             // factory.
-            let typeName, tyArgs =
-                match receiverShape ty with
-                | ValueSome(n, xs) -> n, xs
-                | ValueNone -> failwithf "Emit: RecordCons with non-nominal type %A" ty
+            let typeName, tyArgs = nominalShape "RecordCons" ty
 
             match env.Records.TryGetValue typeName with
             | true, r ->
@@ -500,14 +338,7 @@ module EmitExpr =
                             fieldName
 
                 let ctor =
-                    if List.isEmpty r.Typars then
-                        r.Ctor
-                    else
-                        env.Provider.UserGenericMemberRef(
-                            typeName,
-                            tyArgs,
-                            UserMemberKind.RecordMember RecordMember.Ctor
-                        )
+                    memberRef env r.Typars typeName tyArgs (UserMemberKind.RecordMember RecordMember.Ctor) r.Ctor
 
                 b.Add(ILInstr.Newobj(ctor, List.length r.Fields))
             | false, _ ->
@@ -534,7 +365,7 @@ module EmitExpr =
             // a `Def` token for a monomorphic record, a `MemberRef` on the receiver's
             // `TypeSpec` for a generic one (`resolveRecordField`). A
             // referenced-assembly record (F2) routes through the provider.
-            let handle, _ = resolveRecordField env (typeOfExpr receiver) name
+            let handle = resolveRecordField env (typeOfExpr receiver) name
             buildExpr env b receiver
             b.Add(ILInstr.Ldfld handle)
 
@@ -547,7 +378,7 @@ module EmitExpr =
             // present. Push `ldnull` (Unit's value) to match F#'s emission and
             // keep the IL verifier happy when the body is just a FieldSet
             // (`fun () -> n <- n + 1`, F3 §1).
-            let handle, _ = resolveRecordField env (typeOfExpr receiver) name
+            let handle = resolveRecordField env (typeOfExpr receiver) name
             buildExpr env b receiver
             buildExpr env b value
             b.Add(ILInstr.Stfld handle)
@@ -559,10 +390,7 @@ module EmitExpr =
             // the override list, else `ldloc; ldfld` from the saved source. Then
             // `newobj` the ctor. Direct field reads (no `MemberwiseClone`) keeps
             // it BCL-only and works identically for a generic record.
-            let typeName, tyArgs =
-                match receiverShape ty with
-                | ValueSome(n, xs) -> n, xs
-                | ValueNone -> failwithf "Emit: RecordClone with non-nominal type %A" ty
+            let typeName, tyArgs = nominalShape "RecordClone" ty
 
             match env.Records.TryGetValue typeName with
             | true, r ->
@@ -576,36 +404,25 @@ module EmitExpr =
                     | Some e -> buildExpr env b e
                     | None ->
                         let fieldRef =
-                            if List.isEmpty r.Typars then
+                            memberRef
+                                env
+                                r.Typars
+                                typeName
+                                tyArgs
+                                (UserMemberKind.RecordMember(RecordMember.Field fieldName))
                                 handle
-                            else
-                                env.Provider.UserGenericMemberRef(
-                                    typeName,
-                                    tyArgs,
-                                    UserMemberKind.RecordMember(RecordMember.Field fieldName)
-                                )
 
                         b.Add(ILInstr.Ldloc srcSlot)
                         b.Add(ILInstr.Ldfld fieldRef)
 
                 let ctor =
-                    if List.isEmpty r.Typars then
-                        r.Ctor
-                    else
-                        env.Provider.UserGenericMemberRef(
-                            typeName,
-                            tyArgs,
-                            UserMemberKind.RecordMember RecordMember.Ctor
-                        )
+                    memberRef env r.Typars typeName tyArgs (UserMemberKind.RecordMember RecordMember.Ctor) r.Ctor
 
                 b.Add(ILInstr.Newobj(ctor, List.length r.Fields))
             | false, _ -> failwithf "Emit: no emitted record for '%s'" typeName
 
         | TExpr.UnionCons(caseName, args, ty) ->
-            let typeName, tyArgs =
-                match receiverShape ty with
-                | ValueSome(n, xs) -> n, xs
-                | ValueNone -> failwithf "Emit: UnionCons with non-nominal type %A" ty
+            let typeName, tyArgs = nominalShape "UnionCons" ty
 
             for a in args do
                 buildExpr env b a
@@ -617,14 +434,13 @@ module EmitExpr =
                 // monomorphic factory is a `Def` token; a generic one is a
                 // `MemberRef` on the instantiated `TypeSpec` (`List<int>::Cons`).
                 let factoryRef =
-                    if List.isEmpty u.Typars then
+                    memberRef
+                        env
+                        u.Typars
+                        typeName
+                        tyArgs
+                        (UserMemberKind.UnionMember(UnionMember.Factory caseName))
                         u.Cases.[caseName].Factory
-                    else
-                        env.Provider.UserGenericMemberRef(
-                            typeName,
-                            tyArgs,
-                            UserMemberKind.UnionMember(UnionMember.Factory caseName)
-                        )
 
                 b.Add(ILInstr.Call(factoryRef, args.Length, 1))
             | false, _ ->
@@ -701,7 +517,7 @@ module EmitExpr =
             // handled as an `App` head above.
             failwith "Emit: external method used as a first-class value is out of scope"
 
-        | TExpr.Format(sink, segments, _) -> buildFormat env b sink segments
+        | TExpr.Format(sink, segments, _) -> EmitFormat.buildFormat buildExpr env b sink segments
 
         | TExpr.ILIntrinsic(opCode, args, _) ->
             // Push each operand, then append the mapped opcode. The dispatch
@@ -899,147 +715,31 @@ module EmitExpr =
             buildExpr env b head
             foldInvoke env b (typeOfExpr head) spineArgs
 
-    /// Lower a `TExpr.Format` to the `Vesper.Formatter` write-through handler: a
-    /// ref-struct local constructed in place, then each segment folded
-    /// left-to-right (`AppendLiteral` for a literal run, `AppendFormatted<T>`
-    /// for a hole — its arg evaluated *here*, at its position), then a trailing
-    /// newline (printfn-style sinks) and flush, or `ToStringAndClear` for the
-    /// string sink. The node yields a value: the `unit` (null) of the writing
-    /// sinks, or the result string of `sprintf`. Not a `CallRecipe` — the recipe
-    /// model can't interleave literals/args around a ref-struct local + sink.
-    and private buildFormat (env: EmitEnv) (b: IlBuilder) (sink: FormatSink) (segments: EqArray<FormatSeg>) : unit =
-        let fh = env.Provider.FormatHandles()
-        let slot = b.Local fh.HandlerLocal
-
-        // Capacity hints for the ctor; the handler grows past them as needed, so
-        // they need not be exact.
-        let mutable litLen = 0
-        let mutable holeCount = 0
-
-        for seg in segments do
-            match seg with
-            | FormatSeg.Lit s -> litLen <- litLen + s.Length
-            | FormatSeg.Hole _ -> holeCount <- holeCount + 1
-
-        // Construct in place: `ldloca h; ldc litLen; ldc holeCount; <sink?>; call .ctor`.
-        b.Add(ILInstr.Ldloca slot)
-        b.Add(ILInstr.LdcI4 litLen)
-        b.Add(ILInstr.LdcI4 holeCount)
-
-        match sink with
-        | FormatSink.ToString -> b.Add(ILInstr.Call(fh.CtorString, 3, 0))
-        | FormatSink.ToStdOut _ ->
-            b.Add(ILInstr.Call(fh.ConsoleOut, 0, 1))
-            b.Add(ILInstr.Call(fh.CtorWriter, 4, 0))
-        | FormatSink.ToStdErr _ ->
-            b.Add(ILInstr.Call(fh.ConsoleError, 0, 1))
-            b.Add(ILInstr.Call(fh.CtorWriter, 4, 0))
-        | FormatSink.ToWriter w ->
-            buildExpr env b w
-            b.Add(ILInstr.Call(fh.CtorWriter, 4, 0))
-        | FormatSink.ToBuilder _ -> failwith "Emit: bprintf (ToBuilder) is not yet supported"
-
-        for seg in segments do
-            match seg with
-            | FormatSeg.Lit s ->
-                b.Add(ILInstr.Ldloca slot)
-                b.Add(ILInstr.Ldstr(env.Ctx.UserString s))
-                b.Add(ILInstr.Call(fh.AppendLiteral, 2, 0))
-            | FormatSeg.Hole(hole, arg) ->
-                match hole.Kind with
-                | PrintfSpec.HoleKind.Formatted ->
-                    b.Add(ILInstr.Ldloca slot)
-                    buildExpr env b arg
-
-                    // Push optional args in the C# parameter order: alignment, then format.
-                    match hole.Alignment with
-                    | Some a -> b.Add(ILInstr.LdcI4 a)
-                    | None -> ()
-
-                    match hole.Format with
-                    | Some f -> b.Add(ILInstr.Ldstr(env.Ctx.UserString f))
-                    | None -> ()
-
-                    let handle = fh.AppendFormatted(hole.Ty, hole.Alignment.IsSome, hole.Format.IsSome)
-
-                    let argc =
-                        2
-                        + (if hole.Alignment.IsSome then 1 else 0)
-                        + (if hole.Format.IsSome then 1 else 0)
-
-                    b.Add(ILInstr.Call(handle, argc, 0))
-
-                | PrintfSpec.HoleKind.BoolText
-                | PrintfSpec.HoleKind.Octal
-                | PrintfSpec.HoleKind.Unsigned ->
-                    // A dedicated handler member `(value, int alignment)` — no
-                    // .NET format string. The alignment is always pushed (0 ⇒ no
-                    // padding); `%u`'s `int`→`uint` is a free CLI-stack
-                    // reinterpret, so the arg is emitted unchanged.
-                    let handle =
-                        match hole.Kind with
-                        | PrintfSpec.HoleKind.BoolText -> fh.AppendBool
-                        | PrintfSpec.HoleKind.Octal -> fh.AppendOctal
-                        | _ -> fh.AppendUnsigned
-
-                    b.Add(ILInstr.Ldloca slot)
-                    buildExpr env b arg
-                    b.Add(ILInstr.LdcI4(defaultArg hole.Alignment 0))
-                    b.Add(ILInstr.Call(handle, 3, 0))
-
-                | PrintfSpec.HoleKind.ZeroPaddedFloat ->
-                    // `AppendZeroPaddedFloat(value, "F<prec>", width)` — the
-                    // `"F<prec>"` body rides in `Format`, the field width in
-                    // `Alignment` (both guaranteed present by `tryHoleFormat`).
-                    let fmt =
-                        match hole.Format with
-                        | Some f -> f
-                        | None -> failwith "Emit: ZeroPaddedFloat hole missing its format string"
-
-                    let width =
-                        match hole.Alignment with
-                        | Some w -> w
-                        | None -> failwith "Emit: ZeroPaddedFloat hole missing its width"
-
-                    b.Add(ILInstr.Ldloca slot)
-                    buildExpr env b arg
-                    b.Add(ILInstr.Ldstr(env.Ctx.UserString fmt))
-                    b.Add(ILInstr.LdcI4 width)
-                    b.Add(ILInstr.Call(fh.AppendZeroPaddedFloat, 4, 0))
-
-        match sink with
-        | FormatSink.ToString ->
-            // Leaves the built string on the stack (the `sprintf` result).
-            b.Add(ILInstr.Ldloca slot)
-            b.Add(ILInstr.Call(fh.ToStringAndClear, 1, 1))
-        | FormatSink.ToStdOut nl
-        | FormatSink.ToStdErr nl ->
-            if nl then
-                b.Add(ILInstr.Ldloca slot)
-                b.Add(ILInstr.Ldstr(env.Ctx.UserString "\n"))
-                b.Add(ILInstr.Call(fh.AppendLiteral, 2, 0))
-
-            b.Add(ILInstr.Ldloca slot)
-            b.Add(ILInstr.Call(fh.Flush, 1, 0))
-            b.Add ILInstr.Ldnull // unit value
-        | FormatSink.ToWriter _ ->
-            b.Add(ILInstr.Ldloca slot)
-            b.Add(ILInstr.Call(fh.Flush, 1, 0))
-            b.Add ILInstr.Ldnull // unit value
-        | FormatSink.ToBuilder _ -> failwith "Emit: bprintf (ToBuilder) is not yet supported"
-
-    /// Apply each remaining argument to the function value on the stack via
-    /// `FSharpFunc.Invoke`, threading the running function type.
-    and private foldInvoke (env: EmitEnv) (b: IlBuilder) (funcTy0: SemType) (args: (TExpr * SemType) list) : unit =
+    /// Apply each remaining argument to the function value on the stack,
+    /// threading the running function type. `tryInvoke` chooses the invocation
+    /// recipe per arg (`Vesper.Fun::Invoke` vs `FSharpFunc::Invoke`); `what`
+    /// names the function kind for the failure diagnostic.
+    and private foldInvokeWith
+        (tryInvoke: SemType -> CallRecipe voption)
+        (what: string)
+        (env: EmitEnv)
+        (b: IlBuilder)
+        (funcTy0: SemType)
+        (args: (TExpr * SemType) list)
+        : unit =
         let mutable funcTy = funcTy0
 
         for (arg, resTy) in args do
-            match env.Provider.TryEmitInvoke funcTy with
+            match tryInvoke funcTy with
             | ValueSome recipe ->
                 buildExpr env b arg
                 b.Add(ILInstr.Recipe recipe)
                 funcTy <- resTy
-            | ValueNone -> failwithf "Emit: cannot apply argument to value of type %A" funcTy
+            | ValueNone -> failwithf "Emit: cannot apply argument to %s value of type %A" what funcTy
+
+    /// Apply remaining arguments to a native `Vesper.Fun` value via its `Invoke`.
+    and private foldInvoke (env: EmitEnv) (b: IlBuilder) (funcTy0: SemType) (args: (TExpr * SemType) list) : unit =
+        foldInvokeWith env.Provider.TryEmitInvoke "Vesper.Fun" env b funcTy0 args
 
     /// Apply a curried FSharp.Core `FSharpFunc` value (the cold printf printer)
     /// argument by argument via `FSharpFunc::Invoke` — the FSharpFunc twin of
@@ -1050,15 +750,7 @@ module EmitExpr =
         (funcTy0: SemType)
         (args: (TExpr * SemType) list)
         : unit =
-        let mutable funcTy = funcTy0
-
-        for (arg, resTy) in args do
-            match env.Provider.TryEmitFSharpFuncInvoke funcTy with
-            | ValueSome recipe ->
-                buildExpr env b arg
-                b.Add(ILInstr.Recipe recipe)
-                funcTy <- resTy
-            | ValueNone -> failwithf "Emit: cannot apply argument to FSharpFunc value of type %A" funcTy
+        foldInvokeWith env.Provider.TryEmitFSharpFuncInvoke "FSharpFunc" env b funcTy0 args
 
     /// Emit an expression as a statement: evaluate it and discard any value.
     let buildStatement (env: EmitEnv) (b: IlBuilder) (e: TExpr) : unit =

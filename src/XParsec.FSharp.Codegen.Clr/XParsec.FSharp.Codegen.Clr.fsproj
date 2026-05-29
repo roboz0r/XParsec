@@ -21,6 +21,8 @@
     <Compile Include="EmitTypes.fs" />
     <Compile Include="EmitLower.fs" />
     <Compile Include="EmitClosures.fs" />
+    <Compile Include="EmitResolve.fs" />
+    <Compile Include="EmitFormat.fs" />
     <Compile Include="EmitExpr.fs" />
     <Compile Include="Emit.fs" />
     <Compile Include="CodegenTypes.fs" />
