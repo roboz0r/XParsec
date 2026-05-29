@@ -423,6 +423,18 @@ module internal NominalEmit =
         postCtorInit emittedMembers
 
         for mem in members do
+            // A *generic* member (B-12) carries its own typars as union-find roots.
+            // Install them as the ambient `!!i` context for the duration of this
+            // member's body / locals / signature encoding, so a `TyVar` leaf naming
+            // one of them encodes to `GenericMethodParameter`; the declaring type's
+            // typars stay `TyConst` markers that the signature's local typar map
+            // resolves to `GenericTypeParameter`. Cleared after the row is added.
+            let methodTypars = mem.MethodTypeParams
+            let isGenericMethod = not methodTypars.IsEmpty
+
+            if isGenericMethod then
+                provider.SetMethodTypars [ for (_, r) in methodTypars -> r ]
+
             let bodyOffset =
                 Cil.buildBody
                     memberEncodeLocals
@@ -441,13 +453,22 @@ module internal NominalEmit =
             let paramTys = [ for (_, t) in mem.Params -> t ]
 
             let signature =
-                match isGeneric, mem.IsStatic with
-                | true, true ->
-                    provider.GenericStaticMethodSignature(EqArray.toList td.TypeParams, paramTys, mem.ReturnTy)
-                | true, false ->
-                    provider.GenericInstanceMethodSignature(EqArray.toList td.TypeParams, paramTys, mem.ReturnTy)
-                | false, true -> provider.StaticMethodSignature(paramTys, mem.ReturnTy)
-                | false, false -> provider.InstanceMethodSignature(paramTys, mem.ReturnTy)
+                if isGenericMethod then
+                    provider.GenericMethodOnTypeSignature(
+                        EqArray.toList td.TypeParams,
+                        methodTypars.Length,
+                        paramTys,
+                        mem.ReturnTy,
+                        not mem.IsStatic
+                    )
+                else
+                    match isGeneric, mem.IsStatic with
+                    | true, true ->
+                        provider.GenericStaticMethodSignature(EqArray.toList td.TypeParams, paramTys, mem.ReturnTy)
+                    | true, false ->
+                        provider.GenericInstanceMethodSignature(EqArray.toList td.TypeParams, paramTys, mem.ReturnTy)
+                    | false, true -> provider.StaticMethodSignature(paramTys, mem.ReturnTy)
+                    | false, false -> provider.InstanceMethodSignature(paramTys, mem.ReturnTy)
 
             let attrs =
                 if mem.IsStatic then
@@ -455,8 +476,23 @@ module internal NominalEmit =
                 else
                     instanceMethodAttrs
 
-            ctx.AddMethodWithParamList(attrs, methodName, signature, bodyOffset, addParams (argNames mem.Params.Length))
-            |> ignore
+            let memHandle =
+                ctx.AddMethodWithParamList(
+                    attrs,
+                    methodName,
+                    signature,
+                    bodyOffset,
+                    addParams (argNames mem.Params.Length)
+                )
+
+            if isGenericMethod then
+                // The method's own typars are owned by this `MethodDef` (the
+                // metadata name drops the F# leading quote, like every other
+                // generic-param row).
+                methodTypars
+                |> EqArray.iteri (fun i (n, _) -> asm.AddMethodGenericParam(toEntity memHandle, i, n.TrimStart('\'')))
+
+                provider.ClearMethodTypars()
 
             asm.MethodCount <- asm.MethodCount + 1 // each member-method row
 

@@ -1562,6 +1562,9 @@ module Freeze =
                             Params = memberParams ctx b
                             Body = translateExpr ctx b.expr
                             ReturnTy = typeOfKey ctx (CstKeys.ofExpr b.expr)
+                            // Generic methods on union augmentations are out of
+                            // B-12 scope (class-only); always non-generic here.
+                            MethodTypeParams = EqArray.empty
                         }
                 | ValueNone -> ValueNone
 
@@ -1579,6 +1582,7 @@ module Freeze =
                         Params = EqArray.empty
                         Body = translateExpr ctx e
                         ReturnTy = typeOfKey ctx (CstKeys.ofExpr e)
+                        MethodTypeParams = EqArray.empty
                     }
             | _ -> ValueNone
         | _ -> ValueNone
@@ -1658,6 +1662,34 @@ module Freeze =
                 let body = translateExpr ctx e |> rewriteStaticLetRefs staticLetByKey info.Name
                 if isStatic then body else rewriteCtorParamRefs body
 
+            // The member's own generic parameters (B-12), recovered from the
+            // registered `TypeMemberInfo`. Each prototype TyVar is zonked to the
+            // union-find root the member's signature / body actually references
+            // (mirrors the abstract-method path); entries that unified away to a
+            // concrete type are dropped. Codegen installs these roots as ambient
+            // method typars so they encode to `!!i`.
+            let methodTypeParams (n: string) (kind: TMemberKind) : EqArray<string * TypeVar> =
+                let kindMatches (mi: TypeMemberInfo) =
+                    match mi.Kind, kind with
+                    | ClassMemberKind.Method, TMemberKind.Method
+                    | ClassMemberKind.Property, TMemberKind.Property -> true
+                    | _ -> false
+
+                match
+                    info.Members
+                    |> Array.tryFind (fun mi -> mi.Name = n && mi.IsStatic = isStatic && kindMatches mi)
+                with
+                | Some mi ->
+                    EqArray.ofSeq (
+                        seq {
+                            for (nm, ptv) in mi.MethodTypeParams do
+                                match Unification.zonk (TyVar ptv) with
+                                | TyVar root -> yield (nm, root)
+                                | _ -> ()
+                        }
+                    )
+                | None -> EqArray.empty
+
             let build (kind: TMemberKind) (b: Binding<SyntaxToken>) : TTypeMember voption =
                 match memberNameOfBinding ctx b with
                 | ValueSome n ->
@@ -1671,6 +1703,7 @@ module Freeze =
                             Params = memberParams ctx b
                             Body = lowerBody b.expr
                             ReturnTy = typeOfKey ctx (CstKeys.ofExpr b.expr)
+                            MethodTypeParams = methodTypeParams n kind
                         }
                 | ValueNone -> ValueNone
 
@@ -1688,6 +1721,8 @@ module Freeze =
                         Params = EqArray.empty
                         Body = lowerBody e
                         ReturnTy = typeOfKey ctx (CstKeys.ofExpr e)
+                        // Auto-properties never carry their own generic params.
+                        MethodTypeParams = EqArray.empty
                     }
             | _ -> ValueNone
         | _ -> ValueNone

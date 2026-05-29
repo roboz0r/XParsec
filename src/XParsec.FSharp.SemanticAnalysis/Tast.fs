@@ -338,6 +338,17 @@ and TTypeMember =
         Params: EqArray<NodeKey * SemType>
         Body: TExpr
         ReturnTy: SemType
+        /// The member's *own* generic parameters (`member this.Map<'C> …`,
+        /// vesper-set-sprint-plan §1.10 / B-12) — distinct from the declaring
+        /// type's `TTypeDecl.TypeParams`. Each entry pairs the source name
+        /// (`"'C"`, for the `GenericParam` row) with the post-unification
+        /// union-find *root* `TypeVar` that the member's `Params` / `ReturnTy` /
+        /// `Body` reference. Codegen installs these roots as the ambient
+        /// `SetMethodTypars` set so they encode to `GenericMethodParameter`
+        /// (`!!i`) while the declaring type's typars (carried as `TyConst`
+        /// markers) encode to `GenericTypeParameter` (`!i`). Empty for a
+        /// non-generic member.
+        MethodTypeParams: EqArray<string * TypeVar>
     }
 
 /// A class-level `static let x = <init>` (vesper-set-sprint-plan §1.8 / B-10).

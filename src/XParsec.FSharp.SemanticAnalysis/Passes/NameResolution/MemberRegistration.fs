@@ -153,9 +153,16 @@ module NameResolutionMemberRegistration =
             memberInfos.Add cmi
             cmi
 
-        let registerNamed b kind isStatic =
+        let registerNamed (b: Binding<SyntaxToken>) kind isStatic =
             match memberNameOf ctx b with
-            | ValueSome(mName, mTok) -> addMember mName kind isStatic mTok |> ignore
+            | ValueSome(mName, mTok) ->
+                let cmi = addMember mName kind isStatic mTok
+                // A concrete generic method (`member this.Map<'C> …`, B-12) carries
+                // its own typars on the binding's `typarDefns`. Stamp prototype
+                // TyVars so Unification scopes the signature against them and Freeze
+                // surfaces them as GenericMethodParameters — mirroring the abstract
+                // path. A property's `typarDefns` is absent ⇒ empty.
+                cmi.MethodTypeParams <- mkTypeParams (memberTyparNames ctx b.typarDefns)
             | ValueNone -> ()
 
         let registerAutoProperty id isStatic =

@@ -457,3 +457,102 @@ let genericTests =
                 Expect.equal result "hi" "Box(\"hi\").V = \"hi\""
             }
         ]
+
+[<Tests>]
+let genericMethodTests =
+    let declaredInstance =
+        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
+
+    // vesper-set-sprint-plan §1.10 / B-12 test gate: a member that introduces
+    // its *own* generic parameter (`member this.Map<'b> …`). The method's typar
+    // emits as a `GenericParam` row owned by the `MethodDef` (encoded `!!i` in
+    // its signature), distinct from the declaring type's typars (`!i`). The
+    // round-trips reflect over the emitted PE, `MakeGenericMethod` the open
+    // method, and invoke it — a wrong typar index or missing `GenericParam` row
+    // surfaces as `BadImageFormatException` / `InvalidProgram` at load/invoke.
+    testList
+        "ClassGenericMethod"
+        [
+            test "a generic method on a monomorphic class round-trips at two instantiations" {
+                let _, artifact =
+                    compileSource
+                        "ClsGenMethMono"
+                        (String.concat "\n" [ "type C() ="; "    member this.Id<'b> (x: 'b) = x"; "let c = C()" ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "C"
+
+                let idMethod = ty.GetMethods() |> Array.find (fun m -> m.Name = "Id")
+                Expect.isTrue idMethod.IsGenericMethodDefinition "Id is a generic method definition"
+                Expect.equal (idMethod.GetGenericArguments().Length) 1 "Id owns exactly one generic parameter ('b)"
+
+                let instance = Activator.CreateInstance(ty, [||])
+
+                let idInt = idMethod.MakeGenericMethod typeof<int>
+                Expect.equal (idInt.Invoke(instance, [| box 5 |]) :?> int) 5 "C().Id<int>(5) = 5"
+
+                let idStr = idMethod.MakeGenericMethod typeof<string>
+                Expect.equal (idStr.Invoke(instance, [| box "a" |]) :?> string) "a" "C().Id<string>(\"a\") = \"a\""
+            }
+
+            test "Box<int>(0).Echo<string>(\"hi\") = \"hi\" — method typar rides param + return" {
+                let _, artifact =
+                    compileSource
+                        "ClsGenMethEcho"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Box<'a>(v: 'a) ="
+                                "    member this.Echo<'b> (x: 'b) = x"
+                                "let b = Box(0)"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let boxInt = (asm.GetType "Box`1").MakeGenericType typeof<int>
+
+                let echo = boxInt.GetMethods() |> Array.find (fun m -> m.Name = "Echo")
+                Expect.isTrue echo.IsGenericMethodDefinition "Echo is a generic method definition"
+                Expect.equal (echo.GetGenericArguments().Length) 1 "Echo owns one method typar ('b)"
+
+                let echoStr = echo.MakeGenericMethod typeof<string>
+                let instance = Activator.CreateInstance(boxInt, [| box 0 |])
+
+                Expect.equal
+                    (echoStr.Invoke(instance, [| box "hi" |]) :?> string)
+                    "hi"
+                    "Box<int>(0).Echo<string>(\"hi\") = \"hi\""
+            }
+
+            // The decisive B-12 case: the same signature mixes the *method* typar
+            // (the `'b` param, `!!0`) and the *type* typar (the `'a` return, `!0`).
+            // A swapped index would either fail to load or return the wrong slot.
+            test "a generic method's own typar (!!0) and its class's typar (!0) stay distinct" {
+                let _, artifact =
+                    compileSource
+                        "ClsGenMethMixed"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Box<'a>(v: 'a) ="
+                                "    member this.First<'b> (x: 'b) = v"
+                                "let b = Box(0)"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let boxTy = asm.GetType "Box`1"
+                Expect.equal (boxTy.GetGenericArguments().Length) 1 "Box`1 owns one type typar ('a)"
+
+                let boxInt = boxTy.MakeGenericType typeof<int>
+                let first = boxInt.GetMethods() |> Array.find (fun m -> m.Name = "First")
+                Expect.isTrue first.IsGenericMethodDefinition "First is a generic method definition"
+                Expect.equal (first.GetGenericArguments().Length) 1 "First owns one method typar ('b), separate from 'a"
+
+                let firstStr = first.MakeGenericMethod typeof<string>
+                let instance = Activator.CreateInstance(boxInt, [| box 7 |])
+
+                Expect.equal
+                    (firstStr.Invoke(instance, [| box "ignored" |]) :?> int)
+                    7
+                    "Box<int>(7).First<string>(_) returns the 'a-typed field v = 7"
+            }
+        ]

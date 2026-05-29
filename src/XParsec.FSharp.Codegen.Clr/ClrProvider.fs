@@ -65,6 +65,11 @@ type ClrProvider
     member _.GenericInstanceMethodSignature(typars: string list, paramTys: SemType list, retTy: SemType) : BlobBuilder =
         enc.GenericInstanceMethodSignature(typars, paramTys, retTy)
 
+    member _.GenericMethodOnTypeSignature
+        (typeTypars: string list, methodTyparCount: int, paramTys: SemType list, retTy: SemType, isInstanceMethod: bool)
+        : BlobBuilder =
+        enc.GenericMethodOnTypeSignature(typeTypars, methodTyparCount, paramTys, retTy, isInstanceMethod)
+
     member _.EncodeGenericLocalSignature(typars: string list, locals: SemType list) : StandaloneSignatureHandle =
         enc.EncodeGenericLocalSignature(typars, locals)
 

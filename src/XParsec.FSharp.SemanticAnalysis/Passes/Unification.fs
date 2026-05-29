@@ -289,13 +289,32 @@ module Unification =
                         match mNameOpt with
                         | ValueSome mTok ->
                             let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
+                            let mInfoOpt = fc.Members |> Array.tryFind (fun m -> m.DeclKey = mKey)
 
-                            match fc.Members |> Array.tryFind (fun m -> m.DeclKey = mKey) with
+                            match mInfoOpt with
                             | Some mInfo ->
                                 match mInfo.Type with
                                 | TyVar tv -> ctx.Bindings.TypeVar.Set(mKey, tv)
                                 | _ -> ()
                             | None -> ()
+
+                            // Seed the binding's own `<'C, …>` typars (B-12) with
+                            // their registration prototypes so `inferBinding`
+                            // reuses them in its fresh binding scope. The signature
+                            // it infers then shares roots with the member's
+                            // `MethodTypeParams` — the same roots Freeze surfaces
+                            // and codegen installs as the ambient `!!i` set.
+                            let savedSeed = ctx.Resolution.BindingTyparSeed
+
+                            match mInfoOpt with
+                            | Some mInfo when not mInfo.MethodTypeParams.IsEmpty ->
+                                let seed = Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
+
+                                for (n, ptv) in mInfo.MethodTypeParams do
+                                    seed.[n] <- ptv
+
+                                ctx.Resolution.BindingTyparSeed <- ValueSome seed
+                            | _ -> ()
 
                             enterLevel ctx
 
@@ -303,6 +322,7 @@ module Unification =
                                 inferBinding ctx b
                             finally
                                 exitLevel ctx
+                                ctx.Resolution.BindingTyparSeed <- savedSeed
                         | ValueNone -> ()
                     | MethodOrPropDefn.AutoProperty(ident = id; expr = e; returnType = rt) ->
                         enterLevel ctx

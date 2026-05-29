@@ -450,6 +450,16 @@ type PassContextResolution =
         /// the scope — they're fresh per occurrence. See docs/generics-plan.md
         /// §"Typar scope".
         mutable TyparScope: Dictionary<string, TypeVar>
+        /// Prototype TyVars (keyed by source name) for the *next* binding's own
+        /// `<'C, …>` typars. `inferBinding` mints a fresh scope for a binding's
+        /// declared typars; when this seed is set it reuses the prototype TyVar
+        /// for a matching name instead of allocating a fresh one. `fillTypeMembers`
+        /// sets it from a generic member's `TypeMemberInfo.MethodTypeParams`
+        /// (B-12) so the typars flowing into the inferred signature are the same
+        /// roots `Freeze` surfaces and codegen installs as the ambient `!!i` set;
+        /// `ValueNone` for every other binding (fresh typars, the existing
+        /// behaviour). See vesper-set-sprint-plan §1.10.
+        mutable BindingTyparSeed: Dictionary<string, TypeVar> voption
         /// When true, `translateType` rejects any `'a` not already present in
         /// `TyparScope` rather than introducing it implicitly. Used by the type-defn
         /// fill-in walk: implicit free typars in a record / DU declaration aren't
@@ -478,6 +488,7 @@ module PassContextResolution =
             OpenScope = ambient
             AmbientOpenScope = ambient
             TyparScope = Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
+            BindingTyparSeed = ValueNone
             TyparScopeStrict = false
             ExternalAccess = SideTable<_>()
             ExternalValue = SideTable<_>()

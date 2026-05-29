@@ -1143,8 +1143,23 @@ module UnificationInfer =
                     let n = ctx.NameOf id
 
                     if not (ctx.Resolution.TyparScope.ContainsKey n) then
-                        let tv = TypeVar()
-                        tv.Level <- ctx.CurrentLevel
+                        // Reuse the member's prototype typar (B-12) when the seed
+                        // names it, so the inferred signature shares roots with
+                        // `TypeMemberInfo.MethodTypeParams`; otherwise mint fresh.
+                        let tv =
+                            match ctx.Resolution.BindingTyparSeed with
+                            | ValueSome seed ->
+                                match seed.TryGetValue n with
+                                | true, proto -> proto
+                                | _ ->
+                                    let tv = TypeVar()
+                                    tv.Level <- ctx.CurrentLevel
+                                    tv
+                            | ValueNone ->
+                                let tv = TypeVar()
+                                tv.Level <- ctx.CurrentLevel
+                                tv
+
                         ctx.Resolution.TyparScope.[n] <- tv
                 | Typar.Anon _ -> ()
 
@@ -1152,6 +1167,11 @@ module UnificationInfer =
             | ValueSome cs -> translateConstraints ctx cs
             | ValueNone -> ()
         | ValueNone -> ()
+
+        // The member-typar seed (B-12) is for this binding's own typars only;
+        // clear it so a nested `let`-binding in the body mints fresh typars
+        // rather than reusing the member's prototypes.
+        ctx.Resolution.BindingTyparSeed <- ValueNone
 
         try
             let patTy = inferPat ctx b.headPat

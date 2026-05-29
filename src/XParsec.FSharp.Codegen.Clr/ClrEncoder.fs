@@ -327,6 +327,32 @@ type internal ClrEncoder(env: ClrEnv) =
 
         s
 
+    /// A *generic method* (B-12: `member this.Map<'C> …`) whose body may also be
+    /// inside a generic type. The declaring type's typars resolve to
+    /// `GenericTypeParameter` (`!i`) via `typeTypars`; the method's own typars are
+    /// `TypeVar` roots that `methodTyparLeaf` resolves to `GenericMethodParameter`
+    /// (`!!i`) — so the caller MUST install them via `SetMethodTypars` first.
+    /// `methodTyparCount` sets the `GENERIC` calling-convention header count.
+    /// `typeTypars` is empty for a generic method on a monomorphic class.
+    member _.GenericMethodOnTypeSignature
+        (typeTypars: string list, methodTyparCount: int, paramTys: SemType list, retTy: SemType, isInstanceMethod: bool)
+        : BlobBuilder =
+        let typeIx = typarIx typeTypars
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(genericParameterCount = methodTyparCount, isInstanceMethod = isInstanceMethod)
+            .Parameters(
+                List.length paramTys,
+                (fun (ret: ReturnTypeEncoder) -> encodeUnionType typeIx (ret.Type()) retTy),
+                (fun (pars: ParametersEncoder) ->
+                    for p in paramTys do
+                        encodeUnionType typeIx (pars.AddParameter().Type()) p
+                )
+            )
+
+        s
+
     member _.EncodeGenericLocalSignature(typars: string list, locals: SemType list) : StandaloneSignatureHandle =
         let typeIx = typarIx typars
         let blob = BlobBuilder()

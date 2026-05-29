@@ -397,6 +397,12 @@ type internal Assembler
     member _.AddParams(names: string list) : ParameterHandle = addParams names
     member _.ClaimFirstMethod(h: MethodDefinitionHandle) = claimFirstMethod h
 
+    /// Record a `GenericParam` row owned by a *method* (a B-12 generic member's
+    /// own typar). Like every other generic-param row it can't be added inline —
+    /// `Finalise` emits the whole collection sorted by `TypeOrMethodDef(owner)`.
+    member _.AddMethodGenericParam(owner: EntityHandle, index: int, name: string) =
+        genericParams.Add(owner, index, name)
+
     member _.FieldCount
         with get () = fieldCount
         and set v = fieldCount <- v
